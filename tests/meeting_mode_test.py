@@ -85,7 +85,7 @@ async def layout(c, pg, tag, phone):
     st = await pg.evaluate("""() => {
       const vis = (e) => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
       const small = [...document.querySelectorAll('#v-tkall .mm button, #v-tkall .mm select, #v-tkall .mm input:not([type=hidden]):not([type=date]):not([type=checkbox]), #v-tkall .mm label.tks-chip')].filter(vis)
-        .filter(b => { const r = b.getBoundingClientRect(); return r.height < 40 && !b.closest('.mm-side'); }).map(b => (b.innerText || b.getAttribute('aria-label') || b.tagName).trim().slice(0, 30));
+        .filter(b => { const r = b.getBoundingClientRect(); return r.height < 40 && !b.closest('.mm-side'); }).map(b => (b.innerText || b.getAttribute('aria-label') || b.tagName + '.' + b.className).trim().slice(0, 40));
       const prim = [...document.querySelectorAll('.btn.primary')].filter(vis).filter(b => !b.closest('#mbm')).map(b => b.innerText.trim());
       return { sw: document.documentElement.scrollWidth, small, prim };
     }""")
@@ -103,9 +103,15 @@ async def run_meeting(c, p, uid, phone):
     me = await pg.evaluate("tdyMe().name")
     await go(pg, 'tkall')
     # the button: Start Meeting on Tasks for the owner and the coordinator, no new menu item
-    c.ok(await pg.evaluate("() => !!document.querySelector('#v-tkall [data-mmstart]')"), f'{tag}: Start Meeting on Tasks')
     c.ok(await pg.evaluate("() => !Object.values(ROLE_VIEWS).some(L => L.includes('meeting') || L.includes('mmode'))"), f'{tag}: no new view or menu item')
-    await click(pg, '#v-tkall [data-mmstart]', 250)
+    if phone:
+        # the phone's header keeps one search and one add (Phone.dc.html): Start Meeting is in the filter sheet
+        await click(pg, '#v-tkall [data-tkfilter]', 250)
+        c.ok(await pg.evaluate("() => !!document.querySelector('#mbm [data-tkfmeet]')"), f'{tag}: Start Meeting in the phone filter sheet')
+        await click(pg, '#mbm [data-tkfmeet]', 250)
+    else:
+        c.ok(await pg.evaluate("() => !!document.querySelector('#v-tkall [data-mmstart]')"), f'{tag}: Start Meeting on Tasks')
+        await click(pg, '#v-tkall [data-mmstart]', 250)
     await pg.evaluate("() => document.querySelector('#mbm #mbm-ok').click()")
     await pg.wait_for_timeout(400)
     # the "started" toast on the phone (speed lane, 2026-10-24): it covered part of the action grid for six seconds.
@@ -154,17 +160,28 @@ async def run_meeting(c, p, uid, phone):
         side: Math.round(r(q('.mm-side')).width), right: Math.round(r(q('.mm-right')).width), agRows: document.querySelectorAll('.mm-side .mm-ag[data-mmboard]').length,
         agOn: (q('.mm-side .mm-ag.on .mm-agn') || {}).innerText || '', ctx: (q('.mm-ctx') || {}).innerText || '', title: parseInt(getComputedStyle(q('.mm-title')).fontSize),
         next: (q('[data-mmnext]') || {}).innerText || '', add: (q('.mm-nav .mm-addbtn') || {}).innerText || '', hint: (q('.mm-hint') || {}).innerText || '',
-        logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '' }; }''')
-    c.ok(re.match(r'^In Meeting · \d+ min$', lay['live']), f'{tag}: the red In Meeting pill ({lay["live"]})')
+        logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '', chip: (q('.mm-projchip') || {}).innerText || '',
+        nav: [...document.querySelectorAll('.mm-nav > *')].filter(e => e.getClientRects().length).map(e => Math.round(r(e).top + r(e).height / 2)), nextBottom: Math.round(r(q('[data-mmnext]')).bottom),
+        actH: Math.round(r(A[0]).height), actFont: A[0] ? getComputedStyle(A[0]).fontSize : '', icons: A.filter(b => b.querySelector('svg')).length,
+        card: (() => { const c = q('.mm-card'), s = c ? getComputedStyle(c) : {}; return [s.borderRadius, s.paddingTop]; })(), wait: q('.mm-wait') ? getComputedStyle(q('.mm-wait')).backgroundColor : '' }; }''')
+    c.ok(re.match(r'^In Meeting · \d+ min$' if not phone else r'^\d+ min$', lay['live']), f'{tag}: the red In Meeting pill ({lay["live"]})')
     c.ok(re.search(r'\d+ of \d+ discussed', lay['prog']) and lay['end'], f'{tag}: progress and End Meeting on the top bar ({lay["prog"]})')
-    c.ok(lay['acts'] == ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip'], f'{tag}: the eight actions in order: {lay["acts"]}')
+    # the phone says them short (PhoneMeeting.dc.html)
+    c.ok(lay['acts'] == (['New Date', 'Note', 'Done', 'Reassign', 'Waiting', 'Track', 'FYI', 'Skip'] if phone else ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip']), f'{tag}: the eight actions in order: {lay["acts"]}')
     c.ok(lay['blue'] == ['New Date'], f'{tag}: New Date is the one blue button: {lay["blue"]}')
-    c.ok(min(lay['h'] or [0]) >= 56, f'{tag}: the actions are 56px tall: {lay["h"]}')
+    c.ok(min(lay['h'] or [0]) >= (64 if phone else 56), f'{tag}: the actions are {64 if phone else 56}px tall: {lay["h"]}')
     # a 4 by 2 grid on the phone too (polish lane, 2026-10-24): all eight on the first screen, above Previous and Next
     c.ok(lay['rows'] == 2, f'{tag}: the actions sit in a 4 by 2 grid ({lay["rows"]} rows)')
-    c.ok(re.search(r'Task \d+ of \d+', lay['ctx']), f'{tag}: above the card, the project and Task n of m ({lay["ctx"]})')
-    c.ok(lay['title'] >= (24 if phone else 32), f'{tag}: the title is {lay["title"]}px')
+    c.ok(re.search(r'Task \d+ of \d+', lay['ctx']) if not phone else re.search(r' · \d+ of \d+', lay['chip']), f'{tag}: the project and the task\'s place in it ({lay["ctx"] or lay["chip"]})')
+    c.ok(lay['title'] >= (22 if phone else 32), f'{tag}: the title is {lay["title"]}px')
     c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')
+    # Meeting.dc.html: text actions 15px, the card 18px round with 30px padding, the amber box, and one footer line with
+    # Next Task inside 900px at 1440 wide; PhoneMeeting.dc.html: icon and label actions, 12px
+    if not phone:
+        c.ok(lay['icons'] == 0 and lay['actFont'] == '15px' and lay['card'] == ['18px', '30px'], f'{tag}: text actions 15px; the card 18px round, 30px padding ({lay["icons"]}, {lay["actFont"]}, {lay["card"]})')
+        c.ok(len(lay['nav']) == 5 and max(lay['nav']) - min(lay['nav']) <= 2 and lay['nextBottom'] <= 900, f'{tag}: Previous, Add a Task, the hint and Next Task on one line, Next inside 900px ({lay["nav"]}, {lay["nextBottom"]})')
+    else:
+        c.ok(lay['icons'] == 8 and lay['actFont'] == '12px', f'{tag}: icon and label actions, 12px ({lay["icons"]}, {lay["actFont"]})')
     if not phone:
         c.ok(lay['side'] == 300 and lay['right'] == 340, f'{tag}: the agenda rail is 300px and the log 340px ({lay["side"]}, {lay["right"]})')
         c.ok(lay['agRows'] == len([bb for bb in ag if bb['items'] or not bb['fyi']]) and lay['agOn'], f'{tag}: one agenda row per project, the current one highlighted ({lay["agRows"]}, {lay["agOn"]})')
@@ -455,7 +472,7 @@ async def record_checks(c, p):
     key = await pg.evaluate("(id) => { const r = tkKeyedRecs().find(r => r.rec.id === id); return tkRecKey(r); }", ids['wait'])
     await pg.evaluate("(k) => tkSheet(k)", key)
     await pg.wait_for_timeout(200)
-    sh = await pg.evaluate("() => { const m = document.getElementById('mbm'); return { key: (m.querySelector('.tks-key') || {}).innerText, st: [...m.querySelectorAll('[data-tksst]')].map(b => b.innerText), wait: !!m.querySelector('[data-tkswait]'), link: !!m.querySelector('[data-tkslinkadd]'), file: !!m.querySelector('[data-tksfile]') }; }")
+    sh = await pg.evaluate("() => { const m = document.getElementById('mbm'); return { key: (m.querySelector('.tks-key') || {}).innerText, st: [...m.querySelectorAll('[data-tksst]')].map(b => b.textContent.trim()), wait: !!m.querySelector('[data-tkswait]'), link: !!m.querySelector('[data-tkslinkadd]'), file: !!m.querySelector('[data-tksfile]') }; }")
     c.ok(sh['key'] == code and sh['st'] == ['To Do', 'Doing', 'Waiting On', 'FYI'] and sh['wait'] and sh['link'] and sh['file'], f'record: the sheet shows the key and the record fields: {sh}')
     tom = await pg.evaluate("iso(addDays(today(), 1))")
     await click(pg, f'#mbm [data-tksfu="{tom}"]', 250)

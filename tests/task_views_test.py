@@ -74,7 +74,7 @@ async def toast_click(pg, label):
 
 
 async def one_number(c, pg, who, phone):
-    for m in ('cards', 'table', 'board', 'cal'):
+    for m in (('cards', 'table', 'cal') if phone else ('cards', 'table', 'board', 'cal')):
         for v in ('all', 'week', 'blocked'):
             await mode(pg, m, 'all', v)
             if m == 'cal':
@@ -88,12 +88,13 @@ async def one_number(c, pg, who, phone):
             c.ok(s['sw'] <= s['iw'], f'{who}: {m} · {v}: nothing scrolls sideways ({s["sw"]} > {s["iw"]})')
         await pg.screenshot(path=os.path.join(SHOTS, f'{"ph" if phone else "dt"}_{who}_{m}.png'))
     # Mine · Due Soon: the layouts, the list's count and Ask's number are one
-    for m in ('table', 'board'):
+    for m in (('table',) if phone else ('table', 'board')):
         await mode(pg, m, 'me', 'week')
         s = await pg.evaluate(SHOWN)
         want = await pg.evaluate("() => tkMyCounts().week")
         c.ok(s['n'] == want, f'{who}: {m} · Mine · Due Soon says {s["n"]}, the list counts {want}')
-    # saved tabs: each gives the count of the list it stands for
+    # saved tabs: each gives the count of the list it stands for (on the Table: the Board's bar has no tabs, as its mockup)
+    await mode(pg, 'table', 'all', 'all')
     for vid in ('b:open', 'b:week', 'b:wait', 'b:all'):
         await pg.evaluate(CLOSE)
         await pg.evaluate("id => tvApply(id)", vid)
@@ -275,15 +276,17 @@ async def sheet_and_table(c, pg, who):
     await pg.wait_for_timeout(400)
     p = await pg.evaluate("""() => { const m = document.getElementById('mbm'), b = m && m.querySelector('.mbm-box'), f = document.querySelector('#tkall-body .tv-tframe');
       if (!b || !f) return null; const r = b.getBoundingClientRect(), t = f.getBoundingClientRect(); const pe = getComputedStyle(m).pointerEvents;
+      const bars = document.querySelector('#tkall-body .tk2-bar').getBoundingClientRect();
       const wcol = document.querySelector('#tkall-body .tv-th.tv-col-wait');
-      return { key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks, left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), tright: Math.round(t.right), tw: Math.round(t.width), pe,
+      return { key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks, left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), bottom: Math.round(r.bottom), bars: Math.round(bars.bottom), tright: Math.round(t.right), tw: Math.round(t.width), pe,
         waitHidden: !wcol || getComputedStyle(wcol).display === 'none', parts: [...m.querySelectorAll('.tks-h')].map(h => h.textContent), wait: !!m.querySelector('.tvs-wait, .tvs-addwait'), owner: !!m.querySelector('[data-tvsf="owner"]'),
         foot: [...m.querySelectorAll('.mbm-ft .btn')].map(b => b.textContent.trim()) }; }""")
     c.ok(p and p['key'] == key, f'{who}: the title opens the task\'s own sheet ({p and p["key"]} for {key})')
-    c.ok(p and p['left'] >= 1440 - 480 and p['h'] >= 880, f'{who}: at 1440 the sheet is a panel on the right ({p})')
+    # Main.dc.html: the panel sits under the page's bars, beside the table, down to the foot of the screen
+    c.ok(p and p['left'] >= 1440 - 480 and abs(p['top'] - p['bars']) <= 2 and p['bottom'] >= 898, f'{who}: at 1440 the sheet is a panel on the right, under the bars ({p})')
     c.ok(p and p['tright'] <= p['left'] + 2 and p['tw'] >= 600 and p['pe'] == 'none', f'{who}: the table stays in view and usable beside it ({p})')
     c.ok(p and p['w'] == 420 and p['waitHidden'], f'{who}: the panel is 420px and the table drops Waiting On and Follow-Up beside it ({p and p["w"]}, {p and p["waitHidden"]})')
-    c.ok(p and p['owner'] and p['wait'] and 'Move the Date' in p['parts'] and 'Comments' in p['parts'] and 'Hand Off' in p['foot'], f'{who}: the panel holds Owner, Waiting On, Move the Date, Comments and Hand Off ({p and (p["parts"], p["foot"])})')
+    c.ok(p and p['owner'] and p['wait'] and p['parts'][:3] == ['Move the Date', 'Linked', 'Comments'] and 'Hand Off' in p['foot'], f'{who}: the panel holds Owner, Waiting On, then Move the Date, Linked, Comments, and Hand Off ({p and (p["parts"], p["foot"])})')
     await pg.screenshot(path=os.path.join(SHOTS, f'dt_{who}_table_panel.png'))
     # another row's title, clicked with the panel open, opens that one
     k2 = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tv-tr')][1].dataset.tvrow")
@@ -304,15 +307,17 @@ async def sheet_and_table(c, pg, who):
 
 async def phone_targets(c, pg, who):
     await pg.evaluate("() => { tvPrefs().calMode = 'week'; }")
-    for m in ('cards', 'table', 'board', 'cal'):
+    for m in ('cards', 'table', 'cal'):
         await mode(pg, m, 'all', 'all')
         t = await pg.evaluate(TARGETS)
         await pg.screenshot(path=os.path.join(SHOTS, f'ph_{who}_{m}_first.png'))
         c.ok(not t['small'], f'{who}: {m}: every target on the first screen is at least 44px ({t["small"]})')
         c.ok(not t['close'], f'{who}: {m}: targets are 8px apart ({t["close"]})')
-    # the picker on the phone is a sheet from the bottom with the same 44px targets
+    # the Board is the wide screen's: asked for on the phone, the List draws (Alan, 2026-10-24)
     await mode(pg, 'board', 'all', 'all')
-    opened = await pg.evaluate("() => { const b = document.querySelector('#tkall-body .tv-card [data-tved=\"owner\"]'); b && b.click(); return !!document.getElementById('tv-pop'); }")
+    c.ok(await pg.evaluate("() => tkMode === 'cards' && !document.querySelector('#tkall-body .tv-board')"), f'{who}: the phone has no Board; it draws the List')
+    # the picker on the phone is a sheet from the bottom with the same 44px targets
+    opened = await pg.evaluate("() => { const b = document.querySelector('#tkall-body [data-tved=\"owner\"]'); b && b.click(); return !!document.getElementById('tv-pop'); }")
     await pg.wait_for_timeout(200)
     if opened:
         t = await pg.evaluate(TARGETS)
@@ -438,7 +443,7 @@ async def polish(c, p):
     r = await pg.evaluate("() => { const B = [...document.querySelectorAll('#nav-groups > button')].map(b => b.dataset.grp); return B.indexOf('mytasks') === B.indexOf('home') + 1; }")
     c.ok(r, 'pm 390: Tasks sits under Today in the phone menu')
     bar = await pg.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
-    c.ok(bar == ['home', 'chat', 'ovjobs', 'field'], f'pm 390: the bottom bar is unchanged ({bar})')
+    c.ok(bar == ['home', 'chat', 'ovjobs', 'tkall'], f'pm 390: Tasks is the fourth shortcut ({bar})')
     await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
     await pg.evaluate("() => { mtStart({}); renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(500)
     m = await pg.evaluate("""() => { const A = [...document.querySelectorAll('.mm-act')].map(e => e.getBoundingClientRect()), nav = document.querySelector('.mm-nav').getBoundingClientRect();
@@ -451,12 +456,114 @@ async def polish(c, p):
         notes: [...document.querySelectorAll('.mm-comments .mm-comment')].filter(e => e.getClientRects().length).length }; }""")
     c.ok(m['n'] == 8 and m['bottom'] <= min(844, m['nav']), f'owner 390: the eight meeting actions sit on the first screen, above Previous and Next ({m})')
     c.ok(m['title'] > 0, f'owner 390: the card keeps its title (the page header never lifts it out)')
-    c.ok(m['topH'] <= 60 and m['menu'], f'owner 390: the meeting header is one line, Follow, Agenda and End behind one menu ({m["topH"]}px)')
+    c.ok(m['topH'] <= 116 and m['menu'], f'owner 390: the meeting header is two short lines (PhoneMeeting.dc.html), Follow, Agenda and End behind one menu ({m["topH"]}px)')
     c.ok(m['toast'] <= m['nav'], f'owner 390: the toast sits above the meeting footer ({m["toast"]} vs {m["nav"]})')
     c.ok(m['notes'] <= 1 and m['sw'] <= 390, f'owner 390: the notes are cut to the latest behind More, no sideways scroll ({m["notes"]}, {m["sw"]})')
     await pg.wait_for_timeout(2600)
     await pg.screenshot(path=os.path.join(SHOTS, 'ph_polish_meeting.png'))
     c.ok(not errs, f'polish: no page errors ({errs[:3]})')
+    await b.close()
+
+
+# ---- Alan's mockup (taskmock, approved 2026-10-24): the computed sizes and colours of the key parts, the phone's page,
+# the bar, Follow mode and the quick-add rules. A difference here is a difference Alan would see side by side.
+DESK = r"""() => { const q = s => document.querySelector(s), cs = e => e ? getComputedStyle(e) : {}, R = e => e ? e.getBoundingClientRect() : { height: 0, width: 0, top: 0, bottom: 0 };
+  const row = [...document.querySelectorAll('#tkall-body .tv-tr')].slice(0, 3), pill = k => { const e = q('#tkall-body .tv-pill.tv-st-' + k); return e ? [cs(e).backgroundColor, cs(e).color] : null; };
+  const chip = q('#tkall-body .tv-tr .tv-wait.on .tv-chip-in'), gc = q('#tkall-body .tv-gcard'), h2 = q('#tkall-body .tv-ph h2'), srch = q('#tkall-body .tv-search'), nt = q('#tkall-body #tk-new');
+  const tab = q('#tkall-body .tv-sv.on'), tabn = q('#tkall-body .tv-sv.on .n'), gbar = q('#tkall-body .tv-tg .tv-bar'), th = q('#tkall-body .tv-thead');
+  return { rows: row.map(r => Math.round(R(r).height)), circle: Math.round(R(q('#tkall-body .tv-tr .tv-check')).width), title: [cs(q('#tkall-body .tv-ttx')).fontSize, cs(q('#tkall-body .tv-ttx')).fontWeight],
+    id: [cs(q('#tkall-body .tv-tr .tv-ref')).fontSize, cs(q('#tkall-body .tv-tr .tv-ref')).fontVariantNumeric, cs(q('#tkall-body .tv-tr .tv-ref')).color],
+    pills: { todo: pill('todo'), doing: pill('doing'), waiting: pill('waiting') }, chip: chip ? [cs(chip).backgroundColor, cs(chip).color, !!chip.querySelector('svg'), Math.round(R(chip).height)] : null,
+    card: gc ? [cs(gc).borderRadius, cs(gc).boxShadow.includes('236, 238, 242')] : null, head: [Math.round(R(th).height), cs(th).position, cs(q('#tkall-body .tv-th[data-tvcol]')).fontSize],
+    h2: [cs(h2).fontSize, cs(h2).fontWeight], lead: !!q('#tkall-body .tv-ph .lead') && R(q('#tkall-body .tv-ph .lead')).height > 0, search: Math.round(R(srch).width), newTask: cs(nt).backgroundColor,
+    tab: [cs(tab).fontSize, cs(tab).boxShadow.includes('36, 86, 201'), cs(tabn).color], bar: gbar ? [Math.round(R(gbar).width), Math.round(R(gbar).height)] : null }; }"""
+
+
+async def match(c, p):
+    b, pg, errs = await open_app(p, False)
+    await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
+    await pg.evaluate("() => { tkSetMode('table'); tvApply('b:all'); }"); await pg.wait_for_timeout(400)
+    d = await pg.evaluate(DESK)
+    c.ok(all(h == 64 for h in d['rows']) and d['circle'] == 44, f'mockup: rows are 64px with a 44px done circle ({d["rows"]}, {d["circle"]})')
+    c.ok(d['title'] == ['15px', '500'] and d['id'][0] == '13px' and 'tabular-nums' in d['id'][1] and d['id'][2] == 'rgb(106, 112, 128)', f'mockup: title 15px/500, ID 13px gray tabular figures ({d["title"]}, {d["id"]})')
+    c.ok(d['pills'] == {'todo': ['rgb(238, 240, 243)', 'rgb(62, 68, 80)'], 'doing': ['rgb(230, 238, 253)', 'rgb(29, 71, 168)'], 'waiting': ['rgb(255, 241, 214)', 'rgb(122, 74, 0)']}, f'mockup: the status pills\' colours ({d["pills"]})')
+    c.ok(d['chip'] and d['chip'][:3] == ['rgb(255, 246, 229)', 'rgb(122, 74, 0)', True] and d['chip'][3] == 28, f'mockup: the Waiting On chip is amber with a clock, 28px ({d["chip"]})')
+    c.ok(d['card'] == ['12px', True] and d['head'] == [44, 'sticky', '12px'], f'mockup: rows in a 12px card with the #ECEEF2 ring; a 44px sticky 12px header ({d["card"]}, {d["head"]})')
+    c.ok(d['h2'] == ['22px', '700'] and not d['lead'] and d['search'] == 280 and d['newTask'] == 'rgb(36, 86, 201)', f'mockup: the top bar: Tasks 22px/700, no subtitle, a 280px search, New Task blue ({d})')
+    c.ok(d['tab'][0] == '14px' and d['tab'][1] and d['tab'][2] == 'rgb(106, 112, 128)' and d['bar'] == [120, 6], f'mockup: underline tabs 14px with gray counts; the group bar 120 by 6 ({d["tab"]}, {d["bar"]})')
+    # the panel: 420px, a 21px title, label and value rows
+    key = await pg.evaluate("() => document.querySelector('#tkall-body .tv-tr').dataset.tvrow")
+    await pg.evaluate("k => tkSheet(k)", key); await pg.wait_for_timeout(400)
+    pn = await pg.evaluate("""() => { const m = document.getElementById('mbm'), b = m.querySelector('.mbm-box'), h = m.querySelector('.mbm-hd h3'), f = m.querySelector('.tvs-f');
+      return { w: Math.round(b.getBoundingClientRect().width), h: [getComputedStyle(h).fontSize, getComputedStyle(h).fontWeight], rows: getComputedStyle(f).display, cols: getComputedStyle(f).gridTemplateColumns.split(' ')[0] }; }""")
+    c.ok(pn['w'] == 420 and pn['h'] == ['21px', '700'] and pn['rows'] == 'grid' and pn['cols'] == '110px', f'mockup: the panel is 420px, a 21px/700 title, label and value rows ({pn})')
+    await pg.evaluate(CLOSE)
+    # the Board: gray wells, white 12px cards
+    await pg.evaluate("() => { tkSetMode('board'); tvPrefs().boardBy = 'status'; renderTkAll(); }"); await pg.wait_for_timeout(400)
+    bd = await pg.evaluate("""() => { const w = document.querySelector('#tkall-body .tv-bcol'), k = document.querySelector('#tkall-body .tv-card'), s = getComputedStyle(w), t = getComputedStyle(k);
+      return [s.backgroundColor, s.borderRadius, s.padding, t.borderRadius, t.padding, getComputedStyle(k.querySelector('.tv-card-t')).fontSize, !document.querySelector('#tkall-body .tv-saved')]; }""")
+    c.ok(bd == ['rgb(239, 241, 244)', '14px', '12px', '12px', '14px', '15px', True], f'mockup: the board\'s wells #EFF1F4, 14px, 12px padding; cards 12px, 14px padding, 15px titles; no tabs ({bd})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_match_board.png'))
+    await b.close()
+    # ---- the phone (Phone.dc.html)
+    b, pg, errs2 = await open_app(p, True)
+    await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
+    await pg.evaluate("() => { tkMode = 'cards'; tkWho = 'me'; t2View = 'week'; t2Group = null; renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(400)
+    ph = await pg.evaluate("""() => { const vis = e => { if (!e) return false; const r = e.getBoundingClientRect(), s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+      const row = [...document.querySelectorAll('#tkall-body .tk2-row')].find(r => r.querySelector('.tv-mwait'));
+      const sub = row && row.querySelector('.tk2-sub'), w = row && row.querySelector('.tv-mwait');
+      const search = [...document.querySelectorAll('button, input')].filter(vis).filter(e => /search/i.test(e.getAttribute('aria-label') || e.placeholder || e.id || ''));
+      const adds = [...document.querySelectorAll('[data-tvqa], .tk2-fab, #tb-new, [data-tvqaopen]')].filter(vis);
+      const h = document.querySelector('#tkall-body .tv-phtitle');
+      return { own: !!(row && sub && w && !sub.contains(w) && w.getBoundingClientRect().top >= sub.getBoundingClientRect().bottom - 1 && w.getBoundingClientRect().right <= row.getBoundingClientRect().right),
+        search: search.length, adds: adds.map(e => e.dataset.tvqa !== undefined ? 'line' : e.dataset.tvqaopen !== undefined ? 'plus' : e.id || e.className),
+        title: h ? [getComputedStyle(h).fontSize, getComputedStyle(h).fontWeight] : null, sub: !!document.querySelector('#subnav') && vis(document.querySelector('#subnav')), top: vis(document.querySelector('.topbar')) }; }""")
+    c.ok(ph['own'], f'mockup 390: the Waiting On chip sits on its own line under the meta line, not cut off')
+    c.ok(ph['search'] == 1 and ph['adds'] == ['plus', 'line'] and not ph['sub'] and not ph['top'], f'mockup 390: one search and one add line, no app header extras or sub-tabs ({ph})')
+    c.ok(ph['title'] == ['22px', '700'], f'mockup 390: Tasks 22px/700 ({ph["title"]})')
+    await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
+    await pg.evaluate("() => { tkMode = 'cards'; tkWho = 'all'; t2View = 'all'; t2Group = null; renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(400)
+    n7 = await pg.evaluate("""() => { const bar = document.getElementById('mtabs'), floor = bar ? bar.getBoundingClientRect().top : innerHeight;
+      const R = [...document.querySelectorAll('#tkall-body .tk2-row')].map(r => r.getBoundingClientRect()).filter(r => r.top >= 0 && r.bottom <= floor);
+      return { n: R.length, h: R.slice(0, 3).map(r => Math.round(r.height)) }; }""")
+    c.ok(n7['n'] >= 7 and all(h >= 64 for h in n7['h']), f'mockup 390: at least 7 task rows on the first screen, 64px each ({n7})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_list.png'))
+    # the bar: Tasks for the coordinator and billing, its badge the side menu's late and due-today number
+    for uid, at in (('u_chen', 2), ('u_billing', 0), ('u_owner', 3), ('u_alan', 3)):
+        await sign_in(pg, uid); await pg.wait_for_timeout(200)
+        t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
+          return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkMyCounts().today || 0 }; }""")
+        c.ok(t['i'] == at and t['n'] == t['want'], f'mockup 390: {uid} has Tasks in the bar at {at} with its late and due-today badge ({t})')
+    # the quick add: three invented sentences, filled in by the rules
+    await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
+    P = await pg.evaluate("""() => ["Angel, measure the windows at 206 Lenox tomorrow, I'm in charge", 'Sarah to confirm the tile selection for 121 State Street by Friday', 'Call the plumbing inspector next meeting, Alan is in charge'].map(tvQaParse)""")
+    td = await pg.evaluate("() => ({ tom: iso(addDays(parse(today()), 1)), fri: (() => { const d = parse(today()); const n = (5 - d.getDay() + 7) % 7 || 7; return iso(addDays(d, n)); })(), nm: tvNextMeeting() })")
+    want = [('Measure the windows', 'p206', 'Chen Biron', 'Angel', td['tom']), ('Confirm the tile selection', 'p121', 'Chen Biron', 'Sarah Davis', td['fri']), ('Call the plumbing inspector', '', 'Alan', '', td['nm'])]
+    for got, w in zip(P, want):
+        c.ok((got['title'], got['pid'], got['owner'], got['doer'], got['due']) == w, f'quick add: "{got["text"]}" reads {w} ({got})')
+    c.ok(await pg.evaluate("() => tvQaParse('Finish the overhead rate before billing').doer === ''"), 'quick add: "before billing" names nobody (a seat named for its job is a person only as a name)')
+    made = await pg.evaluate("""() => { const m = tvQaCreate(tvQaParse("Angel, measure the windows at 206 Lenox tomorrow, I'm in charge")); const t = document.getElementById('toast');
+      return m ? { code: m.rec.code, owner: m.rec.assignee, collab: m.rec.collaborators, due: m.rec.due, toast: t ? t.innerText : '', open: !!(t && [...t.querySelectorAll('a')].some(a => a.textContent === 'Open')) } : null; }""")
+    c.ok(made and made['code'].startswith('LEN-') and made['owner'] == 'Chen Biron' and made['collab'] == ['Angel'] and made['due'] == td['tom'] and made['open'], f'quick add: Add makes the task through the one create path, with its ID, owner, doer, date and a toast with Open ({made})')
+    sheet = await pg.evaluate("""() => { tvQuickAddSheet("Angel, measure the windows at 206 Lenox tomorrow, I'm in charge"); const m = document.getElementById('mbm');
+      return { rows: [...m.querySelectorAll('.tvqa-l')].map(e => e.textContent), h: [...m.querySelectorAll('.tvqa-row')].map(e => Math.round(e.getBoundingClientRect().height)), id: (m.querySelector('[data-tvqaf="pid"] .tvqa-g') || {}).textContent || '' }; }""")
+    c.ok(sheet['rows'] == ['Task', 'Project', 'Owner', 'Doing It', 'Due'] and all(h >= 52 for h in sheet['h']) and sheet['id'].startswith('· LEN-'), f'quick add: the sheet fills Task, Project with the new ID, Owner, Doing It and Due in 52px rows ({sheet})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_quickadd.png'))
+    await pg.evaluate(CLOSE)
+    # Follow mode: on the phone, someone who is not driving follows the driver's card, with Actions in a sheet
+    await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
+    fo = await pg.evaluate("""() => { mtStart({}); const m = mtCurrent(); m.presenterUid = 'u_chen'; m.presenter = 'Chen Biron'; mmOn = true; renderTkAll();
+      const bar = document.querySelector('.mm-folbar');
+      return { follow: mmFollow, fol: !!document.querySelector('.mm-phone.mm-fol'), bar: bar ? bar.innerText.replace(/\\s+/g, ' ').trim() : '', acts: document.querySelectorAll('.mm-main > .mm-acts').length,
+        sheet: !!document.querySelector('[data-mmactsheet]'), sofar: !!document.querySelector('.mm-sofar') }; }""")
+    c.ok(fo['follow'] and fo['fol'] and fo['bar'].startswith('Following Chen') and fo['acts'] == 0 and fo['sheet'] and fo['sofar'], f'Follow mode is the default on the phone for someone not driving ({fo})')
+    await pg.evaluate("() => document.querySelector('[data-mmactsheet]').click()"); await pg.wait_for_timeout(250)
+    acts = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-mmsact]')].map(b => b.dataset.mmsact)")
+    c.ok(acts == ['date', 'note', 'done', 'owner', 'wait', 'track', 'fyi', 'skip'], f'Follow mode: Actions opens the eight actions as a sheet ({acts})')
+    await pg.evaluate(CLOSE)
+    await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_follow.png'))
+    await pg.evaluate("() => mtEnd(mtCurrent())")
+    c.ok(not errs and not errs2, f'mockup: no page errors ({(errs + errs2)[:3]})')
     await b.close()
 
 
@@ -481,6 +588,7 @@ async def main():
             c.ok(not errs, f'{"phone" if phone else "desktop"}: no page errors ({errs[:3]})')
             await b.close()
         await polish(c, p)
+        await match(c, p)
     sys.exit(c.done())
 
 asyncio.run(main())

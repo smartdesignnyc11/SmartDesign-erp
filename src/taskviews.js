@@ -63,9 +63,18 @@ const TV_IC = {
   user: '<circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c1.2-3.6 4-5.4 7-5.4s5.8 1.8 7 5.4"/>',
   filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
   note: '<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  lines: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  swipe: '<path d="M15 6l-6 6 6 6"/>',
+  lines3: '<path d="M4 7h16M4 12h16M4 17h16"/>',
 };
 const tvSvg = (k, s) => `<svg viewBox="0 0 24 24" width="${s || 16}" height="${s || 16}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TV_IC[k] || ""}</svg>`;
-const tvMine = () => TV_OWN.includes(tkMode);
+const tvMine = () => TV_OWN.includes(tkMode) && !("board" === tkMode && tvPhoneNow());
+// the phone keeps the List, the Table and the Calendar; the Board is the wide screen's (Alan, 2026-10-24)
+const tvPhoneNow = () => ("function" == typeof isMobile ? isMobile() : !1);
+const tvModesHere = () => TV_MODES.filter(([k]) => !("board" === k && tvPhoneNow()));
 // the field keeps its one-job screens: the layouts, filters and saved views are the office's
 const tvMayUse = () => {
   try {
@@ -656,7 +665,7 @@ function tvCell(I, field) {
   if ("follow" === field) {
     const f = I.follow,
       late = f && f < td && !x.done;
-    return `<button type="button" class="tv-c tv-fu ${late ? "late" : f === td ? "today" : ""} ${f ? "" : "tv-empty"}" data-tved="follow" aria-label="Follow up ${esc(f ? fmtL(f) : "not set")}" title="${esc(f ? fmtL(f) : "")}">${tvSvg("clock", 14)}<span>${f ? esc(tvRel(f, x.done)) : "Follow Up"}</span></button>`;
+    return `<button type="button" class="tv-c tv-fu ${late ? "late" : f === td ? "today" : ""} ${f ? "" : "tv-empty"}" data-tved="follow" aria-label="Follow up ${esc(f ? fmtL(f) : "not set")}" title="${esc(f ? fmtL(f) : "")}">${f ? `<span>${esc(tvRel(f, x.done))}</span>` : '<span class="tv-dash" aria-hidden="true">—</span>'}</button>`;
   }
   if ("watch" === field) {
     const f = I.watch;
@@ -668,7 +677,7 @@ function tvCell(I, field) {
     if (!W) return `<button type="button" class="tv-c tv-wait tv-empty" data-tved="wait" aria-label="Waiting on nobody: set it">${tvSvg("wait", 14)}<span>Waiting On</span></button>`;
     const late = W.promised && W.promised < td && !x.done,
       who = W.name.split(/\s+/).length > 2 ? W.name.split(/\s+/).slice(0, 2).join(" ") : W.name;
-    return `<button type="button" class="tv-c tv-wait on ${late ? "late" : ""}" data-tved="wait" aria-label="Waiting on ${esc(W.name)}${W.what ? " for " + esc(W.what) : ""}${W.promised ? ", promised " + esc(fmtL(W.promised)) : ""}" title="${esc(W.what ? `${W.name}: ${W.what}` : W.name)}"><span class="tv-chip-in">${esc(who)}${W.promised ? ` · ${esc(tvDay(W.promised))}` : ""}</span></button>`;
+    return `<button type="button" class="tv-c tv-wait on ${late ? "late" : ""}" data-tved="wait" aria-label="Waiting on ${esc(W.name)}${W.what ? " for " + esc(W.what) : ""}${W.promised ? ", promised " + esc(fmtL(W.promised)) : ""}" title="${esc(W.what ? `${W.name}: ${W.what}` : W.name)}"><span class="tv-chip-in">${tvSvg("wait", 13)}${esc(who)}${W.promised ? ` · ${esc(tvDay(W.promised))}` : ""}</span></button>`;
   }
   return "";
 }
@@ -757,7 +766,7 @@ function tvGhd(gid, name, rows, doneN, cls) {
     open = rows.filter((I) => !I.x.done).length,
     tot = open + (doneN || 0),
     pct = tot ? Math.round((100 * (doneN || 0)) / tot) : 0;
-  return `<div class="${cls || "tv-ghd"}"><button type="button" class="tv-gtog" data-tvfold="${esc(gid)}" aria-expanded="${f ? "false" : "true"}">${tvSvg(f ? "chevR" : "chevD", 16)}<span class="tv-gn">${esc(name)}</span><span class="n">${rows.length}</span></button>${late ? `<span class="tv-glate">${late} late</span>` : ""}${
+  return `<div class="${cls || "tv-ghd"}"><button type="button" class="tv-gtog" data-tvfold="${esc(gid)}" aria-expanded="${f ? "false" : "true"}">${tvSvg(f ? "chevR" : "chevD", 16)}<span class="tv-gn">${esc(name)}</span><span class="n">${rows.length} task${1 === rows.length ? "" : "s"}</span></button>${late ? `<span class="tv-glate">${late} late</span>` : ""}${
     null != doneN && tot ? `<span class="tv-bar" role="img" aria-label="${doneN} of ${tot} done"><i style="width:${pct}%"></i></span><span class="tv-gdone">${doneN} of ${tot} done</span>` : ""
   }</div>`;
 }
@@ -783,11 +792,11 @@ function tvDoneBy(gb) {
 // the title ("Task"), so six columns read by default.
 const TV_COLS = [
   { k: "title", n: "Task", w: 0, fixed: 1, sort: (I) => String(I.x.title || "").toLowerCase() },
-  { k: "owner", n: "Owner", w: 124, sort: (I) => I.owner || "~" },
-  { k: "wait", n: "Waiting On", w: 150, sort: (I) => (I.wait ? I.wait.promised || "9" : "~") },
-  { k: "due", n: "Due", w: 100, sort: (I) => I.x.due || "9999" },
-  { k: "follow", n: "Follow-Up", w: 108, sort: (I) => I.follow || "9999" },
-  { k: "status", n: "Status", w: 112, sort: (I) => TV_STATUS.findIndex(([k]) => k === I.status) },
+  { k: "owner", n: "Owner", w: 128, sort: (I) => I.owner || "~" },
+  { k: "wait", n: "Waiting On", w: 212, sort: (I) => (I.wait ? I.wait.promised || "9" : "~") },
+  { k: "due", n: "Due", w: 112, sort: (I) => I.x.due || "9999" },
+  { k: "follow", n: "Follow-Up", w: 96, sort: (I) => I.follow || "9999" },
+  { k: "status", n: "Status", w: 118, sort: (I) => TV_STATUS.findIndex(([k]) => k === I.status) },
   { k: "ref", n: "ID", w: 96, sort: (I) => I.ref || "~" },
   { k: "project", n: "Project", w: 150, sort: (I) => I.pname },
   { k: "section", n: "Section", w: 140, sort: (I) => I.section || "~" },
@@ -827,7 +836,8 @@ function tvSortRows(rows) {
 // the grid's columns: select, done, ID, title, then the chosen ones; and the same without the panel's two
 function tvGridCols(cols, drop, noRef) {
   // the default columns fit the content width at 1280 (984px) with the title taking the rest: no column is cut off
-  const L = ["40px", "44px", noRef ? "0px" : "72px", "minmax(200px,1fr)"];
+  // the select box sits in the left gutter (shown on hover), so the row starts with the done circle as in the mockup
+  const L = ["0px", "44px", noRef ? "0px" : "76px", "minmax(200px,1fr)"];
   cols.forEach((c) => c.fixed || (drop && drop.includes(c.k)) || L.push(tvColW(c) + "px"));
   return L.join(" ");
 }
@@ -876,7 +886,8 @@ function tvTableHtml(infos) {
     doneBy = tvDoneBy(gb),
     keys = new Set(infos.map((I) => I.key));
   [...tvSel].forEach((k) => keys.has(k) || tvSel.delete(k));
-  const allOn = infos.length > 0 && infos.every((I) => tvSel.has(I.key)),
+  const noRef = !infos.some((I) => I.ref),
+    allOn = infos.length > 0 && infos.every((I) => tvSel.has(I.key)),
     tr = (I) =>
       `<div class="tv-tr ${I.x.late && !I.x.done ? "late" : ""} ${I.x.done ? "done" : ""} ${tvSel.has(I.key) ? "sel" : ""}" role="row" data-tvrow="${esc(I.key)}" ${tvEditAttr(I.x)}><div class="tv-td tv-col-sel" role="cell"><label class="tv-cb"><input type="checkbox" data-tvsel="${esc(I.key)}" ${tvSel.has(I.key) ? "checked" : ""} aria-label="Select ${esc(tvTitle(I.x))}"></label></div>${cols.map((c) => tvTd(I, c, gb)).join("")}</div>`;
   const body = G.map((g) => {
@@ -888,11 +899,14 @@ function tvTableHtml(infos) {
     .map((c) => {
       const i = S.findIndex((s) => s.k === c.k),
         s = S[i];
-      return `<div class="tv-th tv-col-${c.k}" role="columnheader" data-tvcol="${c.k}" aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="${c.k}" title="Sort; Shift adds a second sort">${esc(c.n)}${s ? `${tvSvg("desc" === s.dir ? "chevD" : "chevU", 12)}${S.length > 1 ? `<small class="tv-sortn">${i + 1}</small>` : ""}` : ""}</button>${c.fixed ? "" : `<span class="tv-rs" data-tvrs="${c.k}" aria-hidden="true"></span>`}</div>`;
+      const idh = "title" === c.k && !noRef ? (() => {
+        const j = S.findIndex((y) => "ref" === y.k), r = S[j];
+        return `<div class="tv-th tv-thdone" role="columnheader" aria-label="Done"></div><div class="tv-th tv-thid" role="columnheader" aria-sort="${r ? ("desc" === r.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="ref" title="Sort by ID">ID${r ? tvSvg("desc" === r.dir ? "chevD" : "chevU", 10) : ""}</button></div>`;
+      })() : "";
+      return `${idh}<div class="tv-th tv-col-${c.k} ${idh ? "tv-th1" : ""}" role="columnheader" data-tvcol="${c.k}" aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="${c.k}" title="Sort; Shift adds a second sort">${esc(c.n)}${s ? `${tvSvg("desc" === s.dir ? "chevD" : "chevU", 10)}${S.length > 1 ? `<small class="tv-sortn">${i + 1}</small>` : ""}` : ""}</button>${c.fixed ? "" : `<span class="tv-rs" data-tvrs="${c.k}" aria-hidden="true"></span>`}</div>`;
     })
     .join("")}</div>`;
-  const noRef = !infos.some((I) => I.ref),
-    W = 40 + 44 + (noRef ? 0 : 72) + 200 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
+  const W = 44 + (noRef ? 0 : 76) + 200 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
   return `<div class="tv-tframe ${tvDense() ? "dense" : ""}" tabindex="-1"><div class="tv-grid" role="table" aria-label="Tasks" style="--tvcols:${tvGridCols(cols, null, noRef)};--tvcols-n:${tvGridCols(cols, TV_PANEL_DROP, noRef)};min-width:${W}px">${head}${body}</div></div>${tvBulkHtml()}`;
 }
 // the phone: the table's rows become the List's cards, in the table's groups and sort
@@ -974,7 +988,7 @@ function tvCard(I, showStatus) {
   const x = I.x,
     td = today(),
     late = x.due && x.due < td && !x.done,
-    top = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", "project" === tvPrefs().boardBy ? "" : `<span class="tv-card-p">${esc(I.pname)}</span>`].filter(Boolean).join('<span class="tv-dot"> · </span>');
+    top = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", "project" === tvPrefs().boardBy ? "" : `<span class="tv-card-p">${esc(I.pname)}</span>`].filter(Boolean).join("");
   return `<div class="tv-card ${late ? "late" : ""} ${x.done ? "done" : ""}" data-tvrow="${esc(I.key)}" ${tvEditAttr(x)} ${tvPhone() ? "" : 'draggable="true"'} tabindex="0" role="listitem" aria-label="${esc(x.title || "")}">
   ${top ? `<div class="tv-card-top">${top}</div>` : ""}
   <div class="tv-card-t">${esc(x.title || "")}</div>
@@ -1209,7 +1223,7 @@ function tvSavedHtml() {
       const on = tvIsOn(v);
       return `<button type="button" role="tab" class="tv-sv ${on ? "on" : ""}" data-tvview="${esc(v.id)}" aria-selected="${on ? "true" : "false"}">${esc(v.name)}<span class="n">${tvCountFor(v, P)}</span></button>`;
     })
-    .join("")}<button type="button" class="tv-sv tv-svnew" data-tvsave>${tvSvg("plus", 15)}<span>New View</span></button></div>`;
+    .join("")}<button type="button" class="tv-sv tv-svnew" data-tvsave>${tvSvg("plus", 14)}<span>New View</span></button><span class="grow"></span><details class="tv-moremenu"><summary class="tv-moreb" aria-label="More: columns, import and export" title="Columns, import and export">${tvSvg("more", 18)}</summary><div class="tv-moremenu-in">${"table" === tkMode ? '<button type="button" class="tv-mi" data-tvcols>Columns</button>' : ""}</div></details></div>`;
 }
 
 // ---- filter chips: the list's own filters, said as chips; "Filter" adds one ------------------------------------------
@@ -1328,21 +1342,24 @@ const TV_GROUP_SEG = [
 function tvTableTools() {
   const g = tvTableGroup();
   if (tvPhone()) return `<select class="btn tv-tgroup" data-tvtgroup aria-label="Group the table" title="Group the table">${TV_GROUPS.map(([k, n]) => `<option value="${k}" ${g === k ? "selected" : ""}>${n}</option>`).join("")}</select>`;
-  return `<span class="tv-lbl">Group By</span><div class="seg sm tv-gby" role="group" aria-label="Group by">${TV_GROUP_SEG.map(([k, n]) => `<button type="button" class="${g === k ? "on" : ""}" data-tvgby="${k}">${n}</button>`).join("")}</div><div class="seg sm tv-dens" role="group" aria-label="Density"><button type="button" class="${tvDense() ? "" : "on"}" data-tvdens="">Comfortable</button><button type="button" class="${tvDense() ? "on" : ""}" data-tvdens="compact">Compact</button></div><button type="button" class="btn tv-ic" data-tvcols aria-label="Columns" title="Columns">${tvSvg("cols", 16)}</button>`;
+  return `<span class="tv-lbl">Group By</span><div class="seg sm tv-gby" role="group" aria-label="Group by">${TV_GROUP_SEG.map(([k, n]) => `<button type="button" class="${g === k ? "on" : ""}" data-tvgby="${k}">${n}</button>`).join("")}</div><span class="tv-lbl tv-lbl-d">Density</span><button type="button" class="tv-densb" data-tvdens="${tvDense() ? "" : "compact"}" aria-label="Density: ${tvDense() ? "Compact" : "Comfortable"}; switch" title="Switch the density">${tvDense() ? "Compact" : "Comfortable"}</button>`;
 }
 function tvToolbar() {
   if ("board" === tkMode) {
     const by = tvPrefs().boardBy;
-    return `<div class="seg sm tv-boardby"><button type="button" class="${"project" !== by ? "on" : ""}" data-tvboardby="status">By Status</button><button type="button" class="${"project" === by ? "on" : ""}" data-tvboardby="project">By Project</button></div>`;
+    return "";
   }
   if ("table" === tkMode && tvPhone()) return tvTableTools();
   return "";
 }
-// the wide screen's header: Tasks, the layouts, search, Start Meeting, New Task; under it the saved tabs, then the
-// scope, the filter chips and, for the table, Group By and Density on the right
+// The wide screen's header as Alan's mockup reads it (Main.dc.html, Board.dc.html; 2026-10-24): one white bar with Tasks,
+// the layouts, a 280px search, Start Meeting and New Task; under it the saved tabs, then the filter chips with Group By
+// and Density on the right. The page's subtitle is gone (the tabs' counts say it). Columns, Import and Export sit in
+// one More menu at the end of the tabs. The Board's bar carries Columns By and the filters, as its mockup does.
 function tvBar(host) {
   const bar = host.querySelector(".tk2-bar"),
-    ph = host.querySelector(".ph");
+    ph = host.querySelector(".ph"),
+    board = "board" === tkMode;
   if (!bar || bar.dataset.tvbar) return;
   bar.dataset.tvbar = "1";
   ["#t2-proj", "#t2-person", "#t2-area", "#t2-pri"].forEach((s) => {
@@ -1351,27 +1368,47 @@ function tvBar(host) {
   });
   const q = bar.querySelector("#t2-q"),
     seg = bar.querySelector(".tk-mode");
-  q && (q.placeholder = "Search by ID or title");
+  q && ((q.placeholder = "Search by ID or title"), q.classList.remove("btn"));
+  const scope = bar.querySelector(".t2-scope");
+  (scope || bar.firstChild) && (scope ? scope.insertAdjacentHTML("afterend", tvFilterChips()) : bar.insertAdjacentHTML("afterbegin", tvFilterChips()));
   if (ph) {
+    ph.classList.add("tv-ph");
     const tools = document.createElement("div");
     tools.className = "tv-hdtools";
     seg && tools.appendChild(seg);
-    q && tools.appendChild(q);
+    if (board) {
+      const by = tvPrefs().boardBy;
+      tools.insertAdjacentHTML(
+        "beforeend",
+        `<span class="tv-lbl tv-lbl-cb">Columns By</span><div class="seg sm tv-gby tv-boardby" role="group" aria-label="Columns by"><button type="button" class="${"project" !== by ? "on" : ""}" data-tvboardby="status">Status</button><button type="button" class="${"project" === by ? "on" : ""}" data-tvboardby="project">Project</button></div>`,
+      );
+    }
+    tools.insertAdjacentHTML("beforeend", '<span class="grow"></span>');
+    if (q) {
+      const lab = document.createElement("label");
+      lab.className = "tv-search";
+      lab.hidden = board;
+      lab.innerHTML = tvSvg("search", 16);
+      lab.appendChild(q);
+      tools.appendChild(lab);
+    }
+    const f = board && bar.querySelector(".tv-filters");
+    f && tools.appendChild(f);
     const head = ph.firstElementChild;
     head ? head.after(tools) : ph.prepend(tools);
+    const nt = ph.querySelector("#tk-new");
+    nt && !nt.querySelector("svg") && nt.insertAdjacentHTML("afterbegin", tvSvg("plus", 16));
     const acts = ph.querySelector(".acts");
     acts &&
       setTimeout(() => {
-        const tabs = host.querySelector(".tv-saved");
+        const tabs = host.querySelector(".tv-saved .tv-moremenu-in");
         tabs &&
           ["#tk-import", "#tk-export"].forEach((s) => {
             const b = acts.querySelector(s);
-            b && (b.classList.add("tv-quiet"), tabs.appendChild(b));
+            b && (b.classList.add("tv-mi"), b.classList.remove("btn"), tabs.appendChild(b));
           });
       }, 0);
   }
-  const scope = bar.querySelector(".t2-scope");
-  (scope || bar.firstChild) && (scope ? scope.insertAdjacentHTML("afterend", tvFilterChips()) : bar.insertAdjacentHTML("afterbegin", tvFilterChips()));
   // on Tasks, Mine / Everyone / Unassigned and the due chips are said by the chips above; the saved tabs switch views
   if (tvOneRow()) {
     scope && scope.remove();
@@ -1383,25 +1420,32 @@ function tvBar(host) {
     o && (o.textContent = "By Owner");
     gs.querySelector('option[value="status"]') || gs.insertAdjacentHTML("beforeend", '<option value="status">By Status</option><option value="due">By Due Date</option>');
     // the table groups with its own control (Project, Owner, Status); the list keeps its select
-    "table" === tkMode && gs.remove();
+    ("table" === tkMode || board) && gs.remove();
   }
   "table" === tkMode && bar.insertAdjacentHTML("beforeend", `<span class="tv-tright">${tvTableTools()}</span>`);
+  board && (bar.hidden = !0);
 }
-// the phone's header: Tasks with 44px search and filter buttons, then the quick chips (Due Soon, Waiting, By Project)
+// The phone's Tasks page as Alan's mockup reads it (Phone.dc.html, 2026-10-24): one compact header (the menu, Tasks, a
+// 44px search and a 44px filter), the chips (Due Soon, Waiting, By Status, By Project), and the add line: type a
+// sentence and press Enter, or speak it, and the rules fill the task in (tvQaParse); the + opens the quick-add sheet with
+// the fields. Sections (Late, Today, then each day) hold their rows in one white card each; the Waiting On chip sits on
+// its own line; a first-time tip says rows swipe. One search, one add: no floating button.
 function tvPhoneHead(host) {
   const line = host.querySelector(".tk2-hline");
   if (!line || line.dataset.tvph) return;
   line.dataset.tvph = "1";
+  line.classList.add("tv-phhd");
   const chip = line.querySelector("[data-tkfilter]");
   if (chip) {
     const say = chip.innerText.replace(/\s+/g, " ").trim();
     chip.classList.add("tv-filterbtn");
     chip.setAttribute("aria-label", `Filter, sort and group: ${say}`);
     chip.title = say;
-    chip.innerHTML = `${tvSvg("filter", 20)}<span class="tv-sr">${chip.innerHTML.replace(/<svg[\s\S]*?<\/svg>/g, "")}</span>`;
+    chip.innerHTML = `${tvSvg("lines", 18)}<span class="tv-sr">${chip.innerHTML.replace(/<svg[\s\S]*?<\/svg>/g, "")}</span>`;
     line.appendChild(chip);
   }
-  line.insertAdjacentHTML("afterbegin", '<h2 class="tv-phtitle">Tasks</h2><span class="grow"></span>');
+  const searching = !!line.querySelector("#t2-q");
+  line.insertAdjacentHTML("afterbegin", `<button type="button" class="tv-phmenu" data-tvmenu aria-label="Menu" title="Menu">${tvSvg("lines3", 20)}</button>${searching ? "" : '<h2 class="tv-phtitle">Tasks</h2><span class="grow"></span>'}`);
   [...line.querySelectorAll(":scope > .grow")].slice(1).forEach((g) => g.remove());
   const own = "home" === t2Ctx() && "me" === tkWho && !tkProject && !tkArea && !tkPri && !t2Q,
     C = own ? tkCountsOf(t2Pool()) : {},
@@ -1409,11 +1453,11 @@ function tvPhoneHead(host) {
     q = (attr, v, on, label, n) => `<button type="button" class="tv-qc ${on ? "on" : ""}" ${attr}="${esc(v)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}${null != n ? `<span class="n">${n}</span>` : ""}</button>`;
   line.insertAdjacentHTML(
     "afterend",
-    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting", own ? C.blocked || 0 : null)}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>`,
+    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
+<div class="tv-qaw no-print"><div class="tv-qa"><button type="button" class="tv-qa-plus" data-tvqaopen aria-label="New task with details" title="New task with details">${tvSvg("plus", 18)}</button><input class="tv-qa-in" data-tvqa aria-label="Add a task" placeholder="Add a task, e.g. “Call Carlos tomorrow”" enterkeyhint="done" autocomplete="off"><button type="button" class="tv-qa-mic" data-tvqamic aria-label="Speak a task" title="Speak a task"><span>${tvSvg("mic", 18)}</span></button></div></div>`,
   );
 }
-// the List's rows (tasks.js) on this screen: the ID first; on a wide screen the cells edit in place; on the phone one
-// meta line (ID · project · owner · due) led by the Waiting On chip; Done joins the swipe
+// the phone's rows: one meta line (ID · project · owner · due), the Waiting On chip on its own line under it
 function tvDecorateRows(scope) {
   const ph = tvPhone(),
     rows = [...scope.querySelectorAll(".tk2-row[data-tkkey]")].filter((r) => !r.dataset.tvdec);
@@ -1436,9 +1480,9 @@ function tvDecorateRows(scope) {
     if (ph) {
       if (!sub) return;
       const w = t2When(x),
-        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", `<span>${esc(I.pname)}</span>`, I.owner ? `<span>${esc(tkFirst(I.owner))}</span>` : "", `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`].filter(Boolean),
-        wait = I.wait ? `<span class="tv-mwait">${tvSvg("clock", 12)}${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(tvDay(I.wait.promised))}` : ""}</span>` : "";
-      sub.innerHTML = wait + bits.join('<span class="tk2-dot"> · </span>');
+        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", `<span>${esc(I.pname)}</span>`, I.owner ? `<span>${esc(tkFirst(I.owner))}</span>` : "", `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`].filter(Boolean);
+      sub.innerHTML = bits.join('<span class="tk2-dot"> · </span>');
+      I.wait && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait">Waiting on ${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(DOW[parse(I.wait.promised).getDay()])}` : ""}</span>`);
       who && who.remove();
       return;
     }
@@ -1453,12 +1497,314 @@ function tvDecorateRows(scope) {
     }
     slide.insertAdjacentHTML("beforeend", `<span class="tv-cells">${I.wait ? tvCell(I, "wait") : ""}${tvCell(I, "owner")}${tvCell(I, "due")}${tvCell(I, "status")}</span>`);
   });
-  // each day says how many it holds (the rows under it)
+  // each section says how many it holds (the rows under it); on the phone its rows sit in one white card
   scope.querySelectorAll(".tk2-ghd").forEach((h) => {
-    if (h.querySelector(".n")) return;
     const g = h.closest(".tk2-group");
-    g && h.insertAdjacentHTML("beforeend", `<span class="n">${g.querySelectorAll(".tk2-row").length}</span>`);
+    if (!g) return;
+    h.querySelector(".n") || h.insertAdjacentHTML("beforeend", `<span class="n">${g.querySelectorAll(".tk2-row").length}</span>`);
+    if (!ph || g.querySelector(":scope > .tv-sec")) return;
+    const t = h.firstChild;
+    t && 3 === t.nodeType && "Overdue" === t.textContent.trim() && "home" === t2Ctx() && (t.textContent = "Late");
+    const sec = document.createElement("div");
+    sec.className = "tv-sec";
+    [...g.querySelectorAll(":scope > .tk2-row")].forEach((r) => sec.appendChild(r));
+    g.appendChild(sec);
   });
+  // the first-time tip: rows swipe left for Later and Hand Off, until the person has swiped once
+  if (ph && "home" === t2Ctx() && !tvPrefs().swiped && scope.querySelector(".tk2-row .tk2-acts") && !scope.querySelector(".tv-tip")) {
+    const L = scope.querySelector(".tk2-list") || scope;
+    L.insertAdjacentHTML("beforeend", `<div class="tv-tip">${tvSvg("swipe", 16)}<span>Tip: swipe a task left for Later or Hand Off</span></div>`);
+  }
+}
+// a swipe on a row: the tip has done its job, for this person, on every device
+document.addEventListener(
+  "touchend",
+  () =>
+    setTimeout(() => {
+      try {
+        if (!tvPhoneNow() || "tkall" !== view || !document.querySelector("#tkall-body .tk2-row.swiped")) return;
+        const P = tvPrefs();
+        if (P.swiped) return;
+        P.swiped = appNowIso();
+        save();
+        document.querySelectorAll("#tkall-body .tv-tip").forEach((e) => e.remove());
+      } catch (e) {}
+    }, 400),
+  { passive: !0 },
+);
+
+// ---- quick add: a sentence (typed or spoken) filled in by rules, then the one create path --------------------------------
+// PhoneAdd.dc.html. The rules: the team's first names (never anyone outside the team as the owner), "I'm in charge" or
+// "<name> is in charge" for the owner (the speaker when nobody is named), a job by its name, street or prefix, and the
+// dates people say ("today", "tomorrow", "Monday", "next meeting", "next week", "9/14"). Each field stays editable;
+// Add Task goes through crCreateTask, so the ID, the hand-off rule and the owner gate are the ones every task gets.
+const TV_DOW_FULL = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+function tvQaTeam() {
+  try {
+    return tdyUsers().filter((u) => u && u.name && "client" !== u.role);
+  } catch (e) {
+    return (DB.users || []).filter((u) => u && u.name && "client" !== u.role);
+  }
+}
+function tvQaParse(text) {
+  const raw = String(text || "").trim(),
+    low = ` ${raw.toLowerCase().replace(/[“”"]/g, " ")} `,
+    me = (() => {
+      try {
+        return tdyMe();
+      } catch (e) {
+        return {};
+      }
+    })(),
+    team = tvQaTeam(),
+    td = today(),
+    cut = [],
+    wordAt = (w) => {
+      const m = new RegExp(`(^|[^a-z0-9])(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?=[^a-z0-9]|$)`, "i").exec(low);
+      return m ? m.index + m[1].length : -1;
+    },
+    who = (frag) => {
+      const f = String(frag || "").trim().toLowerCase();
+      return team.find((u) => u.name.toLowerCase() === f) || team.find((u) => tkFirst(u.name).toLowerCase() === f) || null;
+    };
+  // the owner: "I'm in charge", or "<name> is in charge" / "<name> owns it"; the speaker otherwise
+  let owner = null,
+    m = /\b(i'?m|i am|i will be|i'll be)\s+(in charge|the owner)\b|\bi(?:'ll| will)? own it\b/i.exec(low);
+  if (m) (owner = me && me.name ? me : null), cut.push(m[0]);
+  if (!owner) {
+    m = /\b([a-z][a-z'-]+)(?:\s+[a-z][a-z'-]+)?\s+(?:is\s+)?(?:in charge|owns it|is the owner)\b/i.exec(low);
+    const u = m && (who(m[0].replace(/\s+(is\s+)?(in charge|owns it|is the owner)$/i, "")) || who(m[1]));
+    u && ((owner = u), cut.push(m[0]));
+  }
+  owner = owner || (me && me.name ? me : null);
+  // who does it: the first other person named
+  let doer = null;
+  const named = team
+    .map((u) => {
+      const i = Math.max(wordAt(u.name.toLowerCase()), -1),
+        j = wordAt(tkFirst(u.name).toLowerCase());
+      return { u, i: i >= 0 ? i : j, len: i >= 0 ? u.name.length : tkFirst(u.name).length };
+    })
+    // a seat named for its job ("Owner", "Billing") is a person only when said as a name: "before billing" is not Billing
+    .filter((o) => !/^(owner|billing|controller|design|designer|office|crew|driver|foreman)$/i.test(tkFirst(o.u.name)) || new RegExp(`\\b${tkFirst(o.u.name)}\\b`).test(raw))
+    .filter((o) => o.i >= 0 &&!cut.some((c) => c.toLowerCase().includes(low.substr(o.i, o.len))))
+    .sort((a, b) => a.i - b.i);
+  const d0 = named.find((o) => !owner || o.u.name !== owner.name);
+  d0 && ((doer = d0.u), cut.push(low.substr(d0.i, d0.len)));
+  // the job: its prefix, its short name, its street (a word of four letters or more that only it has)
+  let proj = null,
+    best = 0;
+  (DB.projects || []).forEach((p) => {
+    const meta = (p.project && p.project.prefix) || "",
+      names = [shortName(p), p.name, p.address].filter(Boolean).map((n) => String(n).toLowerCase());
+    names.forEach((n) => {
+      const i = wordAt(n);
+      i >= 0 && n.length > best && ((proj = p), (best = n.length), cut.push(n));
+    });
+    if (meta && new RegExp(`\\b${meta}\\b`).test(raw) && meta.length > best) (proj = p), (best = meta.length), cut.push(meta.toLowerCase());
+  });
+  if (!proj) {
+    const W = {};
+    (DB.projects || []).forEach((p) =>
+      String(shortName(p))
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter((w) => w.length >= 4 && !/^(street|place|avenue|road|house|floor|apartment)$/.test(w))
+        .forEach((w) => (W[w] = W[w] ? "dup" : p)),
+    );
+    Object.entries(W).forEach(([w, p]) => p !== "dup" && !proj && wordAt(w) >= 0 && ((proj = p), cut.push(w)));
+  }
+  // the date
+  let due = "";
+  const nextDow = (k) => {
+    const d = parse(td),
+      n = (k - d.getDay() + 7) % 7 || 7;
+    return iso(addDays(d, n));
+  };
+  const D = [
+    [/\b(by |on |due )?next meeting\b/, () => tvNextMeeting()],
+    [/\b(by |on |due )?next week\b/, () => addWork(td, 5)],
+    [/\b(by |due )?tomorrow\b/, () => iso(addDays(parse(td), 1))],
+    [/\b(by |due )?(today|tonight)\b/, () => td],
+    [/\b(by |on |due |this |next )?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/, (mm) => nextDow(TV_DOW_FULL.indexOf(mm[2]))],
+    [/\b(by |on |due )?(\d{1,2})\/(\d{1,2})\b/, (mm) => {
+      const y = parse(td).getFullYear(),
+        d = new Date(y, +mm[2] - 1, +mm[3]);
+      return isNaN(d) ? "" : iso(d < parse(td) ? new Date(y + 1, +mm[2] - 1, +mm[3]) : d);
+    }],
+    [/\bin (\d{1,2}) days?\b/, (mm) => iso(addDays(parse(td), +mm[1]))],
+  ];
+  for (const [re, f] of D) {
+    const mm = re.exec(low);
+    if (mm) {
+      due = f(mm) || "";
+      cut.push(mm[0]);
+      break;
+    }
+  }
+  // the task: the sentence without the person it was said to, the owner, the job and the date
+  let t = " " + raw.replace(/[“”"]/g, "") + " ";
+  cut
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .forEach((c) => {
+      const re = new RegExp(`(\\b(at|for|on|to|in|with)\\s+)?${c.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s+(to|should|will|needs to|has to)\\b)?`, "i");
+      t = t.replace(re, " ");
+    });
+  t = t
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/,\s*,/g, ",")
+    .replace(/^(please|pls|can you|could you)\s+/i, "")
+    .replace(/[\s,]+$/g, "");
+  t = t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+  return { text: raw, title: t, pid: proj ? proj.id : "", owner: owner ? owner.name : "", doer: doer ? doer.name : "", due: due };
+}
+// the ID the task will take on its job (the board's next number), said before it is made
+function tvQaNextId(pid) {
+  try {
+    if (!pid) return "";
+    const p = (DB.projects || []).find((q) => q.id === pid),
+      meta = p && p.project;
+    if (!meta || !meta.prefix) return "";
+    let n = +meta.keyNext || 0;
+    tkCodedRecs().forEach((r) => {
+      if (r.board !== "p:" + pid) return;
+      const mm = /-(\d+)$/.exec(String(r.rec.code || ""));
+      mm && (n = Math.max(n, +mm[1] + 1));
+    });
+    return `${meta.prefix}-${n || 1}`;
+  } catch (e) {
+    return "";
+  }
+}
+function tvQaCreate(F, photo) {
+  if (!String(F.title || "").trim()) return toast("Say what needs doing"), null;
+  const owner = (tvQaTeam().find((u) => u.name === F.owner) || {}).name || tkMe();
+  const made = crCreateTask({ title: F.title.trim(), for: F.pid ? `p:${F.pid}` : "firm", assignee: owner, due: F.due || "", source: { quickAdd: !0 } });
+  if (!made) return null;
+  try {
+    F.doer && F.doer !== owner && made.rec && ((made.rec.collaborators = [...new Set((made.rec.collaborators || []).concat([F.doer]))]), tkLog(made.rec, { ev: "collaborators", to: F.doer }));
+  } catch (e) {}
+  const key = `${made.kind}:${made.id}:${made.projectId || ""}`;
+  try {
+    photo && tkAddPhoto(tkResolve(key), photo);
+  } catch (e) {}
+  save();
+  try {
+    crFlash = made.id;
+    crFlashUntil = Date.now() + 4e3;
+  } catch (e) {}
+  tvRedraw();
+  toast(`Added ${made.code || made.rec.code || ""}${made.code || made.rec.code ? ": " : ""}${tdWords(F.title, 8)}${made.offeredTo ? `, offered to ${tkFirst(made.offeredTo)}` : ""}`, [{ label: "Open", run: () => tkOpen(key) }]);
+  return made;
+}
+// speech to text where the browser has it (Safari and Chrome); the sentence lands in the field to read and edit
+function tvListen(onText, btn) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return toast("Speaking a task needs Safari or Chrome; type the sentence instead"), !1;
+  try {
+    const r = new SR();
+    r.lang = "en-US";
+    r.interimResults = !0;
+    r.maxAlternatives = 1;
+    btn && btn.classList.add("on");
+    r.onresult = (e) => onText([...e.results].map((x) => x[0].transcript).join(" "), e.results[e.results.length - 1].isFinal);
+    r.onerror = (e) => (btn && btn.classList.remove("on"), "no-speech" !== e.error && toast("Could not hear that; try again or type it"));
+    r.onend = () => btn && btn.classList.remove("on");
+    r.start();
+    return !0;
+  } catch (e) {
+    return toast("Could not start the microphone; type the sentence instead"), !1;
+  }
+}
+// the quick-add sheet: the sentence (spoken or typed), then Task, Project and its new ID, Owner, Doing It, Due
+function tvQuickAddSheet(text) {
+  const F = tvQaParse(text || ""),
+    me = tkMe(),
+    row = (f, label, val) => `<button type="button" class="tvqa-row" data-tvqaf="${f}"><span class="tvqa-l">${label}</span><span class="tvqa-v">${val}</span></button>`,
+    pName = (pid) => {
+      const p = (DB.projects || []).find((q) => q.id === pid);
+      return p ? shortName(p) : "";
+    },
+    draw = () => {
+      const id = tvQaNextId(F.pid),
+        du = F.due ? `${tvRel(F.due, !0)}${dayDiff(today(), F.due) < 7 && dayDiff(today(), F.due) > 0 ? `, ${DOW[parse(F.due).getDay()]}` : ""}` : "",
+        dr = (n) => {
+          const u = tvQaTeam().find((x) => x.name === n);
+          return u ? `${esc(tkFirst(n))}${"undefined" != typeof TK_ROLE_SAY && TK_ROLE_SAY[u.role] ? ` <span class="tvqa-g">(${esc(String(TK_ROLE_SAY[u.role]).toLowerCase())})</span>` : ""}` : esc(n);
+        };
+      return `${row("title", "Task", F.title ? `<b>${esc(F.title)}</b>` : '<span class="tvqa-g">What needs doing</span>')}${row("pid", "Project", F.pid ? `${esc(pName(F.pid))}${id ? ` <span class="tvqa-g">· ${esc(id)}</span>` : ""}` : '<span class="tvqa-g">No project: your own list</span>')}${row("owner", "Owner", `<b>${esc(tkFirst(F.owner || me))}</b><span class="tvqa-g">in charge</span>`)}${row("doer", "Doing It", F.doer ? dr(F.doer) : '<span class="tvqa-g">The owner</span>')}${row("due", "Due", du ? esc(du) : '<span class="tvqa-g">No date</span>')}`;
+    };
+  let photo = "";
+  const m = mbModal(
+    "New Task",
+    `<div class="tvqa"><div class="tvqa-say"><button type="button" class="tvqa-mic" data-tvqasay aria-label="Speak the task" title="Speak the task">${tvSvg("mic", 22)}</button><textarea class="tvqa-in" data-tvqatext rows="2" aria-label="Say or type the task" placeholder="“Angel, measure the windows at 206 Lenox tomorrow, I'm in charge.”">${esc(F.text)}</textarea></div><p class="tvqa-note">Filled in from what you said. Tap any line to change it.</p><div class="tvqa-rows" data-tvqarows>${draw()}</div></div>`,
+    {
+      submit: "Add Task",
+      onSubmit: () => {
+        const made = tvQaCreate(F, photo);
+        return made ? !0 : !1;
+      },
+    },
+  );
+  if (!m) return null;
+  m.classList.add("tks-on", "tv-sheet", "tvqa-m");
+  const rows = m.querySelector("[data-tvqarows]"),
+    ta = m.querySelector("[data-tvqatext]"),
+    redraw = () => ((rows.innerHTML = draw()), wire());
+  const reparse = () => {
+    const G = tvQaParse(ta.value);
+    Object.assign(F, G);
+    redraw();
+  };
+  ta.addEventListener("input", reparse);
+  ta.addEventListener("keydown", (e) => "Enter" === e.key && (e.preventDefault(), e.stopPropagation(), ta.blur()));
+  const wire = () =>
+    rows.querySelectorAll("[data-tvqaf]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const f = b.dataset.tvqaf;
+          if ("title" === f) {
+            const v = b.querySelector(".tvqa-v");
+            v.innerHTML = `<input class="tvqa-ed" value="${esc(F.title)}" aria-label="Task">`;
+            const i = v.querySelector("input");
+            i.focus();
+            const done = () => ((F.title = i.value.trim()), redraw());
+            i.onblur = done;
+            i.onkeydown = (e) => "Enter" === e.key && (e.preventDefault(), e.stopPropagation(), i.blur());
+            return;
+          }
+          if ("due" === f) return tvDatePop(b, "Due", F.due, (d) => ((F.due = d), redraw()), !0);
+          if ("owner" === f) return tvPersonPop(b, F.owner, (n) => ((F.owner = n), redraw()), "Owner", tvQaTeam().filter((u) => !/^(crew|driver)$/.test(u.role)).map((u) => ({ name: u.name, sub: "" })));
+          if ("doer" === f) return tvPersonPop(b, F.doer, (n) => ((F.doer = n), redraw()), "Doing It", tvQaTeam().map((u) => ({ name: u.name, sub: "" })));
+          if ("pid" === f)
+            return tvPop(
+              b,
+              "Project",
+              `<div class="tv-people">${[["", "No project: your own list"]]
+                .concat((DB.projects || []).map((p) => [p.id, shortName(p)]))
+                .map(([id, n], i) => `<button type="button" class="tv-person ${F.pid === id ? "on" : ""}" data-tvqap="${esc(id)}" ${0 === i ? "data-tvfirst" : ""}><span class="grow"><b>${esc(n)}</b></span></button>`)
+                .join("")}</div>`,
+              (d) => d.querySelectorAll("[data-tvqap]").forEach((x) => (x.onclick = () => (tvPopClose(), (F.pid = x.dataset.tvqap), redraw()))),
+            );
+        }),
+    );
+  wire();
+  const ft = m.querySelector(".mbm-ft");
+  if (ft) {
+    ft.classList.add("tvs-ft");
+    const c = ft.querySelector("#mbm-cancel");
+    c && (c.hidden = !0);
+    const ok = ft.querySelector("#mbm-ok");
+    ok && ok.insertAdjacentHTML("beforebegin", `<button type="button" class="btn tvs-icb" data-tvqaphoto aria-label="Add a Photo" title="Add a Photo">${tkSvg("camera", 22)}</button><button type="button" class="btn tvs-icb" data-tvqaagain aria-label="Speak Again" title="Speak Again">${tvSvg("mic", 22)}</button>`);
+    const ph = ft.querySelector("[data-tvqaphoto]");
+    ph && (ph.onclick = () => mReadPhoto((url) => ((photo = url), ph.classList.add("on"), toast("Photo kept: it goes on the task when you add it")), "environment"));
+  }
+  const speak = (btn) => tvListen((t) => ((ta.value = t), reparse()), btn);
+  m.querySelectorAll("[data-tvqasay], [data-tvqaagain]").forEach((b) => (b.onclick = () => speak(b)));
+  return m;
 }
 function tvAfter() {
   const host = document.getElementById("tkall-body");
@@ -1475,7 +1821,7 @@ function tvAfter() {
   host.querySelectorAll("[data-tkmode]").forEach((b) => (b.onclick = () => tkSetMode(b.dataset.tkmode)));
   ph ? tvPhoneHead(host) : tvBar(host);
   // saved views as tabs with counts, on the person's own Tasks, above the filters
-  if ("home" === ctx && !ph && !host.querySelector(".tv-saved")) {
+  if ("home" === ctx && !ph && "board" !== tkMode && !host.querySelector(".tv-saved")) {
     const at = host.querySelector(".tk2-bar") || host.querySelector(".ph");
     at && at.insertAdjacentHTML("beforebegin", tvSavedHtml());
   }
@@ -1525,6 +1871,18 @@ function tvAfter() {
   } catch (e) {}
 }
 function tvWireBar(host) {
+  host.querySelectorAll("[data-tvmenu]").forEach((b) => (b.onclick = () => (document.getElementById("menu-btn") || { click() {} }).click()));
+  const qa = host.querySelector("[data-tvqa]");
+  qa &&
+    (qa.onkeydown = (e) => {
+      if ("Enter" !== e.key) return;
+      e.preventDefault();
+      const v = qa.value.trim();
+      if (!v) return tvQuickAddSheet("");
+      tvQaCreate(tvQaParse(v)) && (qa.value = "");
+    });
+  host.querySelectorAll("[data-tvqaopen]").forEach((b) => (b.onclick = () => tvQuickAddSheet(qa ? qa.value.trim() : "")));
+  host.querySelectorAll("[data-tvqamic]").forEach((b) => (b.onclick = () => tvListen((t) => qa && (qa.value = t), b)));
   host.querySelectorAll("[data-tvview]").forEach((b) => (b.onclick = () => tvApply(b.dataset.tvview)));
   host.querySelectorAll("[data-tvsave]").forEach((b) => (b.onclick = () => tvSaveDialog()));
   host.querySelectorAll("[data-tvfadd]").forEach((b) => (b.onclick = () => tvFilterPick("", b)));
@@ -1542,7 +1900,8 @@ function tvWireBar(host) {
   );
   host.querySelectorAll("[data-tvgby]").forEach((b) => (b.onclick = () => ((tvPrefs().table.group = tvTableGroup() === b.dataset.tvgby ? "" : b.dataset.tvgby), save(), tvKeepScroll(() => renderTkAll()))));
   host.querySelectorAll("[data-tvdens]").forEach((b) => (b.onclick = () => ((tvPrefs().table.density = b.dataset.tvdens), save(), tvKeepScroll(() => renderTkAll()))));
-  host.querySelectorAll("[data-tvcols]").forEach((b) => (b.onclick = () => tvColsPanel(b)));
+  host.querySelectorAll("[data-tvcols]").forEach((b) => (b.onclick = () => (b.closest("details") && b.closest("details").removeAttribute("open"), tvColsPanel(b.closest(".tv-moremenu") || b))));
+  host.querySelectorAll("[data-tvboardby]").forEach((b) => (b.onclick = () => ((tvPrefs().boardBy = b.dataset.tvboardby), save(), renderTkAll())));
 }
 let tvFocusAt = null;
 function tvWireCells(w) {
@@ -1808,10 +2167,12 @@ function tvWireCal(w) {
 }
 
 // ---- the task sheet as the mockup reads it (tkSheet stays the one sheet; this lays out what it already holds) ----------
-// Above: the ID and the job, the title, the status pill and when it was last discussed; Owner (in charge), Due and
-// Follow-Up, each a tap to change; the amber Waiting On box. Then the sheet's own parts, named for the meeting: Move the
-// Date (Today, Tomorrow, Next Meeting, Pick a Date), Linked, Comments. The blue next step stays the sheet's, with
-// Hand Off beside it in the footer. A field person's sheet is left as it is.
+// Main.dc.html (the 420px panel) and PhoneSheet.dc.html: the ID and the job, the title, the status pill (and late pill on
+// the phone) with when it was last discussed; Owner (in charge), Due and Follow-up as label and value rows, each a tap to
+// change; the amber Waiting On box. Then Move the Date (Today, Tomorrow, Next Meeting, Pick a Date), Linked, Comments
+// (on the phone: Latest). Everything else the sheet holds (Hand Off's people, Track Until, Collaborators, the checklist,
+// attachments, history, Later and Edit) folds into More at the foot, so nothing is lost and the top reads as the mockup.
+// The blue next step stays the sheet's, with Hand Off beside it. A field person's sheet is left as it is.
 function tvSheetDecorate(m, key) {
   if (!m || !tvMayUse() || m.dataset.tvs) return;
   const I = tvFind(key);
@@ -1820,6 +2181,7 @@ function tvSheetDecorate(m, key) {
   m.classList.add("tv-sheet");
   const x = I.x,
     td = today(),
+    ph = tvPhone(),
     hd = m.querySelector(".mbm-hd"),
     h3 = hd && hd.querySelector("h3"),
     body = m.querySelector(".tks");
@@ -1829,23 +2191,29 @@ function tvSheetDecorate(m, key) {
     ldSay = I.last ? `Last discussed ${esc(tvRel(I.last, !0))}${I.lastMeeting ? ` in ${esc(I.lastMeeting)}` : ""}` : "Not discussed in a meeting yet",
     lateDue = x.due && x.due < td && !x.done,
     W = I.wait,
-    wLate = W && W.promised && W.promised < td && !x.done,
-    field = (f, label, val, cls) => `<button type="button" class="tvs-f ${cls || ""}" data-tvsf="${f}"><small>${label}</small><span>${val}</span></button>`;
+    chase = W ? tvChaseDraft(I) : null,
+    canChase = !!W && !x.done && (chase || tvChaseCan(I)),
+    owner1 = tkFirst(I.owner),
+    field = (f, label, val, cls) => `<button type="button" class="tvs-f ${cls || ""}" data-tvsf="${f}"><small>${label}</small><span>${val}</span></button>`,
+    dueSay = x.due ? esc(ph ? fmtL(x.due) : tvRel(x.due, x.done)) : "No date",
+    fuSay = I.follow ? esc(ph ? fmtL(I.follow) : tvRel(I.follow, x.done)) : ph ? "Not set" : "—";
   body.insertAdjacentHTML(
     "afterbegin",
-    `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button>${lateDue ? `<span class="tv-pill tvs-late">${esc(tvRel(x.due))}</span>` : ""}<span class="tvs-ld">${ldSay}</span></div>
-<div class="tvs-fields">${field("owner", tvPhone() ? "Owner" : "Owner (in charge)", I.owner ? `${tvAv(I.owner)}${esc(I.owner)}${tvPhone() ? '<em class="tvs-ic">in charge</em>' : ""}` : "Pick the owner")}${field("due", "Due", x.due ? esc(tvRel(x.due, x.done)) : "No date", lateDue ? "late" : "")}${field("follow", "Follow-Up", I.follow ? esc(tvRel(I.follow, x.done)) : "Not set")}</div>
+    `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button>${lateDue && ph ? `<span class="tv-pill tvs-late">${esc(tvRel(x.due))}</span>` : ""}${ph ? "" : `<span class="tvs-ld">${ldSay}</span>`}</div>
+<div class="tvs-fields">${field("owner", "Owner", I.owner ? `${tvAv(I.owner)}<b class="tvs-on">${esc(ph ? owner1 : I.owner)}</b><em class="tvs-ic">${ph ? "in charge" : "(in charge)"}</em>` : "Pick the owner")}${field("due", "Due", dueSay, lateDue ? "late" : "")}${field("follow", "Follow-up", fuSay, I.follow ? "" : "tvs-none")}</div>
 ${
   W
-    ? `<div class="tvs-waitbox"><button type="button" class="tvs-wait ${wLate ? "late" : ""}" data-tvsf="wait"><small>Waiting On</small><b>${esc(W.name)}</b>${W.what ? `<span>${esc(W.what)}</span>` : ""}${W.promised ? `<span class="tvs-prom">${wLate ? "Promised" : "Promised by"} ${esc(tvDay(W.promised))}${wLate ? `, ${esc(tvRel(W.promised))}` : ""}</span>` : ""}</button>${
-        tvChaseDraft(I) ? '<button type="button" class="btn tvs-chase" data-tvschase>Review the Drafted Chase</button>' : ""
-      }</div>`
+    ? `<div class="tvs-waitbox"><button type="button" class="tvs-wait ${W.promised && W.promised < td && !x.done ? "late" : ""}" data-tvsf="wait"><small>Waiting On${ph ? ` ${esc(W.name)}` : ""}</small>${
+        ph
+          ? `<span class="tvs-wtx">${esc(W.what ? W.what.charAt(0).toUpperCase() + W.what.slice(1) : `Owed by ${W.name}`)}.${W.promised ? ` Promised ${esc(tvDay(W.promised).split(" ")[0])}.` : ""}</span>`
+          : `<b>${esc([W.name, W.what, W.promised ? tvDay(W.promised).split(" ")[0] : ""].filter(Boolean).join(" · "))}</b><span class="tvs-wnote">${esc(W.evidence ? String(W.evidence).replace(/\.$/, "") + "." : "Promised outside the team.")}${chase ? ` A chase is drafted for ${esc(owner1 || "the owner")} to send.` : ""}</span>`
+      }</button>${canChase && ph ? '<button type="button" class="btn tvs-chase" data-tvschase>Review the Drafted Chase</button>' : ""}</div>`
     : TV_CAN.wait(x) && !x.done
       ? `<button type="button" class="tvs-addwait" data-tvsf="wait">${tvSvg("clock", 14)}<span>Waiting on Someone Outside the Team</span></button>`
       : ""
 }`,
   );
-  // the sheet's own parts, named as the meeting says them
+  // the sheet's own parts, named as the mockup says them
   m.querySelectorAll(".tks-h").forEach((h) => {
     const t = h.textContent.trim();
     "Due" === t && (h.textContent = "Move the Date");
@@ -1857,7 +2225,7 @@ ${
   const pick = m.querySelector(".tks-pick");
   pick && pick.firstChild && 3 === pick.firstChild.nodeType && (pick.firstChild.textContent = "Pick a Date");
   const note = m.querySelector("[data-tksnote]");
-  note && (note.placeholder = "Add a comment");
+  note && (note.placeholder = "Add a comment or @mention");
   // the record's own section (src/meeting.js): what the top already shows (status, Waiting On, follow-up, when it was
   // last discussed) steps aside here; its Links become Linked, with where the task came from and the meeting moment
   const rs = m.querySelector(".tks-rec");
@@ -1868,21 +2236,55 @@ ${
         h.classList.add("tvs-dup");
         h.nextElementSibling && h.nextElementSibling.classList.add("tvs-dup");
       }
-      "Links" === t && (h.textContent = "Linked");
     });
     rs.querySelectorAll(":scope > p.small.muted").forEach((e) => /^Last discussed/.test(e.textContent) && e.classList.add("tvs-dup"));
   }
   const src = m.querySelector("[data-tkssrc]"),
-    lm = ld && ld.meetingId ? `<div class="tvs-moment">${tvSvg("clock", 14)}<span>Discussed ${esc(tvRel(I.last, !0))}${I.lastMeeting ? ` in ${esc(I.lastMeeting)}` : ""}${ld.at && /T\d/.test(ld.at) ? ` at ${esc(String(ld.at).slice(11, 16))}` : ""}</span></div>` : "",
-    links = rs && rs.querySelector(".tks-links");
-  if (links) {
-    src && links.prepend(src);
-    lm && links.insertAdjacentHTML("afterbegin", lm);
-  } else if (src || lm) {
-    (src || body.querySelector(".tks-h") || body.lastElementChild).insertAdjacentHTML("beforebegin", `<div class="tks-h">Linked</div>${src ? "" : lm}`);
-    src && lm && src.insertAdjacentHTML("afterend", lm);
+    lm = ld && ld.meetingId ? `<button type="button" class="tvs-moment" data-tvsmoment>${esc(I.lastMeeting || "The meeting")}${I.last ? `, ${esc(tvRel(I.last, !0))}` : ""}${ld.at && /T\d/.test(ld.at) ? `, at ${esc(String(ld.at).slice(11, 19))}` : ""}</button>` : "",
+    linksH = rs && [...rs.querySelectorAll(":scope > .tks-h")].find((h) => "Links" === h.textContent.trim()),
+    links = linksH && linksH.nextElementSibling;
+  // the parts in the mockup's order; the rest in More
+  const kids = [...body.children],
+    hOf = (re) => kids.find((h) => h.matches(".tks-h") && re.test(h.textContent.trim())),
+    take = (h, n) => {
+      const out = [];
+      let e = h;
+      for (let i = 0; e && i < n; i++) out.push(e), (e = e.nextElementSibling);
+      return out;
+    },
+    dueH = hOf(/^(Move the Date|Remind Me)$/),
+    dates = dueH ? take(dueH, dueH.nextElementSibling && dueH.nextElementSibling.nextElementSibling && dueH.nextElementSibling.nextElementSibling.matches("p.tks-why") ? 3 : 2) : [],
+    notesH = hOf(/^Comments$/),
+    notes = notesH ? take(notesH, 3) : [],
+    top = kids.filter((e) => e.matches(".tvs-st, .tvs-fields, .tvs-waitbox, .tvs-addwait, .tks-hand, .tks-proof") || (e.matches(".tks-row") && e.previousElementSibling && e.previousElementSibling.matches(".tks-hand")));
+  const linked = document.createElement("div");
+  linked.className = "tvs-linked";
+  linked.innerHTML = '<div class="tks-h">Linked</div>';
+  src && linked.appendChild(src);
+  lm && linked.insertAdjacentHTML("beforeend", lm);
+  links && (linked.appendChild(links), linksH.remove());
+  const placed = new Set(top.concat(dates, notes, [linked]));
+  const more = document.createElement("details");
+  more.className = "tvs-more";
+  more.innerHTML = "<summary>More</summary>";
+  kids.forEach((e) => placed.has(e) || e.matches(".tks-lines") || more.appendChild(e));
+  const order = ph ? top.concat(dates) : top.concat(dates, [linked], notes, [more]);
+  order.forEach((e) => body.appendChild(e));
+  if (ph) {
+    // the phone: Latest under the dates; Linked and Comments join More
+    more.prepend(...notes);
+    more.prepend(linked);
+    more.querySelector("summary") && more.prepend(more.querySelector("summary"));
+    body.appendChild(more);
   }
-  // Hand Off sits beside the blue next step
+  linked.querySelectorAll(".tks-links > .btn, .tks-links > label").length && linked.classList.add("tvs-hasadd");
+  const mo = m.querySelector("[data-tvsmoment]");
+  mo &&
+    (mo.onclick = () => {
+      const mt = (typeof mtTeam === "function" ? mtTeam() : []).find((y) => y.id === ld.meetingId);
+      mt && (mbCloseModal(), (view = "meetings"), (typeof mtTab !== "undefined" && (mtTab = "meetings")), (mtOpen = mt.id), render());
+    });
+  // Hand Off sits beside the blue next step; it opens More at the people
   const ft = m.querySelector(".mbm-ft"),
     ho = m.querySelector("[data-tkshandopen]");
   if (ft && ho && !ft.querySelector("[data-tvsho]")) {
@@ -1894,6 +2296,7 @@ ${
     b.textContent = "Hand Off";
     b.onclick = () => {
       const box = m.querySelector(".tks-handbox");
+      more.open = !0;
       box && box.hasAttribute("hidden") && ho.click();
       box && box.scrollIntoView({ block: "center" });
     };
@@ -1903,10 +2306,14 @@ ${
   const ch = m.querySelector("[data-tvschase]");
   ch &&
     (ch.onclick = () => {
-      const d = tvChaseDraft(I);
-      d && (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0));
+      let d = tvChaseDraft(I);
+      if (!d) {
+        d = tvChaseMake(I);
+        d && (save(), toast(`Chase drafted to ${W.name}: read it before it goes`, [{ label: "Open", run: () => tkSheet(`draft:${d.id}:`) }]));
+      }
+      d ? (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0)) : toast("No chase could be drafted for this one: write it from the task");
     });
-  tvPhone() && tvSheetPhone(m, I);
+  ph && tvSheetPhone(m, I);
 }
 // the assistant's drafted chase for this task, if it wrote one (an outbox draft that names the task or the party owed)
 function tvChaseDraft(I) {
@@ -1919,11 +2326,28 @@ function tvChaseDraft(I) {
           o &&
           "draft" === o.status &&
           (o.taskId === I.x.id ||
-            (o.about && (o.about.taskId === I.x.id || o.about.id === I.x.id)) ||
+            o.aboutKey === `task|${I.x.id}` ||
+            (o.about && (o.about.taskId === I.x.id || o.about.id === I.x.id || o.about.actionId === I.x.id)) ||
             (name && o.to && String(o.to.name || "").toLowerCase() === name && (!o.about || !o.about.projectId || o.about.projectId === I.x.projectId))),
       ) || null
     );
   } catch (e) {
+    return null;
+  }
+}
+// The chase the brain drafts for a waiting job task (bnDraftFor, the outbox's follow-up): one draft per task, never sent
+// from here; a person reads and sends it.
+const tvChaseCan = (I) => "action" === I.x.kind && !!I.x.projectId && "function" == typeof bnDraftFor;
+function tvChaseMake(I) {
+  try {
+    if (!tvChaseCan(I)) return null;
+    const p = (DB.projects || []).find((q) => q.id === I.x.projectId),
+      a = p && (p.actions || []).find((y) => y.id === I.x.id);
+    if (!a) return null;
+    a.waitsOn || (a.waitsOn = I.wait.name);
+    return bnDraftFor({ kind: "task", p: p, a: a }) || tvChaseDraft(I);
+  } catch (e) {
+    console.warn("chase draft", e);
     return null;
   }
 }
@@ -1946,11 +2370,16 @@ function tvSheetPhone(m, I) {
     const pick = chips.querySelector(".tks-pick");
     pick && pick.firstChild && 3 === pick.firstChild.nodeType && (pick.firstChild.textContent = "Pick");
   }
-  const L = I.latest;
+  const L = I.latest,
+    when = (at) => {
+      const d = String(at || "").slice(0, 10),
+        n = d ? dayDiff(today(), d) : 0;
+      return !d ? "" : 0 === n ? "Today" : n < 0 && n > -7 ? DOW[parse(d).getDay()] : tvD(d);
+    };
   if (body && chips && !m.querySelector(".tvs-latest")) {
-    const at = chips.nextElementSibling;
-    const html = `<div class="tks-h">Latest</div><div class="tvs-latest">${L ? `<small>${esc(tkFirst(L.by) || "Someone")}</small><div>${esc(L.text)}</div>` : '<span class="small muted">Nothing written yet.</span>'}</div>`;
-    at ? at.insertAdjacentHTML("beforebegin", html) : chips.insertAdjacentHTML("afterend", html);
+    const html = `<div class="tks-h">Latest</div><div class="tvs-latest">${L ? `<b>${esc(tkFirst(L.by) || "Someone")}</b> <span class="tvs-lw">${esc(when(L.at))}</span> · ${esc(L.text)}` : '<span class="tvs-lw">Nothing written yet.</span>'}</div>`;
+    const more = body.querySelector(".tvs-more");
+    more ? more.insertAdjacentHTML("beforebegin", html) : body.insertAdjacentHTML("beforeend", html);
   }
   const ft = m.querySelector(".mbm-ft");
   if (!ft || ft.dataset.tvph) return;
@@ -1966,7 +2395,13 @@ function tvSheetPhone(m, I) {
   const p = ft.querySelector("[data-tvsphoto]");
   p && (p.onclick = () => cam.click());
   const n = ft.querySelector("[data-tvsnote]");
-  n && (n.onclick = () => (note.scrollIntoView({ block: "center" }), note.focus()));
+  n &&
+    (n.onclick = () => {
+      const d = note.closest("details");
+      d && (d.open = !0);
+      note.scrollIntoView({ block: "center" });
+      note.focus();
+    });
 }
 
 // ---- the hooks ------------------------------------------------------------------------------------------------------
@@ -1995,6 +2430,7 @@ let tvDrawing = "";
   const base = tkSetMode;
   tkSetMode = function (m) {
     tvSel.clear();
+    "board" === m && tvPhoneNow() && (m = "cards");
     if (!TV_OWN.includes(m)) return base.apply(this, arguments);
     tkMode = m;
     try {
@@ -2010,6 +2446,12 @@ let tvDrawing = "";
     try {
       const R = m && tkResolve(k);
       R && tvSheetDecorate(m, R.key);
+      // on Tasks at 1024 and wider the panel sits under the page's bars, beside the table (Main.dc.html)
+      const host = m && !tvPhone() && tvOnTasks() && ("function" == typeof vw ? vw() : window.innerWidth) >= 1024 && document.querySelector("#tkall-body .tv-host, #tkall-body .t2-list");
+      host && (m.style.setProperty("--tvpt", `${Math.max(52, Math.round(host.getBoundingClientRect().top))}px`), m.classList.add("tv-under"));
+      // the open task's row reads as selected, as in the mockup
+      document.querySelectorAll("#tkall-body .tv-open").forEach((e) => e.classList.remove("tv-open"));
+      R && document.querySelectorAll(`#tkall-body [data-tvrow="${CSS.escape(R.key)}"]`).forEach((e) => e.classList.add("tv-open"));
     } catch (e) {
       console.warn("task sheet layout", e);
     }
@@ -2062,10 +2504,13 @@ let tvDrawing = "";
       if (!box) return m;
       const btn = (attr, v, on, label) => `<button type="button" class="tkf-b ${on ? "on" : ""}" ${attr}="${esc(v)}">${esc(label)}</button>`,
         views = "home" === t2Ctx() ? `<div class="tkf-h">Saved Views</div><div class="tkf-row">${tvViews().map((v) => btn("data-tkfsv", v.id, tvIsOn(v), v.name)).join("")}${btn("data-tkfsvsave", "1", !1, "New View")}</div>` : "",
-        lay = `<div class="tkf-h">Layout</div><div class="tkf-row">${TV_MODES.map(([k, n]) => btn("data-tkfmode", k, (tkMode || "cards") === k, n)).join("")}</div>`,
+        lay = `<div class="tkf-h">Layout</div><div class="tkf-row">${tvModesHere().map(([k, n]) => btn("data-tkfmode", k, (tkMode || "cards") === k, n)).join("")}</div>`,
+        meet = "home" === t2Ctx() && "function" == typeof mmCanRun && mmCanRun() && "function" == typeof mmStartDialog ? `<div class="tkf-h">Meeting</div><div class="tkf-row">${btn("data-tkfmeet", "1", !1, mtCurrent && mtCurrent() ? "Rejoin the Meeting" : "Start Meeting")}</div>` : "",
         S = tvSorts()[0],
         sort = "table" === tkMode ? `<div class="tkf-h">Sort</div><div class="tkf-row">${btn("data-tkfsort", "", !S, "List Order")}${["due", "follow", "owner", "status", "ref"].map((k) => btn("data-tkfsort", k, S && S.k === k, TV_COLS.find((c) => c.k === k).n)).join("")}</div>` : "";
       box.insertAdjacentHTML("afterbegin", views + lay + sort);
+      box.insertAdjacentHTML("beforeend", meet);
+      m.querySelectorAll("[data-tkfmeet]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), mmStartDialog())));
       // in the Table the grouping is the table's own: Project, Owner, Status, Due Date, or none
       if ("table" === tkMode) {
         const gb = tvTableGroup(),
@@ -2125,11 +2570,13 @@ let tvDrawing = "";
 // The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
 // view (overdue and due today), the number Ask gives for "my tasks due today".
 "object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+// The page's subtitle is gone (the mockup's one bar); the rail's number stays findable on the page as a small pill beside
+// the title, the mockup's "N late" pill: "6 late or due today", or a quiet "Nothing late" (one question, one number)
 function tvDueMark(host) {
-  const lead = host.querySelector(".ph .lead");
-  if (!lead || lead.querySelector("[data-ocbadge]") || "home" !== t2Ctx()) return;
+  const h = host.querySelector(".ph h2");
+  if (!h || host.querySelector(".ph [data-ocbadge]") || "home" !== t2Ctx()) return;
   const n = tkMyCounts().today || 0;
-  lead.insertAdjacentHTML("beforeend", `<span class="tv-duemark" data-ocbadge="tkall">${lead.textContent.trim() ? " · " : ""}${n ? `${n} of yours late or due today` : "nothing of yours late or due today"}</span>`);
+  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${n ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due today">${n ? `${n} late or due today` : "Nothing late"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------
@@ -2178,42 +2625,79 @@ function tvWaitSeed() {
 #v-tkall,.tv-pop,#mbm.tv-sheet{--tv-ground:#F7F8FA;--tv-ink:#1A1D23;--tv-ink2:#6A7080;--tv-accent:#2456C9;--tv-ring:#ECEEF2;--tv-sep:#F0F1F4;--tv-late:#B42318;--tv-amber-bg:#FFF1D6;--tv-amber:#7A4A00}
 #v-tkall:has(#tkall-body.tv-on){background:var(--tv-ground);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tv-ink)}
 #tkall-body.tv-on button,#tkall-body.tv-on input,#tkall-body.tv-on select{font-family:inherit}
-#v-tkall .tv-on .ph{flex-wrap:nowrap;align-items:center}
-#v-tkall .tv-on .ph>div:first-child{flex:0 1 auto;min-width:0}
-#v-tkall .tv-on .ph .lead{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#v-tkall .tv-on .ph .acts{flex:0 0 auto}
-#v-tkall .tv-hdtools{display:flex;align-items:center;gap:12px;flex:1 1 auto;margin:0 16px;min-width:0}
-#v-tkall .tv-hdtools .tk-mode{flex:0 0 auto}
-#v-tkall .tv-saved .tv-quiet{margin-left:auto;align-self:center;min-height:36px;background:none;border:0;color:var(--tv-ink2);font-size:13px}
-#v-tkall .tv-saved .tv-quiet+.tv-quiet{margin-left:0}
-#v-tkall .tv-hdtools .t2-q{flex:0 1 300px;min-width:180px;height:40px;border-radius:10px}
-/* the layouts and search keep their size; the title's lead line gives way (at 1280 the search ran under Start Meeting) */
-#v-tkall .tv-on .ph>div:first-child{flex:1 1 0}
-#v-tkall .tv-hdtools{flex:0 1 auto;min-width:min-content}
-#v-tkall .tv-outline,#v-tkall .tv-on .ph .acts [data-mmstart]{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
-#v-tkall .tk-mode.tv-modes{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px}
-#v-tkall .tk-mode.tv-modes button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:var(--tv-ink2);font-weight:500;padding:0 14px}
-#v-tkall .tk-mode.tv-modes button.on{background:#fff;color:var(--tv-ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
-#v-tkall .tv-saved{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 12px;border-bottom:1px solid var(--tv-ring)}
-#v-tkall .tv-sv{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:0;border-bottom:2px solid transparent;background:none;font-size:15px;color:var(--tv-ink2);cursor:pointer;margin-bottom:-1px}
+/* Alan's mockup (Main.dc.html, Board.dc.html, 2026-10-24): one white top bar, then a white band with the saved tabs and
+   the filter row, on the gray ground; the table fills the rest of the screen and scrolls inside itself */
+@media (min-width:761px){
+  #v-tkall:has(#tkall-body.tv-on){padding:0;height:calc(100vh - 52px);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
+  #v-tkall:has(#tkall-body.tv-on .tv-mode-cal),#v-tkall:has(#tkall-body.tv-on .t2-list:not(.tv-host)){height:auto;overflow:visible}
+  #v-tkall #tkall-body.tv-on{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  #v-tkall .tv-on>.ph{order:-2}
+  #v-tkall .tv-on>.ph.tv-ph,#v-tkall .tv-on>.ph.tk2-ph{display:flex;flex-wrap:nowrap;align-items:center;gap:16px;margin:0;padding:18px 28px 14px;background:#fff;border-bottom:1px solid #E7E9EE}
+  #v-tkall .tv-on>.ph>div:first-child{flex:0 0 auto;min-width:0;display:flex;align-items:center;gap:10px}
+  #v-tkall .tv-duemark{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:600;color:var(--tv-ink2);white-space:nowrap}
+  #v-tkall .tv-duemark.on{background:#FDECEA;color:#B42318}
+  #v-tkall .tv-on>.ph h2{margin:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:var(--tv-ink)}
+  #v-tkall .tv-on>.ph .lead{display:none}
+  #v-tkall .tv-on>.ph .acts{flex:0 0 auto;display:flex;align-items:center;gap:16px;margin:0}
+  #v-tkall .tv-on>.ph .acts .btn{display:inline-flex;align-items:center;gap:8px;height:40px;min-height:40px;padding:0 14px;border-radius:10px;font-size:14px;font-weight:500;background:#fff;border:1px solid #D5D9E1;color:var(--tv-ink)}
+  #v-tkall .tv-on>.ph .acts .btn.primary{padding:0 16px;border:0;background:var(--tv-accent);color:#fff;font-weight:600}
+  #v-tkall .tv-on>.ph .acts .btn svg{flex:0 0 auto}
+  #v-tkall .tv-hdtools{display:flex;align-items:center;gap:16px;flex:1 1 auto;min-width:0}
+  #v-tkall .tv-hdtools .grow{flex:1 1 auto}
+  #v-tkall .tv-hdtools .tk-mode{flex:0 0 auto}
+  #v-tkall .tv-search{display:flex;align-items:center;gap:8px;flex:0 1 280px;width:280px;min-width:160px;height:40px;padding:0 12px;box-sizing:border-box;background:#F7F8FA;border:1px solid #E2E5EB;border-radius:10px;color:#6A7080}
+  #v-tkall .tv-search[hidden]{display:none}
+  #v-tkall .tv-search svg{flex:0 0 auto}
+  #v-tkall .tv-search .t2-q{flex:1 1 auto;min-width:0;width:100%;height:38px;min-height:0;padding:0;border:0;background:transparent;outline:none;font-size:14px;color:var(--tv-ink);box-shadow:none}
+  #v-tkall .tv-hdtools .tv-filters{flex:0 1 auto;flex-wrap:nowrap;min-width:0}
+  #v-tkall .tv-on .tv-saved{order:-1;display:flex;align-items:center;flex-wrap:wrap;gap:22px;margin:0;padding:14px 28px 0;background:#fff;border:0;font-size:14px}
+  #v-tkall .tv-on>.tk2-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;margin:0;padding:12px 28px;background:#fff;border-bottom:1px solid #E7E9EE}
+  #v-tkall .tv-on>.tk2-bar[hidden]{display:none}
+  #v-tkall .tv-on>.t2-list,#v-tkall .tv-on>.tv-host{margin:0;padding:0 28px 28px}
+  #v-tkall .tv-on>.tv-mode-table,#v-tkall .tv-on>.tv-mode-board{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  #v-tkall .tv-on>.tv-mode-cal,#v-tkall .tv-on>.t2-list:not(.tv-host){padding-top:16px}
+}
+#v-tkall .tk-mode.tv-modes{display:flex;align-items:center;height:auto;background:#F1F3F6;border-radius:10px;padding:3px;border:0;gap:2px}
+#v-tkall .tk-mode.tv-modes button{display:inline-flex;align-items:center;justify-content:center;height:34px;min-height:34px;border:0;border-radius:8px;background:none;color:#5B616E;font-size:14px;font-weight:400;padding:0 14px}
+#v-tkall .tk-mode.tv-modes button.on{background:#fff;color:var(--tv-ink);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.08)}
+#v-tkall .tv-sv{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:8px 0;border:0;background:none;font-size:14px;font-weight:500;color:#4A5060;cursor:pointer;box-shadow:none}
 #v-tkall .tv-sv:hover{color:var(--tv-ink)}
-#v-tkall .tv-sv .n{font-size:12px;font-weight:600;color:var(--tv-ink2);background:#EEF0F3;border-radius:10px;padding:1px 8px}
-#v-tkall .tv-sv.on{border-bottom-color:var(--tv-accent);color:var(--tv-ink);font-weight:600}
-#v-tkall .tv-sv.on .n{background:#E6EEFD;color:#1D47A8}
-#v-tkall .tv-svnew{color:var(--tv-ink2)}
+#v-tkall .tv-sv .n{font-size:14px;font-weight:500;color:var(--tv-ink2);background:none;padding:0}
+#v-tkall .tv-sv.on{color:var(--tv-ink);font-weight:700;box-shadow:inset 0 -2px 0 var(--tv-accent)}
+#v-tkall .tv-svnew{color:var(--tv-accent);gap:4px}
+#v-tkall .tv-saved>.grow{flex:1 1 auto}
+#v-tkall .tv-moremenu{position:relative}
+#v-tkall .tv-on:has(>.tv-mode-board)>.ph .acts>:not(#tk-new){display:none}
+#v-tkall .tv-hdtools .tv-filters .tv-fchip,#v-tkall .tv-hdtools .tv-filters .tv-fadd{flex:0 0 auto}
+#v-tkall .tv-thead .tv-cb{opacity:0}
+#v-tkall .tv-thead:hover .tv-cb,#v-tkall .tv-grid:has(.tv-tr.sel) .tv-thead .tv-cb{opacity:1}
+#v-tkall .tv-thid{padding:0}
+#v-tkall .tv-moreb{list-style:none;display:grid;place-items:center;width:36px;height:36px;border-radius:8px;color:var(--tv-ink2);cursor:pointer}
+#v-tkall .tv-moreb::-webkit-details-marker{display:none}
+#v-tkall .tv-moreb:hover{background:#F1F3F6;color:var(--tv-ink)}
+#v-tkall .tv-moremenu-in{position:absolute;right:0;top:40px;z-index:40;display:flex;flex-direction:column;min-width:200px;padding:6px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--tv-ring),0 12px 32px rgba(16,24,40,.18)}
+#v-tkall .tv-moremenu-in .tv-mi{justify-content:flex-start;width:100%;height:auto;min-height:40px;border:0;background:none;font-size:14px;font-weight:400;color:var(--tv-ink)}
 #v-tkall .tv-on .tk2-bar{align-items:center}
 #v-tkall .tv-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-#v-tkall .tv-fchip{display:inline-flex;align-items:center;border-radius:18px;background:#E6EEFD;color:#1D47A8;overflow:hidden}
-#v-tkall .tv-fchip-b{min-height:36px;padding:0 4px 0 14px;border:0;background:none;font-size:14px;font-weight:500;color:inherit;cursor:pointer}
-#v-tkall .tv-fchip-x{display:grid;place-items:center;width:36px;min-height:36px;border:0;background:none;color:inherit;cursor:pointer}
-#v-tkall .tv-fadd{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 14px;border:1px dashed #C8CDD6;border-radius:18px;background:none;font-size:14px;color:var(--tv-ink2);cursor:pointer}
+#v-tkall .tv-fchip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 6px 0 12px;box-sizing:border-box;border-radius:999px;background:#EEF3FD;color:#1D47A8;white-space:nowrap}
+#v-tkall .tv-fchip-b{height:30px;min-height:0;padding:0;border:0;background:none;font-size:13px;font-weight:500;color:inherit;cursor:pointer}
+#v-tkall .tv-fchip-x{display:grid;place-items:center;width:24px;height:24px;min-height:0;padding:0;border:0;border-radius:999px;background:none;color:inherit;cursor:pointer}
+#v-tkall .tv-fchip-x svg{width:12px;height:12px;stroke-width:2.4}
+#v-tkall .tv-fadd{display:inline-flex;align-items:center;gap:6px;height:32px;min-height:0;padding:0 12px;box-sizing:border-box;border:1px dashed #C8CDD6;border-radius:999px;background:#fff;font-size:13px;color:#4A5060;cursor:pointer;white-space:nowrap}
+#v-tkall .tv-fadd:hover{background:#EEF1F5}
 #v-tkall .tv-tright{display:inline-flex;align-items:center;gap:8px;margin-left:auto}
-#v-tkall .tv-lbl{font-size:13px;color:var(--tv-ink2)}
-#v-tkall .tv-gby,#v-tkall .tv-dens{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px;display:inline-flex}
-#v-tkall .tv-gby button,#v-tkall .tv-dens button{display:inline-flex;align-items:center;border:0;border-radius:8px;background:none;color:var(--tv-ink2);padding:0 12px;min-height:30px;font-size:13px}
-#v-tkall .tv-gby button.on,#v-tkall .tv-dens button.on{background:#fff;color:var(--tv-ink);box-shadow:0 1px 2px rgba(16,24,40,.08);font-weight:500}
+#v-tkall .tv-lbl{font-size:13px;color:var(--tv-ink2);white-space:nowrap}
+#v-tkall .tv-lbl-d{margin-left:8px}
+#v-tkall .tv-gby,#v-tkall .tv-dens{background:#F1F3F6;border-radius:9px;padding:3px;border:0;gap:2px;display:inline-flex;align-items:center;height:auto}
+#v-tkall .tv-gby button,#v-tkall .tv-dens button{display:inline-flex;align-items:center;height:28px;min-height:0;border:0;border-radius:7px;background:none;color:#5B616E;padding:0 12px;font-size:13px;font-weight:500}
+#v-tkall .tv-gby button.on,#v-tkall .tv-dens button.on{background:#fff;color:var(--tv-ink);box-shadow:0 1px 2px rgba(16,24,40,.08);font-weight:600}
+#v-tkall .tv-densb{height:32px;min-height:0;padding:0 12px;border:1px solid #E2E5EB;border-radius:8px;background:#fff;font-size:13px;color:var(--tv-ink);cursor:pointer}
 #v-tkall .tv-host{border:0;background:none;overflow:visible;border-radius:0}
 #v-tkall .tv-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px;min-height:40px}
+@media (min-width:761px){
+  #v-tkall .tv-mode-table>.tv-top,#v-tkall .tv-mode-board>.tv-top{display:none}
+  #v-tkall .tv-mode-cal>.tv-top .tv-sum-line{display:none}
+}
 #v-tkall .tv-top .btn{display:inline-flex;align-items:center;gap:6px;min-height:40px}
 #v-tkall .tv-top .seg button{display:inline-flex;align-items:center}
 #v-tkall .tv-sum-line{font-size:15px;color:var(--tv-ink2)}
@@ -2221,35 +2705,36 @@ function tvWaitSeed() {
 #v-tkall .late,#v-tkall .tv-glate{color:var(--tv-late)}
 #v-tkall .tv-empty{padding:18px 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px}
 #v-tkall .tv-empty .btn{min-height:44px}
-#v-tkall .tv-ref,#mbm.tv-sheet .tv-ref{flex:0 0 auto;font:500 13px/18px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--tv-ink2);white-space:nowrap}
+#v-tkall .tv-ref,#mbm.tv-sheet .tv-ref{flex:0 0 auto;font-size:13px;line-height:18px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--tv-ink2);white-space:nowrap}
 #v-tkall .tv-dot,#mbm.tv-sheet .tv-dot{color:#C8CDD6}
 /* status pills */
-.tv-pill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:13px;font-size:13px;font-weight:600;white-space:nowrap;background:#EEF0F3;color:#3E4450;border:1.5px solid transparent;box-sizing:border-box}
+.tv-pill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;background:#EEF0F3;color:#3E4450;border:0;box-sizing:border-box}
 .tv-pill.tv-st-doing{background:#E6EEFD;color:#1D47A8}
 .tv-pill.tv-st-waiting{background:#FFF1D6;color:#7A4A00}
 .tv-pill.tv-st-done{background:#E3F4EA;color:#1B6B3E}
-.tv-pill.tv-st-fyi{background:none;border-color:#C8CDD6;color:#3E4450}
-.tv-av{display:inline-grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:hsl(var(--h) 52% 38%);color:#fff;font:700 11px/1 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:0;text-transform:none}
+.tv-pill.tv-st-fyi{height:24px;padding:0 9px;background:none;border:1px solid #C8CDD6;color:#4A5060}
+.tv-av{display:inline-grid;place-items:center;flex:0 0 26px;width:26px;height:26px;border-radius:50%;background:hsl(var(--h) 52% 38%);color:#fff;font:700 11px/1 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:0;text-transform:none}
 /* the cells */
-#v-tkall .tv-c{display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:44px;padding:0 8px;border:0;border-radius:8px;background:none;font-size:15px;color:var(--tv-ink);cursor:pointer;white-space:nowrap;overflow:hidden;max-width:100%;box-sizing:border-box;text-align:left}
+#v-tkall .tv-c{display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:44px;padding:0 6px;margin-left:-6px;border:0;border-radius:8px;background:none;font-size:14px;color:var(--tv-ink);cursor:pointer;white-space:nowrap;overflow:hidden;max-width:calc(100% + 6px);box-sizing:border-box;text-align:left}
 #v-tkall .tv-c:hover,#v-tkall .tv-c:focus-visible{background:#F2F4F7}
 #v-tkall .tv-c span{overflow:hidden;text-overflow:ellipsis}
 #v-tkall .tv-c.tv-empty{color:var(--tv-ink2)}
-#v-tkall .tv-c.tv-due,#v-tkall .tv-c.tv-fu{color:var(--tv-ink2)}
-#v-tkall .tv-c.late{color:var(--tv-late) !important;font-weight:700}
-#v-tkall .tv-c.today{color:var(--tv-ink);font-weight:600}
-#v-tkall .tv-wait.on .tv-chip-in{display:inline-block;max-width:100%;box-sizing:border-box;white-space:nowrap;padding:3px 10px;border-radius:13px;background:var(--tv-amber-bg);color:var(--tv-amber);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+#v-tkall .tv-c.tv-due{color:var(--tv-ink)}
+#v-tkall .tv-c.tv-fu{color:#4A5060}
+#v-tkall .tv-c.late{color:var(--tv-late) !important;font-weight:600}
+#v-tkall .tv-dash{color:#4A5060}
+#v-tkall .tv-wait.on .tv-chip-in{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:28px;box-sizing:border-box;white-space:nowrap;padding:0 10px;border-radius:8px;background:#FFF6E5;color:#7A4A00;font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis}
+#v-tkall .tv-wait.on .tv-chip-in svg{flex:0 0 auto;width:13px;height:13px;stroke-width:2.2}
 #v-tkall .tv-wait.on.late .tv-chip-in{background:#FDECEA;color:var(--tv-late)}
 #v-tkall .tv-check{flex:0 0 44px;width:44px;height:44px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0}
-#v-tkall .tv-check>span{display:block;width:22px;height:22px;border:2px solid #C8CDD6;border-radius:50%;box-sizing:border-box}
+#v-tkall .tv-check>span{display:block;width:21px;height:21px;border:1.6px solid #B8BEC9;border-radius:50%;box-sizing:border-box}
 #v-tkall .tv-check:hover>span{border-color:#1B6B3E;background:#E3F4EA}
-#v-tkall .late .tv-check>span{border-color:var(--tv-late)}
-#v-tkall .tv-donemark>span{background:#1B6B3E;border-color:#1B6B3E}
-#v-tkall .tv-tt{flex:1 1 auto;min-width:0;width:100%;min-height:44px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;border:0;background:none;padding:0 8px 0 0;text-align:left;color:var(--tv-ink);cursor:pointer}
+#v-tkall .tv-donemark>span{background:#2E9E5B;border-color:#2E9E5B}
+#v-tkall .tv-tt{flex:1 1 auto;min-width:0;width:100%;min-height:44px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:3px;border:0;background:none;padding:10px 16px 10px 0;text-align:left;color:var(--tv-ink);cursor:pointer}
 #v-tkall .tv-ttx{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;line-height:20px;font-weight:500}
 #v-tkall .tv-sub2{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px;color:var(--tv-ink2);font-weight:400}
 #v-tkall .tv-sub2 b{font-weight:600}
-#v-tkall .done .tv-ttx{color:var(--tv-ink2);text-decoration:line-through}
+#v-tkall .done .tv-ttx{color:#8A909C;text-decoration:line-through}
 /* the List's rows (tasks.js) */
 #v-tkall .tv-on .tk2-list{border:0;border-radius:12px;box-shadow:0 0 0 1px var(--tv-ring);background:#fff}
 #v-tkall .tv-on .tk2-row{border-bottom:1px solid var(--tv-sep)}
@@ -2269,37 +2754,47 @@ function tvWaitSeed() {
 #v-tkall .tv-grp,#v-tkall .tv-tg{margin:0 0 18px}
 #v-tkall .tv-ghd,#v-tkall .tv-shd{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 4px;color:var(--tv-ink);box-sizing:border-box}
 #v-tkall .tv-gtog{display:inline-flex;align-items:center;gap:10px;min-height:44px;border:0;background:none;padding:0 6px 0 0;text-align:left;cursor:pointer;color:inherit;font:inherit}
-#v-tkall .tv-ghd{font-size:16px}
+#v-tkall .tv-ghd{font-size:15px;gap:12px}
+#v-tkall .tv-tg>.tv-ghd{padding:22px 4px 10px;min-height:0}
+#v-tkall .tv-tg>.tv-ghd .tv-gtog{min-height:24px;gap:12px}
+#v-tkall .tv-ghd .tv-gtog svg{width:14px;height:14px;stroke-width:2.4;color:#6A7080}
 #v-tkall .tv-ghd .tv-gn{font-weight:700}
 #v-tkall .tv-shd{font-size:14px;font-weight:600;color:var(--tv-ink2)}
-#v-tkall .tv-ghd .n,#v-tkall .tv-shd .n{font-weight:500;color:var(--tv-ink2);font-size:14px}
-#v-tkall .tv-glate{font-size:12px;font-weight:600;background:#FDECEA;border-radius:10px;padding:2px 8px}
-#v-tkall .tv-bar{display:inline-block;width:72px;height:4px;border-radius:2px;background:var(--tv-ring);overflow:hidden;margin-left:4px}
-#v-tkall .tv-bar i{display:block;height:100%;background:#1B6B3E;border-radius:2px}
+#v-tkall .tv-ghd .n,#v-tkall .tv-shd .n{font-weight:400;color:var(--tv-ink2);font-size:13px}
+#v-tkall .tv-glate{font-size:12px;font-weight:600;background:#FDECEA;border-radius:999px;padding:3px 8px}
+#v-tkall .tv-bar{display:inline-block;width:120px;height:6px;border-radius:999px;background:#E7E9EE;overflow:hidden;margin-left:4px}
+#v-tkall .tv-bar i{display:block;height:100%;background:#2E9E5B;border-radius:999px}
 #v-tkall .tv-gdone{font-size:12px;font-weight:500;color:var(--tv-ink2)}
 /* the Table: a grid of rows, each group in a white rounded card, no cell borders */
-#v-tkall .tv-tframe{position:relative;max-height:calc(100vh - 260px);overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;padding:0 1px 1px}
+#v-tkall .tv-tframe{position:relative;flex:1 1 auto;min-height:0;max-height:none;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;margin:0 -28px -28px;padding:0 28px 28px}
 #v-tkall .tv-grid{display:block;font-size:15px}
 #v-tkall .tv-thead,#v-tkall .tv-tr{display:grid;grid-template-columns:var(--tvcols);align-items:center}
 #v-tkall .tv-td,#v-tkall .tv-th{border:0;min-width:0;overflow:hidden;white-space:nowrap;padding:0 4px;box-sizing:border-box;display:flex;align-items:center}
-#v-tkall .tv-thead{position:sticky;top:0;z-index:3;background:var(--tv-ground);min-height:40px}
-#v-tkall .tv-th{font-size:12px;font-weight:600;color:var(--tv-ink2);text-transform:uppercase;letter-spacing:.04em;position:relative}
+#v-tkall .tv-thead{position:sticky;top:0;z-index:3;background:var(--tv-ground);min-height:44px;box-shadow:inset 0 -1px 0 #E7E9EE}
+#v-tkall .tv-th{font-size:12px;font-weight:600;color:var(--tv-ink2);text-transform:uppercase;letter-spacing:.02em;position:relative;padding:0}
 #v-tkall .tv-th.tv-col-title{grid-column:span 3}
-#v-tkall .tv-sortb{display:inline-flex;align-items:center;gap:4px;min-height:40px;border:0;background:none;padding:0 6px;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;text-align:left;cursor:pointer}
+#v-tkall .tv-th.tv-col-title.tv-th1{grid-column:auto}
+#v-tkall .tv-sortb{display:inline-flex;align-items:center;gap:4px;min-height:44px;border:0;background:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;text-align:left;cursor:pointer}
 #v-tkall .tv-sortb:hover{color:var(--tv-ink)}
+#v-tkall .tv-sortb svg{stroke-width:3}
 #v-tkall .tv-sortn{font-size:10px;color:var(--tv-accent)}
 #v-tkall .tv-rs{position:absolute;right:0;top:8px;bottom:8px;width:8px;cursor:col-resize;border-right:2px solid transparent}
 #v-tkall .tv-th:hover .tv-rs{border-right-color:#C8CDD6}
-#v-tkall .tv-gcard{background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--tv-ring);overflow:hidden}
+#v-tkall .tv-gcard{background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.05),0 0 0 1px #ECEEF2}
 #v-tkall .tv-tr{min-height:64px}
-#v-tkall .tv-tr+.tv-tr{box-shadow:inset 0 1px 0 var(--tv-sep)}
-#v-tkall .tv-tr:hover{background:#FAFBFC}
-#v-tkall .tv-tr.sel{background:#F0F5FF}
+#v-tkall .tv-tr:first-child{border-radius:12px 12px 0 0}
+#v-tkall .tv-tr:last-child{border-radius:0 0 12px 12px}
+#v-tkall .tv-tr:only-child{border-radius:12px}
+#v-tkall .tv-tr+.tv-tr{box-shadow:inset 0 1px 0 #F0F1F4}
+#v-tkall .tv-tr:hover{background:#F6F8FB}
+#v-tkall .tv-tr.sel,body:has(#mbm.tks-on) #v-tkall .tv-tr.tv-open{background:#EEF3FD}
 #v-tkall .tv-tframe.dense .tv-tr{min-height:48px}
 #v-tkall .tv-tframe.dense .tv-sub2{display:none}
-#v-tkall .tv-col-sel{justify-content:center;padding:0}
+#v-tkall .tv-col-sel{justify-content:center;padding:0;overflow:visible;position:relative}
+#v-tkall .tv-col-sel .tv-cb{position:absolute;left:-30px;top:50%;width:28px;margin-top:-22px}
 #v-tkall .tv-col-done{padding:0}
 #v-tkall .tv-col-ref{padding:0 4px 0 0}
+#v-tkall .tv-td.tv-col-wait{padding-right:12px}
 #v-tkall .tv-cb{display:grid;place-items:center;width:44px;height:44px;cursor:pointer}
 #v-tkall .tv-cb input{width:17px;height:17px;margin:0;cursor:pointer;accent-color:var(--tv-accent)}
 #v-tkall .tv-tr .tv-cb input{opacity:0}
@@ -2312,37 +2807,45 @@ function tvWaitSeed() {
 #v-tkall .tv-bulk .btn{min-height:44px;background:#2B2F37;border-color:#3A3F49;color:#fff}
 #v-tkall .tv-ic{width:44px;padding:0;display:inline-grid;place-items:center}
 /* while a task is open in the side panel, Waiting On and Follow-Up step aside */
-body:has(#mbm.tks-on) #v-tkall .tv-grid{--tvcols:var(--tvcols-n) !important}
+body:has(#mbm.tks-on) #v-tkall .tv-grid{--tvcols:var(--tvcols-n) !important;min-width:0 !important}
 body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-follow{display:none}
 /* the Board */
-#v-tkall .tv-board{display:flex;gap:14px;align-items:flex-start;overflow-x:auto;padding-bottom:8px;overscroll-behavior-x:contain}
-#v-tkall .tv-bcol{flex:1 0 232px;max-width:340px;min-width:0;background:#EEF0F3;border-radius:14px;padding:10px;box-sizing:border-box;min-height:140px}
+#v-tkall .tv-board{display:flex;gap:18px;align-items:stretch;overflow-x:auto;padding:22px 0 0;overscroll-behavior-x:contain;flex:1 1 auto;min-height:0}
+#v-tkall .tv-bcol{flex:1 1 0;min-width:232px;background:#EFF1F4;border-radius:14px;padding:12px;box-sizing:border-box;min-height:140px;display:flex;flex-direction:column;gap:10px;overflow:auto}
 #v-tkall .tv-bcol.tv-over{outline:2px solid var(--tv-accent);outline-offset:-2px}
 #v-tkall .tv-bextra{opacity:.9}
-#v-tkall .tv-bhd{display:flex;align-items:center;gap:8px;padding:2px 4px 10px;font-size:14px;color:var(--tv-ink)}
-#v-tkall .tv-bhd .n{color:var(--tv-ink2);font-weight:600}
+#v-tkall .tv-bhd{display:flex;align-items:center;gap:8px;padding:4px 6px 6px;font-size:14px;color:var(--tv-ink)}
+#v-tkall .tv-bhd b{font-weight:700}
+#v-tkall .tv-bhd .n{color:var(--tv-ink2);font-weight:400;font-size:13px}
 #v-tkall .tv-bnote{font-size:12px;color:var(--tv-ink2)}
-#v-tkall .tv-bdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:hsl(var(--h,220) 55% 48%)}
-#v-tkall .tv-bdot.tv-dot-todo{background:#8A919E}
+#v-tkall .tv-bdot{display:inline-block;width:10px;height:10px;border-radius:50%;background:hsl(var(--h,220) 55% 48%)}
+#v-tkall .tv-bdot.tv-dot-todo{background:#9AA1AD}
 #v-tkall .tv-bdot.tv-dot-doing{background:var(--tv-accent)}
 #v-tkall .tv-bdot.tv-dot-waiting{background:#D08A00}
-#v-tkall .tv-bdot.tv-dot-done{background:#1B6B3E}
+#v-tkall .tv-bdot.tv-dot-done{background:#2E9E5B}
 #v-tkall .tv-bdot.tv-dot-fyi{background:none;box-shadow:inset 0 0 0 2px #C8CDD6}
-#v-tkall .tv-bcards{display:flex;flex-direction:column;gap:8px}
-#v-tkall .tv-card{background:#fff;border-radius:10px;padding:10px 10px 4px 12px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06),0 0 0 1px var(--tv-ring)}
+#v-tkall .tv-bcards{display:flex;flex-direction:column;gap:10px}
+#v-tkall .tv-card{display:flex;flex-direction:column;gap:10px;background:#fff;border-radius:12px;padding:14px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06),0 0 0 1px #E7E9EE}
 #v-tkall .tv-card:hover{box-shadow:0 2px 8px rgba(16,24,40,.10),0 0 0 1px #DDE1E8}
 #v-tkall .tv-card.tv-dragging{opacity:.4}
-#v-tkall .tv-card-top{display:flex;align-items:center;gap:4px;min-height:18px;font-size:13px;color:var(--tv-ink2);overflow:hidden;white-space:nowrap}
+#v-tkall .tv-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--tv-ink2);overflow:hidden;white-space:nowrap}
+#v-tkall .tv-card-top .tv-ref{font-size:12px}
 #v-tkall .tv-card-p{overflow:hidden;text-overflow:ellipsis}
-#v-tkall .tv-card-due{font-size:14px;color:var(--tv-ink2);white-space:nowrap;padding-right:4px}
-#v-tkall .tv-card-due.late{color:var(--tv-late);font-weight:700}
-#v-tkall .tv-card-t{font-size:15px;font-weight:600;line-height:21px;color:var(--tv-ink);margin:4px 0 6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+#v-tkall .tv-card-due{font-size:13px;color:var(--tv-ink);white-space:nowrap}
+#v-tkall .tv-card-due.late{color:var(--tv-late);font-weight:600}
+#v-tkall .tv-card-t{font-size:15px;font-weight:600;line-height:1.35;color:var(--tv-ink);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 #v-tkall .done .tv-card-t{color:var(--tv-ink2);text-decoration:line-through}
-#v-tkall .tv-card-ft,#v-tkall .tv-card-w{display:flex;align-items:center;gap:8px;margin:0 -6px}
-#v-tkall .tv-card-w{margin-bottom:8px}
+#v-tkall .tv-card-ft,#v-tkall .tv-card-w{display:flex;align-items:center;gap:8px;margin:0}
+#v-tkall .tv-card-ft{justify-content:space-between}
+#v-tkall .tv-card-ft .tv-c{min-height:24px;font-size:13px;margin-left:0;padding:0}
+#v-tkall .tv-card-ft .tv-av{flex:0 0 24px;width:24px;height:24px}
+#v-tkall .tv-card-w .tv-c{min-height:26px;margin:0;padding:0}
+#v-tkall .tv-card-w .tv-wait.on .tv-chip-in{height:26px;padding:0 9px;font-size:12px}
+#v-tkall .tv-card-w .tv-wait.on .tv-chip-in svg{width:12px;height:12px}
 #v-tkall .tv-bempty{padding:10px 6px;font-size:14px;color:var(--tv-ink2)}
-#v-tkall .tv-qadd{margin-top:8px}
-#v-tkall .tv-qaddb{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--tv-ink2);font-size:15px;cursor:pointer}
+#v-tkall .tv-qadd{margin-top:0}
+#v-tkall .tv-qaddb{display:flex;align-items:center;gap:8px;width:100%;height:40px;min-height:40px;padding:0 10px;border:0;border-radius:10px;background:none;color:#4A5060;font-size:13px;cursor:pointer}
+#v-tkall .tv-qaddb svg{width:14px;height:14px;stroke-width:2.2}
 #v-tkall .tv-qaddb:hover{background:#E4E7EC;color:var(--tv-ink)}
 #v-tkall .tv-qadd input{width:100%;height:44px;border:1px solid var(--tv-ring);border-radius:8px;background:#fff;font-size:15px;padding:0 10px;box-sizing:border-box}
 #v-tkall .tv-btabs{display:flex;gap:8px;overflow-x:auto;margin:0 0 8px;padding-bottom:2px}
@@ -2413,61 +2916,135 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 .tv-pop-sheet{left:0 !important;right:0;bottom:0;top:auto !important;width:100%;max-width:none;border-radius:16px 16px 0 0;padding:10px 16px calc(16px + env(safe-area-inset-bottom));max-height:80vh;overflow:auto}
 /* the task sheet, laid out as the mockup reads it */
 #mbm.tv-sheet{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tv-ink)}
-#mbm.tv-sheet .mbm-hd{flex-wrap:wrap;align-items:flex-start;padding:16px 20px 6px}
+#mbm.tv-sheet .mbm-hd{flex-wrap:wrap;align-items:center;padding:18px 20px 0 24px;border:0}
 #mbm.tv-sheet .tvs-kp{flex:1 1 calc(100% - 60px);display:flex;align-items:center;gap:4px;font-size:13px;color:var(--tv-ink2);order:0}
-#mbm.tv-sheet .mbm-x{order:1;width:44px;height:44px;margin:-10px -12px 0 0}
-#mbm.tv-sheet .mbm-hd h3{order:2;flex:1 1 100%;font-size:21px;line-height:28px;font-weight:600;margin:4px 0 0}
-#mbm.tv-sheet .mbm-bd{padding:4px 20px 12px}
+#mbm.tv-sheet .tvs-kp .tv-dot{color:var(--tv-ink2)}
+#mbm.tv-sheet .mbm-x{order:1;width:40px;height:40px;margin:0;border-radius:10px;color:#4A5060}
+#mbm.tv-sheet .mbm-hd h3{order:2;flex:1 1 100%;font-size:21px;line-height:1.3;font-weight:700;margin:6px 0 0}
+#mbm.tv-sheet .mbm-bd{padding:16px 24px 16px}
+#mbm.tv-sheet .tks{display:flex;flex-direction:column;gap:16px}
+#mbm.tv-sheet .tks>.tks-h{margin:0 0 -8px}
+#mbm.tv-sheet .tks-chips{display:flex;flex-wrap:wrap;gap:8px}
 #mbm.tv-sheet .tks-lines,#mbm.tv-sheet .mbm-hd h3 .tks-key,#mbm.tv-sheet .tvs-dup{display:none}
-#mbm.tv-sheet .tvs-st{display:flex;align-items:center;gap:12px;margin:2px 0 8px}
-#mbm.tv-sheet .tvs-pill{border:0;background:none;padding:0;min-height:44px;cursor:pointer;display:inline-flex;align-items:center}
+#mbm.tv-sheet .tvs-st{display:flex;align-items:center;gap:8px;margin:0}
+#mbm.tv-sheet .tvs-pill{border:0;background:none;padding:0;min-height:26px;cursor:pointer;display:inline-flex;align-items:center}
 #mbm.tv-sheet .tvs-ld{font-size:13px;color:var(--tv-ink2)}
-#mbm.tv-sheet .tvs-fields{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;margin:0 0 10px}
-#mbm.tv-sheet .tvs-f{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:56px;padding:8px 10px;border:0;border-radius:10px;background:var(--tv-ground);text-align:left;cursor:pointer;font-family:inherit;color:var(--tv-ink);min-width:0}
-#mbm.tv-sheet .tvs-f small{font-size:11px;font-weight:600;color:var(--tv-ink2);text-transform:uppercase;letter-spacing:.04em}
-#mbm.tv-sheet .tvs-f span{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#mbm.tv-sheet .tvs-f.late span{color:var(--tv-late);font-weight:700}
-#mbm.tv-sheet .tvs-wait{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:10px 12px;border:0;border-radius:10px;background:var(--tv-amber-bg);color:var(--tv-amber);text-align:left;cursor:pointer;margin:0 0 10px;font-family:inherit}
-#mbm.tv-sheet .tvs-wait small{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-#mbm.tv-sheet .tvs-wait b{font-size:15px;color:var(--tv-ink)}
-#mbm.tv-sheet .tvs-wait span{font-size:14px;color:var(--tv-ink)}
-#mbm.tv-sheet .tvs-wait .tvs-prom{color:var(--tv-amber);font-weight:600}
-#mbm.tv-sheet .tvs-wait.late .tvs-prom{color:var(--tv-late)}
-#mbm.tv-sheet .tvs-addwait{display:flex;align-items:center;gap:8px;min-height:44px;width:100%;padding:0 12px;border:1px dashed #C8CDD6;border-radius:10px;background:none;color:var(--tv-ink2);font-size:14px;cursor:pointer;margin:0 0 10px;font-family:inherit}
-#mbm.tv-sheet .tvs-moment{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--tv-ink2);margin:6px 0}
-#mbm.tv-sheet .tks-h{font-size:12px;font-weight:600;color:var(--tv-ink2);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px}
-#mbm.tv-sheet .tks-chip.on{border-color:var(--tv-accent)}
-#mbm.tv-sheet .tvs-late{background:#FDECEA;color:var(--tv-late)}
-#mbm.tv-sheet .tvs-waitbox{margin:0 0 10px}
-#mbm.tv-sheet .tvs-waitbox .tvs-wait{margin:0}
+#mbm.tv-sheet .tvs-fields{display:flex;flex-direction:column;gap:14px;margin:0}
+#mbm.tv-sheet .tvs-f{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;min-height:24px;padding:0;border:0;border-radius:6px;background:none;text-align:left;cursor:pointer;font-family:inherit;font-size:14px;color:var(--tv-ink);min-width:0}
+#mbm.tv-sheet .tvs-f:hover>span{text-decoration:underline;text-decoration-color:#C8CDD6;text-underline-offset:3px}
+#mbm.tv-sheet .tvs-f small{font-size:14px;font-weight:400;color:var(--tv-ink2)}
+#mbm.tv-sheet .tvs-f>span{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:400;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mbm.tv-sheet .tvs-f[data-tvsf="due"]>span{font-weight:600}
+#mbm.tv-sheet .tvs-f .tv-av{flex:0 0 24px;width:24px;height:24px}
+#mbm.tv-sheet .tvs-on{font-weight:400}
+#mbm.tv-sheet .tvs-ic{font-style:normal;color:var(--tv-ink2)}
+#mbm.tv-sheet .tvs-f.late>span{color:var(--tv-late);font-weight:600}
+#mbm.tv-sheet .tvs-wait{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;padding:14px 16px;border:0;border-radius:12px;background:#FFF6E5;color:#7A4A00;text-align:left;cursor:pointer;margin:0;font-family:inherit}
+#mbm.tv-sheet .tvs-wait small{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#7A4A00}
+#mbm.tv-sheet .tvs-wait b{font-size:15px;font-weight:600;color:#3D2500}
+#mbm.tv-sheet .tvs-wnote{font-size:13px;color:#6B4A12;line-height:1.4}
+#mbm.tv-sheet .tvs-addwait{display:flex;align-items:center;gap:8px;min-height:44px;width:100%;padding:0 12px;border:1px dashed #C8CDD6;border-radius:10px;background:none;color:var(--tv-ink2);font-size:14px;cursor:pointer;margin:0;font-family:inherit}
+#mbm.tv-sheet .tks-h{font-size:13px;font-weight:400;color:var(--tv-ink2);text-transform:none;letter-spacing:0;margin:0}
+#mbm.tv-sheet .tks-chip{display:inline-flex;align-items:center;justify-content:center;height:36px;min-height:36px;padding:0 14px;border:1px solid #D5D9E1;border-radius:999px;background:#fff;font-size:13px;font-weight:400;color:var(--tv-ink);cursor:pointer}
+#mbm.tv-sheet .tks-chip small{display:none}
+#mbm.tv-sheet .tks-chip.on{border-color:var(--tv-accent);background:#EEF3FD}
+#mbm.tv-sheet .tvs-late{background:#FDECEA;color:var(--tv-late);height:28px}
+#mbm.tv-sheet .tvs-waitbox{margin:0}
 #mbm.tv-sheet .tvs-chase{min-height:44px;margin-top:8px}
+#mbm.tv-sheet .tvs-linked{display:flex;flex-direction:column;gap:6px}
+#mbm.tv-sheet .tvs-linked>.tks-h{margin:0 0 4px}
+#mbm.tv-sheet .tvs-linked .tks-src,#mbm.tv-sheet .tvs-moment{display:flex;align-items:center;gap:6px;min-height:24px;padding:0;border:0;background:none;font-size:14px;color:#2456C9;text-align:left;cursor:pointer;font-family:inherit}
+#mbm.tv-sheet .tvs-linked .tks-src svg,#mbm.tv-sheet .tvs-linked .tks-src b{display:none}
+#mbm.tv-sheet .tvs-linked .tks-src .grow{flex:0 1 auto}
+#mbm.tv-sheet .tvs-linked .tks-links{display:flex;flex-direction:column;gap:6px}
+#mbm.tv-sheet .tvs-linked .tks-links>.btn{align-self:flex-start;min-height:0;height:auto;padding:0;border:0;background:none;font-size:13px;color:var(--tv-ink2)}
+#mbm.tv-sheet .tvs-linked .tks-links>.btn:hover{color:#2456C9}
+#mbm.tv-sheet .tks-thread{font-size:14px;line-height:1.45}
+#mbm.tv-sheet .tks>.tks-h:has(+.tks-thread){padding-top:16px;border-top:1px solid #EEF0F3}
+#mbm.tv-sheet .tks-row:has([data-tksnote]){display:flex;align-items:center;gap:8px}
+#mbm.tv-sheet [data-tksnote]{flex:1 1 auto;height:44px;padding:0 12px;border:1px solid #E2E5EB;border-radius:10px;font-size:14px;box-sizing:border-box}
+#mbm.tv-sheet .tks-row [data-tksnoteadd]{display:none}
+#mbm.tv-sheet .tvs-more{border-top:1px solid #EEF0F3;padding-top:10px}
+#mbm.tv-sheet .tvs-more>summary{display:flex;align-items:center;min-height:36px;font-size:13px;color:var(--tv-ink2);cursor:pointer;list-style:none}
+#mbm.tv-sheet .tvs-more>summary::-webkit-details-marker{display:none}
+#mbm.tv-sheet .tvs-more[open]>summary{margin-bottom:8px}
+#mbm.tv-sheet .tvs-more .tks-h{margin:12px 0 6px}
+#mbm.tv-sheet .mbm-ft{display:flex;gap:10px;padding:16px 24px;border-top:1px solid #EEF0F3}
+#mbm.tv-sheet .mbm-ft #mbm-cancel{display:none}
+#mbm.tv-sheet .mbm-ft #mbm-ok{order:1;flex:1 1 auto;height:44px;border-radius:10px;font-size:15px;font-weight:600;background:#2456C9;border-color:#2456C9}
+#mbm.tv-sheet .mbm-ft [data-tvsho]{order:2;height:44px;padding:0 16px;border:1px solid #D5D9E1;border-radius:10px;background:#fff;font-size:14px}
 /* a task opens in a 420px panel on the right on a wide screen, so the table stays in view (tkSheet, restyled) */
 @media (min-width:1024px){
   #mbm.tks-on{background:transparent;pointer-events:none;justify-content:flex-end;align-items:stretch;padding:0;overflow:hidden}
   #mbm.tks-on .mbm-box{pointer-events:auto;width:420px;max-width:420px;height:100vh;max-height:100vh;border-radius:0;display:flex;flex-direction:column;box-shadow:-10px 0 30px rgba(16,24,40,.12);border-left:1px solid var(--tv-ring,#ECEEF2)}
   #mbm.tks-on .mbm-bd{flex:1 1 auto;overflow:auto}
   #mbm.tks-on .mbm-ft{border-top:1px solid var(--tv-ring,#ECEEF2)}
-  body:has(#mbm.tks-on) #v-tkall{padding-right:436px;box-sizing:border-box}
+  body:has(#mbm.tks-on:not(.tv-under)) #v-tkall{padding-right:436px;box-sizing:border-box}
+  #mbm.tks-on.tv-under{top:var(--tvpt,0px);height:auto;bottom:0}
+  #mbm.tks-on.tv-under .mbm-box{height:100%;max-height:100%;box-shadow:none;border-left:1px solid #E7E9EE}
+  body:has(#mbm.tks-on.tv-under) #v-tkall .tv-on>.tv-host,body:has(#mbm.tks-on.tv-under) #v-tkall .tv-on>.t2-list{margin-right:420px}
 }
 @media (max-width:760px){
-  #v-tkall .tv-phtitle{margin:0;font-size:22px;font-weight:700;color:var(--tv-ink)}
-  #v-tkall .tv-on .tk2-hline .tk2-ic,#v-tkall .tv-filterbtn{flex:0 0 44px;width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:12px;border:1px solid var(--tv-ring);background:#fff;color:var(--tv-ink)}
+  /* the phone's Tasks page (Phone.dc.html): its own compact header; the app's header extras and sub-tabs step aside */
+  body:has(#v-tkall.on #tkall-body.tv-on) .topbar,body:has(#v-tkall.on #tkall-body.tv-on) #subnav{display:none !important}
+  #v-tkall:has(#tkall-body.tv-on){padding:0 0 96px;background:#F7F8FA;min-height:100vh;box-sizing:border-box}
+  #v-tkall .tv-on>.ph.tk2-ph{display:none}
+  #v-tkall .tv-on .tk2-hline.tv-phhd{display:flex;align-items:center;gap:8px;margin:0;padding:12px 16px 0;background:#fff}
+  #v-tkall .tv-phmenu{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin-left:-10px;padding:0;display:grid;place-items:center;border:0;background:none;color:var(--tv-ink)}
+  #v-tkall .tv-phtitle{flex:1 1 auto;margin:0;font-size:22px;line-height:28px;font-weight:700;color:var(--tv-ink)}
+  #v-tkall .tv-phhd .grow{display:none}
+  #v-tkall .tv-on .tk2-hline .tk2-ic,#v-tkall .tv-filterbtn{flex:0 0 44px;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border-radius:12px;border:0;background:#F1F3F6;color:var(--tv-ink)}
+  #v-tkall .tv-phhd .tk2-q{flex:1 1 auto;min-width:0;height:44px;border-radius:12px}
   #v-tkall .tv-filterbtn .n{display:none}
   .tv-sr{font-size:0;line-height:0;white-space:nowrap}
-  #v-tkall .tv-qchips{display:flex;gap:8px;margin:0 0 12px;overflow-x:auto}
-  #v-tkall .tv-qc{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border:1px solid var(--tv-ring);border-radius:22px;background:#fff;font-size:15px;font-weight:500;color:var(--tv-ink);cursor:pointer}
-  #v-tkall .tv-qc.on{background:var(--tv-ink);border-color:var(--tv-ink);color:#fff}
-  #v-tkall .tv-qc .n{font-weight:700}
+  #v-tkall .tv-qchips{display:flex;gap:8px;margin:0;padding:8px 16px 0;background:#fff;overflow-x:auto;scrollbar-width:none}
+  #v-tkall .tv-qc{position:relative;z-index:0;flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:44px;min-height:44px;padding:0 12px;border:0;background:none;font-size:13px;font-weight:400;color:#3E4450;cursor:pointer;white-space:nowrap}
+  #v-tkall .tv-qc::before{content:"";position:absolute;inset:5px 0;z-index:-1;border-radius:999px;background:#F1F3F6}
+  #v-tkall .tv-qc.on{color:#fff;font-weight:600}
+  #v-tkall .tv-qc.on::before{background:#1A1D23}
+  #v-tkall .tv-qc .n{font-weight:inherit}
+  #v-tkall .tv-qaw{padding:8px 16px 10px;background:#fff;border-bottom:1px solid #E7E9EE}
+  #v-tkall .tv-qa{display:flex;align-items:center;gap:2px;height:44px;padding:0 0 0 0;box-sizing:border-box;background:#F7F8FA;border:1px solid #E2E5EB;border-radius:12px}
+  #v-tkall .tv-qa-plus{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:-1px 0;padding:0;display:grid;place-items:center;border:0;background:none;color:var(--tv-accent)}
+  #v-tkall .tv-qa-plus svg{stroke-width:2.4}
+  #v-tkall .tv-qa-in{flex:1 1 auto;min-width:0;height:42px;padding:0;border:0;background:transparent;outline:none;font-size:15px;color:var(--tv-ink)}
+  #v-tkall .tv-qa-in::placeholder{color:#6A7080}
+  #v-tkall .tv-qa-mic{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:-1px 0;padding:0;display:grid;place-items:center;border:0;background:none}
+  #v-tkall .tv-qa-mic>span{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--tv-accent);color:#fff}
+  #v-tkall .tv-qa-mic.on>span{box-shadow:0 0 0 3px #C9D8F8}
+  /* the sections: a 12px heading on the ground, the rows in one white card */
+  #v-tkall .tv-on .tk2-list{margin:0;padding:0 0 4px;border:0;border-radius:0;box-shadow:none;background:none}
+  #v-tkall .tv-on .tk2-group{margin:0;border:0;background:none}
+  #v-tkall .tv-on .tk2-group+.tk2-group{border:0}
+  #v-tkall .tv-on .tk2-ghd{display:flex;align-items:baseline;gap:8px;min-height:0;padding:10px 18px 4px;margin:0;border:0;background:none;font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--tv-ink)}
+  #v-tkall .tv-on .tk2-ghd.late{color:var(--tv-late)}
+  #v-tkall .tv-on .tk2-ghd .n{font-size:12px;font-weight:400;letter-spacing:0;color:var(--tv-ink2)}
+  #v-tkall .tv-sec{margin:0 12px;background:#fff;border-radius:14px;box-shadow:0 0 0 1px #ECEEF2;overflow:hidden}
+  #v-tkall .tv-on .tk2-row{min-height:64px;border:0;background:#fff}
+  #v-tkall .tv-on .tv-sec>.tk2-row+.tk2-row{box-shadow:inset 0 1px 0 #F0F1F4}
+  #v-tkall .tv-on .tk2-slide{display:flex;align-items:flex-start;gap:4px;min-height:64px;max-height:none;padding:6px 12px 8px 0;box-sizing:border-box;background:#fff}
+  #v-tkall .tv-on .tk2-check{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:0;display:grid;place-items:center}
+  #v-tkall .tv-on .tk2-check>span,#v-tkall .tv-on .tk2-row.late .tk2-check>span{width:21px;height:21px;border:1.6px solid #B8BEC9;border-radius:50%;box-sizing:border-box}
+  #v-tkall .tv-on .tk2-mid{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto;padding-top:9px}
+  #v-tkall .tv-on .tk2-title{font-size:16px;line-height:1.25;font-weight:600;color:var(--tv-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #v-tkall .tv-on .tk2-title .tk2-key{display:none}
-  #v-tkall .tv-on .tk2-list{border-radius:12px;margin:0;padding-bottom:0}
-  #v-tkall .tv-on ~ .tk2-fab,#v-tkall .tv-on .tk2-fab{width:58px;height:58px;background:var(--tv-accent)}
-  #v-tkall .tv-top{margin:0 0 12px}
+  #v-tkall .tv-on .tk2-sub{display:block;font-size:13px;line-height:16px;color:#5B616E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #v-tkall .tv-on .tk2-sub .tv-ref{font-size:13px;color:#5B616E}
+  #v-tkall .tv-on .tk2-sub .tk2-dot{color:#5B616E}
+  #v-tkall .tv-on .tk2-sub .tk2-when{font-weight:400;color:var(--tv-ink)}
+  #v-tkall .tv-on .tk2-sub .tk2-w-late,#v-tkall .tv-on .tk2-sub .tk2-w-od,#v-tkall .tv-on .tk2-row.late .tk2-sub .tk2-when{color:var(--tv-late);font-weight:600}
+  #v-tkall .tv-mwait{align-self:flex-start;display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:7px;background:#FFF6E5;color:#7A4A00;font-size:12px;font-weight:400;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box}
+  #v-tkall .tv-tip{display:flex;align-items:center;gap:8px;margin:10px 18px 0;font-size:12px;color:var(--tv-ink2)}
+  #v-tkall .tk2-fab{display:none !important}
+  #v-tkall .tk2-empty{margin:12px 16px}
+  #v-tkall .tv-top{margin:12px 16px}
   #v-tkall .tv-top select,#v-tkall .tv-top .btn{min-height:44px}
   #v-tkall .tv-top .seg,#v-tkall .tv-calbar .seg{gap:8px;display:inline-flex}
   #v-tkall .tv-top .seg > button,#v-tkall .tv-calbar .seg > button,#v-tkall .tv-btabs > button{min-height:44px !important;border-radius:22px}
-  #v-tkall .tv-host{margin:0}
+  #v-tkall .tv-host{margin:0;padding:0 0 4px}
+  #v-tkall .tv-calbar,#v-tkall .tv-cal,#v-tkall .tv-wk-ph,#v-tkall .tv-tray{margin-left:12px;margin-right:12px}
   #v-tkall .tv-cards .tk2-list,#v-tkall .tv-cards{margin:0}
-  #v-tkall .tv-cards .tv-grp{background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--tv-ring);overflow:hidden}
+  #v-tkall .tv-cards .tv-grp{margin:0 12px 12px;background:#fff;border-radius:14px;box-shadow:0 0 0 1px #ECEEF2;overflow:hidden}
   #v-tkall .tv-cards .tv-ghd{padding-left:12px;margin-bottom:4px}
   #v-tkall .tv-gdone{display:none}
   #v-tkall .tv-calbar .tv-caltitle{flex:1 1 100%;margin:0}
@@ -2481,25 +3058,56 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #v-tkall .tv-wk-ph .tv-evs{gap:8px}
   #v-tkall .tv-wk-ph .tv-ev{min-height:44px;font-size:15px;padding:0 12px}
   #v-tkall .tv-trayrows{padding-left:0}
-  #mbm.tv-sheet .mbm-hd{padding:18px 16px 4px}
-  #mbm.tv-sheet .mbm-hd h3{font-size:22px;line-height:28px;font-weight:700}
-  #mbm.tv-sheet .mbm-bd{padding:4px 16px 12px}
+  /* the phone's task sheet (PhoneSheet.dc.html) */
+  #mbm.tv-sheet .mbm-box{border-radius:20px 20px 0 0}
+  #mbm.tv-sheet .mbm-hd{padding:14px 8px 0 16px;position:relative}
+  #mbm.tv-sheet .mbm-hd::before{content:"";position:absolute;left:50%;top:8px;width:40px;height:5px;margin-left:-20px;border-radius:999px;background:#D5D9E1}
+  #mbm.tv-sheet .mbm-x{width:44px;height:44px;border-radius:12px}
+  #mbm.tv-sheet .mbm-hd h3{font-size:22px;line-height:1.25;font-weight:700;margin:4px 8px 0 0}
+  #mbm.tv-sheet .mbm-bd{padding:16px 16px 16px}
   #mbm.tv-sheet .tvs-st{flex-wrap:wrap;gap:8px}
-  #mbm.tv-sheet .tvs-fields{display:flex;flex-direction:column;gap:0;border-radius:12px;background:#fff;box-shadow:0 0 0 1px var(--tv-ring);overflow:hidden}
-  #mbm.tv-sheet .tvs-f{flex-direction:row;align-items:center;justify-content:space-between;min-height:52px;border-radius:0;background:#fff;padding:0 14px}
-  #mbm.tv-sheet .tvs-f+.tvs-f{box-shadow:inset 0 1px 0 var(--tv-sep)}
-  #mbm.tv-sheet .tvs-f small{font-size:14px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--tv-ink2)}
-  #mbm.tv-sheet .tvs-ic{font-style:normal;font-size:12px;color:var(--tv-ink2);font-weight:400}
-  #mbm.tv-sheet .tvs-chase{width:100%;min-height:44px;margin-top:8px;background:#fff;border:1px solid #E7C98A;color:var(--tv-amber);font-weight:600}
+  #mbm.tv-sheet .tv-pill{height:28px}
+  #mbm.tv-sheet .tvs-fields{display:flex;flex-direction:column;gap:0;border-radius:14px;background:#fff;box-shadow:0 0 0 1px #ECEEF2;overflow:hidden}
+  #mbm.tv-sheet .tvs-f{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;min-height:52px;border-radius:0;background:#fff;padding:0 14px}
+  #mbm.tv-sheet .tvs-f+.tvs-f{box-shadow:inset 0 1px 0 #F0F1F4}
+  #mbm.tv-sheet .tvs-f small{flex:0 0 92px;font-size:14px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--tv-ink2)}
+  #mbm.tv-sheet .tvs-f>span{font-size:15px;gap:10px}
+  #mbm.tv-sheet .tvs-f .tvs-on{font-weight:600}
+  #mbm.tv-sheet .tvs-f[data-tvsf="follow"]>span{font-weight:400}
+  #mbm.tv-sheet .tvs-ic{font-style:normal;font-size:13px;color:var(--tv-ink2);font-weight:400}
+  #mbm.tv-sheet .tvs-wait{padding:12px 14px;border-radius:14px;gap:4px}
+  #mbm.tv-sheet .tvs-wtx{font-size:15px;line-height:1.4;color:#3D2500}
+  #mbm.tv-sheet .tvs-waitbox{padding:0;border-radius:14px;background:#FFF6E5}
+  #mbm.tv-sheet .tvs-waitbox .tvs-chase{margin:0 14px 12px;width:auto;height:44px;min-height:44px;padding:0 14px;background:#fff;border:1px solid #E6C27A;border-radius:10px;color:#3D2500;font-size:14px;font-weight:600}
+  #mbm.tv-sheet .tvs-waitbox:has(.tvs-chase) .tvs-wait{padding-bottom:10px}
   #mbm.tv-sheet .tvs-dates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-  #mbm.tv-sheet .tvs-dates .tks-chip{min-height:44px;min-width:0;align-items:center;justify-content:center;padding:0 4px;font-size:14px;text-align:center}
-  #mbm.tv-sheet .tvs-dates .tks-chip small{display:none}
-  #mbm.tv-sheet .tvs-latest{padding:10px 12px;border-radius:10px;background:var(--tv-ground);font-size:15px;line-height:21px}
-  #mbm.tv-sheet .tvs-latest small{display:block;font-size:12px;color:var(--tv-ink2)}
-  #mbm.tv-sheet .tvs-ft{display:flex;gap:8px;align-items:center}
-  #mbm.tv-sheet .tvs-ft .tvs-icb{flex:0 0 52px;width:52px;min-height:52px;height:52px !important;padding:0;display:grid;place-items:center}
-  #mbm.tv-sheet .tvs-ft #mbm-ok{flex:1 1 auto;min-height:52px;height:52px !important}
+  #mbm.tv-sheet .tvs-dates .tks-chip{height:44px;min-height:44px;min-width:0;padding:0 4px;border-radius:12px;font-size:13px;font-weight:600;text-align:center}
+  #mbm.tv-sheet .tvs-latest{padding:0;background:none;font-size:14px;line-height:1.4}
+  #mbm.tv-sheet .tvs-lw{color:var(--tv-ink2)}
+  #mbm.tv-sheet .tvs-ft{display:flex;gap:10px;align-items:center;padding:12px 16px 26px}
+  #mbm.tv-sheet .tvs-ft .tvs-icb{flex:0 0 52px;width:52px;min-height:52px;height:52px !important;padding:0;display:grid;place-items:center;border:1px solid #D5D9E1;border-radius:14px;background:#fff;color:var(--tv-ink)}
+  #mbm.tv-sheet .tvs-ft .tvs-icb.on{border-color:var(--tv-accent);color:var(--tv-accent)}
+  #mbm.tv-sheet .tvs-ft #mbm-ok{flex:1 1 auto;min-height:52px;height:52px !important;border-radius:14px;font-size:16px}
   #mbm.tv-sheet .tvs-ft [hidden]{display:none !important}
+  /* quick add (PhoneAdd.dc.html) */
+  #mbm.tvqa-m .mbm-hd{flex-wrap:nowrap;align-items:center}
+  #mbm.tvqa-m .mbm-hd h3{order:0;flex:1 1 auto;font-size:20px;margin:6px 0 0}
+  #mbm.tvqa-m .mbm-x{order:1}
+  #mbm.tvqa-m .mbm-bd{padding:6px 16px 0}
+  .tvqa{display:flex;flex-direction:column;gap:14px}
+  .tvqa-say{display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;background:#EEF3FD}
+  .tvqa-mic{flex:0 0 44px;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border:0;border-radius:999px;background:#2456C9;color:#fff}
+  .tvqa-mic.on{box-shadow:0 0 0 4px #C9D8F8}
+  #mbm .tvqa-in{flex:1 1 auto;min-width:0;min-height:44px;height:auto;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;resize:none;outline:none;font:inherit;font-size:15px;line-height:1.4;color:#1D2A4A}
+  .tvqa-note{margin:0;font-size:13px;color:#6A7080}
+  .tvqa-rows{display:flex;flex-direction:column;border-radius:14px;box-shadow:0 0 0 1px #ECEEF2;overflow:hidden}
+  .tvqa-row{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 14px;border:0;background:#fff;text-align:left;font:inherit;color:#1A1D23;cursor:pointer}
+  .tvqa-row+.tvqa-row{box-shadow:inset 0 1px 0 #F0F1F4}
+  .tvqa-l{flex:0 0 84px;font-size:14px;color:#6A7080}
+  .tvqa-v{display:flex;align-items:baseline;gap:10px;min-width:0;font-size:15px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .tvqa-v b{font-weight:600}
+  .tvqa-g{font-size:13px;color:#6A7080}
+  .tvqa-ed{width:100%;height:36px;font-size:15px;border:1px solid #E2E5EB;border-radius:8px;padding:0 8px}
 }`;
   try {
     const s = document.createElement("style");

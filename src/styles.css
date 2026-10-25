@@ -2123,6 +2123,7 @@ html.mono body{background:var(--paper)}
   body.rail-min .rail .foot{padding:12px 8px}
   body.rail-min .rail .foot .f{display:none}
   body.rail-min .rail .foot .btn{width:100%;padding:0;justify-content:center;font-size:0}
+  body.rail-min #whoami > div{display:none}
   body.rail-min .rail .foot .btn svg{font-size:13px;flex:none}
   /* the workspace switcher keeps working — initials instead of names */
   body.rail-min .ws{flex-direction:column;gap:4px;margin:2px 8px 4px}

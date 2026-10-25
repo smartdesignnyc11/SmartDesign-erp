@@ -86941,6 +86941,7 @@ const M_BREAK = 760,
   mOn = () => vw() <= 760,
   M_OFFICE = ["owner", "pm", "coord", "billing", "controller", "design_mgr", "designer"],
   M_ICON = {
+    tasks: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>',
     brief: '<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
     today:
       '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -87593,12 +87594,13 @@ function mRenderTabs() {
       ([v]) => (ROLE_VIEWS[mRole()] || []).includes(v) || "mapprove" === v,
     ),
     nAppr = mApproveCount(),
+    nTk = tabs.some(([v]) => "tkall" === v) && "function" == typeof tkMyCounts ? tkMyCounts().today || 0 : 0,
     cur = view;
   (tb.innerHTML =
     tabs
       .map(
         ([v, l, i]) =>
-          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : ""}</button>`,
+          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : "tkall" === v && nTk ? `<i class="n" data-ocbadge="tkall">${nTk}</i>` : ""}</button>`,
       )
       .join("") +
     // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px. Where
@@ -198879,11 +198881,12 @@ const MN_JOBS = (o) =>
         MN_G("office", "Company", "office", MN_OFFICE),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
       ],
+      // Tasks replaces Accounting on the phone bar (Alan, 2026-10-24, for the pilot); Accounting stays in the menu
       phone: [
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
         ["ovjobs", "Projects", "field"],
-        ["ovmoney", "Accounting", "money"],
+        ["tkall", "Tasks", "tasks"],
       ],
     },
     pm: {
@@ -198898,11 +198901,12 @@ const MN_JOBS = (o) =>
         MN_G("reports", "Reports", "reports", MN_REPORTS),
         MN_G("office", "Company", "office", MN_OFFICE),
       ],
+      // Tasks replaces the fourth shortcut, Field (Alan, 2026-10-24); Field stays in the menu
       phone: [
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
         ["ovjobs", "Projects", "field"],
-        ["field", "Field", "req"],
+        ["tkall", "Tasks", "tasks"],
       ],
     },
     coord: {
@@ -198922,10 +198926,11 @@ const MN_JOBS = (o) =>
         ]),
         MN_G("office", "Company", "office", MN_OFFICE),
       ],
+      // Tasks replaces Requests (Alan, 2026-10-24); Requests stays in the menu
       phone: [
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
-        ["req", "Requests", "req"],
+        ["tkall", "Tasks", "tasks"],
         ["proc", "Buy Board", "buy"],
       ],
     },
@@ -198941,8 +198946,9 @@ const MN_JOBS = (o) =>
         MN_G("bank", "Banking", "bank", [["bank", "Banking"]]),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
       ],
+      // Tasks replaces Billing, the accounting shortcut (Alan, 2026-10-24); Billing stays in the menu and is home
       phone: [
-        ["billing", "Billing", "billing"],
+        ["tkall", "Tasks", "tasks"],
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
         ["clients", "Clients", "people"],

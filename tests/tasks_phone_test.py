@@ -24,17 +24,19 @@ from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
 ROW = r"""() => { const v = document.querySelector('.view.on'); const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const F = (() => { const b = [...document.querySelectorAll('#mtabs, #tabbar')].find(vis); return b ? b.getBoundingClientRect().top : innerHeight; })();
   const rows = [...v.querySelectorAll('.tk2-row')].filter(vis).map(r => { const b = r.getBoundingClientRect(), c = r.querySelector('.tk2-check, .tk2-donemark'), cb = c ? c.getBoundingClientRect() : { width: 0, height: 0 }, t = r.querySelector('.tk2-title');
-    return { key: r.dataset.tkkey, h: Math.round(b.height), y: Math.round(b.top), cw: Math.round(cb.width), ch: Math.round(cb.height), fs: t ? parseFloat(getComputedStyle(t).fontSize) : 0, lines: t ? Math.round(t.getBoundingClientRect().height / parseFloat(getComputedStyle(t).lineHeight)) : 0 }; });
+    return { key: r.dataset.tkkey, wait: !!r.querySelector('.tv-mwait'), hand: !!r.querySelector('.tk2-acts [data-tkhand]'), h: Math.round(b.height), y: Math.round(b.top), cw: Math.round(cb.width), ch: Math.round(cb.height), fs: t ? parseFloat(getComputedStyle(t).fontSize) : 0, lines: t ? Math.round(t.getBoundingClientRect().height / parseFloat(getComputedStyle(t).lineHeight)) : 0 }; });
   const small = [...v.querySelectorAll('button, a.btn, input[type=checkbox], select, summary')].filter(vis).filter(b => { const r = b.getBoundingClientRect(); return r.top < F && r.bottom > 0 && (r.height < 44 || r.width < 44) && r.width > 0; }).map(b => ((b.innerText || b.getAttribute('aria-label') || '?').replace(/\s+/g, ' ').slice(0, 20)) + ' ' + Math.round(b.getBoundingClientRect().width) + 'x' + Math.round(b.getBoundingClientRect().height));
   const chip = v.querySelector('[data-tkfilter]'), fab = document.querySelector('.view.on .tk2-fab'), fb = fab ? fab.getBoundingClientRect() : null, srch = v.querySelector('[data-tksearch]');
   return { view, t2View, tkWho, rows, small, above: rows.filter(r => r.y < F - 16).length, sw: document.documentElement.scrollWidth,
     chip: chip ? chip.innerText.replace(/\s+/g, ' ').trim() : '', chipN: chip && chip.querySelector('.n') ? +chip.querySelector('.n').textContent : null,
     fab: fb ? { w: Math.round(fb.width), h: Math.round(fb.height), right: Math.round(innerWidth - fb.right), bottom: Math.round(F - fb.bottom) } : null, search: !!srch,
+    add: (() => { const a = v.querySelector('.tv-qa'); return a && vis(a) ? Math.round(a.getBoundingClientRect().height) : 0; })(),
     groups: [...v.querySelectorAll('.tk2-ghd')].filter(vis).map(h => h.childNodes[0] ? h.childNodes[0].textContent.trim() : ''), empty: (v.querySelector('.tk2-empty') || {}).textContent || '' }; }"""
 
 SHEET = r"""() => { const m = document.getElementById('mbm'); if (!m) return null; const a = document.activeElement;
   const ctl = [...m.querySelectorAll('button, input, select')].filter(c => c.getClientRects().length).map(c => (c.innerText || c.getAttribute('aria-label') || c.placeholder || '').replace(/\s+/g, ' ').trim());
-  return { title: (m.querySelector('.mbm-hd h3') || {}).innerText || '', key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks || '', ctl,
+  const all = [...m.querySelectorAll('button')].map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
+  return { title: (m.querySelector('.mbm-hd h3') || {}).innerText || '', key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks || '', ctl, all,
     primary: ((m.querySelector('#mbm-ok') || {}).innerText || '').trim(), kbd: !!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && m.contains(a)), text: m.innerText }; }"""
 
 CLOSE = "() => { try { mbCloseModal(); } catch (e) {} document.querySelectorAll('#mbm').forEach(e => e.remove()); }"
@@ -63,15 +65,18 @@ async def list_checks(c, pg, label, phone):
         soon = await pg.evaluate("() => tkMyCounts().week")
         c.ok(len(m['rows']) == soon, f'{who}: Due Soon lists every task due soon ({len(m["rows"])} rows, {soon} due soon)')
         c.ok(soon == 0 or len(m['rows']) > 0, f'{who}: it does not open empty while {soon} are due soon')
-        bad = [r for r in m['rows'] if not (64 <= r['h'] <= 72)]
-        c.ok(m['rows'] and not bad, f'{who}: every row is 64 to 72px tall ({bad[:3] or [r["h"] for r in m["rows"][:6]]})')
+        # a row with a Waiting On chip carries it on its own line (Phone.dc.html), so it is taller by that line
+        bad = [r for r in m['rows'] if not (64 <= r['h'] <= (100 if r['wait'] else 72))]
+        c.ok(m['rows'] and not bad, f'{who}: every row is 64 to 72px tall, a Waiting On row up to 100 ({bad[:3] or [r["h"] for r in m["rows"][:6]]})')
         c.ok(all(r['cw'] >= 44 and r['ch'] >= 44 for r in m['rows']), f'{who}: the check circle is at least 44px ({[(r["cw"], r["ch"]) for r in m["rows"][:3]]})')
         c.ok(all(r['fs'] >= 16 and r['lines'] <= 2 for r in m['rows']), f'{who}: titles are 16px on at most two lines ({[(r["fs"], r["lines"]) for r in m["rows"][:3]]})')
         c.ok(m['sw'] <= (390 if phone else 1440), f'{who}: nothing scrolls sideways ({m["sw"]})')
         if phone:
             c.ok(not m['small'], f'{who}: every target on the first screen is at least 44px ({m["small"][:4]})')
             c.ok(m['chip'].startswith('Mine · Due Soon') and m['search'], f'{who}: one header line, a filter chip and a search icon ("{m["chip"]}", search {m["search"]})')
-            c.ok(m['fab'] and m['fab']['w'] >= 44 and m['fab']['right'] <= 24 and 0 <= m['fab']['bottom'] <= 40, f'{who}: New Task is a round + above the bar, bottom right ({m["fab"]})')
+            # one add (Alan, 2026-10-24, Phone.dc.html): the add line under the chips, no floating button
+            c.ok(not m['fab'] or m['fab']['w'] == 0, f'{who}: no floating + ({m["fab"]})')
+            c.ok(m['add'] >= 44, f'{who}: the add line is there, 44px ({m["add"]})')
             c.ok(m['chipN'] == soon, f'{who}: the chip reads the same Due Soon number ({m["chipN"]} vs {soon})')
             if m['rows']:
                 c.ok(m['above'] >= min(3, len(m['rows'])), f'{who}: at least three rows above the fold ({m["above"]})')
@@ -80,7 +85,7 @@ async def list_checks(c, pg, label, phone):
             # screen keeps the Due Soon chip
             n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tvview=\"b:week\"] .n') || document.querySelector('.view.on [data-t2view=\"week\"] .n'); return b ? +b.textContent : 0; }")
             c.ok(n == soon, f'{who}: the Due Soon number on the wide screen reads the same ({n} vs {soon})')
-        day = lambda g: g in ('Overdue', 'Today', 'Tomorrow', 'No Date', 'Later On') or g.count(',') == 1
+        day = lambda g: g in ('Overdue', 'Late', 'Today', 'Tomorrow', 'No Date', 'Later On') or g.count(',') == 1
         c.ok(soon == 0 or (m['groups'] and all(day(g) for g in m['groups'])), f'{who}: grouped by day ({m["groups"][:4]})')
         # one number: Today, Overdue and Due Soon, the list against the counts and Ask
         for v in ('today', 'overdue', 'week'):
@@ -101,10 +106,12 @@ async def list_checks(c, pg, label, phone):
         c.ok(sh and sh['key'], f'{who}: a tap on a row opens the task sheet ({(sh or {}).get("title")})')
         if sh:
             c.ok(not sh['kbd'], f'{who}: the keyboard stays down')
-            c.ok(any(x == 'Hand Off' or x.startswith('Hand Off') for x in sh['ctl']), f'{who}: the sheet has Hand Off ({sh["ctl"][:8]})')
+            # Hand Off: the panel's footer on a wide screen; on the phone the row's swipe (PhoneSheet.dc.html's footer is photo,
+            # note and the next step) and the sheet's More
+            c.ok(any(x == 'Hand Off' or x.startswith('Hand Off') for x in (sh['all'] if phone else sh['ctl'])) and (not phone or all(r['hand'] for r in m['rows'])), f'{who}: Hand Off is one move away ({sh["ctl"][:8]})')
             c.ok(any(x.startswith(('Today', 'Tomorrow')) for x in sh['ctl']), f'{who}: the sheet has quick dates')
-            c.ok(sh['primary'] in ('Mark Done', 'Accept') or 'Mark Done' in sh['ctl'], f'{who}: Done is the blue button or beside it (blue: {sh["primary"]})')
-            c.ok(any(x in ('Edit', 'Edit Schedule') for x in sh['ctl']) and sh['primary'] not in ('Edit', 'Edit Schedule'), f'{who}: Edit is second, never blue')
+            c.ok(sh['primary'] in ('Mark Done', 'Accept') or 'Mark Done' in sh['all'], f'{who}: Done is the blue button or in the sheet (blue: {sh["primary"]})')
+            c.ok(any(x in ('Edit', 'Edit Schedule') for x in sh['all']) and sh['primary'] not in ('Edit', 'Edit Schedule'), f'{who}: Edit is there, never blue')
         await pg.evaluate(CLOSE)
 
 

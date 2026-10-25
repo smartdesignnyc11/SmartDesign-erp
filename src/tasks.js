@@ -195,6 +195,11 @@ function tkGroupOf(x, gb) {
     const g = "hub" === x.kind || "lead" === x.kind ? "Sales" : x.project || "Firm-wide";
     return [g, g];
   }
+  // By Status (the phone's chip, Alan 2026-10-24): To Do, Doing, Waiting On, FYI, Done, in that order
+  if ("status" === gb) {
+    const st = x.done ? ["4", "Done"] : "fyi" === x.status ? ["3", "FYI"] : x.waitsOn ? ["2", "Waiting On"] : "doing" === x.status || "in-progress" === x.status ? ["1", "Doing"] : ["0", "To Do"];
+    return st;
+  }
   if ("assignee" === gb) {
     const g = x.assignee || "Unassigned";
     return [g, g];
@@ -238,7 +243,7 @@ t2Html = function () {
     let b = groups.find((y) => y.k === k);
     b || ((b = { k: k, n: n, rows: [] }), groups.push(b)), b.rows.push(x);
   });
-  "day" === gb && groups.sort((a, b) => String(a.k).localeCompare(String(b.k)));
+  ("day" === gb || "status" === gb) && groups.sort((a, b) => String(a.k).localeCompare(String(b.k)));
   const rowO = { hideJob: "job" === ctx || ("project" === gb && "day" !== gb) },
     // a day carries no number (the chip has it); on a job's list the Overdue day is the source of the job's Tasks badge
     odJob = (b) => "day" === gb && "job" === ctx && "Overdue" === b.n,

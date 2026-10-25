@@ -89,10 +89,11 @@ PHONE_BAR = {
     # four shortcuts at most, Chat one of them (Alan, 2026-10-19: "The chat should be in the bottom main menu. And you
     # need to have a max of 4 shortcuts there"); everyone opens the rest from the hamburger at the top left ("the
     # hamburger menu should be on the top left of the page"), so the office bar has no More
-    'u_owner': ['Today', 'Chat', 'Projects', 'Accounting'],
-    'u_alan': ['Today', 'Chat', 'Projects', 'Field'],
-    'u_chen': ['Today', 'Chat', 'Requests', 'Buy Board'],
-    'u_billing': ['Billing', 'Today', 'Chat', 'Clients'],
+    # Tasks takes one shortcut for the office pilot (Alan, 2026-10-24); what it replaced stays in the menu
+    'u_owner': ['Today', 'Chat', 'Projects', 'Tasks'],
+    'u_alan': ['Today', 'Chat', 'Projects', 'Tasks'],
+    'u_chen': ['Today', 'Chat', 'Tasks', 'Buy Board'],
+    'u_billing': ['Tasks', 'Today', 'Chat', 'Clients'],
     'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll'],
     'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects'],
     'u_angel': ['Today', 'Site', 'Daily Log', 'Chat'],
@@ -155,7 +156,8 @@ async def check_screen(c, pg, tag, errs, want_view=None, phone=False):
     if want_view: c.ok(st['view'] == want_view or (st['view'] == 'pa' and st['folded'] == want_view), f'{tag}: opens {want_view}, got {st["view"]}')
     c.ok(heading_ok(st), f'{tag}: heading "{st["heading"]}" vs menu entry (group "{st["grp"]}", sub-tab "{st["sub"]}", bar "{st["bar"]}")')
     c.ok(len(st['prim']) <= 1, f'{tag}: {len(st["prim"])} blue primary buttons {st["prim"][:3]}')
-    c.ok(st['ask'] or st['view'] == 'pa', f'{tag}: no Ask button in the header')
+    # the phone's Tasks page carries its own header: one search, the filter, the add line (Alan, 2026-10-24, Phone.dc.html)
+    c.ok(st['ask'] or st['view'] == 'pa' or (phone and st['view'] == 'tkall'), f'{tag}: no Ask button in the header')
     if phone: c.ok(st['sw'] <= st['w'], f'{tag}: scrolls sideways ({st["sw"]}px at {st["w"]})')
     c.ok(not errs, f'{tag}: page errors {errs[:2]}')
     del errs[:]
@@ -228,8 +230,8 @@ async def phone(c, p, users):
             st = await check_screen(c, pg, f'{u} phone bar "{lab}"', errs, phone=True)
             c.ok(st['bar'] == lab, f'{u} phone bar "{lab}": lit entry is "{st["bar"]}"')
         # the rest is one tap away: More (office) or the menu button (field) opens the whole menu
-        # the hamburger, top left, for every role
-        hb = await pg.evaluate("() => { const b = document.getElementById('menu-btn'); if (!b || !b.offsetParent) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
+        # the hamburger, top left, for every role (the phone's Tasks page carries it in its own header, Phone.dc.html)
+        hb = await pg.evaluate("() => { const b = [document.getElementById('menu-btn'), document.querySelector('.view.on [data-tvmenu]')].find(x => x && x.offsetParent); if (!b) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
         c.ok(hb and hb['x'] < 60 and hb['y'] < 60 and hb['w'] >= 40 and hb['h'] >= 40, f'{u} phone: the menu button is at the top left, a full tap target {hb}')
         await press(pg, '#menu-btn')
         await pg.wait_for_timeout(250)
