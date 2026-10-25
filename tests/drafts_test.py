@@ -63,7 +63,11 @@ NAV_AWAY = r"""(cur) => {
   const r = b.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, label: (b.innerText || b.getAttribute('aria-label') || '').trim().slice(0, 30) };
 }"""
-TEXTLIKE_KINDS = {'button', 'card', 'link', 'tile', 'chip', 'summary'}
+OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u); const B = mnBuild(role());
+  const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
+  const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
+  if (it) mnGo(g, it); else { view = v; render(); } return view; }"""
+TEXTLIKE_KINDS ={'button', 'card', 'link', 'tile', 'chip', 'summary'}
 
 
 class DraftWalk(TapLint):
@@ -72,6 +76,7 @@ class DraftWalk(TapLint):
         self.found = []          # {vp, user, entry, c, key, title, field}
         self.results = []        # {vp, user, title, how, ok, detail}
         self.checks = Checks()
+        self.leaky = False
 
     async def discover(self, u, phone, vp):
         info = await self.start_user(u)
@@ -199,13 +204,18 @@ class DraftWalk(TapLint):
                 s2 = await pg.evaluate(SHEET_NOW)
                 if s2 and s2.get('field'):
                     await pg.fill(s2['sel'], token + ' after a reload'); await pg.wait_for_timeout(450)
-                    # the lint's boot puts the browser's storage back on every load; this person's drafts ride across
-                    await pg.evaluate("() => { window.name = 'w1d:' + (localStorage.getItem('sd-drafts') || ''); }")
+                    # the lint's boot puts the browser's storage back to its first state on every load (so one press never
+                    # reaches the next); this person's drafts are what a real reload keeps, so they are put back
+                    kept = await pg.evaluate("() => localStorage.getItem('sd-drafts') || ''")
                     await self.load()
-                    await pg.evaluate("([u, g, v, t]) => { signIn(u); const B = mnBuild(role()); render(); }", [f['user'], f['entry']['g'], f['entry']['v'], f['entry']['tab']])
-                    await pg.evaluate(OPEN, [f['entry']['g'], f['entry']['v'], f['entry']['tab']])
+                    await pg.evaluate("v => localStorage.setItem('sd-drafts', v)", kept)
+                    # the person signs in and is put back on the page they were on (as the app's own reload does): the
+                    # sheet comes back by itself
+                    await pg.evaluate(OPEN_KEEP, [f['user'], f['entry']['g'], f['entry']['v'], f['entry']['tab']])
                     await self.settle(200, 2500); await pg.wait_for_timeout(500)
                     rv = await pg.evaluate(FIELD_VAL, s2['field'])
+                    if not rv.get('open') and os.environ.get('W1_DEBUG'):
+                        print('RELOAD', await pg.evaluate("() => ({d: w1Drafts().map(x => ({open: x.open, sc: x.screen && w1ScreenKey(x.screen), op: x.opener, found: !!w1FindOpener(x.opener)})), k: w1ScreenKey(w1Screen()), u: DB.deviceUser, rl: w1Reloaded, opd: w1Opened})"))
                     C.ok(rv.get('open') and rv.get('val') == token + ' after a reload', f"{tag}: a reload with the sheet open brings it back open with the text ({rv})")
                     self.results.append({'vp': f['vp'], 'user': f['user'], 'title': f['title'], 'how': 'a reload', 'ok': bool(rv.get('open') and rv.get('val') == token + ' after a reload'), 'detail': json.dumps(rv)[:120]})
         await pg.evaluate(CLEAN)
@@ -218,7 +228,6 @@ class DraftWalk(TapLint):
             for phone in a.vps:
                 vp = 'phone' if phone else 'desktop'
                 await self.boot(p, phone)
-                await self.ctx.add_init_script("(() => { try { if (String(window.name).startsWith('w1d:')) { localStorage.setItem('sd-drafts', window.name.slice(4)); window.name = ''; } } catch (e) {} })()")
                 for u in a.users:
                     t0 = time.time()
                     F = await self.discover(u, phone, vp)

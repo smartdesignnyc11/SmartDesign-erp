@@ -107,6 +107,8 @@ def label_flags(c, r):
     # a label that names no place (Review, Respond, Edit, Details) promises the record it sits on: crawl's Open X rule
     # judges a named record; these are judged by the dead and silent rules only
     if GENERIC.match(L.strip()): return []
+    # a row's whole text (a sentence, a name and an amount) is the record it opens, judged by crawl's Open X rule
+    if len(L.split()) >= 6: return []
     words = promise_words(L)
     if not words or r.get('reloaded'): return []
     mutated = [k for k in r['keys'] if k not in UI_KEYS]
@@ -195,12 +197,35 @@ class TapLint(Crawler):
                 for rule, det in judge(c, dict(r, toastLink=tl, errors=[]), ctx):
                     if 'toast' in det and 'link' in det and not allowed(rule, c, ctx['view']): found.append((rule, det))
                 found += toast_open_flags(r, tl)
+        # a press that asks first: Yes, Continue is the act, and it owes what the press owed (Pilot 2: the first Yes,
+        # Continue on Done saved nothing, Yes, Continue on Delete said nothing)
+        if r['overlays'] and not r.get('reloaded') and re.search(r'please confirm|one thing first', r['overlays'][-1]['title'], re.I):
+            found += await self.yes_continue(c)
         return [(rule, det) for rule, det in found if not any(re.search(l, c['label'], re.I) and (v is None or re.search(v, ctx['view'])) for l, v, _ in ALLOW)]
+
+    async def yes_continue(self, c):
+        pg = self.pg
+        ok = await pg.evaluate("() => { const b = document.querySelector('#mbm #mbm-ok'); if (!b || !/^(yes|continue)/i.test(b.innerText.trim())) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, t: b.innerText.trim() }; }")
+        if not ok: return []
+        if await pg.evaluate("() => !!document.querySelector('#mbm [data-f]')"): return []   # a question that wants an answer typed
+        await pg.evaluate('() => window.__cr.before()')
+        await pg.mouse.click(ok['x'], ok['y'])
+        await self.settle()
+        r2 = await pg.evaluate('o => window.__cr && window.__cr.after(o)', {})
+        if not r2: return []
+        mut = [k for k in r2['keys'] if k not in UI_KEYS]
+        if not mut and not r2['toasts'] and not r2['viewChanged'] and not r2['overlays'] and not r2['sigChanged']:
+            return [('DEAD', f"\"{c['label'][:40]}\" asks first, and {ok['t']} then does nothing")]
+        if mut and not r2['toasts'] and not r2['overlays']:
+            return [('SILENT', f"\"{c['label'][:40]}\": {ok['t']} changed {', '.join(mut)[:60]} with no toast")]
+        if mut and r2['toasts'] and not any(t['links'] for t in r2['toasts']) and not crawl.DESTRUCT_RE.match(c['label']):
+            return [('SILENT', f"\"{c['label'][:40]}\": {ok['t']} toasted \"{r2['toasts'][-1]['text'][:50]}\" with no Open")]
+        return []
 
     def record(self, rule, vp, u, e, c, det, r, role):
         lane = owned_by(c['label'], e['v'], role)
         f = {'rule': rule, 'viewport': vp, 'user': u, 'view': e['v'], 'tab': e['tab'], 'page': e['l'], 'label': c['label'][:80], 'btn': c.get('btn'),
-             'key': c['key'], 'n': c['n'], 'detail': det, 'g': e['g'],
+             'key': c['key'], 'n': c['n'], 'detail': det, 'g': e['g'], 'html': c.get('html', ''),
              'dest': {'view': r.get('view'), 'title': crawl.dest_title(r)[:80] if 'heading' in r else '',
                       'toasts': [t['text'][:80] + (' [' + ', '.join(t['links']) + ']' if t['links'] else '') for t in r.get('toasts', [])[:3]]}}
         if lane:
@@ -239,6 +264,9 @@ class TapLint(Crawler):
                         dirty = None
                         for c in plan:
                             await self.fresh(dirty, u)
+                            # what was pressed, for the report (the page is drawn again by the press)
+                            try: c['html'] = await self.pg.evaluate("([k, n]) => { const e = window.__cr.byKey && window.__cr.byKey.get(k + '#' + n); return e ? e.outerHTML.slice(0, 260) : ''; }", [c['key'], c['n']])
+                            except Exception: c['html'] = ''
                             r = await self.press(c, phone)
                             if r.get('missing'): self.skipped['gone after restore'] += 1; dirty = 'full'; continue
                             if r.get('covered'): self.covered[(vp, u, e['v'])] += 1; self.skipped['covered'] += 1; dirty = None; continue
@@ -246,7 +274,9 @@ class TapLint(Crawler):
                             for rule, det in await self.judge_press(c, r, ctx, rw_cache):
                                 self.record(rule, vp, u, e, c, det, r, role)
                             mut = [k for k in r['keys'] if k not in UI_KEYS]
-                            if r.get('reloaded') or self.navigated or mut or r['viewChanged'] or r['curChanged'] or r['keys'] or r.get('viewSigChanged'): dirty = 'full'
+                            # a toast's Open followed, or Yes, Continue pressed: the page moved on, draw it again
+                            followed = r['toasts'] or (r['overlays'] and re.search(r'please confirm|one thing first', r['overlays'][-1]['title'], re.I))
+                            if r.get('reloaded') or self.navigated or mut or followed or r['viewChanged'] or r['curChanged'] or r['keys'] or r.get('viewSigChanged'): dirty = 'full'
                             elif r['overlays'] or r['sigChanged'] or r['toasts'] or r['scrolled']: dirty = 'light'
                             else: dirty = None
                         await self.fresh(dirty, u)

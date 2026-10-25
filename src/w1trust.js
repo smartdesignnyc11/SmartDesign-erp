@@ -142,7 +142,7 @@ const w1Fields = (root) => (root ? [...root.querySelectorAll("input, textarea, s
 // then which one of the same name it is
 function w1Base(el) {
   const da = [...el.attributes]
-    .filter((a) => /^data-/.test(a.name) && !/^data-(sim|w1|sd)/.test(a.name))
+    .filter((a) => /^data-/.test(a.name) && !/^data-(sim|w1|sd|cr|dbg)/.test(a.name))
     .map((a) => `${a.name}=${a.value}`)
     .join(",");
   const nm = el.id || (el.dataset && el.dataset.f) || el.name || da || el.getAttribute("aria-label") || el.placeholder || "";
@@ -206,7 +206,7 @@ const W1_CTL = "button, a, [role=button], summary, [data-act], [data-bact], tr, 
 function w1Opener(el) {
   const c = el && el.closest && el.closest(W1_CTL);
   if (!c || w1HostOf(c)) return null;
-  const attrs = [...c.attributes].filter((a) => /^data-/.test(a.name) && !/^data-(sim|w1|sd)/.test(a.name) && a.value.length < 120);
+  const attrs = [...c.attributes].filter((a) => /^data-/.test(a.name) && !/^data-(sim|w1|sd|cr|dbg)/.test(a.name) && a.value.length < 120);
   return { tag: c.tagName.toLowerCase(), id: c.id || "", attrs: attrs.map((a) => [a.name, a.value]), txt: w1Norm(c.innerText || c.getAttribute("aria-label") || "").slice(0, 80) };
 }
 function w1FindOpener(o) {
@@ -1177,6 +1177,26 @@ document.addEventListener(
           }
         };
       }
+    } catch (e) {}
+    return r;
+  };
+}
+
+// The field's raise sheet is titled by the button that opened it: "Change the Plan" and "Where Is It?" both open the
+// blocker sheet, which said "I Need Something" (the tap lint, the foreman's phone).
+const W1_RAISE_TITLE = [
+  [/^plan change/i, "Change the Plan"],
+  [/^where is:/i, "Where Is It?"],
+];
+if ("function" == typeof fRaiseDialog) {
+  const base = fRaiseDialog;
+  fRaiseDialog = function (type, preset) {
+    const r = base.apply(this, arguments);
+    try {
+      const t = String((preset && preset.title) || ""),
+        hit = W1_RAISE_TITLE.find(([rx]) => rx.test(t)),
+        h = hit && document.querySelector("#mbm .mbm-hd h3");
+      h && ((h.textContent = hit[1]), h.closest(".mbm-box") && h.closest(".mbm-box").setAttribute("aria-label", hit[1]));
     } catch (e) {}
     return r;
   };

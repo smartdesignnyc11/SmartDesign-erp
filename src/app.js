@@ -163158,7 +163158,7 @@ function prgSheet(id, pid) {
     cur = prgPct(t),
     body = `<p class="small muted prg-sum">${prgSummary(t)}</p>\n    ${unit ? `<div class="f"><label>Installed So Far (${esc(t.unit)})</label><div class="prg-qty"><input data-f="qty" type="number" inputmode="decimal" min="0" max="${+t.qtyTotal}" value="${null != t.qtyDone ? +t.qtyDone : ""}" placeholder="0"><span class="small muted">of ${+t.qtyTotal} ${esc(t.unit)}</span></div><span class="hint">Or tap a step below.</span></div>` : ""}\n    <div class="prg-steps" role="group" aria-label="Percent complete">${PRG_STEPS.map((s) => `<button type="button" class="prg-step ${cur === s ? "on" : ""}" data-prgstep="${s}">${s}%</button>`).join("")}</div>\n    <div class="f"><label>Note (Optional)</label><input data-f="note" placeholder="e.g. 3rd floor done, hall left"></div>\n    <div class="f prg-photo"><label>Photo (Optional)</label><label class="btn sm prg-cam">${FX_ICON.camera}<span>Take Photo</span><input type="file" accept="image/*" capture="environment" hidden data-prgshot></label><span class="small muted" data-prgshotn></span></div>\n    <details class="prg-hd"><summary class="small">History (${prgLog(t).length})</summary>${prgHistHtml(t)}</details>`,
     m = mbModal(
-      `Progress — <span data-nocase>${esc(t.name)}</span>`,
+      `Update Progress — <span data-nocase>${esc(t.name)}</span>`,
       body,
       unit
         ? {
