@@ -622,6 +622,319 @@ function w1ReopenAfterReload() {
   };
 }
 
+// ---- D3: Make It a Task takes its date and its notes from its own mail ---------------------------------------------
+// Pilot 2, the designer: six times Make It a Task set the wrong due date. A promise of "end of day" read as a week
+// later (Friday written on a Friday was taken as next Friday); Chen's "by noon today (order-by 9/16)" took the order-by
+// date; and the notes came from Chen's other mail (the thread's old subject, "Re: laundry depth"). The rule, for every
+// path that makes a task from a mail (the Today card, the Inbox's Task From This Message): the date the person
+// promised in their own reply on that thread, else the date the mail asks for, else the event it names (a hearing, an
+// inspection: the working day before), never an order-by, ship-by or delivery date; and the notes are that mail's own
+// words.
+const W1_DOW = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const W1_SAMEDAY = /\b(end of (?:the )?day|eod|close of business|cob|tonight|this (?:morning|afternoon|evening)|noon|midday|today)\b/i;
+// a date that is not the ask: when the thing must be ordered, shipped, delivered, released, on site, or someone is out
+const W1_NOTASK = /\b(order(?:ed)?|ship(?:s|ped|ping)?|deliver(?:y|ed|s)?|release[sd]?|arriv(?:e|es|al)|lead time|on site|onsite|install(?:ed)?|fabricat\w*|back|out)[-\s]*(?:by|on|date|for|to|until)?[\s:(]*$/i;
+// one date phrase in words, read against the day the mail was written
+function w1DateWord(w, base) {
+  const t = String(w || "").toLowerCase().trim(),
+    b = base || today();
+  let m = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (m) {
+    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : +b.slice(0, 4),
+      d = iso(new Date(y, +m[1] - 1, +m[2]));
+    return !m[3] && d < iso(addDays(b, -60)) ? iso(new Date(y + 1, +m[1] - 1, +m[2])) : d;
+  }
+  m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (m) return iso(new Date(+b.slice(0, 4), ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1]), +m[2]));
+  if (/\btomorrow\b/.test(t)) return iso(addDays(b, 1));
+  m = t.match(/\b(next\s+)?(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/);
+  if (m) {
+    let k = (W1_DOW.indexOf(m[2]) - parse(b).getDay() + 7) % 7;
+    // "Friday" written on a Friday is that day; "next Friday" is the one after
+    m[1] && k < 7 && (k += 7);
+    return iso(addDays(b, k));
+  }
+  if (/\bend of (?:the )?week\b|\bthis week\b/.test(t)) return w1DateWord("friday", b);
+  if (/\bnext week\b/.test(t)) return addWork(b, 5);
+  if (W1_SAMEDAY.test(t)) return b;
+  return "";
+}
+// every dated deadline in a text that is when the person must act (not an order-by), the ones said with "by" first
+const W1_DATE_RX = /\b(?:(?:by|before|no later than|until|due|for|on)\s+)?((?:next\s+)?(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\.?(?:\s+\d{1,2}\/\d{1,2})?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.? \d{1,2}|tomorrow|today|tonight|end of (?:the )?(?:day|week)|eod|close of business|cob|this (?:morning|afternoon|evening)|noon(?:\s+today)?)\b/gi;
+function w1Deadlines(text, base) {
+  const out = [],
+    t = String(text || "").replace(/\s+/g, " ");
+  let m;
+  W1_DATE_RX.lastIndex = 0;
+  while ((m = W1_DATE_RX.exec(t))) {
+    const before = t.slice(Math.max(0, m.index - 28), m.index),
+      lead = /^(by|before|no later than|until|due|for|on)\b/i.test(m[0]) ? m[0].split(/\s+/)[0] : "";
+    // "(order-by 9/16)", "ships 9/11", "Tomas out to 9/14": not when the person must act
+    if (W1_NOTASK.test(before + (lead ? lead + " " : "")) || W1_NOTASK.test(before)) continue;
+    const said = !!lead && /^(by|before|no|until|due)$/i.test(lead) || /\b(by|before|due|until)\s*$/i.test(before) || W1_SAMEDAY.test(m[1]) || /end of/i.test(m[1]);
+    let d = w1DateWord(m[1], base);
+    // "by end of day Wed 9/9", "by noon tomorrow": the time of day belongs to the date after it
+    if (W1_SAMEDAY.test(m[1]) && !/\btoday\b/i.test(m[1])) {
+      const ahead = t.slice(m.index + m[0].length, m.index + m[0].length + 26).match(/^\s*,?\s*(?:on\s+)?((?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?(?:\s+\d{1,2}\/\d{1,2})?|\d{1,2}\/\d{1,2}|tomorrow|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2})/i);
+      ahead && (d = w1DateWord(ahead[1], base) || d) && (W1_DATE_RX.lastIndex = m.index + m[0].length + ahead[0].length);
+    }
+    d && d >= base && out.push({ d, said, words: m[0].trim() });
+  }
+  return out.sort((a, b) => b.said - a.said || a.d.localeCompare(b.d));
+}
+const w1Own = (c) => ("function" == typeof cmOwnText ? cmOwnText((c && c.text) || "") : String((c && c.text) || ""));
+const w1Sents = (t) => String(t || "").replace(/\s+/g, " ").split(/(?<=[.?!;])\s+/);
+// the person's own mail on the thread after the ask, that commits to a date ("I ... send the count by end of day Wed 9/9")
+function w1MyReply(c) {
+  if (!c || !c.threadId) return null;
+  const me = currentUser() || {},
+    em = ("function" == typeof lnMyEmail && lnMyEmail(me.id)) || String(me.email || "").toLowerCase(),
+    at = String(c.date || "");
+  const mine = (DB.comms || [])
+    .filter((x) => x !== c && x.threadId === c.threadId && String(x.date || "") >= at)
+    .filter((x) => (em && String((x.from || {}).email || "").toLowerCase() === em) || ("out" === x.direction && (!x.owner || x.owner === me.id)))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  for (const x of mine) {
+    const base = String(x.date || "").slice(0, 10) || today();
+    for (const s of w1Sents(w1Own(x))) {
+      if (!/\b(i|we|i'll|we'll|you'll have)\b/i.test(s)) continue;
+      const D = w1Deadlines(s, base).filter((y) => y.said);
+      if (D.length) return { due: D[0].d, sentence: s.trim(), mail: x };
+    }
+  }
+  return null;
+}
+// the date a mail asks for, in its own words
+function w1AskedDate(c) {
+  const base = String((c && c.date) || "").slice(0, 10) || today();
+  for (const s of w1Sents(w1Own(c))) {
+    const D = w1Deadlines(s, base).filter((y) => y.said);
+    if (D.length) return { due: D[0].d, sentence: s.trim() };
+  }
+  return null;
+}
+// the one rule for a task made from a mail: { due, why, sentence }
+function w1MailDue(c, p) {
+  if (!c) return null;
+  const td = today(),
+    clamp = (d) => (d < td ? td : d);
+  const r = w1MyReply(c);
+  if (r) return { due: clamp(r.due), why: `the date you gave in your reply, ${fmtL(r.due)}`, sentence: r.sentence };
+  const a = w1AskedDate(c);
+  if (a) return { due: clamp(a.due), why: `the date the mail asks for, ${fmtL(a.due)}`, sentence: a.sentence };
+  try {
+    const pr = p || ((c.route || {}).projectId && (DB.projects || []).find((x) => x.id === c.route.projectId));
+    const R = "function" == typeof recDueFrom ? recDueFrom(`${c.subject || ""}\n${w1Own(c)}`, pr) : null;
+    if (R) return { due: R.due, why: R.why, sentence: "" };
+  } catch (e) {}
+  return null;
+}
+// the notes: that mail's words, who wrote them and when (a reply's old subject belongs to another conversation)
+function w1MailNotes(c, sentence) {
+  const who = (c.from && (c.from.name || c.from.email)) || "The sender",
+    day = String(c.date || "").slice(0, 10),
+    own = w1Own(c).replace(/\s+/g, " ").trim(),
+    subj = /^(re|fwd?|fw):/i.test(String(c.subject || "").trim()) ? "" : String(c.subject || "").trim();
+  const said = sentence && own.includes(sentence.slice(0, 40)) ? sentence : own.slice(0, 240);
+  return `${who}${day ? ` on ${fmtL(day)}` : ""}${subj ? ` (${subj})` : ""}: “${said}”`;
+}
+{
+  const base = newTaskDialog;
+  newTaskDialog = function (preset, opts) {
+    try {
+      const P = preset || {},
+        cid = P.source && P.source.commId,
+        c = cid && (DB.comms || []).find((x) => x.id === cid);
+      if (c && !P.dueKept) {
+        const pr = P.projectId && (DB.projects || []).find((x) => x.id === P.projectId);
+        const R = w1MailDue(c, pr);
+        const P2 = Object.assign({}, P, { notes: w1MailNotes(c, R && R.sentence) });
+        R && ((P2.due = R.due), (P2.source = Object.assign({}, P.source, { label: `${P.source.label || "a message"}; due ${fmtL(R.due)}, ${R.why}` })));
+        arguments[0] = P2;
+      }
+    } catch (e) {
+      console.warn("task from mail", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// a promise made in mail ("I'll send the window drawing by end of day"): due the day it was written, not a week on
+{
+  const base = lnPromiseOf;
+  lnPromiseOf = function (c) {
+    const r = base.apply(this, arguments);
+    try {
+      const sent = String((c && c.date) || "").slice(0, 10) || today(),
+        txt = String((c && c.text) || "").replace(/\s+/g, " ");
+      if (!r) {
+        const m = txt.match(/\b(?:I(?:'|’)ll|I will|we(?:'|’)ll|we will)\s+(send|get|have|deliver|finish|issue|share|email|submit|bring|forward)\s+([^.!?\n]{4,90}?)\s+(?:by\s+|before\s+)?(end of (?:the )?day|eod|close of business|cob|tonight|this (?:morning|afternoon|evening)|noon)\b/i);
+        if (!m) return r;
+        const t0 = (c.to || [])[0],
+          to = (t0 && (t0.name || t0.email)) || ("string" == typeof t0 ? t0 : "") || "";
+        return { what: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), due: sent, to: String(to).replace(/<.*$/, "").trim(), sent };
+      }
+      const m = txt.match(LN_PROMISE);
+      if (m) {
+        const d = w1DateWord(m[3], sent);
+        d && d >= sent && (r.due = d);
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- D3: quick add keeps the date and time the person said ----------------------------------------------------------
+// The PM typed "Call a backup mason for 121 State restoration (Tomas out to 9/14) Wed 9/9 8am" and got Mon 9/14: the
+// first date anywhere won, even inside the parenthesis, and the title lost "to 9/14". A parenthesis is the person's
+// note: it stays in the title whole and its dates are never the due date; a short weekday with a date ("Wed 9/9") is
+// that date, and the time said stays in the title.
+if ("function" == typeof tvQaParse) {
+  const base = tvQaParse;
+  tvQaParse = function (text) {
+    const raw = String(text || ""),
+      keep = [],
+      masked = raw.replace(/\([^()]*\)/g, (x) => (keep.push(x), ` zqpar${keep.length - 1}q `));
+    const r = base.call(this, masked);
+    try {
+      r.text = raw;
+      let t = String(r.title || "");
+      keep.forEach((x, i) => (t = t.replace(new RegExp(`\\s*zqpar${i}q\\s*`, "i"), ` ${x} `)));
+      const outside = masked.replace(/zqpar\d+q/g, " ");
+      const dm = outside.match(/\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\.?\s+(\d{1,2}\/\d{1,2})\b/i);
+      if (dm) {
+        const d = w1DateWord(dm[2], today());
+        d && (r.due = d), (t = t.replace(new RegExp(`\\b${dm[1]}\\.?(?=\\s|$)`, "i"), " "));
+      } else if (!r.due) {
+        const wm = outside.match(/\b(?:by |on |due )?(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b\.?/i);
+        wm && ((r.due = w1DateWord(wm[1], today())), (t = t.replace(wm[0], " ")));
+      }
+      // the time said ("8am") stays, as a time
+      t = t.replace(/\b(\d{1,2})(?::(\d\d))?\s*(am|pm)\b/i, (x, h, mi, ap) => `by ${+h}${mi ? ":" + mi : ""} ${ap.toUpperCase()}`);
+      t = t.replace(/\s{2,}/g, " ").replace(/\s+([,.;:!?)])/g, "$1").replace(/\(\s+/g, "(").trim();
+      r.title = t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+    } catch (e) {
+      console.warn("quick add", e);
+    }
+    return r;
+  };
+}
+
+// ---- D3: clock-out ticks only what the person was on ---------------------------------------------------------------
+// Pilot 2: the clock-out sheet ticked "Windows & interior trim" for Alberto (his task is Framing & blocking, his name on
+// it) and for Alex the driver, because an in-house task that had started was taken as everyone's day; and it replaced
+// the line Alberto had just logged with Add a Line. The job then pays finish carpentry for a van run. Ticked now: a
+// line the person already logged today (with its hours), the task or cost code they clocked in on, a task with their
+// name on it, a task they logged progress on today. Nothing else, so an unknown day is ticked by the person, never
+// guessed. The driver's sheet has the driver's own work: driving and material runs, pickups, deliveries.
+if ("function" == typeof f3WorkedOn) {
+  f3WorkedOn = function (t, e, p) {
+    try {
+      if ((e.work || []).some((w) => w.taskId && w.taskId === t.id)) return !0;
+      if (e.taskId && e.taskId === t.id) return !0;
+      if (e.code && "99" !== e.code && t.trade && codeForTrade(t.trade) === e.code) return !0;
+      const emp = (DB.employees || []).find((x) => x.id === e.empId) || {},
+        nm = String(emp.name || "").toLowerCase(),
+        first = nm.split(" ")[0],
+        own = String(t.owner || t.assignee || "").trim().toLowerCase();
+      if (first && own && (own === nm || own === first || own.split(/[\s,&/]+/).includes(first))) return !0;
+      return (t.pctLog || []).some((l) => l.on === e.date && first && String(l.by || "").toLowerCase().split(" ")[0] === first);
+    } catch (x) {
+      return !1;
+    }
+  };
+}
+const W1_DRIVE = [
+  ["w1drv:drive", "Driving and material runs"],
+  ["w1drv:pickup", "Pickups"],
+  ["w1drv:deliver", "Deliveries"],
+];
+function w1IsDriver(e) {
+  const emp = (DB.employees || []).find((x) => x.id === (e && e.empId)) || {},
+    u = (DB.users || []).find((x) => x.employeeId === emp.id) || {};
+  return "driver" === u.role || /\bdriver\b/i.test(emp.role || "");
+}
+if ("function" == typeof f3DaySheet) {
+  const base = f3DaySheet;
+  f3DaySheet = function (e) {
+    if (e && w1IsDriver(e)) return w1DriverDay(e);
+    const logged = ((e && e.work) || []).filter((w) => w.taskId && +w.hours > 0);
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm");
+      // what the person logged with Add a Line comes ticked with its hours: the sheet confirms the day, it does not redo it
+      m &&
+        logged.forEach((w) => {
+          const cb = m.querySelector(`[data-f3t2="${CSS.escape(w.taskId)}"]`),
+            h = m.querySelector(`[data-f3h="${CSS.escape(w.taskId)}"]`);
+          cb && ((cb.checked = !0), cb.dispatchEvent(new Event("change", { bubbles: !0 })));
+          h && ((h.value = String(w.hours)), h.dispatchEvent(new Event("change", { bubbles: !0 })));
+        });
+    } catch (x) {}
+    return r;
+  };
+}
+function w1DriverDay(e) {
+  const p = (DB.projects || []).find((x) => x.id === e.projectId) || S,
+    total = "function" == typeof hoursOf ? r2(hoursOf(e)) : 0,
+    td = e.date,
+    tasks = ((p && p.tasks) || []).filter((t) => t.start && t.end && t.start <= td && t.end >= td && "done" !== t.status),
+    logged = (e.work || []).filter((w) => +w.hours > 0),
+    on = (id) => logged.some((w) => (w.taskId || w.drv) === id),
+    hrs = (id) => (logged.find((w) => (w.taskId || w.drv) === id) || {}).hours || "",
+    row = (id, name, sub) =>
+      `<label class="f3-dayrow"><input type="checkbox" data-f3t2="${esc(id)}" ${on(id) ? "checked" : ""}><span class="nm"><b>${esc(name)}</b><i>${esc(sub)}</i></span><input class="hr" type="number" step="0.25" min="0" data-f3h="${esc(id)}" value="${esc(String(hrs(id)))}" aria-label="Hours on ${esc(name)}"></label>`;
+  const gc = COST_CODES.find((c) => "01" === c[0]) || ["01", "General conditions & supervision"];
+  mbModal(
+    `${total} hours on ${esc(p.project.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">What did the day go to? Tick it and the hours split evenly across what you tick; change any of them if the day was not even.</p>
+    <div class="f3-day">${W1_DRIVE.map(([id, n]) => row(id, n, `${gc[0]} · ${gc[1]}`)).join("")}${tasks.map((t) => row(t.id, t.name, t.trade ? `${codeForTrade(t.trade)} · on site` : "on site")).join("")}</div>
+    <div class="f3-sum"><span>Accounted for</span><b id="f3-sum">0 of ${total} h</b></div>
+    <p class="small muted" style="margin:8px 0 0">This puts your hours on a cost code, so the job knows what it paid for.</p>`,
+    {
+      submit: "That Is My Day",
+      onSubmit: () => {
+        const m = document.getElementById("mbm"),
+          ids = [...m.querySelectorAll("[data-f3t2]:checked")].map((x) => x.dataset.f3t2);
+        if (!ids.length) return toast("Tick what the day went to"), !1;
+        const H = {};
+        let given = 0;
+        ids.forEach((id) => {
+          const v = +(m.querySelector(`[data-f3h="${CSS.escape(id)}"]`) || {}).value || 0;
+          v > 0 && ((H[id] = v), (given = r2(given + v)));
+        });
+        const blank = ids.filter((id) => !H[id]);
+        blank.forEach((id) => (H[id] = r2(Math.max(0, total - given) / blank.length)));
+        e.work = ids.map((id) => {
+          const d = W1_DRIVE.find((x) => x[0] === id),
+            t = d ? null : (p.tasks || []).find((x) => x.id === id) || {};
+          return d
+            ? { projectId: p.id, taskId: "", drv: id, code: gc[0], line: "", hours: r2(H[id] || 0), note: d[1] }
+            : { projectId: p.id, taskId: id, code: t.trade ? codeForTrade(t.trade) : "", line: t.lineRef || "", hours: r2(H[id] || 0), note: t.name || "" };
+        });
+        e.code = e.work[0].code;
+        e.status = "submitted";
+        audit("time", e.id, "day-logged", null, { hours: total, lines: ids.length });
+        save(), render();
+        toast(`${total} h logged: ${e.work.map((w) => w.note).join(", ")}. The office sees it for approval`, { label: "Open", run: () => ("function" == typeof openTime ? openTime(e.id) : ((view = "time"), render())) });
+      },
+    },
+  );
+  const m = document.getElementById("mbm");
+  if (!m) return;
+  const sum = () => {
+    const ids = [...m.querySelectorAll("[data-f3t2]:checked")].map((x) => x.dataset.f3t2);
+    let given = 0,
+      blank = 0;
+    ids.forEach((id) => {
+      const v = +(m.querySelector(`[data-f3h="${CSS.escape(id)}"]`) || {}).value || 0;
+      v > 0 ? (given = r2(given + v)) : blank++;
+    });
+    const el = m.querySelector("#f3-sum");
+    el && (el.textContent = blank ? `${ids.length} ticked · the rest splits evenly` : `${given} of ${total} h`);
+  };
+  m.querySelectorAll("[data-f3t2],[data-f3h]").forEach((x) => x.addEventListener("change", sum)), sum();
+}
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}
