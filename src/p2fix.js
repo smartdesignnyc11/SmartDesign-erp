@@ -63,6 +63,48 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("popstate", () => p2SheetOpen() && p2CloseSheets(!0));
 
+// ---- S1: nothing scrolls a control under the bars -------------------------------------------------------------------
+// The browser brings a control into view at the bottom edge when it is focused, linked to or tapped by a tool: on the
+// phone that edge is under the bottom bar (and Say It, a wizard's step bar), so the owner's approval button below the
+// first screen of an estimate came up "covered by another element", and a field focused at the bottom typed blind.
+// The page's scroll padding is the height of what is fixed at its top and foot, measured, on every draw and resize.
+const P2_FOOT = "#mtabs, #tabbar, #fsay, .dl-nav, .m-callbar, [data-fixedbar]";
+function p2ScrollPad() {
+  // the page scrolls on <html> or on <body> depending on the screen (html/body overflow-x): both carry the padding
+  const els = [document.documentElement, document.body],
+    set = (t, f) => els.forEach((de) => ((de.style.scrollPaddingTop = t), (de.style.scrollPaddingBottom = f)));
+  if (!("function" == typeof mOn && mOn())) return void set("", "");
+  const H = innerHeight;
+  let top = 0,
+    foot = H;
+  document.querySelectorAll("header.topbar, #subnav").forEach((e) => {
+    if (!e.getClientRects().length || !/fixed|sticky/.test(getComputedStyle(e).position)) return;
+    const r = e.getBoundingClientRect();
+    r.top < H / 3 && (top = Math.max(top, r.bottom));
+  });
+  document.querySelectorAll(P2_FOOT).forEach((e) => {
+    if (!e.getClientRects().length || "fixed" !== getComputedStyle(e).position) return;
+    const r = e.getBoundingClientRect();
+    r.height > 0 && r.top > H / 2 && (foot = Math.min(foot, r.top));
+  });
+  set(Math.round(top + 8) + "px", Math.round(H - foot + 8) + "px");
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      p2ScrollPad();
+    } catch (e) {}
+    return r;
+  };
+}
+window.addEventListener("resize", () => {
+  try {
+    p2ScrollPad();
+  } catch (e) {}
+});
+
 // ---- S2: New Estimate for the job, from the job's Estimates tab ------------------------------------------------------
 // Billing > Estimates is where a job's strip lands (MN_JOBS: ["billing", "Estimates", "estimates"]). Its New Estimate
 // starts for the job the strip came from, not only the client: the job is S when the person came through Projects.

@@ -26,7 +26,8 @@ from harness import *
 COVER = r"""(scope) => {
   const W = innerWidth, H = innerHeight;
   const root = document.querySelector(scope); if (!root) return { err: 'no ' + scope };
-  document.querySelectorAll('.toast').forEach(t => t.classList.remove('on', 'act', 'toast-up'));
+  // a toast with a link holds for six seconds; a tap on it dismisses it, and that is what a person does
+  document.querySelectorAll('.toast.on').forEach(t => t.click());
   const fixedTop = () => { const h = [...document.querySelectorAll('header.topbar, #subnav')].filter(e => e.getClientRects().length && /fixed|sticky/.test(getComputedStyle(e).position)); return h.length ? Math.max(...h.map(e => e.getBoundingClientRect().bottom)) : 0; };
   const fixedBot = () => { const b = [...document.querySelectorAll('#mtabs, #tabbar, #fsay, .dl-nav, [data-fixedbar]')].filter(e => e.getClientRects().length && getComputedStyle(e).position === 'fixed' && e.getBoundingClientRect().top > H / 2); return b.length ? Math.min(...b.map(e => e.getBoundingClientRect().top)) : H; };
   const inSheet = scope !== '.view.on';
@@ -37,7 +38,9 @@ COVER = r"""(scope) => {
     if (e.disabled) continue;
     const s = getComputedStyle(e); if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0 || s.pointerEvents === 'none') continue;
     if (e.closest('details:not([open])') && !e.matches('details > summary')) continue;
-    let r = e.getBoundingClientRect(); if (r.width < 2 || r.height < 2) continue;
+    // a link that wraps over two lines is judged on its first line (its box's centre can be the gap at a line's end)
+    const rs = e.getClientRects();
+    let r = rs.length > 1 && s.display === 'inline' ? rs[0] : e.getBoundingClientRect(); if (r.width < 2 || r.height < 2) continue;
     let L = Math.max(0, r.left), R = Math.min(W, r.right), T = Math.max(top, r.top), B = Math.min(bot, r.bottom);
     for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { const st = getComputedStyle(a);
       if (st.overflowX !== 'visible' || st.overflowY !== 'visible') { const b = a.getBoundingClientRect(); if (st.overflowX !== 'visible') { L = Math.max(L, b.left); R = Math.min(R, b.right); } if (st.overflowY !== 'visible') { T = Math.max(T, b.top); B = Math.min(B, b.bottom); } } }
@@ -52,8 +55,7 @@ COVER = r"""(scope) => {
     const d = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : '');
     out.push(`${d(e)} "${((e.innerText || e.placeholder || e.getAttribute('aria-label') || e.value || '') + '').replace(/\s+/g, ' ').trim().slice(0, 30)}" under ${d(layer)} "${(layer.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 30)}"`);
   }
-  out.toast = [...document.querySelectorAll('.toast')].map(t => t.id + ':' + t.className);
-  return { out, toast: out.toast, band: [Math.round(top), Math.round(bot)], sh: document.documentElement.scrollHeight };
+  return { out, band: [Math.round(top), Math.round(bot)], sh: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) };
 }"""
 
 WIDE = r"""() => { const W = innerWidth, v = document.querySelector('.view.on'), out = [];
@@ -67,27 +69,47 @@ WIDE = r"""() => { const W = innerWidth, v = document.querySelector('.view.on'),
   if (document.documentElement.scrollWidth > W) out.push(`page ${document.documentElement.scrollWidth}px wide`);
   return out; }"""
 
+# A control brought up the way the browser brings it up (focus, a link to it, a test tool's tap): scrolled just into
+# view at the bottom edge. Under a fixed bottom bar it is then covered (Pilot 2: the owner's approval button below the
+# first screen of an estimate was "covered by another element"). The page must keep room above its fixed bars.
+ENDCHK = r"""() => { const v = document.querySelector('.view.on'), out = [], H = innerHeight;
+  document.querySelectorAll('.toast.on').forEach(t => t.click());
+  const els = [...v.querySelectorAll('button, a.btn, input:not([type=hidden]), textarea, select')].filter(e => { const s = getComputedStyle(e); return e.getClientRects().length && s.visibility !== 'hidden' && !e.disabled && !e.closest('details:not([open])'); });
+  for (const e of els.slice(0, 80)) {
+    window.scrollTo(0, 0); document.body.scrollTop = 0; e.scrollIntoView({ block: 'end', inline: 'nearest' });
+    const r = e.getBoundingClientRect(); if (r.height < 2 || r.bottom > H + 1 || r.top < 0) continue;
+    // a control in a box that scrolls on its own is that box's business
+    let inner = false; for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { const s = getComputedStyle(a); if (a !== document.documentElement && /auto|scroll|hidden/.test(s.overflowY) && a.scrollHeight > a.clientHeight + 2) { inner = true; break; } } if (inner) continue;
+    const h = document.elementFromPoint(r.left + Math.min(r.width / 2, 20), r.top + r.height / 2);
+    if (!h || e.contains(h) || (e.closest('label') && e.closest('label').contains(h))) continue;
+    let layer = h; for (let a = h; a && a !== document.body; a = a.parentElement) if (/fixed|sticky/.test(getComputedStyle(a).position)) { layer = a; break; }
+    out.push(`${e.tagName.toLowerCase()} "${(e.innerText || e.placeholder || e.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 30)}" scrolled into view sits under ${layer.tagName.toLowerCase()}${layer.id ? '#' + layer.id : ''}.${(typeof layer.className === 'string' ? layer.className : '').split(' ')[0]}`);
+  }
+  window.scrollTo(0, 0); document.body.scrollTop = 0; return out; }"""
+
+async def endchk(pg, c, who):
+    for x in await pg.evaluate(ENDCHK): c.ok(False, f'COVERED {who}: {x}')
+
 async def walk(pg, c, who, scope='.view.on'):
     """Scroll the page through, a screen at a time, and judge every control on each screen."""
     seen = set()
     if scope != '.view.on':
         # a person reading a sheet has no field focused: the item list a focused field opens is that field's own layer
         await pg.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()"); await pg.wait_for_timeout(300)
-    await pg.evaluate("window.scrollTo(0, 0)"); await pg.wait_for_timeout(120)
+    await pg.evaluate("(window.scrollTo(0, 0), document.body.scrollTop = 0)"); await pg.wait_for_timeout(120)
     y = 0
     for _ in range(40):
         m = await pg.evaluate(COVER, scope)
         if m.get('err'): c.ok(False, f'{who}: {m["err"]}'); return
-        if m['out']: print('toasts', m.get('toast'))
         for x in m['out']:
             if x not in seen: seen.add(x); c.ok(False, f'COVERED {who} at y={y}: {x}')
         if scope != '.view.on': break
         step = max(200, m['band'][1] - m['band'][0] - 60)
         y += step
         if y >= m['sh']: break
-        await pg.evaluate("y => window.scrollTo(0, y)", y); await pg.wait_for_timeout(90)
+        await pg.evaluate("y => { window.scrollTo(0, y); document.body.scrollTop = y; }", y); await pg.wait_for_timeout(90)
     c.ok(True, who)
-    await pg.evaluate("window.scrollTo(0, 0)")
+    await pg.evaluate("(window.scrollTo(0, 0), document.body.scrollTop = 0)")
 
 async def wide(pg, c, who):
     for x in await pg.evaluate(WIDE): c.ok(False, f'WIDE {who}: {x}')
@@ -140,12 +162,8 @@ async def main():
         n = await pg.evaluate("id => { const c = DB.clients.find(c => c.estimates.some(e => e.id === id)); const e = c.estimates.find(e => e.id === id); return { n: e.lines.length, item: (e.lines.find(l => l.item) || {}).item || '' } }", est)
         c.ok(n['item'] == 'Demolition and protection', f'1: what was typed before Escape is kept: {n}')
         await walk(pg, c, '1: the estimate after Escape')
-        for tap in ['.ct-m-row', '.est-scope textarea']:
-            try:
-                await pg.locator('#v-clients ' + tap).first.tap(timeout=4000); ok = True
-            except Exception as ex:
-                ok = False
-            c.ok(ok, f'1: a real tap reaches {tap} after the sheet closed')
+        for sel in ['.ct-m-row', '.est-scope textarea']:
+            await tap(pg, c, '#v-clients ' + sel, f'1: after the sheet closed, {sel}')
             if await sheet_on(pg): await pg.locator('#ct-sheet [data-cts=done]').first.tap(); await pg.wait_for_timeout(300)
         # the sheet open, then Back (the phone's back), then away and back
         await tap(pg, c, '#v-clients .ct-m-row', '1: a line row')
@@ -181,20 +199,35 @@ async def main():
                           poOpen = po.id; setView('po'); return po.number + ' ' + po.status; }""", pick)
                         if not num: continue
                         await pg.wait_for_timeout(300)
-                        await walk(pg, c, f'2: {u} PO {num}'); await wide(pg, c, f'2: {u} PO {num}')
+                        await walk(pg, c, f'2: {u} PO {num}'); await wide(pg, c, f'2: {u} PO {num}'); await endchk(pg, c, f'2: {u} PO {num}')
                     continue
                 if 'clients' not in rv: continue
                 for pick in ['draft', 'sent']:
                     num = await open_doc(pg, k, pick)
                     if not num: continue
                     await pg.wait_for_timeout(300)
-                    await walk(pg, c, f'2: {u} {k} {num}'); await wide(pg, c, f'2: {u} {k} {num}')
+                    await walk(pg, c, f'2: {u} {k} {num}'); await wide(pg, c, f'2: {u} {k} {num}'); await endchk(pg, c, f'2: {u} {k} {num}')
                     if await pg.locator('.view.on .ct-m-row').count():
                         await pg.locator('.view.on .ct-m-row').first.tap(); await pg.wait_for_timeout(300)
                         if await sheet_on(pg):
                             await walk(pg, c, f'2: {u} {k} {num} line sheet', '#ct-sheet')
                             await pg.keyboard.press('Escape'); await pg.wait_for_timeout(200)
                     await pg.evaluate("() => { docOpen = null; }")
+
+        # every estimate template, drafted and sent, as the PM and the owner (Pilot 2: the owner's approval button,
+        # below the first screen of a sent estimate, was under another element; the line table scrolled sideways)
+        for u in ['u_alan', 'u_owner']:
+            await sign_in(pg, u)
+            for tpl in ['construction', 'design', 'materials', '']:
+                for st in ['draft', 'sent']:
+                    num = await pg.evaluate("""([tpl, st]) => { const c = DB.clients.find(c => /Klein/.test(c.name));
+                      const d = newDoc(c, 'estimate', { template: tpl || undefined });
+                      d.title = 'Parlor floor millwork'; d.lines = [{ id: uid('l'), item: 'MILLWORK', desc: 'Built-in bookcases, parlor floor\\nPaint grade, two coats', qty: 2, unit: 'ea', rate: 4800, taxable: false, cost: 3100, code: '', parent: '', items: [] },
+                        { id: uid('l'), item: 'TRIM', desc: 'Crown and base to match', qty: 120, unit: 'lf', rate: 38, taxable: false, cost: 21, code: '', parent: '', items: [] }];
+                      d.status = st; save(); clientOpen = c.id; clientTab = 'fin'; docOpen = { kind: 'estimate', id: d.id }; setView('clients'); return d.number + ' ' + (tpl || 'simple') + ' ' + st; }""", [tpl, st])
+                    await pg.wait_for_timeout(350)
+                    await walk(pg, c, f'2: {u} estimate {num}'); await wide(pg, c, f'2: {u} estimate {num}'); await endchk(pg, c, f'2: {u} estimate {num}')
+            await pg.evaluate("() => { docOpen = null; }")
 
         # ---------------------------------------------------------------- 3. New Estimate on the job's Estimates tab
         await sign_in(pg, 'u_alan')
@@ -235,6 +268,19 @@ async def main():
               const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
               return { vis: !a.hidden && r.width >= 40 && r.height >= 40 && r.right <= innerWidth, name: a.getAttribute('aria-label') || a.innerText.trim(), top: !!h && a.contains(h) }; }""")
             c.ok(bool(a) and a['vis'] and a['name'] == 'Ask' and a['top'], f'ASK 5: {u} has Ask on the phone header, named and tappable: {a}')
+
+        # ---------------------------------------------------------------- 6. Sales > Estimates: a tap on a number opens that estimate
+        await sign_in(pg, 'u_owner')
+        GO = "() => { docOpen = null; const B = mnBuild(role()); const g = B.groups.find(g => g.id === 'sales'); const it = g.items.find(i => i.l === 'Estimates'); mnGo(g, it); }"
+        await pg.evaluate(GO); await pg.wait_for_timeout(400)
+        nums = await pg.evaluate("() => [...document.querySelectorAll('.view.on .pr-row .pr-num')].filter(e => e.getClientRects().length).map(e => e.textContent.trim())")
+        c.ok(len(nums) >= 3, f'6: each estimate row leads with its number: {nums}')
+        for n in nums:
+            await pg.evaluate(GO); await pg.wait_for_timeout(300)
+            xy = await pg.evaluate("n => { const e = [...document.querySelectorAll('.view.on .pr-row .pr-num')].find(x => x.textContent.trim() === n); e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }", n)
+            await pg.touchscreen.tap(xy[0], xy[1]); await pg.wait_for_timeout(400)
+            got = await pg.evaluate("() => { if (!docOpen) return 'nothing'; for (const c of DB.clients) { const d = (c.estimates || []).find(e => e.id === docOpen.id); if (d) return d.number; } return '?'; }")
+            c.ok(got == n, f'6: a tap on {n} opens {n}, opened {got}')
 
         for x in errs[:5]: c.ok(False, 'page error: ' + x[:200])
         await b.close()
