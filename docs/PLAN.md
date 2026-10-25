@@ -9,6 +9,14 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Module census (Alan, 10-25: "did the role experts check each module and its sub pages?")
+Not yet. Pilot 2 judged the pages used for the work, not every module page by page. Recommended, Projects first to measure:
+1. **Machine census** (no model usage, about 25 minutes): `tests/ia_map.py` on the current build, extended to the job page's own sub-pages. Per module, role and device it lists every page and sub-page, its sections, the records each shows and where the same record shows twice.
+2. **Expert walk per module:** the role expert who lives in it plus the information-architecture reviewer, with the census in hand, open every page and sub-page on the phone and the desktop and judge layout, what is on it, what is missing, what is duplicated, what should merge.
+3. **Module map** in `docs/modules/<module>.md`: pages, sub-pages, what lives where, the recommended structure, and a mockup for Alan's yes where the structure changes.
+Modules: Projects (the job page and its sub-pages), Sales and clients, Estimates, Billing, Purchasing, Accounting (Banking, Bills, Ledger, Reports, Controls), Field and Site, Time and Payroll, Design, Today/Tasks/Messages, Company and Settings, the client portal.
+Cost: not measured. On Pilot 2's 82k tokens a turn, about 0.5–0.8M a module, 6–9M for all twelve, the size of one pilot. Projects goes first and its measured cost is reported before the rest.
+
 ## Pilot 2 (Alan, 10-25: "run Pilot 2 after the phone lanes"; UI/UX on phone and desktop)
 - **Harness ready** (e47fbd4, selftest 55/55): Pilot 1's 3 days plus 30 events across the firm (prospect to client, estimate, contract, deposit and progress invoices; two COs; a PO received short and its bill held; clock in and out to payroll; the portal; hand-offs; Meeting Mode). Every office role works on the phone at least once a day; the referee checks every tap; each expert grades phone and desktop separately; cost recorded per turn.
 - **Runs** when the taskfix and phonerows lanes merge: day 1 alone, its measured cost reported, then days 2 and 3 and both workshops. About 20 agent turns a day; the estimate of about 20M processed tokens rests on an assumption day 1 will measure.
