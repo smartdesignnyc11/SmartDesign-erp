@@ -119,7 +119,7 @@ STATE = r"""() => {
     prim: [...(v ? v.querySelectorAll('.btn.primary') : [])].filter(vis).map(txt),
     sw: document.documentElement.scrollWidth, w: innerWidth };
 }"""
-RAIL_JS = r"""() => [...document.querySelectorAll('#nav-groups > button')].map(b => ({ grp: b.dataset.grp, v: b.dataset.v,
+RAIL_JS = r"""() => [...document.querySelectorAll('#nav-groups button[data-grp]')].map(b => ({ grp: b.dataset.grp, v: b.dataset.v,
   label: (b.innerText || b.textContent).replace(/\s+/g, ' ').replace(/\s*\d+\+?$/, '').trim(), n: +((b.querySelector('.n') || {}).textContent || 0) }))"""
 SUB_JS = r"""() => [...document.querySelectorAll('#subnav .sub-tabs > *')].map(e => e.dataset && e.dataset.sub ? (e.innerText || e.textContent).replace(/\s+/g, ' ').replace(/\s*\d+\+?$/, '').trim() : '[' + e.textContent.trim() + ']')"""
 REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter((v, i, a) => a.indexOf(v) === i), mb = typeof MB_VIEWS !== 'undefined' ? MB_VIEWS : [];
@@ -130,7 +130,7 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
     if (MN_QUIET.has(v)) return;   // retired: listed while open, under its group
     out.push(v); });
   return { orphans: out, more: m.more.map(s => s.split('=')[0]), home: m.home }; }"""
-BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups > button').forEach(b => { const g = b.dataset.grp, n = +((b.querySelector('.n') || {}).textContent || 0);
+BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups button[data-grp]').forEach(b => { const g = b.dataset.grp, n = +((b.querySelector('.n') || {}).textContent || 0);
   let want = null; const rv = ROLE_VIEWS[role()] || [];
   if (OV_VIEW[g] && rv.includes(OV_VIEW[g]) && b.dataset.v === OV_VIEW[g]) want = needs(g);
   else if (g === 'home' && rv.includes('mapprove')) want = mApproveCount();
@@ -181,7 +181,7 @@ async def desktop(c, p, users):
         c.ok(not any(x['label'] == 'Ask' for x in rail), f'{u}: Ask is a menu item')
         # every rail entry, then every sub-tab of its group, pressed for real
         for i, g in enumerate(rail):
-            await press(pg, f'#nav-groups > button:nth-child({i + 1})')
+            await press(pg, f'#nav-groups button[data-grp="{g["grp"]}"]')
             st = await check_screen(c, pg, f'{u} desktop rail "{g["label"]}"', errs, g['v'])
             c.ok(st['grp'] == g['label'], f'{u} desktop rail "{g["label"]}": lit entry is "{st["grp"]}"')
             subs = await pg.evaluate(SUB_JS)
@@ -242,7 +242,7 @@ async def phone(c, p, users):
         # every rail entry opens a page that does not scroll sideways
         for i, g in enumerate(rail):
             await pg.evaluate("() => { document.querySelector('.rail')?.classList.add('open'); }")
-            await press(pg, f'#nav-groups > button:nth-child({i + 1})')
+            await press(pg, f'#nav-groups button[data-grp="{g["grp"]}"]')
             await check_screen(c, pg, f'{u} phone menu "{g["label"]}"', errs, g['v'], phone=True)
         await press(pg, '#tb-ask')
         st = await pg.evaluate(STATE)

@@ -18495,7 +18495,7 @@ function renderRunCard(emp) {
   const open = runItems({ bought: {} }),
     near = clockState.geo ? nearStore(clockState.geo) : null,
     pickups = open.filter((x) => x.it.invId && !x.it.done);
-  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
+  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" aria-label="Store" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" aria-label="Run Length" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
     open.length
       ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Preview the shopping list (${open.length})</summary><div class="shop">${Object.entries(
           open.reduce((a, x) => ((a[x.p.project.name] = a[x.p.project.name] || []).push(x), a), {}),
@@ -23561,6 +23561,14 @@ const ctFirstLine = (s) =>
     .map((x) => x.trim())
     .filter(Boolean)[0] || "";
 function ctMobileList(c, d, editable, kind) {
+  // A blank line is not a line (lkLineEmpty, the rule lkPrune applies when the person leaves): the phone neither draws
+  // nor counts one. The new estimate's starter row read "1 line, Untitled line" and became 0 on return (Pilot 2, S1).
+  // The line open in the sheet is kept while it is being filled in.
+  editable &&
+    "draft" === (d.status || "draft") &&
+    "sov" !== d.mode &&
+    "function" == typeof lkLineEmpty &&
+    (d.lines = d.lines.filter((l) => l.id === ctSheetLine || !lkLineEmpty(l) || d.lines.some((x) => x.parent === l.id)));
   ctNumber(d);
   const t = docTotal(d),
     budget = ctBudget(d),
@@ -71666,7 +71674,7 @@ function glRange() {
   return [glFrom || t.slice(0, 4) + "-01-01", glTo || t];
 }
 function glEntSel() {
-  return `<select id="gl-ent"><option value="all" ${"all" === glEnt ? "selected" : ""}>Consolidated</option>${glEntities()
+  return `<select id="gl-ent" aria-label="Entity"><option value="all" ${"all" === glEnt ? "selected" : ""}>Consolidated</option>${glEntities()
     .map((e) => `<option value="${e.id}" ${glEnt === e.id ? "selected" : ""}>${esc(e.name)}</option>`)
     .join("")}</select>`;
 }
@@ -82829,7 +82837,7 @@ function hbIndexHtml(obj) {
       .slice(Math.max(0, hbPage[obj] - 3), hbPage[obj] + 2)
       .join(
         "",
-      )}<button class="hb-btn sm" data-hbpage="next" ${hbPage[obj] >= pages ? "disabled" : ""}>Next</button><span class="grow"></span><select id="hb-pagesize">${[25, 50, 100].map((n) => `<option ${n === hbPageSize ? "selected" : ""}>${n} per page</option>`).join("")}</select></div>`;
+      )}<button class="hb-btn sm" data-hbpage="next" ${hbPage[obj] >= pages ? "disabled" : ""}>Next</button><span class="grow"></span><select id="hb-pagesize" aria-label="Rows per Page">${[25, 50, 100].map((n) => `<option ${n === hbPageSize ? "selected" : ""}>${n} per page</option>`).join("")}</select></div>`;
   return `<div class="hb-page"><div class="hb-head"><div><h1>${esc(HB_OBJ[obj].label)}</h1><div class="small muted">${total.toLocaleString()} record${1 === total ? "" : "s"}</div></div><div class="hb-head-acts"><div class="hb-dd"><button class="hb-btn" id="hb-actions">Actions ▾</button><div class="hb-menu" id="hb-actions-menu"><a href="#" data-hbact="props">Edit properties</a><a href="#" data-hbact="views">Manage views</a><a href="#" data-hbact="export">Export</a><a href="#" data-hbact="import">Import</a></div></div><button class="hb-btn" data-hbact="import">Import</button><button class="hb-btn primary" data-hbcreate="${obj}">Create ${HB_OBJ[obj].one.toLowerCase()}</button></div></div>\n  <div class="hb-views">${views.map((v) => `<button class="hb-viewtab ${hbView[obj] === v.id ? "on" : ""}" data-hbview="${v.id}">${esc(v.name)}${hbView[obj] === v.id ? `<span class="hb-viewmenu" data-hbviewmenu="${v.id}">▾</span>` : ""}</button>`).join("")}<button class="hb-viewtab add" id="hb-addview">+ Add view</button><span class="grow"></span><a href="#" class="small" id="hb-allviews">All views</a></div>\n  ${bulk || filterbar}${"deal" === obj && "board" === hbMode.deal ? hbBoardHtml(R) : table}</div>`;
 }
 function hbBoardHtml(R) {
@@ -97696,7 +97704,7 @@ function bnCalendarHtml() {
     next = iso(addDays(last, 1)).slice(0, 7),
     C = DB.calendar,
     hosted = !!window.SDP_CONFIG;
-  return `<div class="ph"><div><h2>Calendar</h2><div class="lead">Everything dated in the ERP on one page — meetings, escalations, decisions, deliveries, inspections, renewals, milestones${C.last ? ` · Google Calendar synced ${esc(C.last)}` : hosted ? " · Google Calendar not connected yet" : " · Google Calendar syncs on the hosted app"}.</div></div><div class="acts"><button class="btn sm" id="bn-ics">Copy as ICS</button>${hosted ? '<button class="btn sm primary" id="bn-sync">Sync with Google Calendar</button>' : ""}</div></div>\n    <div class="row" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><button class="btn sm" data-bnm="${prev}">‹</button><b>${d0.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b><button class="btn sm" data-bnm="${next}">›</button><button class="btn sm" data-bnm="${td.slice(0, 7)}">Today</button><span class="grow"></span><div class="seg sm"><button class="${bnCalKind ? "" : "on"}" data-bnk="">All</button>${Object.entries(
+  return `<div class="ph"><div><h2>Calendar</h2><div class="lead">Everything dated in the ERP on one page — meetings, escalations, decisions, deliveries, inspections, renewals, milestones${C.last ? ` · Google Calendar synced ${esc(C.last)}` : hosted ? " · Google Calendar not connected yet" : " · Google Calendar syncs on the hosted app"}.</div></div><div class="acts"><button class="btn sm" id="bn-ics">Copy as ICS</button>${hosted ? '<button class="btn sm primary" id="bn-sync">Sync with Google Calendar</button>' : ""}</div></div>\n    <div class="row" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><button class="btn sm" data-bnm="${prev}" aria-label="Previous Month" title="Previous Month">‹</button><b>${d0.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b><button class="btn sm" data-bnm="${next}" aria-label="Next Month" title="Next Month">›</button><button class="btn sm" data-bnm="${td.slice(0, 7)}">Today</button><span class="grow"></span><div class="seg sm"><button class="${bnCalKind ? "" : "on"}" data-bnk="">All</button>${Object.entries(
     BN_KIND,
   )
     .map(([k, v]) => `<button class="${bnCalKind === k ? "on" : ""}" data-bnk="${k}">${v}</button>`)
@@ -195862,12 +195870,14 @@ window.addEventListener(
       }
       // Billing › Estimates
       const bb = document.getElementById("billing-body");
-      if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "est" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
+      if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "estimates" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
         const tabs = bb.querySelector(".ctabs");
         tabs &&
           (tabs.insertAdjacentHTML("afterend", '<div class="row cr-tabacts"><span class="grow"></span><button class="btn primary" id="bill-newest">New Estimate</button></div>'),
           (bb.querySelector("#bill-newest").onclick = () => {
-            const k = crDocContext();
+            // the tab's key is "estimates" (BILL_TABS); it read "est", so the button never drew (Pilot 2, S2).
+            // From a job's strip it starts for that job, not only its client.
+            const k = "function" == typeof p2EstContext ? p2EstContext() : crDocContext();
             docNewEstimate(k.clientId, k.projectId);
           }));
       }

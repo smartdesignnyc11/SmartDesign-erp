@@ -43,6 +43,7 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
 .pr-row:hover{background:var(--paper-2)}
 .pr-mid{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .pr-t{font-size:16px;line-height:20px;color:var(--ink);font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.pr-t .pr-num{font-weight:600;font-variant-numeric:tabular-nums;margin-right:4px;color:var(--ink-2)}
 .pr-t .sub,.pr-t small{font-weight:400;color:var(--ink-3);font-size:13px;margin-left:6px}
 .pr-m{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pr-m.late,.pr-row.late .pr-m b{color:var(--bad,#b3261e)}
@@ -346,11 +347,15 @@ PR_SPECS.billing = (tr, get, cells, H) => {
     date = get(/^(date|sent|issued|due)$/i),
     st = get(/^(status|stage|where it stands)$/i);
   if (!num && !title) return null;
-  const t = prTxt(title) || prTxt(num),
-    bits = [title && num ? prTxt(num) : "", prTxt(total), prTxt(date), prTxt(get(/^(job|project|client)$/i))].filter((x) => x && "—" !== x);
+  // the number leads the title line (Pilot 2): it sat in the line under the title, the next row's title right under
+  // it, and a tap aimed by the number landed on the wrong row. Number and title read as one line of one row.
+  const n = prTxt(num),
+    tt = prTxt(title),
+    bits = [prTxt(total), prTxt(date), prTxt(get(/^(job|project|client)$/i))].filter((x) => x && "—" !== x);
   const pill = st && st.querySelector(".pill");
   return {
-    title: t,
+    title: n && tt ? n + " · " + tt : tt || n,
+    titleHtml: n && tt ? `<span class="pr-num">${esc(n)}</span> ${esc(tt)}` : "",
     meta: bits.join(" · "),
     chip: pill ? { t: prTxt(pill), tone: prTone(st) } : st && prTxt(st) ? { t: prTxt(st) } : null,
     actEl: [...tr.querySelectorAll("button, .btn")].find((b) => prTxt(b).length > 1 && !(title || num).contains(b)) || null,
