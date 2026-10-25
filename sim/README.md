@@ -18,7 +18,8 @@ This folder is the harness; the main session runs the agents (`day_plan.md`). Th
 | `workshop_docs.md`, `docs.py` | The Documents Workshop: documents made as real work (the day plan's `doc_tasks`, some on the phone), measured (taps, seconds, screens, typed vs filled, characters per line, validation stops, found after save), audited by the referee (job, client, entity, cost codes, line links, tax, retainage, terms, CO budget effect, pay-application % against the SOV, PO sourcing, and the reports), rendered as the client receives them (`simctl client-docs`: portal on the phone, print, PDF), judged by creators, the client, the owner and the designer, and a gallery for Alan (`docs.py gallery`). |
 | `day_plan_pilot2.json`, `checks_p2.js` | Pilot 2: the same 3 days, the whole firm (30 book events tagged `pilot2`, some in chains that open when the step before is done), every office role on the phone at least one turn a day and the field on the desktop once, the UI/UX judgement per device, the click check, the cost per turn. `checks_p2.js` holds Pilot 2's checks on top of month_runtime's. |
 | `day_plan_lean.json` | The lean pilot: 3 days, 7 daily roles, 3 slots, crew and driver on day 3, the client's portal side played by world rules (`simctl world-client on`). |
-| `selftest.py` | A scripted mini-day through `act` with no LLM; proves the harness. |
+| `day_plan_pilot3.json`, `cycle_book.py` > `cycle_book.json`, `cycle.py`, `script_p3.js`, `pilot3.py`, `turn_prompt_p3.md`, `roles/p3/`, `realism_judge.md`, `plan_p3.py` | Pilot 3, the business cycle (below). |
+| `selftest.py`, `selftest_cycle.py` | A scripted mini-day through `act` with no LLM; proves the harness. `selftest_cycle.py` (also `selftest.py --unit`) checks Pilot 3's book, referee, coverage and judge on invented fixture companies, with no browser. |
 | `runs/<run>/` | Everything a run writes (git-ignored): `world.json` (server state), `db.json` (the database snapshot, after every change), `db_<day>.json`, `actions.jsonl`, `diary/<uid>.md`, `files/<uid>/` (attachments and photos), `shots/`, `world/pending` and `world/answers`, `ledger.*`. |
 
 ## Run it
@@ -83,8 +84,12 @@ issued PO that reaches its supplier sets off the truck (a situation for the fore
 for card suppliers a card line on the next statement. Promised client payments arrive as bank deposits.
 **World-agent hook:** `sim/simctl world-agent on` writes each scheduled reply to `runs/<run>/world/pending/`;
 an LLM can voice it into `world/answers/<id>.txt` before it is due.
-**Assistant hook:** the app's `/api/ai` calls reach the server and get a 503, so the assistant answers from its
-built-in logic. To run the Claude-backed assistant, forward `/api/` in `Sim.handle` to the AI proxy.
+**Assistant hook:** the app's `/api/ai` calls reach the server. With a signed-in member's Supabase session token in
+`SIM_AI_TOKEN` (or a file named by `SIM_AI_TOKEN_FILE`, re-read on every call so the conductor can refresh it), the server
+forwards `/api/` to the hosted proxy (`SIM_AI_URL`, default https://smartdesigns-erp.netlify.app) during a person's turn, so
+the assistant is the real one. Every call is that member's, under their monthly cap, and the model is picked by their role
+on the server. Only the path, status, size and time are logged. Without a token it answers 503 and the assistant uses its
+built-in logic.
 
 ## The referee
 `ledger.md` / `ledger.json`: every due event on time, late or missed and the first time it reached the right
@@ -94,6 +99,51 @@ acted on; the bank tie-out (lines the bank sent and the ERP lacks, typed lines, 
 paid with no debit, unmatched lines); outside the Standard (mail that left without a person's own send,
 approvals by a role the delegation does not name, refused attempts); and the PERSIST reload check.
 It reuses `tests/month_runtime.js` (`M.check`) for the event checks, and month_sim's ledger arithmetic.
+
+## Pilot 3: the business cycle (Alan, 2026-10-25)
+Pilot 2 fed people mail and due dates; nobody had to run the business, and the referee could not say whether purchasing
+overspent a line. Pilot 3 adds required work the referee verifies in the data:
+- **Four roles play:** the owner, the PM, the coordinator and billing. The foreman's, the crew's and the controller's steps
+  are scripted world actions (`script_p3.js`): receiving against the PO with one delivery short and one damaged, hours on
+  cost codes, the daily log and the measured %, the statement import through Banking's own import, the app's own proposed
+  matches confirmed, and the payroll build. The referee checks each one so the cycle closes, and grades none of them.
+- **The required-work book** (`cycle_book.py` writes `cycle_book.json`). One invented job carried end to end by the people
+  who do each step: the Ashbys at 214 Lincoln Place.
+  - The steps run: inquiry, lead, client, project, a 12-line estimate from the walk-through notes, a question back, sent,
+    signed, contract and SOV.
+  - Then: RFQs from estimate lines to three vendors, quotes back by mail in messy formats, award, POs from the lines, sent.
+  - Then: deliveries, the vendors' bills, the deposit invoice and its payment against the bank line, a change order priced
+    and approved, the progress invoice from the SOV with retainage, the Friday review and client updates, and Tuesday's numbers.
+  - Nine money leaks are planted:
+    - a PO over its line;
+    - stock already on the shelf;
+    - a price above last time;
+    - a bill over its PO;
+    - a short delivery and a damaged one, both billed in full;
+    - a card purchase for the client;
+    - an approved change order not billed;
+    - measured work not billed.
+  - Interruptions cut into turns.
+- **Top-down, like a person:**
+  - Each person gets the firm's objectives for the week (outcomes, never steps or screen names) and their role card (`roles/p3/`).
+  - Each person gets the Standard as the app holds it today (`pilot3.py` renders `DB.company.standard` with their playbook).
+  - Each morning they write a plan, each evening a review, and give a `--why` on every significant action.
+  - Every action costs the minutes a person would spend (`MINUTES` in `server.py`). A turn has a budget of minutes as well as actions.
+- **The referee** (`cycle.py`, in `ledger.md` as "Business cycle") reads the raw records, never the app's report functions.
+  - **Per step:** done right, done wrong (what), not done, or scripted, and who owned it.
+  - **Per planted leak:** whether it held, who caught it, and the money left behind.
+  - **Its own figures:** job cost per estimate line (budget, committed, actual, over), work done not billed,
+    reimbursables, cash and AR.
+  - **The answers:** each person's written answers graded against those figures.
+  - **Coverage** of each role's main module: below the floor (60%), the grade is not valid.
+  - **The realism judge** (`realism_judge.md`, `simctl judge <uid>`): its flagged turns are listed and discounted from the grade.
+- **The live assistant:** `/api/` is forwarded to the hosted proxy only with a signed-in member's session token, given at run
+  time (`SIM_AI_TOKEN` or `SIM_AI_TOKEN_FILE`) and never written to the repo. Without it the assistant answers from its
+  built-in logic.
+- **Mail** takes several recipients and cc (`mail send "Chen, Billing" ... --cc "..."`, `mail reply <n> --all`).
+- **Documents** report what is *missing*: first what never reached the person who gets it, then the back-end fields.
+- **Turns and tokens:** `plan_p3.py` measures Pilot 2's run. The estimate is in `day_plan_pilot3.json`, `turns_and_tokens`.
+- **Calibration** against the firm's real coordinator and billing person: `docs/pilot/pilot3/calibration.md`.
 
 ## Limits worth knowing
 - An action takes 2-8 s; a page reload (when someone else saved) 6-10 s. A 35-turn day of about 12 actions each

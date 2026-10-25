@@ -64886,7 +64886,7 @@ function f3Nav() {
       ["flog", "Daily Log", "list"],
     ]),
     void 0 !== ROLE_VIEWS &&
-      (ROLE_VIEWS.foreman = ["ftoday", "fraise", "fsite", "fcrew", "flog", "req", "sched", "files", "chat"]);
+      (ROLE_VIEWS.foreman = ["ftoday", "fraise", "fsite", "fcrew", "flog", "req", "sched", "files", "chat", "team"]);
 }
 if ((f3Nav(), "function" == typeof fInit)) {
   const fInitBase_f3 = fInit;
@@ -174287,7 +174287,10 @@ function tdRender() {
       : "",
     more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
     // a filter is its whole list, in place; All shows the first five and "N more" opens the rest in place
-    top = ("all" !== tab || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
+    // All shows its first five; so does the filter Today opened on by itself (the owner's Approvals when something
+    // waits on him, p2nav): the phone's first screen stays within its budget, and "N more" opens the rest in place
+    fold = "all" === tab || tdyLanding === tab,
+    top = (!fold || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
     caught = tdCaught(M.appr),
     // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
     shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
@@ -174314,10 +174317,10 @@ function tdRender() {
           .join("")
       : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "Nothing of yours is late or due in the next 7 days.", buy: "Nothing is late to order or due to order this week.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
   }${
-    more && Q.length
-      ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
-      : "all" === tab && Q.length > top.length
-        ? `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
+    fold && Q.length > top.length
+      ? `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
+      : more && Q.length
+        ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
         : "all" === tab && tdyAllOpen && Q.length > 5
           ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
           : ""
@@ -198424,9 +198427,12 @@ const TDY_TABS = [
   ["team", "Team"],
 ];
 const tdyTabs = {};
-let tdyAllOpen = !1;
+let tdyAllOpen = !1,
+  // the filter Today opened on by itself, not by the person's pick (it folds to five like All); a pick clears it
+  tdyLanding = "";
 const tdyTabOf = () => tdyTabs[tdyMe().id || role()] || "all";
 function tdyTabSet(t) {
+  tdyLanding = "";
   tdyTabs[tdyMe().id || role()] = t;
   tdyAllOpen = !1;
 }

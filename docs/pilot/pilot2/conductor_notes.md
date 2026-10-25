@@ -1,0 +1,5 @@
+- d1 work owner: call 'Chen' fails 'no number' (harness gap, also in Pilot 1)
+- d1 eod angel: 'raw code labels (fview fcrew)' may be the toolkit naming unlabeled controls by attribute; check before treating as app finding. Log wizard header 'v-flog' likely real.
+- d3 work owner: ran the team meeting from Projects and said 'the app has no live meeting screen' -- Meeting Mode (Tasks > Start Meeting) not discoverable for the owner on desktop. Fix: Start Meeting where the owner looks (Today on meeting days, Projects).
+- d3 eod owner: mail send to Chen/Billing refused 'no address' even after the first-name fix; mail takes one address (no cc/list). Harness gaps to fix before Pilot 3; app-side: meeting minutes have no 'send to the team' path.
+- docs workshop: docs.py measurements disagree with the experts' screens (EST-016 'complete' vs dead page; PO-049 'complete' vs $0 draft; RFQ 'three vendors asked' vs none). docs.py reads DB state, not what reached the person; fix the measure before Pilot 3.

@@ -170,14 +170,19 @@ class Referee:
         st = sim.state.setdefault('ref', {})
         done = W.st['done']
         todo = [e for e in events if e['id'] not in done]
-        checks = [[e['expect']['check'], {**e, 'payload': e.get('payload') or {}}] for e in todo if e['expect']['check']['t'] != 'seenBy']
+        checks = [[e['expect']['check'], {**e, 'payload': e.get('payload') or {}}] for e in todo if e['expect']['check']['t'] not in ('seenBy', 'cy')]
         res = await pg.evaluate("L => __MS.checkAll(L)", checks) if checks else []
         detail = st.setdefault('detail', {})
         for (c, e), (ok, d) in zip(checks, res):
             detail[e['id']] = d
             if ok: done[e['id']] = day
+        cyc = self.cycle_obj() if W.cycle_on else None
         for e in todo:
             c = e['expect']['check']
+            if c['t'] == 'cy' and cyc:   # a business-cycle step (sim/cycle.py), checked in Python on the raw records
+                st_, det_, _ = cyc.step(c['step'])
+                detail[e['id']] = f'{st_}: {det_}'
+                if st_ in ('right', 'wrong', 'scripted'): done[e['id']] = day
             if c['t'] == 'seenBy':
                 s = sim.state['seen'].get(e['id'], {}).get(c.get('uid') or e['expect']['who'])
                 detail[e['id']] = f'seen {s[0]} {s[1]} on {s[2]}' if s else 'not on their screens'
@@ -194,7 +199,8 @@ class Referee:
             days_lost = (x.get('days') or 0) if verdict == 'missed' else min(x.get('days') or 0, late or 0) if verdict == 'late' else 0
             rows.append({'id': e['id'], 'day': e['day'], 'kind': e['kind'], 'who': x['who'], 'what': x['what'], 'by': x['by'], 'verdict': verdict, 'done': d,
                          'late': late if verdict == 'late' else 0, 'detail': detail.get(e['id'], ''), 'seen': seen, 'money_left': money_left, 'days_lost': days_lost,
-                         'heldout': 'held-out' in (e.get('tags') or []), 'check': x['check']['t'], 'pilot2': 'pilot2' in (e.get('tags') or [])})
+                         'heldout': 'held-out' in (e.get('tags') or []), 'check': x['check']['t'], 'pilot2': 'pilot2' in (e.get('tags') or []),
+                         'pilot3': 'pilot3' in (e.get('tags') or [])})
         scored = [r for r in rows if r['verdict'] != 'open']
         on = sum(r['verdict'] == 'on time' for r in scored); la = sum(r['verdict'] == 'late' for r in scored); mi = sum(r['verdict'] == 'missed' for r in scored)
         money = sum(r['money_left'] for r in scored); dl = sum(r['days_lost'] for r in scored)
@@ -203,7 +209,11 @@ class Referee:
             return {'scored': len(S), 'on_time': sum(r['verdict'] == 'on time' for r in S), 'late': sum(r['verdict'] == 'late' for r in S),
                     'missed': sum(r['verdict'] == 'missed' for r in S), 'open': len(R) - len(S), 'money_left': round(sum(r['money_left'] for r in S), 2),
                     'days_lost': sum(r['days_lost'] for r in S)}
-        sets = {'pilot1_events': tally([r for r in rows if not r['pilot2']]), 'pilot2_events': tally([r for r in rows if r['pilot2']]), 'all_events': tally(rows)}
+        sets = {'pilot1_events': tally([r for r in rows if not r['pilot2'] and not r['pilot3']]), 'pilot2_events': tally([r for r in rows if r['pilot2']]), 'all_events': tally(rows)}
+        if W.cycle_on:   # Pilot 3: the cycle's own events, and every event owned by a role that plays (the others are scripted or out)
+            roles = set(W.cycle['roles'])
+            sets['pilot3_events'] = tally([r for r in rows if r['pilot3']])
+            sets['in_scope'] = tally([r for r in rows if r['who'] in roles])
         A = self.actions()
         fia = self.fia(A)
         places = self.places(A)
@@ -214,9 +224,15 @@ class Referee:
         from docs import AUDIT_JS, doc_type
         dkeys = list(dict.fromkeys(c['key'] for a in A for c in (a.get('creates') or []) if (a.get('uid') or '').startswith('u_') and doc_type(c['key'])))
         docs = await pg.evaluate(AUDIT_JS, dkeys) if dkeys else []
+        from docs import missing
+        try: dbj = json.load(open(os.path.join(sim.dir, 'db.json'), encoding='utf-8'))
+        except Exception: dbj = {}
+        for d_ in docs:   # what never reached the person who gets it (Pilot 2's lesson), ahead of the back-end fields
+            try: d_['missing'] = missing(dbj, d_['key'])
+            except Exception as ex: d_['missing'] = [f'check error: {ex}']
         line = (f"AGENT MONTH ({sim.run}, through {day}) caught {on}/{len(scored)} on time · {la} late · {mi} missed · ${money:,.0f} left behind · "
                 f"{dl} schedule days lost · {len(fia['failures'])} find-it-again failures · {places['findings']} places-to-look findings · "
-                f"{sum(len(d['findings']) for d in docs)} back-end gaps on {len(docs)} documents")
+                f"{sum(len(d.get('missing') or []) + len(d['findings']) for d in docs)} things missing on {len(docs)} documents")
         tl = lambda T: f"{T['on_time']}/{T['scored']} on time · {T['late']} late · {T['missed']} missed · ${T['money_left']:,.0f} left behind" + (f" · {T['open']} still open" if T['open'] else '')
         line2 = f"Pilot 1 events: {tl(sets['pilot1_events'])} | all events: {tl(sets['all_events'])}"
         ct = clicks['totals']
@@ -228,10 +244,45 @@ class Referee:
                            'by_person': Counter(a['uid'] for a in A if (a.get('uid') or '').startswith('u_') and a.get('cmd') not in ('end_turn',))},
                'persist': st.get('persist')}
         out['click_rows'] = clicks_rows
+        if W.cycle_on:
+            out['cycle'] = self.cycle_score(A, day)
+            c = out['cycle']; S = c['steps']
+            out['line_cycle'] = (f"BUSINESS CYCLE: steps right {sum(x['status'] == 'right' for x in S)} · {sum(x['status'] == 'wrong' for x in S)} wrong · "
+                                 f"{sum(x['status'] == 'not done' for x in S)} not done · {sum(x['status'] == 'scripted' for x in S)} scripted · planted leaks "
+                                 f"${sum(x['left'] for x in c['plants']):,.0f} left behind · coverage " +
+                                 ', '.join(f"{u} {v['pct'] * 100:.0f}%{'' if v['valid'] else ' NOT VALID'}" for u, v in c['coverage'].items() if v))
         json.dump(out, open(os.path.join(sim.dir, 'ledger.json'), 'w'), indent=1, default=str)
         self.write_md(out)
         sim.save_state()
-        return {'line': line, 'sets': line2, 'clicks': line3, 'ledger': os.path.join(sim.dir, 'ledger.md')}
+        return {'line': line, 'sets': line2, 'clicks': line3, 'cycle': out.get('line_cycle'), 'ledger': os.path.join(sim.dir, 'ledger.md')}
+
+    # ---- Pilot 3: the business cycle (sim/cycle.py on the raw records), the diaries' answers, coverage and the judge
+    def cycle_obj(self):
+        import cycle as CY
+        sim = self.sim
+        try: db = json.load(open(os.path.join(sim.dir, 'db.json'), encoding='utf-8'))
+        except Exception: db = {}
+        return CY.Cycle(db, sim.world.cycle, self.cycle_world(), self.actions(), sim.state['day'])
+
+    def cycle_world(self):
+        W = self.sim.world.st
+        return {'gated': W.get('gated', {}), 'calls': self.sim.state.get('calls', []), 'interrupts_done': W.get('interrupts_done', {}),
+                'cycle_done': self.sim.state.setdefault('ref', {}).setdefault('cycle_done', {})}
+
+    def cycle_score(self, A, day):
+        import cycle as CY
+        sim = self.sim
+        try: db = json.load(open(os.path.join(sim.dir, 'db.json'), encoding='utf-8'))
+        except Exception: db = {}
+        diaries = {}
+        for u in sim.world.cycle['roles']:
+            try: diaries[u] = open(os.path.join(sim.dir, 'diary', f'{u}.md'), encoding='utf-8').read()
+            except Exception: diaries[u] = ''
+        res = CY.score(db, sim.world.cycle, self.cycle_world(), A, day, diaries, os.path.join(sim.dir, 'judge'))
+        done = sim.state.setdefault('ref', {}).setdefault('cycle_done', {})
+        for s in res['steps']:   # the first time each step was seen done (which turn: for the judge's discount)
+            if s['status'] != 'not done' and s['id'] not in done: done[s['id']] = [day, sim.state.get('slot')]
+        return res
 
     def cost_days(self):
         out = {}
@@ -303,14 +354,20 @@ class Referee:
     def write_md(self, out):
         sim = self.sim
         L = [f"# The agent month: {sim.run}\n", out['line'] + '\n', out.get('line_sets', '') + '\n', out.get('line_clicks', '') + '\n',
+             (out.get('line_cycle', '') + '\n') if out.get('line_cycle') else '',
              'Invented data only. Scored by sim/referee.py from the world, never by the players. "Reached" is the first time the event was on the screen of the person who should act. '
              '"Pilot 1 events" are the book\'s events Pilot 1 was scored on (plus that run\'s held-out and world events); Pilot 2\'s events are tagged pilot2.\n']
         S = out.get('sets') or {}
         if S:
             L.append('| Events | Scored | On time | Late | Missed | Still open | $ left behind | Schedule days lost |\n|---|---|---|---|---|---|---|---|')
-            for k, nm in (('pilot1_events', 'Pilot 1 events'), ('pilot2_events', 'Pilot 2 events'), ('all_events', 'All events')):
+            for k, nm in (('pilot1_events', 'Pilot 1 events'), ('pilot2_events', 'Pilot 2 events'), ('pilot3_events', 'Pilot 3 cycle events'),
+                          ('in_scope', 'Owned by a role that plays'), ('all_events', 'All events')):
+                if k not in S: continue
                 T = S[k]; L.append(f"| {nm} | {T['scored']} | {T['on_time']} | {T['late']} | {T['missed']} | {T['open']} | {T['money_left']:,.0f} | {T['days_lost']} |")
             L.append('')
+        if out.get('cycle'):
+            import cycle as CY
+            L.append(CY.ledger_md(out['cycle']))
         C = out.get('clicks')
         if C:
             L.append('## Click check: did each tap land where its label promised (phone and desktop apart)\n')
@@ -369,9 +426,12 @@ class Referee:
                  f"{len(t.get('paymentsNoDeposit') or [])} · bills paid with no debit: {len(t.get('billsPaidNoDebit') or [])}")
         for k in ('paymentsNoDeposit', 'billsPaidNoDebit', 'typed'):
             for x in (t.get(k) or [])[:8]: L.append(f"  - {k}: {x}")
-        L.append(f"\n## Documents: back end of every document a person created ({len(out.get('docs') or [])})\n")
+        L.append(f"\n## Documents: what is missing on every document a person created ({len(out.get('docs') or [])})\n")
+        L.append('Missing = first what never reached the person who gets it (the client, the vendor), then the back-end fields. Read from the raw records, '
+                 'so a $0 draft that never left reads as missing, not complete.\n')
         for d in out.get('docs') or []:
-            L.append(f"- {d['type']} {d.get('number', '')} ({d.get('status', '')}, {d.get('project', '')}): " + ('; '.join(d['findings']) or 'complete') + (f" · {'; '.join(d.get('notes') or [])}" if d.get('notes') else ''))
+            M = (d.get('missing') or []) + d['findings']
+            L.append(f"- {d['type']} {d.get('number', '')} ({d.get('status', '')}, {d.get('project', '')}): " + ('missing ' + '; '.join(M) if M else 'nothing missing') + (f" · {'; '.join(d.get('notes') or [])}" if d.get('notes') else ''))
         s = out['standard']
         L.append('\n## Outside the Standard (to look at)\n')
         L.append(f"- mail that left the firm with no person's own send: {len(s['sent_by_system'])}")
