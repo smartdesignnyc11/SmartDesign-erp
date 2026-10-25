@@ -4003,7 +4003,7 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 .td2 .btn.td2-lead{margin-top:4px;height:48px;min-height:48px;border:0;border-radius:12px;background:var(--t2-blue);color:#fff;font-size:15px;font-weight:600;width:100%;justify-content:center}
 .td2 .btn.td2-act{flex:none;margin-top:4px;height:44px;min-height:44px;padding:0 14px;border:1px solid #D5D9E1;border-radius:12px;background:#fff;color:var(--t2-ink);font-size:14px;font-weight:600}
 .td2 .td2-more{display:flex;align-items:center;justify-content:center;min-height:44px;margin:8px 0 0;font-size:14px;font-weight:600;color:var(--t2-blue);text-decoration:none}
-.td2-quiet{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;margin:12px 0 0;padding:7px 14px;box-sizing:border-box;border:0;border-radius:12px;background:#EEF0F3;color:#4A5060;font-size:13px;line-height:1.35;text-align:left;cursor:pointer}
+.td2-quiet{display:flex;align-items:center;gap:10px;width:100%;min-height:44px !important;height:auto !important;margin:12px 0 0;padding:7px 14px;box-sizing:border-box;border:0;border-radius:12px;background:#EEF0F3;color:#4A5060;font-size:13px;line-height:1.35;text-align:left;cursor:pointer}
 .td2-quiet[aria-expanded="true"] svg{transform:rotate(180deg)}
 .td2-quietbox{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 .td2-quietbox .td-sec{background:#fff;border-radius:14px;box-shadow:0 0 0 1px var(--t2-line)}
