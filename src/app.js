@@ -18370,7 +18370,9 @@ function closeRun(run) {
       ((it.bought = !0),
       (it.boughtAt = today()),
       n++,
-      reqItems(r).every((x) => x.bought) &&
+      // a one-item request has no items array: its one item is the request (the run said "1 item bought" and the
+      // request stayed open, buying day finding 2)
+      (!(r.items && r.items.length) || reqItems(r).every((x) => x.bought)) &&
         ((r.status = "bought"),
         r.log.push({ t: nowStamp(), by: run.driver, text: `Bought at ${run.store}` }),
         "function" == typeof bbReqPath && bbReqPath(p, r, "run", `bought on the store run at ${run.store}`)));
