@@ -39,7 +39,7 @@ SHEET_NOW = r"""() => {
   const f = w1Fields(body).find(x => x.getClientRects().length && (x.tagName === 'TEXTAREA' || /^(text|email|tel|url|)$/.test(x.type || '')) && !x.value);
   if (!f) return { key: st.key, title: st.title, field: null };
   const sig = w1Sigs(body).get(f);
-  f.setAttribute('data-w1t', '1');
+  document.querySelectorAll('[data-w1t]').forEach(x => x.removeAttribute('data-w1t')); f.setAttribute('data-w1t', '1');
   return { key: st.key, title: st.title, field: sig, sel: '[data-w1t="1"]', host: h.id || h.className };
 }"""
 FIELD_VAL = r"""(sig) => {
@@ -131,9 +131,16 @@ class DraftWalk(TapLint):
 
     async def open_sheet(self, f, phone):
         """the page, then the control that opened the sheet, pressed as a person would"""
-        await self.pg.evaluate(OPEN, [f['entry']['g'], f['entry']['v'], f['entry']['tab']])
-        await self.settle(150, 2000)
+        # the page exactly as discovery drew it: the menu entry, a second render (some pages finish drawing on the
+        # render after the first), the toast cleared. A plain OPEN left half the found sheets with no opener.
+        await self.open_entry(f['entry'])
         pt = await self.pg.evaluate('([k, n]) => window.__cr.point(k, n)', [f['c']['key'], f['c']['n']])
+        if pt.get('missing'):
+            # the same control by its label and action when the count of its kind differs on this pass
+            k = f['c']['key']
+            pt = await self.pg.evaluate("""(k) => { const c = window.__cr.list().cands.find(x => x.key === k); return c ? window.__cr.point(c.key, c.n) : { missing: true }; }""", k)
+        if pt.get('missing') or pt.get('covered'):
+            self.why = 'the opener is gone' if pt.get('missing') else 'the opener is covered by ' + str(pt.get('covered'))[:60]
         if pt.get('missing') or pt.get('covered'): return False
         if phone: await self.pg.touchscreen.tap(pt['x'], pt['y'])
         else: await self.pg.mouse.click(pt['x'], pt['y'])
@@ -189,7 +196,7 @@ class DraftWalk(TapLint):
         await pg.evaluate("([db, u]) => { DB = JSON.parse(db); signIn(u); render(); }", [self.boot_db, f['user']])
         await self.settle(150, 1500)
         if not await self.open_sheet(f, phone):
-            self.results.append({'vp': f['vp'], 'user': f['user'], 'title': f['title'], 'how': how, 'ok': None, 'detail': 'the opener is gone'}); return None
+            self.results.append({'vp': f['vp'], 'user': f['user'], 'title': f['title'], 'how': how, 'ok': None, 'detail': getattr(self, 'why', 'the opener is gone')}); return None
         s = await pg.evaluate(SHEET_NOW)
         if not s or not s.get('field'):
             self.results.append({'vp': f['vp'], 'user': f['user'], 'title': f['title'], 'how': how, 'ok': None, 'detail': 'the sheet did not open the same way'}); return None
