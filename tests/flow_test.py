@@ -122,7 +122,8 @@ async def s_order(p, c):
         R = await rows(pg)
         proc = [r for r in R if '"view":"proc"' in r['data']]
         c.ok(not proc, f'order: no Home row sends a line to the FF&E board ({[r["text"][:60] for r in proc]})')
-        late = [r for r in R if 'order-by' in r['text'] and '"order"' in r['data']]
+        # the Buy Board's one late reads "order by 8/24, passed" (procurement P1)
+        late = [r for r in R if re.search(r'order.by', r['text']) and '"order"' in r['data']]
         c.ok(len(late) >= 3 and all(r['verb'] == 'Order' for r in late), f'order: the late lines say Order ({[(r["text"][:40], r["verb"]) for r in late][:4]})')
         v = await press(pg, r'Parlor kitchen countertop slab', r'^Order$')
         m = await modal(pg)

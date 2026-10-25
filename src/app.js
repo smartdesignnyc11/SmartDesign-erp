@@ -198498,6 +198498,8 @@ const MN_JOBS = (o) =>
     "Vendors & Stock",
     ["vendors", "Vendors"],
     ["inv", "Stock"],
+    // the retired Purchasing overview: a link still lands (on the Buy Board, OC_RETIRED), never listed
+    ["ovbuy", "Purchasing", null, { quiet: 1 }],
   ],
   MN_TODAY = [
     ["home", "Today"],
@@ -198673,6 +198675,8 @@ const MN_JOBS = (o) =>
         ]),
         MN_G("buy", "Purchasing", "buy", [
           ["po", "Orders"],
+          // the controller cannot open the Buy Board: the overview of needs stays theirs, out of the strip
+          ["ovbuy", "Purchasing", null, { quiet: 1 }],
           // receiving: the controller may not open Deliveries today; the bill's PO select shows what landed
           ["vendors", "Vendors"],
         ]),
