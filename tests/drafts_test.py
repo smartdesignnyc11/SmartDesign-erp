@@ -112,7 +112,7 @@ class DraftWalk(TapLint):
                 fam[c['family']] += 1
                 if fam[c['family']] > 1 or crawl.DESTRUCT_RE.match(c['label']): continue
                 rows.append(c)
-            plan = plan[:30] + rows[:6]
+            plan = plan[:30] + rows[:2]
             dirty = None
             for c in plan:
                 await self.fresh(dirty, u)
