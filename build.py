@@ -20,7 +20,7 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # line, BACKLOG §1.18) and src/field_es.js (the field's screens in Spanish, §1.20) ride last: their wrappers are
 # outermost, and the Spanish pass reads every screen as finally drawn. src/loop_core.js (the improvement loop's pure rules,
 # shared with the server's nightly run) and src/loop.js (the loop in the app, BACKLOG §1.19 and §1.32) ride before them.
-SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/teamws.js', 'src/meetdoc_core.js', 'src/mtreview.js', 'src/p0money.js', 'src/phonerows.js', 'src/p2fix.js', 'src/p2nav.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
+SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/teamws.js', 'src/meetdoc_core.js', 'src/mtreview.js', 'src/p0money.js', 'src/phonerows.js', 'src/p2fix.js', 'src/p2nav.js', 'src/today2.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:

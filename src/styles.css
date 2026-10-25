@@ -3970,3 +3970,115 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 
 /* phone: the conversation header's icon buttons keep 44px (the generic phone button rule set them to 36px tall) */
 @media (max-width:760px){ .view.on button.msg-ib{height:44px;min-height:44px} }
+
+/* ---- Today, to the approved mockups (src/today2.js, 2026-10-25) ------------------------------------------------- */
+.td2{--t2-ink:#1A1D23;--t2-ink2:#3E4450;--t2-ink3:#5B616E;--t2-mute:#6A7080;--t2-blue:#2456C9;--t2-late:#B42318;--t2-line:#ECEEF2;--t2-sep:#F0F1F4;display:flex;flex-direction:column;color:var(--t2-ink);max-width:none}
+.td2 .td2-ph{margin:0}
+.td2 .td-tabs.td2-chips{display:flex;flex-wrap:nowrap;gap:8px;padding:0}
+.td2 .td-tabs.td2-chips button{display:inline-flex;align-items:center;gap:5px;height:44px;min-height:44px;padding:0 14px;border:0;border-radius:999px;background:#F1F3F6;color:var(--t2-ink2);font-size:14px;font-weight:500;white-space:nowrap}
+.td2 .td-tabs.td2-chips button .n{font-size:14px;opacity:1;color:inherit}
+.td2 .td-tabs.td2-chips button.late{color:var(--t2-late);font-weight:600}
+.td2 .td-tabs.td2-chips button.on{background:var(--t2-ink);color:#fff;font-weight:600}
+.td2-brief{display:flex;flex-direction:column;gap:6px;padding:10px 14px 12px;border-radius:14px;background:#F2F6FE;box-shadow:0 0 0 1px #DCE6FB}
+.td2-bh{display:flex;align-items:center;gap:6px;font-size:12px;color:#4A5A80}
+.td2-bh .td2-bhead{font-weight:600}
+.td2-bh a{font-weight:600;text-decoration:none;color:var(--t2-blue);min-height:24px;display:inline-flex;align-items:center}
+.td2-bl{margin:0;font-size:14px;line-height:1.4;color:var(--t2-ink)}
+.td2-bl a{font-weight:600;text-decoration:none;color:var(--t2-blue);border-bottom:1px solid #B9CBF2}
+.td2-bl .td2-why{color:#4A5060}
+.td2-sh{display:flex;align-items:baseline;gap:8px;padding:8px 6px 4px}
+.td2-sh h2{margin:0;font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--t2-ink)}
+.td2-sh span{font-size:12px;color:var(--t2-mute)}
+.td2-sec{background:#fff;border-radius:14px;box-shadow:0 0 0 1px var(--t2-line);overflow:hidden}
+.td2 .td2-row{display:flex;align-items:flex-start;gap:8px;min-height:64px;padding:6px 12px 8px 0;box-sizing:border-box;border-top:1px solid var(--t2-sep)}
+.td2 .td2-row:first-child{border-top:0}
+.td2-ic{display:flex;align-items:center;justify-content:center;width:44px;height:44px;flex:none;margin-right:-4px;color:var(--t2-ink3)}
+.td2-txt{display:flex;flex-direction:column;gap:4px;min-width:0;padding-top:9px;flex:1}
+.td2-t,.td2-what a{font-size:16px;font-weight:600;line-height:1.25;color:var(--t2-ink);text-decoration:none}
+.td2-meta{font-size:13px;color:var(--t2-ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.td2-due{color:var(--t2-ink2);font-weight:500}
+.td2-due.late,.td2-when.late{color:var(--t2-late);font-weight:600}
+.td2-wait{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 8px;border-radius:7px;background:#FFF6E5;color:#7A4A00;font-size:12px;line-height:1.35}
+.td2-note{display:block;padding:8px 10px;border-radius:10px;background:#F4F5F8;color:var(--t2-ink2);font-size:13px;line-height:1.4}
+.td2 .btn.td2-lead{margin-top:4px;height:48px;min-height:48px;border:0;border-radius:12px;background:var(--t2-blue);color:#fff;font-size:15px;font-weight:600;width:100%;justify-content:center}
+.td2 .btn.td2-act{flex:none;margin-top:4px;height:44px;min-height:44px;padding:0 14px;border:1px solid #D5D9E1;border-radius:12px;background:#fff;color:var(--t2-ink);font-size:14px;font-weight:600}
+.td2 .td2-more{display:flex;align-items:center;justify-content:center;min-height:44px;margin:8px 0 0;font-size:14px;font-weight:600;color:var(--t2-blue);text-decoration:none}
+.td2-quiet{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;margin:12px 0 0;padding:7px 14px;box-sizing:border-box;border:0;border-radius:12px;background:#EEF0F3;color:#4A5060;font-size:13px;line-height:1.35;text-align:left;cursor:pointer}
+.td2-quiet[aria-expanded="true"] svg{transform:rotate(180deg)}
+.td2-quietbox{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.td2-quietbox .td-sec{background:#fff;border-radius:14px;box-shadow:0 0 0 1px var(--t2-line)}
+/* the phone (390px): the chips sit on the header's white band; the page has no title of its own */
+.td2-phone{gap:0;padding-bottom:8px}
+.td2-phone .td2-ph{display:none}
+.td2-phone > .td2-chips{margin:-12px -16px 0;padding:0 16px 10px !important;background:#fff;border-bottom:1px solid #E7E9EE}
+.td2 .td-sec.td2-list{background:transparent;border:0;box-shadow:none;padding:0;margin:0;border-radius:0}
+.td2 .td2-ph .rs-one,.td2 .td2-ph .lead{display:none}
+.td2-ah{margin:0;font-size:20px;font-weight:700;line-height:1.25}
+.td2-phone .td2-brief{margin:10px 0 4px}
+.td2-phone .td2-sh{padding:8px 6px 4px}
+body.td2-ph header.topbar{display:grid !important;height:auto !important;min-height:0 !important;border-bottom:0 !important;grid-template-columns:44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;column-gap:8px;row-gap:1px;align-items:center;padding-top:12px;padding-bottom:10px}
+body.td2-ph header.topbar > *{display:none !important}
+body.td2-ph header.topbar > #menu-btn{display:flex !important;grid-row:1 / span 2;grid-column:1;width:44px;height:44px}
+body.td2-ph header.topbar > #crumbs{display:block !important;grid-row:1;grid-column:2;font-size:22px;line-height:1.15}
+body.td2-ph header.topbar > #crumbs b{font-size:22px;font-weight:700}
+body.td2-ph header.topbar > #td2-hdate{display:block !important;grid-row:2;grid-column:2;font-size:12px;color:#6A7080;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.td2-ph header.topbar > #btn-search{display:flex !important;grid-row:1 / span 2;grid-column:3;align-items:center;justify-content:center;width:44px;height:44px;border:0;border-radius:12px;background:#F1F3F6}
+body.td2-ph header.topbar > #btn-search span,body.td2-ph header.topbar > #btn-search kbd{display:none}
+body.td2-ph header.topbar > #tb-ask{display:flex !important;grid-row:1 / span 2;grid-column:4;height:44px;padding:0 14px 0 12px;border:1px solid #D5D9E1;border-radius:12px;background:#fff;font-size:15px;font-weight:600}
+#mtabs [data-mv="home"] i.n.late{background:#B42318}
+/* the desktop (1440px): the update, the title row with its filters, the list and the selected row's panel */
+.td2-desk{gap:16px;max-width:1180px}
+.td2-desk .td2-brief .td2-bl{font-size:15px}
+.td2-title{display:flex;align-items:center;gap:14px}
+.td2-title h2{margin:0;font-size:24px;font-weight:700}
+.td2-title .td2-date{font-size:14px;color:var(--t2-mute)}
+.td2-desk .td-tabs.td2-chips{gap:4px;padding:3px !important;margin-left:8px;background:#ECEEF2;border-radius:10px}
+.td2-desk .td-tabs.td2-chips button{height:38px;min-height:38px;border-radius:8px;background:transparent;font-weight:400;color:#4A5060}
+.td2-desk .td-tabs.td2-chips button.late{color:var(--t2-late);font-weight:600}
+.td2-desk .td-tabs.td2-chips button.on{background:#fff;color:var(--t2-ink);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.td2-main{display:flex;gap:16px;align-items:flex-start}
+.td2-left{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.td2-cols,.td2-desk .td2-row{display:grid;grid-template-columns:44px minmax(0,1fr) 88px 120px 96px;gap:12px;align-items:center}
+.td2-cols{padding:0 14px 0 4px;font-size:12px;font-weight:600;color:var(--t2-mute)}
+.td2-cols span:nth-child(3){text-align:right}
+.td2-desk .td2-sh{padding:8px 4px 2px}
+.td2-desk .td2-sec{border-radius:12px;box-shadow:0 0 0 1px #E7E9EE}
+.td2-desk .td2-row{min-height:64px;padding:6px 14px 6px 4px;cursor:pointer}
+.td2-desk .td2-row.sel{background:#F5F8FF;box-shadow:inset 3px 0 0 var(--t2-blue)}
+.td2-what{display:flex;flex-direction:column;gap:3px;min-width:0}
+.td2-what a{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.td2-amt{font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.td2-when{font-size:14px;color:var(--t2-ink2)}
+.td2-desk .td2-act{display:flex;justify-content:flex-end}
+.td2-desk .td2-act .btn{height:36px;padding:0 14px;border:1px solid #D5D9E1;border-radius:10px;background:#fff;font-size:14px;font-weight:600}
+.td2-desk .td2-quiet{height:44px;margin-top:8px}
+.td2-day{display:flex;flex-direction:column;gap:10px;margin-top:8px;padding:14px 16px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px #E7E9EE}
+.td2-day h2{margin:0;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t2-mute)}
+.td2-dayg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.td2-ev{display:flex;flex-direction:column;gap:2px;padding-left:10px;border-left:2px solid #E2E5EB;font-size:13px;color:#4A5060}
+.td2-ev b{font-size:14px;color:var(--t2-ink)}
+.td2-aside{width:380px;flex:none;display:flex;flex-direction:column;gap:14px;padding:18px;box-sizing:border-box;min-height:560px;background:#fff;border-radius:14px;box-shadow:0 0 0 1px #E7E9EE,0 8px 24px rgba(16,24,40,.06)}
+.td2-ak{display:flex;flex-direction:column;gap:4px}
+.td2-kick{font-size:12px;color:var(--t2-mute)}
+.td2-anote{margin:0;padding:10px 12px;border-radius:10px;background:#F4F5F8;color:var(--t2-ink2);font-size:13px;line-height:1.45}
+.td2-agrid{display:grid;grid-template-columns:112px minmax(0,1fr);gap:9px 12px;font-size:13px;line-height:1.35}
+.td2-agrid .k{color:var(--t2-mute)}
+.td2-aleak{margin:0;font-size:13px;line-height:1.45;color:#4A5060}
+.td2-abtns{display:flex;flex-direction:column;gap:8px}
+.td2-aside .btn.td2-lead{height:46px;min-height:46px;margin:0}
+.td2-a2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.td2-a2 .btn{height:42px;border:1px solid #D5D9E1;border-radius:12px;background:#fff;font-size:14px;font-weight:600;justify-content:center}
+
+/* the foreman's Today (TodayForeman): Today over his job and the day, Ask; the clock card first; plain section heads */
+body.td2-fm header.topbar > #btn-search{display:none !important}
+body.td2-fm header.topbar{grid-template-columns:44px minmax(0,1fr) auto}
+body.td2-fm header.topbar > #tb-ask{grid-column:3}
+body.td2-fm header.topbar > #td2-hdate{font-size:14px;color:#5B616E}
+body.td2-fm #ftoday-body .f-hero.td2-clock{display:flex;flex-direction:column;align-items:stretch;gap:10px;margin:0 0 4px;padding:14px;background:#fff;border-radius:14px;box-shadow:0 0 0 1px #ECEEF2}
+body.td2-fm #ftoday-body .f-hero.td2-clock > div:first-child{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+body.td2-fm #ftoday-body .f-hero.td2-clock > div:first-child b{flex:1;font-size:16px;font-weight:600}
+body.td2-fm #ftoday-body .f-hero.td2-clock .td2-clk{font-size:15px;color:#5B616E}
+body.td2-fm #ftoday-body .f-hero.td2-clock .btn.primary{width:100%;height:56px;min-height:56px;border:0;border-radius:14px;background:#2456C9;font-size:18px;font-weight:700;justify-content:center}
+body.td2-fm #ftoday-body .f-hero.td2-clock > .row{width:100%}
+body.td2-fm #ftoday-body .f-card > .hd h3{font-size:13px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#1A1D23}
+body.td2-fm #ftoday-body .f-card{border-radius:14px;box-shadow:0 0 0 1px #ECEEF2;border:0}
