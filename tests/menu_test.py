@@ -82,9 +82,9 @@ CUTS = {
     'u_billing': ['ap', 'spend', 'ovmoney', 'hbforecast', 'hbdash', 'ovsales', 'partners',
                   'playbook', 'vendors', 'meetings', 'cos', 'team'],
     'u_controller': ['ovjobs', 'ovmoney', 'clients', 'meetings', 'calendar', 'brain', 'obligations', 'ovoffice', 'cos', 'team'],
-    # Team (p2nav) sits under Company; a role with no Company group finds it under More
+    # Team (p2nav) sits under Company; an office role with no Company group finds it under More; the field's menus place it
     'u_sarah': ['dashboard', 'team'],
-    'u_angel': ['team'], 'u_alberto': ['team'], 'u_alex': ['team'],
+    'u_angel': [], 'u_alberto': [], 'u_alex': [],
 }
 HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'billing', 'u_controller': 'bank', 'u_sarah': 'sday',
         'u_angel': 'ftoday', 'u_alberto': 'time', 'u_alex': 'route', 'u_klein': 'client'}

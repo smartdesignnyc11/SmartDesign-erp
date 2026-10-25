@@ -63,12 +63,22 @@ document.addEventListener(
   },
   !0,
 );
-// A screen that hides the app's header and draws its own (the phone's Tasks page, Meeting Mode) carries Ask in it.
-const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top-ph .mm-phr", ".mm-top"];
+// A screen that hides or covers the app's header and draws its own (the phone's Tasks page, Meeting Mode, a
+// conversation on the phone, which is full screen) carries Ask in it.
+const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top-ph .mm-phr", ".mm-top", "body.msg-thread #v-chat .msg-head"];
+// the header's Ask is on screen and nothing lies over it
+function p2nTbAskOn(tb) {
+  if (!p2nVis(tb)) return !1;
+  const r = tb.getBoundingClientRect(),
+    h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return !!h && tb.contains(h);
+}
 function p2nAskOwnHeads() {
+  // a sheet carries its own Ask; what lies under it is left as it is
+  if (document.querySelector("#mbm:not([hidden])")) return;
   const want = p2nHasAsk(),
     tb = document.getElementById("tb-ask"),
-    tbOn = want && p2nVis(tb);
+    tbOn = want && p2nTbAskOn(tb);
   // the header's own Ask goes the same way as every other (a sheet or the meeting is held, not lost)
   tb && !tb.hasAttribute("data-p2nask") && tb.setAttribute("data-p2nask", "");
   document.querySelectorAll(".p2n-ask.p2n-own").forEach((b) => {
@@ -161,16 +171,41 @@ if ("object" == typeof TL_SETS && "function" == typeof TL_SETS.sday) {
         rule: "Yours, late or due in the next 7 days: the Tasks list's Due Soon",
         go: () => ((tkWho = "me"), (tkProject = ""), (t2View = "week"), setView("tkall")),
       };
-      let stale = 0;
-      try {
-        stale = (DB.projects || []).reduce((a, p) => a + ("function" == typeof sheetsOf ? sheetsOf(p.id) : []).filter((s) => s.stale && "current" === s.status).length, 0);
-      } catch (e) {}
-      stale && !T.some((x) => "reissue" === x.key) && T.splice(i + 1, 0, { key: "reissue", k: "To Re-Issue", v: stale, tone: "bad", s: `sheet${1 === stale ? "" : "s"} behind a newer revision`, go: () => setView("plans") });
+      // the sheets behind a newer revision keep a tile of their own; it lists the very sheets it counts, here (it
+      // opened the whole drawing register: 6 on the tile, 17 rows on the page)
+      const stale = p2nStaleSheets();
+      stale.length &&
+        !T.some((x) => "reissue" === x.key) &&
+        T.splice(i + 1, 0, {
+          key: "reissue",
+          k: "To Re-Issue",
+          v: stale.length,
+          tone: "bad",
+          s: `sheet${1 === stale.length ? "" : "s"} behind a newer revision`,
+          rule: "current sheets marked stale: a newer revision changed what they show",
+          list: () => p2nStaleSheets(),
+          of: () => p2nStaleSheets().length,
+          cols: [
+            { key: "num", label: "Sheet", cls: "name", w: "110px", get: (r) => r.s.number || "" },
+            { key: "title", label: "Title", get: (r) => r.s.title || "" },
+            { key: "job", label: "Job", get: (r) => (r.p ? shortName(r.p) : "") },
+            { key: "rev", label: "Rev", w: "70px", get: (r) => r.s.rev || "" },
+          ],
+          open: (r) => ("function" == typeof plOpenNumber ? plOpenNumber(r.p.id, r.s.number) : (setCurrent(r.p.id), setView("plans"))),
+        });
     } catch (e) {
       console.warn("designer tasks tile", e);
     }
     return T;
   };
+}
+
+function p2nStaleSheets() {
+  try {
+    return (DB.projects || []).flatMap((p) => ("function" == typeof sheetsOf ? sheetsOf(p.id) : []).filter((s) => s.stale && "current" === s.status).map((s) => ({ p: p, s: s })));
+  } catch (e) {
+    return [];
+  }
 }
 
 // ---- N3 Messages: one door, three tabs, one count -----------------------------------------------------------------
@@ -318,6 +353,7 @@ function p2nMsgPage() {
       f.innerHTML = p2nFieldHtml();
     } else f && f.remove();
     v.querySelectorAll(".ph h2, .msg-side-h h2").forEach((h) => "Chat" === h.textContent.trim() && (h.textContent = "Messages"));
+    p2nSideTot(v);
     document.querySelectorAll("#crumbs b").forEach((c) => "Chat" === c.textContent.trim() && (c.textContent = "Messages"));
     field && document.body.classList.remove("msg-thread", "msg-solo-ph");
   }
@@ -331,6 +367,16 @@ function p2nMsgPage() {
     document.querySelectorAll("#crumbs b").forEach((c) => /^(Inbox|Mail)$/.test(c.textContent.trim()) && (c.textContent = "Messages"));
     p2nMailNew(v);
   }
+}
+// the list's total sits beside the word Messages: it is the one Messages number (the Team tab holds the unread lines)
+function p2nSideTot(v) {
+  const h = v && v.querySelector(".msg-side-h h2");
+  if (!h) return;
+  "Chat" === h.textContent.trim() && (h.textContent = "Messages");
+  const tot = v.querySelector(".msg-side-h .msg-tot"),
+    N = p2nMsgN().n;
+  if (tot) N ? (tot.textContent = String(N)) : tot.remove();
+  else if (N) h.insertAdjacentHTML("afterend", `<span class="n msg-tot" title="Unread">${N}</span>`);
 }
 // one count on every door: the rail, the phone bar, the field bar, the header
 if ("function" == typeof msgBadges) {
@@ -422,6 +468,9 @@ if ("function" == typeof renderChat) {
   const base = renderChat;
   renderChat = function () {
     const r = base.apply(this, arguments);
+    try {
+      p2nSideTot(document.getElementById("v-chat")), "chat" === view && p2nAskOwnHeads();
+    } catch (e) {}
     try {
       const u = p2nMe(),
         T = msgCur(u),
@@ -520,9 +569,12 @@ function p2nDirTabs() {
     "afterbegin",
     `<div class="p2n-dtabs p2n-mtabs no-print" role="tablist" aria-label="Clients">${L.map(([k, l]) => `<button type="button" role="tab" data-p2ndir="${k}" aria-selected="${k === view}" class="${k === view ? "on" : ""}">${l}</button>`).join("")}</div>`,
   );
-  // one page, one name: the heading is the directory's
-  v.querySelectorAll(".ph h2, .hb-h1, h1").forEach((h) => /^(People|Companies|Contacts)$/.test(h.textContent.trim()) && !h.querySelector("input,select") && (h.dataset.p2nwas = h.textContent.trim(), (h.textContent = "Clients")));
-  document.querySelectorAll("#crumbs b").forEach((c) => /^(People|Companies|Contacts)$/.test(c.textContent.trim()) && (c.textContent = "Clients"));
+  // each tab keeps its own name over its own list (the menu's heading rule would call all three "Clients": then
+  // "Clients: 19 records" and "Clients: 6 records" were one label with two numbers)
+  const own = { hbcontacts: "People", hbcompanies: "Companies" }[view];
+  own &&
+    (v.querySelectorAll(".ph h2, .hb-h1, h1").forEach((h) => "Clients" === h.textContent.trim() && !h.querySelector("input,select") && (h.textContent = own)),
+    document.querySelectorAll("#crumbs b").forEach((c) => "Clients" === c.textContent.trim() && (c.textContent = own)));
 }
 document.addEventListener(
   "click",
@@ -796,6 +848,8 @@ function p2nTeamViews() {
   ["foreman", "crew", "driver"].forEach((r) => {
     const M = MENU[r];
     M && (M.bar || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
+    // Team is placed at the foot of the field menu (the colleague to call), not left to fall under More
+    M && M.rest && !M.rest.some((x) => "team" === x[0]) && M.rest.push(["team", "Team", "people"]);
   });
   // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest). The bar keeps four
   // shortcuts (Alan, 2026-10-19: "a max of 4"), so Site, the one the synthesis ranks below Daily Log, leads the rest.
@@ -826,7 +880,7 @@ let p2nLastView = "";
         const me = tdyMe(),
           k = me.id || role(),
           n = (tdyModel().appr || []).length;
-        n && (tdyTabs[k] = "appr");
+        n && ((tdyTabs[k] = "appr"), (tdyLanding = "appr"), (tdyAllOpen = !1));
       }
     } catch (e) {}
     p2nLastView = view;
