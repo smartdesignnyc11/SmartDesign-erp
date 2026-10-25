@@ -209,7 +209,8 @@ async def directory_checks(c, pg, uid, tag, phone):
         c.ok(t == want, f'{tag}: Clients has the tabs {want} ({t})')
         await pg.evaluate("() => document.querySelector('.view.on .p2n-dtabs [data-p2ndir=\"hbcontacts\"]').click()"); await pg.wait_for_timeout(300)
         st = await pg.evaluate("() => ({ view, tabs: [...document.querySelectorAll('.view.on .p2n-dtabs [data-p2ndir]')].length, lit: (document.querySelector('#nav-groups button.on') || {}).dataset ? document.querySelector('#nav-groups button.on').dataset.grp : '' })")
-        c.ok(st['view'] == 'hbcontacts' and st['tabs'] == len(want) and (phone or st['lit'] == 'clients'), f'{tag}: People opens as a tab of Clients and lights Clients ({st})')
+        home = await pg.evaluate("() => mnMap().groups.some(g => g.items.some(i => i.startsWith('clients=')))")
+        c.ok(st['view'] == 'hbcontacts' and st['tabs'] == len(want) and (phone or st['lit'] == ('clients' if home else 'more')), f'{tag}: People opens as a tab of Clients and lights where Clients sits ({st})')
         if uid == 'u_owner': await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_clients_people')
         if phone:
             sw = await pg.evaluate(SW)
@@ -298,7 +299,10 @@ async def meeting_ask(c, pg, tag):
     c.ok(a['ok'] and a['word'], f'{tag}: Meeting Mode carries Ask ({a})')
     await shot(pg, f'owner_{tag}_meeting_ask')
     await pg.evaluate("() => { const a = [document.getElementById('tb-ask'), ...document.querySelectorAll('.p2n-ask.p2n-own')].find(x => x && x.getClientRects().length); a && a.click(); }"); await pg.wait_for_timeout(300)
-    c.ok(await pg.evaluate("view") == 'pa' and await pg.evaluate("() => mmActive()"), f'{tag}: Ask opens from the meeting and the meeting stays on')
+    st = await pg.evaluate("() => ({ view, on: !!mtCurrent(), back: (document.getElementById('p2n-resume') || {}).textContent || '' })")
+    c.ok(st['view'] == 'pa' and st['on'] and 'Back to the Meeting' in st['back'], f'{tag}: Ask opens from the meeting, the meeting stays on, Back returns ({st})')
+    await pg.click('#p2n-resume'); await pg.wait_for_timeout(300)
+    c.ok(await pg.evaluate("() => mmActive()"), f'{tag}: Back to the Meeting puts the meeting on screen')
 
 async def main():
     args = sys.argv[1:]

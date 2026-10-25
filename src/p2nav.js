@@ -48,7 +48,8 @@ const p2nAskHtml = (cls) => `<button type="button" class="btn tb-ask p2n-ask ${c
 function p2nAskOpen() {
   if (!p2nHasAsk()) return;
   try {
-    "function" == typeof mbCloseModal && document.getElementById("mbm") && p2nHold(document.getElementById("mbm"));
+    const m = document.getElementById("mbm");
+    m ? p2nHold(m) : !p2nHeld && "function" == typeof mmActive && mmActive() && (p2nHeld = { el: null, view: "tkall", title: "the Meeting" });
   } catch (e) {}
   setView("pa");
 }
@@ -84,6 +85,7 @@ function p2nAskOwnHeads() {
 // ---- N1 Ask from a sheet: the sheet is held, not lost ------------------------------------------------------------
 // A sheet (mbModal) covers the header on the phone and the desktop alike. Its own header carries Ask; pressing it
 // sets the sheet aside with what was typed in it and opens Ask, and "Back to <the sheet>" puts it back as it was.
+// Meeting Mode is the same: Ask from the meeting leaves it running, and "Back to the Meeting" returns to it.
 let p2nHeld = null;
 function p2nHold(m) {
   if (!m || p2nHeld) return;
@@ -99,6 +101,7 @@ function p2nResume() {
   p2nHeld = null;
   document.getElementById("p2n-resume")?.remove();
   "function" == typeof mbCloseModal && mbCloseModal();
+  if (!H.el) return void setView(H.view);
   view !== H.view && ((view = H.view), render());
   (H.el.id = "mbm"), (H.el.hidden = !1), H.el.classList.remove("p2n-held");
   const f = H.el.querySelector("input:not([type=hidden]),textarea,select");
@@ -106,7 +109,9 @@ function p2nResume() {
 }
 function p2nResumeBar() {
   let b = document.getElementById("p2n-resume");
-  if (!p2nHeld || !document.body.contains(p2nHeld.el)) return (p2nHeld = p2nHeld && document.body.contains(p2nHeld.el) ? p2nHeld : null), void (b && b.remove());
+  // a held sheet lives while it is in the page; the meeting while it is on and the person is away from it
+  const live = (H) => !!H && (H.el ? document.body.contains(H.el) : view !== H.view && "function" == typeof mtCurrent && !!mtCurrent());
+  if (!live(p2nHeld)) return (p2nHeld = null), void (b && b.remove());
   if (!b) {
     (b = document.createElement("button")), (b.type = "button"), (b.id = "p2n-resume"), (b.className = "p2n-resume no-print");
     b.onclick = () => p2nResume();
