@@ -61,8 +61,11 @@ const P2 = {
     const I = (co.cl.invoices || []).filter(i => !['draft', 'void'].includes(i.status) && (i.lines || []).some(l => RX(String(c.number).replace(/-/g, '.?')).test(`${l.desc || ''} ${l.item || ''} ${l.source || ''}`) || l.coId === co.d.id || l.srcCo === co.d.id));
     return [I.length > 0, I.length ? 'on ' + I.map(i => `${i.number} ${i.status}`).join(', ') : `${c.number} ${co.d.status}, on no invoice sent`]; },
   // the person clocked in and out that day (one closed time entry at least)
+  // (the seed already holds hours for some of these days: an entry counts only if the run made it, or closed one the
+  // seed left open; M.p2base is the time entries as the run began, {id: out}, set by the world)
   clocked(c) { const e = userEmp(c.uid); if (!e) return [false, 'no employee for ' + c.uid];
-    const T = (DB.time || []).filter(t => t.empId === e && t.date === c.day); const closed = T.filter(t => t.in && t.out);
+    const B = M.p2base || {}, mine = t => !(t.id in B) || (!B[t.id] && t.out);
+    const T = (DB.time || []).filter(t => t.empId === e && t.date === c.day && mine(t)); const closed = T.filter(t => t.in && t.out);
     return [closed.length > 0, closed.length ? closed.map(t => `${String(t.in).slice(11, 16)}-${String(t.out).slice(11, 16)}`).join(', ') : T.length ? 'clocked in, never out' : 'no clock-in']; },
   // a PO on the job with a line matching the item, issued with a vendor and a price; linked = every line from an estimate line
   poFor(c) { const P = (DB.pos || []).filter(po => po.projectId === c.project && (po.lines || []).some(l => RX(c.rx).test(`${l.item || ''} ${l.desc || ''}`)));

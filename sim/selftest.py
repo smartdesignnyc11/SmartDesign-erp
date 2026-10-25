@@ -10,8 +10,13 @@ screens. It proves the harness, not the app:
   4. the coordinator enters the bill from his Inbox; the controller imports the statement through Banking and
      confirms the match;
   5. resume: the server is stopped mid-day and resumed from its snapshot, and the PO is still there;
-  6. the referee scores the day, including the find-it-again failure this script provokes on purpose (the
-     statement import is only ever named in a toast), and the PERSIST reload check finds nothing lost.
+  6. the referee scores the day (its find-it-again detection proven on an invented line), and the PERSIST reload
+     check finds nothing lost;
+  7. Pilot 2: the click check's classifier on invented lines; the owner's turn on the phone (switching refused),
+     a turn that switches from the desktop to the phone; the new prospect (P2-01) put on file and won through the
+     screens, the gated walk-through (P2-03) and the estimate expectation it opens (P2-04); the first-screen marker;
+     the referee's Pilot 1 / all events split, the click check per device with a dead tap, the device on every
+     action, and the cost files with the conductor's measured tokens.
 
     python3 sim/selftest.py            # about 5-10 minutes; prints PASS/FAIL per check and exits 1 on any FAIL
     python3 sim/selftest.py --keep     # keep the run directory (sim/runs/selftest-*) for inspection
@@ -154,7 +159,7 @@ def flow():
         check(False, 'admin without the run token is refused')
     except urllib.error.HTTPError as e:
         check(e.code == 403, 'admin without the run token is refused')
-    ctl('party', 'Brooklyn Lumber', json.dumps({'reply_p': 1, 'delay': [0, 0], 'ship': [0], 'pay': 'card', 'late_p': 0}))
+    ctl('party', 'Ferguson', json.dumps({'reply_p': 1, 'delay': [0, 0], 'ship': [0], 'pay': 'card', 'late_p': 0}))
     w = ctl('world', 'morning', '--no-watchers')
     check('P2-01 · mail' in str(w.get('raw') or w), 'Pilot 2 book: the prospect\'s first mail (P2-01) goes out with the morning')
 
@@ -173,47 +178,50 @@ def flow():
     ctl('begin', 'u_angel', 'morning', '--cap', '15')
     rc, out = act('u_chen', 'screen')
     check(rc != 0 and 'turn' in out, 'a person cannot act during someone else\'s turn')
-    rc, out = act('u_angel', 'go', 'Ask')
-    n = num(out, r'^Materials or a Tool')
-    check(bool(n), 'foreman: the Ask tab offers Materials or a Tool')
-    # a batch: four steps in one call, targets by label, only the lines with "Send" back
-    rc, out = act('u_angel', 'do', 'tap "Materials or a Tool"; pick "What Is It For" "Framing"; type "What Do You Need" "8 sheets 3/4 plywood (selftest)"; tap "Next — Check the List"',
-                  '--find', 'Send')
-    check(rc == 0 and out.startswith('do: 4 of 4 steps') and 'Send 1 Line' in out and len(out) < 1500,
-          f'do: a four-step batch by label in one call, one compact result ({len(out)} characters)')
-    rc, out = act('u_angel', 'do', 'tap "No Such Button"; tap "Send 1 Line"')
+    # (the phone bar is four shortcuts since the phone lanes: the material request lives on Site)
+    rc, out = act('u_angel', 'go', 'Site')
+    n = num(out, r'^Request Material')
+    check(bool(n), 'foreman: Site offers Request Material / Tools')
+    # a batch: three steps in one call, targets by label, only the lines with "Send" back
+    rc, out = act('u_angel', 'do', 'tap "Request Material / Tools"; type "What do you need" "8 sheets 3/4 plywood (selftest)"; tap "Send the Request"', '--find', 'Send')
+    check(rc == 0 and out.startswith('do: 3 of 3 steps') and re.search(r'\[\d+ Send\]', out) and len(out) < 1500,
+          f'do: a three-step batch by label in one call, one compact result ({len(out)} characters)')
+    rc, out = act('u_angel', 'do', 'tap "No Such Button"; tap "Send"')
     check(rc != 0 and 'do: 0 of 2 steps' in out and 'STOPPED' in out, 'do: stops at the first step whose target is not on the screen, and does not run the rest')
-    rc, out = act('u_angel', 'tap', 'Send 1 Line')
+    rc, out = act('u_angel', 'tap', 'Send')
     check('Request sent' in out, 'foreman: the request is sent (tap by label; toast)')
     ctl('end')
 
     # ---- 3. the coordinator sees it on his own page and buys it
     ctl('begin', 'u_chen', 'morning', '--cap', '30')
+    act('u_chen', 'go', 'Purchasing > Requests')
     rc, out = act('u_chen', 'find', 'plywood (selftest)')
-    check('plywood (selftest)' in out, 'shared state: the foreman\'s request is on the coordinator\'s Home (another page)')
+    check('plywood (selftest)' in out and 'is not on this screen' not in out, 'shared state: the foreman\'s request is on the coordinator\'s Requests (another page)')
     rc, out = act('u_chen', 'go', 'Purchasing > Purchase Orders')
     rc, out = act('u_chen', 'tap', num(out, r'^New PO$'))
     rc, full = act('u_chen', 'screen', '--full')
     m = re.search(r'\[(\d+) check "[^"]*" (?:on|off)\] \| 2\. Framing', full)
     check(bool(m), 'coordinator: the estimate\'s Framing line is in the New PO sheet')
-    c = int(m.group(1))
-    act('u_chen', 'tap', str(c))
-    for i, v in enumerate(['8', 'sheet', '62', 'Brooklyn Lumber'], 1): act('u_chen', 'type', str(c + i), v)
+    rc, out = act('u_chen', 'tap', m.group(1))
+    m = re.search(r'\[(\d+) check "[^"]*" on\] \| 2\. Framing', out)   # ticking the line renumbers the sheet: read it again
+    c = int(m.group(1)) if m else 0
+    rc, out = act('u_chen', 'do', '; '.join(f'type {c + i} "{v}"' for i, v in enumerate(['8', 'sheet', '62', 'Ferguson'], 1)))
+    check(rc == 0, 'coordinator: quantity, unit, cost and vendor typed on the ticked line')
     rc, full = act('u_chen', 'screen', '--full')
     rc, out = act('u_chen', 'tap', num(full, r'^Create the Purchase Orders'))
     po = (re.findall(r'Purchase Order (PO-\d{4}-\d+)', out) or [''])[0]
     check(bool(po) and 'created' in out, f'coordinator: {po or "no PO"} created in draft from the line')
     rc, full = act('u_chen', 'screen', '--full')
     rc, out = act('u_chen', 'tap', num(full, r'^Issue PO'))
-    check('issued' in out, f'coordinator: {po} issued')
+    check(re.search(re.escape(po) + r'[^\n]{0,40}issued', out) and 'cannot be issued' not in out, f'coordinator: {po} issued')
     rc, full = act('u_chen', 'screen', '--full')
     rc, out = act('u_chen', 'tap', num(full, r'^Draft Email to Vendor'))
-    act('u_chen', 'type', field(out, 'input', 'To'), 'Brooklyn Lumber <orders@brooklynlumber.example>')
+    act('u_chen', 'type', field(out, 'input', 'To'), 'Ferguson <quotes@ferguson.example>')
     rc, out = act('u_chen', 'tap', num(out, r'^Save to Mailbox Drafts'))
     rc, out = act('u_chen', 'mail', 'drafts')
     k = next((ln.split('.')[0] for ln in out.splitlines() if po in ln), None)
     rc, out = act('u_chen', 'mail', 'senddraft', k or '1')
-    check('sent to Brooklyn Lumber' in out, 'coordinator: the PO goes to the supplier from his mailbox')
+    check('sent to Ferguson' in out, 'coordinator: the PO goes to the supplier from his mailbox')
     ctl('end')
 
     # ---- 4. a usage pause: the world stops and resumes from its snapshot
@@ -234,8 +242,10 @@ def flow():
     check(f'delivered {po}' in out, 'world: the delivery reaches the foreman as something that happened on site')
     act('u_angel', 'go', 'Today')
     rc, out = act('u_angel', 'find', po)
-    n = num(out, r'^Check In')
-    check(bool(n), f'foreman: {po} is on her Today with Check In')
+    n = num(out, r'^(Check In|It Arrived)')
+    if not n:   # the deliveries coming to site are on Site since the phone lanes
+        act('u_angel', 'go', 'Site'); rc, out = act('u_angel', 'find', po); n = num(out, r'^(Check In|It Arrived)')
+    check(bool(n), f'foreman: {po} is on her Today or Site with Check In / It Arrived')
     rc, out = act('u_angel', 'tap', n)
     rc, out = act('u_angel', 'tap', num(out, r'^Record Receipt'))
     check('received' in out, f'foreman: {po} received in full (toast)')
@@ -248,10 +258,11 @@ def flow():
     ctl('begin', 'u_owner', 'work1', '--switch', '--cap', '20')
     rc, out = act('u_owner', 'news')
     check('Nadia Okoro' in out, 'owner: the walk-through is in his news')
-    rc, out = act('u_owner', 'go', 'Sales')
+    rc, out = act('u_owner', 'go', 'Today')
     check('(owner)' in out.split('\n')[0], 'device: the plan-less default puts the owner on his desktop')
     rc, full = act('u_owner', 'screen', '--full')
-    check('the first screen ends here' in full, 'the screen marks where the first screen ends (the five-second test)')
+    check('the first screen ends here' in full, 'the screen marks where the first screen ends on a long page (the five-second test)')
+    rc, out = act('u_owner', 'go', 'Sales')
     rc, out = act('u_owner', 'tap', 'Sales')   # the page's own tab, already open: nothing happens (the click check's dead tap)
     rc, out = act('u_owner', 'device', 'phone')
     check(rc == 0 and '(owner, phone)' in out, 'device: a turn with --switch picks up the phone mid-turn (same page, same company)')
@@ -268,12 +279,12 @@ def flow():
     rc, out = act('u_chen', 'mail')
     inv = (re.findall(r'Invoice ([A-Z]{2,4}-\d+) for ' + re.escape(po), out) or [''])[0]
     check(bool(inv), f'world: the supplier\'s invoice {inv} is in the coordinator\'s mailbox')
-    rc, out = act('u_chen', 'go', 'Home > Inbox')
+    rc, out = act('u_chen', 'go', 'Today > Inbox')
     rc, out = act('u_chen', 'tap', num(out, r'^To Decide'))
     rc, full = act('u_chen', 'screen', '--full')
     rc, out = act('u_chen', 'tap', row_before(full, r'Invoice ' + re.escape(inv)))
     rc, out = act('u_chen', 'find', 'Vendor bill')
-    rc, out = act('u_chen', 'tap', num(out, r'^Apply$'))
+    rc, out = act('u_chen', 'tap', num(out, r'^(Apply|Enter the Bill)$'))
     check('bill' in out.lower() and po in out, f'coordinator: {inv} entered as a bill against {po}')
     ctl('end')
 
@@ -287,7 +298,8 @@ def flow():
     rc, out = act('u_controller', 'mail', 'read', k or '1')
     f = (re.findall(r'-> (\S+\.csv)', out) or [''])[0]
     check(bool(f) and os.path.exists(f), 'controller: the bank\'s statement CSV is attached and saved for upload')
-    act('u_controller', 'go', 'Accounting > Banking')
+    rc, out = act('u_controller', 'go', 'Banking')   # Banking is the controller's own top-level entry since the menu round
+    if rc != 0: act('u_controller', 'go', 'Accounting > Banking')
     rc, out = act('u_controller', 'find', 'Import Statement')
     rc, out = act('u_controller', 'tap', num(out, r'^Import Statement'))
     act('u_controller', 'pick', field(out, 'select', 'Account'), 'Amex')
@@ -296,13 +308,13 @@ def flow():
     check('imported' in out, 'controller: the statement imports through Banking > Import Statement')
     rc, out = act('u_controller', 'find', 'Categorize & Match')
     act('u_controller', 'tap', num(out, r'^Categorize & Match'))
-    rc, out = act('u_controller', 'find', 'BROOKLYN LUMBER')
-    m = re.search(r'BROOKLYN LUMBER\$?[\d,.]*[^\n]*\n(?:[^\n]*\n){0,3}?\[(\d+) Confirm\]', out)
+    rc, out = act('u_controller', 'find', 'FERGUSON')
+    m = re.search(r'FERGUSON\$?[\d,.]*[^\n]*\n(?:[^\n]*\n){0,3}?\[(\d+) Confirm\]', out)
     if m:
         rc, out2 = act('u_controller', 'tap', m.group(1))
         check(rc == 0, f'controller: the card line is confirmed against its match ({(re.findall(r"Toast: ([^\n]*)", out2) or [""])[0][:80]})')
     else:
-        check(False, 'controller: a proposed match for the BROOKLYN LUMBER card line is on Banking')
+        check(False, 'controller: a proposed match for the FERGUSON card line is on Banking')
     ctl('end')
 
     # ---- 8. the referee
@@ -315,8 +327,17 @@ def flow():
     bl = [e for e in L['events'] if e['check'] == 'bill' and inv and inv in e['what']]
     check(any(e['verdict'] in ('on time', 'open') and e['done'] for e in bl), f'referee: {inv} is scored entered against {po}')
     fails = L['fia']['failures']
-    check(any(x['name'].endswith('.csv') for x in fails), 'referee: the deliberate find-it-again failure (the import named only in a toast) is caught: '
-          + '; '.join(f"{x['uid']} {x['name']}" for x in fails[:3]))
+    # the statement import used to be named only in its toast (the failure this test provoked); the app now lists it on
+    # Banking, so the referee's detection is proven on an invented line instead, and the live failures are reported
+    sys.path.insert(0, HERE)
+    from referee import Referee
+    fake = [{'uid': 'u_controller', 'day': '2026-09-04', 'slot': 'morning', 'cmd': 'tap', 'after': 'Banking',
+             'creates': [{'key': 'bankImports:x1', 'name': 'ac2_2026-09-04.csv', 'on_screen': False, 'in_toast': True}]},
+            {'uid': 'u_controller', 'cmd': 'fia_after_reload', 'args': ['bankImports:x1'], 'ok': False}]
+    F = Referee(None).fia(fake)
+    check(len(F['failures']) == 1 and F['failures'][0]['in_toast'] and F['failures'][0]['after_reload'] is False,
+          'referee: a record named only in its toast, and still missing after a reload, is a find-it-again failure '
+          f"(this run: {len(fails)} live: " + ('; '.join(f"{x['uid']} {x['name']}" for x in fails[:3]) or 'none') + ')')
     check(L['fia']['found'] >= 3, f"referee: creates seen by their creator are counted ({L['fia']['found']})")
     check(len(L['standard']['refused']) >= 2, f"referee: the refused attempts are on the record ({len(L['standard']['refused'])})")
     check(bool(L['places']['rows']), f"referee: places-to-look counted per person and kind ({len(L['places']['rows'])} person-days)")

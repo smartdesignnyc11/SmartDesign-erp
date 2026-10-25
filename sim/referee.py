@@ -111,7 +111,7 @@ def classify_clicks(A):
         elif nav: v = 'landed' if hit else ('off-label' if words else 'unclear')
         elif toast or db:
             v = 'landed' if (moved and hit and not does) else 'done'
-            if db and not toast: rec['silent'] = True
+            if db and not toast and a['cmd'] != 'go': rec['silent'] = True   # a menu go that saves the page's own state is not a mutation
             if toast and db and not t.get('toastOpen'): rec['noopen'] = True   # the Standard: a mutation's toast carries Open
         else: v = 'landed' if (hit and a.get('kind') == 'tab') else 'in place'
         rec['verdict'] = v; out.append(rec)

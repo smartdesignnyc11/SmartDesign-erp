@@ -246,6 +246,7 @@ class Sim:
         if uid == '__world':
             await pg.evaluate(RUNTIME_JS)
             await pg.evaluate(CHECKS_JS)
+            if self.state.get("world", {}).get("p2_time_base") is not None: await pg.evaluate("b => { __MS.p2base = b; }", self.state["world"]["p2_time_base"])
         elif uid in PEOPLE:
             where = self.state['people'].get(uid) or {'cur': DEFAULT_PROJECT.get(uid, ''), 'view': ''}
             await pg.evaluate("""([u, w]) => { if ((DB.deviceUser || '') !== u || (currentUser() || {}).id !== u) signIn(u);
@@ -306,6 +307,9 @@ class Sim:
             try: await pg.evaluate("u => __MS.connect(u)", u)
             except Exception as e: self.log({'uid': '__world', 'cmd': 'connect', 'args': [u], 'error': str(e)[:200]})
         await pg.evaluate("() => { try { clearInterval(gsTimerId); } catch (e) {} }")
+        # the time entries as the run begins (Pilot 2's clock checks count only what the run itself clocks)
+        self.state["world"]["p2_time_base"] = await pg.evaluate("() => Object.fromEntries((DB.time || []).map(t => [t.id, t.out || '']))")
+        await pg.evaluate("b => { __MS.p2base = b; }", self.state["world"]["p2_time_base"])
         await self.commit('__world')
         self.world.start()
         for u in PEOPLE: self.diary_init(u)
