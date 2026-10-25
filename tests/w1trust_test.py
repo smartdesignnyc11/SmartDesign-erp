@@ -214,6 +214,17 @@ async def t_silent(c, p):
       b.click(); await sleep(200);
       return { text: document.getElementById('toast').innerText, on: document.getElementById('toast').classList.contains('on') };""")
     c.ok(r.get('none') or r.get('nobtn') or (r['on'] and 'Read the notes again' in r['text']), f"silent: Re-Read says what it found ({r})")
+    # Add Line on an estimate says which line it added, with Open to it
+    r = await js(pg, """
+      let pick = null;
+      for (const cl of DB.clients || []) { const d = (cl.estimates || []).find(x => x.status === 'draft'); if (d) { pick = [cl, d]; break; } }
+      if (!pick) return { none: true };
+      const [cl, d] = pick; clientOpen = cl.id; docOpen = { kind: 'estimate', id: d.id }; view = 'billing'; billTab = 'estimates'; render(); await sleep(300);
+      const add = document.querySelector('.view.on [data-ctadd], .view.on [data-addline]'); if (!add) return { nobtn: true, n: d.lines.length };
+      const n0 = d.lines.length; add.click(); await sleep(250);
+      const t = document.getElementById('toast');
+      return { n0, n1: d.lines.length, text: t.innerText, open: !!t.querySelector('.toast-open'), num: d.number };""")
+    c.ok(r.get('none') or (not r.get('nobtn') and r['n1'] == r['n0'] + 1 and f"Line {r['n1']} added" in r['text'] and r['open']), f"silent: Add Line says which line it added, with Open ({r})")
     await b.close()
 
 

@@ -93,7 +93,9 @@ async def t_split(c, p):
     c.ok('8.97' in r['title'] or '8.96' in r['title'] or '9 hours' in r['title'], f"split: the 7:36-16:34 day reads its own hours ({r['title']!r})")
     c.ok('Restoration' not in on, f'split: a trade that did not show is not ticked ({on})')
     c.ok('Rough electrical' not in on, f"split: another person's task is not ticked ({on})")
-    c.ok(any('Windows' in n for n in on), f"split: the crew's started work is ticked ({on})")
+    # Pilot 2 (w1trust): the started in-house task was ticked for everyone, the framer and the driver included, who never
+    # touched it; the sheet now ticks only what the person logged, clocked in on or has their name on (none if unknown)
+    c.ok(not any('Windows' in n for n in on), f"split: an in-house task the person did not log is not guessed for them ({on})")
     await b.close()
 
 

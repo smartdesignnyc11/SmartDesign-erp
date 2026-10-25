@@ -78,7 +78,7 @@ function w1Put(key, d) {
   d ? (M[key] = d) : delete M[key];
   w1Store(all);
 }
-// the drafts this person has, newest first (Ask and the test read them; nothing else lists them)
+// the drafts this person has, newest first (the pick-up after a reload and the drafts test read them)
 function w1Drafts() {
   const M = w1Mine(w1Load());
   return Object.keys(M)
@@ -1258,6 +1258,44 @@ if ("function" == typeof tdyOpenSource && "function" == typeof tdyTaskSheet) {
     return r;
   };
 }
+
+// Add Line on an estimate, a change order, an invoice or an order added the line in silence (the owner, Pilot 2): it
+// says which line it added to which document, and Open takes the person to the new line, ready to type.
+function w1LinesNow() {
+  try {
+    if ("undefined" != typeof docOpen && docOpen && "undefined" != typeof clientOpen) {
+      const c = (DB.clients || []).find((x) => x.id === clientOpen),
+        d = c && "function" == typeof findDoc ? findDoc(c, docOpen.kind, docOpen.id) : null;
+      if (d) return { n: (d.lines || []).length, num: d.number || "" };
+    }
+    if ("undefined" != typeof poOpen && poOpen) {
+      const po = (DB.pos || []).find((x) => x.id === poOpen);
+      if (po) return { n: (po.lines || []).length, num: po.number || "" };
+    }
+  } catch (e) {}
+  return null;
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest("[data-ctadd], [data-addline], [data-fmadd]");
+    if (!b || w1HostOf(b)) return;
+    const A = w1LinesNow();
+    if (!A) return;
+    setTimeout(() => {
+      const B = w1LinesNow();
+      if (!B || B.n <= A.n) return;
+      const go = () => {
+        const rows = [...document.querySelectorAll(".view.on table.lines tbody tr, .view.on .ct-row, .view.on .ct-m-row, .view.on [data-ctline], .view.on [data-line]")].filter((x) => x.getClientRects().length),
+          last = rows[rows.length - 1],
+          f = last && last.querySelector("input, textarea");
+        last && last.scrollIntoView({ block: "center" }), f && f.focus();
+      };
+      toast(`Line ${B.n} added${B.num ? ` to ${B.num}` : ""}: type what it is`, { label: "Open", run: go });
+    }, 90);
+  },
+  !0,
+);
 
 (() => {
   const css = `
