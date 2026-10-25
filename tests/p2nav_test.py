@@ -68,7 +68,12 @@ async def ask_checks(c, pg, uid, tag, phone):
     await pg.wait_for_timeout(250)
     c.ok(await pg.evaluate("view") == 'pa', f'{tag}: the header Ask opens the assistant')
     a = await pg.evaluate(ASK_JS)
-    if phone: c.ok(a['ok'] and a['h'] >= 44, f'{tag}: Ask is a 44px target on the phone ({a})')
+    if phone:
+        c.ok(a['ok'] and a['h'] >= 44, f'{tag}: Ask is a 44px target on the phone ({a})')
+        # the header still names the page beside Ask (it read "T." for Today when the word first went in)
+        await go(pg, pages[0])
+        t = await pg.evaluate("() => { const b = document.querySelector('#crumbs'); return b && b.getClientRects().length ? Math.round(b.getBoundingClientRect().width) : null; }")
+        c.ok(t is None or t >= 64, f'{tag}: the header keeps room for the page name beside Ask ({t}px)')
     # from a sheet: Ask sets it aside with its typing; Back puts it back
     await go(pg, pages[0])
     await pg.evaluate("() => { mbModal('New Note', '<div class=\"f\"><label>Note</label><input data-f=\"note\" id=\"p2nt-in\"></div>', { submit: 'Save', onSubmit: () => true }); }")
