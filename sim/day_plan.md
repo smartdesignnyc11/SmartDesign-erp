@@ -4,6 +4,7 @@ The harness is in `sim/` (README.md). The main session is the conductor: it runs
 their turn as a subagent, then lets the referee score and the day advance. Turns are strictly one at a time
 (the server refuses anyone acting out of turn), so subagents run sequentially, never in parallel.
 The same plan, machine-readable, is `sim/day_plan.json`; the lean pilot Alan chose is `sim/day_plan_lean.json` (`sim/simctl plan sim/day_plan_lean.json` once, after starting the run).
+**Pilot 2** runs `sim/day_plan_pilot2.json` (same three days, the whole firm, phone and desktop); its own section is at the end.
 
 ## Before day one
 1. `python3 build.py` (the build the month runs on; note its commit in the run notes).
@@ -107,3 +108,61 @@ sh("sim/simctl referee --final"); sh("sim/simctl persist"); sh("sim/simctl stop"
 ```
 A subagent that fails or runs out of actions still gets `simctl end`; the next turn goes on. If the server is not
 answering, start it with `--resume` and repeat the step `status` shows as open.
+
+## Measuring the cost (every run; Pilot 2 reports day 1 before days 2 and 3)
+Two numbers per turn, side by side in `runs/<run>/cost.jsonl`, totalled per day in `cost_<day>.json` and `cost.md`
+(and summarised in `ledger.md`):
+1. **Measured, by the conductor.** The Agent (Task) tool's result for each subagent ends with its usage: total tokens,
+   tool uses and duration. Right after `sim/simctl end`, copy them in:
+   `sim/simctl cost <uid> --tokens <total_tokens> --tool-uses <tool_uses> --ms <duration_ms>`. It attaches to that
+   person's last ended turn. A workshop subagent or a world-agent voice: `sim/simctl cost workshop:<uid> --tokens N`
+   (any label not starting with `u_` gets a line of its own). If the tool shows input, output and cache reads apart,
+   add `--input`, `--output`, `--cache-read`. Nothing is guessed: a turn the conductor did not measure says so.
+2. **Measured, by the harness.** The server counts every toolkit call of the turn, the characters each sent and got
+   back (every result is context the model rereads on each later call), the prompt `simctl prompt` printed and the
+   files it points to (`_common.md`, the briefing, the diary; `simctl prompt` reports their sizes), and the diary
+   characters written. From these it estimates new context, processed input (each call rereads the context so far
+   plus the fixed per-call overhead, 10k tokens assumed, `OVERHEAD` in server.py) and output. The estimate is what
+   stands in for an unmeasured turn; where both exist, report the measured one and how far the estimate was off.
+
+After day 1: `sim/simctl advance`, then read `runs/<run>/cost.md` and give Alan the measured day-1 total, the turns
+it covers, the share of turns measured, and the projection for days 2 and 3 (day 1 x the turn ratio in
+`day_plan_pilot2.json` "turns_per_day", plus the workshops) before running on.
+
+## Pilot 2: turns and cost (sim/day_plan_pilot2.json)
+**What changes from Pilot 1.** The same days (9/3, 9/4, 9/8) and Pilot 1's events, untouched, plus 30 events tagged
+`pilot2` (prospect to client, estimate, contract, deposit, payment, progress invoice; the pantry CO and its billing; a
+PO from the GWB line received one line short, its bill and the short line held; clock in and out for the foreman,
+crew and driver; payroll built and approved; a portal question; task hand-offs and closes; the Monday meeting in
+Meeting Mode). The referee prints "Pilot 1 events" and "all events" apart. Start the server with `--seed 9806211`
+(Pilot 1's) so the held-out events match where the live records allow.
+
+**Devices.** `simctl begin` reads `devices` in the plan (day, slot, person): `phone`, `desktop`, or `a+b` (start on
+a, may `act <uid> device b`, with `switch_cap` more actions). A doc task's `device` wins. Every office role has a
+phone turn each day; the field looks at the desktop once, at the end of day 3. Every action logs its device.
+
+**Turns.** Day 1: 20-21 (morning 7, work 6 plus Sarah when news reached her, eod 7). Day 2: 20-21. Day 3: 26-27
+(the crew and driver add a morning, a work and an eod turn each). Workshops: 10 for Navigation and Pages (9 experts
+and the synthesis), 10 for Documents (6 creators, the client read, 2 brand reads, the synthesis). About 69 turns and
+20 workshop runs in all.
+
+**Estimate, in the terms above (processed input; the 10k-per-call overhead is an assumption, day 1 measures it):**
+| Day | Turns | Doc tasks | Processed input | New context | Output |
+|---|---|---|---|---|---|
+| 1 | 21 | CO (phone), PO (phone), request (phone), bill | about 5.5M | about 0.25M | about 50k |
+| 2 | 21 | estimate (phone), estimate (owner), RFQ, invoice | about 5.9M | about 0.27M | about 55k |
+| 3 | 27 | meeting, payroll, pay application, CO; the five-second looks on both devices | about 7.3M | about 0.33M | about 70k |
+| Workshops | 20 | 8 screenshots per expert (phone and desktop) | about 1.0M | about 0.25M | about 30k |
+| **Total** | **89** | | **about 20M** | **about 1.1M** | **about 0.2M** |
+Against the lean Pilot 1's estimate of 15M: the owner's work turns become mandatory, two more doc tasks, the crew and
+driver morning on day 3, a longer end of day (the two-device judgement, cap 10) and twice the screenshots. Wall time:
+about 25-35 minutes of harness time a day plus the agents' thinking. These are estimates; day 1's measurement
+replaces them.
+
+**The loop for one turn (Pilot 2):**
+```
+sim/simctl begin <uid> <slot>            # device and cap from the plan and the doc task
+sim/simctl prompt <uid>                  # hand it to ONE subagent with Bash (routine: mid-tier; eod: strongest)
+sim/simctl end
+sim/simctl cost <uid> --tokens N --tool-uses N --ms N    # from the Agent tool's result
+```

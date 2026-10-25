@@ -9,10 +9,17 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Pilot 2 (Alan, 10-25: "run Pilot 2 after the phone lanes"; UI/UX on phone and desktop)
+- **Harness ready** (e47fbd4, selftest 55/55): Pilot 1's 3 days plus 30 events across the firm (prospect to client, estimate, contract, deposit and progress invoices; two COs; a PO received short and its bill held; clock in and out to payroll; the portal; hand-offs; Meeting Mode). Every office role works on the phone at least once a day; the referee checks every tap; each expert grades phone and desktop separately; cost recorded per turn.
+- **Runs** when the taskfix and phonerows lanes merge: day 1 alone, its measured cost reported, then days 2 and 3 and both workshops. About 20 agent turns a day; the estimate of about 20M processed tokens rests on an assumption day 1 will measure.
+- **Watch:** winning a lead may create a duplicate client named after the opportunity (unconfirmed); a lumber yard is still not a vendor on file.
+
 ## Procurement: the next module the team adopts (Alan, 10-24)
 "It needs a full review and major changes." Steps, one lane at a time after the mockup-match lane:
 1. **Review** (running, no browser): the last three meeting transcripts for what goes wrong in buying (kept outside the repo); a code inventory of the chain from estimate line to bank line; the coordinator expert's 24 findings (`review/experts/coordinator.md`); the leaders (Procore Materials and Commitments, NetSuite procure-to-pay, Buildertrend POs and bids).
 2. **Plan and mockup** for Alan's yes: `docs/PROCUREMENT_PLAN.md` and phone-first screens on the mockup canvas.
+**10-25: Alan said yes** to the plan, the mockup and the recommended calls. **P1 (One Buy Board) is building**; the procurement expert's buying day runs beside it and its P1 findings fold in.
+
 3. **Build lanes**, each deploying when green: one Buy Board and one "late"; the order and quote path; receiving and reconfirm; vendor credits and claims; then the phone.
 
 ## Tasks replace Asana (Alan, 10-23): Monday 10-26 build, merged

@@ -23,7 +23,7 @@ from harness import *
 
 OUT = os.path.join(ROOT, 'review', 'p1')
 
-LATE = "() => ({ pred: PRED.lateMaterial.rows().length, badge: needs('buy'), board: buyList('').filter(r => r.late).length })"
+LATE = "() => ({ pred: PRED.lateMaterial.rows().length, board: buyList('').filter(r => r.late).length, badge: needs('buy'), need: PRED.buyNeeds.rows().length, week: PRED.orderThisWeek.rows().length })"
 
 async def board(pg, uid='u_chen', tab='buy'):
     await sign_in(pg, uid)
@@ -40,7 +40,8 @@ async def desktop(c, p):
         # ---- ONE LATE
         await board(pg)
         L = await pg.evaluate(LATE)
-        c.ok(L['pred'] == L['badge'] == L['board'] and L['pred'] > 0, f'one late: PRED, the rail badge and the board agree {L}')
+        c.ok(L['pred'] == L['board'] and L['pred'] > 0, f'one late: PRED.lateMaterial and the board agree {L}')
+        c.ok(L['badge'] == L['need'] and L['need'] >= L['pred'], f'the Buy Board badge is late or due this week (PRED.buyNeeds) {L}')
         st = await pg.evaluate("""() => { const v = document.querySelector('#v-proc');
           const n = s => { const e = v.querySelector(s); return e ? +((e.innerText.match(/\\d+/) || [0])[0]) : null; };
           const sec = k => v.querySelectorAll(`[data-bbsec="${k}"] [data-bbrow]`).length;
@@ -51,7 +52,7 @@ async def desktop(c, p):
             tiles: v.querySelectorAll('button.gl, .kpi').length, panel: !!v.querySelector('.bb-panel h3'), h: (v.querySelector('h2') || {}).innerText,
             head: [...v.querySelectorAll('.bb-sh span')].map(s => s.innerText) }; }""")
         c.ok(st['h'] == 'Buy Board' and st['tabBuy'] == st['rows'], f"board: opens on To Buy, the tab count is the rows ({st['tabBuy']} vs {st['rows']})")
-        c.ok(st['pill'] == L['badge'], f"board: the late pill {st['pill']} is the rail badge {L['badge']}")
+        c.ok(st['pill'] == L['badge'] and st['late'] == L['pred'], f"board: the pill {st['pill']} is the rail badge {L['badge']}; the Late section is the late set")
         c.ok(st['head'][:1] == ['LATE'] and st['late'] + st['week'] + st['quotes'] + st['later'] == st['rows'], f"board: sections Late, Order This Week, Waiting on Quotes, Later hold every row {st['head']}")
         ch = dict(st['chips'])
         c.ok(ch.get('all') == st['rows'] and ch.get('late') == st['late'] and ch.get('week') == st['week'] and ch.get('quotes') == st['quotes'], f"board: each chip is its rows {st['chips']}")
@@ -66,12 +67,12 @@ async def desktop(c, p):
         # Do Now: the three the site needs soonest as their own cards, the rest one "N more on the Buy Board" card; together
         # they are the one late set (and this week's)
         td = await pg.evaluate("""() => { const M = tdyModel(); const B = M.all.filter(i => i.kind === 'tdyBuy');
-          const ids = B.flatMap(i => i.more ? i.more.filter(x => x.late).map(x => x.id) : (i.x.late ? [i.id] : []));
-          const late = PRED.lateMaterial.rows().filter(r => !(r.kind === 'request' && r.q.status === 'new')).map(r => r.id);
+          const ids = B.flatMap(i => i.more ? i.more.map(x => x.id) : [i.id]);
+          const want = PRED.buyNeeds.rows().map(r => r.id);
           const more = B.find(i => i.more);
-          return { late: ids.sort(), want: late.sort(), own: B.filter(i => !i.more).length, fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]),
+          return { all: ids.sort(), chip: (M.buy || []).map(i => i.id).sort(), want: want.sort(), own: B.filter(i => !i.more).length, fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]),
                    more: more ? [tdCard(more).verb, more.title, more.more.some(x => /Insulation/.test(x.name))] : null }; }""")
-        c.ok(td['late'] == td['want'], f"Today: the coordinator's Buy Board cards hold the one late set ({len(td['late'])} vs {len(td['want'])})")
+        c.ok(td['chip'] == td['want'] and td['all'] == td['want'], f"Today: the Buy Board chip and All hold PRED.buyNeeds, the badge's set ({len(td['chip'])}, {len(td['all'])} vs {len(td['want'])})")
         c.ok(td['own'] <= 3 and td['more'] and td['more'][0] == 'Open', f"Do Now: at most three own cards, the rest one card that opens the board {td['own']} {td['more']}")
         c.ok(any(v == 'Fix' for n, v in td['fix']) and td['more'] and td['more'][2], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the Buy Board card {td['fix']}")
         a = await pg.evaluate("() => paAsk(\"what's late to order\").headline")
@@ -94,7 +95,7 @@ async def desktop(c, p):
         bo = await pg.evaluate("""() => { const po = DB.pos.find(p => p.number === 'PO-2026-047'); po.expected = '2026-10-23';
           const p = DB.projects.find(x => x.id === po.projectId); const m = p.materials.find(x => x.id === 'm10'); m.eta = '2026-10-23'; save(); view = 'home'; render();
           const B = tdyModel().all.filter(i => i.kind === 'tdyBuy'), r = buyList('').find(x => x.m && x.m.id === 'm10');
-          const own = B.find(i => !i.more && i.x.m && i.x.m.id === 'm10'), more = B.find(i => i.more && i.more.some(x => x.m && x.m.id === 'm10'));
+          const own = (tdyModel().buy || []).find(i => i.x.m && i.x.m.id === 'm10'), more = B.find(i => i.more && i.more.some(x => x.m && x.m.id === 'm10'));
           bbSel = r.id; bbTab = 'buy'; view = 'proc'; render();
           return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: [...document.querySelectorAll('#v-proc .bb-panel [data-bbstep]')].map(b => b.innerText.trim()), ask: paAsk("what's backordered").headline }; }""")
         c.ok(bo and '10/23' in bo['why'] and bo['today'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Do Now: a backorder to 10/23 on a 10/2 need is late, on Today, with the fix choices, and in Ask {bo}')

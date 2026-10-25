@@ -279,48 +279,48 @@ async def run_role(pg, lint, tag, uid, phone):
             if ov: nums.add(ov[0]['n']); seen.append(f"{ov[0]['n']} on {g['ov']} (\"late or waiting\" line)")
             await to_view(pg, views[0])
         if len(nums) > 1: lint.flag('C', run, o['label'], '; '.join(seen))
-    # Tasks under Today (Alan, 2026-10-24): its badge is the person's own late and due-today tasks. The rail (desktop
-    # rail or the phone's menu), tkMyCounts().today, the Tasks page's marked count and Ask's "my tasks due today" read
-    # one number.
-    for o in [o for o in rails if o.get('grp') == 'mytasks'][:1]:
-        want = await pg.evaluate("() => tkMyCounts().today || 0")
+    # Tasks (taskfix #1, 2026-10-25): one number for the label "Tasks", the person's own Due Soon (tkTasksN). The rail,
+    # Today's sub-tab and its Tasks chip (and the rows that chip shows), the phone bar and the Tasks page's marked count
+    # all read it. Ask's "my tasks due today" is another question with its own number: the Today view's.
+    if 'tkall' in views and info['role'] in TASKS_ONE:
+        await tasks_one(pg, lint, run, phone)
         a = await ask(pg, 'how many of my tasks are due today')
         an = first_int(a['headline'])
         if an is None and (a['headline'] or '').startswith('Nothing'): an = 0
-        page = None
-        if await to_view(pg, 'tkall'):
-            m = await pg.evaluate("() => __cl.marked('tkall')")
-            if m: page = m['n'] or 0
-            await to_view(pg, views[0])
-        nums = {o['n'], want} | ({an} if an is not None else set()) | ({page} if page is not None else set())
-        if len(nums) > 1 or page is None:
-            lint.flag('C', run, 'Tasks', f"{o['n']} on the rail; {want} of theirs late or due today; Ask {an} (\"{a['headline'][:60]}\"); "
-                      f"{'no marked count on Tasks' if page is None else str(page) + ' on the Tasks page'}")
+        want = await pg.evaluate("() => tkMyCounts().today || 0")
+        if an is not None and an != want:
+            lint.flag('D', run, 'my tasks due today', f"Ask {an} (\"{a['headline'][:60]}\"); {want} of theirs late or due today on Tasks › Today")
 
-    # ---- procurement (P1, the Buy Board's one late): the rail badge, the phone's Buy Board badge, the board's late pill,
-    # its Late section and Late chip, PRED.lateMaterial, the coordinator's late Today items and Ask's "what's late to
-    # order" are one number; each tab and chip on the board is the rows it shows.
+    # ---- procurement (P1, the Buy Board's one reader). Two numbers, each stated one way everywhere:
+    #   Buy Board  late or due to order this week (PRED.buyNeeds): the rail and sub-tab badge, the phone bar's badge, the
+    #              board's pill (its marked source), the coordinator's Buy Board chip on Today and its rows
+    #   Late       the one late set (PRED.lateMaterial): the board's Late section and Late chip, and Ask "what's late to order"
+    # and each tab and chip on the board is the rows it shows.
     if 'proc' in views:
         await to_view(pg, 'proc')
         B = await pg.evaluate(r"""() => { const v = document.querySelector('#v-proc'); if (!v || !v.querySelector('.bb')) return null;
           const num = s => { const e = v.querySelector(s); const m = e && e.innerText.match(/\d+/); return e ? (m ? +m[0] : 0) : null; };
-          const out = { pill: num('.bb-latepill'), pred: PRED.lateMaterial.rows().length, badge: needs('buy'),
+          const out = { pill: num('.bb-latepill'), need: PRED.buyNeeds.rows().length, badge: needs('buy'), late: PRED.lateMaterial.rows().length,
             section: v.querySelectorAll('[data-bbsec="late"] [data-bbrow]').length, chip: num('[data-bbf="late"] .n'),
             rows: v.querySelectorAll('.bb-list [data-bbrow]').length, tabBuy: num('button[data-bbtab="buy"] .n'),
             chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText,
               b.dataset.bbf === 'all' ? v.querySelectorAll('.bb-list [data-bbrow]').length : v.querySelectorAll(`[data-bbsec="${b.dataset.bbf}"] [data-bbrow]`).length]) };
-          try { if (role() === 'coord') out.today = tdyModel().all.filter(i => i.kind === 'tdyBuy').reduce((a, i) => a + (i.more ? i.more.filter(x => x.late).length : i.x.late ? 1 : 0), 0)
-            + PRED.lateMaterial.rows().filter(r => r.kind === 'request' && r.q.status === 'new').length; } catch (e) {}
+          try { const M = tdyModel(); if (M.buy) { out.todayChip = M.buy.length;
+            out.todayAll = M.all.filter(i => i.kind === 'tdyBuy').reduce((a, i) => a + (i.more ? i.more.length : 1), 0); } } catch (e) {}
           bbTab = 'arriving'; render(); out.tabArr = num('button[data-bbtab="arriving"] .n'); out.rowsArr = v.querySelectorAll('.bb-list [data-bbrow]').length;
           bbTab = 'buy'; render(); return out; }""")
         if B:
+            seen = [f"{B['need']} PRED.buyNeeds", f"{B['badge']} rail badge", f"{B['pill']} board pill"]
+            nums = {B['need'], B['badge'], B['pill']}
+            if B.get('todayChip') is not None:
+                nums |= {B['todayChip'], B['todayAll']}; seen += [f"{B['todayChip']} Today's Buy Board chip", f"{B['todayAll']} on Today's All (cards and N more)"]
+            if len(nums) > 1: lint.flag('D', run, 'Buy Board', '; '.join(seen))
             a = await ask(pg, "what's late to order")
             an = first_int(a['headline'])
             if an is None and re.search(r'^Nothing', a['headline'] or ''): an = 0
-            seen = [f"{B['pred']} PRED.lateMaterial", f"{B['badge']} rail badge", f"{B['pill']} board pill", f"{B['section']} Late section rows"]
-            nums = {B['pred'], B['badge'], B['pill'], B['section']}
+            seen = [f"{B['late']} PRED.lateMaterial", f"{B['section']} Late section rows"]
+            nums = {B['late'], B['section']}
             if B.get('chip') is not None: nums.add(B['chip']); seen.append(f"{B['chip']} Late chip")
-            if B.get('today') is not None: nums.add(B['today']); seen.append(f"{B['today']} Today's late Buy Board items")
             if an is not None: nums.add(an); seen.append(f"{an} Ask")
             if len(nums) > 1: lint.flag('D', run, 'Buy Board late', '; '.join(seen))
             if B['tabBuy'] != B['rows']: lint.flag('B', run, 'Buy Board > To Buy', f"tab {B['tabBuy']}; {B['rows']} rows")
@@ -438,6 +438,33 @@ async def run_role(pg, lint, tag, uid, phone):
     await set_job(pg, cur)
     await ask_checks(pg, lint, run, info, views, names)
     lint.note(f'{run}: {len(pages)} pages, {len(obs)} numbers read, {time.time() - t0:.0f}s')
+
+TASKS_ONE = ('owner', 'pm', 'coord', 'billing', 'controller')
+TASKS_NUMS = r"""() => { const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const n = s => { const e = [...document.querySelectorAll(s)].find(vis); return e ? +(e.textContent.replace(/\D+/g, '') || 0) : null; };
+  const d = document.querySelector('.view.on .td-do[data-tdytab]');
+  return { want: tkTasksN(), rail: n('#nav-groups button[data-grp="mytasks"] .n'), railShown: vis(document.querySelector('#nav-groups button[data-grp="mytasks"]')), barShown: vis(document.querySelector('#mtabs [data-mv="tkall"]')),
+    sub: n('#subnav [data-sub="tkall"] .n'), chip: n('.view.on .td-tabs [data-tdytabbtn="tasks"] .n'), bar: n('#mtabs [data-mv="tkall"] .n'),
+    rows: tdyModel().tasks.length, orders: tdyModel().tasks.filter(it => it.kind === 'tdyBuy').length }; }"""
+
+async def tasks_one(pg, lint, run, phone):
+    """the word Tasks carries one number for this person wherever it is shown (taskfix #1); an empty badge is 0"""
+    if not await to_view(pg, 'home'): return
+    h = await pg.evaluate(TASKS_NUMS)
+    W = h['want']
+    seen = {'tkTasksN()': W, "Today's Tasks rows": h['rows']}
+    for k, where in (('rail', 'the side menu'), ('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('bar', 'the phone bar')):
+        if h[k] is not None: seen[where] = h[k]
+        elif k in ('rail', 'bar') and W and h['railShown' if k == 'rail' else 'barShown']: seen[where + ' (no badge)'] = 0
+    if await to_view(pg, 'tkall'):
+        m = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0; const q = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv="week"] .n')].find(vis);
+          return { who: tkWho, chip: q ? +q.textContent : null, mark: __cl.marked('tkall') }; }""")
+        if m['chip'] is not None: seen['the Tasks page Due Soon chip'] = m['chip']
+        if m['mark']: seen['the Tasks page marked count'] = m['mark']['n'] or 0
+        if m['who'] != 'me': lint.flag('C', run, 'Tasks', f"Tasks opens on {m['who']}, not Mine, under a badge that counts Mine")
+        await to_view(pg, 'home')
+    if len(set(seen.values())) > 1 or h['orders']:
+        lint.flag('C', run, 'Tasks', '; '.join(f'{v} on {k}' for k, v in seen.items()) + (f"; {h['orders']} Buy Board orders counted as tasks" if h['orders'] else ''))
 
 async def ask(pg, q):
     return await pg.evaluate(r"""async q => { let a = paAsk(q); if (a && a.then) a = await a;
@@ -583,6 +610,17 @@ async def main():
     want = set(args.role.split(',')) if args.role else None
     lint = Lint(args); t0 = time.time()
     async with async_playwright() as p:
+        # the office roles' phone bar carries the Tasks badge: the one-number check alone, at 390px (taskfix #1)
+        office = [r for r in RUNS if not r[2] and r[0] in TASKS_ONE and (not want or r[0] in want)]
+        if office and not args.no_clicks:
+            b, pg, errs = await open_app(p, True)
+            for tag, uid, ph in office:
+                try:
+                    await sign_in(pg, uid); await pg.evaluate(JS_HELPERS)
+                    await tasks_one(pg, lint, tag + '@phone', True)
+                except Exception as e:
+                    lint.flag('ERR', tag + '@phone', 'tasks', str(e)[:200])
+            await b.close()
         for phone in (False, True):
             runs = [r for r in RUNS if r[2] == phone and (not want or r[0] in want)]
             if not runs: continue

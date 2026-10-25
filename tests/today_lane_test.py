@@ -4,8 +4,10 @@ What each person owes sat in five to eight places and the counts never agreed. T
 list for every office role (owner, PM, coordinator, billing, controller): Approvals (PRED.waitingOnMe), Inbox
 (messages with a decision waiting) and Tasks (tkAll(), the five task sources in one shape), each item in exactly one,
 All their union in the Standard's order, and Team for a manager. This suite performs it as each person:
-  1. each office role's Today holds the union of what they owe, with no item in two filters; the Tasks filter holds
-     every open task they own (or that is offered to them) that Approvals or Inbox does not already hold;
+  1. each office role's Today holds the union of what they owe; the Tasks filter is their Due Soon, the one Tasks
+     number (taskfix #1, 2026-10-25: the side menu, the sub-tab, this chip, the phone bar and the Tasks page read it);
+     All holds each thing once (a task an approval stands for is that approval there), plus what is offered to them
+     and, for the coordinator, the Buy Board chip's orders;
   2. counts: each filter's number equals the rows it shows once opened in full; Approvals equals PRED.waitingOnMe,
      the Approvals page's Everything chip and the phone's Approvals tab badge;
   3. a task from each of the five sources (schedule, office, sales, obligation, the assistant) appears once, with
@@ -22,12 +24,13 @@ from harness import *
 
 OFFICE = [('u_owner', 'owner'), ('u_alan', 'pm'), ('u_chen', 'coord'), ('u_billing', 'billing'), ('u_controller', 'controller')]
 
-MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id;
+MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
   return { appr: M.appr.map(k), inbox: M.inbox.map(k), tasks: M.tasks.map(k), all: M.all.map(k), team: M.team ? M.team.length : null,
-           pred: PRED.waitingOnMe.count(), me: currentUser().id,
-           taskOwners: M.tasks.filter(it => it.t).map(it => [it.t.ownerUid, it.t.offeredToUid]), buy: M.tasks.filter(it => it.kind === 'tdyBuy').length, role: role(),
-           mine: tkAll({ open: true, uid: currentUser().id }).filter(t => !t.approval && (!t.due || t.due <= iso(addDays(today(), TDY_HORIZON)) || t.offeredToUid === currentUser().id)).map(t => ({ key: 'tdyTask:' + t.key, refs: t.refs })),
-           held: [].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)) }; }"""
+           pred: PRED.waitingOnMe.count(), me: currentUser().id, n: tkTasksN(),
+           taskOwners: M.tasks.filter(it => it.t).map(it => [it.t.ownerUid, it.t.offeredToUid]), buy: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyChip: (M.buy || []).map(k), role: role(),
+           soon: tkSoonFor().map(x => 'tdyTask:' + tdyKeyOf(x)),
+           // All: approvals, inbox, offered, the tasks no approval stands for, the orders, the minutes
+           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)) }; }"""
 
 # every row of the current filter, opened in full ("N more" expands in place, or names the full page)
 ROWS = """async () => { const v = document.querySelector('.view.on'); const sec = v.querySelector('.td-do');
@@ -48,15 +51,13 @@ async def union_and_counts(c, pg, uid, tag):
     c.ok(on, f'{tag}: Home is Today, with its filters')
     if not on: return
     m = await pg.evaluate(MODEL)
-    parts = m['appr'] + m['inbox'] + m['tasks']
+    parts = m['appr'] + m['inbox'] + m['tasks'] + m['buyChip']
     c.ok(len(parts) == len(set(parts)), f'{tag}: an item sits in two filters: {[k for k in set(parts) if parts.count(k) > 1][:4]}')
-    c.ok(sorted(m['all']) == sorted(parts), f"{tag}: All ({len(m['all'])}) is the union of Approvals, Inbox and Tasks ({len(parts)})")
+    c.ok(len(m['all']) == len(set(m['all'])) and sorted(m['all']) == sorted(set(m['allWant'])), f"{tag}: All ({len(m['all'])}) holds each thing once: Approvals, Inbox, offered, the tasks no approval stands for, the orders ({len(set(m['allWant']))})")
     c.ok(len(m['appr']) == m['pred'], f"{tag}: Approvals {len(m['appr'])} vs PRED.waitingOnMe {m['pred']}")
     bad = [o for o in m['taskOwners'] if m['me'] not in o]
     c.ok(not bad, f'{tag}: Tasks holds {len(bad)} task(s) neither owned by nor offered to them')
-    held = set(m['held'])
-    missing = [t['key'] for t in m['mine'] if t['key'] not in m['tasks'] and not any(r in held for r in t['refs'])]
-    c.ok(not missing, f'{tag}: {len(missing)} open task(s) they own are on no filter: {missing[:3]}')
+    c.ok(sorted(m['tasks']) == sorted(m['soon']) and len(m['tasks']) == m['n'] and not m['buy'], f"{tag}: the Tasks filter is their Due Soon, the one Tasks number ({len(m['tasks'])} rows, tkTasksN {m['n']}, Due Soon {len(m['soon'])}, {m['buy']} orders)")
     # each filter's badge equals the rows it shows once opened
     for t in await tabs_of(pg):
         if t['k'] == 'team': continue
@@ -71,11 +72,12 @@ async def union_and_counts(c, pg, uid, tag):
         ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
         c.ok(ev is None or ev == len(m['appr']), f"{tag}: the Approvals page's Everything {ev} vs Today's Approvals {len(m['appr'])}")
     if tag == 'coord':
-        # the coordinator owes the orders: the Buy Board lines late or due this week are on his Tasks, with Order
+        # the coordinator owes the orders: the Buy Board lines late or due this week are Today's Buy Board chip, with
+        # Order (they are not tasks: taskfix #1)
         await go(pg, 'home'); await pg.wait_for_timeout(200)
-        await pg.click('.view.on [data-tdytabbtn="tasks"]'); await pg.wait_for_timeout(300)
+        await pg.click('.view.on [data-tdytabbtn="buy"]'); await pg.wait_for_timeout(300)
         buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.querySelector('[data-tdverb]').innerText.trim(), e.dataset.ea || ''])")
-        c.ok(m['buy'] >= 3 and len(buy) == m['buy'] and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines he owes are on his Tasks with Order ({m['buy']}: {buy[:3]})")
+        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines he owes are Today's Buy Board chip with Order ({len(m['buyChip'])}: {buy[:3]})")
         if buy:
             await pg.click('.view.on .td-do .td-card[data-kind="tdyBuy"] [data-tdverb]'); await pg.wait_for_timeout(400)
             t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
@@ -151,15 +153,17 @@ async def handoffs(c, pg):
     await go(pg, 'home'); await pg.wait_for_timeout(250)
     on_owner = await pg.evaluate("() => tdyModel().tasks.some(it => /Lane handoff/.test(it.title))")
     await sign_in(pg, 'u_chen'); await go(pg, 'home'); await pg.wait_for_timeout(250)
-    card = await pg.evaluate("""() => { const i = tdyModel().tasks.findIndex(it => /Lane handoff/.test(it.title)); if (i < 0) return null;
-      const c = tdCard(tdyModel().tasks[i]); return { verb: c.verb, why: c.why }; }""")
+    # offered to Chen: not his until he accepts, so on his All with Accept (and the Tasks filter's offer line), not in
+    # his Tasks number (taskfix #1)
+    card = await pg.evaluate("""() => { const M = tdyModel(), it = M.offered.find(it => /Lane handoff/.test(it.title)); if (!it || !M.all.includes(it) || M.tasks.includes(it)) return null;
+      const c = tdCard(it); return { verb: c.verb, why: c.why }; }""")
     c.ok(on_owner and card and card['verb'] == 'Accept', f'hand-off: on both lists (Owner {on_owner}; Chen {card})')
     no = await pg.evaluate(f"() => tdyDecline(({t})(), '')")
     c.ok(no is False, 'hand-off: a decline with no reason is refused')
     await pg.evaluate(f"() => tdyDecline(({t})(), 'Not mine: Alan files with DOB')")
     x = await pg.evaluate(t)
     c.ok(x['owner'] == 'Owner' and x['handoff']['state'] == 'declined' and 'Alan files' in x['handoff']['reason'], f"hand-off: a decline comes back with its reason ({x['owner']}, {x['handoff']})")
-    on_chen = await pg.evaluate("() => tdyModel().tasks.some(it => /Lane handoff/.test(it.title))")
+    on_chen = await pg.evaluate("() => tdyModel().all.some(it => /Lane handoff/.test(it.title))")
     c.ok(not on_chen, 'hand-off: a declined task leaves the decliner\'s list')
     await sign_in(pg, 'u_owner'); await go(pg, 'home'); await pg.wait_for_timeout(200)
     card = await pg.evaluate("() => { const it = tdyModel().tasks.find(it => /Lane handoff/.test(it.title)); return it ? tdCard(it) : null; }")

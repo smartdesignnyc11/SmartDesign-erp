@@ -1480,7 +1480,8 @@ function tvDecorateRows(scope) {
     if (ph) {
       if (!sub) return;
       const w = t2When(x),
-        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", `<span>${esc(I.pname)}</span>`, I.owner ? `<span>${esc(tkFirst(I.owner))}</span>` : "", `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`].filter(Boolean);
+        // on Mine every row is the person's own: the owner is left off (taskfix #16: "· Owner ·" on every row)
+        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", `<span>${esc(I.pname)}</span>`, I.owner && "me" !== tkWho ? `<span>${esc(tkFirst(I.owner))}</span>` : "", `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`].filter(Boolean);
       sub.innerHTML = bits.join('<span class="tk2-dot"> · </span>');
       I.wait && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait">Waiting on ${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(DOW[parse(I.wait.promised).getDay()])}` : ""}</span>`);
       who && who.remove();
@@ -1613,6 +1614,32 @@ function tvQaParse(text) {
         .forEach((w) => (W[w] = W[w] ? "dup" : p)),
     );
     Object.entries(W).forEach(([w, p]) => p !== "dup" && !proj && wordAt(w) >= 0 && ((proj = p), cut.push(w)));
+  }
+  // the whole job phrase leaves the title, a partial address too (taskfix #13: "at 121 State" matched the job by its
+  // street and left "at 121" behind): the longest run of the job's own words and numbers in the sentence
+  if (proj) {
+    const J = new Set(
+        [shortName(proj), proj.project && proj.project.name, proj.project && proj.project.address]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w && !/^(the|at|for|on|in|to|and|a|of|by)$/.test(w)),
+      ),
+      re = /[a-z0-9]+/g;
+    let mm,
+      run = [],
+      best = "";
+    const flush = () => {
+      if (run.length && (run.length > 1 || /\d/.test(run[0].w))) {
+        const txt = low.slice(run[0].i, run[run.length - 1].i + run[run.length - 1].w.length);
+        txt.length > best.length && (best = txt);
+      }
+      run = [];
+    };
+    while ((mm = re.exec(low))) J.has(mm[0]) ? run.push({ w: mm[0], i: mm.index }) : flush();
+    flush();
+    best && cut.push(best);
   }
   // the date
   let due = "";
@@ -2194,13 +2221,21 @@ function tvSheetDecorate(m, key) {
     chase = W ? tvChaseDraft(I) : null,
     canChase = !!W && !x.done && (chase || tvChaseCan(I)),
     owner1 = tkFirst(I.owner),
+    // the signed-in person reads "You", never their own seat ("Owner: Owner in charge", taskfix #16)
+    meOwns = (() => {
+      try {
+        return !!I.owner && tkOwnerMatch(I.owner, tkMe());
+      } catch (e) {
+        return !1;
+      }
+    })(),
     field = (f, label, val, cls) => `<button type="button" class="tvs-f ${cls || ""}" data-tvsf="${f}"><small>${label}</small><span>${val}</span></button>`,
     dueSay = x.due ? esc(ph ? fmtL(x.due) : tvRel(x.due, x.done)) : "No date",
     fuSay = I.follow ? esc(ph ? fmtL(I.follow) : tvRel(I.follow, x.done)) : ph ? "Not set" : "—";
   body.insertAdjacentHTML(
     "afterbegin",
     `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button>${lateDue && ph ? `<span class="tv-pill tvs-late">${esc(tvRel(x.due))}</span>` : ""}${ph ? "" : `<span class="tvs-ld">${ldSay}</span>`}</div>
-<div class="tvs-fields">${field("owner", "Owner", I.owner ? `${tvAv(I.owner)}<b class="tvs-on">${esc(ph ? owner1 : I.owner)}</b><em class="tvs-ic">${ph ? "in charge" : "(in charge)"}</em>` : "Pick the owner")}${field("due", "Due", dueSay, lateDue ? "late" : "")}${field("follow", "Follow-up", fuSay, I.follow ? "" : "tvs-none")}</div>
+<div class="tvs-fields">${field("owner", "Owner", I.owner ? `${tvAv(I.owner)}<b class="tvs-on">${esc(meOwns ? "You" : ph ? owner1 : I.owner)}</b><em class="tvs-ic">${ph ? "in charge" : "(in charge)"}</em>` : "Pick the owner")}${field("due", "Due", dueSay, lateDue ? "late" : "")}${field("follow", "Follow-up", fuSay, I.follow ? "" : "tvs-none")}</div>
 ${
   W
     ? `<div class="tvs-waitbox"><button type="button" class="tvs-wait ${W.promised && W.promised < td && !x.done ? "late" : ""}" data-tvsf="wait"><small>Waiting On${ph ? ` ${esc(W.name)}` : ""}</small>${
@@ -2209,7 +2244,7 @@ ${
           : `<b>${esc([W.name, W.what, W.promised ? tvDay(W.promised).split(" ")[0] : ""].filter(Boolean).join(" · "))}</b><span class="tvs-wnote">${esc(W.evidence ? String(W.evidence).replace(/\.$/, "") + "." : "Promised outside the team.")}${chase ? ` A chase is drafted for ${esc(owner1 || "the owner")} to send.` : ""}</span>`
       }</button>${canChase && ph ? '<button type="button" class="btn tvs-chase" data-tvschase>Review the Drafted Chase</button>' : ""}</div>`
     : TV_CAN.wait(x) && !x.done
-      ? `<button type="button" class="tvs-addwait" data-tvsf="wait">${tvSvg("clock", 14)}<span>Waiting on Someone Outside the Team</span></button>`
+      ? `<button type="button" class="tvs-addwait" data-tvsf="wait">${tvSvg("clock", 14)}<span>Add Waiting On</span></button>`
       : ""
 }`,
   );
@@ -2294,12 +2329,8 @@ ${
     b.className = "btn";
     b.dataset.tvsho = "1";
     b.textContent = "Hand Off";
-    b.onclick = () => {
-      const box = m.querySelector(".tks-handbox");
-      more.open = !0;
-      box && box.hasAttribute("hidden") && ho.click();
-      box && box.scrollIntoView({ block: "center" });
-    };
+    // the one people sheet (taskfix #2): straight to the people, nothing folded under More
+    b.onclick = () => ho.click();
     ok ? ft.insertBefore(b, ok) : ft.appendChild(b);
   }
   m.querySelectorAll("[data-tvsf]").forEach((b) => (b.onclick = () => tvEdit(key, b.dataset.tvsf, b)));
@@ -2424,6 +2455,8 @@ let tvDrawing = "";
     } catch (e) {
       console.warn("task views", e);
     }
+    // the chip strip says when it scrolls (taskfix #21): the list redraws without the app's draw pass
+    "function" == typeof b3StripFades && requestAnimationFrame(() => b3StripFades());
   };
 }
 {
@@ -2508,8 +2541,8 @@ let tvDrawing = "";
         meet = "home" === t2Ctx() && "function" == typeof mmCanRun && mmCanRun() && "function" == typeof mmStartDialog ? `<div class="tkf-h">Meeting</div><div class="tkf-row">${btn("data-tkfmeet", "1", !1, mtCurrent && mtCurrent() ? "Rejoin the Meeting" : "Start Meeting")}</div>` : "",
         S = tvSorts()[0],
         sort = "table" === tkMode ? `<div class="tkf-h">Sort</div><div class="tkf-row">${btn("data-tkfsort", "", !S, "List Order")}${["due", "follow", "owner", "status", "ref"].map((k) => btn("data-tkfsort", k, S && S.k === k, TV_COLS.find((c) => c.k === k).n)).join("")}</div>` : "";
-      box.insertAdjacentHTML("afterbegin", views + lay + sort);
-      box.insertAdjacentHTML("beforeend", meet);
+      // the meeting first: it is the coordinator's Monday and Thursday ritual (taskfix #4)
+      box.insertAdjacentHTML("afterbegin", meet + views + lay + sort);
       m.querySelectorAll("[data-tkfmeet]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), mmStartDialog())));
       // in the Table the grouping is the table's own: Project, Owner, Status, Due Date, or none
       if ("table" === tkMode) {
@@ -2566,17 +2599,18 @@ let tvDrawing = "";
   };
 }
 
-// ---- Tasks in the side menu: one number, the person's own late and due-today tasks ----------------------------------
-// The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
-// view (overdue and due today), the number Ask gives for "my tasks due today".
-"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+// ---- Tasks in the side menu: one number, the person's own Due Soon -------------------------------------------------
+// The rail entry, Today's sub-tab and Tasks chip, the phone bar and the Tasks page say the same count: tkTasksN(), the
+// list's own Due Soon for Mine (taskfix #1; it was "late or due today" here and a 14-day horizon on Today).
+"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkTasksN() });
 // The page's subtitle is gone (the mockup's one bar); the rail's number stays findable on the page as a small pill beside
-// the title, the mockup's "N late" pill: "6 late or due today", or a quiet "Nothing late" (one question, one number)
+// the title, the mockup's "N late" pill: "12 due soon · 6 late", red only when something is late (one question, one number)
 function tvDueMark(host) {
   const h = host.querySelector(".ph h2");
   if (!h || host.querySelector(".ph [data-ocbadge]") || "home" !== t2Ctx()) return;
-  const n = tkMyCounts().today || 0;
-  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${n ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due today">${n ? `${n} late or due today` : "Nothing late"}</span>`);
+  const n = tkTasksN(),
+    late = tkMyCounts().overdue || 0;
+  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${late ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due in the next 7 days">${n ? `${n} due soon${late ? ` · ${late} late` : ""}` : "Nothing due soon"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------
@@ -2628,7 +2662,9 @@ function tvWaitSeed() {
 /* Alan's mockup (Main.dc.html, Board.dc.html, 2026-10-24): one white top bar, then a white band with the saved tabs and
    the filter row, on the gray ground; the table fills the rest of the screen and scrolls inside itself */
 @media (min-width:761px){
-  #v-tkall:has(#tkall-body.tv-on){padding:0;height:calc(100vh - 52px);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
+  /* .on: a display here outranks ".view{display:none}", so without it the Tasks page showed under every page opened
+     after it (its New Task a second blue button under Billing; taskfix #23) */
+  #v-tkall.on:has(#tkall-body.tv-on){padding:0;height:calc(100vh - 52px);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
   #v-tkall:has(#tkall-body.tv-on .tv-mode-cal),#v-tkall:has(#tkall-body.tv-on .t2-list:not(.tv-host)){height:auto;overflow:visible}
   #v-tkall #tkall-body.tv-on{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
   #v-tkall .tv-on>.ph{order:-2}
@@ -2914,6 +2950,10 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 .tv-myv{display:flex;align-items:center;gap:8px}
 .tv-myv .btn{min-height:44px}
 .tv-pop-sheet{left:0 !important;right:0;bottom:0;top:auto !important;width:100%;max-width:none;border-radius:16px 16px 0 0;padding:10px 16px calc(16px + env(safe-area-inset-bottom));max-height:80vh;overflow:auto}
+/* a picker sheet on the phone ends in the shared sheet footer (taskfix #18): its buttons share the width, 48px, the blue
+   one the safe next step, as every other sheet's footer; it stays in view while the sheet scrolls */
+.tv-pop-sheet .tv-pop-ft{position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom));gap:10px;margin:12px -16px 0;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #E7E9EE}
+.tv-pop-sheet .tv-pop-ft .btn{flex:1 1 0;height:48px;min-height:48px !important;font-size:16px;font-weight:600;border-radius:12px;justify-content:center}
 /* the task sheet, laid out as the mockup reads it */
 #mbm.tv-sheet{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tv-ink)}
 #mbm.tv-sheet .mbm-hd{flex-wrap:wrap;align-items:center;padding:18px 20px 0 24px;border:0}
@@ -2943,7 +2983,7 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 #mbm.tv-sheet .tvs-wait small{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#7A4A00}
 #mbm.tv-sheet .tvs-wait b{font-size:15px;font-weight:600;color:#3D2500}
 #mbm.tv-sheet .tvs-wnote{font-size:13px;color:#6B4A12;line-height:1.4}
-#mbm.tv-sheet .tvs-addwait{display:flex;align-items:center;gap:8px;min-height:44px;width:100%;padding:0 12px;border:1px dashed #C8CDD6;border-radius:10px;background:none;color:var(--tv-ink2);font-size:14px;cursor:pointer;margin:0;font-family:inherit}
+#mbm.tv-sheet .tvs-addwait{display:flex;align-items:center;gap:8px;min-height:44px;width:100%;padding:0 12px;border:1px solid #D5D9E1;border-radius:10px;background:#fff;color:var(--tv-ink);font-weight:600;font-size:14px;cursor:pointer;margin:0;font-family:inherit}
 #mbm.tv-sheet .tks-h{font-size:13px;font-weight:400;color:var(--tv-ink2);text-transform:none;letter-spacing:0;margin:0}
 #mbm.tv-sheet .tks-chip{display:inline-flex;align-items:center;justify-content:center;height:36px;min-height:36px;padding:0 14px;border:1px solid #D5D9E1;border-radius:999px;background:#fff;font-size:13px;font-weight:400;color:var(--tv-ink);cursor:pointer}
 #mbm.tv-sheet .tks-chip small{display:none}

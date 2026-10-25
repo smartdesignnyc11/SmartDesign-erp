@@ -379,9 +379,10 @@ async def run_meeting(c, p, uid, phone):
     c.ok(await pg.evaluate("() => /Minutes/.test(document.getElementById('meetings-body').innerText) && !!document.querySelector('#meetings-body .mm-minutes')"), f'{tag}: the minutes are on the meeting record in Meetings')
     for who in ('u_alan', 'u_chen'):
         await sign_in(pg, who)
-        L = await pg.evaluate("() => tdyModel().tasks.filter(i => i.kind === 'tdyMinutes').map(i => ({ id: i.id, title: i.title, detail: i.detail }))")
+        # the minutes are a thing to read, on All (not a task in the Tasks chip: taskfix #1)
+        L = await pg.evaluate("() => tdyModel().all.filter(i => i.kind === 'tdyMinutes').map(i => ({ id: i.id, title: i.title, detail: i.detail }))")
         c.ok(len([x for x in L if x['id'] == m['id']]) == 1, f'{tag}: {who} has one Today line for the minutes: {L}')
-        await pg.evaluate("() => { tdyTabSet('tasks'); tdyAllOpen = true; view = 'home'; render(); }")
+        await pg.evaluate("() => { tdyTabSet('all'); tdyAllOpen = true; view = 'home'; render(); }")
         await pg.wait_for_timeout(200)
         opened = await pg.evaluate("""(id) => { const a = [...document.querySelectorAll('[data-tdrec]')].find(a => /^Minutes:/.test(a.innerText.trim())); if (!a) return false; a.click(); return true; }""", m['id'])
         await pg.wait_for_timeout(300)
@@ -390,7 +391,7 @@ async def run_meeting(c, p, uid, phone):
         if who == 'u_alan':
             c.ok(await pg.evaluate("() => /You owe/.test(document.querySelector('#mbm').innerText)"), f'{tag}: Alan sees what he owes first')
         await pg.evaluate("() => mbCloseModal()")
-        gone = await pg.evaluate("(id) => !tdyModel().tasks.some(i => i.kind === 'tdyMinutes' && i.id === id)", m['id'])
+        gone = await pg.evaluate("(id) => !tdyModel().all.some(i => i.kind === 'tdyMinutes' && i.id === id)", m['id'])
         c.ok(gone, f'{tag}: {who}: once read, the line leaves Today')
     # the next meeting: a task changed since this one says so above its card
     if not phone:

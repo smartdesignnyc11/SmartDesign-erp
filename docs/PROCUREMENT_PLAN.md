@@ -15,7 +15,7 @@ Procurement is the second module the team adopts, after Tasks. It must carry a r
   - Procore Commitments: POs checked against budget, and a three-way match of PO, receipt and claim.
   - NetSuite procure-to-pay: requisition, PO, item receipt, bill, a three-way match before payment, and vendor return authorisations and credits.
   - Buildertrend: bid requests through a vendor portal, POs, then bills with lien waivers attached.
-- **Still to come:** the coordinator expert works a full buying day on the current build, phone first, as soon as the mockup-match lane frees the browser. Its findings fold into this plan before building starts.
+- **The coordinator expert's buying day, 10-25** (`review/procurement/coordinator_day.md`, 32 findings). Grades: finding 4, reading 5, taps 5, phone 4, money safety 3, versus the leaders 4. Five money findings (a deposit paid twice, studs bought twice, an unflagged vendor prepayment, a sub award with no COI, sales tax different by path) became P0 and P1 items below; the tax call in section 7 was corrected.
 
 ## 2. What goes wrong today: the meetings
 These are the firm's real buying problems, the ones the module must stop:
@@ -198,7 +198,7 @@ A bill ahead of delivery holds as "Billed Before Delivery", with the line named.
 - Partial deliveries and backorders split one line into several promises. The need stays one record with a dated promise per quantity.
 - Card chargebacks have a dispute window, often 60 days from the statement. A claim on a card purchase must surface well before it closes.
 - Deposits are money out with no bill yet. They must show in the cash forecast and job cost once, and be applied, never paid again on the bill.
-- Sales tax: resale and exempt purchases for capital improvement work in New York need the right certificate per job. A wrong tax line is money lost or a liability. This needs Alan's call on the rule; see section 7.
+- Sales tax: on a capital-improvement job in New York the contractor is the consumer of the materials. The firm pays sales tax to the vendor, or accrues use tax when the vendor does not charge it. The capital-improvement certificate (ST-124) stops the firm charging the client sales tax; it never makes the firm's own purchases exempt. Corrected 10-25 after the expert's buying day (section 7.4 had it backwards); to be confirmed with the firm's accountant.
 
 **How it gets better:**
 - The assistant reads the mail (quotes, confirmations, delay notices, credit memos) and updates promises and claims as proposals.
@@ -221,7 +221,8 @@ A bill ahead of delivery holds as "Billed Before Delivery", with the line named.
 ## 6. Phases (one lane at a time; each deploys when green)
 | # | Lane | What | Proof |
 |---|---|---|---|
-| P1 | **One Buy Board** | the Need record and one list (estimate, CO, FF&E, requests); one "late" with ETAs; requests carry the line; award updates request and material; opens on the lines; Today, Do Now, brief and Ask read the same set; the route approval in Approvals and Do Now | counts lint on every procurement label; a CO line reaches the board; a late ETA reaches Do Now; month sim holds |
+| P0 | **Money first** (from the 10-25 buying day) | a deposit paid on an order is applied to its bill, counted once, and the bill cannot be approved at the full amount while a deposit sits on it; a bank or card payment to a vendor with no bill (a prepayment) is flagged to the coordinator and controller with the vendor's papers, and the order's "paid" agrees with Vendors; one purchase-tax rule on every path (order, award, store run), as section 5 says | a $4,400 deposit then an $8,800 bill pays $4,400; a prepayment shows on Today; the same item taxed the same on every path; chain, reports, baseline and finance cross-check |
+| P1 | **One Buy Board** | the Need record and one list (estimate, CO, FF&E, requests); one "late" with ETAs; requests carry the line; award updates request and material; opens on the lines; Today, Do Now, brief and Ask read the same set; the route approval in Approvals and Do Now; each request locked to one path (order, store run or stock); subcontract buyout as a Need (bid packages, leveling by scope, award as a subcontract behind the COI gate); a Need is a line's material or subcontract portion, never our own labour; one order-by formula, old sourcing flags to a weekly audit; the PM sees his job's orders | counts lint on every procurement label; a CO line reaches the board; a late ETA reaches Do Now; month sim holds |
 | P2 | **One order path and the ladder** | one order sheet for every entry point; Approval Rules in Settings; gates by the Standard (COI on site, W-9 before pay, three quotes or reason, stock, price, split orders); deposits on the order; vendor ids with the migration | po_gates and purchasing suites on every entry point; deposit counted once in job cost and forecast; finance cross-check |
 | P3 | **Deliveries and receiving** | one Delivery list; Reconfirm drafts at 48 hours with the site window; one receiving screen with count, slip photo, condition, early or late check; partials and backorders as promises | a receipt on the phone in under 20 seconds; early receipt asks; damaged opens an issue |
 | P4 | **Issues and credits** | one Vendor Issue for materials and FF&E; the claim amount; chase, follow-up, escalation; chargeback window; matched credit closes it; leak on Today | a claim cannot close without a matched credit; card window alert; leak tests |
@@ -234,10 +235,10 @@ Each phase:
 3. merges and deploys under the standing go, with live checks and screenshots;
 4. ends with an expert re-walk of the coordinator's day.
 
-**Size, on what it rests:** the last three lanes (polish, speed, money fix) each took 2 to 3 hours from start to merge. P1, P2 and P3 are each larger than those, about 3 to 5 hours. P4, P5 and P6 are about 2 to 4 hours each. With one expert walk before and one after, about 25 to 30 hours of build time, run one lane at a time. That is heavy usage; it starts only after Alan's yes on the plan and the mockup. P1 alone would let the team start using the Buy Board.
+**Size, on what it rests:** the last three lanes (polish, speed, money fix) each took 2 to 3 hours from start to merge. P1, P2 and P3 are each larger than those, about 3 to 5 hours. P4, P5 and P6 are about 2 to 4 hours each. With one expert walk before and one after, about 25 to 30 hours of build time. The 10-25 buying day adds P0 and widens P1; the expert's guess is 4 to 6 more hours, so about 30 to 36 hours (a guess, not measured), run one lane at a time. That is heavy usage; it starts only after Alan's yes on the plan and the mockup. P1 alone would let the team start using the Buy Board.
 
 ## 7. Calls for Alan
 1. **The plan and the phone mockup:** yes or changes.
 2. **COI rule (recommended):** required for anyone who comes on site, plus vendors who deliver inside the building. Material suppliers who drop at the curb or ship need only a W-9 before the first payment.
 3. **Vendor-error claims (recommended):** the claim proposes the item, extra labour at the job's rate and the trip. The owner approves a chargeback; the coordinator sends ordinary chases.
-4. **Sales tax on purchases:** which jobs are capital improvements (exempt with a certificate) and who keeps the certificates. Recommended: the PM sets it on the job, and the order sheet fills the tax from it.
+4. **Sales tax on purchases (corrected 10-25).** The first recommendation was wrong: a capital-improvement job does not make the firm's purchases exempt. The firm pays sales tax on materials (or accrues use tax); the job's capital-improvement status, set by the PM with the ST-124 on file, only means the client is not charged sales tax on the work. Alan's yes was to the wrong version; the build follows the corrected rule, to be confirmed with the accountant.

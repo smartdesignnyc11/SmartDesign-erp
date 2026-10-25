@@ -525,7 +525,10 @@ function bbRender() {
     f = "undefined" != typeof tlFocus && tlFocus.proc && "buy" === tlFocus.proc.grid ? tlFocus.proc : null,
     BUY = bbRowsFor("buy"),
     ARR = bbRowsFor("arriving"),
-    lateN = bbAll().filter((r) => r.late).length;
+    lateN = bbAll().filter((r) => r.late).length,
+    // the badge's number, stated on the page (data-ocbadge): late, or due to order this week (PRED.buyNeeds)
+    needN = PRED.buyNeeds.rows("").length,
+    weekN = needN - PRED.buyNeeds.rows("").filter((r) => r.late).length;
   let R = "buy" === bbTab ? BUY : ARR;
   // a tile elsewhere (Materials, Today, Ask) may open the board on one predicate: exactly those rows
   f && f.pred && ((R = R.filter((r) => { try { return !!f.pred(r); } catch (e) { return !1; } })), (f.n = R.length), (f.m = ("buy" === bbTab ? BUY : ARR).length));
@@ -552,7 +555,7 @@ function bbRender() {
     bar = picked.length
       ? `<div class="bb-bar"><span><b>${picked.length} line${1 === picked.length ? "" : "s"}</b> picked</span><button type="button" class="btn" id="bb-quote">Ask for Quotes</button><button type="button" class="btn primary" id="bb-order">Order ${picked.length} Line${1 === picked.length ? "" : "s"}</button></div>`
       : "",
-    head = `<div class="ph bb-ph0"><div class="bb-title"><h2>Buy Board</h2><span class="ov-count bb-latepill ${lateN ? "on" : ""}" data-ovneeds="buy" data-ocbadge="proc">${lateN ? `${lateN} late` : "Nothing late"}</span></div><div class="bb-tools">${phone ? "" : `<label class="bb-search">${BB_IC.search}<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}"></label>`}${phone ? `<button type="button" class="bb-ib" id="bb-sbtn" aria-label="Search the Buy Board">${BB_IC.search}</button><button type="button" class="bb-ib ${bbProj || bbVendor || bbTrade ? "on" : ""}" id="bb-fbtn" aria-label="Filter by project, vendor or trade">${BB_IC.filter}</button>` : `<button type="button" class="btn" id="bb-more">FF&amp;E Buying Tools</button>`}</div></div>`,
+    head = `<div class="ph bb-ph0"><div class="bb-title"><h2>Buy Board</h2><span class="ov-count bb-latepill ${lateN ? "on" : ""}" data-ovneeds="buy" data-ocbadge="proc">${needN ? `${needN} ${weekN ? `late or to order this week` : "late"}` : "Nothing late"}</span></div><div class="bb-tools">${phone ? "" : `<label class="bb-search">${BB_IC.search}<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}"></label>`}${phone ? `<button type="button" class="bb-ib" id="bb-sbtn" aria-label="Search the Buy Board">${BB_IC.search}</button><button type="button" class="bb-ib ${bbProj || bbVendor || bbTrade ? "on" : ""}" id="bb-fbtn" aria-label="Filter by project, vendor or trade">${BB_IC.filter}</button>` : `<button type="button" class="btn" id="bb-more">FF&amp;E Buying Tools</button>`}</div></div>`,
     phoneTools = phone && (bbSearchOn || bbFilterOn || bbQ) ? `<div class="bb-ptools">${bbSearchOn || bbQ ? `<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}">` : ""}${bbFilterOn ? `<div class="bb-fl">${filters}</div>` : ""}</div>` : "";
   root.innerHTML = `<div class="bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" id="buy-board" data-bbon="${bbTab}" data-os-keep>${head}<div class="bb-top">${tabs}${phone ? "" : `${chips}<span class="bb-sep"></span><div class="bb-fl">${filters}</div>`}</div>${phoneTools}${focus}<div class="bb-main"><div class="bb-list" data-nocase>${list}${empty}<div class="dg bb-foot"><span class="cnt">${R.length} of ${("buy" === bbTab ? BUY : ARR).length} shown</span><span class="bb-reps"><button type="button" class="btn sm" data-bbpane="cost">Cost by Line</button><button type="button" class="btn sm" data-bbpane="analysis">Analysis</button>${phone ? `<button type="button" class="btn sm" id="bb-more">FF&amp;E Buying Tools</button>` : ""}</span></div></div>${phone ? "" : `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${bbPanelHtml(sel, picked.length)}</aside>`}</div>${bar}</div>`;
   bbWire(root);
@@ -857,45 +860,16 @@ if ("function" == typeof mnGo) {
     const base = OC_BADGE.req.n;
     OC_BADGE.req.n = () => (["owner", "pm", "coord", "billing", "controller", "designer"].includes(role()) ? 0 : base());
   })();
-// The Buy Board's badge, on the rail, the sub-tab and the phone bar: the one late set (needs("buy")).
+// The Buy Board's badge, on the rail, the sub-tab and the phone bar: late or due to order this week (needs("buy")).
 "object" == typeof OC_BADGE && (OC_BADGE.proc = { n: () => ("function" == typeof needs ? needs("buy") : 0) });
 
-// ---- Today and Do Now: the coordinator's Buy Board lines (tdyBuyItems reads these) -------------------------------------
-// Late, or due to order this week, from the one reader; a field request not yet acknowledged is an Approvals card
-// (kind "req"), so it is not listed twice.
-function bbTodayItems() {
-  let X = null;
-  try {
-    X = tdFacts().X || b2Facts(briefFacts());
-  } catch (e) {
-    return [];
-  }
-  const seen = new Set(),
-    out = [],
-    pm = "pm" === role(),
-    me = ((currentUser() || {}).name || "").toLowerCase(),
-    mine = (p) => !pm || !p.project.pm || String(p.project.pm).toLowerCase().includes(me.split(" ")[0]);
-  // the PM sees the late needs on his own jobs (buying day: he saw none of the coordinator's orders); the coordinator
-  // owes the late ones and those due to order this week
-  const pool = [];
-  ((X && X.buyLate) || []).concat(pm ? [] : (X && X.buyWeek) || []).forEach((x) => {
-    const id = x.id || ovBuyId(x);
-    if (seen.has(id) || ("request" === x.kind && "new" === x.q.status) || !mine(x.p)) return;
-    seen.add(id), pool.push(x);
-  });
-  // Do Now holds the few the site needs soonest as their own cards (a late promise first, then by need-by); the rest
-  // are one card, "N more late on the Buy Board", that opens the board's Late section. Sixteen late lines as sixteen
-  // cards pushed the vendor's new delivery dates out of the coordinator's top five (the scripted month, top five).
-  // The PM gets the one card: he is not the buyer, and his own job's lines are on its Overview.
-  const soon = (x) => String(x.needBy || "9999"),
-    urgent = pool
-      .slice()
-      .sort((a, b) => (a.late ? 0 : 1) - (b.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.lateKind ? 0 : 1) - ("promise" === b.lateKind ? 0 : 1))
-      .slice(0, pm ? 0 : BB_TODAY_CARDS),
-    rest = pool.filter((x) => !urgent.includes(x));
-  urgent.forEach((x) => {
-    const id = x.id || ovBuyId(x);
-    const ea = x.dec
+// ---- Today and Do Now: the Buy Board chip (tdyBuyItems reads these) --------------------------------------------------
+// The coordinator's Buy Board chip on Today is PRED.buyNeeds, the one reader's late needs and those due to order this
+// week: the same set and count as the rail's badge, the phone bar's and the board's own pill. A field request not yet
+// acknowledged is an Approvals card (kind "req"), so buyNeeds leaves it out. The PM's chip is the same, on his own jobs.
+function bbTodayCards(x) {
+  const id = x.id || ovBuyId(x),
+    ea = x.dec
       ? { view: "dec", proj: x.p.id }
       : x.ordered
         ? { fix: id }
@@ -904,20 +878,45 @@ function bbTodayItems() {
           : "sub" === x.kind && !(x.rfqs || []).length
             ? { bids: id }
             : { board: id };
-    out.push({
-      kind: "tdyBuy",
-      id: id,
-      src: "buy",
-      x: x,
-      title: `${x.name} — ${shortName(x.p)}`,
-      detail: x.dec ? `held by a decision${x.orderBy ? ` · order-by ${fmt(x.orderBy)}${x.late ? " passed" : ""}` : ""}` : (x.late ? x.lateWhy : bbWhen(x)).replace(/^./, (c) => c.toLowerCase()),
-      due: x.orderBy || "",
-      ea: ea,
-    });
-  });
-  if (rest.length) {
-    const late = rest.filter((x) => x.late).length;
-    out.push({
+  return {
+    kind: "tdyBuy",
+    id: id,
+    src: "buy",
+    x: x,
+    title: `${x.name} — ${shortName(x.p)}`,
+    detail: x.dec ? `held by a decision${x.orderBy ? ` · order-by ${fmt(x.orderBy)}${x.late ? " passed" : ""}` : ""}` : (x.late ? x.lateWhy : bbWhen(x)).replace(/^./, (c) => c.toLowerCase()),
+    due: x.orderBy || "",
+    ea: ea,
+  };
+}
+function bbTodayItems() {
+  const pm = "pm" === role(),
+    me = ((currentUser() || {}).name || "").toLowerCase(),
+    mine = (p) => !pm || !p.project.pm || String(p.project.pm).toLowerCase().includes(me.split(" ")[0]);
+  let R = [];
+  try {
+    R = PRED.buyNeeds.rows("").filter((x) => mine(x.p));
+  } catch (e) {
+    return [];
+  }
+  return R.map(bbTodayCards);
+}
+// All (Do Now's mix) holds the few the site needs soonest as their own cards, by need-by; the rest are one card, "N more
+// on the Buy Board", that opens the board's Late section. Sixteen late lines as sixteen cards pushed the vendor's new
+// delivery dates out of the coordinator's top five (the scripted month, top five). The PM's All carries the one card:
+// he is not the buyer; his chip lists them all, and his job's lines are on its Overview.
+function bbTodayAll(items) {
+  const L = (items || []).filter((it) => it && it.x),
+    soon = (it) => String(it.x.needBy || "9999"),
+    pm = "pm" === role(),
+    urgent = L.slice()
+      .sort((a, b) => (a.x.late ? 0 : 1) - (b.x.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.x.lateKind ? 0 : 1) - ("promise" === b.x.lateKind ? 0 : 1))
+      .slice(0, pm ? 0 : BB_TODAY_CARDS),
+    rest = L.filter((it) => !urgent.includes(it)).map((it) => it.x);
+  if (!rest.length) return urgent;
+  const late = rest.filter((x) => x.late).length;
+  return urgent.concat([
+    {
       kind: "tdyBuy",
       id: "bb:more",
       src: "buy",
@@ -927,9 +926,8 @@ function bbTodayItems() {
       detail: `${late} late${rest.length > late ? `, ${rest.length - late} to order this week` : ""}`,
       due: "",
       ea: { board: "bb:more" },
-    });
-  }
-  return out;
+    },
+  ]);
 }
 const BB_TODAY_CARDS = 3;
 // The card: Order for a line still to buy, Fix for an ordered one whose promise is late (Expedite, Other Vendor, Move

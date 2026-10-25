@@ -1457,7 +1457,8 @@ function mmHtml() {
   const fol = phone && !pres,
     drv = tkFirst(m.presenter) || "the presenter",
     folBar = fol
-      ? `<div class="mm-folbar">${mmSvg("eye", 16)}<span class="grow">${mmFollow ? `<b>Following ${esc(drv)}</b> · the card moves with their screen` : `<b>On your own</b> · <button type="button" class="mm-folon" data-mmfolon>Follow ${esc(drv)}</button>`}</span><span class="mm-foln">${nDisc} of ${tasks.length}</span></div>`
+      ? // one short line at 390px (taskfix #19): "Following Chen · 4 of 19"; what following means is its title
+        `<div class="mm-folbar" title="${mmFollow ? `The card moves with ${esc(drv)}'s screen` : ""}">${mmSvg("eye", 16)}<span class="grow">${mmFollow ? `<b>Following ${esc(drv)}</b> · ${nDisc} of ${tasks.length}` : `<b>On your own</b> · <button type="button" class="mm-folon" data-mmfolon>Follow ${esc(drv)}</button>`}</span>${mmFollow ? "" : `<span class="mm-foln">${nDisc} of ${tasks.length}</span>`}</div>`
       : "",
     soFar = (m.changes || [])
       .slice()
@@ -1948,6 +1949,15 @@ if ("function" == typeof railToggle) {
     return base.apply(this, arguments);
   };
 }
+// today is one of the team's meeting days and today's meeting has not been held yet
+function mmMeetingDay() {
+  try {
+    const td = today();
+    return mtCadence().days.includes(parse(td).getDay()) && !mtTeam().some((m) => m.date === td && m.endedAt);
+  } catch (e) {
+    return !1;
+  }
+}
 function mmDecorateTasks() {
   const host = document.getElementById("tkall-body");
   if (!host || host.querySelector("[data-mmbar], [data-mmstart]")) return;
@@ -1973,8 +1983,21 @@ function mmDecorateTasks() {
   b.onclick = () => mmStartDialog();
   const acts = host.querySelector(".tk2-ph .acts"),
     line = host.querySelector(".tk2-hline");
-  // the phone's header keeps one search and one add (Phone.dc.html, 2026-10-24): Start Meeting is in its filter sheet
-  if (tkPhone() && line) return;
+  // the phone's header keeps one search and one add (Phone.dc.html, 2026-10-24). On a meeting day (the team's cadence,
+  // by the app clock) the owner and the coordinator get one line above the list, one tap (taskfix #4: it was the last
+  // row of the filter sheet, five taps); once today's meeting has ended the line goes. The filter sheet keeps it first.
+  if (tkPhone() && line) {
+    if (!mmMeetingDay() || "home" !== t2Ctx()) return;
+    const L = document.createElement("button");
+    L.type = "button";
+    L.className = "mm-startline no-print";
+    L.dataset.mmstartline = "1";
+    L.innerHTML = `${mmSvg("screen", 18)}<span class="grow">Start the Team Meeting</span><small>${esc(parse(today()).toLocaleDateString("en-US", { weekday: "long" }))}, ${esc(mtCadence().time || "")}</small>`;
+    L.onclick = () => mmStartDialog();
+    const list = host.querySelector(".tk2-list");
+    list && list.parentNode ? list.parentNode.insertBefore(L, list) : host.appendChild(L);
+    return;
+  }
   if (acts) {
     b.className = "btn";
     b.innerHTML = `${mmSvg("screen", 16)}<span>Start Meeting</span>`;
@@ -2013,10 +2036,8 @@ function mtMinutesFor(me) {
           const owe = ((m.minutes.owes || {})[me.name] || []).length;
           return { kind: "tdyMinutes", id: m.id, src: "meeting", m: m, title: `Minutes: ${m.title}, ${tkDay(m.date)}`, detail: owe ? `you owe ${owe}` : "nothing on you", due: m.date };
         });
-      if (L.length && M) {
-        M.tasks = (M.tasks || []).concat(L);
-        M.all = (M.all || []).concat(L);
-      }
+      // the minutes are a thing to read, not a task: on All, never in the Tasks chip (one number, taskfix #1)
+      L.length && M && (M.all = (M.all || []).concat(L));
     } catch (e) {
       console.warn("minutes on Today", e);
     }
@@ -2292,6 +2313,8 @@ tkRecReady = !0;
 // ---- the look --------------------------------------------------------------------------------------------------------
 (() => {
   const css = `
+#v-tkall .mm-startline{display:flex;align-items:center;gap:10px;width:calc(100% - 32px);min-height:52px;margin:4px 16px 10px;padding:6px 14px;border:1px solid var(--accent);border-radius:12px;background:#EEF3FD;color:#1D47A8;font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer}
+#v-tkall .mm-startline small{font-size:12px;font-weight:400;color:#4A5A80}
 #v-tkall .mm-bar{display:flex;align-items:center;gap:10px;min-height:48px;margin:0 0 10px;padding:6px 8px 6px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px}
 #v-tkall .mm-bar svg{vertical-align:-4px;color:var(--ink-2)}
 #v-tkall .mm-bar .btn{min-height:44px}
