@@ -3721,7 +3721,7 @@ function grid(opts) {
         rs.map((r) => trow(r)).join("");
   } else body = rows.map((r) => trow(r)).join("");
   function trow(r) {
-    return `<tr class="${r.sev >= 2 ? "sev" + r.sev : ""}" ${r.edit ? `data-edit="${r.edit}"` : ""} title="${esc(r.title || "")}">${cols.map((c) => `<td class="${c.type || ""} ${c.cls || ""}" ${"status" !== c.type && "date" !== c.type && "money" !== c.type ? `title="${esc(String(r._v[c.key]?.text ?? r._v[c.key] ?? ""))}"` : ""}>${((c, v) => (v && "object" == typeof v && "html" in v ? v.html : "date" === c.type ? (v ? fmt(v) : '<span class="muted">—</span>') : v && "object" == typeof v && "text" in v && "status" !== c.type ? esc(v.text) : "money" === c.type ? ("" === v || null == v ? "" : money("object" == typeof v ? (v.sort ?? v.text) : v)) : "status" === c.type ? (v ? `<span class="pill ${pillClass(v.cls || v)}">${esc(v.text || v)}</span>` : "") : esc(v ?? "")))(c, r._v[c.key])}</td>`).join("")}</tr>`;
+    return `<tr class="${r.sev >= 2 ? "sev" + r.sev : ""}" ${r.edit ? `data-edit="${r.edit}"` : ""} title="${esc(r.title || "")}">${cols.map((c) => `<td class="${c.type || ""} ${c.cls || ""}" ${"status" !== c.type && "date" !== c.type && "money" !== c.type ? `title="${esc(String(r._v[c.key]?.text ?? r._v[c.key] ?? ""))}"` : ""}>${((c, v) => (v && "object" == typeof v && "html" in v ? ("function" == typeof dgSubSep ? dgSubSep(v.html) : v.html) : "date" === c.type ? (v ? fmt(v) : '<span class="muted">—</span>') : v && "object" == typeof v && "text" in v && "status" !== c.type ? esc(v.text) : "money" === c.type ? ("" === v || null == v ? "" : money("object" == typeof v ? (v.sort ?? v.text) : v)) : "status" === c.type ? (v ? `<span class="pill ${pillClass(v.cls || v)}">${esc(v.text || v)}</span>` : "") : esc(v ?? "")))(c, r._v[c.key])}</td>`).join("")}</tr>`;
   }
   return `<div class="dg" data-grid="${opts.id}"><div class="dg-tb no-print"><input class="q" placeholder="Search…" value="${esc(st.q)}" data-gq="${opts.id}">${opts.toolbar || ""}<span class="cnt">${rows.length} of ${opts.rows.length}</span></div><div class="dg-scroll">${rows.length ? `<table class="dg-t ${cols.length > 4 && vw() <= 760 ? "wide" : ""}"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>` : `<div class="empty" style="border:0;border-radius:0">${opts.empty || "Nothing matches. Clear the search or a filter above."}</div>`}</div></div>`;
 }
@@ -13539,8 +13539,9 @@ function saveBill() {
         },
         o,
       );
-      DB.bills.push(b),
-        audit("bill", b.id, "created", null, b),
+      const kept = vbAdd(b, { src: "the bill form" });
+      if (kept !== b) return closeEditor(), toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`), void flowGo.bill(kept)();
+      audit("bill", b.id, "created", null, b),
         log(`Bill entered: ${b.vendor} ${b.number || ""} ${money(billTotal(b))}`);
     }
     closeEditor(), save(), render();
@@ -33268,8 +33269,8 @@ function releaseRetainage(v, projectId, ok2) {
     ],
     notes: "Retainage release — requires final unconditional lien waiver.",
   };
-  DB.bills.push(b),
-    audit("bill", b.id, "retainage-release", "", String(amt), `${v.name} ${money(amt)}`),
+  if (vbAdd(b, { src: "the retainage release" }) !== b) return void toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`);
+  audit("bill", b.id, "retainage-release", "", String(amt), `${v.name} ${money(amt)}`),
     save(),
     render(),
     toast(`${b.number} submitted for approval`);
@@ -37284,7 +37285,7 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind);
+const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId));
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -37298,7 +37299,7 @@ function proposalsHtml(list, title) {
                 ? `${target?.number || "PO"} · ${esc(target?.vendor || "")} · ordered ${money(target ? poTotal(target).total : 0)}`
                 : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · billed ${money(target ? billTotal(target) : 0)} · ${esc(payCheckWord(target))}`,
             chk = "bill" === P.kind && target ? payCheck(t, target) : null;
-          return `<div class="prop-row${chk && chk.over > 0.005 ? " pay-over" : ""}"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div>${chk ? `<div class="small ${chk.over > 0.005 ? "bad-t" : "muted"}">Paid ${money(chk.paid)} · approved ${money(chk.approved)}${chk.prior ? ` · ${money(chk.prior)} paid before` : ""}${chk.over > 0.005 ? ` · ${money(chk.over)} over what was approved` : ""}</div>` : ""}<div class="small muted">${P.why}</div></div><div class="prop-acts">${chk && chk.over > 0.005 ? `<button class="btn sm primary" data-mreview="${target.id}">Review the ${money(chk.over)} Over</button>` : `<button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button>`}<button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
+          return `<div class="prop-row${chk && chk.over > 0.005 ? " pay-over" : ""}"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${"function" == typeof vbMatchWords ? vbMatchWords(t) : money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div>${chk ? `<div class="small ${chk.over > 0.005 ? "bad-t" : "muted"}">Paid ${money(chk.paid)} · approved ${money(chk.approved)}${chk.prior ? ` · ${money(chk.prior)} paid before` : ""}${chk.over > 0.005 ? ` · ${money(chk.over)} over what was approved` : ""}</div>` : ""}<div class="small muted">${P.why}</div></div><div class="prop-acts">${chk && chk.over > 0.005 ? `<button class="btn sm primary" data-mreview="${target.id}">Review the ${money(chk.over)} Over</button>` : `<button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button>`}<button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
         })
         .join("")}</div>`
     : "";
@@ -37358,7 +37359,7 @@ function wireProposals(root) {
               confirmMatch(t, w), render(), toast("Match confirmed", txnOpen(t));
             },
           );
-        confirmMatch(t), render(), toast("Match confirmed", txnOpen(t));
+        (window.vbMatchSaid = ""), confirmMatch(t), render(), toast(window.vbMatchSaid || "Match confirmed", txnOpen(t)), (window.vbMatchSaid = "");
       }),
   ),
     (root || document).querySelectorAll("[data-mreject]").forEach(
@@ -38728,13 +38729,12 @@ function billFromPO(po) {
         amount: +po.shipping,
         code: po.lines[0]?.code || "",
       }),
-    DB.bills.push(b),
-    audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
+    vbAdd(b, { src: "Bill This PO" }) !== b ? void (toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`), flowGo.bill(vbAdd.last.bill)()) : (audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
     log(`Bill drafted from ${po.number} — ${money(billTotal(b))}`),
     save(),
     "object" == typeof ROLE_VIEWS && (ROLE_VIEWS[role()] || []).includes("ap") && (view = "ap"),
     render(),
-    setTimeout(() => openBill(b.id), 60);
+    setTimeout(() => openBill(b.id), 60));
 }
 poAction = function (po, a) {
   const by = S.project.userName || role(),
@@ -61790,6 +61790,9 @@ function biToBill(inv, po, findings) {
         findings: (findings || []).map((f) => ({ sev: f.sev, kind: f.kind, msg: f.msg })),
       },
     };
+  // the same invoice already on file is that bill (vbFind, the one duplicate check for every bill path)
+  const vbHit = vbFind({ vendor: b.vendor, number: b.number, amount: inv.total, date: b.date });
+  if (vbHit && vbHit.exact) return vbHit.bill;
   return (
     inv.tax && b.lines.push({ id: uid("bl"), desc: "Sales tax", amount: inv.tax, code: "", line: "" }),
     inv.freight &&
@@ -61800,7 +61803,7 @@ function biToBill(inv, po, findings) {
         code: codes[0] || "",
         line: lineKeys[0] || "",
       }),
-    DB.bills.push(b),
+    vbAdd(b, { src: "the invoice inbox" }),
     audit("bill", b.id, "ingested", null, {
       vendor: b.vendor,
       number: b.number,
@@ -73897,6 +73900,13 @@ function cmApply(c, p) {
     cmTask(`Enter ${p.vendor || "the vendor"}'s invoice${p.number ? " " + p.number : ""} from the PDF — the amount was not read`, R.projectId, "Billing"),
       (did = "task to enter it from the PDF — the amount was not read, so no bill was written");
   } else if ("bill" === p.kind) {
+    // A person's Apply opens the bill, filled in from the invoice, and enters nothing until they say so (vbReviewMail,
+    // Pilot 2: one tap had posted SE-0922 as paid with no one seeing its code, line or bank match). A bulk apply
+    // never enters bills (cmApplyAll skips them); this path stays for any caller that applies without a screen.
+    if (!window.__cmBulk && "function" == typeof vbReviewMail) {
+      const said = vbReviewMail(c, p);
+      if (said) return said;
+    }
     DB.bills = DB.bills || [];
     const b = {
       id: uid("b"),
@@ -73920,12 +73930,15 @@ function cmApply(c, p) {
     // the PO line, so Bill Remaining and the over-PO flag count it (purchasing section).
     const poFor = cmBillPO(c, p);
     poFor && poLinkBill(b, poFor);
+    const kept = vbAdd(b, { src: "the mail reader", txnId: p.txnId || "" });
+    if (kept !== b) return (p.applied = `already on file as ${kept.number || "a bill"}: nothing entered`), (p.appliedAt = appNowIso()), (p.by = by), p.applied;
     if (p.txnId) {
+      // the payment the invoice names is linked the one way every bank line is (truthSetMatch): the line's proposal
+      // goes, and the bill reads paid before approval until someone approves it
       const t = (DB.txns || []).find((x) => x.id === p.txnId);
-      t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
+      t && !t.billId && truthSetMatch(t, { billId: b.id }, { why: "the payment the vendor's invoice names", earlyWhy: "the vendor's invoice names this payment" });
     }
-    DB.bills.push(b),
-      DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
+    DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
       (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
   } else if ("money" === p.kind || "bankline" === p.kind) {
@@ -73952,6 +73965,10 @@ function cmApply(c, p) {
           "Controller",
         ),
       (did = p.clientId ? "logged on the client" : "watching for the money");
+  else if ("deposit" === p.kind && "function" == typeof vbDepositApply)
+    // a client's "the money is sent" is linked to its bank line when the bank has it, else it is expected money:
+    // never a payment and never a task to record one (vbDepositApply, Pilot 2)
+    p.clientId && cmActivity(p.clientId, p.summary), (did = vbDepositApply(c, p));
   else if ("deposit" === p.kind)
     p.task && cmTask(p.task, "", "Controller"),
       p.clientId && cmActivity(p.clientId, p.summary),
@@ -122716,8 +122733,9 @@ if (
               retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
               taxStatus: po.taxStatus || "none",
             };
+            if (!vbGate(b, document.getElementById("mbm"))) return !1;
             billLinesNorm(b),
-              DB.bills.push(b),
+              vbAdd(b, { src: "Bill It", allowDup: !0 }),
               audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
               log(`Bill ${b.number} from ${po.number} — ${money(billTotal(b))}`),
               save(),
@@ -131403,6 +131421,7 @@ function lkBillDialog(po, o) {
           retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
           taxStatus: po.taxStatus || "none",
         };
+        if (!vbGate(b, document.getElementById("mbm"))) return !1;
         o.over &&
           ((b.overPO = {
             reason: o.over.reason,
@@ -131419,7 +131438,7 @@ function lkBillDialog(po, o) {
             note: o.over.reason,
           })),
           billLinesNorm(b),
-          DB.bills.push(b),
+          vbAdd(b, { src: "Bill It", allowDup: !0 }),
           audit(
             "bill",
             b.id,
@@ -187259,6 +187278,8 @@ function nyhMarkCopies(c, pr, did) {
   });
 }
 function nyhApplyMail(c, pr) {
+  // a vendor invoice opens the bill review; it is marked applied only when the bill is entered (vbPost)
+  if (pr && "bill" === pr.kind && !pr.applied && "function" == typeof vbReviewable && vbReviewable(c, pr)) return void vbReviewMail(c, pr);
   let did = "";
   try {
     did = cmApply(c, pr) || "";
@@ -188666,7 +188687,8 @@ function lkBillFromTxn(t, nb) {
       txnId: t.id,
       paidBeforeApproval: !0,
     };
-  (DB.bills = DB.bills || []).push(b);
+  const kept = vbAdd(b, { src: "the bank line's Confirm", txnId: t.id });
+  if (kept !== b) return kept;
   try {
     audit("bill", b.id, "created", "", `${b.vendor} ${money(billTotal(b))}`, `entered from the bank line ${t.desc}`);
   } catch (e) {}
@@ -191467,6 +191489,8 @@ function trkBillFromDoc(id) {
   if (!d || !po) return toast("That invoice is not filed on an order"), null;
   const had = d.links.billId && trkBill(d.links.billId);
   if (had) return flowGo.bill(had)(), had;
+  const vbHit = vbFind({ vendor: po.vendor, number: (d.fields || {}).number, amount: (d.fields || {}).total, date: (d.fields || {}).date || today() });
+  if (vbHit && vbHit.exact) return (d.links.billId = vbHit.bill.id), save(), rcToast(`${vbHit.why}: the invoice is filed on it, nothing entered`, [{ label: "Open", run: flowGo.bill(vbHit.bill) }]), flowGo.bill(vbHit.bill)(), vbHit.bill;
   const F = d.fields || {},
     low = new Set(trkUnconfirmed(d)),
     v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
@@ -191503,7 +191527,7 @@ function trkBillFromDoc(id) {
     unconfirmed: [...low],
     readTotal: null != F.total ? +F.total : null,
   };
-  DB.bills.push(b), (d.links.billId = b.id);
+  vbAdd(b, { src: "Enter the Bill on a filed invoice" }), (d.links.billId = b.id);
   try {
     audit("bill", b.id, "entered-from-invoice", "", `${F.number || ""} on ${po.number}`, trkWho());
   } catch (e) {}
@@ -197169,7 +197193,7 @@ function fndEach(fn) {
   (DB.outbox || []).forEach((r) => r && fn("outbox", r, null));
   (DB.bankImports || []).forEach((r) => r && fn("bankImports", r, null));
   ((DB.calendar || {}).external || []).forEach((r) => r && fn("calendar.external", r, null));
-  ((DB.gl || {}).journals || []).forEach((r) => r && fn("gl.journals", r, null));
+  ((DB.gl || {}).journals || []).forEach((r) => r && "txn" !== r.sourceType && fn("gl.journals", r, null));
 }
 const fndKey = (coll, r) => coll + ":" + (r.id || r.number || "");
 function fndKeys() {

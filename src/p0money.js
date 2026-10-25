@@ -894,7 +894,9 @@ function p0DepositDialog(po) {
             taxStatus: po.taxStatus || "none",
           };
         "function" == typeof billLinesNorm && billLinesNorm(b);
-        DB.bills.push(b);
+        // the same deposit invoice already on file stops here, before it is saved (vbGate, the one duplicate check)
+        if (!vbGate(b, document.getElementById("mbm"))) return !1;
+        vbAdd(b, { src: "Bill the Deposit", allowDup: !0 });
         try {
           audit("bill", b.id, "deposit-billed", "", po.number, `${p0M(a)} deposit, ${R.pct}% on order`);
           log(`Deposit bill ${b.number} on ${po.number}: ${p0M(a)}`);

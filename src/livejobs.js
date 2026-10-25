@@ -611,7 +611,7 @@ function ljBillHours() {
           hours: 0,
           timeIds: [],
         };
-        DB.bills.push(b);
+        vbAdd(b, { src: "the contractor's approved hours" });
       }
       b.lines.push({ id: uid("bl"), desc: `${fmt(e.date)} · ${h.toFixed(2)} h${e.notes ? " · " + String(e.notes).slice(0, 80) : ""}`, amount: r2(h * rate), timeId: e.id });
       (b.hours = r2((+b.hours || 0) + h)), b.timeIds.push(e.id), (e.billId = b.id), (e.billedAs = "contractor");

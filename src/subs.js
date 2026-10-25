@@ -954,7 +954,8 @@ function scPayAppBill(po, o) {
       payApp: { no: o.no, periodTo: to, lines: o.paLines, at: appNowIso(), by: scMe() },
     };
   "function" == typeof billLinesNorm && billLinesNorm(b);
-  DB.bills.push(b);
+  const kept = vbAdd(b, { src: "the pay application" });
+  if (kept !== b) return kept;
   try {
     audit("bill", b.id, "pay-app", "", `${po.number} #${o.no}`, `${money(billGross(b))} gross`);
     log(`Pay application ${o.no} from ${po.vendor} on ${po.number}: ${money(billGross(b))}${rate ? `, ${money(r2(billGross(b) - billTotal(b)))} retainage held` : ""}`);
