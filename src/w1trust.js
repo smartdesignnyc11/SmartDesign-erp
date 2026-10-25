@@ -1321,7 +1321,7 @@ document.addEventListener("click", (e) => {
       (document.querySelector(".view.on") || {}).innerHTML === h0 && tr.classList.toggle("pr-open");
     } catch (x) {}
   }, 60);
-});
+}, !0); // before the row's own listener, so a row that folds open by itself is seen to have done so
 
 // The class, as a net under every sheet: a sheet whose Save changed the records and closed with no word (the
 // foreman's crew-hours Fix: "did not save and did not say so"; the Toolbox Talk) says what it saved, with Open to the
@@ -1364,6 +1364,24 @@ document.addEventListener(
   },
   !0,
 );
+
+// One verb, one act: "Draft the Renewal" on Today opens the Renew sheet (record the renewal, or Draft a Request); on
+// Obligations the same words drafted a mail and moved the person to the assistant (the tap lint, the controller's
+// phone: "falls through to Ask"). Obligations opens the same sheet.
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      "function" == typeof flRenewDialog &&
+        document.querySelectorAll(".view.on [data-bnobdraft]").forEach((b) => {
+          const o = (DB.obligations || []).find((x) => x.id === b.dataset.bnobdraft);
+          o && (b.onclick = () => flRenewDialog(o));
+        });
+    } catch (e) {}
+    return r;
+  };
+}
 
 (() => {
   const css = `

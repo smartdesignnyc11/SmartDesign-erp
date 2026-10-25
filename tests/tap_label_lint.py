@@ -106,7 +106,7 @@ def owned_by(label, view, role):
     return None
 
 
-GENERIC = re.compile(r'^(review|respond|edit|details|view|open|see|look|check|more|show|show me|go|start|begin|resume|continue|next|back|answer|reply|fix|change|update|manage|choose|pick|select)(\s+(it|this|them|now|details|all))?$', re.I)
+GENERIC = re.compile(r'^(review|respond|edit|details|view|open|see|look|check|more|show|show me|go|start|begin|resume|continue|next|back|answer|reply|fix|change|update|manage|choose|pick|select|read)(\s+(it|this|them|now|details|all))?$', re.I)
 
 
 def label_flags(c, r):
