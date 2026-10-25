@@ -418,6 +418,9 @@ async def s2_buy(C):
         await C.fill('#e-inscar', 'Hudson Mutual'); await C.fill('#e-insexp', '2027-06-30')
         if not await C.pg.is_checked('#e-w9'): await C.pg.check('#e-w9')
         await C.fill('#e-w9date', '2026-09-01')
+        # the chain's suppliers invoice with no NY sales tax on them (their invoices below carry none), so the one
+        # purchase-tax rule accrues use tax and the orders keep their prices (procurement P0, 2026-10-25)
+        await C.pg.select_option('#e-p0tax', '0')
         await C.click('#d-save', 400)
         v = await C.js("n => { const v = DB.vendors.find(v => v.name === n); return v && v.id; }", name)
         C.ok(v, f'vendor {name} is on file', v)

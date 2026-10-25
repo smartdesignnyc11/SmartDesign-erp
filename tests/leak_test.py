@@ -456,7 +456,9 @@ async def s5_trace(p, S):
           // 8/22 dumpster). Every other bank/card cost on the job must be backed by a bank or card line.
           lkDupScan();
           const backed = (t) => typeof bfBacked === 'function' ? bfBacked(t) : !!(t.prov && (['feed','statement'].includes(t.prov.kind) || t.prov.confirmedBy));
-          const allowedTyped = (t) => /Cash at lumber yard/.test(t.desc) || t.dupState === 'proposed';
+          // and the seed's typed TINO card charge, on the job since procurement P0 linked it to PO-2026-047 as a prepayment:
+          // it reads by hand (not truth) until the card statement confirms it
+          const allowedTyped = (t) => /Cash at lumber yard/.test(t.desc) || t.dupState === 'proposed' || (!!t.prepay && /TINO FLOORING/.test(t.desc));
           const notTruth = (t) => truthBacking(t).kind === 'hand' && /No bank line|Charged twice/.test(txnFlagsHtml(t));
           const unbacked = jobTx.filter(t => !backed(t) && !allowedTyped(t));
           const typedShown = jobTx.filter(t => !backed(t) && allowedTyped(t)).map(t => [t.desc + ' ' + t.amt, notTruth(t)]);

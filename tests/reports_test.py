@@ -188,6 +188,30 @@ class Books:
         R = R or ['', self.today]
         c = sum(r['amt'] for r in self.cost_rows('job') if r['pid'] == pid and self.ctype(r['cat']) == 'cogs' and R[0] <= r['date'] <= R[1])
         return r2(c + self.labor(pid, R))
+    def prepaid_not_progress(self, pid):
+        """Money paid ahead on the job's orders and not yet taken off a bill (procurement P0): cost, never progress.
+        A deposit bill (marked, or its words say deposit) or a bank line linked as a prepayment, less what the
+        order's bills took off for it (their "Less prepaid" lines)."""
+        live = [b for b in self.D['bills'] if b.get('status') not in ('void', 'rejected')]
+        out = 0.0
+        for po in self.D['pos']:
+            if po.get('projectId') != pid or po.get('type') == 'subcontract' or po.get('status') in ('cancelled', 'draft'): continue
+            src = []
+            for b in live:
+                if b.get('poId') != po['id'] or b.get('status') == 'draft' or b.get('retainageRelease'): continue
+                words = ' '.join([b.get('notes') or ''] + [l.get('desc') or '' for l in b.get('lines') or []])
+                took = any(l.get('prepayOf') or str(l.get('id') or '').startswith('bl_p0_') for l in b.get('lines') or [])
+                dep = b.get('deposit') is True or (b.get('deposit') is not False and not took and re.search(r'\bdeposit\b', words, re.I) and not re.search(r'\b(less|balance|final|remaining|minus|applied|after)\b', words, re.I))
+                gross = r2(sum(float(l.get('amount') or 0) for l in b.get('lines') or []))
+                if dep and gross > 0.005: src.append(('bill:' + b['id'], gross))
+            for t in self.D['txns']:
+                pr = t.get('prepay') or {}
+                if pr.get('poId') == po['id'] and t.get('poId') == po['id'] and float(t.get('amt') or 0) < 0 and not t.get('billId') and t.get('status') != 'void':
+                    src.append(('txn:' + t['id'], r2(-float(t['amt']))))
+            for k, amt in src:
+                took = sum(-float(l.get('amount') or 0) for b in live for l in b.get('lines') or [] if l.get('prepayOf') == k)
+                out += max(0.0, r2(amt - took))
+        return r2(out)
     def contract(self, pid):
         c = next(c for c in self.clients if any(p['id'] == pid and p['clientId'] == c['id'] for p in self.D['projects']))
         base = float(((c.get('contracts') or {}).get(pid) or {}).get('net') or 0)
@@ -226,7 +250,7 @@ class Books:
         for p in pids:
             con = self.contract(p) if any(p in (c.get('contracts') or {}) for c in self.clients) else 0
             if con and eac.get(p):
-                earned = r2(con * self.job_actual(p) / eac[p])
+                earned = r2(con * r2(self.job_actual(p) - self.prepaid_not_progress(p)) / eac[p])
                 # YTD from the year's start: nothing billed or earned before it, so income = invoiced + (earned - billed)
                 rows[p]['income'] = r2(self.invoiced(R, p) + earned - self.billed_gross(p))
             else:
@@ -335,7 +359,8 @@ async def part_books(p, c):
             for l in x['lines']:
                 c.ok(abs(l['eac'] - max(l['budget'], r2(l['actual'] + l['committed']))) <= EPS, f'{pid} line {l["key"]} EAC {l["eac"]} is not max(budget {l["budget"]}, actual + committed {r2(l["actual"] + l["committed"])})')
             eq(x['eac'], max(r2(sum(l['eac'] for l in x['lines'])), r2(x['actual'])), f'{pid} EAC = the lines\' EAC')
-        eq(x['earned'], r2(B.contract(pid) * B.job_actual(pid) / x['eac']), f'{pid} earned = contract × cost ÷ EAC')
+        # money paid ahead (a prepayment not yet taken off a bill) is cost, not progress: procurement P0, 2026-10-25
+        eq(x['earned'], r2(B.contract(pid) * r2(B.job_actual(pid) - B.prepaid_not_progress(pid)) / x['eac']), f'{pid} earned = contract × (cost less money paid ahead) ÷ EAC')
         eq(x['overUnder'], r2(B.billed_gross(pid) - x['earned']), f'{pid} WIP over/under = billed − earned')
         eq(x['backlog'], r2(B.contract(pid) - x['earned']), f'{pid} backlog = contract − earned')
     eq(Bal['wip'], sum(B.billed_gross(pid) - x['earned'] for pid, x in J.items() if x['contract']), 'net over-billing (WIP)')
@@ -404,15 +429,16 @@ async def part_screen(p, c):
         await pg.wait_for_timeout(200)
         m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : '' }")
         c.ok('ZELLE TO M RODRIGUEZ' in m and 'bank line' in m.lower() and 'statement' in m and '$6,800.00' in m and 'Close' in m, f'{uid}: the no-project drill does not show the Zelle line and its bank backing: {m[:300]!r}')
-        # a typed line with no statement behind it is marked as such
+        # a typed line with no statement behind it is marked as such (TINO's $8,000 card charge was the example until
+        # procurement P0 coded it to PO-2026-047 as a prepayment, 2026-10-25: 9 -> 8 lines)
         await pg.evaluate("() => { mbCloseModal(); document.querySelector('[data-rpdrill=\"pl:oh-uncoded\"]').click() }")
         await pg.wait_for_timeout(200)
         m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : '' }")
-        c.ok(re.search(r'9 with no bank or card line behind them', m) and re.search(r'TINO FLOORING[^\n]*\n+\s*By Hand\s*\n\s*typed in, not yet seen', m, re.I), f'{uid}: an uncoded typed line is not marked as having no bank line: {m[:300]!r}')
+        c.ok(re.search(r'8 with no bank or card line behind them', m) and re.search(r'HOME DEPOT PRO SCREWS[^\n]*\n+\s*By Hand\s*\n\s*typed in, not yet seen', m, re.I), f'{uid}: an uncoded typed line is not marked as having no bank line: {m[:300]!r}')
         await pg.evaluate("() => mbCloseModal()")
         # Project Profitability: By Line is income to cost and ties to the job
         t = await tab(pg, 'profit', 'ty', 'p121')
-        c.ok('BY LINE: INCOME TO COST' in t.upper() and re.search(r'Ties\s+Lines \$95,617\.91', t), f'{uid}: By Line is not income to cost tied to the job: {t[t.upper().find("BY LINE"):][:200]!r}')
+        c.ok('BY LINE: INCOME TO COST' in t.upper() and re.search(r'Ties\s+Lines \$103,617\.91', t), f'{uid}: By Line is not income to cost tied to the job: {t[t.upper().find("BY LINE"):][:200]!r}')
         c.ok('$102,670' not in t, f'{uid}: the old double-counted by-line total is still on screen')
         c.ok('Unlinked job cost' not in t, f'{uid}: the by-code table still repeats the bank-line total as unlinked cost')
         c.ok(not errs, f'{uid} screen errors {errs[:3]}')
@@ -520,7 +546,8 @@ async def part_lines(p, c):
     c.ok(len(co) == 3 and abs(sum(x['contract'] for x in co) - 6200) <= EPS, f'approved CO lines on the report: {[(x["name"], x["contract"]) for x in co]}')
     plumb = next(x for x in r['rows'] if x['name'].startswith('Plumbing'))
     c.ok(plumb['actual'] < 11000, f'plumbing line still double counts AMP-311: {plumb["actual"]}')
-    c.ok(abs(r['legacy'] - 92869.94) <= EPS, f'lineFin actual across the lines {r["legacy"]} (want $92,869.94: AMP-311 counted once)')
+    # + TINO's $8,000 card charge on the white oak line, coded to PO-2026-047 as a prepayment (procurement P0, 2026-10-25)
+    c.ok(abs(r['legacy'] - 100869.94) <= EPS, f'lineFin actual across the lines {r["legacy"]} (want $100,869.94: AMP-311 counted once, Tino\'s prepayment on its line)')
     c.ok(not errs, f'lines errors {errs[:3]}')
     await b.close()
 
@@ -571,7 +598,8 @@ async def part_excel(p, c):
     c.ok(ws is not None, f'no P&L by Project sheet: {wb.sheetnames}')
     if ws:
         vals = [cell.value for row in ws.iter_rows() for cell in row]
-        c.ok(20191.11 in vals and -5329.88 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
+        # 121 State's net profit carries TINO's $8,000 prepayment as job cost (it was uncoded overhead): 20191.11 -> 12191.11
+        c.ok(12191.11 in vals and -5329.88 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
     c.ok(r['last'] and r['last']['file'].endswith('.xlsx') and 'Exported' in r['toast'], f'Excel button: {r["last"]} {r["toast"]!r}')
     c.ok(not errs, f'excel errors {errs[:3]}')
     await b.close()
