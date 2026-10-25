@@ -225,20 +225,30 @@ async def t_unread(c, p):
     await sign_in(pg, 'u_chen')
     await pg.evaluate("() => { setCurrent('p121'); view = 'dash'; render(); }")
     await pg.wait_for_timeout(200)
-    r = await pg.evaluate("""() => { const T = msgThread('job:p121'), u = msgUnread(T), tot = msgUnreadTotal();
-       return { u, tot, badges: [...document.querySelectorAll('#tb-chat, [data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
+    # Messages is one door with three tabs (Alan, 2026-10-25): its one number is the sum of Team (unread lines), Mail
+    # (mail that needs an answer) and Field (site questions waiting on me), on every entry that shows it
+    r = await pg.evaluate("""() => { const T = msgThread('job:p121'), u = msgUnread(T), tot = msgUnreadTotal(), N = p2nMsgN();
+       return { u, tot, N, badges: [...document.querySelectorAll('#tb-chat, [data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
     c.ok(r['u']['n'] == 2 and r['u']['at'] == 1, f"unread: Chen has 2 unread on the job's thread, one naming him ({r['u']})")
-    c.ok(r['badges'] and all(x == str(r['tot']['n']) for x in r['badges']), f"unread: every Chat entry on screen shows the same number ({r['badges']} vs {r['tot']['n']})")
+    c.ok(r['N']['team'] == r['tot']['n'] and r['N']['n'] == r['N']['team'] + r['N']['mail'] + r['N']['field'], f"unread: Messages' number is Team + Mail + Field, Team the unread lines ({r['N']}, unread {r['tot']['n']})")
+    c.ok(r['badges'] and all(x == str(r['N']['n']) for x in r['badges']), f"unread: every Messages entry on screen shows the same number ({r['badges']} vs {r['N']['n']})")
+    before = r['N']['n']
     # the thread list (desktop): row and total agree with the badge; open a different thread so 121's row stays unread
     await open_thread(pg, 'dm:th_seed_dm')
-    r = await pg.evaluate("""() => { const row = document.querySelector('#msg-side [data-msgopen="job:p121"]'), tot = document.querySelector('#msg-side .msg-tot');
+    r = await pg.evaluate("""() => { const row = document.querySelector('#msg-side [data-msgopen="job:p121"]'), tot = document.querySelector('#msg-side .msg-tot'),
+         tab = k => { const b = document.querySelector(`#v-chat .p2n-mtabs [data-p2nmt="${k}"]`); return b ? +((b.querySelector('.n') || {}).textContent || 0) : null; };
        return { row: row ? (row.querySelector('.n') || {}).textContent : null, at: row ? !!row.querySelector('.msg-atn') : false, tot: tot ? tot.textContent : '', total: msgUnreadTotal().n,
+         tabs: { team: tab('team'), mail: tab('mail'), field: tab('field') }, mailRows: cmNeedsAnswer().length, fieldRows: p2nFieldRows().length, N: p2nMsgN().n,
          badges: [...document.querySelectorAll('#tb-chat, [data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
     c.ok(r['row'] == '2' and r['at'], f"unread: the thread's row reads 2 and marks the mention ({r})")
-    c.ok(r['tot'] == str(r['total']) and all(x == r['tot'] for x in r['badges']), f"unread: the list's total equals the badge ({r})")
+    t = r['tabs']
+    c.ok(t['team'] == r['total'] and r['tot'] == str(r['N']), f"unread: the Team tab counts the unread lines; the list's Messages total is the one number ({r})")
+    c.ok((t['mail'] in (None, r['mailRows'])) and (t['field'] in (None, r['fieldRows'])), f"unread: each tab's count is its rows ({t}, mail {r['mailRows']}, field {r['fieldRows']})")
+    c.ok(sum(x or 0 for x in t.values()) == r['N'] and all(x == str(r['N']) for x in r['badges']), f"unread: the badge is the sum of the three tabs ({r})")
     await open_thread(pg, 'job:p121')
-    r = await pg.evaluate("() => ({ total: msgUnreadTotal().n, badges: [...document.querySelectorAll('#tb-chat, [data-sub=\"chat\"], [data-v=\"chat\"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') })")
-    c.ok(r['total'] == 0 and all(x == '' for x in r['badges']), f'unread: reading the thread clears the count everywhere ({r})')
+    r = await pg.evaluate("() => ({ total: msgUnreadTotal().n, N: p2nMsgN().n, badges: [...document.querySelectorAll('#tb-chat, [data-sub=\"chat\"], [data-v=\"chat\"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') })")
+    want = '' if before - 2 == 0 else str(before - 2)
+    c.ok(r['total'] == 0 and r['N'] == before - 2 and all(x == want for x in r['badges']), f'unread: reading the thread lowers every place by its 2 ({before} to {r})')
     # the phone: the back bar carries the same number as the tab
     b2, pg2, errs2 = await fresh(p, 'u_alberto', phone=True)
     await pg2.evaluate("() => { const t = msgDirectWith('u_chen', true); t.t.msgs.push({ id: 'pm1', by: 'Chen Biron', fromUid: 'u_chen', text: 'Can you bring the ladder back to the shop?', t: '9/3, 10:00 AM', at: '2026-09-03T10:00:00', files: [] }); setCurrent('p121'); msgOpen('job:p121'); }")

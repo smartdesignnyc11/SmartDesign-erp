@@ -354,7 +354,8 @@ async def t_screen(c, p):
           order: msgRowsOf(msgThreadsFor(), msgMe()).map(x => x.un.n) }} }}""")
     c.ok(r['view'] == 'chat' and r['list'] and not r['thread'], f'screen: the bottom bar\'s Chat opens the list of conversations, not a job ({r["view"]}, list {r["list"]}, thread {r["thread"]})')
     c.ok(not r['sub'] and not r['hdr'], f"screen: no job switcher, job tabs or job dates on Chat ({r['sub']}, {r['hdr']})")
-    c.ok(r['h2'] == 'Chat' and r['search'] and r['compose'], f"screen: the list has its heading, search and New Message ({r['h2']})")
+    # Chat is now Messages (Alan, 2026-10-25): the list is headed Messages
+    c.ok(r['h2'] == 'Messages' and r['search'] and r['compose'], f"screen: the list has its heading, search and New Message ({r['h2']})")
     c.ok(r['rows'] and all(h >= 56 and av for h, av in r['rows']) and r['sw'] <= 390, f"screen: each row has an avatar and is a big target; no sideways scroll ({r['rows'][:3]}, {r['sw']})")
     c.ok(r['order'] == sorted(r['order'], key=lambda n: 0 if n else 1), f"screen: unread conversations come first ({r['order']})")
     await pg.fill('#msg-q', 'lenox')
@@ -415,7 +416,7 @@ async def t_screen(c, p):
         return {{ side: vis('#msg-side'), main: vis('.msg-main'), beside: a.right <= m.left + 1 && Math.abs(a.top - m.top) < 4, sub: vis('#subnav'), hdr: vis('#projhdr'), crumbs: document.getElementById('crumbs').innerText.trim(),
           cur: (msgCur() || {{}}).key, top: msgRowsOf(msgThreadsFor(), msgMe())[0].T.key, pinned: c.bottom <= innerHeight && innerHeight - c.bottom < 40 }} }}""")
     c.ok(r['side'] and r['main'] and r['beside'], f'screen: on a desktop the list and the conversation are two panes side by side ({r})')
-    c.ok(not r['sub'] and not r['hdr'] and r['crumbs'] == 'Chat', f"screen: no job chrome, and the trail reads Chat ({r['crumbs']!r})")
+    c.ok(not r['sub'] and not r['hdr'] and r['crumbs'] == 'Messages', f"screen: no job chrome, and the trail reads Messages (Alan, 2026-10-25) ({r['crumbs']!r})")
     c.ok(r['cur'] == r['top'] and r['pinned'], f"screen: it opens on the top conversation, the composer at the pane's foot ({r})")
     # a line: bubbles, a day separator, a run of one person's lines grouped; Reply quotes it; Copy copies it
     await pg.evaluate("""() => { const P = DB.projects.find(p => p.id === 'p121'); const L = (id, uid, text, at) => Object.assign(msgLine(text), { id, by: DB.users.find(u => u.id === uid).name, fromUid: uid, at, t: stampText(at) });
