@@ -249,6 +249,14 @@ if ("function" == typeof msgEnter) {
     return (p2nPane = "team"), base.apply(this, arguments);
   };
 }
+// who a question went to, by name ("Sent to designer" read as a code)
+const p2nWho = (k) => {
+  try {
+    const p = "function" == typeof fPerson ? fPerson(k) : null;
+    if (p && p.name) return msgFirst(p.name);
+  } catch (e) {}
+  return k ? p2nRoleName(k) || k : "the office";
+};
 // the Field pane: the same rows and verbs as Today's (tdCard), so an answer here is the answer there
 function p2nFieldHtml() {
   const field = MSG_FIELD.includes(role()),
@@ -256,7 +264,7 @@ function p2nFieldHtml() {
   if (field) {
     const row = (r) => {
       const p = (DB.projects || []).find((x) => x.id === r.projectId);
-      return `<button type="button" class="p2n-frow" data-p2nfr="${esc(r.id)}"><span class="grow"><b data-nocase>${esc(r.title || r.type || "")}</b><span class="small muted" data-nocase>${esc([p ? shortName(p) : "", "answered" === r.status ? `Answered: ${String(r.answer || r.decision || "").slice(0, 80)}` : `Sent to ${r.to || "the office"} · waiting`].filter(Boolean).join(" · "))}</span></span></button>`;
+      return `<button type="button" class="p2n-frow" data-p2nfr="${esc(r.id)}"><span class="grow"><b data-nocase>${esc(r.title || r.type || "")}</b><span class="small muted" data-nocase>${esc([p ? shortName(p) : "", "answered" === r.status ? `Answered: ${String(r.answer || r.decision || "").slice(0, 80)}` : `Sent to ${p2nWho(r.to)} · waiting`].filter(Boolean).join(" · "))}</span></span></button>`;
     };
     return `<div class="p2n-field">${R.length ? R.map(row).join("") : '<div class="empty">No open questions from you. Raise one from the job when you need the office.</div>'}${p2nMay("fraise") ? '<div class="row" style="margin-top:12px"><button type="button" class="btn" data-p2nraise>Raise a Question</button></div>' : ""}</div>`;
   }

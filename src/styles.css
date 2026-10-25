@@ -3936,7 +3936,7 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 .p2n-mtabs button{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:20px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);font-weight:600;font-size:14px;flex:none}
 .p2n-mtabs button.on{background:var(--accent-2);border-color:#C9D6F5;color:var(--accent-3)}
 .p2n-mtabs .n{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
-@media (max-width:760px){ .p2n-mtabs{margin:8px 0 10px} .p2n-mtabs button{min-height:44px} body.msg-thread #v-chat > .p2n-mtabs{display:none} }
+@media (max-width:760px){ .p2n-mtabs{margin:8px 0 10px} .p2n-mtabs button{min-height:44px} body.msg-thread #v-chat > .p2n-mtabs{display:none} #v-chat > .p2n-mtabs{padding:0 16px} #v-chat > .p2n-fieldwrap{margin:0 16px} }
 #v-chat.p2n-fieldon .msg-wrap{display:none}
 .p2n-fieldwrap{background:var(--paper);border:1px solid var(--rule);border-radius:14px;padding:12px 16px}
 .p2n-fieldlead{margin:0 0 8px}
