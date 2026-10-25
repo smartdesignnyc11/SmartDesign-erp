@@ -86,7 +86,8 @@ const fieldMarker = (n, el, k) => {
   return `[${n} ${k} "${lab}"${v ? ` ="${v.slice(0, 80)}${v.length > 80 ? '…' : ''}"` : ''}]`;
 };
 let reg;
-const walk = (node, out) => {
+const FOLD = '\n-- the first screen ends here (below this, the person scrolls) --\n';
+const walk =(node, out) => {
   if (node.nodeType === 3) { const t = node.nodeValue.replace(/\s+/g, ' '); if (t.trim()) out.push(t); return; }
   if (node.nodeType !== 1) return;
   const el = node, tg = el.tagName;
@@ -96,6 +97,8 @@ const walk = (node, out) => {
   if (cs.display !== 'contents' && !el.getClientRects().length && tg !== 'OPTION') return;
   const hidden = cs.visibility === 'hidden' || +cs.opacity === 0;
   const block = BLOCKS.test(cs.display) || tg === 'BR' || tg === 'TR';
+  // the fold: where the person's screen ends without scrolling (the five-second test reads what is above it)
+  if (block && !S._fold && tg !== 'BR' && el.getBoundingClientRect().top >= innerHeight) { S._fold = true; out.push(FOLD); }
   if (block) out.push('\n');
   if (!hidden && isCtl(el)) {
     const k = kindOf(el), n = reg(el, k);
@@ -143,14 +146,28 @@ S.screen = () => {
     .map(f => { const n = reg(f, 'file'); const lab = fieldLabel(f) || norm((f.closest('label, .f, .drop, div') || {}).innerText || '').slice(0, 50) || (f.accept || 'a file');
       return `[${n} file "${lab}"${f.accept ? ' (' + f.accept + ')' : ''}${f.multiple ? ' multiple' : ''}]`; });
   if (ov.length) {
-    ov.forEach(o => { const p = ['\n']; walk(o, p); out.push('== Open on top ==', ...tidy(p), ...files(o)); });
+    ov.forEach(o => { const p = ['\n']; S._fold = false; walk(o, p); out.push('== Open on top ==', ...tidy(p), ...files(o)); });
     out.push(`== Behind it: ${S.title()} (close the sheet to use it) ==`);
-  } else { const p = [];
+  } else { const p = []; S._fold = false;
     ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); out.push(...tidy(p), ...files(S.viewRoot())); }
   if (toastOn) { const p = []; walk(t, p); out.push('== Toast ==', ...tidy(p)); }
   S.lastScreen = out.join('\n');
   return { title: S.title(), menu: S.menu(), lines: out, n: S.ctl.length, sig: S.sig, overlay: ov.length > 0, view: typeof view !== 'undefined' ? view : '' };
+};
+// where a tap landed (the click check, sim/referee.py): the view, the page heading, the sheet on top and its heading,
+// a fingerprint of what is on the screen (text and form values: a tap that changed nothing leaves it the same), the
+// first words a person reads, and whether a toast now offers Open
+S.landing = () => {
+  const ov = S.overlays(), top = ov[ov.length - 1];
+  const head = el => { if (!el) return ''; const h = el.querySelector('h1, h2, h3, .hd, header, b, strong'); return norm(h ? h.innerText : String(el.innerText || '').split('\n')[0]).slice(0, 80); };
+  const vals = [...document.querySelectorAll('input, select, textarea')].filter(vis).map(e => e.type === 'checkbox' || e.type === 'radio' ? (e.checked ? 1 : 0) : String(e.value || '').slice(0, 40)).join('|');
+  const s = S.visibleText() + '#' + vals + '#' + scrollY;
+  let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const t = document.getElementById('toast'); const tOn = !!(t && t.classList.contains('on') && vis(t));
+  const firstText = norm((top || S.viewRoot()).innerText || '').slice(0, 220);
+  return { view: typeof view !== 'undefined' ? String(view) : '', title: S.title(), sheet: top ? head(top) : '', hash: h.toString(16), top: firstText,
+    toastOpen: tOn && [...t.querySelectorAll('button, a')].some(b => /^open/i.test(norm(b.innerText))), toast: tOn ? norm(t.innerText).slice(0, 120) : '' };
 };
 S.visibleText = () => { const parts = [S.viewRoot(), ...S.overlays(), document.getElementById('toast')].filter(Boolean).map(e => norm(e.innerText)); return parts.join(' \n '); };
 // a number from the last screen back to its element; if the screen re-rendered, find the same control again

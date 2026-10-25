@@ -16,6 +16,7 @@ This folder is the harness; the main session runs the agents (`day_plan.md`). Th
 | `turn_prompt.md`, `day_plan.md`, `day_plan.json` | The per-turn prompt template and the day's turn order. |
 | `workshop_nav.md`, `workshop.py` | The Navigation and Pages Workshop at the end of the pilot: usage (pages, time, taps, trails, back-tracks, top jobs, where each person looked first), the expert prompt (27 short questions, each finding tagged page, frequency, severity), and the scorer that groups findings across roles for the synthesis. `sim/simctl menus` captures each role's menu. |
 | `workshop_docs.md`, `docs.py` | The Documents Workshop: documents made as real work (the day plan's `doc_tasks`, some on the phone), measured (taps, seconds, screens, typed vs filled, characters per line, validation stops, found after save), audited by the referee (job, client, entity, cost codes, line links, tax, retainage, terms, CO budget effect, pay-application % against the SOV, PO sourcing, and the reports), rendered as the client receives them (`simctl client-docs`: portal on the phone, print, PDF), judged by creators, the client, the owner and the designer, and a gallery for Alan (`docs.py gallery`). |
+| `day_plan_pilot2.json`, `checks_p2.js` | Pilot 2: the same 3 days, the whole firm (30 book events tagged `pilot2`, some in chains that open when the step before is done), every office role on the phone at least one turn a day and the field on the desktop once, the UI/UX judgement per device, the click check, the cost per turn. `checks_p2.js` holds Pilot 2's checks on top of month_runtime's. |
 | `day_plan_lean.json` | The lean pilot: 3 days, 7 daily roles, 3 slots, crew and driver on day 3, the client's portal side played by world rules (`simctl world-client on`). |
 | `selftest.py` | A scripted mini-day through `act` with no LLM; proves the harness. |
 | `runs/<run>/` | Everything a run writes (git-ignored): `world.json` (server state), `db.json` (the database snapshot, after every change), `db_<day>.json`, `actions.jsonl`, `diary/<uid>.md`, `files/<uid>/` (attachments and photos), `shots/`, `world/pending` and `world/answers`, `ledger.*`. |
@@ -48,7 +49,17 @@ python3 sim/selftest.py                        # the harness check, about 5-10 m
   The time of day is pinned per slot (morning 07:30, work1 10:00, work2 13:30, eod 16:30) plus two minutes per
   action, in America/New_York. The browser's own wall clock never leaks in.
 - **Phones.** Field roles and the client get a 390x844 page with mobile metrics and touch through CDP (one
-  context cannot mix `is_mobile` pages otherwise).
+  context cannot mix `is_mobile` pages otherwise). Any person's turn can be on either device (`simctl begin
+  --device`, or the plan's `devices`); with `--switch` the person may `act <uid> device desktop|phone` mid-turn. It is
+  the same page re-laid out, so the one-IndexedDB and one-turn guarantees hold. Every action logs its device.
+- **The click check.** Every tap, key, menu go and back logs where it started and landed (view, page heading, the
+  sheet on top, a fingerprint of the screen, the first words, whether a toast offers Open). The referee classifies
+  each against its label (landed, done, dead, off-label, wrong, silent, failed, back-tracks), per person, page and
+  device (`ledger.md` "Click check").
+- **The cost.** Per turn: toolkit calls, characters in and out, prompt and reads, diary written, the estimate they
+  imply, and the conductor's measured tokens (`simctl cost`): `cost.jsonl`, `cost_<day>.json`, `cost.md`.
+- **Chains.** A book event with `gate` / `after` waits for its check to pass on the world page, then fires (dated that
+  slot, plus `delay` working days) with what the check found filled into its text and expectation.
 - **Ids.** `Math.random` is seeded per page boot (different on every boot) so ids never collide across pages.
 - **Logged.** Every action: who, app day, slot and time, the screen it started on and ended on, the control,
   the result, toasts, page errors, and the find-it-again check for every record it created (`creates`). A record

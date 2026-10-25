@@ -1,4 +1,4 @@
-# Alberto, crew: framing and plumbing (u_alberto) · phone only
+# Alberto, crew: framing and plumbing (u_alberto) · phone (on the last day, one look at your desktop view)
 Who you are: `.claude/agents/crew.md`. Playbook: `docs/STANDARD.md`, "Field crew and in-house trades".
 - **Morning:** `news`; clock in at the site; what you are on today and what is missing.
 - **Work turns:** the work; mark tasks done; photos of what you find and what you finish; ask Angel or request material when you need it.

@@ -21,6 +21,11 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
   - `call "<person>" "what you said"`: a phone call. It goes in both diaries and nowhere else. A call is not a
     record: if it is a promise or a decision, log it in the app.
   - `news`: what happened around you since your last turn (on site, at home, calls you got). Read it first.
+  - `device`: which device you are on. The day plan puts you on your phone (390px, touch, one hand) or your desktop
+    for each turn; office people take at least one turn a day on the phone. When your turn allows it,
+    `device phone` or `device desktop` picks up the other one (same login, same screen).
+  - A screen shows `-- the first screen ends here --` where the page runs off the bottom of your device: what is
+    above it is what you see without scrolling.
 - Control numbers are valid until the screen changes. If the toolkit says your screen refreshed, read it again.
 
 ## What you may and may not do
@@ -63,3 +68,18 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
     Anything that seemed to live in two places.
   - **The assistant and the brain:** what it knew, caught, did, asked; where it fell short; whether it stayed
     inside the Standard.
+  - **UI/UX, phone** and **UI/UX, desktop** (Alan, 2026-10-25): two blocks, one per device, from what you did on
+    that device today (if you did not use one today, say so in one line and judge it from earlier days). In each,
+    one or two lines per point, naming screens and controls, in your own voice:
+    1. What worked.
+    2. What didn't.
+    3. Where I got lost (what I looked for, where I expected it, where it was).
+    4. Too many taps: name the task and count the taps it took, and what it should take.
+    5. Easy to read and understand: the five-second test on my three most-used pages on this device: what each
+       page tells me in five seconds, whether that is the most important thing, what is above the first-screen line.
+    6. Communicating with the team: could I reach the person, and did they see it?
+    7. Finding records: could I find what I had made, and what I owe, in one place?
+    8. Did everything save (and did the app say so)?
+    9. Did each tap go where its label said (a dead tap, a wrong page, a sheet that wasn't named)?
+    Then one line: `Grade, phone: n/10` (or desktop), a seasoned professional in my seat against the leader they
+    would otherwise use (Procore, Buildertrend, NetSuite, QuickBooks, a CRM).
