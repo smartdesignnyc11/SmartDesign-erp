@@ -358,6 +358,12 @@ function w1Bar(el, st, d) {
     };
   };
   paint(), box.prepend(bar);
+  // the "Draft kept" toast has done its job once the draft is back on screen: it would sit over the sheet
+  try {
+    const t = document.getElementById("toast");
+    // (a toast with Open holds itself on screen for six seconds: the browser's own remove takes it down now)
+    t && /^Draft kept|^Borrador guardado/.test((t.textContent || "").trim()) && DOMTokenList.prototype.remove.call(t.classList, "on", "act", "toast-up");
+  } catch (e) {}
 }
 // what is typed now is the draft (only the fields the person typed in, where they differ from what the field showed)
 function w1Snap(el) {
@@ -891,7 +897,18 @@ function w1DriverDay(e) {
   const p = (DB.projects || []).find((x) => x.id === e.projectId) || S,
     total = "function" == typeof hoursOf ? r2(hoursOf(e)) : 0,
     td = e.date,
-    tasks = ((p && p.tasks) || []).filter((t) => t.start && t.end && t.start <= td && t.end >= td && "done" !== t.status),
+    // the site's work today, as the crew's sheet lists it (fActive: the build track, not drawings or permits)
+    tasks = (() => {
+      const cur = S && S.id;
+      try {
+        p && cur !== p.id && setCurrent(p.id);
+        return ("function" == typeof fActive ? fActive(td) : (p.tasks || []).filter((t) => t.start <= td && t.end >= td)).filter((t) => "done" !== t.status || t.actualEnd === td);
+      } catch (e) {
+        return [];
+      } finally {
+        cur && p && cur !== p.id && setCurrent(cur);
+      }
+    })(),
     logged = (e.work || []).filter((w) => +w.hours > 0),
     on = (id) => logged.some((w) => (w.taskId || w.drv) === id),
     hrs = (id) => (logged.find((w) => (w.taskId || w.drv) === id) || {}).hours || "",
