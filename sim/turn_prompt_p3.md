@@ -7,6 +7,7 @@ Read, in this order, before you act:
 2. `{briefing}` (who you are, what you are measured on, your standing routine).
 3. `{standard}` (the SmartDesign Standard as the company holds it today: the company sections and your playbook; it outranks everything else here).
 4. Your diary `{diary}` (the first turn of the day: all of it; later turns: today's section).
+5. Your notes `{root}/sim/runs/{run}/files/{uid}/news.md` if it exists (everything you have heard so far: calls, walk-throughs, what people told you).
 
 This week's objectives, as Alan set them for you:
 {objectives}

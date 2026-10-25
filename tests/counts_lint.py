@@ -291,6 +291,44 @@ async def run_role(pg, lint, tag, uid, phone):
         if an is not None and an != want:
             lint.flag('D', run, 'my tasks due today', f"Ask {an} (\"{a['headline'][:60]}\"); {want} of theirs late or due today on Tasks › Today")
 
+    # ---- procurement (P1, the Buy Board's one reader). Two numbers, each stated one way everywhere:
+    #   Buy Board  late or due to order this week (PRED.buyNeeds): the rail and sub-tab badge, the phone bar's badge, the
+    #              board's pill (its marked source), the coordinator's Buy Board chip on Today and its rows
+    #   Late       the one late set (PRED.lateMaterial): the board's Late section and Late chip, and Ask "what's late to order"
+    # and each tab and chip on the board is the rows it shows.
+    if 'proc' in views:
+        await to_view(pg, 'proc')
+        B = await pg.evaluate(r"""() => { const v = document.querySelector('#v-proc'); if (!v || !v.querySelector('.bb')) return null;
+          const num = s => { const e = v.querySelector(s); const m = e && e.innerText.match(/\d+/); return e ? (m ? +m[0] : 0) : null; };
+          const out = { pill: num('.bb-latepill'), need: PRED.buyNeeds.rows().length, badge: needs('buy'), late: PRED.lateMaterial.rows().length,
+            section: v.querySelectorAll('[data-bbsec="late"] [data-bbrow]').length, chip: num('[data-bbf="late"] .n'),
+            rows: v.querySelectorAll('.bb-list [data-bbrow]').length, tabBuy: num('button[data-bbtab="buy"] .n'),
+            chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText,
+              b.dataset.bbf === 'all' ? v.querySelectorAll('.bb-list [data-bbrow]').length : v.querySelectorAll(`[data-bbsec="${b.dataset.bbf}"] [data-bbrow]`).length]) };
+          try { const M = tdyModel(); if (M.buy) { out.todayChip = M.buy.length;
+            out.todayAll = M.all.filter(i => i.kind === 'tdyBuy').length; } } catch (e) {}
+          bbTab = 'arriving'; render(); out.tabArr = num('button[data-bbtab="arriving"] .n'); out.rowsArr = v.querySelectorAll('.bb-list [data-bbrow]').length;
+          bbTab = 'buy'; render(); return out; }""")
+        if B:
+            seen = [f"{B['need']} PRED.buyNeeds", f"{B['badge']} rail badge", f"{B['pill']} board pill"]
+            nums = {B['need'], B['badge'], B['pill']}
+            if B.get('todayChip') is not None:
+                nums |= {B['todayChip'], B['todayAll']}; seen += [f"{B['todayChip']} Today's Buy Board chip", f"{B['todayAll']} on Today's All"]
+            if len(nums) > 1: lint.flag('D', run, 'Buy Board', '; '.join(seen))
+            a = await ask(pg, "what's late to order")
+            an = first_int(a['headline'])
+            if an is None and re.search(r'^Nothing', a['headline'] or ''): an = 0
+            seen = [f"{B['late']} PRED.lateMaterial", f"{B['section']} Late section rows"]
+            nums = {B['late'], B['section']}
+            if B.get('chip') is not None: nums.add(B['chip']); seen.append(f"{B['chip']} Late chip")
+            if an is not None: nums.add(an); seen.append(f"{an} Ask")
+            if len(nums) > 1: lint.flag('D', run, 'Buy Board late', '; '.join(seen))
+            if B['tabBuy'] != B['rows']: lint.flag('B', run, 'Buy Board > To Buy', f"tab {B['tabBuy']}; {B['rows']} rows")
+            if B['tabArr'] != B['rowsArr']: lint.flag('B', run, 'Buy Board > Arriving', f"tab {B['tabArr']}; {B['rowsArr']} rows")
+            for k, n, rows in B['chips']:
+                if n != rows: lint.flag('B', run, f'Buy Board > {k} chip', f'chip {n}; {rows} rows')
+        await to_view(pg, views[0])
+
     # ---- rule (b): click tiles, chips, tab badges and "All N" for real; compare with the rows shown.
     # Renders are the cost (about half a second each on a shared box), so a view is re-rendered only when a click moved it.
     click_jobs = [] if lint.args.no_clicks else jobs if lint.args.all_projects else [cur]

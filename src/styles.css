@@ -1803,7 +1803,7 @@ body.bp-hasprimary #fab{display:none !important}
 @media (max-width:760px){ .cm-prop > .grow{flex:1 1 100%;order:-1} .cm-prop > .cat{order:-2} .cm-prop > .btn{flex:1 1 auto;min-height:40px} .cm-acts .small{flex:1 1 100%}
   .seg button,.ctabs button,.hb-viewtab,.hb-tabs button,.chip,.rep-sub button,.rep-groups button{min-height:36px} .hb-modes button{min-height:36px;width:40px}
   .view.on h3 + .row .btn,.view.on .card .row .btn{min-height:36px} }
-@media (max-width:760px){ .view.on button:not(.hb-colmenu):not(.hb-rowmenu):not(.mbm-x):not(.msg-gl):not(.kpi):not([class*="hb-tl"]):not(.dg-t button){height:auto;min-height:36px} .seg button,.seg.sm button{height:auto;min-height:36px} .view.on .pill-btn,.view.on .pill.pill-btn{min-height:36px} .hb-taskstatus,.hb-status{width:36px;height:36px} }
+@media (max-width:760px){ .view.on button:not(.hb-colmenu):not(.hb-rowmenu):not(.mbm-x):not(.msg-gl):not(.msg-ib):not(.kpi):not([class*="hb-tl"]):not(.dg-t button){height:auto;min-height:36px} .seg button,.seg.sm button{height:auto;min-height:36px} .view.on .pill-btn,.view.on .pill.pill-btn{min-height:36px} .hb-taskstatus,.hb-status{width:36px;height:36px} }
 @media (max-width:760px){ .proc-bar,.proc-filters{flex-wrap:wrap;overflow:visible} .proc-filters > *{min-width:0} .hb-sec-hd{flex-wrap:wrap} .hb-sec-hd > *{min-width:0} }
 .bq > *,.grid2 > *,.grid3 > *,.kpis > *,.dashgrid > *{min-width:0}
 .seg button,.seg.sm button{height:auto;min-height:28px}
@@ -3967,3 +3967,4 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
   body.m-on .topbar #tb-pin{display:none}
   body.m-on .topbar{gap:8px}
 }
+

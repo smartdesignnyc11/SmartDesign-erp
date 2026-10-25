@@ -24,9 +24,11 @@ ICON_NEW = 'Ask'
 RAIL = {
     # the owner's More held My Day and Chief of Staff; with My Day folded into Tasks its one page is drawn in its place
     # (the menu's rule for a group of one, as the designer's Dashboard)
-    'u_owner': ['Today', 'Tasks', 'Messages', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
+    # procurement P1: Requests and Route leave Purchasing for More, so the owner's More holds three pages again;
+    # Vendors is a page of Purchasing for the coordinator (Buy Board, Quotes, Orders, Deliveries, Vendors, Stock)
+    'u_owner': ['Today', 'Tasks', 'Messages', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'More', 'Settings'],
     'u_alan': ['Today', 'Tasks', 'Messages', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
-    'u_chen': ['Today', 'Tasks', 'Messages', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
+    'u_chen': ['Today', 'Tasks', 'Messages', 'Purchasing', 'Projects', 'Company', 'More', 'Settings'],
     'u_billing': ['Billing', 'Today', 'Tasks', 'Messages', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
     'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Tasks', 'Messages', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
     'u_sarah': ['Today', 'Tasks', 'Messages', 'Drawings', 'Projects', 'Design', 'Clients', 'More', 'Settings'],
@@ -49,18 +51,17 @@ STRIPS = {
     # Inbox is Messages > Mail (p2nav, 2026-10-25)
     ('u_owner', 'home'): ['Today', 'Approvals', 'Tasks'],
     ('u_owner', 'money'): ['Accounting', 'Bills & Payroll', 'Time & Crew', 'Banking', 'Spend', 'Billing', 'Ledger', 'Controls', 'Budget'],
-    ('u_owner', 'buy'): ['Purchasing', '[Buy]', 'Requests', 'Buy Board', 'RFQs', 'Purchase Orders', '[Receive]', 'Deliveries', 'Route',
-                         '[Vendors & Stock]', 'Vendors', 'Inventory'],
+    # procurement P1 (docs/PROCUREMENT_PLAN.md section 4): Buy Board, Quotes, Orders, Deliveries, Vendors, Stock
+    ('u_owner', 'buy'): ['[Buy]', 'Buy Board', 'Quotes', 'Orders', '[Receive]', 'Deliveries', '[Vendors & Stock]', 'Vendors', 'Stock'],
     ('u_owner', 'studio'): ['Design', 'Project Board', 'Drawings', 'Filings', 'Selections'],
     ('u_owner', 'office'): ['Company', 'Calendar', 'Team', 'Meetings', 'The Brain', 'Obligations'],
     ('u_owner', 'reports'): ['Reports', 'Dashboard'],
     ('u_owner', 'setup'): ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Reports', 'Your Own Data', 'Sales Settings'],
-    ('u_chen', 'buy'): ['Purchasing', '[Buy]', 'Selections', 'Requests', 'Buy Board', 'RFQs', 'Purchase Orders', '[Receive]', 'Deliveries', 'Route',
-                        '[Stock]', 'Inventory'],
+    ('u_chen', 'buy'): ['[Buy]', 'Buy Board', 'Quotes', 'Orders', '[Receive]', 'Deliveries', '[Vendors & Stock]', 'Vendors', 'Stock'],
     ('u_controller', 'bank'): ['Banking', 'Spend'],
     ('u_controller', 'ap'): ['Bills & Payroll', 'Time & Crew'],
     ('u_controller', 'gl'): ['Ledger', 'Controls', 'Budget'],
-    ('u_controller', 'buy'): ['Purchasing', 'Purchase Orders', 'Vendors'],
+    ('u_controller', 'buy'): ['Purchasing', 'Orders', 'Vendors'],
     ('u_sarah', 'home'): ['Today', 'Tasks'],
     ('u_sarah', 'studio'): ['Design', 'Project Board', 'Filings', 'Selections'],
 }
@@ -71,14 +72,15 @@ STRIPS = {
 # longer pages: they are Tasks with the Sales chip and with Mine (their old ids forward there); the crew's Tasks page
 # left the crew's menu (Clock is their list; the old id lands on Clock).
 CUTS = {
-    'u_owner': ['cos'],
+    # Requests and Route (procurement P1): a request is a need on the Buy Board; Route is the driver's screen
+    'u_owner': ['req', 'route', 'cos'],
     # PMs do not get Sales, Design or Accounting by default (open question 4, workshop cut list)
     # People and Companies are tabs of Clients (p2nav): they fold under Clients in More as they do in the menu
     'u_alan': ['bank', 'ap', 'time', 'spend', 'verify', 'ovmoney', 'ovsales', 'partners',
-               'playbook', 'salesnum', 'sboard', 'sfile', 'ovstudio', 'cos'],
+               'playbook', 'salesnum', 'sboard', 'sfile', 'ovstudio', 'cos', 'req', 'route', 'sel'],
     # Sales and Time & Crew leave the coordinator's rail
     'u_chen': ['time', 'hbforecast', 'hbdash', 'ovsales', 'partners', 'playbook', 'clients',
-               'dashboard', 'cos'],
+               'dashboard', 'cos', 'req', 'route', 'sel'],
     'u_billing': ['ap', 'spend', 'ovmoney', 'hbforecast', 'hbdash', 'ovsales', 'partners',
                   'playbook', 'vendors', 'meetings', 'cos', 'team'],
     'u_controller': ['ovjobs', 'ovmoney', 'clients', 'meetings', 'calendar', 'brain', 'obligations', 'ovoffice', 'cos', 'team'],

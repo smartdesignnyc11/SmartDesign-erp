@@ -79,7 +79,7 @@ The cloud workspace that built rounds 1–5 was reclaimed. Four things were lost
 | Net YTD | −$5,330 (income $142,759) |
 | Safe to spend | −$4,151 |
 | Ready to Bill | $47,601 (4 rows; held per line, never per job: 121 State's measured framing and electrical bill on their own evidence; the windows line's $13,970 of stored materials bought for the Kleins) |
-| Rail badges | Projects 2, Sales 4, Purchasing 10, Accounting 6, Billing 2 |
+| Rail badges | Projects 2, Sales 4, Purchasing 17 (the Buy Board: late or due to order this week, since procurement P1; it was 10), Accounting 6, Billing 2 |
 
 If a change moves one of these, say exactly why.
 

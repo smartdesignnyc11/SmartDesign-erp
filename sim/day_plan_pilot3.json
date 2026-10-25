@@ -1,65 +1,219 @@
 {
-  "about": "Pilot 3 (Alan, 2026-10-25): a business-cycle pilot. Four roles play (the owner, the PM, the coordinator, billing) the same three days (9/3, 9/4, 9/8) with the event book as the backdrop, plus sim/cycle_book.json: one new invented job (the Ashbys, 214 Lincoln Place) carried from the first mail to the progress invoice, nine planted money leaks, interruptions and messy inputs. Each person works from the firm's goals and their own measures (the role cards in sim/roles/p3 and the live Standard), writes a plan each morning and a review each evening, and gives a why on every significant action. The foreman's, the crew's and the controller's steps are scripted world actions so the cycle closes; the referee checks them and grades none of them. The referee checks every required step in the raw records (sim/cycle.py) and the meeting numbers against its own figures; coverage of each role's main module sets whether a grade is valid; a realism judge reads every person's day and its flagged turns are discounted.",
-  "days": 3,
-  "roles": ["u_owner", "u_alan", "u_chen", "u_billing"],
-  "turn_prompt": "sim/turn_prompt_p3.md",
-  "roles_dir": "sim/roles/p3",
-  "setup": [
-    "python3 sim/cycle_book.py   (writes sim/cycle_book.json; commit it if it changed)",
-    "python3 build.py   (note the commit in the run notes)",
-    "optional, the real assistant: export SIM_AI_TOKEN=<a signed-in member's Supabase session token from https://smartdesigns-erp.netlify.app> (or SIM_AI_TOKEN_FILE=<a file the conductor refreshes>); never written to the repo. Without it /api/ answers 503 and the assistant uses its built-in logic.",
-    "python3 sim/server.py --run pilot3 --seed 9806211 &   (Pilot 1's and 2's seed)",
-    "sim/simctl plan sim/day_plan_pilot3.json",
-    "sim/simctl cycle on",
-    "sim/simctl world-client on   (the Kleins by world rules)",
-    "optional: sim/simctl world-agent on"
-  ],
-  "caps": {
-    "u_owner": {"morning": 14, "work1": 18, "work2": 16, "eod": 14},
-    "u_alan": {"morning": 15, "work1": 22, "work2": 22, "eod": 16},
-    "u_chen": {"morning": 15, "work1": 22, "work2": 22, "eod": 15},
-    "u_billing": {"morning": 12, "work1": 18, "work2": 18, "eod": 14}
+ "about": "Pilot 3 (Alan, 2026-10-25): a business-cycle pilot. Four roles play (the owner, the PM, the coordinator, billing) the same three days (9/3, 9/4, 9/8) with the event book as the backdrop, plus sim/cycle_book.json: one new invented job (the Ashbys, 214 Lincoln Place) carried from the first mail to the progress invoice, nine planted money leaks, interruptions and messy inputs. Each person works from the firm's goals and their own measures (the role cards in sim/roles/p3 and the live Standard), writes a plan each morning and a review each evening, and gives a why on every significant action. The foreman's, the crew's and the controller's steps are scripted world actions so the cycle closes; the referee checks them and grades none of them. The referee checks every required step in the raw records (sim/cycle.py) and the meeting numbers against its own figures; coverage of each role's main module sets whether a grade is valid; a realism judge reads every person's day and its flagged turns are discounted.",
+ "days": 3,
+ "roles": [
+  "u_owner",
+  "u_alan",
+  "u_chen",
+  "u_billing"
+ ],
+ "turn_prompt": "sim/turn_prompt_p3.md",
+ "roles_dir": "sim/roles/p3",
+ "setup": [
+  "python3 sim/cycle_book.py   (writes sim/cycle_book.json; commit it if it changed)",
+  "python3 build.py   (note the commit in the run notes)",
+  "optional, the real assistant: export SIM_AI_TOKEN=<a signed-in member's Supabase session token from https://smartdesigns-erp.netlify.app> (or SIM_AI_TOKEN_FILE=<a file the conductor refreshes>); never written to the repo. Without it /api/ answers 503 and the assistant uses its built-in logic.",
+  "python3 sim/server.py --run pilot3 --seed 9806211 &   (Pilot 1's and 2's seed)",
+  "sim/simctl plan sim/day_plan_pilot3.json",
+  "sim/simctl cycle on",
+  "sim/simctl world-client on   (the Kleins by world rules)",
+  "optional: sim/simctl world-agent on"
+ ],
+ "caps": {
+  "u_owner": {
+   "morning": 14,
+   "work1": 18,
+   "work2": 16,
+   "eod": 14
   },
-  "cap_days": {
-    "1": {"u_owner": {"work1": 26, "work2": 22}, "u_alan": {"work1": 90, "work2": 26}},
-    "2": {"u_chen": {"morning": 22, "work1": 50, "work2": 60, "eod": 25}, "u_alan": {"work1": 32, "eod": 30}},
-    "3": {"u_chen": {"work1": 45, "work2": 35, "eod": 25}, "u_owner": {"eod": 34}, "u_alan": {"eod": 30}, "u_billing": {"work2": 26, "eod": 30}}
+  "u_alan": {
+   "morning": 15,
+   "work1": 22,
+   "work2": 22,
+   "eod": 16
   },
-  "minutes": {"morning": 150, "work1": 210, "work2": 180, "eod": 90},
-  "switch_cap": 6,
-  "models": {"turns": "strongest (the experts' judgement is the point)", "judge": "strongest", "workshops": "strongest"},
-  "devices": {
-    "default": {"u_owner": "desktop", "u_alan": "desktop", "u_chen": "desktop", "u_billing": "desktop"},
-    "1": {"morning": {"u_owner": "phone", "u_chen": "phone"}, "eod": {"u_billing": "phone"}},
-    "2": {"morning": {"u_billing": "phone"}, "work2": {"u_alan": "phone"}, "eod": {"u_owner": "phone"}},
-    "3": {"morning": {"u_alan": "phone", "u_chen": "phone"}, "eod": {"u_owner": "desktop+phone", "u_alan": "desktop+phone", "u_chen": "desktop+phone", "u_billing": "desktop+phone"}}
+  "u_chen": {
+   "morning": 15,
+   "work1": 22,
+   "work2": 22,
+   "eod": 15
   },
-  "device_check": "every role has at least one phone turn a day; the PM's estimate (day 1, work1) is at his desk; day 3 eod everyone may switch for the five-second test",
-  "slots": [
-    {"slot": "morning", "world": "sim/simctl world morning --watchers", "turns": ["u_owner", "u_alan", "u_chen", "u_billing"]},
-    {"slot": "work1", "world": "sim/simctl world work1 --watchers", "turns": ["u_owner", "u_alan", "u_chen", "u_billing"]},
-    {"slot": "work2", "world": "sim/simctl world work2 --watchers", "turns": ["u_owner", "u_alan", "u_chen", "u_billing"]},
-    {"slot": "eod", "world": "sim/simctl world eod --no-watchers", "turns": ["u_owner", "u_alan", "u_chen", "u_billing"]}
-  ],
-  "doc_tasks": [],
-  "after_each_turn": "sim/simctl end; then sim/simctl cost <uid> --tokens <total tokens> --tool-uses <n> --ms <duration> from the Agent tool's result",
-  "after_day": "for each of the four: sim/simctl judge <uid> -> one judge subagent (strongest), which writes runs/<run>/judge/<uid>_<day>.json; sim/simctl cost judge:<uid> --tokens N; then sim/simctl advance. After day 1, report runs/<run>/cost.md (measured) and the ledger's Business cycle section to Alan before running days 2 and 3.",
-  "end_of_day_3": [
-    "the judges for day 3, as above",
-    "sim/simctl referee --final   (the ledger's Business cycle section: steps, leaks, the referee's own numbers, the answers graded, coverage, the judge)",
-    "optional workshops (sim/workshop_nav.md, sim/workshop_docs.md) for the four roles only",
-    "sim/simctl persist",
-    "sim/simctl stop"
-  ],
-  "turns_and_tokens": {
-    "turns": "4 roles x 4 slots x 3 days = 48 turns, plus 12 judge runs (one per role per day)",
-    "required_actions": {"u_owner": 140, "u_alan": 233, "u_chen": 306, "u_billing": 134},
-    "cap_totals": {"u_owner": 220, "u_alan": 335, "u_chen": 351, "u_billing": 210},
-    "biggest_turns": "PM day 1 work1 (the estimate) 90 actions; coordinator day 2 work1 50 and work2 60 (vendors, two RFQs, six quotes, the POs); coordinator day 3 work1 45 (the bills and the holds)",
-    "tokens_expected": "about 5.2M: the 48 turns about 4.1M on Pilot 2's fit (46.7k a turn + 2.4k a tool use, R^2 0.57, tool uses = 4 + 0.7 x actions) or 4.3M at Pilot 2's 5.6k a tool use; the judge 12 x about 91k = 1.1M",
-    "tokens_upper": "about 5.7M on the fit, or 6.5M at 5.6k a tool use, if every turn uses its whole cap (the judge included)",
-    "tokens_at_p2_mean": "48 x 82k + the judge = 5.0M",
-    "workshops": "not counted: Pilot 2's took 1.9M for nine roles; for four roles about 0.9M if they run",
-    "rests_on": "sim/plan_p3.py on runs/pilot2: 69 measured turns (82k mean, 14.7 tool uses mean, 51 of 69 turns ended on their cap), 45% of actions were looking, actions per document from each document's trail (CO 14, PO 8 to a draft, RFQ 14 to a draft, bill 10, invoice 8.5, pay application 7). Assumed, not measured: a 12-line estimate at 5 actions a line (Pilot 2 never finished one), vendor set-up at 8 actions each, 20% slack for dead ends, 0.7 tool uses an action with `do` batching, and the judge's reading. The biggest turns (60 to 90 actions) are beyond Pilot 2's measured range (at most 24 tool uses a turn): day 1's measured cost is the check, reported before days 2 and 3."
+  "u_billing": {
+   "morning": 12,
+   "work1": 18,
+   "work2": 18,
+   "eod": 14
   }
+ },
+ "cap_days": {
+  "1": {
+   "u_owner": {
+    "work1": 26,
+    "work2": 22
+   },
+   "u_alan": {
+    "work1": 90,
+    "work2": 26
+   }
+  },
+  "2": {
+   "u_chen": {
+    "morning": 22,
+    "work1": 50,
+    "work2": 60,
+    "eod": 25
+   },
+   "u_alan": {
+    "work1": 32,
+    "eod": 30
+   }
+  },
+  "3": {
+   "u_chen": {
+    "work1": 45,
+    "work2": 35,
+    "eod": 25
+   },
+   "u_owner": {
+    "eod": 34
+   },
+   "u_alan": {
+    "eod": 30
+   },
+   "u_billing": {
+    "work2": 26,
+    "eod": 30
+   }
+  }
+ },
+ "minutes": {
+  "morning": 150,
+  "work1": 210,
+  "work2": 180,
+  "eod": 90
+ },
+ "switch_cap": 6,
+ "models": {
+  "turns": "strongest (the experts' judgement is the point)",
+  "judge": "strongest",
+  "workshops": "strongest"
+ },
+ "devices": {
+  "default": {
+   "u_owner": "desktop",
+   "u_alan": "desktop",
+   "u_chen": "desktop",
+   "u_billing": "desktop"
+  },
+  "1": {
+   "morning": {
+    "u_owner": "phone",
+    "u_chen": "phone"
+   },
+   "eod": {
+    "u_billing": "phone",
+    "u_chen": "desktop+phone"
+   },
+   "work2": {
+    "u_alan": "phone"
+   }
+  },
+  "2": {
+   "morning": {
+    "u_billing": "phone"
+   },
+   "work2": {
+    "u_alan": "phone"
+   },
+   "eod": {
+    "u_owner": "phone"
+   }
+  },
+  "3": {
+   "morning": {
+    "u_alan": "phone",
+    "u_chen": "phone"
+   },
+   "eod": {
+    "u_owner": "desktop+phone",
+    "u_alan": "desktop+phone",
+    "u_chen": "desktop+phone",
+    "u_billing": "desktop+phone"
+   }
+  }
+ },
+ "device_check": "every role has at least one phone turn and one desktop turn each day (Alan, 10-25: both checked; a day-1-only run still covers both for the PM and the coordinator); the PM's estimate (day 1, work1) is at his desk; day 3 eod everyone may switch for the five-second test",
+ "slots": [
+  {
+   "slot": "morning",
+   "world": "sim/simctl world morning --watchers",
+   "turns": [
+    "u_owner",
+    "u_alan",
+    "u_chen",
+    "u_billing"
+   ]
+  },
+  {
+   "slot": "work1",
+   "world": "sim/simctl world work1 --watchers",
+   "turns": [
+    "u_owner",
+    "u_alan",
+    "u_chen",
+    "u_billing"
+   ]
+  },
+  {
+   "slot": "work2",
+   "world": "sim/simctl world work2 --watchers",
+   "turns": [
+    "u_owner",
+    "u_alan",
+    "u_chen",
+    "u_billing"
+   ]
+  },
+  {
+   "slot": "eod",
+   "world": "sim/simctl world eod --no-watchers",
+   "turns": [
+    "u_owner",
+    "u_alan",
+    "u_chen",
+    "u_billing"
+   ]
+  }
+ ],
+ "doc_tasks": [],
+ "after_each_turn": "sim/simctl end; then sim/simctl cost <uid> --tokens <total tokens> --tool-uses <n> --ms <duration> from the Agent tool's result",
+ "after_day": "for each of the four: sim/simctl judge <uid> -> one judge subagent (strongest), which writes runs/<run>/judge/<uid>_<day>.json; sim/simctl cost judge:<uid> --tokens N; then sim/simctl advance. After day 1, report runs/<run>/cost.md (measured) and the ledger's Business cycle section to Alan before running days 2 and 3.",
+ "end_of_day_3": [
+  "the judges for day 3, as above",
+  "sim/simctl referee --final   (the ledger's Business cycle section: steps, leaks, the referee's own numbers, the answers graded, coverage, the judge)",
+  "optional workshops (sim/workshop_nav.md, sim/workshop_docs.md) for the four roles only",
+  "sim/simctl persist",
+  "sim/simctl stop"
+ ],
+ "turns_and_tokens": {
+  "turns": "4 roles x 4 slots x 3 days = 48 turns, plus 12 judge runs (one per role per day)",
+  "required_actions": {
+   "u_owner": 140,
+   "u_alan": 233,
+   "u_chen": 306,
+   "u_billing": 134
+  },
+  "cap_totals": {
+   "u_owner": 220,
+   "u_alan": 335,
+   "u_chen": 351,
+   "u_billing": 210
+  },
+  "biggest_turns": "PM day 1 work1 (the estimate) 90 actions; coordinator day 2 work1 50 and work2 60 (vendors, two RFQs, six quotes, the POs); coordinator day 3 work1 45 (the bills and the holds)",
+  "tokens_expected": "about 5.2M: the 48 turns about 4.1M on Pilot 2's fit (46.7k a turn + 2.4k a tool use, R^2 0.57, tool uses = 4 + 0.7 x actions) or 4.3M at Pilot 2's 5.6k a tool use; the judge 12 x about 91k = 1.1M",
+  "tokens_upper": "about 5.7M on the fit, or 6.5M at 5.6k a tool use, if every turn uses its whole cap (the judge included)",
+  "tokens_at_p2_mean": "48 x 82k + the judge = 5.0M",
+  "workshops": "not counted: Pilot 2's took 1.9M for nine roles; for four roles about 0.9M if they run",
+  "rests_on": "sim/plan_p3.py on runs/pilot2: 69 measured turns (82k mean, 14.7 tool uses mean, 51 of 69 turns ended on their cap), 45% of actions were looking, actions per document from each document's trail (CO 14, PO 8 to a draft, RFQ 14 to a draft, bill 10, invoice 8.5, pay application 7). Assumed, not measured: a 12-line estimate at 5 actions a line (Pilot 2 never finished one), vendor set-up at 8 actions each, 20% slack for dead ends, 0.7 tool uses an action with `do` batching, and the judge's reading. The biggest turns (60 to 90 actions) are beyond Pilot 2's measured range (at most 24 tool uses a turn): day 1's measured cost is the check, reported before days 2 and 3."
+ }
 }

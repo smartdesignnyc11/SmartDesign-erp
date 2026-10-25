@@ -370,7 +370,8 @@ def t_one_door(c):
     import os
     allowed = {'src/app.js': 2}   # intercompany bills (glIntercompany) and the QuickBooks bridge import keep their own ids
     found = {}
-    for f in ['src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/costintel.js', 'src/specialists.js', 'src/p0money.js', 'src/items.js', 'src/p2money.js']:
+    import glob
+    for f in sorted(os.path.relpath(x, ROOT) for x in glob.glob(os.path.join(ROOT, 'src', '*.js'))):
         s = open(os.path.join(ROOT, f), encoding='utf-8').read()
         n = len(re.findall(r'DB\.bills\.push\(|\(DB\.bills = DB\.bills \|\| \[\]\)\.push\(', s)) - (1 if f == 'src/p2money.js' else 0)
         n and (found.__setitem__(f, n))
