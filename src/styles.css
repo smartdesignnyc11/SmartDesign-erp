@@ -3967,3 +3967,6 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
   body.m-on .topbar #tb-pin{display:none}
   body.m-on .topbar{gap:8px}
 }
+
+/* phone: the conversation header's icon buttons keep 44px (the generic phone button rule set them to 36px tall) */
+@media (max-width:760px){ .view.on button.msg-ib{height:44px;min-height:44px} }

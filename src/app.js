@@ -190263,7 +190263,8 @@ function flObRows() {
           kind: "mail",
           pkind: pr.kind,
           title: String(pr.summary || c.subject || "").slice(0, 120),
-          why: `${(c.from || {}).name || (c.from || {}).email || "mail"} · ${fmt(lnDay(c.date))}`,
+          // the sender once: a title that already names them ("Meeting with Samantha Field") keeps only the day
+          why: ((n, t) => (n && t.includes(n) ? `mail · ${fmt(lnDay(c.date))}` : `${n || (c.from || {}).email || "mail"} · ${fmt(lnDay(c.date))}`))((c.from || {}).name || "", String(pr.summary || c.subject || "")),
           amount: 0,
           verb: F.verb(c, pr),
           no: "Not This",
