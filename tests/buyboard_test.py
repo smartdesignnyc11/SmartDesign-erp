@@ -63,11 +63,17 @@ async def desktop(c, p):
         await pg.evaluate("() => { bbFilter = 'all'; render(); }")
         await shot(pg, 'd1_buyboard.png')
         # Today: the coordinator's Buy Board items are the late set and this week's (none other)
+        # Do Now: the three the site needs soonest as their own cards, the rest one "N more on the Buy Board" card; together
+        # they are the one late set (and this week's)
         td = await pg.evaluate("""() => { const M = tdyModel(); const B = M.all.filter(i => i.kind === 'tdyBuy');
+          const ids = B.flatMap(i => i.more ? i.more.filter(x => x.late).map(x => x.id) : (i.x.late ? [i.id] : []));
           const late = PRED.lateMaterial.rows().filter(r => !(r.kind === 'request' && r.q.status === 'new')).map(r => r.id);
-          return { late: B.filter(i => i.x.late).map(i => i.id).sort(), want: late.sort(), fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]) }; }""")
-        c.ok(td['late'] == td['want'], f"Today: the coordinator's late Buy Board items are the one late set ({len(td['late'])} vs {len(td['want'])})")
-        c.ok(any('Insulation' in n and v == 'Fix' for n, v in td['fix']), f"Do Now: the insulation promised 9/16 for 9/11 is there with Fix {td['fix']}")
+          const more = B.find(i => i.more);
+          return { late: ids.sort(), want: late.sort(), own: B.filter(i => !i.more).length, fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]),
+                   more: more ? [tdCard(more).verb, more.title, more.more.some(x => /Insulation/.test(x.name))] : null }; }""")
+        c.ok(td['late'] == td['want'], f"Today: the coordinator's Buy Board cards hold the one late set ({len(td['late'])} vs {len(td['want'])})")
+        c.ok(td['own'] <= 3 and td['more'] and td['more'][0] == 'Open', f"Do Now: at most three own cards, the rest one card that opens the board {td['own']} {td['more']}")
+        c.ok(any(v == 'Fix' for n, v in td['fix']) and td['more'] and td['more'][2], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the Buy Board card {td['fix']}")
         a = await pg.evaluate("() => paAsk(\"what's late to order\").headline")
         c.ok(str(L['pred']) in a, f'Ask: "what\'s late to order" says {L["pred"]} ({a[:90]})')
         # the late promise opens with the fix choices
@@ -87,8 +93,11 @@ async def desktop(c, p):
         # a backorder moved on a PO reaches Do Now the same day
         bo = await pg.evaluate("""() => { const po = DB.pos.find(p => p.number === 'PO-2026-047'); po.expected = '2026-10-23';
           const p = DB.projects.find(x => x.id === po.projectId); const m = p.materials.find(x => x.id === 'm10'); m.eta = '2026-10-23'; save(); view = 'home'; render();
-          const it = tdyModel().all.find(i => i.kind === 'tdyBuy' && i.x.m && i.x.m.id === 'm10'); return it ? [it.detail, tdCard(it).verb] : null; }""")
-        c.ok(bo and '10/23' in bo[0] and bo[1] == 'Fix', f'Do Now: a backorder to 10/23 on a 10/2 need is a Fix item {bo}')
+          const B = tdyModel().all.filter(i => i.kind === 'tdyBuy'), r = buyList('').find(x => x.m && x.m.id === 'm10');
+          const own = B.find(i => !i.more && i.x.m && i.x.m.id === 'm10'), more = B.find(i => i.more && i.more.some(x => x.m && x.m.id === 'm10'));
+          bbSel = r.id; bbTab = 'buy'; view = 'proc'; render();
+          return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: [...document.querySelectorAll('#v-proc .bb-panel [data-bbstep]')].map(b => b.innerText.trim()), ask: paAsk("what's backordered").headline }; }""")
+        c.ok(bo and '10/23' in bo['why'] and bo['today'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Do Now: a backorder to 10/23 on a 10/2 need is late, on Today, with the fix choices, and in Ask {bo}')
         # ---- LINKS: a request gets its line from the picker, ranked by match, never guessed
         lk = await pg.evaluate("""() => { const r = buyList('').find(x => x.kind === 'request' && x.q.id === 'rq2'); const before = r.q.line;
           bbLinkLine(r); const opts = [...document.querySelectorAll('#mbm [data-bbl]')].map(i => i.dataset.bbl);

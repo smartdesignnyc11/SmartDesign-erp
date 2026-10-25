@@ -18321,9 +18321,6 @@ function runItems(run) {
       (p.requests || []).forEach((r) => {
         ["new", "ack", "bought", "ordered"].includes(r.status) &&
           ("ordered" !== r.status || r.buyOnRun) &&
-          // one path per request (procurement P1, buying day finding 2): one being ordered or taken from stock is not
-          // on the driver's list, so the same studs are never bought twice
-          !["order", "stock"].includes(r.path) &&
           reqItems(r).forEach((it, i) => out.push({ p: p, r: r, it: it, i: i, key: `${r.id}:${i}` }));
       }),
     ),

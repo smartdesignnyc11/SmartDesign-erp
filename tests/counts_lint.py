@@ -309,7 +309,7 @@ async def run_role(pg, lint, tag, uid, phone):
             rows: v.querySelectorAll('.bb-list [data-bbrow]').length, tabBuy: num('button[data-bbtab="buy"] .n'),
             chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText,
               b.dataset.bbf === 'all' ? v.querySelectorAll('.bb-list [data-bbrow]').length : v.querySelectorAll(`[data-bbsec="${b.dataset.bbf}"] [data-bbrow]`).length]) };
-          try { if (role() === 'coord') out.today = tdyModel().all.filter(i => i.kind === 'tdyBuy' && i.x.late).length
+          try { if (role() === 'coord') out.today = tdyModel().all.filter(i => i.kind === 'tdyBuy').reduce((a, i) => a + (i.more ? i.more.filter(x => x.late).length : i.x.late ? 1 : 0), 0)
             + PRED.lateMaterial.rows().filter(r => r.kind === 'request' && r.q.status === 'new').length; } catch (e) {}
           bbTab = 'arriving'; render(); out.tabArr = num('button[data-bbtab="arriving"] .n'); out.rowsArr = v.querySelectorAll('.bb-list [data-bbrow]').length;
           bbTab = 'buy'; render(); return out; }""")

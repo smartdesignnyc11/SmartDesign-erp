@@ -784,6 +784,19 @@ function bbAfterOrder(po, why) {
 // One path per field request (buying day finding 2): an order, the driver's store run, or stock. Choosing one closes the
 // others: an ordered request leaves the driver's list (runItems), and a request bought on the run or taken from stock
 // cancels any order still drafted or waiting for approval for it, so the same studs are never bought twice.
+// The driver's list (runItems) leaves out a request on the order or stock path: the outermost layer, so a vendor pickup
+// (the driver's wrapper) still covers the request it brings, and the pickup closes it; only a store buy is dropped.
+if ("function" == typeof runItems) {
+  const base = runItems;
+  runItems = function () {
+    const out = base.apply(this, arguments);
+    try {
+      return out.filter((x) => !(x && x.r && !x.r.synthetic && ["order", "stock"].includes(x.r.path)));
+    } catch (e) {
+      return out;
+    }
+  };
+}
 function bbReqPath(p, r, path, why) {
   if (!r) return [];
   r.path = path;
@@ -864,10 +877,24 @@ function bbTodayItems() {
     mine = (p) => !pm || !p.project.pm || String(p.project.pm).toLowerCase().includes(me.split(" ")[0]);
   // the PM sees the late needs on his own jobs (buying day: he saw none of the coordinator's orders); the coordinator
   // owes the late ones and those due to order this week
+  const pool = [];
   ((X && X.buyLate) || []).concat(pm ? [] : (X && X.buyWeek) || []).forEach((x) => {
     const id = x.id || ovBuyId(x);
     if (seen.has(id) || ("request" === x.kind && "new" === x.q.status) || !mine(x.p)) return;
-    seen.add(id);
+    seen.add(id), pool.push(x);
+  });
+  // Do Now holds the few the site needs soonest as their own cards (a late promise first, then by need-by); the rest
+  // are one card, "N more late on the Buy Board", that opens the board's Late section. Sixteen late lines as sixteen
+  // cards pushed the vendor's new delivery dates out of the coordinator's top five (the scripted month, top five).
+  // The PM gets the one card: he is not the buyer, and his own job's lines are on its Overview.
+  const soon = (x) => String(x.needBy || "9999"),
+    urgent = pool
+      .slice()
+      .sort((a, b) => (a.late ? 0 : 1) - (b.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.lateKind ? 0 : 1) - ("promise" === b.lateKind ? 0 : 1))
+      .slice(0, pm ? 0 : BB_TODAY_CARDS),
+    rest = pool.filter((x) => !urgent.includes(x));
+  urgent.forEach((x) => {
+    const id = x.id || ovBuyId(x);
     const ea = x.dec
       ? { view: "dec", proj: x.p.id }
       : x.ordered
@@ -888,11 +915,30 @@ function bbTodayItems() {
       ea: ea,
     });
   });
+  if (rest.length) {
+    const late = rest.filter((x) => x.late).length;
+    out.push({
+      kind: "tdyBuy",
+      id: "bb:more",
+      src: "buy",
+      more: rest,
+      x: { tab: "buy", late: late > 0, p: rest[0].p, name: "Buy Board" },
+      title: `${rest.length} more on the Buy Board`,
+      detail: `${late} late${rest.length > late ? `, ${rest.length - late} to order this week` : ""}`,
+      due: "",
+      ea: { board: "bb:more" },
+    });
+  }
   return out;
 }
+const BB_TODAY_CARDS = 3;
 // The card: Order for a line still to buy, Fix for an ordered one whose promise is late (Expedite, Other Vendor, Move
 // the Task), Decide for one held by a decision, Open for the rest.
 function bbTodayCard(it) {
+  if (it.more) {
+    const open = () => ((bbTab = "buy"), (bbFilter = it.more.some((x) => x.late) ? "late" : "all"), (bbSel = ""), (procMode = "lines"), (procPane = "board"), setView("proc"));
+    return { line1: `<a href="#" data-tdrec>${esc(it.title)}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: "Open", go: open, run: open, ea: it.ea };
+  }
   const x = it.x,
     open = () => ((bbSel = it.id), (bbTab = x.tab || "buy"), (procMode = "lines"), (procPane = "board"), mOn() ? (setView("proc"), setTimeout(() => bbSheet(bbFind(it.id) || x), 0)) : setView("proc")),
     go = it.ea.order ? () => buyOrderDialog(it.ea.order) : it.ea.view ? () => (setCurrent(x.p.id), (view = "dec"), render()) : it.ea.bids ? () => bbQuote([bbFind(it.id) || x]) : open;
@@ -1007,7 +1053,8 @@ function bbRouteWaiting() {
     const base = tdScore;
     tdScore = function (it) {
       // the van waits on it: right after the field's own questions
-      return it && "route" === it.kind ? 57 : base.apply(this, arguments);
+      // the "N more on the Buy Board" card points at the list; it never outranks a card that names one thing
+      return it && "route" === it.kind ? 57 : it && "tdyBuy" === it.kind && it.more ? 12 : base.apply(this, arguments);
     };
   })();
 
