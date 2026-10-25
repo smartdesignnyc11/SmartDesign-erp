@@ -907,11 +907,12 @@ function bbJobCardHtml(p) {
 }
 if ("function" == typeof renderDash) {
   const base = renderDash;
-  renderDash = function () {
-    const out = base.apply(this, arguments);
+  // placed once the draw is done (spdAfterDraw): the Overview's later layers move its header, so the card goes in after
+  // them, the same place whether the page is drawn once or twice (speed_test's one-draw check)
+  const place = () => {
     try {
       const v = document.getElementById("v-dash");
-      if (v && S && ["owner", "pm", "coord"].includes(role()) && (ROLE_VIEWS[role()] || []).includes("proc")) {
+      if (v && "dash" === view && S && ["owner", "pm", "coord"].includes(role()) && (ROLE_VIEWS[role()] || []).includes("proc")) {
         const old = v.querySelector("#bb-job");
         old && old.remove();
         const ph = v.querySelector(".ph");
@@ -925,6 +926,10 @@ if ("function" == typeof renderDash) {
     } catch (e) {
       console.warn("job buying card", e);
     }
+  };
+  renderDash = function () {
+    const out = base.apply(this, arguments);
+    "function" == typeof spdAfterDraw ? spdAfterDraw("bbjob", place) : place();
     return out;
   };
 }
