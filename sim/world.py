@@ -97,6 +97,10 @@ class World:
         s0 = (s or '').strip(); e = email_of(s0); low = s0.lower()
         for u, (n, em) in STAFF.items():
             if e == em or low == u or low == n.lower(): return u
+        # a colleague by first or last name alone ("Chen", "Alan"), when only one person carries it
+        if low and ' ' not in low and '@' not in low:
+            hits = [u for u, (n, em) in STAFF.items() if low in n.lower().split()]
+            if len(hits) == 1: return hits[0]
         for u, L in AGENTS.items():
             if e in [email_of(x) for x in L] or low == u or any(low == x.split('<')[0].strip().lower() for x in L) or (low and low in ('the kleins', 'kleins', 'klein')): return u
         return None
