@@ -2862,12 +2862,15 @@ function matState(m) {
         ("done" === tk.status ? "Task is done" : "Task already started") +
         " — confirm on site or no longer needed",
     };
-  if ("shipped" === m.status || "ordered" === m.status)
-    return m.eta && parse(m.eta) > parse(needBy)
-      ? { sev: 3, msg: `ETA ${fmt(m.eta)} is after need-by ${fmt(needBy)}` }
+  if ("shipped" === m.status || "ordered" === m.status) {
+    // the Buy Board's one "late" (bbLateOf): promised after the site needs it, or promised and not here
+    const L = bbLateOf({ ordered: !0, eta: m.eta, needBy: needBy, orderBy: orderBy });
+    return L.late
+      ? { sev: 3, msg: L.why }
       : m.eta
         ? { sev: 0, msg: `ETA ${fmt(m.eta)}, needed ${fmt(needBy)}` }
         : { sev: 1, msg: "Ordered — no ETA confirmed" };
+  }
   const past = parse(td) > parse(orderBy),
     days = workdays(td, orderBy) - 1,
     dec = openDecisionFor("mat", m.id);
@@ -19232,6 +19235,9 @@ function addRequest(o, by) {
       poId: "",
       eta: "",
       deliveredAt: "",
+      // the estimate, change-order or FF&E line it buys for: set by the coordinator from the Buy Board (a picker of
+      // the job's lines, suggested by match), never guessed (procurement P1)
+      line: "",
       log: [],
     },
     o,
@@ -34285,274 +34291,104 @@ function lineNeedBy(p, l) {
       .sort((a, b) => a.start.localeCompare(b.start));
   return ts[0] ? { needBy: ts[0].start, task: ts[0] } : { needBy: "", task: null };
 }
+// The Buy Board's one reader (procurement P1, docs/PROCUREMENT_PLAN.md section 4): every Need, the thing that must be
+// bought, from the job's materials, its converted estimate lines, its approved change-order lines, its approved FF&E
+// selections and its open field requests (the last three in src/buyboard.js, bbMoreNeeds). Each row carries its line
+// link, job, cost code, qty, need-by, order-by, who asked and the one "late" (bbFinish, the only place it is decided).
+// Today, Do Now, the brief, the rail badge, Ask and the Buy Board all read these rows; nothing else decides late.
 function buyList(scope) {
   const rows = [],
     td = today();
-  return (
-    DB.projects
-      .filter((p) => !scope || p.id === scope)
-      .forEach((p) =>
-        withProject(p, () => {
-          const c = DB.clients.find((x) => x.id === p.clientId),
-            covered = new Set();
-          p.materials
-            .filter((m) => "on-site" !== m.status)
-            .forEach((m) => {
-              const { needBy: needBy, orderBy: orderBy } = matDates(m),
-                st = matState(m),
-                dec = openDecisionFor("mat", m.id),
-                pos = DB.pos.filter(
-                  (po) =>
-                    po.projectId === p.id &&
-                    !["cancelled", "draft"].includes(po.status) &&
-                    po.lines.some((l) => l.materialId === m.id),
-                ),
-                po = pos[0],
-                lf = m.line ? lineFin(m.line) : null;
-              m.line && covered.add(m.line);
-              const price = +m.cost || (lf ? lf.budget : 0),
-                vendor = m.vendor || po?.vendor || lf?.line.vendor || "",
-                ordered = ["ordered", "shipped"].includes(m.status) || !!po,
-                eta = m.eta || po?.expected || "";
-              let sev = 0,
-                why = "";
-              ordered
-                ? eta && needBy && eta > needBy
-                  ? ((sev = 3), (why = `ETA ${fmt(eta)} after need-by ${fmt(needBy)}`))
-                  : eta
-                    ? ((sev = 0), (why = `arriving ${fmt(eta)}`))
-                    : ((sev = 2), (why = "ordered — no ETA"))
-                : (dec
-                    ? ((sev = orderBy && orderBy < td ? 3 : 2), (why = "waiting on decision"))
-                    : orderBy && orderBy < td
-                      ? ((sev = 3), (why = `order-by ${fmt(orderBy)} passed`))
-                      : orderBy && wd(td, orderBy) <= 5 && ((sev = 2), (why = `order by ${fmt(orderBy)}`)),
-                  !vendor && sev < 2 && ((sev = 2), (why = why || "no vendor")),
-                  !price && sev < 2 && ((sev = 2), (why = why || "no price"))),
-                rows.push({
-                  kind: "material",
-                  p: p,
-                  m: m,
-                  c: c,
-                  key: m.line || "",
-                  name: m.name,
-                  needBy: needBy,
-                  orderBy: orderBy,
-                  lead: +m.lead || 0,
-                  task: task(m.taskId),
-                  vendor: vendor,
-                  price: price,
-                  budget: lf ? lf.budget : +m.cost || 0,
-                  held: 0,
-                  po: po,
-                  ordered: ordered,
-                  eta: eta,
-                  dec: dec,
-                  sev: sev,
-                  why: why,
-                  st: st,
-                });
-            }),
-            c &&
-              c.estimates
-                // a design or services estimate (hours, filings) has nothing to buy
-                .filter((e) => "converted" === e.status && e.projectId === p.id && "design" !== e.template)
-                .forEach((d) => {
-                  "construction" === d.template && ctNumber(d),
-                    d.lines.forEach((l) => {
-                      if (l.parent) return;
-                      const key = ctKey(d, l);
-                      if (covered.has(key)) return;
-                      const f = lineFin(key);
-                      if (!f) return;
-                      const remaining = Math.max(0, r2(f.budget - f.actual - f.committed));
-                      if (!f.budget || remaining < 1) return;
-                      if (
-                        !(
-                          (l.items || []).length ||
-                          /material|millwork|tile|fixture|appliance|window|door|stone|floor|light|hardware|cabinet|lumber|glass|counter|vanit|radiator/i.test(
-                            l.item || "",
-                          )
-                        )
-                      )
-                        return;
-                      const { needBy: needBy, task: tk } = lineNeedBy(p, l),
-                        orderBy = needBy ? addWork(needBy, -(l.leadWeeks ? 5 * +l.leadWeeks : 5), !1) : "",
-                        funds = clientFundsLedger().find((r) => r.key === key);
-                      let sev = 0,
-                        why = "";
-                      orderBy && orderBy < td
-                        ? ((sev = 3), (why = `order-by ${fmt(orderBy)} passed`))
-                        : orderBy && wd(td, orderBy) <= 5
-                          ? ((sev = 2), (why = `order by ${fmt(orderBy)}`))
-                          : needBy || ((sev = 1), (why = "no task date — link a task")),
-                        !l.vendor && sev < 2 && ((sev = 2), (why = why || "no vendor")),
-                        rows.push({
-                          kind: "line",
-                          p: p,
-                          c: c,
-                          d: d,
-                          l: l,
-                          key: key,
-                          name: (l.num ? l.num + ". " : "") + (l.item || ""),
-                          needBy: needBy,
-                          orderBy: orderBy,
-                          lead: l.leadWeeks ? 5 * +l.leadWeeks : 5,
-                          task: tk,
-                          vendor: l.vendor || "",
-                          price: remaining,
-                          budget: f.budget,
-                          held: funds ? funds.reserved : 0,
-                          po: null,
-                          ordered: !1,
-                          eta: "",
-                          dec: null,
-                          sev: sev,
-                          why: why,
-                        });
-                    });
-                });
-        }),
-      ),
-    rows.sort((a, b) => b.sev - a.sev || (a.orderBy || "9999").localeCompare(b.orderBy || "9999"))
+  DB.projects
+    .filter((p) => !scope || p.id === scope)
+    .forEach((p) =>
+      withProject(p, () => {
+        const c = DB.clients.find((x) => x.id === p.clientId),
+          covered = new Set();
+        p.materials
+          .filter((m) => "on-site" !== m.status)
+          .forEach((m) => {
+            let { needBy: needBy, orderBy: orderBy } = matDates(m);
+            const st = matState(m),
+              dec = openDecisionFor("mat", m.id),
+              pos = DB.pos.filter(
+                (po) =>
+                  po.projectId === p.id &&
+                  !["cancelled", "draft"].includes(po.status) &&
+                  po.lines.some((l) => l.materialId === m.id),
+              ),
+              po = pos[0],
+              lf = m.line ? lineFin(m.line) : null;
+            m.line && covered.add(m.line);
+            const price = +m.cost || (lf ? lf.budget : 0),
+              vendor = m.vendor || po?.vendor || lf?.line.vendor || "",
+              ordered = ["ordered", "shipped"].includes(m.status) || !!po,
+              eta = m.eta || po?.expected || "";
+            // an item with no lead time of its own takes its vendor's lead days (Vendors, Lead Days)
+            let lead = +m.lead || 0,
+              leadFrom = "";
+            if (!lead && !ordered && needBy) {
+              const vl = lsVendorLead(vendor);
+              vl && ((lead = vl), (leadFrom = "vendor"), (orderBy = addWork(needBy, -vl, !1)));
+            }
+            rows.push({
+              kind: "material",
+              src: "material",
+              p: p,
+              m: m,
+              c: c,
+              key: m.line || "",
+              name: m.name,
+              needBy: needBy,
+              orderBy: orderBy,
+              lead: lead,
+              leadFrom: leadFrom,
+              task: task(m.taskId),
+              vendor: vendor,
+              price: price,
+              budget: lf ? lf.budget : +m.cost || 0,
+              held: 0,
+              po: po,
+              ordered: ordered,
+              received: !!po && pos.every((x) => "received" === x.status),
+              eta: eta,
+              dec: dec,
+              qty: m.qty || "",
+              code: (lf && lf.line && lf.line.code) || "",
+              askedBy: m.requestId ? ((p.requests || []).find((r) => r.id === m.requestId) || {}).by || "" : "",
+              st: st,
+            });
+          });
+        c &&
+          c.estimates
+            // a design or services estimate (hours, filings) has nothing to buy
+            .filter((e) => "converted" === e.status && e.projectId === p.id && "design" !== e.template)
+            .forEach((d) => {
+              "construction" === d.template && ctNumber(d);
+              d.lines.forEach((l) => {
+                if (l.parent) return;
+                const key = ctKey(d, l);
+                if (covered.has(key)) return;
+                const r = bbLineNeed(p, c, d, l, key, "line");
+                r && rows.push(r);
+              });
+            });
+        bbMoreNeeds(p, c, covered, rows);
+      }),
+    );
+  rows.forEach(bbFinish);
+  return rows.sort(
+    (a, b) =>
+      (b.late ? 1 : 0) - (a.late ? 1 : 0) ||
+      bbSectionRank(a.section) - bbSectionRank(b.section) ||
+      b.sev - a.sev ||
+      (a.orderBy || "9999").localeCompare(b.orderBy || "9999"),
   );
 }
+// buyScope and buyOpen were the old board table's job filter and its "only red and amber" switch; the Buy Board
+// (src/buyboard.js) reads bbProj instead. Kept so a saved link or a suite that sets them does not throw.
 let buyScope = "",
   buyOpen = !0;
-function buyStrip(rows) {
-  const td = today(),
-    week = rows.filter((r) => !r.ordered && r.orderBy && wd(td, r.orderBy) <= 5 && r.orderBy >= td).length,
-    late = rows.filter((r) => 3 === r.sev).length,
-    unpriced = rows.filter((r) => !r.ordered && !r.price).length,
-    noVendor = rows.filter((r) => !r.ordered && !r.vendor).length,
-    due = DB.pos.filter(
-      (po) =>
-        ["issued", "partial"].includes(po.status) &&
-        (!buyScope || po.projectId === buyScope) &&
-        po.expected &&
-        dayDiff(td, po.expected) <= 7,
-    ).length,
-    deposits = r2(
-      DB.pos
-        .filter((po) => ["issued", "partial"].includes(po.status) && (!buyScope || po.projectId === buyScope))
-        .reduce((a, po) => a + poNextDue(po).amount, 0),
-    ),
-    B = companyBalance(),
-    committed = r2(
-      DB.pos
-        .filter((po) => ["issued", "partial"].includes(po.status) && (!buyScope || po.projectId === buyScope))
-        .reduce((a, po) => a + Math.max(0, poTotal(po).total - poBilled(po)), 0),
-    ),
-    t = (n, l, cls) =>
-      `<div class="kpi ${n && cls ? cls : ""}"><b>${"number" == typeof n && l.startsWith("$") ? money(n) : n}</b><span>${l.replace(/^\$/, "")}</span></div>`;
-  return `<div class="kpis buy-strip">${t(late, "late — order-by passed or ETA after need-by", "warn")}${t(week, "to order this week", "")}${t(unpriced, "unpriced", "warn")}${t(noVendor, "no vendor", "warn")}${t(due, "deliveries due within 7 days", "")}${t(deposits, "$vendor deposits / balances due", "")}${t(B.available, "$client funds available to buy (bank − funds held)", "")}${t(committed, "$committed on open POs, not yet billed", "")}</div>`;
-}
-function renderBuyBoard() {
-  const host = $("#buy-board");
-  if (!host) return;
-  if (poOpen) return void (host.innerHTML = "");
-  // A tile, the Purchasing overview or another page may focus the board on one predicate (and one job):
-  // the board then shows exactly those rows, and the filter bar says how many of how many.
-  const f = "undefined" != typeof tlFocus && tlFocus.proc && "buy" === tlFocus.proc.grid ? tlFocus.proc : null,
-    rows = buyList(f && null != f.scope ? f.scope : buyScope),
-    td = today(),
-    shown = f
-      ? rows.filter((r) => {
-          try {
-            return !!f.pred(r);
-          } catch (e) {
-            return !1;
-          }
-        })
-      : buyOpen
-        ? rows
-        : rows.filter((r) => r.sev >= 2);
-  f && ((f.n = shown.length), (f.m = rows.length));
-  (host.innerHTML = `<div class="row" style="align-items:center;gap:8px;margin-bottom:6px"><h3 style="margin:0">Buy board</h3><span class="small muted">${rows.length} open · ${rows.filter((r) => 3 === r.sev).length} red · ${rows.filter((r) => 2 === r.sev).length} amber</span><span class="grow"></span><div class="seg sm"><button class="${buyScope ? "" : "on"}" data-buyscope="">All projects</button>${DB.projects
-    .filter(
-      (p) =>
-        p.materials.length ||
-        DB.clients.some((c) => c.estimates.some((e) => "converted" === e.status && e.projectId === p.id)),
-    )
-    .map(
-      (p) =>
-        `<button class="${buyScope === p.id ? "on" : ""}" data-buyscope="${p.id}">${esc(p.project.name.replace(/ —.*$/, ""))}</button>`,
-    )
-    .join(
-      "",
-    )}</div><button class="btn sm" id="buy-toggle">${buyOpen ? "Only red & amber" : "Show all"}</button></div>${buyStrip(rows)}\n    <div class="tw"><table class="t buy-t"><thead><tr><th></th><th>Item</th><th>Job · task</th><th>Order by</th><th>On site by</th><th>Lead</th><th>Vendor</th><th class="money">Price / budget</th><th class="money">Client funds</th><th>Status</th><th></th></tr></thead><tbody>${
-    shown
-      .map((r, i) => {
-        const act = r.ordered
-          ? (r.po
-              ? ""
-              : `<button class="btn sm" data-buy="exp|${r.p.id}|||${r.m ? r.m.id : ""}" title="No purchase order behind this: ask the vendor where it is, set the vendor and the date">Expedite</button>${r.vendor ? "" : `<button class="btn sm" data-buy="vend|${r.p.id}|||${r.m ? r.m.id : ""}">Set Vendor</button>`}`) +
-            (r.eta
-              ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
-              : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`)
-          : r.dec
-            ? `<button class="btn sm" data-buy="dec|${r.p.id}|${r.dec.id}">Get decision</button>`
-            : `<button class="btn sm" data-buy="order|${r.p.id}|${r.d ? r.d.id : ""}|${"line" === r.kind ? r.key || "" : ""}|${r.m ? r.m.id : ""}" title="Order it: the purchase order is prefilled from the line and issues through the house checks">Order</button>`;
-        return `<tr class="buy-row sev${r.sev}"><td><i class="rag rag${r.sev}"></i></td><td><b>${esc(r.name)}</b>${r.dec ? `<div class="small muted">decision: ${esc(r.dec.name)}</div>` : ""}${"line" === r.kind ? '<div class="small muted">contract line, no PO yet</div>' : ""}</td><td class="small">${esc(r.p.project.name.replace(/ —.*$/, ""))}${r.task ? `<div class="muted">${esc(r.task.name)} · starts ${fmt(r.task.start)}</div>` : ""}</td><td class="${r.orderBy && r.orderBy < td && !r.ordered ? "bad" : ""}">${r.orderBy ? fmt(r.orderBy) : "—"}</td><td>${r.needBy ? fmt(r.needBy) : "—"}</td><td class="small">${r.lead ? r.lead + " d" : "—"}</td><td>${r.vendor ? esc(r.vendor) : '<span class="pill warn">none</span>'}</td><td class="money">${r.price ? money(r.price) : '<span class="pill warn">unpriced</span>'}${r.budget && "material" === r.kind ? `<div class="small muted">budget ${money(r.budget)}</div>` : ""}</td><td class="money">${r.held ? money(r.held) : "—"}</td><td class="small ${3 === r.sev ? "bad" : 2 === r.sev ? "warn" : ""}">${r.ordered ? (r.po ? esc(r.po.number) + " · " : "") + esc(r.why) : esc(r.why || "ready to order")}</td><td>${act}</td></tr>`;
-      })
-      .join("") ||
-    `<tr><td colspan="11" class="muted">${f ? "Nothing on the board matches this filter." : rows.length ? "Nothing red or amber — everything is ordered and on time." : "Nothing to buy."}</td></tr>`
-  }</tbody></table></div>\n    <p class="small muted">Order-by = the task's start (or end, for finish items) − lead time − the job's material buffer. Contract lines appear when budget is left and no PO exists; they date from the first open task of that trade. Client funds = money already collected for the line and not yet spent.</p>`),
-    host.querySelectorAll("[data-buyscope]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          (buyScope = b.dataset.buyscope), render();
-        }),
-    ),
-    $("#buy-toggle")?.addEventListener("click", () => {
-      (buyOpen = !buyOpen), render();
-    }),
-    host.querySelectorAll("[data-buy]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          const [k, pid, a, key, mid] = b.dataset.buy.split("|"),
-            p = DB.projects.find((x) => x.id === pid);
-          if (p)
-            return (
-              S.id !== p.id && setCurrent(p.id),
-              "recv" === k
-                ? ((view = "recv"), void render())
-                : "exp" === k
-                  ? void buyExpedite(p, mid)
-                  : "vend" === k
-                    ? (openEditor("mat", mid), void toast("Set the vendor, then the order has someone to chase"))
-                    : "dec" === k
-                  ? ((view = "dec"), void render())
-                  : "order" === k
-                    ? void buyOrderDialog({ pid: pid, mid: mid, key: key })
-                  : void (
-                      "po" === k &&
-                      (key
-                        ? ctPOPicker(p.id, a || void 0, key)
-                        : mid
-                          ? (openEditor("mat", mid),
-                            toast("Link an estimate line or set vendor and cost, then create the PO"))
-                          : ctPOPicker(p.id))
-                    )
-            );
-        }),
-    ),
-    host.querySelectorAll("[data-buyeta]").forEach(
-      (i) =>
-        (i.onchange = () => {
-          const [pid, mid] = i.dataset.buyeta.split(":"),
-            p = DB.projects.find((x) => x.id === pid),
-            m = p?.materials.find((x) => x.id === mid);
-          if (m) {
-            (m.eta = i.value), "not-ordered" === m.status && (m.status = "ordered");
-            const po = DB.pos.find(
-              (po) => po.projectId === p.id && po.lines.some((l) => l.materialId === m.id),
-            );
-            po && !po.expected && (po.expected = i.value), save(), render();
-          }
-        }),
-    );
-}
 function poBilled(po) {
   return r2(
     DB.bills
@@ -34737,10 +34573,8 @@ poAction = function (po, a) {
 };
 const renderPOsBase = renderPOs;
 renderPOs = function () {
+  // the Buy Board lives on its own page (one noun, one list); the Purchase Orders page lists orders only
   renderPOsBase();
-  let host = $("#buy-board");
-  host || ((host = document.createElement("div")), (host.id = "buy-board"), $("#po-kpis")?.before(host)),
-    renderBuyBoard();
   const hide = !!poOpen;
   ["#po-kpis", "#po-funds"].forEach((s) => {
     const el = $(s);
@@ -50639,7 +50473,7 @@ function ctPrint(c, d) {
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
 const ROWFN = (d, l, key, have, its, lq, lc, preKey) =>
-  `<tr class="ctp-line"><td><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key ? "checked" : ""}></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${l.cost ? ` · budget ${money(l.cost)}` : ""}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
+  `<tr class="ctp-line"><td><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${l.cost ? ` · budget ${money(l.cost)}` : ""}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
   its
     .map(
       (it, i) =>
@@ -53075,9 +52909,16 @@ function selLinkSchedule(items) {
     n
   );
 }
+// Days late, by the Buy Board's one rule (bbLateOf): an open item past its order-by date, or an ordered one whose
+// promise falls after the site date or has passed with the item not here.
 function selLate(it) {
   const ob = selOrderBy(it);
-  return ob && SEL_OPEN.includes(it.stage) ? dayDiff(ob, today()) : 0;
+  if (ob && SEL_OPEN.includes(it.stage)) return dayDiff(ob, today());
+  if (!["ord", "ship"].includes(it.stage)) return 0;
+  const eta = (it.dates || {}).eta || "",
+    need = selNeedOnSite(it),
+    L = bbLateOf({ ordered: !0, eta: eta, needBy: need, orderBy: ob });
+  return L.late ? Math.max(1, "promise" === L.kind ? dayDiff(need, eta) : dayDiff(eta, today())) : 0;
 }
 const selDaysToOrder = (it) => {
     const c = it.dates?.created,
@@ -66383,35 +66224,12 @@ function iaFollowDoc() {
       (view = "billing");
   }
 }
-let procMode = "finish";
-const PROC_MODES = [
-  ["finish", "Finish Selections"],
-  ["lines", "Contract Lines & Requests"],
-];
-function iaProcSwitchHtml() {
-  return `<div class="ctabs" id="proc-modes">${PROC_MODES.map(([k, n]) => `<button class="${procMode === k ? "on" : ""}" data-procmode="${k}">${n}</button>`).join("")}</div>`;
-}
+// The Buy Board is one page (procurement P1, src/buyboard.js draws #v-proc): procMode "lines" is the board, "finish"
+// the FF&E buying tools (buy runs, receiving, returns, credits) opened from the board's More until P4 folds them in.
+// The two-mode switch (Finish Selections / Contract Lines & Requests) is gone: one noun, one list.
+let procMode = "lines";
 function iaRemoveProcHosts() {
   document.querySelectorAll("#v-proc #buy-board, #v-proc #req-queue").forEach((el) => el.remove());
-}
-if ("function" == typeof renderProc) {
-  const renderProcBase_p2 = renderProc;
-  renderProc = function () {
-    const root = document.getElementById("proc-body");
-    root &&
-      ("lines" === procMode
-        ? ((root.innerHTML =
-            iaProcSwitchHtml() + '<div id="buy-board"></div><div class="card" id="req-queue"></div>'),
-          "function" == typeof renderBuyBoard && renderBuyBoard(),
-          "function" == typeof renderRequestQueue && renderRequestQueue())
-        : (renderProcBase_p2(), root.insertAdjacentHTML("afterbegin", iaProcSwitchHtml())),
-      root.querySelectorAll("[data-procmode]").forEach(
-        (b) =>
-          (b.onclick = () => {
-            (procMode = b.dataset.procmode), render();
-          }),
-      ));
-  };
 }
 function iaBillQueueHtml() {
   const td = today(),
@@ -68985,7 +68803,7 @@ briefSentences = function (F, r) {
     ("coord" === r &&
       (out.push(
         X.buyLate.length || X.buyWeek.length
-          ? `Buy: ${X.buyLate.length ? b2Plural(X.buyLate.length, "item") + " past order-by" : ""}${X.buyLate.length && X.buyWeek.length ? ", " : ""}${X.buyWeek.length ? b2Plural(X.buyWeek.length, "item") + " to order this week" : ""}.`
+          ? `Buy: ${X.buyLate.length ? b2Plural(X.buyLate.length, "item") + " late" : ""}${X.buyLate.length && X.buyWeek.length ? ", " : ""}${X.buyWeek.length ? b2Plural(X.buyWeek.length, "item") + " to order this week" : ""}.`
           : "The buy board is clear.",
       ),
       X.unacked.length &&
@@ -69603,7 +69421,7 @@ function b2Plate(r, F) {
       X.timeWaiting.length && L.push(`${X.timeWaiting.length} time sheets to approve`)),
     "coord" === r &&
       (X.buyLate.length &&
-        L.push(`Past order-by: ${X.buyLate.map((x) => `${x.name} (${x.p.project.name})`).join("; ")}`),
+        L.push(`Late on the Buy Board: ${X.buyLate.map((x) => `${x.name} (${x.p.project.name})`).join("; ")}`),
       X.buyWeek.length &&
         L.push(
           `Order this week: ${X.buyWeek
@@ -69682,7 +69500,7 @@ jvLocalAnswer = function (q, f) {
     if (/order|buy/.test(s))
       return (
         [
-          X.buyLate.length ? `Past order-by: ${X.buyLate.map((x) => x.name).join(", ")}` : "",
+          X.buyLate.length ? `Late on the Buy Board: ${X.buyLate.map((x) => x.name).join(", ")}` : "",
           X.buyWeek.length ? `This week: ${X.buyWeek.map((x) => x.name).join(", ")}` : "",
         ]
           .filter(Boolean)
@@ -90608,79 +90426,8 @@ const TL_SETS = {},
       },
     ];
   }),
-  (TL_SETS.proc = () => {
-    // Each tile is a predicate from the registry; clicking it focuses the Buy Board on the same predicate,
-    // so the tile's number is the rows the board shows.
-    const scope = void 0 !== buyScope ? buyScope : "",
-      rows = "function" == typeof buyList ? buyList(scope) : [],
-      td = today(),
-      on = (name) => rows.filter(PRED[name].test),
-      late = on("lateMaterial"),
-      week = on("orderThisWeek"),
-      red = ("function" == typeof selItems ? selItems() : []).filter((i) => selBlocked(i)),
-      noPrice = on("unpriced"),
-      noVendor = rows.filter((r) => !r.ordered && !r.vendor),
-      held = on("heldByDecision"),
-      board = (name, k) => ({
-        key: name,
-        k: k || PRED[name].label,
-        grid: "buy",
-        pred: PRED[name].test,
-        rule: PRED[name].rule,
-        scope: scope,
-        set: () => {
-          procMode = "lines";
-        },
-      });
-    return [
-      Object.assign(board("lateMaterial"), {
-        v: late.length,
-        tone: late.length ? "bad" : "",
-        s: late.length
-          ? (() => {
-              const names = late.slice(0, 2).map((r) => r.name.replace(/^\d+\. /, "").replace(/ & .*$/, ""));
-              let t = `order-by passed, not ordered — ${names.join(", ")}`;
-              return (
-                t.length > 80 &&
-                  (t = `order-by passed, not ordered — ${names[0]}${late.length > 1 ? ` +${late.length - 1} more` : ""}`),
-                t.length > 80 ? t.slice(0, 77) + "…" : t
-              );
-            })() + (held.length ? ` · ${held.length} more held by a decision` : "")
-          : "nothing has missed its order-by date" + (held.length ? ` · ${held.length} held by a decision` : ""),
-      }),
-      Object.assign(board("orderThisWeek"), {
-        v: week.length,
-        tone: week.length ? "warn" : "",
-        s: week.length
-          ? `${week.filter((r) => r.dec).length ? `${week.filter((r) => r.dec).length} waiting on a decision · ` : ""}${tlK(week.reduce((a, r) => a + (+r.price || 0), 0))} to place`
-          : (() => {
-              const soon = rows.filter((r) => !r.ordered && r.orderBy && r.orderBy >= td && wd(td, r.orderBy) <= 14);
-              return soon.length
-                ? `nothing in the next 5 working days · ${soon.length} inside two weeks`
-                : "nothing to order in the next 5 working days";
-            })(),
-      }),
-      {
-        key: "red",
-        k: "Red Flags",
-        v: red.length,
-        tone: red.length ? "bad" : "",
-        s: red.length
-          ? "the record and the vendor page disagree — do not buy until fixed"
-          : "nothing blocked",
-        go: () => {
-          (view = "sel"), (selLens = "red");
-        },
-      },
-      Object.assign(board("unpriced"), {
-        v: noPrice.length,
-        tone: noPrice.length ? "warn" : "",
-        s: noPrice.length
-          ? "cannot be checked against the estimate" + (noVendor.length ? ` · ${noVendor.length} with no vendor` : "")
-          : `${tlN(rows.filter((r) => !r.ordered).length, "item")} still to buy, all priced`,
-      }),
-    ];
-  }),
+  // The Buy Board carries no tiles (procurement P1, Main.dc.html and Desk.dc.html): its tabs and section chips are
+  // the counts, each the rows it shows. A tile elsewhere still opens the board on its predicate (predBuyFocus).
   (TL_SETS.sel = () => {
     const items = "function" == typeof selItems ? selItems() : [],
       open = items.filter((i) => void 0 !== SEL_OPEN && SEL_OPEN.includes(i.stage)),
@@ -90732,7 +90479,7 @@ const TL_SETS = {},
         s: `${tlK(toBuy)} still to spend · ${tlK(val)} on the board to the client`,
         go: flowCan("proc")
           ? () => {
-              (view = "proc"), (procMode = "finish");
+              (view = "proc"), (procMode = "lines");
             }
           : null,
       },
@@ -92572,14 +92319,12 @@ const TB_PROJECT_VIEWS = [
     "inbox",
     "chat",
     "proj",
-    "po",
-    "recv",
     "time",
     "sboard",
     "sdraw",
     "sfile",
   ],
-  TB_CROSS = ["studio", "sday", "proc", "sel", "port", "vendors", "inv", "req", "route"];
+  TB_CROSS = ["studio", "sday", "proc", "sel", "port", "vendors", "inv", "req", "route", "po", "recv", "rfq"];
 function tbRealToday() {
   return tzToday();
 }
@@ -95975,83 +95720,11 @@ document.addEventListener(
   },
   !0,
 );
-let lsBuySort = "";
+// A vendor's lead days stand in for an item with none of its own; the Buy Board's one reader (buyList) applies them.
 function lsVendorLead(name) {
   if (!name) return 0;
   const v = (DB.vendors || []).find((x) => x.name.toLowerCase() === String(name).toLowerCase());
   return (v && +v.leadDays) || 0;
-}
-if ("function" == typeof buyList) {
-  const buyListBase_ls = buyList;
-  buyList = function (scope) {
-    const rows = buyListBase_ls.apply(this, arguments),
-      td = today();
-    if (
-      (rows.forEach((r) => {
-        if ("material" !== r.kind || r.lead || r.ordered || !r.needBy) return;
-        const lead = lsVendorLead(r.vendor);
-        lead &&
-          ((r.lead = lead),
-          (r.leadFrom = "vendor"),
-          withProject(r.p, () => {
-            r.orderBy = addWork(r.needBy, -lead, !1);
-          }),
-          r.dec ||
-            (r.orderBy < td
-              ? ((r.sev = 3), (r.why = `order-by ${fmt(r.orderBy)} passed`))
-              : wd(td, r.orderBy) <= 5 &&
-                r.sev < 2 &&
-                ((r.sev = 2), (r.why = `order by ${fmt(r.orderBy)}`))));
-      }),
-      lsBuySort)
-    ) {
-      const k = lsBuySort.replace(/^-/, ""),
-        dir = "-" === lsBuySort[0] ? -1 : 1,
-        val = (r) => ("lead" === k ? r.lead || 0 : "vendor" === k ? r.vendor || "" : r[k] || "9999-99-99");
-      rows.sort((a, b) => {
-        const x = val(a),
-          y = val(b);
-        return ("number" == typeof x ? x - y : String(x).localeCompare(String(y))) * dir;
-      });
-    }
-    return rows;
-  };
-}
-if ("function" == typeof renderBuyBoard) {
-  const renderBuyBoardBase_ls = renderBuyBoard;
-  renderBuyBoard = function () {
-    renderBuyBoardBase_ls.apply(this, arguments);
-    const host = document.getElementById("buy-board");
-    if (!host) return;
-    const map = { "Order by": "orderBy", "On site by": "needBy", Lead: "lead", Vendor: "vendor" };
-    host.querySelectorAll("table.buy-t thead th").forEach((th) => {
-      const k = map[th.textContent.trim()];
-      if (!k) return;
-      th.classList.add("ls-sort");
-      lsBuySort.replace(/^-/, "") === k &&
-        (th.innerHTML = `${esc(th.textContent)} <span class="ls-arrow">${"-" === lsBuySort[0] ? "↓" : "↑"}</span>`),
-        (th.title = "Sort"),
-        (th.onclick = () => {
-          (lsBuySort = lsBuySort === k ? "-" + k : lsBuySort === "-" + k ? "" : k), render();
-        });
-    }),
-      host.querySelectorAll("tr.buy-row").forEach((tr) => {
-        const cell = tr.children[5];
-        cell &&
-          "—" === cell.textContent.trim() &&
-          (cell.innerHTML =
-            '<span class="pill warn" title="No lead time on the item or the vendor — the order-by date cannot be computed">no lead</span>');
-      });
-    const p = host.querySelector("p.small.muted");
-    p &&
-      !/vendor's lead/.test(p.textContent) &&
-      (p.textContent += ` An item with no lead time takes its vendor's lead days (Vendors › Lead days). Click ${[
-        ...host.querySelectorAll("th.ls-sort"),
-      ]
-        .map((t) => t.textContent.replace(/[↑↓]/g, "").trim())
-        .join(", ")
-        .replace(/, ([^,]*)$/, " or $1")} to sort.`);
-  };
 }
 if ("function" == typeof openVendor) {
   const openVendorBase_ls = openVendor;
@@ -99803,28 +99476,6 @@ if ("function" == typeof procValue) {
         return selEffLead(it).days || +it.leadDays || 0;
       } catch (e) {}
     return procValueBase_pz.apply(this, arguments);
-  };
-}
-if ("function" == typeof renderBuyBoard) {
-  const renderBuyBoardBase_pz = renderBuyBoard;
-  renderBuyBoard = function () {
-    renderBuyBoardBase_pz.apply(this, arguments);
-    const host = document.getElementById("buy-board");
-    host &&
-      (host.querySelectorAll("tr.buy-row").forEach((tr) => {
-        const ob = tr.children[3],
-          lead = tr.children[5];
-        ob &&
-          "—" === ob.textContent.trim() &&
-          (ob.innerHTML =
-            lead && /no lead/.test(lead.textContent)
-              ? '<span class="pill warn" title="No lead time on the item or its vendor">needs a lead time</span>'
-              : '<span class="pill warn" title="No task date behind this item">needs a task date</span>');
-      }),
-      host.querySelectorAll(".buy-strip .kpi:nth-child(-n+4)").forEach((k) => k.remove()),
-      host.querySelectorAll(".buy-strip").forEach((s) => {
-        s.querySelector(".kpi") || s.remove();
-      }));
   };
 }
 if ("function" == typeof tbBand) {
@@ -129060,7 +128711,7 @@ const OV_BUILD = {},
         dec: dec,
         noPrice: PRED.unpriced.test(r),
         ordered: !!r.ordered,
-        arriving: !!r.ordered && 3 === r.sev,
+        arriving: !!r.ordered && !!r.late,
         needs: PRED.buyNeeds.test(r),
       };
     });
@@ -129369,11 +129020,11 @@ const OV_TILES = {
           v: late.length,
           tone: late.length ? "bad" : "",
           s: late.length
-            ? `order-by passed, not ordered — ${late
+            ? `late to order or to arrive: ${late
                 .slice(0, 2)
                 .map((r) => r.r.name.replace(/^\d+\. /, "").split(" & ")[0])
                 .join(", ")}`
-            : "nothing has missed its order-by date",
+            : "nothing is late",
           rule: PRED.lateMaterial.rule,
           pred: (r) => r.late,
         },
@@ -169565,29 +169216,28 @@ predDef("clientDecisions", {
   },
 });
 // ---- lateness: one predicate per noun; a job's "late" is their union
+// One "late" for a need (procurement P1): decided once, in bbFinish (src/buyboard.js), on the Buy Board's one reader.
+// Today, Do Now, the brief, the rail badge, the Materials tiles and Ask all count these rows.
 predDef("lateMaterial", {
-  label: "Late to Order",
-  rule: "not ordered, and its order-by date (the day the task needs it, less the lead time) has passed; items an open decision holds are under Held by a Decision",
-  test: (r) => !!r && !r.ordered && !r.dec && !!r.orderBy && r.orderBy < today(),
+  label: "Late",
+  rule: "not ordered by its order-by date (the day the task needs it, less the lead time), or ordered with a promised date after the day the site needs it, or promised and not delivered by the promised date",
+  test: (r) => !!r && !!r.late,
   rows(scope) {
     return buyList(scope || "").filter(this.test);
   },
 });
 predDef("heldByDecision", {
   label: "Held by a Decision",
-  rule: "not ordered, its order-by date has passed, and an open decision has to be made before it can be",
-  test: (r) => !!r && !r.ordered && !!r.dec && !!r.orderBy && r.orderBy < today(),
+  rule: "late, not ordered, and an open decision has to be made before it can be",
+  test: (r) => !!r && !!r.late && !r.ordered && !!r.dec,
   rows(scope) {
     return buyList(scope || "").filter(this.test);
   },
 });
 predDef("orderThisWeek", {
   label: "Order This Week",
-  rule: "not ordered, and its order-by date falls in the next 5 working days",
-  test: (r) => {
-    const td = today();
-    return !!r && !r.ordered && !!r.orderBy && r.orderBy >= td && wd(td, r.orderBy) <= 5;
-  },
+  rule: "not ordered, not late, no quote out, and its order-by date falls in the next 5 working days",
+  test: (r) => !!r && "week" === r.section,
   rows(scope) {
     return buyList(scope || "").filter(this.test);
   },
@@ -169595,17 +169245,33 @@ predDef("orderThisWeek", {
 predDef("unpriced", {
   label: "No Price",
   rule: "still to buy, with no price to check against the estimate",
-  test: (r) => !!r && !r.ordered && !r.price,
+  test: (r) => !!r && !r.ordered && !r.price && "buy" === r.tab,
   rows(scope) {
     return buyList(scope || "").filter(this.test);
   },
 });
-// One list per noun: the Buy Board's rows, which the Purchasing overview shows as they are.
+// One list per noun: the Buy Board's rows (To Buy and Arriving); a need that has arrived is off the board.
 predDef("toBuy", {
   label: "Buy Board",
-  rule: "every material and contract line not yet on site, ordered or not",
+  rule: "every need from a material, an estimate or change-order line, an approved FF&E selection or a field request, until it is on site",
   rows(scope) {
-    return buyList(scope || "");
+    return buyList(scope || "").filter((r) => "buy" === r.tab || "arriving" === r.tab);
+  },
+});
+predDef("waitingQuotes", {
+  label: "Waiting on Quotes",
+  rule: "not ordered, not late, and a request for quote is out for its line",
+  test: (r) => !!r && "quotes" === r.section,
+  rows(scope) {
+    return buyList(scope || "").filter(this.test);
+  },
+});
+predDef("arrivingNeeds", {
+  label: "Arriving",
+  rule: "ordered, not yet here, and its promised date is not after the day the site needs it",
+  test: (r) => !!r && "arriving" === r.tab,
+  rows(scope) {
+    return buyList(scope || "").filter(this.test);
   },
 });
 // The Buy Board focused on one predicate (and one job), from wherever the question was asked.
@@ -169858,11 +169524,11 @@ predDef("notAtBank", {
 });
 // What the Buy Board's rail badge and the coordinator's Home card count: rows still to order that are
 // late, held by a decision, due this week or waiting on a decision.
+// The Buy Board's badge (rail, phone bar): the one late set, nothing else (procurement P1).
 predDef("buyNeeds", {
   label: "Buy Board",
-  rule: "still to order, and late to order, held by a decision, due to order this week or waiting on a decision",
-  test: (r) =>
-    PRED.lateMaterial.test(r) || PRED.heldByDecision.test(r) || PRED.orderThisWeek.test(r) || (!!r && !r.ordered && !!r.dec),
+  rule: "late: not ordered by its order-by date, or promised after the day the site needs it, or promised and not delivered",
+  test: (r) => PRED.lateMaterial.test(r),
   rows(scope) {
     return buyList(scope || "").filter(this.test);
   },
@@ -176349,21 +176015,34 @@ function stdPOQuoteRegions(po) {
     Q = stdPORfqs(po).flatMap((x) => (x.quotes || x.bids || []).filter((q) => !q.unreadable));
   return [{ vendor: po.vendor, region: regionOf({ vendor: po.vendor, vendorId: po.vendorId }) }].concat(Q.map((q) => ({ vendor: q.vendor || q.vendorName || "", region: regionOf(q) })));
 }
+// A sourcing gap is the coordinator's to act on while the order is open or just issued (a week); an order issued weeks
+// ago cannot be re-sourced, so it leaves Today and Do Now for the weekly sourcing audit on the Standard Watch
+// (procurement P1, buying day finding 11: 8 of 22 Today rows were these).
+const stdSourcingNow = (po) => ["draft", "pending"].includes(po.status) || !po.date || dayDiff(po.date, today()) <= 7;
 standardRegisterRule(
   {
     id: "sourcingChoice", owner: "coord", p: "cost", c: ["pb", "procurement", "actFrom", /Direct to the source/i], surface: "nyh",
     rows: () =>
       (DB.pos || [])
-        .filter((po) => !["cancelled", "void"].includes(po.status) && !(po.sourcing && po.sourcing.choice))
+        .filter((po) => !["cancelled", "void"].includes(po.status) && !(po.sourcing && po.sourcing.choice) && stdSourcingNow(po))
         .map((po) => ({ key: "src:" + po.id, what: `No sourcing choice: ${po.number || "draft PO"} · ${po.vendor}`, sub: `${money(poTotal(po).total)} on ${stdJob(po.projectId)}`, amount: poTotal(po).total, go: () => stdSourcingSheet(po) })),
   },
   {
     id: "outsideNyc", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i], surface: "nyh",
     rows: () =>
       (DB.pos || [])
-        .filter((po) => !["cancelled", "void"].includes(po.status) && poTotal(po).total > 2500 && stdShopOrMaterial(po))
+        .filter((po) => !["cancelled", "void"].includes(po.status) && poTotal(po).total > 2500 && stdShopOrMaterial(po) && stdSourcingNow(po))
         .filter((po) => stdPOQuoteRegions(po).every((q) => "nyc" === q.region))
         .map((po) => ({ key: "nyc:" + po.id, what: `No quote from outside Manhattan and Brooklyn: ${po.number} · ${po.vendor}`, sub: `${money(poTotal(po).total)} on ${stdJob(po.projectId)}`, amount: poTotal(po).total, go: flowGo.po(po) })),
+  },
+  {
+    id: "sourcingAudit", owner: "owner", p: "cost", c: ["pb", "procurement", "actFrom", /Direct to the source/i], surface: "watch",
+    partial: "The weekly sourcing audit: orders issued more than a week ago with no sourcing choice recorded, or over $2,500 with no quote from outside Manhattan and Brooklyn. They can no longer be re-sourced, so they are not on Today.",
+    rows: () =>
+      (DB.pos || [])
+        .filter((po) => !["cancelled", "void"].includes(po.status) && !stdSourcingNow(po))
+        .filter((po) => !(po.sourcing && po.sourcing.choice) || (poTotal(po).total > 2500 && stdShopOrMaterial(po) && stdPOQuoteRegions(po).every((q) => "nyc" === q.region)))
+        .map((po) => ({ key: "sa:" + po.id, what: `Sourcing audit: ${po.number} · ${po.vendor}`, sub: `${!(po.sourcing && po.sourcing.choice) ? "no sourcing choice" : "no quote from outside Manhattan and Brooklyn"} · issued ${fmt(po.date)} · ${money(poTotal(po).total)}`, amount: poTotal(po).total, go: flowGo.po(po) })),
   },
 );
 // Vendors carry their region: the vendor form has the select; Ask and erpQuery read it.
@@ -182636,7 +182315,7 @@ function rfqAward(r, assign) {
         landed: r2(goods + (+q.freight || 0) + shortfall + tax + handling),
         lines: lines.map((l) => {
           const key = l.line || (r.estLine || {}).key || "";
-          return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), invoiceLineId: l.invoiceLineId || (key.startsWith("invoice:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
+          return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: l.materialId || "", requestId: l.requestId || r.requestId || "", selId: l.selId || "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), invoiceLineId: l.invoiceLineId || (key.startsWith("invoice:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
         }),
         tax: taxed ? rate : 0,
         shipping: r2((+q.freight || 0) + shortfall),
@@ -182661,6 +182340,15 @@ function rfqAward(r, assign) {
     }
     S = keep;
     made.push(po);
+  });
+  // the award moves what the quote was for: the field request and the material read "ordered" on this PO, the FF&E
+  // item is on it, so the Buy Board, the Route and the foreman's Requests stop asking for it (procurement P1)
+  made.forEach((po) => {
+    try {
+      bbAfterOrder(po, `from ${r.number}`);
+    } catch (e) {
+      console.warn("rfq award links", e);
+    }
   });
   const final = r2(made.reduce((a, po) => a + po.landed, 0)),
     firstQuote = first.baskets[0] ? first.baskets[0].landed : first.split ? first.split.total : final,
@@ -198375,7 +198063,7 @@ function tdyModel() {
       : [];
   // the coordinator owes the orders: a Buy Board line late to order, or due to order this week, is a task with a date
   // (it was the classic Home's "Order" rows; the Buy Board stays the list behind it)
-  "coord" === r && may("proc") && tdyBuyItems().forEach((it) => tasks.push(it));
+  ("coord" === r || "pm" === r) && may("proc") && tdyBuyItems().forEach((it) => tasks.push(it));
   const order = (L) => {
     try {
       return standardOrder(L, stdQueueTie);
@@ -198385,34 +198073,10 @@ function tdyModel() {
   };
   return { appr: appr, inbox: order(inbox), tasks: order(tasks), all: order(appr.concat(inbox, tasks)), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
 }
-// The Buy Board lines the coordinator owes today: late to order, or due to order this week (b2Facts, the brief's own).
+// The Buy Board lines the coordinator owes today: late (the one late, procurement P1), or due to order this week, read
+// from the Buy Board's one reader (bbTodayItems, src/buyboard.js); the PM gets the late ones on his own jobs.
 function tdyBuyItems() {
-  let X = null;
-  try {
-    X = tdFacts().X || b2Facts(briefFacts());
-  } catch (e) {
-    return [];
-  }
-  const td = today(),
-    seen = new Set(),
-    out = [];
-  ((X && X.buyLate) || []).concat((X && X.buyWeek) || []).forEach((x) => {
-    const id = `${x.p.id}:${x.m ? x.m.id : x.key || x.name}`;
-    if (seen.has(id)) return;
-    seen.add(id);
-    const late = !!x.orderBy && x.orderBy < td;
-    out.push({
-      kind: "tdyBuy",
-      id: id,
-      src: "buy",
-      x: x,
-      title: `${x.name} — ${shortName(x.p)}`,
-      detail: x.dec ? "held by a decision" + (x.orderBy ? ` · order-by ${fmt(x.orderBy)}${late ? " passed" : ""}` : "") : late ? `order-by ${fmt(x.orderBy)} passed` : `order by ${fmt(x.orderBy)}`,
-      due: x.orderBy || "",
-      ea: x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } },
-    });
-  });
-  return out;
+  return "function" == typeof bbTodayItems ? bbTodayItems() : [];
 }
 // A manager's Team: who owes what and what is overdue, one row per person with anything open.
 function tdyTeam() {
@@ -198785,22 +198449,21 @@ const MN_JOBS = (o) =>
       .concat([
         ["inbox", "Mail"],
       ]),
-  MN_BUY = (o) =>
-    [["ovbuy", "Purchasing"], "Buy"]
-      .concat(o.sel ? [["sel", "Selections"]] : [])
-      .concat([
-        // the Buy Board sits beside Requests (workshop merge 3, as navigation: the two lists are one page's work)
-        ["req", "Requests"],
-        ["proc", "Buy Board"],
-        ["rfq", "RFQs"],
-        ["po", "Purchase Orders"],
-        "Receive",
-        ["recv", "Deliveries"],
-        ["route", "Route"],
-        o.vendors ? "Vendors & Stock" : "Stock",
-      ])
-      .concat(o.vendors ? [["vendors", "Vendors"]] : [])
-      .concat([["inv", "Inventory"]]),
+  // Purchasing (procurement P1, docs/PROCUREMENT_PLAN.md section 4): Buy Board, Quotes, Orders, Deliveries, Vendors,
+  // Stock; Issues & Credits joins in P4. One noun, one list: the Purchasing overview and Requests are rows of the Buy
+  // Board now (a request is a need until it is bought), Route is the driver's own screen, Selections a design tool.
+  // Each stays open under More for the role that may open it.
+  MN_BUY = (o) => [
+    "Buy",
+    ["proc", "Buy Board"],
+    ["rfq", "Quotes"],
+    ["po", "Orders"],
+    "Receive",
+    ["recv", "Deliveries"],
+    "Vendors & Stock",
+    ["vendors", "Vendors"],
+    ["inv", "Stock"],
+  ],
   MN_TODAY = [
     ["home", "Today"],
     ["mapprove", "Approvals"],
@@ -198915,7 +198578,6 @@ const MN_JOBS = (o) =>
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1 })),
-        MN_G("vendors", "Vendors", "vendors", [["vendors", "Vendors"]]),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
         // Accounting (view): the coordinator may open no accounting page today, so the group stays empty and is
         // not drawn; Time & Crew leaves her rail (workshop cut list)
@@ -198975,8 +198637,7 @@ const MN_JOBS = (o) =>
           ["budget", "Budget"],
         ]),
         MN_G("buy", "Purchasing", "buy", [
-          ["ovbuy", "Purchasing"],
-          ["po", "Purchase Orders"],
+          ["po", "Orders"],
           // receiving: the controller may not open Deliveries today; the bill's PO select shows what landed
           ["vendors", "Vendors"],
         ]),
