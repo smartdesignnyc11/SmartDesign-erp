@@ -198674,9 +198674,9 @@ const MN_JOBS = (o) =>
           ["budget", "Budget"],
         ]),
         MN_G("buy", "Purchasing", "buy", [
+          // the controller cannot open the Buy Board: the overview of the same needs stays theirs, read-only
+          ["ovbuy", "Purchasing"],
           ["po", "Orders"],
-          // the controller cannot open the Buy Board: the overview of needs stays theirs, out of the strip
-          ["ovbuy", "Purchasing", null, { quiet: 1 }],
           // receiving: the controller may not open Deliveries today; the bill's PO select shows what landed
           ["vendors", "Vendors"],
         ]),

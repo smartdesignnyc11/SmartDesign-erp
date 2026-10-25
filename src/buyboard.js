@@ -833,9 +833,17 @@ if ("function" == typeof mnGo) {
 }
 // The Purchasing overview's rows are the Buy Board's: the overview hands over to the board for every role that may open it.
 "object" == typeof OC_RETIRED && (OC_RETIRED.ovbuy = "proc");
-// The menu reads it as retired (MN_QUIET, MN_ALIAS were taken from the lists before this file ran).
-"undefined" != typeof MN_QUIET && MN_QUIET.add("ovbuy");
+// The menu reads it as an alias of the Buy Board (MN_ALIAS was taken from OC_RETIRED before this file ran); the
+// controller, who cannot open the board, keeps the overview as the head of Purchasing.
 "undefined" != typeof MN_ALIAS && (MN_ALIAS.ovbuy = "proc");
+// A field request not acknowledged in time is the field's badge ("call the office"); in the office it is an Approvals
+// card and a need on the Buy Board, so Requests under More carries no second number.
+"object" == typeof OC_BADGE &&
+  OC_BADGE.req &&
+  (() => {
+    const base = OC_BADGE.req.n;
+    OC_BADGE.req.n = () => (["owner", "pm", "coord", "billing", "controller", "designer"].includes(role()) ? 0 : base());
+  })();
 // The Buy Board's badge, on the rail, the sub-tab and the phone bar: the one late set (needs("buy")).
 "object" == typeof OC_BADGE && (OC_BADGE.proc = { n: () => ("function" == typeof needs ? needs("buy") : 0) });
 

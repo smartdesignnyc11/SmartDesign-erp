@@ -59,7 +59,7 @@ STRIPS = {
     ('u_controller', 'bank'): ['Banking', 'Spend'],
     ('u_controller', 'ap'): ['Bills & Payroll', 'Time & Crew'],
     ('u_controller', 'gl'): ['Ledger', 'Controls', 'Budget'],
-    ('u_controller', 'buy'): ['Orders', 'Vendors'],
+    ('u_controller', 'buy'): ['Purchasing', 'Orders', 'Vendors'],
     ('u_sarah', 'home'): ['Today', 'Inbox', 'Tasks'],
     ('u_sarah', 'studio'): ['Design', 'Project Board', 'Filings', 'Selections'],
 }
