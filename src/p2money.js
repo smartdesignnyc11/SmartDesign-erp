@@ -50,6 +50,7 @@ function vbBankOf(b) {
   return p ? p.txnId : "";
 }
 const vbLive = (b) => b && !["void", "rejected"].includes(b.status) && !b.ic && !b.retainageRelease;
+const vbIsDeposit = (b) => !!b && ("function" == typeof p0IsDeposit ? p0IsDeposit(b) : !0 === b.deposit);
 const vbPlaceholder = (b) => !!b && !!b.fromTxn && /^(PAY|CHK)-/.test(String(b.number || ""));
 // The one finder. s: {vendor, number, amount, date, txnId, excludeId}. Returns {bill, how, exact, why} or null.
 //  - number: the same vendor's same invoice number (SE-0922 = se 0922) is the same invoice: exact;
@@ -75,8 +76,17 @@ function vbFind(s) {
   }
   const amt = r2(+o.amount || 0);
   if (amt > 0) {
+    // the same amount is no duplicate when the two are on different orders, or one is the order's deposit and the
+    // other its final bill (a 50% deposit and the balance after it are both $4,400 on an $8,800 order)
     const d = o.date || today(),
-      b = L.find((x) => (Math.abs(billTotal(x) - amt) < 0.01 || Math.abs(billGross(x) - amt) < 0.01) && [x.date, x.paidAt].some((y) => y && Math.abs(dayDiff(y, d)) <= 10));
+      b = L.find(
+        (x) =>
+          (Math.abs(billTotal(x) - amt) < 0.01 || Math.abs(billGross(x) - amt) < 0.01) &&
+          [x.date, x.paidAt].some((y) => y && Math.abs(dayDiff(y, d)) <= 10) &&
+          !(x.poId && o.poId && x.poId !== o.poId) &&
+          !vbIsDeposit(x) &&
+          !o.deposit,
+      );
     if (b) {
       const exact = !!o.txnId && !vbBankOf(b) && (!n || vbPlaceholder(b));
       return { bill: b, how: "amount", exact: exact, why: `${say(b)}, is the same vendor and amount within ten days` };
@@ -93,7 +103,7 @@ function vbAdd(b, ctx) {
   vbAdd.last = null;
   if (!b) return b;
   if (!o.allowDup) {
-    const hit = vbFind({ vendor: b.vendor, number: b.number, amount: billTotal(b), date: b.date, txnId: o.txnId || b.txnId || b.paidTxnId || "", excludeId: b.id });
+    const hit = vbFind({ vendor: b.vendor, number: b.number, amount: billTotal(b), date: b.date, txnId: o.txnId || b.txnId || b.paidTxnId || "", excludeId: b.id, poId: b.poId || "", deposit: vbIsDeposit(b) });
     if (hit && hit.exact) {
       vbAdd.last = hit;
       try {
@@ -109,7 +119,7 @@ function vbAdd(b, ctx) {
 // The same check where a person is entering a bill on a form: before it is saved, never after. An invoice already on
 // file stops the save and offers Open; a possible duplicate asks the person to say it is a different invoice.
 function vbGate(b, root, okSel) {
-  const hit = b && vbFind({ vendor: b.vendor, number: b.number, amount: billTotal(b), date: b.date, txnId: b.txnId || "", excludeId: b.id });
+  const hit = b && vbFind({ vendor: b.vendor, number: b.number, amount: billTotal(b), date: b.date, txnId: b.txnId || "", excludeId: b.id, poId: b.poId || "", deposit: vbIsDeposit(b) });
   if (!hit) return !0;
   const sig = `${hit.bill.id}:${vbNum(b.number)}:${r2(billTotal(b))}`;
   if (!hit.exact && root && root.dataset.vbAck === sig) {
@@ -348,7 +358,7 @@ function vbReview(pre, after) {
     paint = () => {
       const amt = r2(+val("amount") || 0),
         t = val("txnId") && (DB.txns || []).find((y) => y.id === val("txnId")),
-        hit = vbFind({ vendor: val("vendor"), number: val("number"), amount: amt, date: val("date"), txnId: val("txnId") }),
+        hit = vbFind({ vendor: val("vendor"), number: val("number"), amount: amt, date: val("date"), txnId: val("txnId"), poId: val("poId") }),
         sib = val("poId") && vbPoSiblings(val("poId"), { commId: x.commId, amount: amt, number: val("number") }),
         W = m.querySelector("#vb-warn"),
         ok = m.querySelector("#mbm-ok");
@@ -381,7 +391,7 @@ function vbPost(x, f, m, after) {
     amt = r2(+f.amount || 0);
   if (!vendor || !v) return toast(`${vendor || "The vendor"} is not a vendor on file: pick one from the list`), !1;
   if (!(amt > 0)) return toast("Say the amount the invoice asks for"), !1;
-  const hit = vbFind({ vendor: v.name, number: f.number, amount: amt, date: f.date, txnId: f.txnId });
+  const hit = vbFind({ vendor: v.name, number: f.number, amount: amt, date: f.date, txnId: f.txnId, poId: f.poId || "" });
   // the invoice for a bill entered from its payment: the number and the mail go on that bill
   if (hit && hit.exact && vbPlaceholder(hit.bill)) {
     const b = hit.bill,
@@ -658,7 +668,7 @@ function vbPoSiblings(poId, self) {
   if (!po) return null;
   const s = self || {},
     all = [];
-  (DB.bills || []).filter((b) => b.poId === po.id && vbLive(b)).forEach((b) => all.push({ key: "bill:" + b.id, number: b.number || "", amount: billTotal(b), date: b.date || "", bill: b }));
+  (DB.bills || []).filter((b) => b.poId === po.id && vbLive(b) && !vbIsDeposit(b)).forEach((b) => all.push({ key: "bill:" + b.id, number: b.number || "", amount: billTotal(b), date: b.date || "", bill: b }));
   (DB.comms || []).forEach((c) =>
     (c.proposals || []).forEach((pr) => {
       if ("bill" !== pr.kind || pr.applied || !1 === pr.on || pr.poId !== po.id || !(+pr.amount > 0)) return;
@@ -706,7 +716,7 @@ if ("function" == typeof renderPODoc) {
   renderPODoc = function (po) {
     let h = base.apply(this, arguments);
     try {
-      const live = po ? (DB.bills || []).filter((b) => b.poId === po.id && vbLive(b)) : [],
+      const live = po ? (DB.bills || []).filter((b) => b.poId === po.id && vbLive(b) && !vbIsDeposit(b)) : [],
         mail = [];
       po && (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => "bill" === pr.kind && !pr.applied && !1 !== pr.on && pr.poId === po.id && +pr.amount > 0 && mail.push({ c: c, pr: pr })));
       const first = live[0] ? { billId: live[0].id } : mail[0] ? { commId: mail[0].c.id } : null,
