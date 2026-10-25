@@ -29,7 +29,9 @@ All four lanes of `docs/TASKS_PLAN.md` Phase 1, plus the transcript layer, are o
 3. In the app, Meetings › Settings: the Drive folder of the recurring meeting, and Keep Watching on.
 4. Everyone joins the Meet on their own Google account (Companion mode in the room).
 
-Not done for Monday: voice quick-add and push notifications (Phase 2); the one-place and Coming Up lanes are still open; speed was not re-measured on the merged build.
+**10-25: the match lane merged (a6e843c).** Every task screen is laid out as the approved mockup: the table, panel, board, desktop and phone Meeting Mode (Follow by default for anyone not driving), the phone list (one search, one add line with a mic, 64px rows, the swipe tip), the phone sheet and voice quick add. Tasks is in the phone bar for owner, PM, coordinator and billing, with the late and due-today badge; there is no phone Board. Deliberate differences are listed in `review/match/compare.md`. Suites: task_views 310, meeting_mode 272, tasks_phone 204, meeting_review 70, menu 3153, smoke 2443, reports 450, baseline 9, today 128, counts_lint 0.
+
+Not done for Monday: push notifications (Phase 2); the one-place and Coming Up lanes are still open; speed was not re-measured on the merged build.
 
 ## Overnight 10-21 to 10-22 (Alan: "keep working without asking until 9am")
 **Merged and pushed to master:**
