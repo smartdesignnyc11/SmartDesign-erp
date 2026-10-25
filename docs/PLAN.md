@@ -16,6 +16,8 @@ Pilot 2 created about 77 records in three days, no delivery, no report, no check
 - **Reports:** the PM, controller and owner answer job-cost-per-line, over-budget lines, unbilled work, unbilled reimbursables, cash and AR from the app's reports; answers graded against the referee's figures from the raw records.
 - **Routine and coverage:** each role's standing work in its main module; a role that opens under 60% of its module's pages gets "not a valid grade".
 - **The live assistant** through `/api/`, multi-recipient mail, document measures of what reached the person.
+- **Four roles (Alan, 10-25):** owner, PM, coordinator, billing. The foreman's, controller's and payroll steps run as world events the referee still checks.
+- **Realism:** goals and measures from the Standard, not steps; a plan each morning and a review each evening; screen, mail and phone only; real time and interruptions; messy inputs; a realism judge that discounts turns no professional would take; a calibration hour with the real coordinator and billing person (needs Alan's go).
 - **Status:** harness lane building (sim/ only). The run needs the Projects census and Alan's go on usage (estimate in the lane's report).
 
 ## Module census (Alan, 10-25: "did the role experts check each module and its sub pages?")
