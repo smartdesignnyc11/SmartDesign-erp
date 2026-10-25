@@ -1305,6 +1305,24 @@ document.addEventListener(
   !0,
 );
 
+// A phone row drawn from a table row that carries a data attribute was taken to open something, so a tap did nothing
+// when nothing listens for it (the owner's Reports on the phone: "140 Prospect Place", dead). A tap that opened nothing
+// and drew nothing shows the row's own details instead, as every other phone row does.
+document.addEventListener("click", (e) => {
+  const row = e.target && e.target.closest && e.target.closest("tr.pr-tr > td.pr-cell > .pr-row");
+  if (!row || e.target.closest(".pr-act-slot, button, a, input, select")) return;
+  const tr = row.closest("tr"),
+    k0 = w1ScreenKey(w1Screen()),
+    ov0 = !!document.querySelector("#mbm, #drawer.on"),
+    h0 = (document.querySelector(".view.on") || {}).innerHTML;
+  setTimeout(() => {
+    try {
+      if (!tr.isConnected || w1ScreenKey(w1Screen()) !== k0 || (!ov0 && document.querySelector("#mbm, #drawer.on"))) return;
+      (document.querySelector(".view.on") || {}).innerHTML === h0 && tr.classList.toggle("pr-open");
+    } catch (x) {}
+  }, 60);
+});
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}
