@@ -1133,8 +1133,11 @@ if ("undefined" != typeof CATCH)
 if ("undefined" != typeof STD_MAP)
   Object.assign(STD_MAP, {
     prepaidAhead: { p: "integrity", leak: !0, c: ["value", "dollar", /No money is committed/i] },
-    // money out with no bill is a paper-trail question (integrity); to a vendor with no COI or W-9 it is the law's
-    prepay: { p: (it) => (it && "bad" === it.sev ? "law" : "integrity"), leak: !0, c: ["value", "dollar", /No money is committed/i] },
+    // money out with no bill is a paper-trail question (integrity). It does not jump the queue: the rule already
+    // takes it off the vendor's bill whether or not anyone has confirmed it, and the vendor's missing COI is the
+    // compliance chase's own card. Ranked first, an unconfirmed card held a slot of the coordinator's five every day
+    // of the scripted month and pushed out the vendors' delivery mails (month_sim --top5, 2026-10-25).
+    prepay: { p: "integrity", leak: !0, c: ["value", "dollar", /No money is committed/i] },
     taxfix: { p: "law", c: ["value", "dollar", /paper trail/i] },
   });
 function p0ApprItems() {
@@ -1149,8 +1152,6 @@ function p0ApprItems() {
       sev: P && (!P.coi.ok || !P.w9.ok) ? "bad" : "warn",
       n: p0M(-t.amt),
       amount: r2(-t.amt),
-      // money already out with no bill behind it: it ranks with the money waiting now (the Standard's own mark)
-      moneyNow: r2(-t.amt) >= (+((DB.company || {}).moneyFirstOver != null ? DB.company.moneyFirstOver : 1e3) || 0),
       title: `Paid before delivery · ${W.po ? W.po.vendor : t.vendor || t.desc}`,
       detail: [W.po ? W.line : `could be ${(t.prepayAsk || []).map((id) => (p0PO(id) || {}).number).filter(Boolean).join(" or ")}`, P ? `${P.coi.text}; ${P.w9.text}` : ""].filter(Boolean).join(" · "),
       yes: "Review",
@@ -1260,7 +1261,7 @@ if ("function" == typeof renderMApprove) {
 if ("function" == typeof tdScore) {
   const base = tdScore;
   tdScore = function (it) {
-    if (it && "prepay" === it.kind) return 53 + ("bad" === it.sev ? 4 : 0);
+    if (it && "prepay" === it.kind) return 40;
     if (it && "taxfix" === it.kind) return 48;
     return base.apply(this, arguments);
   };
