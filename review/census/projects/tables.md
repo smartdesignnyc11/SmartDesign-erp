@@ -829,8 +829,9 @@ Per role and device: the screen, its path from the job page, the view it landed 
 | Job | Screen | Path | View | Tall | Sections (above) | Tab groups | Records | Blue | Figures |
 |---|---|---|---|---|---|---|---|---|---|
 | the Projects list | Projects | Projects | ovjobs | 1.0 | 1 (1) | 0 | 5 schedule lines, 1 decisions | New Project | Finish Dates Late 0; Jobs Needing You 2; Materials at Risk 0; Billed Ahead +$156K |
-| the Projects list | Tap on p121 | Projects › tap the row | dash | 4.6 | 5 (0) | 1 | 10 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
-| the Projects list | Tap on p45 | Projects › tap the row | dash | 2.8 | 5 (0) | 1 | 4 to-dos, 3 schedule lines |  | Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site |
+| the Projects list | Tap on p121 | Projects › tap the row | dash | 5.2 | 5 (0) | 1 | 8 to-dos, 5 schedule lines, 3 files, 2 decisions, 1 purchase orders |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 22 now; Materials 7 at risk |
+| the Projects list | Tap on p45 | Projects › tap the row | dash | 5.1 | 5 (0) | 1 | 8 to-dos, 7 schedule lines, 3 files, 2 decisions, 1 purchase orders |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 22 now; Materials 7 at risk |
+| 121 State Street | Job Page as it opens (All projects) |  | dash | 5.2 | 5 (0) | 1 | 8 to-dos, 5 schedule lines, 3 files, 2 decisions, 1 purchase orders |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 22 now; Materials 7 at risk |
 | 121 State Street | Job Page |  | dash | 4.6 | 5 (0) | 1 | 10 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
 | 121 State Street | Project Settings | Strip › Project Settings | proj | 2.2 | 1 (1) | 0 |  |  |  |
 | 121 State Street | Schedule | Strip › Schedule | sched | 3.9 | 0 (0) | 1 | 33 schedule lines, 4 materials, 1 decisions | New Task |  |
@@ -944,8 +945,9 @@ Per role and device: the screen, its path from the job page, the view it landed 
 | Job | Screen | Path | View | Tall | Sections (above) | Tab groups | Records | Blue | Figures |
 |---|---|---|---|---|---|---|---|---|---|
 | the Projects list | Projects | Projects | ovjobs | 1.0 | 1 (1) | 0 | 5 schedule lines, 1 decisions, 1 materials | New Project | Finish Dates Late 0; Jobs Needing You 2; Materials at Risk 0; Billed Ahead +$156K |
-| the Projects list | Tap on p121 | Projects › tap the row | dash | 4.4 | 5 (0) | 1 | 12 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
-| the Projects list | Tap on p45 | Projects › tap the row | dash | 2.5 | 5 (0) | 1 | 4 to-dos, 3 schedule lines |  | Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site |
+| the Projects list | Tap on p121 | Projects › tap the row | dash | 4.8 | 5 (0) | 1 | 9 schedule lines, 8 to-dos, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 13 now; Materials 7 at risk |
+| the Projects list | Tap on p45 | Projects › tap the row | dash | 4.8 | 5 (0) | 1 | 9 schedule lines, 8 to-dos, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 13 now; Materials 7 at risk |
+| 121 State Street | Job Page as it opens (All projects) |  | dash | 4.8 | 5 (0) | 1 | 9 schedule lines, 8 to-dos, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 13 now; Materials 7 at risk |
 | 121 State Street | Job Page |  | dash | 4.4 | 5 (0) | 1 | 12 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
 | 121 State Street | Project Settings | Strip › Project Settings | proj | 2.2 | 1 (1) | 0 |  |  |  |
 | 121 State Street | Schedule | Strip › Schedule | sched | 3.9 | 0 (0) | 1 | 33 schedule lines, 4 materials, 1 decisions | New Task |  |
@@ -1153,8 +1155,9 @@ Per role and device: the screen, its path from the job page, the view it landed 
 | Job | Screen | Path | View | Tall | Sections (above) | Tab groups | Records | Blue | Figures |
 |---|---|---|---|---|---|---|---|---|---|
 | the Projects list | Projects | Projects | ovjobs | 1.0 | 1 (1) | 0 | 5 schedule lines, 1 decisions, 1 materials | New Project | Finish Dates Late 0; Jobs Needing You 2; Materials at Risk 0; Billed Ahead +$156K |
-| the Projects list | Tap on p121 | Projects › tap the row | dash | 4.4 | 5 (0) | 1 | 10 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
-| the Projects list | Tap on p45 | Projects › tap the row | dash | 2.5 | 5 (0) | 1 | 4 to-dos, 3 schedule lines |  | Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site |
+| the Projects list | Tap on p121 | Projects › tap the row | dash | 4.7 | 5 (0) | 1 | 8 to-dos, 7 schedule lines, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 3 now; Materials 7 at risk |
+| the Projects list | Tap on p45 | Projects › tap the row | dash | 4.7 | 5 (0) | 1 | 9 schedule lines, 8 to-dos, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 3 now; Materials 7 at risk |
+| 121 State Street | Job Page as it opens (All projects) |  | dash | 4.7 | 5 (0) | 1 | 8 to-dos, 7 schedule lines, 5 materials, 3 files, 3 decisions |  | Projects 2 of 4 at risk; Profitability 27% margin; Approvals 3 now; Materials 7 at risk |
 | 121 State Street | Job Page |  | dash | 4.4 | 5 (0) | 1 | 10 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files |  | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk |
 | 121 State Street | Documents | Strip › Documents | files | 5.5 | 0 (0) | 2 | 40 files, 24 drawing sheets, 5 submittals, 2 purchase orders, 2 change orders |  | Added This Week 11; Unfiled 4; Drawings 24; Cards & Permits 0 |
 | 121 State Street | Documents[Photos] | Strip › Documents › Photos | files | 0.7 | 0 (0) | 2 |  |  | Added This Week 11; Unfiled 4; Drawings 24; Cards & Permits 0 |

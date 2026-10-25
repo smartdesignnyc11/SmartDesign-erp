@@ -786,7 +786,12 @@ class Sim:
         q = args[0]
         has = await pg.evaluate("() => { const e = document.querySelector('#pa-in'); return !!(e && e.getClientRects().length) }")
         if not has:
-            for lab in ('Ask', 'Assistant', 'Raise'):
+            # the labelled Ask button (p2nav, 10-25) in the header or in the open sheet's header: the way a person opens it
+            if await pg.evaluate("() => { const B = [...document.querySelectorAll('[data-p2nask], .tb-ask, #tb-ask')].filter(b => b.getClientRects().length); const b = B.reverse().find(x => { const r = x.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t && (t === x || x.contains(t)) }); if (b) { b.click(); return true } return false }"):
+                await self.settle(pg, 500)
+                has = await pg.evaluate("() => { const e = document.querySelector('#pa-in'); return !!(e && e.getClientRects().length) }")
+        if not has:
+            for lab in ('Ask', 'Assistant'):
                 r = await pg.evaluate("l => __SIM.go(l)", lab)
                 if r['ok']:
                     await self.settle(pg, 400)
