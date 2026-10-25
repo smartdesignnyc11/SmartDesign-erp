@@ -857,7 +857,10 @@ if ("function" == typeof f3WorkedOn) {
         first = nm.split(" ")[0],
         own = String(t.owner || t.assignee || "").trim().toLowerCase();
       if (first && own && (own === nm || own === first || own.split(/[\s,&/]+/).includes(first))) return !0;
-      return (t.pctLog || []).some((l) => l.on === e.date && first && String(l.by || "").toLowerCase().split(" ")[0] === first);
+      // progress the person logged today counts on the crew's own work only: a foreman measures the subs' trades too,
+      // and his hours are not theirs (a trade that did not show is never ticked)
+      const inHouse = ["crew", "sd crew", "in-house", "foreman", ""].includes(own);
+      return inHouse && (t.pctLog || []).some((l) => l.on === e.date && first && String(l.by || "").toLowerCase().split(" ")[0] === first);
     } catch (x) {
       return !1;
     }
