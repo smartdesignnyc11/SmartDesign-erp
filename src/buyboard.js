@@ -819,6 +819,8 @@ function bbReqPath(p, r, path, why) {
 }
 // The Purchasing overview's rows are the Buy Board's: the overview hands over to the board for every role that may open it.
 "object" == typeof OC_RETIRED && (OC_RETIRED.ovbuy = "proc");
+// The Buy Board's badge, on the rail, the sub-tab and the phone bar: the one late set (needs("buy")).
+"object" == typeof OC_BADGE && (OC_BADGE.proc = { n: () => ("function" == typeof needs ? needs("buy") : 0) });
 
 // ---- Today and Do Now: the coordinator's Buy Board lines (tdyBuyItems reads these) -------------------------------------
 // Late, or due to order this week, from the one reader; a field request not yet acknowledged is an Approvals card
@@ -847,7 +849,9 @@ function bbTodayItems() {
         ? { fix: id }
         : "material" === x.kind || "line" === x.kind
           ? { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } }
-          : { board: id };
+          : "sub" === x.kind && !(x.rfqs || []).length
+            ? { bids: id }
+            : { board: id };
     out.push({
       kind: "tdyBuy",
       id: id,
@@ -866,8 +870,8 @@ function bbTodayItems() {
 function bbTodayCard(it) {
   const x = it.x,
     open = () => ((bbSel = it.id), (bbTab = x.tab || "buy"), mOn() ? (setView("proc"), setTimeout(() => bbSheet(bbFind(it.id) || x), 0)) : setView("proc")),
-    go = it.ea.order ? () => buyOrderDialog(it.ea.order) : it.ea.view ? () => (setCurrent(x.p.id), (view = "dec"), render()) : open;
-  return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: it.ea.order ? "Order" : it.ea.view ? "Decide" : it.ea.fix ? "Fix" : "Open", go: open, run: go, ea: it.ea };
+    go = it.ea.order ? () => buyOrderDialog(it.ea.order) : it.ea.view ? () => (setCurrent(x.p.id), (view = "dec"), render()) : it.ea.bids ? () => bbQuote([bbFind(it.id) || x]) : open;
+  return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: it.ea.order ? "Order" : it.ea.view ? "Decide" : it.ea.fix ? "Fix" : it.ea.bids ? "Ask for Bids" : "Open", go: open, run: go, ea: it.ea };
 }
 
 // ---- the job's buying, on its Overview: late needs and open orders on this job, for whoever runs the job --------------
