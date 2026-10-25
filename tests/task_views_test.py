@@ -429,13 +429,13 @@ async def polish(c, p):
                   const i = B.indexOf('mytasks'), t = document.querySelector('#nav-groups > button[data-grp="mytasks"]');
                   if (t) t.click();
                   const n = t ? +((t.querySelector('.n') || {}).textContent || 0) : null;
-                  return { under: i > 0 && B[i - 1] === 'home', has: i >= 0, view, n, want: tkMyCounts().today || 0,
+                  return { under: i > 0 && B[i - 1] === 'home', has: i >= 0, view, n, want: tkTasksN(),
                     lit: !!document.querySelector('#nav-groups > button[data-grp="mytasks"].on'), label: t ? t.innerText.replace(/\\s*\\d+$/, '').trim() : '' }; }""")
                 if uid in FIELD_ROLES:
                     c.ok(not r['has'], f'{uid}: the field menu has no Tasks entry')
                 else:
                     c.ok(r['under'] and r['label'] == 'Tasks' and r['view'] == 'tkall' and r['lit'], f'{uid}: Tasks sits under Today and opens the one list ({r})')
-                    c.ok(r['n'] == r['want'], f'{uid}: the Tasks badge is their late and due-today count ({r["n"]} vs {r["want"]})')
+                    c.ok(r['n'] == r['want'], f'{uid}: the Tasks badge is the one Tasks number, their Due Soon ({r["n"]} vs {r["want"]})')
         await b.close()
     # the phone: Tasks in the menu drawer, and Meeting Mode's eight actions on the first screen with the toast above Next
     b, pg, errs = await open_app(p, True)
@@ -528,17 +528,19 @@ async def match(c, p):
       return { n: R.length, h: R.slice(0, 3).map(r => Math.round(r.height)) }; }""")
     c.ok(n7['n'] >= 7 and all(h >= 64 for h in n7['h']), f'mockup 390: at least 7 task rows on the first screen, 64px each ({n7})')
     await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_list.png'))
-    # the bar: Tasks for the coordinator and billing, its badge the side menu's late and due-today number
-    for uid, at in (('u_chen', 2), ('u_billing', 0), ('u_owner', 3), ('u_alan', 3)):
+    # the bar: Tasks for the coordinator and billing, its badge the one Tasks number (tkTasksN, the person's Due Soon;
+    # taskfix #1); billing's bar starts with Today like everyone's (taskfix #14)
+    for uid, at in (('u_chen', 2), ('u_billing', 2), ('u_owner', 3), ('u_alan', 3)):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
-          return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkMyCounts().today || 0 }; }""")
-        c.ok(t['i'] == at and t['n'] == t['want'], f'mockup 390: {uid} has Tasks in the bar at {at} with its late and due-today badge ({t})')
-    # the quick add: three invented sentences, filled in by the rules
+          return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")
+        c.ok(t['i'] == at and t['n'] == t['want'], f'mockup 390: {uid} has Tasks in the bar at {at} with the one Tasks badge ({t})')
+    # the quick add: invented sentences, filled in by the rules; the fourth names its job by part of its address (the
+    # whole phrase leaves the title: taskfix #13)
     await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
-    P = await pg.evaluate("""() => ["Angel, measure the windows at 206 Lenox tomorrow, I'm in charge", 'Sarah to confirm the tile selection for 121 State Street by Friday', 'Call the plumbing inspector next meeting, Alan is in charge'].map(tvQaParse)""")
+    P = await pg.evaluate("""() => ["Angel, measure the windows at 206 Lenox tomorrow, I'm in charge", 'Sarah to confirm the tile selection for 121 State Street by Friday', 'Call the plumbing inspector next meeting, Alan is in charge', 'Angel, measure the windows at 121 State tomorrow, I am in charge'].map(tvQaParse)""")
     td = await pg.evaluate("() => ({ tom: iso(addDays(parse(today()), 1)), fri: (() => { const d = parse(today()); const n = (5 - d.getDay() + 7) % 7 || 7; return iso(addDays(d, n)); })(), nm: tvNextMeeting() })")
-    want = [('Measure the windows', 'p206', 'Chen Biron', 'Angel', td['tom']), ('Confirm the tile selection', 'p121', 'Chen Biron', 'Sarah Davis', td['fri']), ('Call the plumbing inspector', '', 'Alan', '', td['nm'])]
+    want = [('Measure the windows', 'p206', 'Chen Biron', 'Angel', td['tom']), ('Confirm the tile selection', 'p121', 'Chen Biron', 'Sarah Davis', td['fri']), ('Call the plumbing inspector', '', 'Alan', '', td['nm']), ('Measure the windows', 'p121', 'Chen Biron', 'Angel', td['tom'])]
     for got, w in zip(P, want):
         c.ok((got['title'], got['pid'], got['owner'], got['doer'], got['due']) == w, f'quick add: "{got["text"]}" reads {w} ({got})')
     c.ok(await pg.evaluate("() => tvQaParse('Finish the overhead rate before billing').doer === ''"), 'quick add: "before billing" names nobody (a seat named for its job is a person only as a name)')
