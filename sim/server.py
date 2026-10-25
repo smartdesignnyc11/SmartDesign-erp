@@ -750,6 +750,11 @@ class Sim:
                     await self.settle(pg, 400)
                     has = await pg.evaluate("() => { const e = document.querySelector('#pa-in'); return !!(e && e.getClientRects().length) }")
                     if has: break
+        if not has:
+            # the header's Ask is an icon button (#tb-ask) with no text, so the menu search cannot see it
+            if await pg.evaluate("() => { const b = document.getElementById('tb-ask'); if (b && b.getClientRects().length) { b.click(); return true } return false }"):
+                await self.settle(pg, 400)
+                has = await pg.evaluate("() => { const e = document.querySelector('#pa-in'); return !!(e && e.getClientRects().length) }")
         if has:
             n0 = await pg.evaluate("document.querySelectorAll('.pa-m').length")
             await pg.fill('#pa-in', q); await pg.press('#pa-in', 'Enter')
