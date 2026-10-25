@@ -175220,6 +175220,8 @@ function standardUrgency(it) {
     d = stdDueOf(it),
     td = today(),
     words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  // an item that says where it ranks (the Buy Board's lines past the first three: they wait on the board, not on Do Now)
+  if ("number" == typeof o.urgency) return o.urgency;
   if ((d && d < td) || ("meeting" !== o.kind && STD_LATE_WORDS.test(words))) return 0;
   if (d === td) return 1;
   if (d && d <= iso(addDays(td, 6))) return 2;
