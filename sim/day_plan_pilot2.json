@@ -1,0 +1,111 @@
+{
+  "about": "Pilot 2 (Alan, 2026-10-25): the same three days as Pilot 1 (9/3, 9/4, 9/8), so the score compares, widened to the whole firm (the book's 30 pilot2 events) and judged on the phone AND the desktop. Every office role takes at least one turn a day on the phone (390x844, touch) and the rest on the desktop; the field stays on the phone and looks at its desktop view once, at the end of day 3. Everyone's day-3 end-of-day turn may switch devices for the five-second test. The client's side is played by world rules (portal approvals, payments, the portal questions). Both workshops at the end of day 3.",
+  "days": 3,
+  "setup": [
+    "python3 build.py   (note the commit in the run notes)",
+    "python3 sim/server.py --run pilot2 --seed 9806211 &   (9806211 is Pilot 1's seed: the same held-out events where the live records allow)",
+    "sim/simctl plan sim/day_plan_pilot2.json",
+    "sim/simctl world-client on",
+    "optional: sim/simctl world-agent on"
+  ],
+  "caps": {
+    "morning": 8,
+    "work": 14,
+    "eod": 10
+  },
+  "switch_cap": 6,
+  "models": {
+    "routine": "mid-tier (e.g. a Sonnet model)",
+    "eod": "strongest (e.g. an Opus model): the expert judgement, phone and desktop",
+    "workshops": "strongest"
+  },
+  "devices": {
+    "default": {
+      "u_owner": "desktop", "u_alan": "desktop", "u_chen": "desktop", "u_sarah": "desktop", "u_billing": "desktop", "u_controller": "desktop",
+      "u_angel": "phone", "u_alberto": "phone", "u_alex": "phone"
+    },
+    "1": {
+      "morning": {"u_owner": "phone", "u_sarah": "phone", "u_billing": "phone"},
+      "work": {"u_alan": "phone", "u_chen": "phone"},
+      "eod": {"u_controller": "phone"}
+    },
+    "2": {
+      "morning": {"u_controller": "phone"},
+      "work": {"u_alan": "phone"},
+      "eod": {"u_owner": "phone", "u_chen": "phone", "u_sarah": "phone", "u_billing": "phone"}
+    },
+    "3": {
+      "morning": {"u_owner": "phone", "u_alan": "phone", "u_chen": "phone", "u_sarah": "phone", "u_billing": "phone"},
+      "eod": {"u_owner": "desktop+phone", "u_alan": "desktop+phone", "u_chen": "desktop+phone", "u_sarah": "desktop+phone", "u_billing": "desktop+phone",
+              "u_controller": "phone+desktop", "u_angel": "phone+desktop", "u_alberto": "phone+desktop", "u_alex": "phone+desktop"}
+    }
+  },
+  "device_check": "every office role has a phone slot each day: d1 owner/sarah/billing morning, PM/Chen work, controller eod; d2 controller morning, PM work, owner/Chen/Sarah/billing eod; d3 owner/PM/Chen/Sarah/billing morning, controller eod. Doc tasks set their own device (below) and win over this table.",
+  "slots": [
+    {
+      "slot": "morning",
+      "world": "sim/simctl world morning --watchers",
+      "turns": ["u_angel", "u_owner", "u_alan", "u_chen", "u_sarah", "u_billing", "u_controller"],
+      "day3_only": [{"uid": "u_alberto", "cap": 6}, {"uid": "u_alex", "cap": 6}],
+      "day3_note": "on day 3 the crew and the driver start the day too (clock in, what they are on), after Angel"
+    },
+    {
+      "slot": "work",
+      "world": "sim/simctl world work --watchers",
+      "turns": ["u_angel", "u_owner", "u_alan", "u_chen", "u_billing", "u_controller"],
+      "optional": ["u_sarah"],
+      "optional_if": "brief shows news > 0 or unread > 0, or she has a doc task",
+      "day3_only": [{"uid": "u_alberto", "cap": 8}, {"uid": "u_alex", "cap": 8}]
+    },
+    {
+      "slot": "eod",
+      "world": "sim/simctl world eod --no-watchers",
+      "turns": ["u_angel", "u_owner", "u_alan", "u_chen", "u_sarah", "u_billing", "u_controller"],
+      "day3_only": [{"uid": "u_alberto", "cap": 8}, {"uid": "u_alex", "cap": 8}],
+      "day3_note": "day 3: every eod turn may switch devices (the plan's '+'), with switch_cap more actions, for the five-second test on both"
+    }
+  ],
+  "doc_tasks": [
+    {"day": 1, "slot": "work", "uid": "u_alan", "doc": "change order", "device": "phone", "phone": true, "cap": 24,
+     "task": "The Kleins asked (Angel passed it on) for a GFI outlet in the pantry wall. You are standing in their kitchen: write the change order on your phone, priced, with the days it adds, and send it to them for approval."},
+    {"day": 1, "slot": "work", "uid": "u_chen", "doc": "PO", "device": "phone", "phone": true, "cap": 24,
+     "task": "You are at 121 State: order the GWB boards (~25) and cement board from the estimate line, on your phone, and send the PO to the vendor."},
+    {"day": 1, "slot": "work", "uid": "u_angel", "doc": "material request", "device": "phone", "phone": true, "cap": 12,
+     "task": "The floor crew needs 4 rolls of blue tape and rosin paper by Monday: request it on your phone."},
+    {"day": 1, "slot": "work", "uid": "u_controller", "doc": "bill", "device": "desktop", "phone": false, "cap": 16,
+     "task": "Carlos Millwork's invoice CM-0102 is in your mail: enter it as a bill against its PO, with the job and cost code right."},
+    {"day": 2, "slot": "work", "uid": "u_alan", "doc": "estimate", "device": "phone", "phone": true, "cap": 36,
+     "task": "The Kleins want a price to refinish the parlor floors (not in the contract). At their place: write the estimate on your phone, with the scope, inclusions and exclusions, and send it to them."},
+    {"day": 2, "slot": "work", "uid": "u_owner", "doc": "estimate", "device": "desktop", "phone": false, "cap": 36,
+     "task": "Nadia Okoro wants the estimate for 88 Garfield Place by Tuesday (a new kitchen, a powder room and the parlor floors; she said about $210,000). If she is not a client yet, make her one; then write the estimate at your desk, with the scope, inclusions and exclusions, and send it to her."},
+    {"day": 2, "slot": "work", "uid": "u_chen", "doc": "RFQ", "device": "desktop", "phone": false, "cap": 24,
+     "task": "Get three quotes for the 3rd-floor interior doors: an RFQ from the estimate line to three vendors."},
+    {"day": 2, "slot": "work", "uid": "u_billing", "doc": "invoice", "device": "desktop", "phone": false, "cap": 18,
+     "task": "Invoice the Kleins for the approved change orders not yet billed, and send it."},
+    {"day": 3, "slot": "work", "uid": "u_owner", "doc": "team meeting", "device": "desktop", "phone": false, "cap": 24,
+     "task": "It is 10:00 on Tuesday: run the team meeting (Monday's, moved for Labor Day) in the app, job by job, on the screen in the office; settle what you can, and end it so the minutes go to everyone."},
+    {"day": 3, "slot": "work", "uid": "u_controller", "doc": "payroll", "device": "desktop", "phone": false, "cap": 18,
+     "task": "Build the 8/31-9/4 payroll from the approved hours and put it in front of the owner for approval."},
+    {"day": 3, "slot": "work", "uid": "u_billing", "doc": "pay application", "device": "desktop", "phone": false, "cap": 24,
+     "task": "Bill 121 State for this period: the progress billing (pay application) from the measured % with retainage; check it against the schedule of values and send it."},
+    {"day": 3, "slot": "work", "uid": "u_alan", "doc": "change order", "device": "desktop", "phone": false, "cap": 20,
+     "task": "At your desk: the stair landing guard goes to 42 inches (code, Angel's question). Write that change order, priced, and send it to the Kleins."}
+  ],
+  "turns_per_day": {
+    "1": "morning 7 + work 6 (+ Sarah if news) + eod 7 = 20-21",
+    "2": "morning 7 + work 6 (+ Sarah if news) + eod 7 = 20-21",
+    "3": "morning 9 + work 8 (+ Sarah if news) + eod 9 = 26-27",
+    "workshops": "Navigation and Pages: 9 experts + 1 synthesis; Documents: 6 creators (PM, Chen, Angel, billing, controller, owner) + 1 client + 2 brand + 1 synthesis"
+  },
+  "after_each_turn": "sim/simctl end; then sim/simctl cost <uid> --tokens <total tokens> --tool-uses <n> --ms <duration> from the Agent tool's result (day_plan.md, Measuring the cost)",
+  "after_day": "sim/simctl advance; after day 1, report runs/<run>/cost.md (measured) to Alan before running days 2 and 3",
+  "end_of_day_3": [
+    "Navigation and Pages Workshop (sim/workshop_nav.md) for the nine staff roles (not the client): sim/simctl menus; python3 sim/workshop.py usage; python3 sim/workshop.py shots; python3 sim/workshop.py prompt <uid> -> one subagent each (strongest); python3 sim/workshop.py score -> one synthesis subagent (it splits every part into phone, desktop and both)",
+    "Documents Workshop (sim/workshop_docs.md): sim/simctl referee; sim/simctl client-docs; python3 sim/docs.py usage; python3 sim/docs.py prompt creator <uid> for u_alan u_chen u_angel u_billing u_controller u_owner; python3 sim/docs.py prompt client; python3 sim/docs.py prompt brand u_owner and u_sarah -> one subagent each; python3 sim/docs.py score -> one synthesis subagent; python3 sim/docs.py gallery",
+    "sim/simctl cost workshop:<step> --tokens N for each workshop subagent",
+    "sim/simctl referee --final",
+    "sim/simctl persist",
+    "sim/simctl stop"
+  ],
+  "tokens": "see sim/day_plan.md, \"Pilot 2: turns and cost\""
+}

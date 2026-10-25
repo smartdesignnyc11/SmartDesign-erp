@@ -250,6 +250,10 @@ class World:
                     op = (e.get('orig') or {}).get('payload') or {}
                     r = await self.post_portal(op.get('text') or p['text'] if k == 'situation' else p['text'])
                     pg, _ = await sim.fresh('__world')
+                elif k == 'situation' and p.get('uid') == 'u_klein' and self.st.get('client_rules') and 'client change' in (e.get('tags') or []):
+                    want = (re.findall(r'You decide you want (.+?)\. Ask', p['text']) or [p['text']])[0]
+                    r = await self.post_portal(f'We have decided we would like {want}. What would it cost, and how many days does it add?')
+                    pg, _ = await sim.fresh('__world')
                 elif k == 'situation':
                     sim.state['news'].setdefault(p['uid'], []).append(f"{day} {e.get('time', '')}: {p['text']}"); r = 'told ' + p['uid']
                     out['situations'].append([p['uid'], p['text'][:80]])

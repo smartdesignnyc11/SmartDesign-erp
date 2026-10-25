@@ -997,6 +997,19 @@ class Sim:
                 return {'menus': os.path.join(self.dir, 'menus.json'), 'people': len(out)}
             if cmd == 'client_docs':
                 return await self.client_docs()
+            if cmd == 'shots':   # the workshop's visual review: a person's pages on the phone and on the desktop (no turn open)
+                if self.state['turn']: return {'error': 'end the open turn first'}
+                uid = a['uid']; outd = os.path.join(self.dir, 'workshop', 'shots', uid); os.makedirs(outd, exist_ok=True)
+                pg, _ = await self.fresh(uid); done = []
+                for dev in ('phone', 'desktop'):
+                    await self.set_device(uid, dev == 'phone')
+                    for lab in a.get('pages') or []:
+                        r = await pg.evaluate("l => __SIM.go(l)", lab)
+                        if not r['ok']: done.append([dev, lab, 'not in the menu']); continue
+                        await pg.evaluate("() => { try { render(); } catch (e) {} }"); await self.settle(pg, 700)
+                        p = os.path.join(outd, f"{dev}_{re.sub(r'[^A-Za-z0-9]+', '_', lab).strip('_')[:40]}.png"); await self.shot(uid, p); done.append([dev, lab, p])
+                await self.set_device(uid, PEOPLE[uid][1]); await self.commit(uid)
+                return {'uid': uid, 'shots': done}
             if cmd == 'party':   # adjust an outside party's rules (the selftest makes its supplier answer at once)
                 k = self.world.resolve_party(a['party'])
                 if not k: return {'error': 'no such party'}

@@ -97,10 +97,30 @@ def row_before(text, rx):
     return None
 
 
+def click_unit():
+    """The click check's classifier on invented log lines (no server): each verdict it must give."""
+    sys.path.insert(0, HERE)
+    from referee import classify_clicks, click_summary
+    L = lambda v, t, s, h, top='': {'view': v, 'title': t, 'sheet': s, 'hash': h, 'top': top, 'toastOpen': False, 'toast': ''}
+    base = {'uid': 'u_chen', 'day': '2026-09-03', 'slot': 'work', 'ok': True}
+    A = [dict(base, cmd='go', control='menu: Purchasing > Purchase Orders', device='desktop', land={'from': L('today', 'Today', '', 'a'), 'to': L('purchasing', 'Purchase Orders', '', 'b')}),
+         dict(base, cmd='tap', control='Flagged Orders', kind='button', device='desktop', land={'from': L('purchasing', 'Purchase Orders', '', 'b'), 'to': L('purchasing', 'Purchase Orders', '', 'b')}),
+         dict(base, cmd='tap', control='Deliveries', kind='button', device='phone', land={'from': L('purchasing', 'Purchase Orders', '', 'b'), 'to': L('home', 'Home', '', 'c')}),
+         dict(base, cmd='back', control='back', device='phone', land={'from': L('home', 'Home', '', 'c'), 'to': L('purchasing', 'Purchase Orders', '', 'b')}),
+         dict(base, cmd='tap', control='Save', kind='button', device='phone', changed=True, toasts=[], land={'from': L('purchasing', 'Purchase Orders', 'Edit PO', 'd'), 'to': L('purchasing', 'Purchase Orders', 'Edit PO', 'e')}),
+         dict(base, cmd='tap', control='Issue PO', kind='button', device='phone', changed=True, toasts=['PO-2026-052 issued Open'], land={'from': L('purchasing', 'PO-2026-052', '', 'e'), 'to': L('purchasing', 'PO-2026-052', '', 'f')})]
+    V = [r['verdict'] for r in classify_clicks(A)]
+    check(V == ['landed', 'dead', 'wrong', 'landed', 'done', 'done'], f'click check: a menu go lands, a dead tap, a wrong landing backed out of, a save and an issue (verdicts {V})')
+    S = click_summary(classify_clicks(A))
+    check(S['totals']['phone']['silent'] == 1 and S['totals']['desktop']['dead'] == 1 and S['totals']['phone']['backtrack'] == 1,
+          f"click check: phone and desktop apart (a silent save on the phone, the dead tap on the desktop, one back-track): {S['totals']}")
+
+
 def main():
     keep = '--keep' in sys.argv
     os.makedirs(os.path.join(HERE, 'runs'), exist_ok=True)
     t0 = time.time()
+    click_unit()
     secs = start()
     print(f'world up in {secs}s (run {RUN})', flush=True)
     try:
@@ -136,8 +156,20 @@ def flow():
         check(e.code == 403, 'admin without the run token is refused')
     ctl('party', 'Brooklyn Lumber', json.dumps({'reply_p': 1, 'delay': [0, 0], 'ship': [0], 'pay': 'card', 'late_p': 0}))
     w = ctl('world', 'morning', '--no-watchers')
+    check('P2-01 · mail' in str(w.get('raw') or w), 'Pilot 2 book: the prospect\'s first mail (P2-01) goes out with the morning')
 
-    # ---- 2. the foreman asks for material on her phone
+    # ---- 1b. Pilot 2: the owner works the morning on his phone and puts the new prospect on file
+    b = ctl('begin', 'u_owner', 'morning', '--device', 'phone', '--cap', '20')
+    rc, out = act('u_owner', 'screen')
+    check('(owner, phone)' in out.split('\n')[0], 'device: an office person\'s turn on the phone (the screen says so)')
+    rc, out = act('u_owner', 'device', 'desktop')
+    check(rc != 0 and 'does not have you switch' in out, 'device: switching is refused when the turn does not allow it')
+    rc, out = act('u_owner', 'go', 'Sales')
+    rc, out = act('u_owner', 'tap', 'New Lead')
+    n = (re.findall(r'\[(\d+) New Lead\]', out) or [None])[-1]
+    rc, out = act('u_owner', 'do', f'type "Name" "Nadia Okoro"; type "Email" "nadia.okoro@example.com"; type "Property" "88 Garfield Place"; pick "Source" "Email"; tap {n}')
+    check('is a lead' in out, 'owner (phone): Nadia Okoro is on file as a lead')
+    ctl('end')
     ctl('begin', 'u_angel', 'morning', '--cap', '15')
     rc, out = act('u_chen', 'screen')
     check(rc != 0 and 'turn' in out, 'a person cannot act during someone else\'s turn')
@@ -209,6 +241,27 @@ def flow():
     check('received' in out, f'foreman: {po} received in full (toast)')
     ctl('end')
 
+    # ---- 5b. Pilot 2: the gated walk-through reaches the owner; he wins the lead, starting at his desk, then on his phone
+    wr = str(w.get('raw') or w)
+    check(re.search(r'chains opened:.*P2-03', wr) and 'P2-03 · situation · told u_owner' in wr,
+          f"chains: the walk-through (P2-03) opened once the lead was on file and went to the owner ({(re.findall(r'chains opened:[^\n]*', wr) or ['none'])[0]})")
+    ctl('begin', 'u_owner', 'work1', '--switch', '--cap', '20')
+    rc, out = act('u_owner', 'news')
+    check('Nadia Okoro' in out, 'owner: the walk-through is in his news')
+    rc, out = act('u_owner', 'go', 'Sales')
+    check('(owner)' in out.split('\n')[0], 'device: the plan-less default puts the owner on his desktop')
+    rc, full = act('u_owner', 'screen', '--full')
+    check('the first screen ends here' in full, 'the screen marks where the first screen ends (the five-second test)')
+    rc, out = act('u_owner', 'tap', 'Sales')   # the page's own tab, already open: nothing happens (the click check's dead tap)
+    rc, out = act('u_owner', 'device', 'phone')
+    check(rc == 0 and '(owner, phone)' in out, 'device: a turn with --switch picks up the phone mid-turn (same page, same company)')
+    rc, out = act('u_owner', 'find', 'Nadia Okoro')
+    r0 = row_before(out, r'Nadia Okoro')
+    rc, out = act('u_owner', 'do', f'tap {r0}; tap "Convert to Opportunity"; tap "Convert"; tap "Closed Won"; tap "Close as Won"')
+    check('is a client' in out, 'owner (phone): the lead is won and Nadia Okoro is a client')
+    ctl('end')
+    ctl('cost', 'u_owner', '--tokens', '123456', '--tool-uses', '9', '--ms', '61000')
+
     # ---- 6. the bill arrives by mail; the coordinator enters it from his Inbox
     w = ctl('world', 'work2', '--watchers')
     ctl('begin', 'u_chen', 'work2', '--cap', '15')
@@ -273,6 +326,26 @@ def flow():
     check(p.get('n_lost') == 0, 'PERSIST: nothing lost after saveNow and a reload')
     acts = [json.loads(x) for x in open(os.path.join(RD, 'actions.jsonl'))]
     check(all(('day' in x and 'slot' in x) for x in acts) and any(x.get('creates') for x in acts), f'the action log has who, day, slot, screen, control, result and creates ({len(acts)} lines)')
+    # ---- 9. Pilot 2: the new events scored apart, the click check per device, the device on every action, the cost
+    S = L.get('sets') or {}
+    check(bool(S.get('pilot1_events')) and bool(S.get('pilot2_events')), f"referee: Pilot 1 events and all events apart ({L.get('line_sets')})")
+    check(ev.get('P2-01', {}).get('verdict') == 'on time' and ev.get('P2-03', {}).get('verdict') == 'on time',
+          f"referee: the prospect on file and made a client, both on time, end to end through the screens (P2-01 {ev.get('P2-01', {}).get('verdict')}, P2-03 {ev.get('P2-03', {}).get('verdict')})")
+    check('P2-04' in ev and 'P2-05' not in ev, 'chains: the estimate expectation (P2-04) opened with the client; the acceptance (P2-05) waits for an estimate')
+    T = (L.get('clicks') or {}).get('totals') or {}
+    check(T.get('phone', {}).get('taps', 0) > 0 and T.get('desktop', {}).get('taps', 0) > 0, f"click check: taps counted on the phone and the desktop apart ({L.get('line_clicks')})")
+    check(any(r['verdict'] == 'dead' and r['device'] == 'desktop' and r['label'] == 'Sales' for r in L.get('click_rows') or []),
+          'click check: the tap on the tab already open is a dead tap, on the desktop')
+    check(any(r['verdict'] in ('landed', 'done') and r['device'] == 'phone' and r['uid'] == 'u_owner' for r in L.get('click_rows') or []),
+          'click check: the owner\'s phone taps landed where their labels said')
+    mine = [x for x in acts if (x.get('uid') or '').startswith('u_')]
+    check(all(x.get('device') in ('phone', 'desktop') for x in mine), f'every action logs its device ({len(mine)} lines)')
+    C = [json.loads(x) for x in open(os.path.join(RD, 'cost.jsonl'))]
+    check(len(C) >= 5 and {'phone', 'desktop'} <= {c.get('device') for c in C} and all(c.get('calls', 0) >= 0 and 'est_processed' in c for c in C if c.get('uid', '').startswith('u_')),
+          f'cost: one line per turn with calls, characters and the estimate ({len(C)} turns)')
+    md = open(os.path.join(RD, 'cost.md')).read()
+    check('123,456' in md and any(os.path.exists(os.path.join(RD, f'cost_{d}.json')) for d in ('2026-09-03', '2026-09-04')),
+          'cost: the conductor\'s measured tokens reach cost.md and the per-day file')
 
 
 if __name__ == '__main__':

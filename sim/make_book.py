@@ -165,7 +165,7 @@ PILOT2 = [
     {'id': 'P2-02', 'day': D1, 'time': '08:05', 'kind': 'seed', 'tags': ['prospect'], 'payload': {},
      'expect': X('u_owner', 'Answer Nadia Okoro the same day (the first reply within 2 hours, the Standard)', 0, {'t': 'outreach', 'to': 'okoro'}, ['Okoro'])},
     {'id': 'P2-03', 'day': D1, 'time': '12:30', 'kind': 'situation', 'tags': ['prospect'], 'gate': {'t': 'lead', 'name': OK_RX},
-     'payload': {'uid': 'u_owner', 'text': 'You walked 88 Garfield Place with Nadia Okoro at noon. She wants the firm: a new kitchen, a powder room '
+     'payload': {'uid': 'u_owner', 'text': 'You just walked 88 Garfield Place with Nadia Okoro. She wants the firm: a new kitchen, a powder room '
                                            'and the parlor floors, about $210,000, and asked for the estimate by Tuesday. Make her a client so the estimate can start.'},
      'expect': X('u_owner', 'Make Nadia Okoro a client (the lead won)', 1, {'t': 'leadWon', 'rx': OK_RX}, ['Okoro'])},
     {'id': 'P2-04', 'day': D1, 'time': '12:30', 'kind': 'seed', 'tags': ['prospect'], 'gate': {'t': 'leadWon', 'rx': OK_RX}, 'payload': {},

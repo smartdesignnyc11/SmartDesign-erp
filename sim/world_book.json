@@ -11045,7 +11045,7 @@
    },
    "payload": {
     "uid": "u_owner",
-    "text": "You walked 88 Garfield Place with Nadia Okoro at noon. She wants the firm: a new kitchen, a powder room and the parlor floors, about $210,000, and asked for the estimate by Tuesday. Make her a client so the estimate can start."
+    "text": "You just walked 88 Garfield Place with Nadia Okoro. She wants the firm: a new kitchen, a powder room and the parlor floors, about $210,000, and asked for the estimate by Tuesday. Make her a client so the estimate can start."
    },
    "expect": {
     "who": "u_owner",

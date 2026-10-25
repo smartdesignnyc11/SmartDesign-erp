@@ -151,6 +151,7 @@ def main(a):
         print(f"{r['day']} {r['slot']}: {len(r['events'])} events ({len(ev)} delivered)")
         for e in ev: print('  ', ' · '.join(map(str, e)))
         for x in r.get('replies') or []: print('   reply', ' · '.join(map(str, x)))
+        if r.get('gates'): print('   chains opened:', ', '.join(f'{g[0]} (on {g[1]})' for g in r['gates']))
         if r.get('mail'): print('   mail:', r['mail'])
         if r.get('watchers'): print('   watchers:', '; '.join(f'{k[2:]} {v}' for k, v in r['watchers'].items()))
         return 0

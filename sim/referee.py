@@ -112,6 +112,7 @@ def classify_clicks(A):
         elif toast or db:
             v = 'landed' if (moved and hit and not does) else 'done'
             if db and not toast: rec['silent'] = True
+            if toast and db and not t.get('toastOpen'): rec['noopen'] = True   # the Standard: a mutation's toast carries Open
         else: v = 'landed' if (hit and a.get('kind') == 'tab') else 'in place'
         rec['verdict'] = v; out.append(rec)
     # off-label followed by Back (or a menu go) within the next two of the person's actions in the same turn: wrong
@@ -124,7 +125,7 @@ def classify_clicks(A):
 
 
 def click_summary(rows):
-    keys = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'failed', 'backtrack')
+    keys = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'no open', 'failed', 'backtrack')
     def blank(): return {k: 0 for k in keys}
     per_role, per_page = defaultdict(blank), defaultdict(blank)
     worst = defaultdict(list)
@@ -133,6 +134,7 @@ def click_summary(rows):
         for K, D in (((r['uid'], r['device']), per_role), ((r['page'], r['device']), per_page)):
             x = D[K]; x['taps'] += 1; x[r['verdict']] += 1
             if r.get('silent'): x['silent'] += 1
+            if r.get('noopen'): x['no open'] += 1
             if r['backtrack']: x['backtrack'] += 1
         if r['verdict'] in ('dead', 'wrong', 'off-label', 'failed') or r.get('silent'):
             worst[(r['verdict'] if not r.get('silent') else 'silent', r['device'])].append(f"{r['uid']} on {r['page']}: \"{r['label']}\"" + (f" -> {r['dest']}" if r['verdict'] in ('wrong', 'off-label') else ''))
@@ -314,7 +316,7 @@ class Referee:
             L.append('## Click check: did each tap land where its label promised (phone and desktop apart)\n')
             L.append('Heuristic on labels (read as leads): landed = on the page, sheet or record the label names; done = it changed something and said so; '
                      'dead = nothing changed; off-label = moved somewhere the label does not name; wrong = off-label and backed out; silent = a record changed with no toast.\n')
-            cols = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'failed', 'backtrack')
+            cols = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'no open', 'failed', 'backtrack')
             for dev in ('phone', 'desktop'):
                 R = {k.split('|')[0]: v for k, v in C['per_role'].items() if k.endswith('|' + dev)}
                 if not R: continue
