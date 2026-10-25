@@ -101,6 +101,54 @@ AUDIT_JS = r"""(keys) => { try { __MS.as('u_owner'); } catch (e) {}
   return out; }"""
 
 
+def missing(db, key):
+    """What did NOT reach the person who gets the document (Pilot 2's lesson: the measure read the stored record and
+    called a $0 draft PO "complete", an RFQ with three vendors on it and none asked "three vendors asked"). From the raw
+    records: a client document must be sent and have reached the client (mail or the outbox naming its number, or the
+    client's portal for a sent document); a PO issued, above $0 and reached its vendor; an RFQ out to its vendors and
+    each request gone out of the mailbox; a bill submitted. Returns the list of what is missing, in plain words."""
+    import cycle as CY
+    coll, rid = key[:key.rfind(':')], key[key.rfind(':') + 1:]
+    out, d, c = [], None, None
+    if coll.startswith('c.'):
+        for cl in db.get('clients') or []:
+            d = next((x for x in cl.get(coll[2:]) or [] if x.get('id') == rid), None)
+            if d: c = cl; break
+    else:
+        d = next((x for x in db.get(coll) or [] if x.get('id') == rid or x.get('number') == rid), None)
+    if not d: return ['the record is gone']
+    num_ = d.get('number') or '#'
+    if coll in ('c.estimates', 'c.changeOrders', 'c.invoices'):
+        T = CY.doc_total(d)
+        if T <= 0: out.append('a total above $0')
+        if not [l for l in d.get('lines') or [] if (l.get('item') or l.get('desc') or '').strip()]: out.append('a line with words on it')
+        st = d.get('status') or 'draft'
+        if st in ('draft', ''): out.append('sent to the client (it is a draft)')
+        elif st not in ('void',):
+            emails = [str(x.get('email') or '').lower() for x in (c or {}).get('contacts') or [] if x.get('email')]
+            mail = CY.reached(db, '|'.join(map(re.escape, emails)) or re.escape(str((c or {}).get('name') or '#')), re.escape(num_)) if c else []
+            portal = any(u.get('role') == 'client' and u.get('clientId') == (c or {}).get('id') for u in db.get('users') or [])
+            if not mail and not portal: out.append(f'reaching the client ({st}, but no mail or portal carried {num_})')
+    elif coll == 'pos':
+        if (d.get('status') or 'draft') in ('draft', ''): out.append('issued to the vendor (it is a draft)')
+        if CY.po_total(d) <= 0: out.append('a price (the PO is $0)')
+        v = next((x for x in db.get('vendors') or [] if x.get('id') == d.get('vendorId') or x.get('name') == d.get('vendor')), {})
+        who = '|'.join(re.escape(str(x).lower()) for x in (v.get('email'), d.get('contact'), d.get('vendor')) if x)
+        if d.get('status') not in ('draft', 'cancelled', None, '') and not (who and CY.reached(db, who, re.escape(num_))): out.append('reaching the vendor (no mail carried it)')
+    elif coll == 'rfqs':
+        sent = d.get('sent') or []
+        if not sent: out.append(f"sent to any vendor ({len(d.get('vendors') or [])} listed, none asked)")
+        else:
+            C = CY.Cycle(db, CY.load_book(), {}, [])
+            went = {s.get('vendorId') for s in sent if C.went_out(d, s)}
+            if len(went) < 3: out.append(f'three vendors reached ({len(went)} of {len({s.get("vendorId") for s in sent})} requests left the mailbox)')
+        if not d.get('quotes'): out.append('a quote back')
+    elif coll == 'bills':
+        if (d.get('status') or 'draft') in ('draft', ''): out.append('submitted for approval (it is a draft)')
+        if CY.bill_total(d) <= 0: out.append('an amount')
+    return out
+
+
 def run_dir():
     run = os.environ.get('SIM_RUN') or open(os.path.join(HERE, 'runs', '.current')).read().strip()
     return run, os.path.join(HERE, 'runs', run)
@@ -145,7 +193,7 @@ def usage():
                         'validation_stops': sum(1 for x in trail for tt in (x.get('toasts') or []) if VALIDATION.search(tt)) + sum(1 for x in trail if 'The app asked' in str(x.get('result', ''))),
                         'errors': sum(len(x.get('errors') or []) for x in trail),
                         'found_after_save': c['on_screen'] or c['in_toast'] and 'toast only', 'found_after_reload': after.get((uid, c['key'])),
-                        'backend_findings': aud.get('findings'), 'status_now': aud.get('status')})
+                        'backend_findings': (aud.get('missing') or []) + (aud.get('findings') or []), 'status_now': aud.get('status')})
             # the lines: everything typed or picked from the start of this document's trail to the next document or the end
             # of the turn (lines are usually added after the record is first saved)
             j = i + 1
@@ -184,7 +232,7 @@ def prompt(kind, uid=None):
         meas = '\n'.join(f"- {u['type']} {u['name'][:40]} ({u['device']}, {u['day']} {u['slot']}): {u['taps']} taps, {u['actions']} actions, {u['seconds']}s, "
                          f"{u.get('line_count', 0)} lines, {u.get('line_chars_typed', 0)} characters typed into lines, {len(u.get('picked_fields') or [])} picks, "
                          f"{len(u['screens'])} screens ({' > '.join(u['screens'][:6])}), typed {u['typed']} of {u['filled_on_form'] or '?'} filled fields, "
-                         f"{u['validation_stops']} validation stops, found after save: {u['found_after_save']}; back end: {'; '.join(u['backend_findings'] or []) or 'complete'}"
+                         f"{u['validation_stops']} validation stops, found after save: {u['found_after_save']}; missing: {'; '.join(u['backend_findings'] or []) or 'nothing'}"
                          for u in mine) or '- (the harness saw no document you created)'
         t = _tpl('CREATOR'); vals = {'name': PEOPLE[uid][2], 'role': PEOPLE[uid][0], 'measured': meas, 'answer': os.path.join(d, 'workshop', f'docs_{uid}.md'),
                                       'diary': os.path.join(d, 'diary', uid + '.md')}
@@ -208,7 +256,7 @@ def score():
     U = usage()
     L = [f'# Documents Workshop: {run}\n', 'Measured by the harness, back end checked by the referee, client view judged by the client agent, '
          'the owner and the designer. Everything above "Synthesis" is mechanical.\n', '## Measured, per document type\n',
-         '| Type | Device | Made | Median taps | Target taps | Median seconds | Screens | Typed / filled | Validation stops | Not found after save | Back-end gaps |',
+         '| Type | Device | Made | Median taps | Target taps | Median seconds | Screens | Typed / filled | Validation stops | Not found after save | Missing |',
          '|---|---|---|---|---|---|---|---|---|---|---|']
     by = defaultdict(list)
     for u in U: by[(u['type'], u['device'])].append(u)
@@ -232,7 +280,7 @@ def score():
     for u in U:
         if u['type'] in ('estimate', 'change order', 'invoice', 'pay application'):
             L += [f"- {u['type']} {u['name'][:30]}: {a}" + (f" — {b}" if b else '') for a, b in (u.get('lines') or [])[:8]]
-    L.append('\n## Back end, every gap by field (from the referee\'s audit)\n')
+    L.append('\n## Missing, by what (first what never reached the person who gets it, then the back-end fields; from the referee)\n')
     gaps = defaultdict(list)
     for u in U:
         for f in u['backend_findings'] or []: gaps[(u['type'], re.sub(r'line [^:]+:', 'line:', f))].append(u['name'][:30])
