@@ -93,7 +93,7 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
   .view:not(#v-tkall):not(#v-tasks) input.q{height:44px !important}
   .view:not(#v-tkall):not(#v-tasks) label.chip{min-height:44px !important}
   .view:not(#v-tkall):not(#v-tasks) .hb-pill{height:auto;min-height:44px}
-  body.m-on .view.on :is(.sel-rooms,.sp-groups){column-gap:8px}
+  body.m-on .view.on :is(.sel-rooms,.sp-groups){column-gap:8px;row-gap:12px}
   body.m-on .view.on :is(.sel-rooms,.sp-groups) > button{position:relative}
   body.m-on .view.on :is(.sel-rooms,.sp-groups) > button::after{content:"";position:absolute;left:0;right:0;top:-5px;bottom:-5px}
   body.pr-v-ovjobs #subnav .sub-proj{display:none}
