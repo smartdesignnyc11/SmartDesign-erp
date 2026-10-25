@@ -117,7 +117,89 @@ class World:
 
     # ---- what the referee scores: the book's events and today's held-out ones
     def all_events(self):
-        return self.book['events'] + [e for d in sorted(self.st['heldout']) for e in self.st['heldout'][d]] + self.st['extra']
+        return self.book_events() + [e for d in sorted(self.st['heldout']) for e in self.st['heldout'][d]] + self.st['extra']
+
+    # ---- gated events (Pilot 2 chains, sim/make_book.py): an event with `gate` or `after` exists once it has fired
+    def book_events(self):
+        G = self.st.setdefault('gated', {})
+        return [e if not (e.get('gate') or e.get('after')) else self.materialize(e, G[e['id']]) for e in self.book['events']
+                if not (e.get('gate') or e.get('after')) or e['id'] in G]
+
+    @staticmethod
+    def fill(x, bind):
+        """{name} placeholders from what a gate found: "{x}" alone keeps the value's type, "{x$}" is money."""
+        if isinstance(x, dict): return {k: World.fill(v, bind) for k, v in x.items()}
+        if isinstance(x, list): return [World.fill(v, bind) for v in x]
+        if not isinstance(x, str) or '{' not in x: return x
+        m = re.fullmatch(r'\{(\w+)\}', x)
+        if m and m.group(1) in bind: return bind[m.group(1)]
+        def one(mm):
+            k, cur = mm.group(1), mm.group(2)
+            if k not in bind: return mm.group(0)
+            v = bind[k]
+            if cur:
+                try: return f'${float(v):,.2f}'
+                except Exception: return str(v)
+            return str(v)
+        return re.sub(r'\{(\w+)(\$?)\}', one, x)
+
+    def materialize(self, e, rec):
+        x = self.fill({k: v for k, v in e.items() if k not in ('gate', 'after', 'mint', 'delay')}, rec.get('bind') or {})
+        x['day'], x['time'] = rec['day'], rec.get('time') or e.get('time', '07:00')
+        ex = x.get('expect')
+        if ex and isinstance(ex.get('money'), str):
+            try: ex['money'] = float(ex['money'])
+            except Exception: ex['money'] = 0.0
+        if x['kind'] == 'bank':
+            try: x['payload']['amt'] = float(x['payload']['amt'])
+            except Exception: pass
+        return x
+
+    def mint(self, kind, bind, eid):
+        r = self.rng('mint', eid)
+        if kind == 'vendor_invoice':
+            return f"{re.sub(r'[^A-Z]', '', str(bind.get('vendor', '')).upper())[:3] or 'INV'}-{r.randrange(1000, 9999)}"
+        return f'{kind[:3].upper()}-{r.randrange(1000, 9999)}'
+
+    async def open_gates(self, pg, day, slot):
+        """Fire every gated event whose gate passes now (in book order, so a chain can move one step per slot only
+        when the step before it fired in an earlier slot or earlier in this one)."""
+        G, fired = self.st.setdefault('gated', {}), []
+        for e in self.book['events']:
+            if not (e.get('gate') or e.get('after')) or e['id'] in G or e['day'] > day: continue
+            if e['day'] == day and SI(slot) < SI(slot_of(e.get('time', '07:00'))): continue
+            bind = {}
+            if e.get('after'):
+                if e['after'] not in G or G[e['after']]['day'] > day: continue
+                bind.update(G[e['after']].get('bind') or {})
+            ok = True
+            if e.get('gate'):
+                ok, det, b = await pg.evaluate("([c, ev]) => __MS.gate(c, ev)", [self.fill(e['gate'], bind), {'id': e['id'], 'day': e['day'], 'payload': {}}])
+                bind.update(b or {})
+            if not ok: continue
+            on = self.wd_add(day, e['delay']) if e.get('delay') else day
+            bind['today'] = on
+            for k, kind in (e.get('mint') or {}).items(): bind[k] = self.mint(kind, bind, e['id'])
+            if bind.get('vendor') and 'vendor_addr' not in bind:
+                k = self.resolve_party(bind['vendor'])
+                bind['vendor_addr'] = self.parties[k]['addr'] if k else f"{bind['vendor']} <ap@{re.sub(r'[^a-z]', '', bind['vendor'].lower())[:20] or 'vendor'}.example>"
+            G[e['id']] = {'day': on, 'time': e.get('time') if e.get('delay') else self.sim.clock_str(), 'bind': bind, 'opened': [day, slot]}
+            fired.append([e['id'], on])
+        return fired
+
+    def po_tracked(self, body):
+        """an order the Pilot 2 chain plays itself (the short delivery and its bill): the reply rules leave its truck alone"""
+        rx = (self.book.get('pilot2') or {}).get('po_rx')
+        return bool(rx and re.search(rx, body or '', re.I))
+
+    async def post_portal(self, text):
+        """The client writes in the portal's chat, on their own phone page (the client's side played by rules)."""
+        sim = self.sim
+        pg, _ = await sim.fresh('u_klein')
+        ok = await pg.evaluate("""async (q) => { view = 'chat'; render(); await new Promise(r => setTimeout(r, 200)); const ta = document.querySelector('#chat-text'), b = document.querySelector('#chat-send');
+            if (!ta || !b) return false; ta.value = q; ta.dispatchEvent(new Event('input', { bubbles: true })); b.click(); return true; }""", text)
+        await sim.commit('u_klein')
+        return 'in the portal chat' if ok else 'no chat box on the portal'
 
     def open_needles(self):
         day = self.sim.state['day'] or ''
@@ -134,7 +216,8 @@ class World:
         if slot == 'morning' and day not in self.st['heldout']:
             facts = await pg.evaluate(FACTS_JS)
             self.st['heldout'][day] = self.heldout(day, facts)
-        todays = [e for e in self.all_events() if e['day'] == day and e['id'] not in self.st['fired']]
+        out['gates'] = await self.open_gates(pg, day, slot)
+        todays =[e for e in self.all_events() if e['day'] == day and e['id'] not in self.st['fired']]
         now = SI(slot)   # anything of today up to this slot that has not gone out yet (a late-booked delivery too)
         due = [e for e in todays if SI(slot_of(e.get('time', '07:00'))) <= now or e['kind'] == 'bank']
         bank = {}
@@ -161,6 +244,12 @@ class World:
                     r = 'in Drive'
                 elif k == 'bank':
                     bank.setdefault(p['acct'], []).append(p); self.st['bank'].append(p); r = 'on the statement'
+                elif k == 'portal' or (k == 'situation' and p.get('uid') == 'u_klein' and self.st.get('client_rules')
+                                       and ((e.get('orig') or {}).get('payload') or {}).get('do') in ('chat', 'coAsk')):
+                    # the client's question goes where the client would ask it: the portal chat (the client by rules has no turns)
+                    op = (e.get('orig') or {}).get('payload') or {}
+                    r = await self.post_portal(op.get('text') or p['text'] if k == 'situation' else p['text'])
+                    pg, _ = await sim.fresh('__world')
                 elif k == 'situation':
                     sim.state['news'].setdefault(p['uid'], []).append(f"{day} {e.get('time', '')}: {p['text']}"); r = 'told ' + p['uid']
                     out['situations'].append([p['uid'], p['text'][:80]])
@@ -352,7 +441,7 @@ class World:
         elif kind == 'order':
             ship = self.wd_add(due_day, r.choice(p.get('ship', [2, 3, 4, 6])))
             text = f"Order received{(' for ' + po) if po else ''}. It ships {ship}." + (' We are short on part of it and will confirm.' if r.random() < 0.2 else '')
-            if po: self.order_flow(k, p, m, po, amt, ship, r)
+            if po and not self.po_tracked(m['body'] + ' ' + m['subject']): self.order_flow(k, p, m, po, amt, ship, r)
             if r.random() < p.get('late_p', 0.25):
                 late = self.wd_add(ship, r.choice([2, 3]))
                 self.st['pending'].append(self._reply(k, m, addr, subj, f"Update{(' on ' + po) if po else ''}: the ship date moves to {late}.", [], self.wd_add(ship, -1) if ship > due_day else due_day, 'work1', 'slip'))
@@ -362,7 +451,7 @@ class World:
         elif kind == 'pay':
             when = self.wd_add(due_day, r.choice([0, 1, 3]))
             text = f"Thanks. We will send the payment on {when}."
-            if amt and r.random() < 0.85:
+            if amt and r.random() < 0.85 and not p.get('no_bank'):   # a party whose payment the book plays (Pilot 2's prospect) sends no second one
                 bank = {'acct': 'ac1', 'date': when, 'desc': f"ONLINE TRANSFER FROM {p['name'].upper()[:24]}", 'amt': round(amt, 2), 'ref': f"AC1-{when.replace('-', '')}-W{self.st['n']}"}
         elif kind == 'approve':
             text = r.choice(['Approved. Go ahead.', 'We approve this. Thank you.', 'Can you tell us how many days this adds before we sign?'])

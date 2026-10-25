@@ -574,6 +574,19 @@
    ],
    "late_p": 0,
    "voice": "A no-reply sender."
+  },
+  "nadia_okoro": {
+   "name": "Nadia Okoro",
+   "addr": "Nadia Okoro <nadia.okoro@example.com>",
+   "kind": "client",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "no_bank": true,
+   "voice": "A new prospect: bought a brownstone at 88 Garfield Place, Park Slope. Organised, quick to answer, wants a clear price and a start date. Pays by bank transfer the day after an invoice."
   }
  },
  "events": [
@@ -10956,6 +10969,981 @@
     }
    },
    "tags": []
+  },
+  {
+   "id": "P2-01",
+   "day": "2026-09-03",
+   "time": "08:05",
+   "kind": "mail",
+   "tags": [
+    "pilot2",
+    "prospect"
+   ],
+   "payload": {
+    "from": "Nadia Okoro <nadia.okoro@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "p2_okoro",
+    "att": [],
+    "subject": "Renovating 88 Garfield Place (Park Slope)",
+    "text": "Hello, we closed on a brownstone at 88 Garfield Place in Park Slope and want a new kitchen, a powder room and the parlor floors redone. Our budget is around $210,000. Could someone walk it with us this week? Nadia Okoro, (917) 555-0143"
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Put Nadia Okoro (88 Garfield Place) on file as a lead",
+    "by": 1,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "lead",
+     "name": "Okoro"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-02",
+   "day": "2026-09-03",
+   "time": "08:05",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "prospect"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Answer Nadia Okoro the same day (the first reply within 2 hours, the Standard)",
+    "by": 0,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "okoro"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-03",
+   "day": "2026-09-03",
+   "time": "12:30",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "prospect"
+   ],
+   "gate": {
+    "t": "lead",
+    "name": "Okoro"
+   },
+   "payload": {
+    "uid": "u_owner",
+    "text": "You walked 88 Garfield Place with Nadia Okoro at noon. She wants the firm: a new kitchen, a powder room and the parlor floors, about $210,000, and asked for the estimate by Tuesday. Make her a client so the estimate can start."
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Make Nadia Okoro a client (the lead won)",
+    "by": 1,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "leadWon",
+     "rx": "Okoro"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-04",
+   "day": "2026-09-03",
+   "time": "12:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "prospect"
+   ],
+   "gate": {
+    "t": "leadWon",
+    "rx": "Okoro"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Send Nadia Okoro the estimate by Tuesday (kitchen, powder room, parlor floors)",
+    "by": 2,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "estFor",
+     "rx": "Okoro",
+     "status": [
+      "sent",
+      "approved",
+      "converted"
+     ],
+     "min": 1000
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-05",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "mail",
+   "tags": [
+    "pilot2",
+    "prospect",
+    "contract"
+   ],
+   "gate": {
+    "t": "estFor",
+    "rx": "Okoro",
+    "status": [
+     "sent",
+     "approved",
+     "converted"
+    ],
+    "min": 1000
+   },
+   "payload": {
+    "from": "Nadia Okoro <nadia.okoro@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "p2_okoro",
+    "subject": "Re: estimate {number}",
+    "text": "We read {number} ({total$}) and we accept it as written. The signed copy is attached. Please send the deposit invoice and tell us the start date. Nadia",
+    "att": [
+     {
+      "filename": "Signed {number}.pdf",
+      "text": "ACCEPTANCE\n{number}\nAccepted as written, {total$}.\nSigned: Nadia Okoro, {today}"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Record the Okoros' acceptance: {number} becomes the contract",
+    "by": 1,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "estFor",
+     "rx": "Okoro",
+     "status": [
+      "approved",
+      "converted"
+     ]
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-06",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "prospect",
+    "deposit"
+   ],
+   "gate": {
+    "t": "estFor",
+    "rx": "Okoro",
+    "status": [
+     "approved",
+     "converted"
+    ]
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Send the Okoro deposit invoice on {number} within 2 business days of signing",
+    "by": 2,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "depositFor",
+     "rx": "Okoro",
+     "status": [
+      "sent",
+      "viewed",
+      "partial",
+      "paid",
+      "overdue"
+     ]
+    },
+    "money": "{ten}",
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-07",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "prospect",
+    "progress"
+   ],
+   "gate": {
+    "t": "estFor",
+    "rx": "Okoro",
+    "status": [
+     "approved",
+     "converted"
+    ]
+   },
+   "payload": {
+    "uid": "u_sarah",
+    "text": "You measured 88 Garfield Place for the Okoros and drew the existing conditions: the first design milestone (measure and existing conditions) is done. Billing bills each milestone."
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the Okoros' measure-and-existing-conditions milestone on a progress invoice",
+    "by": 2,
+    "see": [
+     "Okoro"
+    ],
+    "check": {
+     "t": "progressFor",
+     "rx": "Okoro",
+     "status": [
+      "sent",
+      "viewed",
+      "partial",
+      "paid",
+      "overdue"
+     ]
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-08",
+   "day": "2026-09-03",
+   "time": "07:40",
+   "kind": "bank",
+   "tags": [
+    "pilot2",
+    "prospect",
+    "payment"
+   ],
+   "gate": {
+    "t": "depositFor",
+    "rx": "Okoro",
+    "status": [
+     "sent",
+     "viewed",
+     "partial",
+     "paid",
+     "overdue"
+    ]
+   },
+   "delay": 1,
+   "payload": {
+    "acct": "ac1",
+    "date": "{today}",
+    "desc": "ONLINE TRANSFER FROM OKORO N",
+    "amt": "{total}",
+    "ref": "AC1-{today}-OKORO"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Okoros' deposit ({total$}) against {number} when it lands",
+    "by": 1,
+    "see": [
+     "OKORO"
+    ],
+    "check": {
+     "t": "paymentFor",
+     "rx": "Okoro",
+     "amount": "{total}"
+    },
+    "money": "{total}",
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-09",
+   "day": "2026-09-03",
+   "time": "07:40",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "prospect",
+    "bank"
+   ],
+   "after": "P2-08",
+   "payload": {},
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Okoro deposit on Chase to its invoice",
+    "by": 2,
+    "see": [
+     "OKORO"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "OKORO",
+     "resolved": true
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-10",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "change order"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Send the Kleins the pantry GFI change order, priced, with its days (within 48 hours)",
+    "by": 2,
+    "see": [
+     "GFI"
+    ],
+    "check": {
+     "t": "coFor",
+     "project": "p121",
+     "rx": "GFI|pantry|outlet",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 650,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-11",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "change order",
+    "billing"
+   ],
+   "gate": {
+    "t": "coFor",
+    "project": "p121",
+    "rx": "GFI|pantry|outlet",
+    "status": [
+     "approved"
+    ]
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the approved {number} (pantry GFI) on the next invoice",
+    "by": 2,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "coInvoiced",
+     "number": "{number}"
+    },
+    "money": "{total}",
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-12",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "change order"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Send the stair landing guard change order (42 inches, code), priced",
+    "by": 2,
+    "see": [
+     "guard"
+    ],
+    "check": {
+     "t": "coFor",
+     "project": "p121",
+     "rx": "guard|42",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-20",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "PO"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Order the GWB and cement board from the estimate line: a PO with a vendor and a price",
+    "by": 0,
+    "see": [
+     "GWB"
+    ],
+    "check": {
+     "t": "poFor",
+     "project": "p121",
+     "rx": "GWB|gypsum|drywall|sheetrock|cement board",
+     "linked": true
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-21",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "PO"
+   ],
+   "gate": {
+    "t": "poFor",
+    "project": "p121",
+    "rx": "GWB|gypsum|drywall|sheetrock|cement board"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Send {number} to {vendor}",
+    "by": 0,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "poSent",
+     "number": "{number}"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-22",
+   "day": "2026-09-03",
+   "time": "08:50",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "PO",
+    "receiving"
+   ],
+   "after": "P2-21",
+   "gate": {
+    "t": "poSent",
+    "number": "{number}"
+   },
+   "delay": 1,
+   "payload": {
+    "uid": "u_angel",
+    "text": "{vendor} delivered {number} to 121 State this morning. The packing slip shows everything except {short_n} of the {short_item} (backordered, balance next week). The slip is in your hand."
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Receive {number} as a partial delivery ({short_n} short on {short_item}) and photograph the slip",
+    "by": 0,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "poStatus",
+     "number": "{number}",
+     "status": [
+      "partial"
+     ]
+    },
+    "money": 0,
+    "days": 1
+   }
+  },
+  {
+   "id": "P2-23",
+   "day": "2026-09-03",
+   "time": "13:40",
+   "kind": "mail",
+   "tags": [
+    "pilot2",
+    "PO",
+    "bill"
+   ],
+   "after": "P2-22",
+   "gate": {
+    "t": "poStatus",
+    "number": "{number}",
+    "status": [
+     "partial",
+     "received",
+     "closed",
+     "billed"
+    ]
+   },
+   "mint": {
+    "inv": "vendor_invoice"
+   },
+   "payload": {
+    "from": "{vendor_addr}",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "p2_inv",
+    "subject": "Invoice {inv} for {number}",
+    "text": "Invoice {inv} for {number} is attached: {total$} for the order as written, net 30.",
+    "att": [
+     {
+      "filename": "Invoice {inv}.pdf",
+      "text": "INVOICE {inv}\n{vendor}\nPO: {number}\nAll lines as ordered, including {short_n} {short_item}\nTOTAL {total$}\nNet 30"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter {inv} against {number}",
+    "by": 1,
+    "see": [
+     "{inv}"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "{inv}",
+     "poNumber": "{number}"
+    },
+    "money": "{total}",
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-24",
+   "day": "2026-09-03",
+   "time": "13:40",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "PO",
+    "three-way match"
+   ],
+   "after": "P2-23",
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Hold the {short_n} {short_item} not delivered on {inv} (three-way match: pay what came)",
+    "by": 1,
+    "see": [
+     "{inv}"
+    ],
+    "check": {
+     "t": "billShortAny",
+     "number": "{inv}"
+    },
+    "money": "{short_value}",
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-30",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "time"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Clock in and out on 9/3 (the foreman's own hours)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "clocked",
+     "uid": "u_angel",
+     "day": "2026-09-03"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-31",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "time"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Clock in and out on 9/4",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "clocked",
+     "uid": "u_angel",
+     "day": "2026-09-04"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-32",
+   "day": "2026-09-08",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "time"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Clock in and out on 9/8",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "clocked",
+     "uid": "u_angel",
+     "day": "2026-09-08"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-33",
+   "day": "2026-09-08",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "time"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alberto",
+    "what": "Clock in and out on 9/8 (crew)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "clocked",
+     "uid": "u_alberto",
+     "day": "2026-09-08"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-34",
+   "day": "2026-09-08",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "time"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alex",
+    "what": "Clock in and out on 9/8 (driver)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "clocked",
+     "uid": "u_alex",
+     "day": "2026-09-08"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-35",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "payroll"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_controller",
+    "what": "Build the 8/31-9/4 payroll from the approved hours",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-08-31",
+     "to": "2026-09-04"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-36",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot2",
+    "payroll"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Approve the 8/31-9/4 payroll run (the owner approves payroll)",
+    "by": 1,
+    "see": [],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-08-31",
+     "to": "2026-09-04",
+     "approved": true
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-40",
+   "day": "2026-09-04",
+   "time": "08:20",
+   "kind": "portal",
+   "tags": [
+    "pilot2",
+    "portal"
+   ],
+   "payload": {
+    "uid": "u_klein",
+    "text": "Quick question: does the pantry outlet change the cabinet install date? We need to know before the weekend."
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the Kleins' portal question (the pantry outlet and the cabinet date) within 2 hours",
+    "by": 0,
+    "see": [
+     "pantry outlet"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p121",
+     "rx": "pantry outlet"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-50",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "task"
+   ],
+   "payload": {
+    "uid": "u_alan",
+    "text": "Carlos Millwork needs the freight elevator at 121 State for the 9/18 millwork delivery, 7 to 10 am. Hand it to Chen as a task: book the elevator with Luis (the super), due Thu 9/10."
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Hand the freight elevator booking to Chen as a task",
+    "by": 0,
+    "see": [
+     "elevator"
+    ],
+    "check": {
+     "t": "taskBy",
+     "rx": "elevator",
+     "assignee": "Chen"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-51",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "task"
+   ],
+   "gate": {
+    "t": "taskBy",
+    "rx": "elevator",
+    "assignee": "Chen"
+   },
+   "payload": {
+    "uid": "u_chen",
+    "text": "Luis, the super at 121 State, confirmed the freight elevator for Fri 9/18, 7 to 10 am."
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Close the elevator task now that Luis confirmed",
+    "by": 1,
+    "see": [
+     "elevator"
+    ],
+    "check": {
+     "t": "taskBy",
+     "rx": "elevator",
+     "assignee": "Chen",
+     "done": true
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-52",
+   "day": "2026-09-08",
+   "time": "07:00",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "task"
+   ],
+   "payload": {
+    "uid": "u_angel",
+    "text": "Alberto has to finish the blocking for the garden bath vanity today, before the plumber comes. Give it to him as a task on the app."
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Give Alberto the vanity blocking as a task",
+    "by": 0,
+    "see": [
+     "blocking"
+    ],
+    "check": {
+     "t": "taskBy",
+     "rx": "blocking",
+     "assignee": "Alberto"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-53",
+   "day": "2026-09-08",
+   "time": "07:00",
+   "kind": "situation",
+   "tags": [
+    "pilot2",
+    "task"
+   ],
+   "gate": {
+    "t": "taskBy",
+    "rx": "blocking",
+    "assignee": "Alberto"
+   },
+   "payload": {
+    "uid": "u_alberto",
+    "text": "You finished the blocking for the garden bath vanity."
+   },
+   "expect": {
+    "who": "u_alberto",
+    "what": "Mark the vanity blocking task done",
+    "by": 0,
+    "see": [
+     "blocking"
+    ],
+    "check": {
+     "t": "taskBy",
+     "rx": "blocking",
+     "assignee": "Alberto",
+     "done": true
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "P2-60",
+   "day": "2026-09-08",
+   "time": "06:30",
+   "kind": "calendar",
+   "tags": [
+    "pilot2",
+    "meeting"
+   ],
+   "payload": {
+    "uid": "u_owner",
+    "title": "Team Meeting (Monday's, moved for Labor Day)",
+    "start": "2026-09-08T10:00",
+    "mins": 45,
+    "where": "Office",
+    "description": "Walk the board job by job in Meeting Mode; minutes to everyone."
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Run the Monday team meeting (Tuesday after Labor Day) in Meeting Mode, with minutes",
+    "by": 0,
+    "see": [
+     "Team Meeting"
+    ],
+    "check": {
+     "t": "teamMeeting",
+     "day": "2026-09-08",
+     "min": 3
+    },
+    "money": 0,
+    "days": 0
+   }
   }
- ]
+ ],
+ "pilot2": {
+  "po_rx": "GWB|gypsum|drywall|sheetrock|cement board",
+  "about": "Pilot 2 events: the prospect to progress-invoice chain, a CO, a PO received short and its bill, clock in and out, payroll, bank lines, the portal, task hand-offs and the Monday meeting in Meeting Mode."
+ }
 }

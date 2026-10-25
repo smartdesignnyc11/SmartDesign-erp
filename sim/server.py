@@ -32,6 +32,7 @@ DIST = os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')
 RUNS = os.path.join(HERE, 'runs')
 PAGE_TOOLS = open(os.path.join(HERE, 'page_tools.js'), encoding='utf-8').read()
 RUNTIME_JS = open(os.path.join(ROOT, 'tests', 'month_runtime.js'), encoding='utf-8').read()
+CHECKS_JS = open(os.path.join(HERE, 'checks_p2.js'), encoding='utf-8').read()   # Pilot 2's checks, on top of the month's
 DB_KEY = 'smartdesigns:portfolio:v2'
 DESKTOP = {'width': 1440, 'height': 900}
 PHONE = {'width': 390, 'height': 844}
@@ -47,9 +48,11 @@ PEOPLE = {
 STAFF_MAIL = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_sarah', 'u_billing', 'u_controller', 'u_alberto', 'u_alex']
 DEFAULT_PROJECT = {'u_angel': 'p121', 'u_alberto': 'p121', 'u_alex': 'p121'}   # the seed's field crew is on 121 State
 SLOTS = {'morning': '07:30', 'work1': '10:00', 'work': '10:30', 'work2': '13:30', 'eod': '16:30'}   # 'work' is the lean plan's one work slot
-VERBS = {'do', 'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
+VERBS = {'do', 'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key', 'device'}
 PAGE_CHARS = 3600
 MUTATING = {'tap', 'type', 'pick', 'upload', 'photo', 'back', 'go', 'ask', 'key'}
+CLICKS = {'tap', 'key', 'go', 'back'}   # the click check: where each of these landed against what its label promised
+OVERHEAD = 10000   # tokens of fixed subagent overhead per model call (system prompt and tools): an assumption, see day_plan.md
 
 INIT_JS = r"""
 (() => { try { const pos = { coords: { latitude: 40.6893, longitude: -73.9908, accuracy: 12 }, timestamp: 0 };
@@ -145,7 +148,14 @@ class Sim:
 
     def log(self, rec):
         rec = {'t': now_iso(), 'day': self.state['day'], 'slot': self.state['slot'], **rec}
+        if rec.get('uid') in PEOPLE and 'device' not in rec: rec['device'] = self.device_of(rec['uid'])
         with open(os.path.join(self.dir, 'actions.jsonl'), 'a') as f: f.write(json.dumps(rec, default=str) + '\n')
+
+    def device_of(self, uid):
+        """the device a person is on right now: their page's, or their role's own before they have a page"""
+        d = self.device.get(uid)
+        if d is None: d = (self.state.get('turn') or {}).get('phone') if (self.state.get('turn') or {}).get('uid') == uid else PEOPLE[uid][1]
+        return 'phone' if d else 'desktop'
 
     def clock_str(self):
         hh, mm = map(int, SLOTS[self.state['slot']].split(':'))
@@ -235,6 +245,7 @@ class Sim:
         if self.state['drive']: await pg.evaluate("f => __SIM.driveSync(f)", self.state['drive'])
         if uid == '__world':
             await pg.evaluate(RUNTIME_JS)
+            await pg.evaluate(CHECKS_JS)
         elif uid in PEOPLE:
             where = self.state['people'].get(uid) or {'cur': DEFAULT_PROJECT.get(uid, ''), 'view': ''}
             await pg.evaluate("""([u, w]) => { if ((DB.deviceUser || '') !== u || (currentUser() || {}).id !== u) signIn(u);
@@ -300,6 +311,72 @@ class Sim:
         for u in PEOPLE: self.diary_init(u)
         self.save_state()
 
+    def diary_size(self, uid):
+        try: return os.path.getsize(os.path.join(self.dir, 'diary', f'{uid}.md'))
+        except Exception: return 0
+
+    # ------------------------------------------------------------------ cost (day_plan.md, "Measuring the cost")
+    def cost_turn(self, t):
+        """One line per turn in cost.jsonl: what the harness measured (calls, characters in and out, the prompt and the
+        files it points to, the diary written) and the estimate it implies; `simctl cost` adds the conductor's real count."""
+        m = t.get('meter') or {'calls': 0, 'req': 0, 'resp': 0, 'sizes': []}
+        pr = t.get('prompt') or {'chars': 0, 'reads': 0}
+        diary = max(0, self.diary_size(t['uid']) - (t.get('diary0') or 0))
+        ctx = (pr['chars'] + pr['reads']) / 4; processed = 0.0
+        steps = [[0, 0]] * 2 + m['sizes'] + [[diary, 0]]   # the reads at the start and the diary write at the end are calls too
+        for q, r in steps:
+            processed += OVERHEAD + ctx; ctx += (q + r) / 4 + 150   # 150: the model's own words around each call (assumed)
+        rec = {'day': t.get('day') or self.state['day'], 'slot': t['slot'], 'uid': t['uid'], 'device': t.get('device'), 'cap': t['cap'], 'actions': t['used'],
+               'calls': m['calls'], 'prompt_chars': pr['chars'], 'read_chars': pr['reads'], 'sent_chars': m['req'], 'result_chars': m['resp'], 'diary_chars': diary,
+               'est_new_context': round(ctx), 'est_processed': round(processed), 'est_output': round((m['req'] + diary) / 4 + 150 * len(steps)),
+               'measured': None, 'started': t.get('started'), 'ended': now_iso()}
+        with open(os.path.join(self.dir, 'cost.jsonl'), 'a') as f: f.write(json.dumps(rec) + '\n')
+        self.cost_write()
+
+    def cost_measured(self, a):
+        p = os.path.join(self.dir, 'cost.jsonl')
+        L = [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+        who = a.get('uid') or a.get('label') or ''
+        meas = {k: a[k] for k in ('tokens', 'tool_uses', 'ms', 'input', 'output', 'cache_read') if a.get(k) is not None}
+        hit = next((r for r in reversed(L) if r.get('uid') == who and not r.get('measured')), None)
+        if hit is None:   # a workshop step or anything else the conductor ran: a line of its own
+            hit = {'day': self.state['day'], 'slot': a.get('slot') or 'after', 'uid': who, 'device': '', 'calls': 0, 'measured': None, 'ended': now_iso()}; L.append(hit)
+        hit['measured'] = meas
+        open(p, 'w').write(''.join(json.dumps(r) + '\n' for r in L))
+        self.cost_write()
+        return {'recorded': who, 'measured': meas, 'day': hit['day'], 'slot': hit['slot']}
+
+    def cost_write(self):
+        """cost_<day>.json and cost.md: per day, the turns, the measured tokens (where the conductor gave them) and the
+        harness's estimate, so day 1's real cost can be reported before days 2 and 3 run."""
+        p = os.path.join(self.dir, 'cost.jsonl')
+        L = [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+        days = {}
+        for r in L:
+            D = days.setdefault(r['day'], {'turns': 0, 'calls': 0, 'measured_turns': 0, 'measured_tokens': 0, 'measured_tool_uses': 0, 'measured_ms': 0,
+                                            'est_processed': 0, 'est_new_context': 0, 'est_output': 0, 'by_slot': {}})
+            D['turns'] += 1; D['calls'] += r.get('calls') or 0
+            for k in ('est_processed', 'est_new_context', 'est_output'): D[k] += r.get(k) or 0
+            mm = r.get('measured') or {}
+            if mm:
+                D['measured_turns'] += 1; D['measured_tokens'] += int(mm.get('tokens') or 0)
+                D['measured_tool_uses'] += int(mm.get('tool_uses') or 0); D['measured_ms'] += int(mm.get('ms') or 0)
+            S = D['by_slot'].setdefault(r['slot'], {'turns': 0, 'measured_tokens': 0, 'est_processed': 0})
+            S['turns'] += 1; S['measured_tokens'] += int(mm.get('tokens') or 0); S['est_processed'] += r.get('est_processed') or 0
+        for d, D in days.items(): json.dump(D, open(os.path.join(self.dir, f'cost_{d}.json'), 'w'), indent=1)
+        M = ['# Cost of the run, per day\n', "Measured = the token counts the conductor copied from each subagent's result (`simctl cost`). "
+             "Estimated = the harness's own count (calls, characters in and out) with a fixed 10k-token overhead per call assumed. "
+             'Read the measured column; the estimate stands in for turns with no measurement.\n',
+             '| Day | Turns | Calls | Measured turns | Measured tokens | Tool uses | Agent minutes | Est. processed input | Est. new context | Est. output |',
+             '|---|---|---|---|---|---|---|---|---|---|']
+        for d, D in sorted(days.items()):
+            M.append(f"| {d} | {D['turns']} | {D['calls']} | {D['measured_turns']} | {D['measured_tokens']:,} | {D['measured_tool_uses']} | {round(D['measured_ms'] / 60000)} | "
+                     f"{D['est_processed']:,} | {D['est_new_context']:,} | {D['est_output']:,} |")
+        M.append('\n| Day | Slot | Turns | Measured tokens | Est. processed input |\n|---|---|---|---|---|')
+        for d, D in sorted(days.items()):
+            for sl, S in D['by_slot'].items(): M.append(f"| {d} | {sl} | {S['turns']} | {S['measured_tokens']:,} | {S['est_processed']:,} |")
+        open(os.path.join(self.dir, 'cost.md'), 'w').write('\n'.join(M) + '\n')
+
     def diary_init(self, uid):
         p = os.path.join(self.dir, 'diary', f'{uid}.md')
         if not os.path.exists(p):
@@ -322,9 +399,19 @@ class Sim:
             if t and t['uid'] != uid:
                 return {'ok': False, 'text': f"it is {PEOPLE.get(t['uid'], ('', '', t['uid']))[2]}'s turn, not yours ({uid})"}
             if t and t['used'] >= t['cap']:
-                return {'ok': False, 'text': f"your turn is over: {t['used']} actions used of {t['cap']}. Write your diary and stop."}
-            if cmd == 'do': return await self.do_batch(uid, args, opts, t)
-            return await self._one(uid, cmd, args, opts, t)
+                out = {'ok': False, 'text': f"your turn is over: {t['used']} actions used of {t['cap']}. Write your diary and stop."}
+            elif cmd == 'do': out = await self.do_batch(uid, args, opts, t)
+            else: out = await self._one(uid, cmd, args, opts, t)
+            self.meter(t, args, out)
+            return out
+
+    def meter(self, t, args, out):
+        """The cost of a turn as the harness sees it: each call the agent made, what it sent and what came back
+        (every result is new context the model reads on every later call). The conductor adds the real token count."""
+        if not t: return
+        m = t.setdefault('meter', {'calls': 0, 'req': 0, 'resp': 0, 'sizes': []})
+        q, r = len(json.dumps(args)), len((out or {}).get('text') or '')
+        m['calls'] += 1; m['req'] += q; m['resp'] += r; m['sizes'].append([q, r])
 
     async def _one(self, uid, cmd, args, opts, t):
         '''one action, start to finish: fresh page, act, find-it-again, save, log (the lock is held by the caller)'''
@@ -341,6 +428,7 @@ class Sim:
         n_toast = await pg.evaluate("__SIM.toasts.length"); n_err = len(self.errs[uid])
         before = await pg.evaluate("__SIM.keys()") if cmd in MUTATING else None
         title0 = await pg.evaluate("__SIM.title()")
+        land0 = await pg.evaluate("__SIM.landing()") if cmd in CLICKS else None
         form = await pg.evaluate("__SIM.formStats()") if cmd == 'tap' else None
         try:
             if reloaded and cmd in ('tap', 'type', 'pick', 'upload', 'photo'):
@@ -367,6 +455,7 @@ class Sim:
                     self.state['fia_pending'].setdefault(uid, []).append({'key': k, 'name': nm['name'], 'day': self.state['day']})
         changed = await self.commit(uid)
         await pg.evaluate("window.__simActive = true")   # still this person's page until someone else acts
+        land = {'from': land0, 'to': await pg.evaluate("__SIM.landing()")} if land0 is not None else None
         if self.last_dialog: out['text'] = self.last_dialog + '\n' + out.get('text', '')
         if toasts and cmd not in ('screen', 'scroll'): out['text'] = 'Toast: ' + ' / '.join(toasts[-2:]) + '\n' + out.get('text', '')
         if errs: out['text'] += '\n(the app reported an error: ' + errs[-1][:160] + ')'
@@ -374,7 +463,7 @@ class Sim:
                   'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
                   'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
                   'device': 'phone' if self.device.get(uid) else 'desktop', 'form': form if creates else None,
-                  'turn_used': (t or {}).get('used')})
+                  'turn_used': (t or {}).get('used'), 'land': land})
         for c in creates:
             if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
         self.save_state()
@@ -809,6 +898,23 @@ class Sim:
         self.log({'uid': uid, 'cmd': 'call', 'args': args, 'result': reply[:200]})
         return {'ok': True, 'text': reply, 'kind': 'call', 'control': 'call'}
 
+    async def v_device(self, uid, pg, args, opts):
+        """`device` says which device you are on; `device phone|desktop` picks up the other one, when this turn allows it
+        (the day plan says so: an office person checking the phone, a field person looking at the desktop once)."""
+        now = self.device_of(uid)
+        want = (args[0].lower() if args else '').strip()
+        t = self.state.get('turn') or {}
+        if not want: return {'ok': True, 'text': f'You are on your {now}.' + (' This turn you may switch: `device phone` or `device desktop`.' if t.get('switch') else '')}
+        if want not in ('phone', 'desktop'): return {'ok': False, 'text': 'device phone | device desktop'}
+        if want == now: return {'ok': True, 'text': f'You are already on your {now}.'}
+        if not t.get('switch'): return {'ok': False, 'text': f'This turn is on your {now}; the day plan does not have you switch devices now.'}
+        await self.set_device(uid, want == 'phone')
+        await pg.evaluate("() => { try { render(); } catch (e) {} }"); await self.settle(pg, 500)
+        out = await self._after(uid, pg, opts)
+        out['text'] = f'You put down your {now} and picked up your {want}. Same company, same login.\n' + out['text']
+        out['control'] = 'device ' + want; out['kind'] = 'device'
+        return out
+
     async def v_news(self, uid, pg, args, opts):
         items = self.state['news'].pop(uid, [])
         self.log({'uid': uid, 'cmd': 'news', 'result': f'{len(items)} items'})
@@ -827,14 +933,28 @@ class Sim:
                 uid = a['uid']
                 if uid not in PEOPLE: return {'error': 'unknown person'}
                 if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0
-                phone = bool(a.get('phone')) or PEOPLE[uid][1]
-                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone}
+                # the device: the day plan's for this person and slot (phone | desktop), else the role's own; `switch` lets
+                # the person pick up the other device during the turn (`act <uid> device desktop`)
+                dev = (a.get('device') or '').lower()
+                phone = (dev == 'phone') if dev in ('phone', 'desktop') else (bool(a.get('phone')) or PEOPLE[uid][1])
+                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone,
+                                      'device': 'phone' if phone else 'desktop', 'switch': bool(a.get('switch')), 'day': self.state['day'],
+                                      'diary0': self.diary_size(uid)}
                 await self.page(uid); await self.set_device(uid, phone)
+                self.log({'uid': uid, 'cmd': 'begin_turn', 'args': [self.state['slot']], 'device': self.state['turn']['device'],
+                          'result': f"cap {self.state['turn']['cap']}" + (' · may switch device' if a.get('switch') else '')})
                 self.save_state(); return {'turn': self.state['turn'], 'clock': self.clock_str()}
+            if cmd == 'note_prompt':   # simctl prompt: the size of the prompt and of the files it tells the person to read
+                t = self.state['turn']
+                if t and t['uid'] == a.get('uid'): t['prompt'] = {'chars': int(a.get('chars') or 0), 'reads': int(a.get('reads') or 0)}; self.save_state()
+                return {'noted': bool(t and t['uid'] == a.get('uid'))}
+            if cmd == 'cost':   # the conductor's measured numbers for a turn it just ended (or a workshop step, by label)
+                return self.cost_measured(a)
             if cmd == 'end_turn':
                 t = self.state['turn']
                 if t and t['uid'] in self.pages:
                     await self.commit(t['uid']); await self.set_device(t['uid'], PEOPLE[t['uid']][1])
+                if t: self.cost_turn(t)
                 pg, _ = await self.fresh('__world')
                 await self.set_clock()
                 notes = await self.post_office(pg)
@@ -968,7 +1088,9 @@ class Sim:
             pg, _ = await self.fresh('__world')
             unread = sum(1 for m in await pg.evaluate("([u, b]) => __SIM.mbList(u, b)", [uid, 'inbox']) if m['unread'])
         else: unread = sum(1 for m in self.ext_box(uid) if m.get('unread'))
-        return {'uid': uid, 'name': name, 'role': role, 'phone': phone, 'day': self.state['day'], 'slot': self.state['slot'], 'clock': self.clock_str(),
+        t = self.state.get('turn') or {}
+        if t.get('uid') == uid: phone = t.get('phone', phone)
+        return {'uid': uid, 'name': name, 'role': role, 'phone': phone, 'switch': bool(t.get('switch')) if t.get('uid') == uid else False, 'day': self.state['day'], 'slot': self.state['slot'], 'clock': self.clock_str(),
                 'news': len(self.state['news'].get(uid, [])), 'unread': unread, 'run': self.run}
 
     # ------------------------------------------------------------------ http
@@ -1053,7 +1175,8 @@ HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
   mail | mail sent | mail drafts | mail read <n> | mail reply <n> "text" | mail send "to" "subject" "body"
   mail senddraft <n>           send a draft the app saved to your mailbox (after `mail drafts`)
   call "<person>" "what was said"   a phone call: it goes in both diaries, nothing else
-  news                         what happened around you (on site, calls you got) since your last turn"""
+  news                         what happened around you (on site, calls you got) since your last turn
+  device | device phone|desktop   which device you are on; pick up the other one when your turn allows it"""
 
 
 def main():
