@@ -2455,6 +2455,8 @@ let tvDrawing = "";
     } catch (e) {
       console.warn("task views", e);
     }
+    // the chip strip says when it scrolls (taskfix #21): the list redraws without the app's draw pass
+    "function" == typeof b3StripFades && requestAnimationFrame(() => b3StripFades());
   };
 }
 {

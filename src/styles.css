@@ -3892,6 +3892,7 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
 @media (max-width:760px){
   #toast.act{display:flex;align-items:center;flex-wrap:wrap;column-gap:2px;padding:2px 4px 2px 14px;max-width:calc(100vw - 24px);width:max-content;box-sizing:border-box;font-size:14px;line-height:1.3}
   #toast.act .toast-msg{padding:6px 4px 6px 0}
+  #toast.act .toast-sep{display:none}
   #toast .toast-open,#toast .toast-go{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:0 10px;margin:0;box-sizing:border-box}
 }
 /* #20 the header's icon buttons are 44 by 44 (they were 40 wide) */

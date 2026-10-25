@@ -255,10 +255,10 @@ async def header(c, pg):
 
 
 async def chips(c, pg):
-    for uid, v in (('u_owner', 'home'), ('u_billing', 'billing'), ('u_billing', 'ap'), ('u_chen', 'home'), ('u_chen', 'proc'), ('u_chen', 'dec')):
+    for uid, v in (('u_owner', 'home'), ('u_billing', 'tkall'), ('u_billing', 'billing'), ('u_billing', 'ap'), ('u_chen', 'home'), ('u_chen', 'proc'), ('u_chen', 'dec')):
         await pg.evaluate(CLOSE); await sign_in(pg, uid); await go(pg, v); await pg.wait_for_timeout(250)
         r = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
-          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, .view.on .glance.tl, .view.on .seg, #subnav')].filter(vis);
+          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, .view.on .glance.tl, .view.on .seg, .view.on .tv-qchips, #subnav')].filter(vis);
           // the tap area: a touch 3px above or below the chip still lands on it (44px around a 36px pill)
           const hitH = b => { const r = b.getBoundingClientRect(), R = b.parentElement.getBoundingClientRect(), L = Math.max(r.left, R.left), Rt = Math.min(r.right, R.right, innerWidth);
             if (Rt - L < 20) return 99;   // scrolled out of the strip: measured when it is in view

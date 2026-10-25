@@ -3873,7 +3873,7 @@ function toast(msg, go, ms) {
     ((t.textContent = ""),
     t.appendChild(Object.assign(document.createElement("span"), { className: "toast-msg", textContent: String(msg || "") })),
     L.forEach((l) => {
-      t.appendChild(document.createTextNode(" · "));
+      t.appendChild(Object.assign(document.createElement("span"), { className: "toast-sep", textContent: " · " }));
       const a = document.createElement("a");
       (a.href = "#"),
         (a.className = "toast-open"),
