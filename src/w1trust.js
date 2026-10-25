@@ -775,8 +775,11 @@ function w1MailNotes(c, sentence) {
       }
       const m = txt.match(LN_PROMISE);
       if (m) {
-        const d = w1DateWord(m[3], sent);
+        // "next Friday": the word before the day belongs to the day, not to what was promised
+        const nx = /\bnext$/i.test(m[2]) && FL_DOW.includes(String(m[3]).toLowerCase()),
+          d = w1DateWord((nx ? "next " : "") + m[3], sent);
         d && d >= sent && (r.due = d);
+        nx && (r.what = String(r.what || "").replace(/\s+next$/i, ""));
       }
     } catch (e) {}
     return r;
@@ -1158,14 +1161,17 @@ document.addEventListener(
     const r = base.apply(this, arguments);
     try {
       const b = document.getElementById("fm-rclock");
-      if (b && !b.dataset.w1) {
-        b.dataset.w1 = "1";
+      if (b) {
+        // drawn each time: the same button reads Clock Out once the driver is in
         const emp = "function" == typeof myEmp ? myEmp() : null,
           open = emp && (DB.time || []).find((t) => t.empId === emp.id && !t.out);
         b.textContent = open ? `Clock Out · In Since ${stampTime(open.in)}` : "Clock In";
+        b.className = open ? "btn" : "btn primary";
         b.onclick = async () => {
           try {
-            await clockEvent(open ? "out" : "in");
+            const now = emp && (DB.time || []).find((t) => t.empId === emp.id && !t.out);
+            await clockEvent(now ? "out" : "in");
+            render();
           } catch (x) {
             console.warn("clock", x);
           }
