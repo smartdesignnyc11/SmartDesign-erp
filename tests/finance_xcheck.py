@@ -32,8 +32,8 @@ from harness import *
 PINNED = {
     'cash':            184231,   # Chase Business Checking, ledger balance
     'ar':              92265,    # open invoices, ex retainage
-    'unmatched_n':     16,       # bank lines not yet matched
-    'unmatched_amt':   75272,
+    'unmatched_n':     15,       # bank lines not yet matched (16 · $75,272 until procurement P0, 2026-10-25, linked
+    'unmatched_amt':   67272,    # TINO's $8,000 card charge to PO-2026-047 as a prepayment, to confirm on Today)
     'ap_bills':        0,        # vendor bills owed
     'ap_payroll_due':  16040,    # payroll 8/17-8/28, past due
     'ap_paid_unappr':  33500,    # paid from the bank before approval: NOT owed. $43,300 until 2026-10-24, when AMP-311

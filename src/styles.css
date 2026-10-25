@@ -3885,3 +3885,6 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
   .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 0;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap}
   .mrv-ph .acts{flex-wrap:wrap;gap:8px}
 }
+
+/* procurement P0 (src/p0money.js): its buttons are a finger wide on the phone */
+@media (max-width: 600px) { .p0-pomoney .btn, .p0-taxfix .btn { min-height: 44px; margin-top: 6px; } }

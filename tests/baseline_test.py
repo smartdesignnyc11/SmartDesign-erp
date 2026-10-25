@@ -39,7 +39,9 @@ async def main():
         c.ok(r['rtb'] == 46301.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
-        c.ok('Tino' in r['po'] and '8,010' in r['po'], f"PO lookup: {r['po']}")
+        # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
+        # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)
+        c.ok('Tino' in r['po'] and '8,721' in r['po'], f"PO lookup: {r['po']}")
         c.ok(not r['users'], f"missing demo users {r['users']}")
         c.ok(not errs, f'errors {errs[:3]}')
         await b.close()
