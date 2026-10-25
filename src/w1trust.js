@@ -1043,6 +1043,139 @@ document.addEventListener("click", (e) => {
   }, 0);
 });
 
+// ---- D4: a question asked before a step never swallows the step ----------------------------------------------------
+// "Yes, Continue" replays the button that asked. When the screen was drawn again under the question (a row's Done on a
+// list that refreshed, Delete behind Please Confirm), that button was no longer on the page and the replay clicked
+// nothing: the foreman's first Yes, Continue on Done gave no toast and the row stayed at 90%, billing's Yes, Continue on
+// Delete said nothing. The button is now found again on the screen by what it is (its data attributes and its label),
+// and when it is truly gone the person is told, never left with silence.
+const w1Desc = (el) =>
+  el && el.attributes
+    ? {
+        tag: el.tagName.toLowerCase(),
+        id: el.id || "",
+        attrs: [...el.attributes].filter((a) => /^data-/.test(a.name) && !/^data-(sim|w1|sd|cr)/.test(a.name) && a.value.length < 120).map((a) => [a.name, a.value]),
+        txt: w1Norm(el.innerText || el.getAttribute("aria-label") || "").slice(0, 80),
+      }
+    : null;
+function w1Again(d) {
+  if (!d || (!d.id && !(d.attrs || []).length && !d.txt)) return null;
+  let sel = d.tag + (d.id ? "#" + CSS.escape(d.id) : "");
+  (d.attrs || []).forEach(([n, v]) => (sel += `[${n}="${CSS.escape(v)}"]`));
+  let C = [];
+  try {
+    C = [...document.querySelectorAll(sel)].filter((x) => x.getClientRects().length || x.closest("#mbm-held"));
+  } catch (e) {}
+  const txt = (x) => w1Norm(x.innerText || x.getAttribute("aria-label") || "").slice(0, 80);
+  return C.find((x) => txt(x) === d.txt) || (1 === C.length && (d.id || (d.attrs || []).length) ? C[0] : null);
+}
+let w1AskD = null;
+{
+  const base = appConfirm;
+  appConfirm = function () {
+    try {
+      "undefined" != typeof askEl && askEl && (w1AskD = w1Desc(askEl));
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = appPrompt;
+  appPrompt = function () {
+    try {
+      "undefined" != typeof askEl && askEl && (w1AskD = w1Desc(askEl));
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = askReplay;
+  askReplay = function (msg, val) {
+    try {
+      if (askEl && !askEl.isConnected) {
+        const d = w1AskD,
+          again = w1Again(d);
+        again ? (askEl = again) : setTimeout(() => toast(`That step did not go through: the screen changed under the question. Tap ${d && d.txt ? `“${d.txt}”` : "it"} again`), 30);
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- D4: saves that said nothing ---------------------------------------------------------------------------------------
+// Pilot 2: Save Changes on a payroll run saved with no toast (the controller), Re-Read on a meeting changed nothing and
+// said nothing (the owner), Add Line added a line in silence. Each now says what happened, with Open where there is a
+// record to open.
+let w1ToastN = 0;
+{
+  const base = toast;
+  toast = function () {
+    w1ToastN++;
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof savePayroll) {
+  const base = savePayroll;
+  savePayroll = function () {
+    const id = "undefined" != typeof editing && editing ? editing.id : null,
+      n0 = w1ToastN,
+      r = base.apply(this, arguments);
+    try {
+      const run = id ? (DB.payroll || []).find((x) => x.id === id) : (DB.payroll || [])[(DB.payroll || []).length - 1];
+      !document.querySelector("#drawer.on") && w1ToastN === n0 && run && toast(`Payroll ${run.period || ""} saved`.replace(/\s+saved/, " saved"), { label: "Open", run: () => openPayroll(run.id) });
+    } catch (e) {}
+    return r;
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest("#mt-redo");
+    if (!b) return;
+    let m = null;
+    try {
+      m = (DB.meetings || []).find((x) => "undefined" != typeof mtOpen && x.id === mtOpen) || null;
+    } catch (x) {}
+    const n0 = m ? (m.proposals || []).length : -1;
+    setTimeout(() => {
+      try {
+        const m2 = m || null,
+          n1 = m2 ? (m2.proposals || []).length : -1,
+          waiting = m2 ? (m2.proposals || []).filter((x) => "proposed" === x.status).length : 0;
+        toast(n1 > n0 ? `Read the notes again: ${n1 - n0} new to review, ${waiting} waiting` : `Read the notes again: nothing new${waiting ? `, ${waiting} still waiting for you` : ""}`);
+      } catch (x) {}
+    }, 60);
+  },
+  !0,
+);
+
+// ---- D2: Route's Clock In clocks in where the driver is ----------------------------------------------------------------
+// Pilot 2, the driver: Clock In on Route dropped him on the Clock page; he wanted to stay on Route. It clocks in (or
+// out, which opens the hours sheet) and the Route stays.
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const b = document.getElementById("fm-rclock");
+      if (b && !b.dataset.w1) {
+        b.dataset.w1 = "1";
+        const emp = "function" == typeof myEmp ? myEmp() : null,
+          open = emp && (DB.time || []).find((t) => t.empId === emp.id && !t.out);
+        b.textContent = open ? `Clock Out · In Since ${stampTime(open.in)}` : "Clock In";
+        b.onclick = async () => {
+          try {
+            await clockEvent(open ? "out" : "in");
+          } catch (x) {
+            console.warn("clock", x);
+          }
+        };
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}

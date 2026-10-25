@@ -98,9 +98,15 @@ def owned_by(label, view, role):
     return None
 
 
+GENERIC = re.compile(r'^(review|respond|edit|details|view|open|see|look|check|more|show|show me|go|start|begin|resume|continue|next|back|answer|reply|fix|change|update|manage|choose|pick|select)(\s+(it|this|them|now|details|all))?$', re.I)
+
+
 def label_flags(c, r):
     """The referee's rule: a press that went somewhere (a page, a sheet) lands where its label's words are."""
     L = c['label']
+    # a label that names no place (Review, Respond, Edit, Details) promises the record it sits on: crawl's Open X rule
+    # judges a named record; these are judged by the dead and silent rules only
+    if GENERIC.match(L.strip()): return []
     words = promise_words(L)
     if not words or r.get('reloaded'): return []
     mutated = [k for k in r['keys'] if k not in UI_KEYS]
