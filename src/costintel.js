@@ -1461,7 +1461,7 @@ function ciApproveRoute() {
     notify(`Route for ${fmtL(run.date)} approved`, `${run.plan.stops.length} stops, ${Math.round(run.plan.routeMin)} minutes. Open Route.`);
   } catch (e) {}
   save(), render();
-  toast(`Route approved: ${run.plan.stops.length} stops, ${ciMoney(run.saves)} under buying at the nearest store`, () => ((view = "route"), render()));
+  toast(`Route approved: ${run.plan.stops.length} stops, ${ciMoney(run.saves)} under buying at the nearest store`, () => ((view = "route"), render(), (document.querySelector(".view.on [data-cirt]") || { scrollIntoView() {} }).scrollIntoView({ block: "start" })));
   return run;
 }
 // The approved route goes stale when what is on the list changes; the coordinator is told and the driver is not misled.

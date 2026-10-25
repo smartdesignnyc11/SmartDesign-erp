@@ -1202,6 +1202,20 @@ if ("function" == typeof fRaiseDialog) {
   };
 }
 
+// "Start a Chat on a Job" did not start a chat: it opens the list of job conversations with nothing in them yet (the
+// driver, Pilot 2). The row says so. (Drawn over the Messages list, which the navigation lane is rebuilding: the words
+// change here, not the list.)
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      document.querySelectorAll("[data-msgquiet] .msg-t").forEach((t) => "Start a Chat on a Job" === t.textContent.trim() && (t.textContent = "More Job Chats"));
+    } catch (e) {}
+    return r;
+  };
+}
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}

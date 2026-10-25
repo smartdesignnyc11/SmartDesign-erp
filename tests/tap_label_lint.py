@@ -33,6 +33,9 @@ import crawl
 from crawl import Crawler, judge, allowed, norm, share, DOC_RE, UI_KEYS
 
 OUT = os.path.join(ROOT, 'review', 'taplint')
+QUESTION = re.compile(r'please confirm|one thing first', re.I)
+# the person's own reading marks on the assistant (which brief they saw, when they last looked): not a record
+crawl.UI_PATHS.append(r'^asst\.[^.\[]+\.(briefShown|lookPrev|lookAt)')
 
 # ---- the referee's label promise (sim/referee.py: promise_words), so the lint and the pilot judge one way
 NAV_WORDS = re.compile(r'^(open|view|see|show|go to|go|review|all|more|the|my|your|new|start|back to|to|menu:)\s+', re.I)
@@ -117,6 +120,8 @@ def label_flags(c, r):
     if not moved or mutated or toasts: return []
     if r['overlays']:
         o = r['overlays'][-1]
+        # a question before the act (Please Confirm, One Thing First) is judged by what Yes, Continue then does
+        if QUESTION.search(o['title']): return []
         hay = o['title'] + ' ' + o['text'][:400]
     else:
         hay = ' '.join([r['heading'], r['top'][:300], r['tabL'], r['grpL'], ' '.join(r['activeTabs']), r.get('anchor', ''), ' '.join(r['hl'])])

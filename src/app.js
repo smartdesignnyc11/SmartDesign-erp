@@ -20570,7 +20570,7 @@ function wire() {
         log(`Baseline set (${S.tasks.length} tasks)`),
         save(),
         render(),
-        toast("Baseline set — slip against it now shows on every task"));
+        toast("Baseline set — slip against it now shows on every task", { label: "Open", run: () => ((view = "sched"), render(), (document.querySelector(".view.on table, .view.on .gantt-wrap, .view.on .card") || { scrollIntoView() {} }).scrollIntoView({ block: "start" })) }));
     }),
     ($("#btn-delproj").onclick = () => {
       1 !== DB.projects.length
@@ -141252,7 +141252,7 @@ function pay3Accept(id, quiet) {
     try {
       toastDone(
         `${t.desc} coded to ${pay3SugText(s)} — ${money(Math.abs(t.amt))} out of Needs Category`,
-        void 0 !== flowGo && flowCan("bank") ? flowGo.view("bank") : null,
+        "function" == typeof txnDialog ? () => txnDialog(t.id) : void 0 !== flowGo && flowCan("bank") ? flowGo.view("bank") : null,
       );
     } catch (e) {
       toast("Coded");
