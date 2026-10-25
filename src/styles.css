@@ -3921,7 +3921,7 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 #tb-ask.tb-ask[hidden]{display:none !important}
 #tb-ask.tb-ask.on{background:var(--accent);border-color:var(--accent);color:#fff}
 @media (max-width:760px){
-  html body #tb-ask.tb-ask,html body .p2n-ask{width:auto !important;min-width:44px !important;height:44px !important;min-height:44px !important;padding:0 12px !important;font-size:15px;margin-left:0}
+  html body #tb-ask.tb-ask,html body .p2n-ask{width:auto !important;min-width:44px !important;height:44px !important;min-height:44px !important;padding:0 10px !important;font-size:15px;margin-left:0}
   body .topbar .crumbs.crumbs{min-width:0;flex:1 1 auto}
 }
 .p2n-ask.p2n-own{margin-left:8px}
@@ -3960,5 +3960,5 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
    took the page's name down to one letter once Ask carried its word. It shows only on a pinned demo; the desktop keeps it. */
 @media (max-width:760px){
   body.m-on .topbar #tb-pin{display:none}
-  body.m-on .topbar{gap:6px}
+  body.m-on .topbar{gap:8px}
 }

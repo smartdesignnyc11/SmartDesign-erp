@@ -796,6 +796,8 @@ function p2nTeamViews() {
   ["foreman", "crew", "driver"].forEach((r) => {
     const M = MENU[r];
     M && (M.bar || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
+    // Team is placed at the foot of the field menu (the colleague to call), not left to fall under More
+    M && M.rest && !M.rest.some((x) => "team" === x[0]) && M.rest.push(["team", "Team", "people"]);
   });
   // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest). The bar keeps four
   // shortcuts (Alan, 2026-10-19: "a max of 4"), so Site, the one the synthesis ranks below Daily Log, leads the rest.
@@ -826,7 +828,7 @@ let p2nLastView = "";
         const me = tdyMe(),
           k = me.id || role(),
           n = (tdyModel().appr || []).length;
-        n && (tdyTabs[k] = "appr");
+        n && ((tdyTabs[k] = "appr"), (tdyLanding = "appr"), (tdyAllOpen = !1));
       }
     } catch (e) {}
     p2nLastView = view;
