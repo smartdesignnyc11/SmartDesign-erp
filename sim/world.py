@@ -27,6 +27,7 @@ from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOOK = os.path.join(HERE, 'world_book.json')
+CYCLE = os.path.join(HERE, 'cycle_book.json')   # Pilot 3's required-work book (sim/cycle_book.py), on with `simctl cycle on`
 SLOT_ORDER = ['morning', 'work1', 'work2', 'eod']
 SI = lambda s: SLOT_ORDER.index('work2' if s == 'work' else s)   # the lean plan's one 'work' slot covers both work slots
 STAFF = {
@@ -36,6 +37,9 @@ STAFF = {
     'u_controller': ('Controller', 'controller@smartdesign.nyc'), 'u_alberto': ('Alberto', 'alberto@smartdesign.nyc'),
     'u_alex': ('Alex', 'alex@smartdesign.nyc'),
 }
+ROLE_ALIAS = {'pm': 'u_alan', 'the pm': 'u_alan', 'alan (pm)': 'u_alan', 'alan pm': 'u_alan', 'project manager': 'u_alan', 'owner': 'u_owner', 'the owner': 'u_owner',
+              'alan (owner)': 'u_owner', 'coordinator': 'u_chen', 'procurement': 'u_chen', 'foreman': 'u_angel', 'designer': 'u_sarah', 'accounts': 'u_billing',
+              'the controller': 'u_controller', 'driver': 'u_alex', 'crew': 'u_alberto'}
 # people outside the firm who are played by an agent (their mail goes to the agent's mailbox, not to the rules)
 AGENTS = {'u_klein': ['Sarah Klein <sarah.klein@example.com>', 'David Klein <david.klein@example.com>']}
 TZ = '-04:00'
@@ -64,6 +68,25 @@ class World:
         for k, v in (sim.state.get('world', {}).get('party_patch') or {}).items(): self.parties[k] = v
         self.staff_addr = {u: f'{n} <{e}>' for u, (n, e) in STAFF.items()}
         self.agent_addr = {u: L[0] for u, L in AGENTS.items()}
+        self.cycle = json.load(open(CYCLE, encoding='utf-8')) if os.path.exists(CYCLE) else None
+        if self.cycle_on: self.enable_cycle()
+
+    # ---- Pilot 3: the business cycle (sim/cycle_book.json), its parties, and the roles the world plays for it
+    @property
+    def cycle_on(self):
+        return bool(self.cycle and self.sim.state.get('world', {}).get('cycle'))
+
+    def enable_cycle(self):
+        self.sim.state.setdefault('world', {})['cycle'] = True
+        for k, v in self.cycle['parties'].items(): self.parties[k] = dict(self.parties.get(k, {}), **v)
+        for k, v in (self.sim.state['world'].get('party_patch') or {}).items(): self.parties[k] = v
+
+    def scripted(self, uid):
+        """a role the world plays in this run (Pilot 3: everyone outside the cycle book's four roles)"""
+        return self.cycle_on and uid in (self.cycle.get('scripted') or {}) and uid not in (self.sim.state['world'].get('cycle_play') or [])
+
+    def book_list(self):
+        return self.book['events'] + (self.cycle['events'] if self.cycle_on else [])
 
     @property
     def st(self):
@@ -97,6 +120,7 @@ class World:
         s0 = (s or '').strip(); e = email_of(s0); low = s0.lower()
         for u, (n, em) in STAFF.items():
             if e == em or low == u or low == n.lower(): return u
+        if low in ROLE_ALIAS: return ROLE_ALIAS[low]   # "the PM", "Alan (PM)", "the owner": two people are called Alan
         # a colleague by first or last name alone ("Chen", "Alan"), when only one person carries it
         if low and ' ' not in low and '@' not in low:
             hits = [u for u, (n, em) in STAFF.items() if low in n.lower().split()]
@@ -107,8 +131,10 @@ class World:
 
     def resolve_party(self, s):
         low = (s or '').strip().lower(); e = email_of(s)
+        for k, p in self.parties.items():   # an exact name, key or address first ("Gowanus Building Supply" is not "Gowanus Stone Yard")
+            if low == k or low == p['name'].lower() or e == email_of(p['addr']): return k
         for k, p in self.parties.items():
-            if low == k or low == p['name'].lower() or e == email_of(p['addr']) or (len(low) > 3 and low in p['name'].lower()): return k
+            if len(low) > 3 and low in p['name'].lower(): return k
         return None
 
     def resolve_addr(self, s):
@@ -126,7 +152,7 @@ class World:
     # ---- gated events (Pilot 2 chains, sim/make_book.py): an event with `gate` or `after` exists once it has fired
     def book_events(self):
         G = self.st.setdefault('gated', {})
-        return [e if not (e.get('gate') or e.get('after')) else self.materialize(e, G[e['id']]) for e in self.book['events']
+        return [e if not (e.get('gate') or e.get('after')) else self.materialize(e, G[e['id']]) for e in self.book_list()
                 if not (e.get('gate') or e.get('after')) or e['id'] in G]
 
     @staticmethod
@@ -169,7 +195,7 @@ class World:
         """Fire every gated event whose gate passes now (in book order, so a chain can move one step per slot only
         when the step before it fired in an earlier slot or earlier in this one)."""
         G, fired = self.st.setdefault('gated', {}), []
-        for e in self.book['events']:
+        for e in self.book_list():
             if not (e.get('gate') or e.get('after')) or e['id'] in G or e['day'] > day: continue
             if e['day'] == day and SI(slot) < SI(slot_of(e.get('time', '07:00'))): continue
             bind = {}
@@ -177,7 +203,10 @@ class World:
                 if e['after'] not in G or G[e['after']]['day'] > day: continue
                 bind.update(G[e['after']].get('bind') or {})
             ok = True
-            if e.get('gate'):
+            if e.get('gate') and e['gate'].get('t') == 'cy':   # a cycle step, checked in Python on the raw records (sim/cycle.py)
+                ok, det, b = self.sim.cycle_gate(self.fill(e['gate'], bind))
+                bind.update(b or {})
+            elif e.get('gate'):
                 ok, det, b = await pg.evaluate("([c, ev]) => __MS.gate(c, ev)", [self.fill(e['gate'], bind), {'id': e['id'], 'day': e['day'], 'payload': {}}])
                 bind.update(b or {})
             if not ok: continue
@@ -191,10 +220,12 @@ class World:
             fired.append([e['id'], on])
         return fired
 
-    def po_tracked(self, body):
-        """an order the Pilot 2 chain plays itself (the short delivery and its bill): the reply rules leave its truck alone"""
+    def po_tracked(self, body, po=''):
+        """an order a chain plays itself (Pilot 2's short delivery and its bill; Pilot 3's orders for the cycle job): the
+        reply rules leave its truck and its invoice alone"""
         rx = (self.book.get('pilot2') or {}).get('po_rx')
-        return bool(rx and re.search(rx, body or '', re.I))
+        if rx and re.search(rx, body or '', re.I): return True
+        return bool(self.cycle_on and po and po in self.sim.cycle_po_numbers())
 
     async def post_portal(self, text):
         """The client writes in the portal's chat, on their own phone page (the client's side played by rules)."""
@@ -263,13 +294,19 @@ class World:
                     out['situations'].append([p['uid'], p['text'][:80]])
                 elif k == 'fact':
                     r = await pg.evaluate("async ([u, ev]) => { __MS.as(u); const r = await __MS.own(ev); return String(r); }", [e['actor_uid'], e['orig']])
+                elif k == 'script':   # Pilot 3: a role the world plays does its step through the app (sim/script_p3.js)
+                    r = await self.run_script(pg, e)
+                elif k == 'interrupt':   # Pilot 3: something that cuts into a person's turn (the server delivers it mid-turn)
+                    self.sim.state.setdefault('interrupts', {}).setdefault(p['uid'], []).append(dict(p, id=e['id'], queued=[day, slot]))
+                    r = 'queued for ' + p['uid']
                 elif k in ('seed', 'due'): r = 'expectation'
             except Exception as ex:
                 r = 'ERR ' + str(ex)[:160]
             self.st['fired'][e['id']] = r
             out['events'].append([e['id'], k, str(r)[:80]])
         for acct, L in bank.items():
-            out['events'].append([f'statement {acct}', 'bank', await self.mail_statement(pg, acct, day, L)])
+            if self.scripted('u_controller'): out['events'].append([f'statement {acct}', 'bank', await self.import_statement(pg, acct, day, L)])
+            else: out['events'].append([f'statement {acct}', 'bank', await self.mail_statement(pg, acct, day, L)])
         out['replies'] = await self.deliver_replies(pg, day, slot)
         if slot in ('work1', 'work', 'work2') and self.st.get('client_rules'):
             out['portal'] = await self.client_portal(day, slot)
@@ -304,6 +341,34 @@ class World:
                                               'at': at, 'thread': p.get('thread') or e['id'], 'unread': True, 'att': p.get('att', [])})
                 got.append(uid)
         return ','.join(got) or 'no mailbox'
+
+    async def run_script(self, pg, e):
+        """a scripted world action (sim/script_p3.js) with what its gate found, then what it tells the people who play"""
+        p = dict(e['payload'])
+        if p['do'] == 'field_day': p['refs'] = self.sim.cycle_refs()
+        res = await pg.evaluate("async (p) => __P3.run(p)", p)
+        G = self.st.setdefault('gated', {})
+        if isinstance(res, dict) and res.get('bind'):
+            G.setdefault(e['id'], {'day': e['day'], 'time': e.get('time'), 'bind': {}, 'opened': [e['day'], 'script']})['bind'].update(res['bind'])
+        if p['do'] == 'receive' and isinstance(res, dict) and res.get('ok') and p.get('notify'):
+            txt = (f"{p['number']} from {res.get('vendor', '')} came to 214 Lincoln this morning. " + ('; '.join(res.get('notes') or []) or 'Everything on the slip arrived.') +
+                   '. Slip photo attached. - Angel')
+            ev = {'id': f"{e['id']}_slip", 'day': self.sim.state['day'], 'time': self.sim.clock_str(), 'payload': {
+                'from': self.staff_addr['u_angel'], 'to': [self.staff_addr[p['notify']]], 'cc': [], 'thread': f"cy_recv_{p['number']}", 'subject': f"Delivery {p['number']}",
+                'text': txt, 'att': [{'filename': f"Packing slip {p['number']}.pdf", 'text': f"PACKING SLIP {p['number']}\n{res.get('vendor', '')}\nShip to: 214 Lincoln Place\n" + ('\n'.join(res.get('notes') or []) or 'complete')}]}}
+            await self.inject_mail(pg, ev)
+            self.sim.state['news'].setdefault(p['notify'], []).append(f"{self.sim.state['day']} {self.sim.clock_str()}: Angel texted you: {txt}")
+        return (res.get('text') or '')[:200] if isinstance(res, dict) else str(res)[:200]
+
+    async def import_statement(self, pg, acct, day, lines):
+        """the controller does not play (Pilot 3): the statement is imported through Banking > Import Statement as he
+        would, then only the matches the app proposed are confirmed and the cycle job's card purchase is coded to it"""
+        csv = 'Date,Description,Amount,Reference\n' + ''.join(f"{l['date']},{l['desc']},{float(l['amt']):.2f},{l['ref']}\n" for l in lines)
+        r = await pg.evaluate("async (p) => __P3.run(p)", {'do': 'import_statement', 'as': 'u_controller', 'acct': acct, 'name': f'{acct}_{day}.csv', 'csv': csv})
+        job = self.sim.cycle_job() if self.cycle_on else ''
+        m = await pg.evaluate("async (p) => __P3.run(p)", {'do': 'match', 'as': 'u_controller', 'rx': '|'.join(re.escape(l['desc'][:14]) for l in lines) or '#',
+                                                          'code': [{'rx': 'LIGHTOLOGY', 'project': job, 'cat': 'materials', 'memo': 'Lightology receipt: 2 pendant lights'}] if job else []})
+        return f"{(r or {}).get('text', '')} · {(m or {}).get('text', '')}"[:200]
 
     async def mail_statement(self, pg, acct, day, lines):
         """The bank mails the controller the day's lines as a CSV; the controller imports it in Banking."""
@@ -433,6 +498,13 @@ class World:
         p = self.parties[k]
         r = self.rng('reply', m['id'], addr)
         kind = self.classify(m, p)
+        hit = next((t for rx, t in p.get('answers') or [] if re.search(rx, f"{m['subject']} {m['body']}", re.I)), None)
+        if hit:   # a party with something to say about this (the client's answer to a question back)
+            subj = m['subject'] if m['subject'].lower().startswith('re:') else 'Re: ' + m['subject']
+            self.st['pending'].append(self._reply(k, m, addr, subj, hit, [], self.sim.state['day'], SLOT_ORDER[min(3, SI(self.sim.state['slot']) + 1)], 'answer'))
+            return
+        if kind in (p.get('book_plays') or []):
+            self.st['replied'][m['id'] + addr] = f'{k}: the book plays this ({kind})'; return
         if r.random() > p.get('reply_p', 0.75):
             self.st['replied'][m['id'] + addr] = f'{k}: never answers'; return
         dmin, dmax = p.get('delay', [0, 2])
@@ -442,14 +514,16 @@ class World:
         po = (re.findall(r'PO-\d{4}-\d+', m['subject'] + ' ' + m['body']) or [''])[0]
         amt = money(m['body'])
         text, att, bank = '', [], None
-        if kind == 'quote':
+        if kind == 'quote' and p.get('quotes') and self.cycle:
+            text, att = self.quote_reply(p, m)
+        elif kind == 'quote':
             price = amt * r.uniform(0.9, 1.15) if amt else r.uniform(800, 9000)
             text = f"Thanks for the request. Our price: ${price:,.2f} for the items as listed, lead time {r.choice([3, 5, 8, 10])} working days, valid 30 days."
             att = [{'filename': f"Quote {p['name'][:20]}.pdf", 'text': f"QUOTE\n{p['name']}\nRe: {m['subject']}\nTOTAL ${price:,.2f}"}]
         elif kind == 'order':
             ship = self.wd_add(due_day, r.choice(p.get('ship', [2, 3, 4, 6])))
             text = f"Order received{(' for ' + po) if po else ''}. It ships {ship}." + (' We are short on part of it and will confirm.' if r.random() < 0.2 else '')
-            if po and not self.po_tracked(m['body'] + ' ' + m['subject']): self.order_flow(k, p, m, po, amt, ship, r)
+            if po and not self.po_tracked(m['body'] + ' ' + m['subject'], po): self.order_flow(k, p, m, po, amt, ship, r)
             if r.random() < p.get('late_p', 0.25):
                 late = self.wd_add(ship, r.choice([2, 3]))
                 self.st['pending'].append(self._reply(k, m, addr, subj, f"Update{(' on ' + po) if po else ''}: the ship date moves to {late}.", [], self.wd_add(ship, -1) if ship > due_day else due_day, 'work1', 'slip'))
@@ -470,6 +544,55 @@ class World:
         else:
             text = r.choice(['Got it, thanks.', 'Received. I will get back to you.', 'Noted.'])
         self.st['pending'].append(self._reply(k, m, addr, subj, text, att, due_day, due_slot, kind, bank))
+
+    def quote_reply(self, p, m):
+        """A planted vendor's answer to an RFQ (sim/cycle_book.py QUOTES), in its own format: a table, a PDF with a typo
+        price, prose with no lead time, or per box. Lines are the RFQ's own (L1 | item | spec | qty | unit), else the
+        quantities the mail names; a lump-sum line is priced as the lot the job's material schedule lists."""
+        import math
+        Q, C = p['quotes'], self.cycle
+        rows = [(a, b.strip(), float(c), d.strip()) for a, b, c, d in re.findall(r'^\s*(L\d+)\s*\|\s*([^|\n]+?)\s*\|[^|\n]*\|\s*([\d.]+)\s*\|\s*([^|\n]+?)\s*$', m['body'], re.M)]
+        if not rows:
+            rows = [('-', it.strip(), float(q), u) for q, u, it in re.findall(r'(\d+(?:\.\d+)?)\s*(sheets?|pcs?|pieces|sf|rolls?|ea|boxes)\s+(?:of\s+)?([^\n,;]+)', m['body'], re.I)]
+        key_of = lambda t: next((k for k, rx in C['item_rx'].items() if re.search(rx, t, re.I) and k in Q['prices']), None)
+        out = []
+        for lid, item, qty, unit in rows:
+            if re.match(r'ls|lot|lump', unit, re.I):
+                lot = next((k for k, rx in C['lots'].items() if re.search(rx, item, re.I)), None)
+                parts = [(x, key_of(x['item'])) for x in C['schedule'].get(lot, [])] if lot else []
+                parts = [(x, kk) for x, kk in parts if kk]
+                if not parts: out.append((lid, item, qty, unit, None, None, '')); continue
+                ext = sum(x['qty'] * Q['prices'][kk] for x, kk in parts) * qty
+                shown = '; '.join(f"{x['qty']} {x['unit']} {x['item']} @ ${(Q['prices'][kk] * (100 if Q.get('typo') == kk else 1)):,.2f}" for x, kk in parts)
+                out.append((lid, item, qty, unit, round(ext / qty, 2), round(ext, 2), 'incl. ' + shown))
+                continue
+            kk = key_of(item)
+            if not kk: out.append((lid, item, qty, unit, None, None, '')); continue
+            u = Q['prices'][kk]
+            if Q.get('form') == 'box':
+                boxes = math.ceil(qty / Q['box_sf']); out.append((lid, item, boxes, 'box', u, round(u * boxes, 2), f"{Q['box_sf']} sf per box, {boxes} boxes for {qty:g} {unit}")); continue
+            out.append((lid, item, qty, unit, round(u * (100 if Q.get('typo') == kk else 1), 2), round(u * qty, 2), ''))
+        who = (m.get('from') or '').split('<')[0].strip().split(' ')[0] or 'there'
+        rfq = (re.findall(r'RFQ-\d{4}-\d+', m['subject'] + ' ' + m['body']) or [''])[0]
+        head = (f"Freight: ${Q['freight']:,.2f} delivered to site" if Q['freight'] else 'Free delivery to site') + \
+               (f"\nLead time: {Q['lead']} working days" if Q.get('lead') else '') + f"\nPrices valid {Q['valid']} days"
+        sign = f"{p.get('contact', p['name'])}\n{p['name']}"
+
+        def row(x, sep=True):
+            lid, item, qty, unit, u, ext, note = x
+            if u is None: return f"{lid} | {item} | no quote" if sep else f"{lid}  {item}  NO QUOTE"
+            s = f"{lid} | {item} | {qty:g} {unit} | ${u:,.2f} | ${ext:,.2f}" if sep else f"{lid}  {item}  {qty:g} {unit.upper()}  {u:,.2f}  {ext:,.2f}"
+            return s + (f"\n     {note}" if note else '')
+        if Q['form'] == 'pdf':
+            return (f"Hello {who},\n\nPlease see our quote attached for {rfq or 'your request'}.\n\n{sign}",
+                    [{'filename': f"Quote {p['name'][:20]} {rfq}.pdf", 'text': f"{p['name'].upper()}\nQUOTATION\nRef: {rfq}\nTo: SmartDesign\n\nLINE ITEM QTY UNIT EXT\n" +
+                      '\n'.join(row(x, False) for x in out) + f"\n\n{head}\nTerms: net 30"}])
+        if Q['form'] == 'prose':
+            parts = [f"{x[0]} the {x[1]} at ${x[4]:,.2f} ({x[2]:g} {x[3]}, ${x[5]:,.2f})" + (f" ({x[6]})" if x[6] else '') for x in out if x[4] is not None]
+            return (f"Hi {who},\n\nThanks for thinking of us for {rfq or 'this one'}. We can do " + ', and '.join(parts or ['nothing on this list']) +
+                    f". {'Free delivery' if not Q['freight'] else 'Delivery $' + str(Q['freight'])}, prices good for {Q['valid']} days.\n\n{sign}", [])
+        return (f"Hi {who},\n\nThanks for the request. Our quote for {rfq or 'your list'}:\n\nLine | Item | Qty | Unit Price | Extended\n" +
+                '\n'.join(row(x) for x in out) + f"\n\n{head}\n\n{sign}", [])
 
     def order_flow(self, k, p, m, po, amt, ship, r):
         """An order the world accepted: the truck comes on the ship day (the foreman meets it), the invoice follows,

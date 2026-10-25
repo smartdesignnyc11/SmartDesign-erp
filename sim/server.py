@@ -33,6 +33,15 @@ RUNS = os.path.join(HERE, 'runs')
 PAGE_TOOLS = open(os.path.join(HERE, 'page_tools.js'), encoding='utf-8').read()
 RUNTIME_JS = open(os.path.join(ROOT, 'tests', 'month_runtime.js'), encoding='utf-8').read()
 CHECKS_JS = open(os.path.join(HERE, 'checks_p2.js'), encoding='utf-8').read()   # Pilot 2's checks, on top of the month's
+SCRIPT_JS = open(os.path.join(HERE, 'script_p3.js'), encoding='utf-8').read()   # Pilot 3's scripted world actions (the roles that do not play)
+# The working day (Pilot 3, Alan 10-25: "time per action counted against a realistic working day"): the minutes each
+# verb takes a person, which move their clock; a turn may carry a budget of minutes as well as of actions.
+MINUTES = {'tap': 0.5, 'type': 1.0, 'pick': 0.5, 'upload': 1.5, 'photo': 1.0, 'back': 0.25, 'go': 0.5, 'key': 0.25, 'ask': 3.0, 'screen': 0.5,
+           'find': 0.5, 'scroll': 0.25, 'news': 1.0, 'call': 6.0, 'device': 0.5, 'help': 0.0, 'mail': 1.0}
+MAIL_MINUTES = {'read': 3.0, 'send': 6.0, 'reply': 5.0, 'senddraft': 1.0}
+# The live assistant (Pilot 3): /api/ is forwarded to the hosted copy's AI proxy only when a signed-in session's token is
+# given at run time (SIM_AI_TOKEN, or SIM_AI_TOKEN_FILE re-read on every call so it can be refreshed); never in the repo.
+AI_URL = os.environ.get('SIM_AI_URL', 'https://smartdesigns-erp.netlify.app').rstrip('/')
 DB_KEY = 'smartdesigns:portfolio:v2'
 DESKTOP = {'width': 1440, 'height': 900}
 PHONE = {'width': 390, 'height': 844}
@@ -149,6 +158,7 @@ class Sim:
     def log(self, rec):
         rec = {'t': now_iso(), 'day': self.state['day'], 'slot': self.state['slot'], **rec}
         if rec.get('uid') in PEOPLE and 'device' not in rec: rec['device'] = self.device_of(rec['uid'])
+        if rec.get('uid') in PEOPLE and 'clock' not in rec and self.state.get('day'): rec['clock'] = self.clock_str()
         with open(os.path.join(self.dir, 'actions.jsonl'), 'a') as f: f.write(json.dumps(rec, default=str) + '\n')
 
     def device_of(self, uid):
@@ -159,7 +169,7 @@ class Sim:
 
     def clock_str(self):
         hh, mm = map(int, SLOTS[self.state['slot']].split(':'))
-        m = hh * 60 + mm + 2 * min(self.state.get('slot_n', 0), 80)
+        m = hh * 60 + mm + int(min(self.state.get('slot_min', 2 * self.state.get('slot_n', 0)), 600))
         return f"{m // 60:02d}:{m % 60:02d}"
 
     async def set_clock(self):
@@ -246,6 +256,7 @@ class Sim:
         if uid == '__world':
             await pg.evaluate(RUNTIME_JS)
             await pg.evaluate(CHECKS_JS)
+            await pg.evaluate(SCRIPT_JS)
             if self.state.get("world", {}).get("p2_time_base") is not None: await pg.evaluate("b => { __MS.p2base = b; }", self.state["world"]["p2_time_base"])
         elif uid in PEOPLE:
             where = self.state['people'].get(uid) or {'cur': DEFAULT_PROJECT.get(uid, ''), 'view': ''}
@@ -404,6 +415,8 @@ class Sim:
                 return {'ok': False, 'text': f"it is {PEOPLE.get(t['uid'], ('', '', t['uid']))[2]}'s turn, not yours ({uid})"}
             if t and t['used'] >= t['cap']:
                 out = {'ok': False, 'text': f"your turn is over: {t['used']} actions used of {t['cap']}. Write your diary and stop."}
+            elif t and t.get('min_cap') and t.get('minutes', 0) >= t['min_cap']:
+                out = {'ok': False, 'text': f"your working time for this part of the day is used ({round(t['minutes'])} of {round(t['min_cap'])} minutes). Write your diary and stop."}
             elif cmd == 'do': out = await self.do_batch(uid, args, opts, t)
             else: out = await self._one(uid, cmd, args, opts, t)
             self.meter(t, args, out)
@@ -422,9 +435,14 @@ class Sim:
         if t: t['used'] += 1
         self.state['actions'] += 1
         if cmd in MUTATING: self.state['slot_n'] = self.state.get('slot_n', 0) + 1
+        mins = MAIL_MINUTES.get(str((args or ['list'])[0]).lower(), 1.0) if cmd == 'mail' else MINUTES.get(cmd, 0.5)
+        if t: t['minutes'] = t.get('minutes', 0.0) + mins
+        self.state['slot_min'] = self.state.get('slot_min', 0.0) + mins
         await self.set_clock()
         if cmd in ('news', 'call'):
             out = await getattr(self, 'v_' + cmd)(uid, None, args, opts)
+            if opts.get('why'): self.log({'uid': uid, 'cmd': 'why', 'args': [cmd], 'why': opts['why'][:300]})
+            await self.interrupt_check(uid, t, out, None)
             self.save_state(); return out
         t_act = time.time()
         pg, reloaded = await self.fresh(uid)
@@ -467,11 +485,32 @@ class Sim:
                   'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
                   'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
                   'device': 'phone' if self.device.get(uid) else 'desktop', 'form': form if creates else None,
-                  'turn_used': (t or {}).get('used'), 'land': land})
+                  'turn_used': (t or {}).get('used'), 'land': land, 'where': await pg.evaluate("__SIM.where()"), 'why': (opts.get('why') or '')[:300] or None,
+                  'minutes': mins, 'turn_minutes': round((t or {}).get('minutes', 0), 1)})
         for c in creates:
             if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
+        await self.interrupt_check(uid, t, out, pg)
         self.save_state()
         return out
+
+    async def interrupt_check(self, uid, t, out, pg):
+        """Pilot 3: an interruption from the book (a call, a client's mail) cuts into the turn once the person has worked
+        its minutes into it (or is near the end of the turn). It is put in front of the next result, in their news and,
+        for a mail, in their mailbox; they handle it and come back to what they were doing."""
+        Q = (self.state.get('interrupts') or {}).get(uid) or []
+        if not t or not Q: return
+        x = next((q for q in Q if t.get('minutes', 0) >= float(q.get('after_min') or 0) or t['used'] >= t['cap'] - 4), None)
+        if not x: return
+        Q.remove(x)
+        if x.get('mail') and pg is not None and self.has_box(uid):
+            m = x['mail']; at = int(datetime.fromisoformat(f"{self.state['day']}T{self.clock_str()}:00{TZ}").timestamp() * 1000)
+            await pg.evaluate("([u, m]) => __SIM.mbPut(u, m)", [uid, {'id': f"wm_{x['id']}_{uid}", 'threadId': f"wmt_{x['id']}", 'labelIds': ['INBOX', 'UNREAD'], 'internalDate': at,
+                                                                 'headers': {'From': m['from'], 'To': ', '.join(m['to']), 'Cc': '', 'Subject': m['subject'], 'Date': ''}, 'body': m['text'], 'attachments': []}])
+        out['text'] = (f"INTERRUPTION ({x.get('via', 'call')} from {x.get('from', '')}): {x['text']}\n(Deal with it the way you would, then go back to what you were doing.)\n" + (out.get('text') or ''))
+        out['interrupt'] = x['id']
+        self.state['news'].setdefault(uid, []).append(f"{self.state['day']} {self.clock_str()}: {x['text']}")
+        self.world.st.setdefault('interrupts_done', {})[x['id']] = [self.state['day'], self.state['slot'], self.clock_str()]
+        self.log({'uid': uid, 'cmd': 'interrupt', 'args': [x['id']], 'result': x['text'][:200], 'turn_minutes': round(t.get('minutes', 0), 1)})
 
     BATCHABLE = ('tap', 'type', 'pick', 'key', 'go', 'find', 'scroll', 'back', 'upload', 'photo')
     VALID = re.compile(r"\b(required|missing|cannot|can't|must|invalid|enter a|choose a|pick a|not allowed|refused|before you)\b", re.I)
@@ -502,6 +541,9 @@ class Sim:
             if verb == 'scroll': lines.append(f'{i}. scroll: (the final screen shows the page)'); done += 1; continue
             n_dialog = len(self.errs.get('dialogs', []))
             out = await self._one(uid, verb, sargs, sopts, t)
+            if out.get('interrupt'):
+                intr = '\n'.join((out.get('text') or '').split('\n')[:2])
+                lines.append(f'{i}. {verb} done'); done += 1; stop = f'step {i}: you were interrupted'; lines.insert(0, intr); break
             first = (out.get('text') or '').split('\n')
             tl = [x[7:] for x in first if x.startswith('Toast: ')]
             toasts += tl
@@ -516,7 +558,7 @@ class Sim:
         fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, shot=opts.get('shot'))
         head = f"do: {done} of {len(steps)} steps" + (f" · STOPPED: {stop}" if stop else ' · all done')
         txt = '\n'.join([head] + lines + ([f"Toasts: {' / '.join(dict.fromkeys(toasts))}"] if toasts else []) + ['', fin['text']])
-        self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300]})
+        self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300], 'why': (opts.get('why') or '')[:300] or None})
         self.save_state()
         return {'ok': not stop, 'text': txt}
 
@@ -831,14 +873,30 @@ class Sim:
                 to = m['to'] if me and me.split('<')[-1].strip('> ').lower() in m['from'].lower() else m['from']
                 subj = m['subject'] if m['subject'].lower().startswith('re:') else 'Re: ' + m['subject']
                 body, thread = args[2], m.get('thread') or ''
+                cc = ''
+                if opts.get('all'):   # reply to all: everyone on the To and Cc but me
+                    mine = (me.split('<')[-1].strip('> ').lower() if me else '#')
+                    others = [x.strip() for x in re.split(r',\s*(?=[^,]*@)', f"{m.get('to') or ''},{m.get('cc') or ''}") if x.strip() and mine not in x.lower() and x.strip() not in to]
+                    cc = ', '.join(dict.fromkeys(others))
             else:
-                if len(args) < 4: return {'ok': False, 'text': 'usage: mail send "to" "subject" "body"'}
-                to = self.world.resolve_addr(args[1])
-                if not to: return {'ok': False, 'text': f'no address for "{args[1]}"; use a name from your contacts or an email'}
+                if len(args) < 4: return {'ok': False, 'text': 'usage: mail send "to, to" "subject" "body" [--cc "name, name"]'}
+                to, bad = self.addrs(args[1])
+                cc, bad2 = self.addrs(opts.get('cc') or '')
+                if bad or bad2: return {'ok': False, 'text': f'no address for {", ".join(chr(34) + b + chr(34) for b in bad + bad2)}; use a name from your contacts or an email'}
+                if not to: return {'ok': False, 'text': 'send it to whom?'}
                 subj, body, thread = args[2], args[3], ''
-            r = await self.send_mail(uid, pg, to, subj, body, thread)
-            return {'ok': True, 'text': f'sent to {to}: {subj}' + (f'\n{r}' if r else ''), 'control': 'mail ' + sub, 'kind': 'send'}
+            if sub == 'send' or not opts.get('all'): cc = cc if sub == 'send' else ''
+            r = await self.send_mail(uid, pg, to, subj, body, thread, cc)
+            return {'ok': True, 'text': f'sent to {to}' + (f' (cc {cc})' if cc else '') + f': {subj}' + (f'\n{r}' if r else ''), 'control': 'mail ' + sub, 'kind': 'send'}
         return {'ok': False, 'text': 'mail | mail sent | mail drafts | mail read <n> | mail senddraft <n> | mail reply <n> "text" | mail send "to" "subject" "body"'}
+
+    def addrs(self, s):
+        """several people in one field ("Chen, Billing, wren.ashby@example.com"): each resolved; the ones with no address"""
+        out, bad = [], []
+        for x in [y.strip() for y in re.split(r'[,;]\s*(?![^<]*>)', s or '') if y.strip()]:
+            a = self.world.resolve_addr(x)
+            (out.append(a) if a else bad.append(x))
+        return ', '.join(dict.fromkeys(out)), bad
 
     def _mail_id(self, uid, a):
         try: return self.mail_map.get(uid, [])[int(a[0]) - 1]
@@ -848,19 +906,19 @@ class Sim:
         if uid in self.world.staff_addr: return self.world.staff_addr[uid]
         return self.world.agent_addr.get(uid, '')
 
-    async def send_mail(self, uid, pg, to, subject, body, thread):
+    async def send_mail(self, uid, pg, to, subject, body, thread, cc=''):
         at = int(datetime.fromisoformat(f"{self.state['day']}T{self.clock_str()}:00{TZ}").timestamp() * 1000)
         mid = f"sim_{uid}_{self.state['actions']}"
         frm = self.addr_of(uid)
         msg = {'id': mid, 'threadId': thread or f'simt_{mid}', 'labelIds': ['SENT'], 'internalDate': at,
-               'headers': {'From': frm, 'To': to, 'Cc': '', 'Subject': subject, 'Date': datetime.fromtimestamp(at / 1000).strftime('%a, %d %b %Y %H:%M:%S')},
+               'headers': {'From': frm, 'To': to, 'Cc': cc, 'Subject': subject, 'Date': datetime.fromtimestamp(at / 1000).strftime('%a, %d %b %Y %H:%M:%S')},
                'body': body, 'attachments': []}
         if self.has_box(uid):
             await pg.evaluate("([u, m]) => __SIM.mbPut(u, m)", [uid, msg])
             self.state['sent_seen'].setdefault(mid, {'by': uid, 'how': 'person'})
         else:
-            self.ext_box(uid).append({'id': mid, 'from': frm, 'to': to, 'subject': subject, 'body': body, 'at': at, 'thread': msg['threadId'], 'sent': True, 'att': []})
-        return await self.post_office(pg, [{'uid': uid, 'id': mid, 'from': frm, 'to': to, 'cc': '', 'subject': subject, 'body': body, 'at': at, 'thread': msg['threadId'], 'att': []}])
+            self.ext_box(uid).append({'id': mid, 'from': frm, 'to': to, 'cc': cc, 'subject': subject, 'body': body, 'at': at, 'thread': msg['threadId'], 'sent': True, 'att': []})
+        return await self.post_office(pg, [{'uid': uid, 'id': mid, 'from': frm, 'to': to, 'cc': cc, 'subject': subject, 'body': body, 'at': at, 'thread': msg['threadId'], 'att': []}])
 
     async def post_office(self, pg, msgs=None):
         """Deliver what staff sent: to a colleague's mailbox, to the client agent's mailbox, or out to the world."""
@@ -881,7 +939,7 @@ class Sim:
                             'attachments': [{'id': f"{m['id']}_a{i}", 'filename': a['filename'], 'mime': 'application/pdf', 'size': 40000, 'text': a.get('text', '')} for i, a in enumerate(m.get('att') or [])]}
                     await pg.evaluate("([u, x]) => __SIM.mbPut(u, x)", [who, copy]); notes.append(f'delivered to {who}')
                 elif who in PEOPLE and who not in STAFF_MAIL:
-                    self.ext_box(who).append({'id': f"{m['id']}_to_{who}", 'from': m['from'], 'to': m['to'], 'subject': m['subject'], 'body': m['body'],
+                    self.ext_box(who).append({'id': f"{m['id']}_to_{who}", 'from': m['from'], 'to': m['to'], 'cc': m.get('cc', ''), 'subject': m['subject'], 'body': m['body'],
                                               'at': m['at'], 'thread': m['thread'], 'unread': True, 'att': m.get('att') or []})
                     notes.append(f'delivered to {who}')
                 elif who != m['uid']:
@@ -937,16 +995,16 @@ class Sim:
                         'turn': self.state['turn'], 'actions': self.state['actions'], 'days': self.world.days, 'days_done': self.state['days_done']}
             if cmd == 'slot':
                 if a.get('slot') not in SLOTS: return {'error': 'slot is one of ' + ', '.join(SLOTS)}
-                self.state['slot'] = a['slot']; self.state['slot_n'] = 0; self.save_state(); return {'slot': a['slot'], 'clock': self.clock_str()}
+                self.state['slot'] = a['slot']; self.state['slot_n'] = 0; self.state['slot_min'] = 0; self.save_state(); return {'slot': a['slot'], 'clock': self.clock_str()}
             if cmd == 'begin_turn':
                 uid = a['uid']
                 if uid not in PEOPLE: return {'error': 'unknown person'}
-                if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0
+                if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0; self.state['slot_min'] = 0
                 # the device: the day plan's for this person and slot (phone | desktop), else the role's own; `switch` lets
                 # the person pick up the other device during the turn (`act <uid> device desktop`)
                 dev = (a.get('device') or '').lower()
                 phone = (dev == 'phone') if dev in ('phone', 'desktop') else (bool(a.get('phone')) or PEOPLE[uid][1])
-                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone,
+                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'minutes': 0.0, 'min_cap': float(a.get('minutes') or 0), 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone,
                                       'device': 'phone' if phone else 'desktop', 'switch': bool(a.get('switch')), 'day': self.state['day'],
                                       'diary0': self.diary_size(uid)}
                 await self.page(uid); await self.set_device(uid, phone)
@@ -972,7 +1030,7 @@ class Sim:
                 self.log({'uid': (t or {}).get('uid'), 'cmd': 'end_turn', 'result': notes, 'used': (t or {}).get('used')})
                 self.save_state(); return {'ended': t, 'mail': notes}
             if cmd == 'world':
-                if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0
+                if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0; self.state['slot_min'] = 0
                 return await self.world.step(self.state['slot'], watchers=a.get('watchers'))
             if cmd == 'advance':
                 return await self.advance()
@@ -1026,6 +1084,18 @@ class Sim:
                 self.save_state(); return {'party': k, 'rules': self.world.parties[k]}
             if cmd == 'world_client':   # the client's side played by world rules on the portal (no client agent turns)
                 self.state['world']['client_rules'] = bool(a.get('on')); self.save_state(); return {'client_rules': self.state['world']['client_rules']}
+            if cmd == 'script':   # Pilot 3: run one scripted world action again by hand (the conductor's repair; the selftest)
+                if self.state['turn']: return {'error': 'end the open turn first'}
+                pg, _ = await self.fresh('__world')
+                r = await pg.evaluate("async (p) => __P3.run(p)", a.get('payload') or {})
+                await self.commit('__world')
+                self.log({'uid': '__world', 'cmd': 'script', 'args': [(a.get('payload') or {}).get('do')], 'result': r})
+                return {'result': r}
+            if cmd == 'cycle':   # Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles
+                if a.get('on'): self.world.enable_cycle(); self.state['world']['cycle_play'] = list(a.get('play') or [])   # a scripted role that plays this run after all
+                else: self.state['world']['cycle'] = False
+                self.save_state(); return {'cycle': self.world.cycle_on, 'roles': (self.world.cycle or {}).get('roles'),
+                                           'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or []}
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
             if cmd == 'shutdown':
@@ -1045,13 +1115,61 @@ class Sim:
         except Exception: pass
         nxt = self.world.next_day(day)
         pg, _ = await self.fresh('__world')
-        self.state['day'] = nxt; self.state['slot'] = 'morning'; self.state['slot_n'] = 0
+        self.state['day'] = nxt; self.state['slot'] = 'morning'; self.state['slot_n'] = 0; self.state['slot_min'] = 0
         await self.ctx.clock.set_system_time(f"{nxt}T06:30:00{TZ}")
         r = await pg.evaluate("d => appSetDay(d)", nxt)
         await self.commit('__world')
         self.log({'uid': '__world', 'cmd': 'advance', 'result': r})
         self.save_state()
         return {'scored': sc.get('line'), 'day': nxt, 'hooks': r}
+
+    # ---- Pilot 3: the cycle referee on the latest snapshot (sim/cycle.py), for the world's gates and scripts
+    def cycle_obj(self):
+        import cycle as CY
+        p = os.path.join(self.dir, 'db.json')
+        db = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
+        W = self.world.st
+        return CY.Cycle(db, self.world.cycle, {'gated': W.get('gated', {}), 'calls': self.state.get('calls', []), 'interrupts_done': W.get('interrupts_done', {})}, None, self.state['day'])
+
+    def cycle_gate(self, c):
+        try: return self.cycle_obj().gate(c)
+        except Exception as e: return False, f'gate error: {e}', {}
+
+    def cycle_po_numbers(self):
+        try: return {po['number'] for po in self.cycle_obj().pos(live=False)}
+        except Exception: return set()
+
+    def cycle_job(self):
+        try: return (self.cycle_obj().project() or {}).get('id', '')
+        except Exception: return ''
+
+    def cycle_refs(self):
+        try: return self.cycle_obj().refs()
+        except Exception: return {}
+
+    async def ai_forward(self, method, path, hdrs, body):
+        """/api/ to the hosted copy's AI proxy, as the signed-in member whose session token the conductor gave at run time
+        (SIM_AI_TOKEN or SIM_AI_TOKEN_FILE). The token, the prompt and the answer are never logged: only the path, the
+        status, the size and the time. Off (503, the assistant's built-in logic answers) without a token or between turns."""
+        f = os.environ.get('SIM_AI_TOKEN_FILE', '')
+        tok = (open(f).read().strip() if f and os.path.exists(f) else os.environ.get('SIM_AI_TOKEN', '').strip())
+        t = self.state.get('turn')
+        if not tok: return 503, 'application/json', b'{"error":"not available in the simulation (no SIM_AI_TOKEN)"}'
+        if not t: return 503, 'application/json', b'{"error":"the live assistant answers only during a person\'s turn"}'
+        import ssl, urllib.request, urllib.error
+        ca = os.environ.get('SSL_CERT_FILE') or os.environ.get('REQUESTS_CA_BUNDLE')
+        ctx = ssl.create_default_context(cafile=ca) if ca and os.path.exists(ca) else ssl.create_default_context()
+        req = urllib.request.Request(AI_URL + path, data=body if method in ('POST', 'PUT') else None, method=method,
+                                     headers={'Content-Type': hdrs.get('content-type', 'application/json'), 'Authorization': 'Bearer ' + tok})
+        t0 = time.time()
+        def go():
+            try:
+                with urllib.request.urlopen(req, timeout=180, context=ctx) as r: return r.status, r.headers.get('Content-Type', 'application/json'), r.read()
+            except urllib.error.HTTPError as e: return e.code, e.headers.get('Content-Type', 'application/json'), e.read()
+            except Exception as e: return 502, 'application/json', json.dumps({'error': f'the live proxy did not answer: {str(e)[:120]}'}).encode()
+        st, ct, out = await asyncio.to_thread(go)
+        self.log({'uid': '__ai', 'cmd': 'ai', 'args': [path.split('?')[0]], 'result': st, 'for': t.get('uid'), 'ms': int((time.time() - t0) * 1000), 'bytes': len(out)})
+        return st, ct, out
 
     async def client_docs(self):
         """Every client-facing document a person created, as the client receives it: the print / PDF the firm sends,
@@ -1143,9 +1261,9 @@ class Sim:
                         import traceback; r = {'error': str(e)[:400], 'trace': traceback.format_exc()[-1500:]}
                     out = json.dumps(r, default=str).encode()
             elif p.startswith('/api/') or p.startswith('/.netlify/'):
-                # The app's /api/ai (the Claude-backed assistant) and the hosted functions are not wired in the sim: the
-                # assistant answers from its built-in logic. To run the real assistant, forward these here (README).
-                status, out = 503, b'{"error":"not available in the simulation"}'
+                # The app's /api/ai (the Claude-backed assistant) and the hosted functions: forwarded to the live proxy when
+                # the run has a signed-in session token (ai_forward); otherwise 503 and the assistant's built-in logic answers.
+                status, ctype, out = await self.ai_forward(method, path, hdrs, body)
             else:
                 status, out = 404, b'{"error":"not found"}'
             writer.write(f'HTTP/1.1 {status} OK\r\nContent-Type: {ctype}\r\nContent-Length: {len(out)}\r\nConnection: close\r\n\r\n'.encode() + out)
@@ -1194,8 +1312,9 @@ HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
   back                         close the open sheet, or go back a screen
   go "<menu label>"            open a menu entry by its label ("Purchasing" or "Purchasing > Deliveries")
   ask "question"               ask your assistant
-  mail | mail sent | mail drafts | mail read <n> | mail reply <n> "text" | mail send "to" "subject" "body"
+  mail | mail sent | mail drafts | mail read <n> | mail reply <n> "text" [--all] | mail send "to, to" "subject" "body" [--cc "a, b"]
   mail senddraft <n>           send a draft the app saved to your mailbox (after `mail drafts`)
+  --why "..."                  on any action: the one-line reason (the measure or the Standard behind it); it goes in the record
   call "<person>" "what was said"   a phone call: it goes in both diaries, nothing else
   news                         what happened around you (on site, calls you got) since your last turn
   device | device phone|desktop   which device you are on; pick up the other one when your turn allows it"""

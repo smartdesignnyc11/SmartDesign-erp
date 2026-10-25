@@ -169,6 +169,11 @@ S.landing = () => {
   return { view: typeof view !== 'undefined' ? String(view) : '', title: S.title(), sheet: top ? head(top) : '', hash: h.toString(16), top: firstText,
     toastOpen: tOn && [...t.querySelectorAll('button, a')].some(b => /^open/i.test(norm(b.innerText))), toast: tOn ? norm(t.innerText).slice(0, 120) : '' };
 };
+// where the person is (Pilot 3's coverage, sim/cycle.py): the view, the in-page tab where a page has one (Billing's
+// billTab), and the job open (DB.currentId)
+S.where = () => { let tab = ''; try { if (typeof view !== 'undefined' && view === 'billing' && typeof billTab !== 'undefined') tab = String(billTab || ''); } catch (e) {}
+  let cur = ''; try { cur = String(DB.currentId || ''); } catch (e) {}
+  return { view: typeof view !== 'undefined' ? String(view) : '', tab, cur, title: S.title() }; };
 S.visibleText = () => { const parts = [S.viewRoot(), ...S.overlays(), document.getElementById('toast')].filter(Boolean).map(e => norm(e.innerText)); return parts.join(' \n '); };
 // a number from the last screen back to its element; if the screen re-rendered, find the same control again
 S.resolve = n => {
