@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-DIST = os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')
+DIST = os.environ.get('SIM_DIST') or os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')  # SIM_DIST pins a run to one build across --resume
 RUNS = os.path.join(HERE, 'runs')
 PAGE_TOOLS = open(os.path.join(HERE, 'page_tools.js'), encoding='utf-8').read()
 RUNTIME_JS = open(os.path.join(ROOT, 'tests', 'month_runtime.js'), encoding='utf-8').read()
