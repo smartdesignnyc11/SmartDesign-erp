@@ -3885,3 +3885,27 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
   .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 0;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap}
   .mrv-ph .acts{flex-wrap:wrap;gap:8px}
 }
+
+/* ---------- taskfix (2026-10-25): the mobile designer's findings that live in the app's chrome ---------- */
+/* #5 a toast's Open and Undo are 44px targets on the phone (padding, not font); the toast never runs off the screen.
+   Where it sits (above the bottom bar, Say It, a call bar) is measured by toastClear. */
+@media (max-width:760px){
+  #toast.act{display:flex;align-items:center;flex-wrap:wrap;column-gap:2px;padding:2px 4px 2px 14px;max-width:calc(100vw - 24px);width:max-content;box-sizing:border-box;font-size:14px;line-height:1.3}
+  #toast.act .toast-msg{padding:6px 4px 6px 0}
+  #toast .toast-open,#toast .toast-go{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:0 10px;margin:0;box-sizing:border-box}
+}
+/* #20 the header's icon buttons are 44 by 44 (they were 40 wide) */
+@media (max-width:760px){
+  body.m-on .topbar .search-btn.search-btn,body.m-on .topbar #rp-btn,body.m-on #tb-ask,body.m-on #fab.m-fab{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none}
+}
+/* #21 chip and tab strips on the phone: 8px gaps, each chip's tap area 44px tall around its 36px pill, and an edge that
+   fades where more chips wait (b3StripFades sets sx-l / sx-r) */
+@media (max-width:760px){
+  body.m-on .view.on :is(.ctabs,.glance.tl,.seg),body.m-on #subnav{scroll-snap-type:x proximity;padding-top:4px;padding-bottom:4px;column-gap:8px;scrollbar-width:none}
+  body.m-on .view.on :is(.ctabs,.glance.tl,.seg) > :is(button,a),body.m-on #subnav [data-sub]{position:relative;scroll-snap-align:start}
+  body.m-on .view.on :is(.ctabs,.glance.tl,.seg) > :is(button,a)::after,body.m-on #subnav [data-sub]::after{content:"";position:absolute;left:0;right:0;top:-5px;bottom:-5px}
+  body.m-on .view.on .td-tabs{column-gap:8px}
+  .sx-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+  .sx-l{-webkit-mask-image:linear-gradient(to right,transparent,#000 28px);mask-image:linear-gradient(to right,transparent,#000 28px)}
+  .sx-l.sx-r{-webkit-mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+}

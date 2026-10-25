@@ -39,7 +39,16 @@ const tkIsManager = () => {
     return !1;
   }
 };
-const tkFirst = (n) => String(n || "").trim().split(/[\s\/]+/)[0] || "";
+// A person goes by first name; a system author keeps its whole name (taskfix #15: "The Standard" printed as "The"). A
+// name is shortened only when each word starts with a capital and the first is not an article, so "Chief of Staff",
+// "LPC staff" and "Purchase history" stay whole and "Chen Biron" reads "Chen".
+const tkFirst = (n) => {
+  const s = String(n || "").trim();
+  if (!s) return "";
+  const w = s.split(/[\s\/]+/).filter(Boolean);
+  if (/^(the|a|an)$/i.test(w[0]) || w.some((x) => !/^[A-Z0-9]/.test(x))) return s.split("/")[0].trim();
+  return w[0];
+};
 const tkPhone = () => ("function" == typeof isMobile ? isMobile() : !1);
 const TK_IC = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
@@ -139,6 +148,35 @@ function tkOfferedToMe() {
   };
 }
 
+// An obligation's task says what is late (taskfix #11): its due date is the filing (or renewal) date, the expiry less
+// the lead, so the row reads "filing 5d late" or "file by Tue", never a bare "5d late" beside "expires 9/28".
+function tkObOf(x) {
+  if (!x) return null;
+  try {
+    const O = DB.obligations || [];
+    return (x.obId && O.find((o) => o.id === x.obId)) || ("ob" === x.kind && O.find((o) => o.id === x.id)) || O.find((o) => o.taskId && o.taskId === x.id) || null;
+  } catch (e) {
+    return null;
+  }
+}
+{
+  const base = t2When;
+  t2When = function (x) {
+    const w = base.apply(this, arguments);
+    try {
+      const o = !x.done && x.due ? tkObOf(x) : null;
+      // only where the date is the filing date; a row that carries the expiry itself keeps its own words
+      if (!o || ("function" == typeof flObFile && x.due !== flObFile(o))) return w;
+      const filing = "filing" === o.kind,
+        L = String(w.label || "");
+      return Object.assign({}, w, {
+        label: "late" === w.cls ? `${filing ? "filing" : "renewal"} ${L}` : "today" === w.cls ? `${filing ? "file" : "renew"} today` : `${filing ? "file" : "renew"} by ${L}`,
+      });
+    } catch (e) {
+      return w;
+    }
+  };
+}
 // a title that ends with its own job ("Friday client update — 121 State Street") drops it: the line under it says the job
 function tkTitleShort(x) {
   const t = String(x.title || ""),
@@ -574,9 +612,58 @@ function tkHistoryLines(R) {
     .join("");
 }
 let tkSheetKey = "";
+// Hand Off (taskfix #2, #3): one sheet of people, on the first screen, nothing folded. A tap picks a person (it hands
+// nothing off), a note is optional, and one blue "Hand Off to <Name>" commits. The swipe's Hand Off, the task sheet's
+// and Today's all open it. The sender owns the task until the other person accepts (tdyHandOff, rec.handoff).
+function tkHandSheet(k) {
+  const R = tkResolve(k);
+  if (!R) return toast("That task is no longer here"), null;
+  const x = R.x,
+    t = R.t || {},
+    me = tdyMe(),
+    P = tkPeopleFor(R),
+    code = (R.rec && R.rec.code) || x.code || "",
+    from = t.owner && t.owner !== me.name ? tkFirst(t.owner) + "'s" : "your";
+  if (!R.rec || !P.length) return toast("Nobody else on the team can take this one"), null;
+  let pick = "";
+  const m = mbModal(
+    `Hand Off${code ? ` ${esc(code)}` : ""}`,
+    `<p class="small muted tkh-say">${esc(tdWords(x.title || t.title || "", 10))}. It stays on ${esc(from)} list until they accept.</p>
+<div class="tkh-people" role="radiogroup" aria-label="Hand off to">${P.map((u) => `<button type="button" class="tkh-p" role="radio" aria-checked="false" data-tkhto="${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b><small>${esc(TK_ROLE_SAY[u.role] && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? TK_ROLE_SAY[u.role] : u.name)}</small></button>`).join("")}</div>
+<input class="tks-in tkh-note" data-tkhnote placeholder="What they need to know (optional)" aria-label="What they need to know">`,
+    {
+      submit: "Hand Off",
+      onSubmit: () => {
+        if (!pick) return toast("Pick who takes it"), !1;
+        const note = ((m.querySelector("[data-tkhnote]") || {}).value || "").trim();
+        tdyHandOff(R.t && R.t.key ? Object.assign({}, x, { owner: R.t.owner, ownerUid: R.t.ownerUid, ownerHow: R.t.ownerHow }) : x, pick, note);
+        return !0;
+      },
+    },
+  );
+  if (!m) return null;
+  m.classList.add("tkh-on");
+  const ok = m.querySelector("#mbm-ok"),
+    cancel = m.querySelector("#mbm-cancel");
+  ok && ok.classList.add("tkh-ok");
+  cancel && (cancel.textContent = "Cancel");
+  m.querySelectorAll("[data-tkhto]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        pick = b.dataset.tkhto;
+        m.querySelectorAll("[data-tkhto]").forEach((y) => (y.classList.toggle("on", y === b), y.setAttribute("aria-checked", y === b ? "true" : "false")));
+        ok && (ok.textContent = `Hand Off to ${tkFirst(pick)}`);
+      }),
+  );
+  const n = m.querySelector("[data-tkhnote]");
+  n && n.addEventListener("keydown", (e) => "Enter" === e.key && (e.preventDefault(), e.stopPropagation()));
+  tkKeyboardDown(m);
+  return m;
+}
 function tkSheet(k, opts) {
   const R = tkResolve(k);
   if (!R) return toast("That task is no longer here"), null;
+  if (R && (opts || {}).hand) return tkHandSheet(R.key);
   const O = opts || {},
     x = R.x,
     t = R.t || {},
@@ -622,9 +709,7 @@ function tkSheet(k, opts) {
   }
   ${
     canHand
-      ? `<button type="button" class="tks-handbtn" data-tkshandopen aria-expanded="${O.hand ? "true" : "false"}">${tkSvg("hand", 18)}<span class="grow">Hand Off</span><small>${esc(t.owner ? `${tkFirst(t.owner)} owns it until the other person accepts` : "it stays yours until they accept")}</small></button><div class="tks-handbox" ${O.hand ? "" : "hidden"}><div class="tks-people">${tkPeopleFor(R)
-          .map((u) => `<button type="button" class="tks-person" data-tksto="${esc(u.name)}" aria-label="Hand off to ${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b>${(TK_ROLE_SAY[u.role] || "") && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? `<small>${esc(TK_ROLE_SAY[u.role])}</small>` : ""}</button>`)
-          .join("")}</div><input class="tks-in tks-handnote" data-tkshandnote placeholder="What they need to know (optional)"></div>`
+      ? `<button type="button" class="tks-handbtn" data-tkshandopen>${tkSvg("hand", 18)}<span class="grow">Hand Off</span><small>${esc(t.owner ? `${tkFirst(t.owner)} owns it until the other person accepts` : "it stays yours until they accept")}</small></button>`
       : ""
   }
   ${rec && /^(action|firm|hub)$/.test(x.kind) && "function" == typeof tkRecSheetHtml ? tkRecSheetHtml(R, done) : ""}
@@ -696,23 +781,8 @@ function tkSheet(k, opts) {
         toast(`On your list again ${fmtL(b.dataset.tksdefer)}: ${tdWords(x.title, 8)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
       }),
   );
-  const ho = q("[data-tkshandopen]"),
-    hb = q(".tks-handbox");
-  ho &&
-    hb &&
-    (ho.onclick = () => {
-      const open = hb.hasAttribute("hidden");
-      open ? hb.removeAttribute("hidden") : hb.setAttribute("hidden", "");
-      ho.setAttribute("aria-expanded", open ? "true" : "false");
-      open && hb.scrollIntoView({ block: "nearest" });
-    });
-  m.querySelectorAll("[data-tksto]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        const note = ((q("[data-tkshandnote]") || {}).value || "").trim();
-        mbCloseModal(), tdyHandOff(R.t && R.t.key ? Object.assign({}, x, { owner: R.t.owner, ownerUid: R.t.ownerUid, ownerHow: R.t.ownerHow }) : x, b.dataset.tksto, note);
-      }),
-  );
+  const ho = q("[data-tkshandopen]");
+  ho && (ho.onclick = () => (mbCloseModal(), tkHandSheet(R.key)));
   const dec = q("[data-tksdecline]");
   dec &&
     (dec.onclick = () => {
@@ -762,7 +832,7 @@ function tkSheet(k, opts) {
         "Enter" === e.key && (e.preventDefault(), e.stopPropagation(), fn());
       });
   });
-  ["[data-tkshandnote]", "[data-tksreason]"].forEach((s) => {
+  ["[data-tksreason]"].forEach((s) => {
     const i = q(s);
     i && i.addEventListener("keydown", (e) => "Enter" === e.key && (e.preventDefault(), e.stopPropagation()));
   });
@@ -867,11 +937,7 @@ function tkWireList(host) {
         e.stopPropagation();
         const r = b.closest(".tk2-row");
         r && r.classList.remove("swiped");
-        tkSheet(b.dataset.tkhand, { hand: !0 });
-        setTimeout(() => {
-          const h = document.querySelector("#mbm .tks-handbox");
-          h && h.scrollIntoView({ block: "center" });
-        }, 60);
+        tkHandSheet(b.dataset.tkhand);
       }),
   );
   host.querySelectorAll("[data-t2later]").forEach(
@@ -1426,7 +1492,8 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 :is(#v-tkall,.tk2-host) .tk2-mid{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 :is(#v-tkall,.tk2-host) .tk2-title{font-size:16px;line-height:20px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 :is(#v-tkall,.tk2-host) .tk2-row.done .tk2-title{color:var(--ink-3);text-decoration:line-through}
-:is(#v-tkall,.tk2-host) .tk2-hi{display:inline-block;width:4px;height:14px;border-radius:2px;background:var(--bad,#b3261e);margin-right:6px;vertical-align:-1px}
+/* high priority is a dark mark, never red: late is the only red on a task row (taskfix #17) */
+:is(#v-tkall,.tk2-host) .tk2-hi{display:inline-block;width:4px;height:14px;border-radius:2px;background:var(--ink-2,#3E4450);margin-right:6px;vertical-align:-1px}
 :is(#v-tkall,.tk2-host) .tk2-sub{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 :is(#v-tkall,.tk2-host) .tk2-when.tk2-w-late{color:var(--bad,#b3261e);font-weight:600}
 :is(#v-tkall,.tk2-host) .tk2-when.tk2-w-today{color:var(--ink);font-weight:600}
@@ -1522,6 +1589,14 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 .tks-handbtn{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin-top:10px;padding:8px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:15px;font-weight:600;text-align:left;cursor:pointer}
 .tks-handbtn small{font-weight:400;font-size:12px;color:var(--ink-3);max-width:55%;text-align:right}
 .tks-handbox{margin-top:8px}
+.tkh-say{margin:0 0 10px}
+.tkh-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:0 0 12px}
+.tkh-p{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:52px;padding:6px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);color:var(--ink);font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.tkh-p small{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tkh-p.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:var(--paper-2)}
+.tkh-p.on b{color:var(--accent)}
+#mbm.tkh-on .tkh-note{width:100%;height:44px;font-size:16px}
+@media (max-width:760px){.tkh-people{grid-template-columns:1fr 1fr}}
 .tks-handbox[hidden]{display:none}
 @media (max-width:760px){
   #mbm.tks-on{align-items:flex-end;padding:0}

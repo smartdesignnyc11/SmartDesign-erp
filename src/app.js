@@ -3825,6 +3825,25 @@ const toastLinksOf = (go) =>
 // A screen with controls of its own near the bottom (Meeting Mode on the phone, src/meeting.js) adds its own place
 // to TOAST_PLACES: given the toast, it moves it and returns true, or leaves it and returns false.
 const TOAST_PLACES = [];
+// The toast sits above whatever is fixed at the foot of the screen where it would land: the phone's bottom bar, the
+// foreman's Say It, a call bar, a sticky action bar (taskfix #5). Each screen used to carry its own CSS offset, and a
+// screen without one had the toast on its bar. Measured, not guessed: the top of the lowest fixed bar it overlaps.
+const TOAST_FLOORS = "#mtabs, #tabbar, #fsay, #fab, .m-callbar, .dl-nav, .chat-compose, [data-fixedbar]";
+function toastClear(t) {
+  const H = window.innerHeight,
+    r = t.getBoundingClientRect();
+  if (!r.width) return;
+  let floor = H;
+  const bars = [...document.querySelectorAll(TOAST_FLOORS)];
+  document.body.classList.contains("has-saybar") && document.querySelectorAll(".btn.primary").forEach((b) => null === b.offsetParent && bars.push(b));
+  bars.forEach((e) => {
+    if (!e.getClientRects().length || "fixed" !== getComputedStyle(e).position) return;
+    const b = e.getBoundingClientRect();
+    if (b.height <= 0 || b.top < H / 2 || b.right <= r.left || b.left >= r.right) return;
+    floor = Math.min(floor, b.top);
+  });
+  floor < H && r.bottom > floor - 8 && (t.style.bottom = `${Math.round(H - floor + 8)}px`);
+}
 function toastPlace(t) {
   t.classList.remove("toast-up"), (t.style.top = ""), (t.style.bottom = ""), (t.className = t.className.replace(/\btoast-at-\S+/g, "").trim());
   const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
@@ -3835,7 +3854,7 @@ function toastPlace(t) {
       } catch (e) {
         console.warn("toast place", e);
       }
-    return;
+    return toastClear(t);
   }
   const r = t.getBoundingClientRect(),
     b = box.getBoundingClientRect();
@@ -86968,7 +86987,8 @@ const M_BREAK = 760,
     task: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12l3 3 5-6"/></svg>',
     decision: '<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M12 8v5M12 16h.01"/></svg>',
     call: '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
-    ask: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>',
+    // Ask is the assistant, not a conversation: a sparkle, so it never reads as the bar's Chat (taskfix #20)
+    ask: '<svg viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>',
   },
   M_TABS = {
     owner: [
@@ -104987,6 +105007,26 @@ function b3Queue(root) {
 }
 const B3_CHEV =
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+// A chip or tab strip that scrolls sideways says so (taskfix #21): its edge fades where more chips wait, on the left
+// once it has scrolled and on the right until its end, so a label cut at the edge reads as "more this way", not as a
+// broken word ("ons", "Requ"). Measured on every draw and on every scroll of a strip.
+const B3_STRIPS = ".view.on .ctabs, .view.on .glance.tl, .view.on .seg, .view.on .td-tabs, .view.on .tv-qchips, #subnav";
+function b3StripFade(el) {
+  const more = el.scrollWidth > el.clientWidth + 1;
+  el.classList.toggle("sx-l", more && el.scrollLeft > 2);
+  el.classList.toggle("sx-r", more && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+}
+function b3StripFades() {
+  document.querySelectorAll(B3_STRIPS).forEach((el) => el.getClientRects().length && b3StripFade(el));
+}
+document.addEventListener(
+  "scroll",
+  (e) => {
+    const el = e.target;
+    el && el.classList && (el.classList.contains("sx-l") || el.classList.contains("sx-r") || el.matches(B3_STRIPS)) && b3StripFade(el);
+  },
+  { capture: !0, passive: !0 },
+);
 function b3TabOverflow() {
   document.querySelectorAll(".sub-tabs, #subnav .sub-tabs").forEach((strip) => {
     const host = strip.parentElement;
@@ -105249,6 +105289,11 @@ function b3Pass() {
         b3TabOverflow();
       } catch (e) {
         console.warn("b3 tabs", e);
+      }
+      try {
+        b3StripFades();
+      } catch (e) {
+        console.warn("b3 fades", e);
       }
     }),
     ["crew", "foreman", "driver"].includes(r))
@@ -190134,6 +190179,9 @@ function flRenewDialog(o) {
     },
   );
 }
+// the day an obligation is filed or renewed by: its expiry less its lead (30 days unless the register says otherwise),
+// the due date its task carries (bnObligationTasks)
+const flObFile = (o) => (o && o.expires ? iso(addDays(o.expires, -(+o.renewLead || 30))) : "");
 function flObRows() {
   const td = today();
   return (DB.obligations || [])
@@ -190142,8 +190190,19 @@ function flObRows() {
       key: `oblig:${o.id}:${o.expires}`,
       route: flObRole(o),
       kind: "oblig",
-      title: `Renew ${o.name.replace(/\s+—.*$/, "")} by ${fmt(o.expires)}`,
-      why: dayDiff(td, o.expires) >= 0 ? `${dayDiff(td, o.expires)} days left` : "lapsed",
+      // one record, one state (taskfix #11): the date that matters is the filing date (the expiry less the lead), the
+      // date its task carries. It read "by 9/28 · 25 days left" here while the task read "5d late"
+      ...(() => {
+        const file = flObFile(o),
+          late = dayDiff(file, td),
+          left = dayDiff(td, o.expires),
+          what = "filing" === o.kind ? "filing" : "renewal";
+        return {
+          due: file,
+          title: `Renew ${o.name.replace(/\s+—.*$/, "")} by ${fmt(file)}`,
+          why: left < 0 ? `lapsed ${fmt(o.expires)}` : late > 0 ? `${what} ${late} day${1 === late ? "" : "s"} late · expires ${fmt(o.expires)}` : `${0 === late ? `${what} due today` : `${-late} day${-1 === late ? "" : "s"} left to ${"filing" === o.kind ? "file" : "renew"}`} · expires ${fmt(o.expires)}`,
+        };
+      })(),
       amount: 0,
       verb: "Draft the Renewal",
       no: "",
@@ -198094,6 +198153,8 @@ function tdyDecline(x, reason) {
   return !0;
 }
 function tdyHandOffSheet(x) {
+  // the one Hand Off sheet (tkHandSheet, src/tasks.js): people first, a tap picks, one button commits
+  if ("function" == typeof tkHandSheet && tkResolve(x)) return tkHandSheet(x);
   const me = tdyMe(),
     people = tdyUsers().filter((u) => u.id !== (x.ownerUid || me.id) && !/^(crew|driver)$/.test(u.role));
   mbModal(

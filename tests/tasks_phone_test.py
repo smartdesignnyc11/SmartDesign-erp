@@ -123,8 +123,10 @@ async def handoff(c, pg, label):
     await pg.evaluate("k => tkSheet(k)", key)
     await pg.wait_for_timeout(250)
     await pg.evaluate("() => document.querySelector('#mbm [data-tkshandopen]').click()")
-    await pg.wait_for_timeout(100)
-    sent = await pg.evaluate("() => { const b = [...document.querySelectorAll('#mbm [data-tksto]')].find(b => /^Chen/.test(b.dataset.tksto)); if (!b) return false; document.querySelector('#mbm [data-tkshandnote]').value = 'Nemo owes us the date'; b.click(); return true; }")
+    await pg.wait_for_timeout(150)
+    # the people sheet (taskfix #3): a tap picks her, the note is optional, one button hands it off
+    sent = await pg.evaluate("""() => { const b = [...document.querySelectorAll('#mbm [data-tkhto]')].find(b => /^Chen/.test(b.dataset.tkhto)); if (!b) return false; b.click();
+      document.querySelector('#mbm [data-tkhnote]').value = 'Nemo owes us the date'; const ok = document.querySelector('#mbm #mbm-ok'); if (ok.textContent.trim() !== 'Hand Off to Chen') return false; ok.click(); return true; }""")
     await pg.wait_for_timeout(300)
     st = await pg.evaluate("k => { const x = tkAll().find(t => t.key === k); return x ? { owner: x.owner, offered: x.offeredTo, state: (x.handoff || {}).state, log: ((tdyRec(x.row) || {}).handoffs || []).length } : null; }", key)
     c.ok(sent and st and st['state'] == 'offered' and st['offered'].startswith('Chen') and st['owner'].startswith('Alan'), f'{label}: the PM offered it to Chen and still owns it ({st})')
@@ -132,13 +134,15 @@ async def handoff(c, pg, label):
     c.ok('Chen' in toast and 'Open' in toast, f'{label}: the hand-off toasts with Open ("{toast[:80]}")')
     mine = await pg.evaluate("k => openTasks('me').some(x => t2Key(x) === k)", key)
     c.ok(mine, f'{label}: until she accepts it stays on the PM\'s Mine')
-    # her Today: on the first screen of the Tasks filter with Accept, and on All
+    # her Today: on All with Accept, and the Tasks filter's offer line above her own rows (offered is not hers until she
+    # accepts, so it is not in her Tasks number: taskfix #1)
     await reset(pg, 'u_chen', 'home')
     r = await pg.evaluate("""k => { tdyTabSet('all'); render(); const id = k; const cards = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(e => e.getClientRects().length);
       const A = tdyModel().all, i = A.findIndex(it => it.kind === 'tdyTask' && it.id === id), shown = cards.some(e => e.dataset.id === id); const all = i >= 0 ? { i, of: A.length, shown } : null;
-      tdyTabSet('tasks'); render(); const c2 = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(e => e.getClientRects().length);
-      const j = c2.findIndex(e => e.dataset.id === id); return { all, tasks: j >= 0 ? { j, verb: c2[j].querySelector('[data-tdverb]').innerText.trim(), y: Math.round(c2[j].getBoundingClientRect().top) } : null }; }""", key)
-    c.ok(r['tasks'] and r['tasks']['verb'] == 'Accept', f'{label}: it is on Chen\'s Today with Accept ({r})')
+      const card = all && all.shown ? [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.id === id) : null, verb = card ? card.querySelector('[data-tdverb]').innerText.trim() : (i >= 0 ? tdCard(A[i]).verb : '');
+      tdyTabSet('tasks'); render(); const o = document.querySelector('.view.on .td-do [data-tdyoffer]');
+      return { all, verb, tasks: o ? { line: o.innerText.replace(/\s+/g, ' ').trim(), y: Math.round(o.getBoundingClientRect().top) } : null }; }""", key)
+    c.ok(r['verb'] == 'Accept' and r['tasks'] and 'offered you' in r['tasks']['line'], f'{label}: it is on Chen\'s Today with Accept, and on her Tasks filter as the offer line ({r})')
     # its place in All is Today's order (the Coming Up lane's); the Tasks filter and the list's offer line always show it
     c.ok(r['all'] is not None, f'{label}: and in her Today, All ({r["all"]})')
     off = await pg.evaluate("() => { view = 'tkall'; render(); const b = document.querySelector('.view.on [data-tkoffer]'); return b ? b.innerText.replace(/\\s+/g, ' ') : ''; }")

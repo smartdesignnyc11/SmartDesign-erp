@@ -203,12 +203,14 @@ async def names(c, pg):
 
 async def red(c, pg):
     await pg.evaluate(CLOSE); await sign_in(pg, 'u_owner'); await go(pg, 'tkall'); await pg.wait_for_timeout(250)
-    r = await pg.evaluate("""() => { const late = document.querySelector('.view.on .tk2-row.late .tk2-when'); const lc = late ? getComputedStyle(late).color : '';
-      const reds = [...document.querySelectorAll('.view.on .tk2-row')].flatMap(row => [...row.querySelectorAll('*')].filter(e => e.getClientRects().length && !e.closest('.tk2-acts')).filter(e => { const cs = getComputedStyle(e);
-        const red = v => { const m = String(v).match(/\\d+/g); if (!m) return false; const [r, g, b, a] = m.map(Number); return (a === undefined || a > 0) && r > 150 && g < 90 && b < 90; };
-        return (red(cs.backgroundColor) || red(cs.color)) && !e.classList.contains('tk2-when') && !e.closest('.tk2-when'); }).map(e => e.className + ':' + e.textContent.slice(0, 20)));
-      const hi = document.querySelector('.view.on .tk2-hi'); return { late: lc, reds: reds.slice(0, 5), hi: hi ? hi.outerHTML.slice(0, 120) : null }; }""")
-    c.ok(not r['reds'], f'#17 late is the only red on task rows ({r})')
+    r = await pg.evaluate("""() => { const red = v => { const m = String(v).match(/\\d+(\\.\\d+)?/g); if (!m) return false; const [r, g, b, a] = m.map(Number); return (a === undefined || a > 0) && r > 150 && g < 90 && b < 90; };
+      const rows = [...document.querySelectorAll('.view.on .tk2-row')].filter(e => e.getClientRects().length);
+      // a red fill or red text anywhere on a row but its late date (the priority mark was a red bar before the title)
+      const reds = rows.flatMap(row => [...row.querySelectorAll('.tk2-mid *, .tk2-title')].filter(e => e.getClientRects().length && !e.closest('.tk2-when')).filter(e => { const cs = getComputedStyle(e);
+        return red(cs.backgroundColor) || (e.matches('.tk2-title, .tk2-title *') && red(cs.color)); }).map(e => e.className + ':' + e.textContent.slice(0, 20)));
+      const hi = document.querySelector('.view.on .tk2-hi'), late = document.querySelector('.view.on .tk2-row .tk2-w-late');
+      return { reds: reds.slice(0, 5), hi: hi ? getComputedStyle(hi).backgroundColor : null, late: late ? getComputedStyle(late).color : null }; }""")
+    c.ok(r['hi'] and not r['reds'] and r['late'] and r['hi'] != r['late'], f'#17 late is the only red on task rows; priority is a dark mark ({r})')
 
 
 async def waiting(c, pg):
@@ -240,20 +242,27 @@ async def header(c, pg):
           const B = [...document.querySelectorAll('header.topbar button, header.topbar a.btn')].filter(vis).filter(b => !b.innerText.trim() || getComputedStyle(b.querySelector('span') || b).display === 'none' || b.id === 'tb-ask')
             .map(b => [b.id || b.getAttribute('aria-label') || b.className, Math.round(b.getBoundingClientRect().width), Math.round(b.getBoundingClientRect().height)]);
           const ask = (document.querySelector('#tb-ask svg') || {}).innerHTML || '', chat = (document.querySelector('#mtabs [data-mv="chat"] svg') || {}).innerHTML || '';
-          return { B, same: !!ask && ask === chat, sw: document.documentElement.scrollWidth }; }""")
+          // a speech bubble (the bar's Chat, and the bubble Ask used to share with it) is not Ask's icon
+          return { B, same: !ask || ask === chat || /a8 8 0 1 1|H6l-3 3V5/.test(ask), sw: document.documentElement.scrollWidth }; }""")
         bad = [x for x in h['B'] if x[1] < 44 or x[2] < 44]
         c.ok(h['B'] and not bad and not h['same'] and h['sw'] <= 390, f'#20 {uid}: header icon buttons are 44x44 and Ask is not Chat\'s icon ({h})')
 
 
 async def chips(c, pg):
-    for uid, v in (('u_owner', 'home'), ('u_billing', 'billing'), ('u_chen', 'home')):
+    for uid, v in (('u_owner', 'home'), ('u_billing', 'billing'), ('u_billing', 'ap'), ('u_chen', 'home'), ('u_chen', 'proc'), ('u_chen', 'dec')):
         await pg.evaluate(CLOSE); await sign_in(pg, uid); await go(pg, v); await pg.wait_for_timeout(250)
         r = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
-          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, #subnav')].filter(vis);
-          return rows.map(row => { const B = [...row.querySelectorAll(':scope > button, :scope > a')].filter(vis), rr = row.getBoundingClientRect();
+          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, .view.on .glance.tl, .view.on .seg, #subnav')].filter(vis);
+          // the tap area: a touch 3px above or below the chip still lands on it (44px around a 36px pill)
+          const hitH = b => { const r = b.getBoundingClientRect(), R = b.parentElement.getBoundingClientRect(), L = Math.max(r.left, R.left), Rt = Math.min(r.right, R.right, innerWidth);
+            if (Rt - L < 20) return 99;   // scrolled out of the strip: measured when it is in view
+            const x = (L + Rt) / 2;
+            const up = document.elementFromPoint(x, r.top - 3), dn = document.elementFromPoint(x, r.bottom + 3);
+            return (r.height >= 44 || (up && b.contains(up) && dn && b.contains(dn))) ? Math.max(44, Math.round(r.height)) : Math.round(r.height); };
+          return rows.map(row => { const B = [...row.querySelectorAll(':scope > button, :scope > a, :scope > [data-sub]')].filter(vis);
             const gaps = B.slice(1).map((b, i) => Math.round(b.getBoundingClientRect().left - B[i].getBoundingClientRect().right)).filter((g, i) => Math.abs(B[i + 1].getBoundingClientRect().top - B[i].getBoundingClientRect().top) < 4);
             const scrolls = row.scrollWidth > row.clientWidth + 1, cs = getComputedStyle(row), mask = cs.maskImage || cs.webkitMaskImage || 'none';
-            return { cls: row.id || row.className, n: B.length, minGap: gaps.length ? Math.min(...gaps) : 99, hit: B.length ? Math.min(...B.map(b => Math.round(b.getBoundingClientRect().height))) : 99, scrolls, fade: mask !== 'none' };
+            return { cls: row.id || row.className, n: B.length, minGap: gaps.length ? Math.min(...gaps) : 99, hit: B.length ? Math.min(...B.map(hitH)) : 99, scrolls, fade: mask !== 'none' };
           }); }""")
         bad = [x for x in r if x['minGap'] < 8 or x['hit'] < 44 or (x['scrolls'] and not x['fade'])]
         await pg.screenshot(path=os.path.join(SHOTS, f'p_{uid}_{v}_chips.png'))
