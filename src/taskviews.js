@@ -2570,11 +2570,13 @@ let tvDrawing = "";
 // The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
 // view (overdue and due today), the number Ask gives for "my tasks due today".
 "object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+// The page's subtitle is gone (the mockup's one bar); the rail's number stays findable on the page as a small pill beside
+// the title, the mockup's "N late" pill: "6 late or due today", or a quiet "Nothing late" (one question, one number)
 function tvDueMark(host) {
-  const lead = host.querySelector(".ph .lead");
-  if (!lead || lead.querySelector("[data-ocbadge]") || "home" !== t2Ctx()) return;
+  const h = host.querySelector(".ph h2");
+  if (!h || host.querySelector(".ph [data-ocbadge]") || "home" !== t2Ctx()) return;
   const n = tkMyCounts().today || 0;
-  lead.insertAdjacentHTML("beforeend", `<span class="tv-duemark" data-ocbadge="tkall">${lead.textContent.trim() ? " · " : ""}${n ? `${n} of yours late or due today` : "nothing of yours late or due today"}</span>`);
+  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${n ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due today">${n ? `${n} late or due today` : "Nothing late"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------
@@ -2631,7 +2633,9 @@ function tvWaitSeed() {
   #v-tkall #tkall-body.tv-on{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
   #v-tkall .tv-on>.ph{order:-2}
   #v-tkall .tv-on>.ph.tv-ph,#v-tkall .tv-on>.ph.tk2-ph{display:flex;flex-wrap:nowrap;align-items:center;gap:16px;margin:0;padding:18px 28px 14px;background:#fff;border-bottom:1px solid #E7E9EE}
-  #v-tkall .tv-on>.ph>div:first-child{flex:0 0 auto;min-width:0}
+  #v-tkall .tv-on>.ph>div:first-child{flex:0 0 auto;min-width:0;display:flex;align-items:center;gap:10px}
+  #v-tkall .tv-duemark{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:600;color:var(--tv-ink2);white-space:nowrap}
+  #v-tkall .tv-duemark.on{background:#FDECEA;color:#B42318}
   #v-tkall .tv-on>.ph h2{margin:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:var(--tv-ink)}
   #v-tkall .tv-on>.ph .lead{display:none}
   #v-tkall .tv-on>.ph .acts{flex:0 0 auto;display:flex;align-items:center;gap:16px;margin:0}

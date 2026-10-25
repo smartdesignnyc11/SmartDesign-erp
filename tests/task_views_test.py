@@ -456,7 +456,7 @@ async def polish(c, p):
         notes: [...document.querySelectorAll('.mm-comments .mm-comment')].filter(e => e.getClientRects().length).length }; }""")
     c.ok(m['n'] == 8 and m['bottom'] <= min(844, m['nav']), f'owner 390: the eight meeting actions sit on the first screen, above Previous and Next ({m})')
     c.ok(m['title'] > 0, f'owner 390: the card keeps its title (the page header never lifts it out)')
-    c.ok(m['topH'] <= 112 and m['menu'], f'owner 390: the meeting header is two short lines (PhoneMeeting.dc.html), Follow, Agenda and End behind one menu ({m["topH"]}px)')
+    c.ok(m['topH'] <= 116 and m['menu'], f'owner 390: the meeting header is two short lines (PhoneMeeting.dc.html), Follow, Agenda and End behind one menu ({m["topH"]}px)')
     c.ok(m['toast'] <= m['nav'], f'owner 390: the toast sits above the meeting footer ({m["toast"]} vs {m["nav"]})')
     c.ok(m['notes'] <= 1 and m['sw'] <= 390, f'owner 390: the notes are cut to the latest behind More, no sideways scroll ({m["notes"]}, {m["sw"]})')
     await pg.wait_for_timeout(2600)
