@@ -15,6 +15,8 @@ Not yet. Pilot 2 judged the pages used for the work, not every module page by pa
 2. **Expert walk per module:** the role expert who lives in it plus the information-architecture reviewer, with the census in hand, open every page and sub-page on the phone and the desktop and judge layout, what is on it, what is missing, what is duplicated, what should merge.
 3. **Module map** in `docs/modules/<module>.md`: pages, sub-pages, what lives where, the recommended structure, and a mockup for Alan's yes where the structure changes.
 Modules: Projects (the job page and its sub-pages), Sales and clients, Estimates, Billing, Purchasing, Accounting (Banking, Bills, Ledger, Reports, Controls), Field and Site, Time and Payroll, Design, Today/Tasks/Messages, Company and Settings, the client portal.
+**10-25: Alan said start with Projects.** The machine pass is running on its own branch.
+**Pilot 3 harness, from this:** each role gets its routine (the standing daily and weekly work in its main module: for the PM, every job's look-ahead, budget against actual, open COs, RFIs and submittals, decisions and the weekly client update) on top of the events; longer PM and owner turns; a coverage measure per role (pages of its main module opened, out of the census's list) that fails the pilot below a floor.
 Cost: not measured. On Pilot 2's 82k tokens a turn, about 0.5–0.8M a module, 6–9M for all twelve, the size of one pilot. Projects goes first and its measured cost is reported before the rest.
 
 ## Pilot 2 (Alan, 10-25: "run Pilot 2 after the phone lanes"; UI/UX on phone and desktop)
