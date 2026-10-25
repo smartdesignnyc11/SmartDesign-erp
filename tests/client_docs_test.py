@@ -38,7 +38,8 @@ async def js(pg, body, arg=None):
 LEAKS = [r'fell back to', r'before sending', r'check (it|them|this|these) before', r'measured by', r'elapsed time',
          r'percentages proposed', r'below what was already billed', r'correction is a credit with a reason',
          r'fill in what you know', r'cost \(fallback\)', r'\bcost codes?\b', r'\bbudget cost\b', r'\bmargin\b',
-         r'\bmark-?up\b', r'foreman update', r'PM update', r'Internal notes']
+         r'\bmark-?up\b', r'foreman update', r'PM update', r'Internal notes', r'nothing else speaks',
+         r'stays at its billed %', r'\d% against \d', r'running tasks? still', r'labelled']
 
 # the page side: every client document of every client, drawn the way it leaves the firm, as text
 DRAW = r"""

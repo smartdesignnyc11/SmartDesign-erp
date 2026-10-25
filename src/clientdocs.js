@@ -180,7 +180,8 @@ function cxStaffRe(c) {
     ? new RegExp(`\\bper\\s+(?:${n.join("|")})\\b|\\b(?:${n.join("|")})(?:'s)?\\s+(?:asked|said|says|called|wants|wanted|told|requested|flagged|noted|confirmed|measured|checked|thinks|approved|call|note|update)\\b`, "i")
     : null;
 }
-const cxPieces = (line) => String(line).split(/(?<=[.;!?])\s+/);
+// sentences: a semicolon joins the parts of one note ("schedule or deliveries; cost only where..."), so it never splits one
+const cxPieces = (line) => String(line).split(/(?<=[.!?])\s+/);
 function cxIsNote(s, sre, machineOnly) {
   return (machineOnly ? CX_MACHINE : CX_NOTE_RES).some((re) => re.test(s)) || (!machineOnly && !!sre && sre.test(s));
 }
