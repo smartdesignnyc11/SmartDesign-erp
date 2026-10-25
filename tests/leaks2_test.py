@@ -199,7 +199,8 @@ async def s4_match(p, S):
         S.check(conf and all(x[1] for x in conf), 'Confirm on Banking matches each debit to the payroll run', str(conf))
         # card charges and an ACH deposit against their orders
         await pg.evaluate("""() => { const mkPO = (id, num, vendor, item, amt, date, exp) => DB.pos.push({id, number: num, projectId: 'p121', vendor, date, expected: exp, status: 'issued', shipTo: 'Site', notes: '',
-                lines: [{id: id + 'l', item, desc: '', qty: 1, unit: 'ls', price: amt, received: 0, line: ''}]});
+                // priced with no NY tax charged on them (the one purchase-tax rule accrues use tax and keeps the order total)
+                lines: [{id: id + 'l', item, desc: '', qty: 1, unit: 'ls', price: amt, received: 0, line: ''}], useTax: true});
             mkPO('lkpo1', 'PO-2026-090', 'Ferguson', 'Plumbing fixtures (both baths, kitchens)', 11980, '2026-09-14', '2026-10-05');
             mkPO('lkpo2', 'PO-2026-091', 'Gowanus Stone Yard', 'Parlor kitchen countertop slab', 7450, '2026-09-10', '2026-09-24');
             DB.vendors.push({id: 'vlkt', name: 'Tomas Restoration', insuranceExp: '2026-09-15', w9: true}); save(); appSetDay('2026-09-28'); }""")

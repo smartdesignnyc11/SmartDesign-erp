@@ -106,8 +106,12 @@ function p0TaxPut(po, status, by) {
 // Decide an order's tax by the rule (a new order, or one whose vendor or type changed before it went out).
 function p0TaxDecide(po, by) {
   if (!po) return po;
-  const keep = ["exempt-resale", "exempt-st120"].includes(po.taxStatus) && !P0_TAX_LABOUR.includes(po.type || "");
-  return p0TaxPut(po, keep ? po.taxStatus : p0PurchaseTax(po).status, keep ? "as entered" : by || "rule");
+  const labour = P0_TAX_LABOUR.includes(po.type || ""),
+    keep = ["exempt-resale", "exempt-st120"].includes(po.taxStatus) && !labour,
+    // the path that made the order may already know what the vendor charges (an RFQ quote with or without NY
+    // tax): the same rule, read from the quote instead of the vendor's record
+    quoted = !labour && !keep && !po.taxRule ? (po.useTax && (!0 === po.useTax || +po.useTax.amount > 0) && !(+po.tax > 0) ? "use-tax" : +po.tax > 0 ? "taxable" : "") : "";
+  return p0TaxPut(po, keep ? po.taxStatus : quoted || p0PurchaseTax(po).status, keep ? "as entered" : quoted ? "the quote" : by || "rule");
 }
 // The order's tax in words, for the order sheet and the order page.
 function p0TaxWords(po) {
@@ -206,7 +210,7 @@ function p0Sources(po) {
     .filter((b) => b.poId === po.id && p0Live(b) && "draft" !== b.status && !b.retainageRelease && p0IsDeposit(b) && billGross(b) > 0.005)
     .forEach((b) => out.push({ key: "bill:" + b.id, kind: "deposit", ref: b, date: b.date || "", amount: r2(billGross(b)), label: `deposit ${b.number || "bill"}` }));
   (DB.txns || [])
-    .filter((t) => t.prepay && t.prepay.poId === po.id && t.poId === po.id && +t.amt < 0 && !t.billId && "void" !== t.status && !t.voided)
+    .filter((t) => t.prepay && t.prepay.poId === po.id && (t.poId === po.id || (po.matchedTxns || []).includes(t.id)) && +t.amt < 0 && !t.billId && "void" !== t.status && !t.voided)
     .forEach((t) => {
       const a = (DB.accounts || []).find((x) => x.id === t.acct);
       out.push({ key: "txn:" + t.id, kind: "txn", ref: t, date: t.date || "", amount: r2(-t.amt), label: `${a && "card" === a.type ? "card charge" : "bank payment"} of ${fmt(t.date)}` });
@@ -379,6 +383,16 @@ function p0PoPaid(po) {
     }
   };
 }
+// A bank prepayment taken off a bill is its own cost (the bill's net leaves it out), never that bill's payment.
+if ("function" == typeof txnViaBill) {
+  const base = txnViaBill;
+  txnViaBill = function (t) {
+    try {
+      if (t && t.prepay && (DB.bills || []).some((b) => p0Live(b) && (b.lines || []).some((l) => l.prepayOf === "txn:" + t.id))) return !1;
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
 // The over-the-PO checks count a bank prepayment applied on a bill as billed (it is part of the vendor's invoice).
 if ("function" == typeof pay3PO) {
   const base = pay3PO;
@@ -447,6 +461,11 @@ function p0PaidTo(t, vname) {
 function p0PrepayCandidates(t) {
   if (!t || !(+t.amt < 0) || t.billId || t.poId || t.prepay || t.prepayNo || "void" === t.status || t.voided || !P0_PRE_CATS.includes(t.cat || "")) return [];
   if ((DB.pos || []).some((po) => (po.matchedTxns || []).includes(t.id)) || (DB.payments || []).some((p) => p.txnId === t.id)) return [];
+  if (t.proposal && !t.proposal.rejected && !t.proposal.declined) return [];
+  // a line the bank or the card company sent goes to Banking, where the import proposes its match and a person
+  // confirms it (a confirmed match to an order nothing has arrived on is a prepayment: truthSetMatch below); this
+  // rule takes the lines no import will propose, typed from a receipt
+  if (t.extId || t.origin || t.importId || (t.prov && /feed|statement|plaid/i.test(t.prov.kind || "")) || ("function" == typeof bfBacked && bfBacked(t))) return [];
   const amt = r2(-t.amt),
     tol = ((DB.company || {}).matchTol || 2) / 100;
   return (DB.pos || []).filter((po) => {
@@ -568,6 +587,39 @@ function p0PrepayUnlink(tid) {
   rcToast(`${p0M(-t.amt)} ${t.desc || ""} is not a prepayment on ${po ? po.number : "an order"}: it waits in Banking to be coded`, (ROLE_VIEWS[role()] || []).includes("banking") ? [{ label: "Open", run: () => setView("banking") }] : null);
 }
 
+// A person matching a bank line to an order nothing has arrived on, with no bill on it, records a prepayment: the
+// order's next bill takes it off (Banking's Confirm, the Match sheet, any path through truthSetMatch).
+if ("function" == typeof truthSetMatch) {
+  const base = truthSetMatch;
+  truthSetMatch = function (t, m0) {
+    const r = base.apply(this, arguments);
+    try {
+      const po = r && r.ok !== !1 && m0 && m0.poId && !m0.billId ? p0PO(m0.poId) : null;
+      if (po && t && !t.billId && !t.prepay && +t.amt < 0 && !p0Sub(po) && !(po.lines || []).some((l) => +l.received > 0) && !["received", "closed"].includes(po.status) && !(DB.bills || []).some((b) => b.poId === po.id && p0Live(b) && !p0IsDeposit(b))) {
+        const by = p0Me();
+        t.prepay = { poId: po.id, by: by, at: appNowIso(), confirmed: { by: by, at: appNowIso() } };
+        try {
+          audit("txn", t.id, "vendor-prepayment-matched", "", po.number, `${p0M(-t.amt)} to ${po.vendor} before delivery: it comes off the next bill`);
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("p0 match prepayment", e);
+    }
+    return r;
+  };
+}
+// A line typed by hand with no bank line behind it says so wherever it is coded, a seeded or imported-by-hand one too.
+if ("function" == typeof lkTxnMoreFlags) {
+  const base = lkTxnMoreFlags;
+  lkTxnMoreFlags = function (t) {
+    const h = base.apply(this, arguments);
+    try {
+      if (!h && t && "manual" !== t.source && t.prov && "manual" === t.prov.kind && "function" == typeof bfBacked && !bfBacked(t) && !t.exception)
+        return `<span class="sub warn-t lk-flag">No bank line behind it: typed by hand${t.prov.by ? " by " + esc(t.prov.by) : ""}, never seen at ${esc(truthAcctWords(t))} <button type="button" class="btn sm" data-lknobank="${esc(t.id)}">Match to a Line…</button></span>`;
+    } catch (e) {}
+    return h;
+  };
+}
 // --------------------------------------------------------------------------------- the sweep, the boot repair
 let p0Sweeping = !1;
 function p0Sweep() {
@@ -1059,14 +1111,28 @@ if ("undefined" != typeof APPR_CHIPS) {
 }
 if ("undefined" != typeof DELEGATION) {
   DELEGATION.prepay = {
-    role: "controller",
-    rule: "money paid to a vendor before any bill or delivery is confirmed as a prepayment on its order by the coordinator, who placed it, or the controller, who keeps the books",
-    who: () => (["coord", "controller"].includes(role()) ? role() : "controller"),
+    role: "coord",
+    rule: "money paid to a vendor before any bill or delivery is confirmed as a prepayment on its order by the coordinator, who placed the order; the controller sees it in Caught for You until it is",
   };
   DELEGATION.taxfix = { role: "controller", rule: "a purchase-tax correction the rule made to an order already with the vendor is the controller's to review" };
 }
+// The controller's Today: the same prepayments, in Caught for You (the coordinator owns the confirmation)
+if ("undefined" != typeof CATCH)
+  CATCH.push({
+    name: "prepaidAhead",
+    label: "Paid Ahead, No Bill",
+    rows: () =>
+      "controller" === role()
+        ? p0PrepayOpen().map((t) => {
+            const W = p0PrepayWords(t),
+              P = W.papers;
+            return { key: "prepay:" + t.id, what: `Paid ahead: ${W.po ? W.po.vendor : t.vendor || t.desc}`, sub: `${p0M(-t.amt)} on ${fmt(t.date)}${W.po ? `, ${W.po.number}, no bill` : ""}${P && (!P.coi.ok || !P.w9.ok) ? `; ${[!P.coi.ok ? "no COI" : "", !P.w9.ok ? "no W-9" : ""].filter(Boolean).join(", ")}` : ""}`, amount: r2(-t.amt), verb: "Review", run: () => p0PrepaySheet(t.id) };
+          })
+        : [],
+  });
 if ("undefined" != typeof STD_MAP)
   Object.assign(STD_MAP, {
+    prepaidAhead: { p: "integrity", leak: !0, c: ["value", "dollar", /No money is committed/i] },
     // money out with no bill is a paper-trail question (integrity); to a vendor with no COI or W-9 it is the law's
     prepay: { p: (it) => (it && "bad" === it.sev ? "law" : "integrity"), leak: !0, c: ["value", "dollar", /No money is committed/i] },
     taxfix: { p: "law", c: ["value", "dollar", /paper trail/i] },
@@ -1124,7 +1190,7 @@ if ("function" == typeof mApprovals) {
         ap > 0.005 && (it.detail = `${p0M(p0Invoice(b))} invoiced less ${p0M(ap)} prepaid, ${p0M(billTotal(b))} due · ${it.detail || ""}`);
       });
       const add = p0ApprItems();
-      add.forEach((it) => (it.who = "prepay" === it.kind ? DELEGATION.prepay.who(it) : "controller"));
+      add.forEach((it) => (it.who = "prepay" === it.kind ? "coord" : "controller"));
       return out.concat(opts && opts.everyone ? add : add.filter((it) => it.who === role()));
     } catch (e) {
       console.warn("p0 approvals", e);

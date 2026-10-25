@@ -136,10 +136,14 @@ async def run(p, c, phone):
         for u in ('u_chen', 'u_controller', 'u_owner', 'u_billing'):
             await sign_in(pg, u)
             cards[u] = await pg.evaluate("() => mApprovals().filter(a => a.kind === 'prepay').map(a => a.title + ' | ' + a.n + ' | ' + a.detail)")
-        for u in ('u_chen', 'u_controller'):
-            x = cards[u][0] if cards[u] else ''
-            c.ok(len(cards[u]) == 1 and 'Tino' in x and '$8,000' in x and 'PO-2026-047' in x and 'No COI on file' in x and 'No W-9 on file' in x, f"{tag}: {u}'s Approvals carry the prepayment with the order and Tino's papers ({cards[u]})")
-        c.ok(not cards['u_owner'] and not cards['u_billing'], f"{tag}: the owner and billing are not asked ({cards['u_owner']}, {cards['u_billing']})")
+        x = cards['u_chen'][0] if cards['u_chen'] else ''
+        c.ok(len(cards['u_chen']) == 1 and 'Tino' in x and '$8,000' in x and 'PO-2026-047' in x and 'No COI on file' in x and 'No W-9 on file' in x, f"{tag}: the coordinator's Approvals carry the prepayment with the order and Tino's papers ({cards['u_chen']})")
+        c.ok(not cards['u_controller'] and not cards['u_owner'] and not cards['u_billing'], f"{tag}: one item, one owner: nobody else is asked ({cards})")
+        await sign_in(pg, 'u_controller'); await go(pg, 'home'); await pg.wait_for_timeout(300)
+        r = await pg.evaluate("() => ({ rows: tdCaught([]).filter(x => x.src === 'prepaidAhead').map(x => x.what + ' | ' + x.sub), home: ((typeof homeRoot === 'function' && homeRoot()) || document.querySelector('.view.on')).innerText })")
+        c.ok(len(r['rows']) == 1 and 'Tino' in r['rows'][0] and '$8,000' in r['rows'][0] and 'no COI, no W-9' in r['rows'][0] and 'Paid ahead: Tino' in r['home'], f"{tag}: the controller's Today shows it in Caught for You with the papers ({r['rows']})")
+        await shot(pg, tag, 'controller_today')
+        c.ok(await pg.evaluate(SW) <= (390 if phone else 1440), f"{tag}: the controller's Today does not scroll sideways")
         await sign_in(pg, 'u_chen'); await go(pg, 'home'); await pg.wait_for_timeout(300)
         h = await pg.evaluate("() => { const r = (typeof homeRoot === 'function' && homeRoot()) || document.querySelector('.view.on'); return r ? r.innerText : '' }")
         await shot(pg, tag, 'coord_today')
@@ -154,9 +158,10 @@ async def run(p, c, phone):
         s = await pg.evaluate("() => document.getElementById('mbm').innerText")
         c.ok('PO-2026-047' in s and 'No COI on file' in s and 'No W-9 on file' in s and 'Confirm Prepayment' in s and 'Not This Order' in s, f'{tag}: the review sheet shows the order, the papers and the two answers')
         await pg.click('#mbm-ok'); await pg.wait_for_timeout(300)
-        r = await pg.evaluate("() => ({ c: DB.txns.find(x => x.id === 't13').prepay.confirmed, left: mApprovals().filter(a => a.kind === 'prepay').length })")
-        c.ok(r['c'] and r['c']['by'] == 'Chen Biron' and r['left'] == 0, f'{tag}: confirmed by the coordinator, the card is gone ({r})')
         t = await pg.evaluate(T)
+        r = await pg.evaluate("() => ({ c: DB.txns.find(x => x.id === 't13').prepay.confirmed, left: mApprovals().filter(a => a.kind === 'prepay').length, caught: (signIn('u_controller'), tdCaught([]).filter(x => x.src === 'prepaidAhead').length) })")
+        await sign_in(pg, 'u_chen')
+        c.ok(r['c'] and r['c']['by'] == 'Chen Biron' and r['left'] == 0 and r['caught'] == 0, f"{tag}: confirmed by the coordinator; gone from her Approvals and the controller's Caught for You ({r})")
         c.ok('confirmed as a prepayment on PO-2026-047' in t and 'Open' in t, f'{tag}: the confirmation toasts with Open ({t!r})')
         # a second charge to Tino is linked, then refused: back to Banking, never linked again
         r = await pg.evaluate("""() => { DB.txns.push({ id: 'tp0x', date: today(), acct: 'ac2', desc: 'TINO FLOORING', amt: -500, cat: 'uncat', projectId: '', code: '', vendor: 'Tino', memo: '', status: 'new', line: '' }); save();
