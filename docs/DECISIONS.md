@@ -29,6 +29,12 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 
 The overnight run of 2026-10-19 builds on the defaults above and does not decide them. The menu and navigation questions from `docs/MENU_DRAFT.md` were waiting on Alan; they were decided overnight under his instruction (below) and are no longer waiting.
 
+## 2026-10-25
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| "Yes to the procurement plan, start building." Taken as his yes to `docs/PROCUREMENT_PLAN.md`, the mockup, and the recommended calls in its section 7: COI for anyone on site or delivering inside; W-9 before the first payment; vendor-error claims cover the item, crew time at the job's rate and the trip, the coordinator chases and only the owner starts a chargeback; the PM sets capital improvement on the job and the order fills the tax. All reversible | `docs/PROCUREMENT_PLAN.md` | P1 (One Buy Board) building; the procurement expert's buying day folds in as it lands |
+| "Why are there only two tasks running?" The one-lane rule was too cautious: the memory log never passed 1.8 GB of 16. Reviews and docs now run beside one build lane; two build lanes run together only when their files do not overlap | `docs/LANES.md` | Standing |
+
 ## 2026-10-24
 | Ask or decision | Where it lives | Status |
 |---|---|---|
