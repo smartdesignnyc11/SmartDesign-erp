@@ -833,6 +833,9 @@ if ("function" == typeof mnGo) {
 }
 // The Purchasing overview's rows are the Buy Board's: the overview hands over to the board for every role that may open it.
 "object" == typeof OC_RETIRED && (OC_RETIRED.ovbuy = "proc");
+// The menu reads it as retired (MN_QUIET, MN_ALIAS were taken from the lists before this file ran).
+"undefined" != typeof MN_QUIET && MN_QUIET.add("ovbuy");
+"undefined" != typeof MN_ALIAS && (MN_ALIAS.ovbuy = "proc");
 // The Buy Board's badge, on the rail, the sub-tab and the phone bar: the one late set (needs("buy")).
 "object" == typeof OC_BADGE && (OC_BADGE.proc = { n: () => ("function" == typeof needs ? needs("buy") : 0) });
 
