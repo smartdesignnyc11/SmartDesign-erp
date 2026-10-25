@@ -63,7 +63,7 @@ document.addEventListener(
   !0,
 );
 // A screen that hides the app's header and draws its own (the phone's Tasks page, Meeting Mode) carries Ask in it.
-const P2N_OWN_HEADS = [".view.on .tv-phhd", ".view.on .mm-top", ".view.on .mm-hd", ".mm-phhd"];
+const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top", ".view.on .mm-hd"];
 function p2nAskOwnHeads() {
   const want = p2nHasAsk(),
     tb = document.getElementById("tb-ask"),
@@ -771,18 +771,17 @@ document.addEventListener(
     const M = MENU[r];
     M && (M.bar || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
   });
-  // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest)
+  // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest). The bar keeps four
+  // shortcuts (Alan, 2026-10-19: "a max of 4"), so Site, the one the synthesis ranks below Daily Log, leads the rest.
   const F = MENU.foreman;
   F &&
     ((F.bar = [
       ["ftoday", "Today", "home"],
-      ["fsite", "Site", "box"],
       ["flog", "Daily Log", "list"],
       ["req", "Requests", "box"],
       ["chat", "Messages", "chat"],
     ]),
-    (F.rest = (F.rest || []).filter((x) => "req" !== x[0])));
-  // the field's own Chat page heading (the Spanish pass reads the word as drawn)
+    (F.rest = [["fsite", "Site", "box"]].concat((F.rest || []).filter((x) => !["req", "fsite"].includes(x[0])))));
   "object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { comms: "chat", hbcontacts: "clients", hbcompanies: "clients" });
   "undefined" != typeof MN_BUTTON && MN_BUTTON.delete && MN_BUTTON.delete("chat");
   try {
