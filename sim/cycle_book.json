@@ -1,0 +1,2408 @@
+{
+ "title": "Pilot 3: the business cycle (sim/cycle_book.py; invented data only)",
+ "days": [
+  "2026-09-03",
+  "2026-09-04",
+  "2026-09-08"
+ ],
+ "roles": [
+  "u_owner",
+  "u_alan",
+  "u_chen",
+  "u_billing"
+ ],
+ "scripted": {
+  "u_angel": "receiving against the PO (short, damaged), hours on cost codes, the daily log and the measured %",
+  "u_alberto": "hours on cost codes",
+  "u_alex": "hours on cost codes",
+  "u_controller": "statement import, the app's own proposed matches confirmed, the payroll build",
+  "u_sarah": "not in this pilot",
+  "u_klein": "the Kleins answer by world rules"
+ },
+ "job": {
+  "client": "Wren & Julian Ashby",
+  "client_rx": "Ashby",
+  "job": "214 Lincoln Place",
+  "job_rx": "Lincoln",
+  "addr": "214 Lincoln Place, Park Slope, Brooklyn: parlor kitchen and garden-level bath",
+  "emails": [
+   "wren.ashby@example.com",
+   "julian.ashby@example.com"
+  ],
+  "phone": "(347) 555-0186",
+  "budget_said": 90000,
+  "start": "2026-09-08",
+  "deposit_pct": 25,
+  "retainage_pct": 10,
+  "bank_desc": "ONLINE TRANSFER FROM ASHBY W"
+ },
+ "takeoff": [
+  {
+   "item": "Demolition & protection: parlor kitchen and garden bath",
+   "qty": 1,
+   "unit": "ls",
+   "price": 8400,
+   "cost": 5600,
+   "kind": "labor",
+   "key": "demo"
+  },
+  {
+   "item": "Framing & blocking: pantry wall, vanity and cabinet blocking",
+   "qty": 1,
+   "unit": "ls",
+   "price": 6200,
+   "cost": 4100,
+   "kind": "labor",
+   "key": "frame"
+  },
+  {
+   "item": "Framing lumber: supply",
+   "qty": 1,
+   "unit": "ls",
+   "price": 1450,
+   "cost": 1100,
+   "kind": "materials",
+   "key": "lumber"
+  },
+  {
+   "item": "Drywall & cement board: supply",
+   "qty": 1,
+   "unit": "ls",
+   "price": 2450,
+   "cost": 1800,
+   "kind": "materials",
+   "key": "drywall"
+  },
+  {
+   "item": "Drywall hang, tape & prime (SD crew)",
+   "qty": 1,
+   "unit": "ls",
+   "price": 7800,
+   "cost": 5200,
+   "kind": "labor",
+   "key": "hang"
+  },
+  {
+   "item": "Porcelain floor tile 12x24 matte: supply",
+   "qty": 380,
+   "unit": "sf",
+   "price": 19,
+   "cost": 5510,
+   "kind": "materials",
+   "key": "tile"
+  },
+  {
+   "item": "Tile setting & waterproofing (SD crew)",
+   "qty": 1,
+   "unit": "ls",
+   "price": 9600,
+   "cost": 6400,
+   "kind": "labor",
+   "key": "set"
+  },
+  {
+   "item": "Electrical rough-in & devices (SD Electric)",
+   "qty": 1,
+   "unit": "ls",
+   "price": 11500,
+   "cost": 7900,
+   "kind": "labor",
+   "key": "elec"
+  },
+  {
+   "item": "Plumbing rough & finish, garden bath (SD Plumbing)",
+   "qty": 1,
+   "unit": "ls",
+   "price": 14200,
+   "cost": 10300,
+   "kind": "labor",
+   "key": "plumb"
+  },
+  {
+   "item": "Rear wall repointing (Ironbound Masonry, sub)",
+   "qty": 1,
+   "unit": "ls",
+   "price": 6800,
+   "cost": 5400,
+   "kind": "sub",
+   "key": "mason"
+  },
+  {
+   "item": "Plumbing fixture allowance: garden bath",
+   "qty": 1,
+   "unit": "ls",
+   "price": 6500,
+   "cost": 6500,
+   "kind": "allowance",
+   "key": "allow"
+  },
+  {
+   "item": "General conditions & builder's fee",
+   "qty": 1,
+   "unit": "ls",
+   "price": 9000,
+   "cost": 0,
+   "kind": "fee",
+   "key": "fee"
+  }
+ ],
+ "radiator": {
+  "item": "Relocate the garden bath radiator under the window",
+  "qty": 1,
+  "unit": "ls",
+  "price": 1400,
+  "cost": 950,
+  "kind": "labor",
+  "key": "radiator"
+ },
+ "schedule": {
+  "lumber": [
+   {
+    "item": "2x4x8 SPF stud",
+    "qty": 60,
+    "unit": "pc"
+   },
+   {
+    "item": "2x6x10 SPF",
+    "qty": 12,
+    "unit": "pc"
+   },
+   {
+    "item": "3/4\" CDX plywood 4x8",
+    "qty": 6,
+    "unit": "sheet"
+   }
+  ],
+  "drywall": [
+   {
+    "item": "5/8\" Type X drywall 4x8",
+    "qty": 80,
+    "unit": "sheet"
+   },
+   {
+    "item": "1/2\" cement board 3x5",
+    "qty": 30,
+    "unit": "sheet"
+   }
+  ],
+  "tile": [
+   {
+    "item": "Porcelain floor tile 12x24 matte, Warm Grey",
+    "qty": 380,
+    "unit": "sf"
+   }
+  ],
+  "elec": [
+   {
+    "item": "12/2 NM-B 250 ft",
+    "qty": 3,
+    "unit": "roll"
+   },
+   {
+    "item": "1-gang new-work boxes",
+    "qty": 30,
+    "unit": "ea"
+   }
+  ]
+ },
+ "in_stock": [
+  {
+   "inv": "iv10",
+   "name": "12/2 NM-B",
+   "rx": "12/2|NM-?B|romex",
+   "need": 3,
+   "unit": "roll",
+   "cost": 98.0
+  },
+  {
+   "inv": "iv9",
+   "name": "1-gang new-work boxes",
+   "rx": "1-?gang|new.?work box|boxes",
+   "need": 30,
+   "unit": "ea",
+   "cost": 1.2
+  },
+  {
+   "inv": "iv16",
+   "name": "5/8\" Type X drywall 4x8",
+   "rx": "type x|5/8",
+   "need": 12,
+   "unit": "sheet",
+   "cost": 16.8
+  }
+ ],
+ "last_price": {
+  "vendor": "Nemo Tile",
+  "po": "PO-2026-041",
+  "item": "Calacatta porcelain 12x24",
+  "unit_price": 12.5,
+  "unit": "sf"
+ },
+ "item_rx": {
+  "2x4": "2x4",
+  "2x6": "2x6",
+  "plywood": "ply",
+  "type x": "type x|5/8|gwb|gypsum|sheetrock",
+  "cement": "cement|durock|backer",
+  "porcelain|tile": "porcelain|tile"
+ },
+ "lots": {
+  "lumber": "lumber|framing",
+  "drywall": "drywall|cement board|gwb|gypsum",
+  "tile": "tile|porcelain"
+ },
+ "parties": {
+  "ashby": {
+   "name": "Wren Ashby",
+   "addr": "Wren Ashby <wren.ashby@example.com>",
+   "kind": "client",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "no_bank": true,
+   "book_plays": [
+    "approve",
+    "pay"
+   ],
+   "answers": [
+    [
+     "radiator",
+     "Move it, please: under the window where we want the vanity it is in the way. Julian agrees. Wren"
+    ],
+    [
+     "start|schedule|when",
+     "Tuesday the 8th works for us; we will leave a key with the super. Wren"
+    ],
+    [
+     "update|week",
+     "Thank you for the update, that is clear. Wren"
+    ]
+   ],
+   "voice": "A new client: bought 214 Lincoln Place, Park Slope. Decisive, writes short mails, wants the price and the start date in writing."
+  },
+  "julian_ashby": {
+   "name": "Julian Ashby",
+   "addr": "Julian Ashby <julian.ashby@example.com>",
+   "kind": "client",
+   "reply_p": 0.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "no_bank": true,
+   "voice": "Wren's husband; reads everything, rarely answers."
+  },
+  "brooklyn_lumber": {
+   "name": "Brooklyn Lumber",
+   "addr": "Brooklyn Lumber <orders@brooklynlumber.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "Sal Ferro",
+   "voice": "The yard the firm uses most for lumber and drywall. Quick, quotes in a table.",
+   "quotes": {
+    "form": "table",
+    "lead": 2,
+    "freight": 0,
+    "valid": 30,
+    "prices": {
+     "2x4": 6.1,
+     "2x6": 11.2,
+     "plywood": 58.0,
+     "type x": 17.4,
+     "cement": 26.5
+    }
+   }
+  },
+  "gowanus_supply": {
+   "name": "Gowanus Building Supply",
+   "addr": "Gowanus Building Supply <orders@gowanusbuilding.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "Dee Marsh",
+   "voice": "A smaller yard on 3rd Avenue; sends quotes as a PDF off their system.",
+   "quotes": {
+    "form": "pdf",
+    "lead": 3,
+    "freight": 45,
+    "valid": 15,
+    "typo": "type x",
+    "prices": {
+     "2x4": 5.95,
+     "2x6": 10.9,
+     "plywood": 56.5,
+     "type x": 16.95,
+     "cement": 27.1
+    }
+   }
+  },
+  "atlantic_yard": {
+   "name": "Atlantic Yard Supply",
+   "addr": "Atlantic Yard Supply <sales@atlanticyardsupply.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "Ray Quint",
+   "voice": "A yard on Atlantic Avenue; answers in a paragraph, forgets details.",
+   "quotes": {
+    "form": "prose",
+    "lead": null,
+    "freight": 0,
+    "valid": 30,
+    "prices": {
+     "2x4": 6.4,
+     "2x6": 11.75,
+     "plywood": 61.0,
+     "type x": 18.1,
+     "cement": 28.0
+    }
+   }
+  },
+  "nemo_tile": {
+   "name": "Nemo Tile",
+   "addr": "Nemo Tile <sales@nemotile.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "Lena Russo",
+   "voice": "The tile house the firm bought from in August (PO-2026-041).",
+   "quotes": {
+    "form": "table",
+    "lead": 4,
+    "freight": 0,
+    "valid": 30,
+    "prices": {
+     "porcelain|tile": 13.9
+    }
+   }
+  },
+  "bergen_tile": {
+   "name": "Bergen Tile Gallery",
+   "addr": "Bergen Tile Gallery <quotes@bergentile.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "Omar Haddad",
+   "voice": "A tile showroom on Bergen Street.",
+   "quotes": {
+    "form": "pdf",
+    "lead": 6,
+    "freight": 75,
+    "valid": 30,
+    "prices": {
+     "porcelain|tile": 14.75
+    }
+   }
+  },
+  "carroll_tile": {
+   "name": "Carroll Street Tile",
+   "addr": "Carroll Street Tile <desk@carrollstreettile.example>",
+   "kind": "vendor",
+   "reply_p": 1.0,
+   "delay": [
+    0,
+    0
+   ],
+   "late_p": 0,
+   "contact": "June Pak",
+   "voice": "A tile importer; prices by the box.",
+   "quotes": {
+    "form": "box",
+    "lead": 5,
+    "freight": 0,
+    "valid": 20,
+    "box_sf": 15.5,
+    "prices": {
+     "porcelain|tile": 229.5
+    }
+   }
+  },
+  "ironbound": {
+   "name": "Ironbound Masonry",
+   "addr": "Ironbound Masonry <office@ironboundmasonry.example>",
+   "kind": "sub",
+   "reply_p": 0.9,
+   "delay": [
+    0,
+    1
+   ],
+   "late_p": 0,
+   "voice": "A masonry sub the firm uses for repointing."
+  }
+ },
+ "objectives": {
+  "u_owner": [
+   "Win the Ashbys (214 Lincoln Place) this week at the firm's margin: they want a signed price by Friday and to start Tuesday 9/8.",
+   "Keep cash and AR honest: know what is in the bank, what is owed to us and what is owed by us, every day.",
+   "Nothing that only you can approve waits more than a day; nothing that should not reach you does.",
+   "At Tuesday's team meeting, bring the numbers: where each job stands against its estimate, what is over, what is done and not billed, and cash."
+  ],
+  "u_alan": [
+   "214 Lincoln Place: price it right from the walk-through and get it started Tuesday 9/8 with the field fed: no crew waiting on a decision, a drawing or material.",
+   "Margin on every job you run holds at or above the estimate; every change is priced and signed within 48 hours of the cause.",
+   "Friday: the weekly review of each of your jobs (the next three weeks, budget against committed and actual by estimate line, open changes, RFIs, submittals and decisions) and the client update.",
+   "At Tuesday's team meeting, bring each job's numbers by estimate line and what is over."
+  ],
+  "u_chen": [
+   "Buy out 214 Lincoln Place (lumber, drywall and cement board, tile, the electrical rough-in material) under each estimate line, on site before the crew needs it, without moving the schedule.",
+   "Three quotes on anything over $2,500; every price checked against what we paid last time; nothing bought that we already have.",
+   "Every vendor bill matches its PO and what actually arrived before anyone pays it.",
+   "At Tuesday's meeting: what is committed against each line you bought for, and what is over."
+  ],
+  "u_billing": [
+   "Every milestone invoiced within 2 business days, deposits the day a contract is signed, changes billed once approved, and anything bought for a client billed back.",
+   "Every payment that lands is matched to its invoice and its bank line the day it arrives; collections at due, 7, 15 and 30 days.",
+   "At Tuesday's meeting: AR by client, cash received this week, what is done and not yet billed, and anything bought for a client not billed back."
+  ]
+ },
+ "standard_for": {
+  "u_owner": {
+   "role": "owner",
+   "playbooks": []
+  },
+  "u_alan": {
+   "role": "pm",
+   "playbooks": [
+    "pm",
+    "client",
+    "estimating"
+   ]
+  },
+  "u_chen": {
+   "role": "coord",
+   "playbooks": [
+    "procurement"
+   ]
+  },
+  "u_billing": {
+   "role": "billing",
+   "playbooks": [
+    "office",
+    "client"
+   ]
+  }
+ },
+ "questions": {
+  "u_owner": [
+   [
+    "Q1",
+    "cash",
+    "Cash in the bank today, by account and in total."
+   ],
+   [
+    "Q2",
+    "ar",
+    "What clients owe us today (open invoices), by client and in total."
+   ],
+   [
+    "Q3",
+    "over_lines",
+    "On 214 Lincoln Place, which estimate lines are over budget (committed or actual above the line's budget) and by how much."
+   ],
+   [
+    "Q4",
+    "unbilled",
+    "Work done and not billed, by job."
+   ],
+   [
+    "Q5",
+    "reimb",
+    "Purchases made for a client that are not billed back yet."
+   ]
+  ],
+  "u_alan": [
+   [
+    "Q1",
+    "line_table",
+    "For 214 Lincoln Place: each estimate line's budget, committed and actual."
+   ],
+   [
+    "Q2",
+    "over_lines",
+    "Which of those lines are over, and by how much."
+   ],
+   [
+    "Q3",
+    "open_cos",
+    "Change orders on your jobs not yet approved, or approved and not billed."
+   ],
+   [
+    "Q4",
+    "unbilled",
+    "Work done and not billed on 214 Lincoln Place and 121 State Street."
+   ]
+  ],
+  "u_chen": [
+   [
+    "Q1",
+    "committed_lines",
+    "For 214 Lincoln Place: committed (POs) against each line you bought for, and its budget."
+   ],
+   [
+    "Q2",
+    "over_lines",
+    "Which lines are over budget and by how much."
+   ],
+   [
+    "Q3",
+    "price_vs_last",
+    "Where we paid more than the last time we bought the same thing, and how much more."
+   ]
+  ],
+  "u_billing": [
+   [
+    "Q1",
+    "ar",
+    "AR by client and in total."
+   ],
+   [
+    "Q2",
+    "cash_in",
+    "Payments received this week (9/3 to 9/8) and the invoices they paid."
+   ],
+   [
+    "Q3",
+    "unbilled",
+    "Work done and not billed, by job."
+   ],
+   [
+    "Q4",
+    "reimb",
+    "Purchases made for a client that are not billed back yet."
+   ]
+  ]
+ },
+ "steps": [
+  {
+   "id": "C01",
+   "owner": "u_owner",
+   "what": "The Ashbys' inquiry on file as a lead (name, contact, property)",
+   "day": "2026-09-03",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C02",
+   "owner": "u_owner",
+   "what": "The lead won: the Ashbys a client, once (no duplicate client)",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C03",
+   "owner": "u_owner",
+   "what": "A project for 214 Lincoln Place under the client",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C04",
+   "owner": "u_owner|u_alan",
+   "what": "The gap in the walk-through (the radiator) asked back to the client before it is priced",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C05",
+   "owner": "u_alan|u_owner",
+   "what": "The estimate: 8+ lines (labor, materials, a sub, an allowance, a fee), quantity, price and budget on every line, on the project",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C06",
+   "owner": "u_owner|u_alan",
+   "what": "The estimate sent, and it reached the Ashbys",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C07",
+   "owner": "u_owner|u_alan",
+   "what": "The Ashbys' signature recorded on the estimate (who, when)",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C08",
+   "owner": "u_owner|u_alan|u_billing",
+   "what": "The contract and the schedule of values from the estimate (every SOV line linked to its estimate line)",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C10",
+   "owner": "u_chen",
+   "what": "An RFQ from several estimate lines at once (each RFQ line linked to its estimate line)",
+   "day": "2026-09-04",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C11",
+   "owner": "u_chen",
+   "what": "RFQs sent to three vendors each, and they reached the vendors",
+   "day": "2026-09-04",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C12",
+   "owner": "u_chen",
+   "what": "Three quotes behind every order over $2,500 on 214 Lincoln",
+   "day": "2026-09-04",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C13",
+   "owner": "u_chen",
+   "what": "The quotes recorded and the award made",
+   "day": "2026-09-04",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C14",
+   "owner": "u_chen",
+   "what": "POs from the estimate lines (vendor, price, every line linked), sent, and they reached the vendor",
+   "day": "2026-09-04",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C15",
+   "owner": "u_chen",
+   "what": "The vendors' bills entered against their POs (job, cost code, PO)",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C20",
+   "owner": "script:u_angel",
+   "what": "Deliveries received against their POs, one short and one damaged (scripted foreman)",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C21",
+   "owner": "script:u_angel",
+   "what": "Hours on 214 Lincoln on cost codes, and the daily log (scripted field)",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C22",
+   "owner": "script:u_controller",
+   "what": "Bank and card statements imported; the app's own proposed matches confirmed (scripted controller)",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C23",
+   "owner": "script:u_controller",
+   "what": "The 8/31-9/4 payroll built from approved hours (scripted controller)",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C24",
+   "owner": "u_owner",
+   "what": "The 8/31-9/4 payroll approved by the owner",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C30",
+   "owner": "u_billing",
+   "what": "The deposit invoice on the contract, sent within 2 business days of signing",
+   "day": "2026-09-03",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C31",
+   "owner": "u_billing",
+   "what": "The Ashbys' deposit recorded against the invoice and its bank line",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C32",
+   "owner": "u_billing",
+   "what": "The progress invoice from the schedule of values, with retainage, sent",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C33",
+   "owner": "u_billing",
+   "what": "The approved change order billed",
+   "day": "2026-09-04",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C40",
+   "owner": "u_alan",
+   "what": "The vanity change priced (price, cost, days), sent within 48 hours and its approval recorded",
+   "day": "2026-09-04",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C41",
+   "owner": "u_alan",
+   "what": "The Friday review of each job: look-ahead, budget against committed and actual, changes, RFIs, submittals, decisions",
+   "day": "2026-09-04",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C42",
+   "owner": "u_alan",
+   "what": "The Friday client update (each job's client)",
+   "day": "2026-09-04",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C50",
+   "owner": "u_owner",
+   "what": "The owner's numbers for the meeting, against the referee's",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C51",
+   "owner": "u_alan",
+   "what": "The PM's numbers for the meeting, against the referee's",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C52",
+   "owner": "u_chen",
+   "what": "The coordinator's numbers for the meeting, against the referee's",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C53",
+   "owner": "u_billing",
+   "what": "Billing's numbers for the meeting, against the referee's",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C60",
+   "owner": "u_owner",
+   "what": "The Ashbys' call in the middle of the estimate answered",
+   "day": "2026-09-03",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C61",
+   "owner": "u_chen",
+   "what": "The yard's backorder call handled (decided and written down)",
+   "day": "2026-09-04",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C62",
+   "owner": "u_alan",
+   "what": "Angel's call about the pantry GFI answered",
+   "day": "2026-09-04",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C63",
+   "owner": "u_billing",
+   "what": "David Klein's mail about the retainage answered within 2 hours",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C34",
+   "owner": "u_billing",
+   "what": "The pendants bought for the Ashbys billed back",
+   "day": "2026-09-08",
+   "by": 3,
+   "money": 612.4
+  }
+ ],
+ "plants": [
+  {
+   "id": "L1",
+   "kind": "over_line",
+   "line": "drywall",
+   "what": "A PO priced over its estimate line's budget (every yard's drywall price is above the line)",
+   "owner": "u_chen"
+  },
+  {
+   "id": "L2",
+   "kind": "in_stock",
+   "what": "Material the job needs already in the firm's stock (12/2 NM-B, 1-gang boxes, 5/8 Type X)",
+   "owner": "u_chen"
+  },
+  {
+   "id": "L3",
+   "kind": "price_vs_last",
+   "line": "tile",
+   "what": "The cheapest tile quote is Nemo Tile at $13.90/sf, above the $12.50/sf on PO-2026-041",
+   "owner": "u_chen"
+  },
+  {
+   "id": "L4",
+   "kind": "bill_over_po",
+   "line": "tile",
+   "what": "The tile invoice adds a $95 fuel surcharge and a $45 pallet deposit the PO never had",
+   "owner": "u_chen",
+   "over": 140.0
+  },
+  {
+   "id": "L5",
+   "kind": "short",
+   "line": "drywall",
+   "what": "The drywall delivery came 6 cement boards short; the invoice bills all of them",
+   "owner": "u_chen",
+   "qty": 6
+  },
+  {
+   "id": "L6",
+   "kind": "damaged",
+   "line": "tile",
+   "what": "Two boxes of tile (31 sf) arrived cracked; the invoice bills all of them",
+   "owner": "u_chen",
+   "qty_sf": 31
+  },
+  {
+   "id": "L7",
+   "kind": "reimbursable",
+   "what": "Two pendant lights bought for the Ashbys on the Amex ($612.40) to bill back at cost",
+   "owner": "u_billing",
+   "amount": 612.4,
+   "desc": "LIGHTOLOGY CHICAGO IL"
+  },
+  {
+   "id": "L8",
+   "kind": "co_unbilled",
+   "what": "The approved vanity change order not billed",
+   "owner": "u_billing"
+  },
+  {
+   "id": "L9",
+   "kind": "work_unbilled",
+   "what": "Demolition measured on site and not billed",
+   "owner": "u_billing"
+  }
+ ],
+ "coverage": {
+  "floor": 0.6,
+  "u_owner": {
+   "module": "Sales, Approvals and Reports",
+   "pages": [
+    [
+     "home",
+     "Today"
+    ],
+    [
+     "mapprove",
+     "Approvals"
+    ],
+    [
+     "ovsales",
+     "Sales"
+    ],
+    [
+     "billing:estimates",
+     "Estimates"
+    ],
+    [
+     "hbcontacts",
+     "People"
+    ],
+    [
+     "hbcompanies",
+     "Companies"
+    ],
+    [
+     "salesnum",
+     "Numbers"
+    ],
+    [
+     "ovmoney",
+     "Accounting"
+    ],
+    [
+     "bank",
+     "Banking"
+    ],
+    [
+     "reports",
+     "Reports"
+    ],
+    [
+     "dashboard",
+     "Dashboard"
+    ]
+   ]
+  },
+  "u_alan": {
+   "module": "Projects",
+   "pages": [
+    [
+     "ovjobs",
+     "Projects"
+    ],
+    [
+     "dash",
+     "Overview"
+    ],
+    [
+     "proj",
+     "Project Settings"
+    ],
+    [
+     "sched",
+     "Schedule"
+    ],
+    [
+     "tasks",
+     "Tasks"
+    ],
+    [
+     "dec",
+     "Decisions"
+    ],
+    [
+     "subm",
+     "Submittals"
+    ],
+    [
+     "insp",
+     "Permits"
+    ],
+    [
+     "field",
+     "Field"
+    ],
+    [
+     "photos",
+     "Photos"
+    ],
+    [
+     "recv",
+     "Deliveries"
+    ],
+    [
+     "mat",
+     "Materials"
+    ],
+    [
+     "costs",
+     "Costs"
+    ],
+    [
+     "billing:co",
+     "Change Orders"
+    ],
+    [
+     "billing:estimates",
+     "Estimates"
+    ],
+    [
+     "billing",
+     "Billing"
+    ],
+    [
+     "files",
+     "Documents"
+    ],
+    [
+     "plans",
+     "Drawings"
+    ],
+    [
+     "inbox",
+     "Mail"
+    ]
+   ],
+   "per_job": {
+    "jobs": [
+     "p121",
+     "{job}"
+    ],
+    "pages": [
+     "sched",
+     "costs",
+     "billing:co",
+     "dec",
+     "subm"
+    ]
+   }
+  },
+  "u_chen": {
+   "module": "Purchasing",
+   "pages": [
+    [
+     "ovbuy",
+     "Purchasing"
+    ],
+    [
+     "sel",
+     "Selections"
+    ],
+    [
+     "req",
+     "Requests"
+    ],
+    [
+     "proc",
+     "Buy Board"
+    ],
+    [
+     "rfq",
+     "RFQs"
+    ],
+    [
+     "po",
+     "Purchase Orders"
+    ],
+    [
+     "recv",
+     "Deliveries"
+    ],
+    [
+     "route",
+     "Route"
+    ],
+    [
+     "inv",
+     "Inventory"
+    ],
+    [
+     "vendors",
+     "Vendors"
+    ]
+   ]
+  },
+  "u_billing": {
+   "module": "Billing",
+   "pages": [
+    [
+     "billing:billable",
+     "Billable Now"
+    ],
+    [
+     "billing:progress",
+     "Progress Billing"
+    ],
+    [
+     "billing:estimates",
+     "Estimates"
+    ],
+    [
+     "billing:co",
+     "Change Orders"
+    ],
+    [
+     "billing:invoices",
+     "Invoices"
+    ],
+    [
+     "billing:sov",
+     "Schedule of Values"
+    ],
+    [
+     "billing:payments",
+     "Payments"
+    ],
+    [
+     "billing:funds",
+     "Client Funds"
+    ],
+    [
+     "bank",
+     "Banking"
+    ]
+   ]
+  }
+ },
+ "events": [
+  {
+   "id": "Y-01",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "lead"
+   ],
+   "payload": {
+    "from": "Wren Ashby <wren.ashby@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Julian Ashby <julian.ashby@example.com>"
+    ],
+    "thread": "cy_ashby",
+    "att": [],
+    "subject": "214 Lincoln Place: thank you for yesterday",
+    "text": "Hi Alan, thank you both for walking the house with us yesterday. As we said, the parlor kitchen and a new bath on the garden level, about $90,000 all in, and we would love to start Tuesday the 8th. Can we have your price by Friday? Wren Ashby, (347) 555-0186"
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Put the Ashbys (214 Lincoln Place) on file",
+    "by": 0,
+    "see": [
+     "Ashby"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C01"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-02",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "situation",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "lead"
+   ],
+   "payload": {
+    "uid": "u_owner",
+    "text": "Your own notes from yesterday: Walk-through, 214 Lincoln Place (Wren and Julian Ashby), yesterday 5 pm. Parlor kitchen gut and a new garden-level bath. They said about $90,000 and want to start Tuesday 9/8. My takeoff (price to them / our cost):\n- Demolition & protection: parlor kitchen and garden bath: 1 ls at $8,400.00 each (cost $5,600)\n- Framing & blocking: pantry wall, vanity and cabinet blocking: 1 ls at $6,200.00 each (cost $4,100)\n- Framing lumber: supply: 1 ls at $1,450.00 each (cost $1,100)\n- Drywall & cement board: supply: 1 ls at $2,450.00 each (cost $1,800)\n- Drywall hang, tape & prime (SD crew): 1 ls at $7,800.00 each (cost $5,200)\n- Porcelain floor tile 12x24 matte: supply: 380 sf at $19.00 each (cost $5,510)\n- Tile setting & waterproofing (SD crew): 1 ls at $9,600.00 each (cost $6,400)\n- Electrical rough-in & devices (SD Electric): 1 ls at $11,500.00 each (cost $7,900)\n- Plumbing rough & finish, garden bath (SD Plumbing): 1 ls at $14,200.00 each (cost $10,300)\n- Rear wall repointing (Ironbound Masonry, sub): 1 ls at $6,800.00 each (cost $5,400)\n- Plumbing fixture allowance: garden bath: 1 ls at $6,500.00 each (cost $6,500)\n- General conditions & builder's fee: 1 ls at $9,000.00 each (cost $0)\n- Garden bath radiator: Wren was not sure whether to keep it or move it under the window. Ask before pricing the plumbing (moving it: $1,400 to them, $950 cost).\nTerms: 25% deposit on signing, progress billing monthly from the schedule of values, 10% retainage. Valid 30 days."
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Make the Ashbys a client and open 214 Lincoln Place",
+    "by": 1,
+    "see": [
+     "Ashby"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C02"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-03",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "situation",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "estimate"
+   ],
+   "payload": {
+    "uid": "u_alan",
+    "text": "You walked 214 Lincoln Place with Alan (the owner) and the Ashbys yesterday. Alan's notes, which he read out in the car: Walk-through, 214 Lincoln Place (Wren and Julian Ashby), yesterday 5 pm. Parlor kitchen gut and a new garden-level bath. They said about $90,000 and want to start Tuesday 9/8. My takeoff (price to them / our cost):\n- Demolition & protection: parlor kitchen and garden bath: 1 ls at $8,400.00 each (cost $5,600)\n- Framing & blocking: pantry wall, vanity and cabinet blocking: 1 ls at $6,200.00 each (cost $4,100)\n- Framing lumber: supply: 1 ls at $1,450.00 each (cost $1,100)\n- Drywall & cement board: supply: 1 ls at $2,450.00 each (cost $1,800)\n- Drywall hang, tape & prime (SD crew): 1 ls at $7,800.00 each (cost $5,200)\n- Porcelain floor tile 12x24 matte: supply: 380 sf at $19.00 each (cost $5,510)\n- Tile setting & waterproofing (SD crew): 1 ls at $9,600.00 each (cost $6,400)\n- Electrical rough-in & devices (SD Electric): 1 ls at $11,500.00 each (cost $7,900)\n- Plumbing rough & finish, garden bath (SD Plumbing): 1 ls at $14,200.00 each (cost $10,300)\n- Rear wall repointing (Ironbound Masonry, sub): 1 ls at $6,800.00 each (cost $5,400)\n- Plumbing fixture allowance: garden bath: 1 ls at $6,500.00 each (cost $6,500)\n- General conditions & builder's fee: 1 ls at $9,000.00 each (cost $0)\n- Garden bath radiator: Wren was not sure whether to keep it or move it under the window. Ask before pricing the plumbing (moving it: $1,400 to them, $950 cost).\nTerms: 25% deposit on signing, progress billing monthly from the schedule of values, 10% retainage. Valid 30 days."
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Price 214 Lincoln Place from the walk-through (8+ real lines on the project)",
+    "by": 1,
+    "see": [
+     "Lincoln"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C05"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-04",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Open 214 Lincoln Place under the Ashbys",
+    "by": 1,
+    "see": [
+     "Lincoln"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C03"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-05",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Ask the Ashbys about the radiator before pricing the plumbing",
+    "by": 1,
+    "see": [
+     "radiator"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C04"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-06",
+   "day": "2026-09-03",
+   "time": "07:20",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Send the Ashbys the estimate by Friday",
+    "by": 1,
+    "see": [
+     "Ashby"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C06"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-07",
+   "day": "2026-09-03",
+   "time": "10:30",
+   "kind": "interrupt",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "interrupt"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C03"
+   },
+   "payload": {
+    "uid": "u_owner",
+    "after_min": 20,
+    "from": "Wren Ashby",
+    "via": "call",
+    "text": "Your phone rings: Wren Ashby. \"Sorry to bother you. Two things: can you really start Tuesday the 8th, and do you need us home for anything before then?\""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Answer Wren's call (start date, access) and come back to the work",
+    "by": 0,
+    "see": [
+     "Ashby"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C60"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-08",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "contract"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C06"
+   },
+   "payload": {
+    "from": "Wren Ashby <wren.ashby@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Julian Ashby <julian.ashby@example.com>"
+    ],
+    "thread": "cy_ashby",
+    "subject": "Re: {number}: signed",
+    "text": "We read {number} ({total$}) and accept it as written. Signed copy attached. Please send the deposit invoice. Wren",
+    "att": [
+     {
+      "filename": "Signed {number}.pdf",
+      "text": "ACCEPTANCE\n{number}\n214 Lincoln Place\nAccepted as written, {total$}.\nSigned: Wren Ashby, Julian Ashby, {today}"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Record the Ashbys' signature on {number}",
+    "by": 1,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C07"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-09",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "contract"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "The contract and the schedule of values from {number}",
+    "by": 1,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C08"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-10",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "situation",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "buy"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {
+    "uid": "u_chen",
+    "text": "At the 8:00 huddle Alan (the owner) said: 214 Lincoln Place is signed. Demo starts Tuesday 9/8. Material, with the dates it is needed on site:\n- Framing lumber, by Tue 9/8: 60 pc 2x4x8 SPF stud; 12 pc 2x6x10 SPF; 6 sheet 3/4\" CDX plywood 4x8\n- Drywall and cement board, by Wed 9/9: 80 sheet 5/8\" Type X drywall 4x8; 30 sheet 1/2\" cement board 3x5\n- Floor tile, by Fri 9/11: 380 sf Porcelain floor tile 12x24 matte, Warm Grey\n- Electrical rough-in material, by Tue 9/8: 3 roll 12/2 NM-B 250 ft; 30 ea 1-gang new-work boxes\nThe yards we use for lumber and drywall: Brooklyn Lumber (orders@brooklynlumber.example), Gowanus Building Supply (orders@gowanusbuilding.example), Atlantic Yard Supply (sales@atlanticyardsupply.example). For tile: Nemo Tile (sales@nemotile.example), Bergen Tile Gallery (quotes@bergentile.example), Carroll Street Tile (desk@carrollstreettile.example)."
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Ask for quotes on 214 Lincoln's material from the estimate lines",
+    "by": 1,
+    "see": [
+     "Lincoln"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C10"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-11",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "buy"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Three vendors asked on each RFQ, and the requests reached them",
+    "by": 1,
+    "see": [
+     "RFQ"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C11"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-12",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "buy"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Award and order 214 Lincoln's material from the estimate lines, and send the POs",
+    "by": 1,
+    "see": [
+     "Lincoln"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C14"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-13",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "situation",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "deposit"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {
+    "uid": "u_billing",
+    "text": "At the huddle you heard 214 Lincoln Place (the Ashbys) signed yesterday: 25% deposit on signing, progress monthly, 10% retainage."
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "The Ashbys' deposit invoice, sent",
+    "by": 2,
+    "see": [
+     "Ashby"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C30"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-14",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "situation",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reimbursable"
+   ],
+   "payload": {
+    "uid": "u_alan",
+    "text": "Last night on your way home you picked up the two pendant lights Wren chose for the kitchen island at Lightology, $612.40 on the firm's Amex 1009. They are not in the contract; Wren said to put them on the next invoice at cost. The receipt is in your bag."
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the Ashbys back for the pendants ($612.40)",
+    "by": 3,
+    "see": [
+     "pendant"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C34"
+    },
+    "money": 612.4,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-15",
+   "day": "2026-09-04",
+   "time": "08:15",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "change"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C07"
+   },
+   "payload": {
+    "from": "Wren Ashby <wren.ashby@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Julian Ashby <julian.ashby@example.com>"
+    ],
+    "thread": "cy_ashby_vanity",
+    "att": [],
+    "subject": "Garden bath vanity: change of plan",
+    "text": "Hi Alan, we went to the showroom: we want the 36-inch Rhea vanity in walnut ($2,380) instead of the 30-inch one in the allowance ($1,640). Does it change anything else, and what does it add? Wren"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Price the vanity change (price, cost, days) and send it within 48 hours",
+    "by": 2,
+    "see": [
+     "vanity"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C40"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-16",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "change"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C40",
+    "state": "sent"
+   },
+   "payload": {
+    "from": "Wren Ashby <wren.ashby@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Julian Ashby <julian.ashby@example.com>"
+    ],
+    "thread": "cy_ashby_vanity",
+    "att": [],
+    "subject": "Re: {number}",
+    "text": "Approved, go ahead with the 36-inch vanity ({number}, {total$}). Wren"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Record the Ashbys' approval of {number}",
+    "by": 1,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C40"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-17",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "change"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C40"
+   },
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the approved {number}",
+    "by": 2,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C33"
+    },
+    "money": "{total}",
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-18",
+   "day": "2026-09-04",
+   "time": "10:30",
+   "kind": "interrupt",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "interrupt"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C11"
+   },
+   "payload": {
+    "uid": "u_chen",
+    "after_min": 20,
+    "from": "Gowanus Building Supply",
+    "via": "call",
+    "text": "Your phone rings: Dee at Gowanus Building Supply. \"About your RFQ: the 1/2-inch cement board is backordered a week on our side. I can do 1/2-inch Durock NEXT Gen at the same price, in stock. Want me to quote that instead?\""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Decide on Gowanus' substitute and write it down",
+    "by": 0,
+    "see": [
+     "Durock"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C61"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-19",
+   "day": "2026-09-04",
+   "time": "10:30",
+   "kind": "interrupt",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "interrupt"
+   ],
+   "payload": {
+    "uid": "u_alan",
+    "after_min": 15,
+    "from": "Angel",
+    "via": "call",
+    "text": "Your phone rings: Angel, from 121 State. \"John the plumber asks if the pantry GFI change is approved, so he can do it Monday with the rough. Yes or no?\""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer Angel about the pantry GFI",
+    "by": 0,
+    "see": [
+     "GFI"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C62"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-20",
+   "day": "2026-09-04",
+   "time": "13:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "routine"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Friday: review each job (look-ahead, budget against committed and actual, changes, RFIs, submittals, decisions)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C41"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-21",
+   "day": "2026-09-04",
+   "time": "13:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "routine"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Friday: the weekly client update for each job",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C42"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-30",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "receiving"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C14",
+    "line": "drywall"
+   },
+   "delay": 1,
+   "payload": {
+    "do": "receive",
+    "as": "u_angel",
+    "number": "{number}",
+    "line": "drywall",
+    "short": {
+     "rx": "cement",
+     "qty": 6,
+     "why": "backordered, balance next week"
+    },
+    "notify": "u_chen"
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Receive the drywall order short 6 cement boards (scripted foreman)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C20"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-31",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "receiving"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C14",
+    "line": "tile"
+   },
+   "delay": 1,
+   "payload": {
+    "do": "receive",
+    "as": "u_angel",
+    "number": "{number}",
+    "line": "tile",
+    "damaged": {
+     "rx": "tile|porcelain",
+     "qty": 31,
+     "unit": "sf",
+     "why": "two boxes cracked in the pallet"
+    },
+    "notify": "u_chen"
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Receive the tile with two boxes damaged (scripted foreman)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C20"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-29",
+   "day": "2026-09-04",
+   "time": "07:00",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "receiving"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C14",
+    "line": "lumber"
+   },
+   "delay": 1,
+   "payload": {
+    "do": "receive",
+    "as": "u_angel",
+    "number": "{number}",
+    "line": "lumber",
+    "notify": "u_chen"
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Receive the lumber in full (scripted foreman)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C20"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-32",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "bill"
+   ],
+   "after": "Y-30",
+   "mint": {
+    "inv": "vendor_invoice"
+   },
+   "payload": {
+    "from": "{vendor_addr}",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "cy_inv_dw",
+    "subject": "Invoice {inv} for {number}",
+    "text": "Invoice {inv} for {number} (214 Lincoln Place) attached: {total$}, net 30.",
+    "att": [
+     {
+      "filename": "Invoice {inv}.pdf",
+      "text": "INVOICE {inv}\n{vendor}\nPO: {number}\nShip to: 214 Lincoln Place\nAll lines as ordered\nTOTAL {total$}\nNet 30"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter {inv} against {number}",
+    "by": 1,
+    "see": [
+     "{inv}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C15"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-33",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "bill"
+   ],
+   "after": "Y-31",
+   "mint": {
+    "inv": "vendor_invoice"
+   },
+   "payload": {
+    "from": "{vendor_addr}",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "cy_inv_tile",
+    "subject": "Invoice {inv} for {number}",
+    "text": "Please find invoice {inv} for {number} attached: {over_total$} including fuel surcharge and pallet deposit. Due net 30.",
+    "att": [
+     {
+      "filename": "Invoice {inv}.pdf",
+      "text": "INVOICE {inv}\n{vendor}\nPO: {number}\nShip to: 214 Lincoln Place\nMaterial as ordered {total$}\nFuel surcharge $95.00\nPallet deposit $45.00\nTOTAL {over_total$}\nNet 30"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter {inv} against {number}",
+    "by": 1,
+    "see": [
+     "{inv}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C15"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-37",
+   "day": "2026-09-08",
+   "time": "07:05",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "scripted"
+   ],
+   "payload": {
+    "do": "payroll",
+    "as": "u_controller"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "The 8/31-9/4 payroll built from approved hours (scripted controller)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C23"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-34",
+   "day": "2026-09-08",
+   "time": "07:10",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "field"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C03"
+   },
+   "payload": {
+    "do": "field_day",
+    "as": "u_angel",
+    "project": "{job}",
+    "task_rx": {
+     "demo": "demo"
+    },
+    "hours": [
+     [
+      "u_angel",
+      "demo",
+      8.5,
+      "Demo, parlor kitchen"
+     ],
+     [
+      "u_alberto",
+      "demo",
+      8.0,
+      "Demo and protection"
+     ],
+     [
+      "u_alex",
+      "demo",
+      4.0,
+      "Dumpster runs"
+     ]
+    ],
+    "measure": [
+     [
+      "demo",
+      40
+     ]
+    ],
+    "log": "Demo started at 214 Lincoln Place: parlor kitchen cabinets and plaster out, floor protected; dumpster swapped once."
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Hours on cost codes and the daily log on 214 Lincoln (scripted field)",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C21"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-35",
+   "day": "2026-09-08",
+   "time": "07:40",
+   "kind": "bank",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reimbursable"
+   ],
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-04",
+    "desc": "LIGHTOLOGY CHICAGO IL",
+    "amt": -612.4,
+    "ref": "AC2-20260904-LIGHT"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "The pendants on the Amex billed back to the Ashbys",
+    "by": 3,
+    "see": [
+     "LIGHTOLOGY"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C34"
+    },
+    "money": 612.4,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-36",
+   "day": "2026-09-03",
+   "time": "07:40",
+   "kind": "bank",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "deposit"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C30"
+   },
+   "delay": 1,
+   "payload": {
+    "acct": "ac1",
+    "date": "{today}",
+    "desc": "ONLINE TRANSFER FROM ASHBY W",
+    "amt": "{total}",
+    "ref": "AC1-{today}-ASHBY"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Ashbys' deposit ({total$}) against {number}",
+    "by": 1,
+    "see": [
+     "ASHBY"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C31"
+    },
+    "money": "{total}",
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-38",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "payroll"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Approve the 8/31-9/4 payroll",
+    "by": 1,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C24"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-39",
+   "day": "2026-09-08",
+   "time": "07:10",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "progress"
+   ],
+   "after": "Y-34",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill 214 Lincoln's measured work from the schedule of values, with retainage",
+    "by": 2,
+    "see": [
+     "Lincoln"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C32"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-40",
+   "day": "2026-09-08",
+   "time": "10:30",
+   "kind": "interrupt",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "interrupt"
+   ],
+   "payload": {
+    "uid": "u_billing",
+    "after_min": 15,
+    "from": "David Klein",
+    "via": "mail",
+    "mail": {
+     "from": "David Klein <david.klein@example.com>",
+     "to": [
+      "Billing <billing@smartdesign.nyc>"
+     ],
+     "subject": "INV-2026-040 and retainage",
+     "text": "Hi, could you resend INV-2026-040 and tell us how much retainage you are holding so far on 121 State? Our lender asks. David"
+    },
+    "text": "A mail just came in from David Klein (121 State): he wants INV-2026-040 again and the retainage held so far, for their lender."
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Answer David Klein (INV-2026-040, the retainage held) within 2 hours",
+    "by": 0,
+    "see": [
+     "retainage"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C63"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-41",
+   "day": "2026-09-08",
+   "time": "16:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reports"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "The owner's numbers for the meeting",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C50"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-42",
+   "day": "2026-09-08",
+   "time": "16:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reports"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "The PM's numbers for the meeting",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C51"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-43",
+   "day": "2026-09-08",
+   "time": "16:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reports"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "The coordinator's numbers",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C52"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-44",
+   "day": "2026-09-08",
+   "time": "16:30",
+   "kind": "seed",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "reports"
+   ],
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Billing's numbers",
+    "by": 0,
+    "see": [],
+    "check": {
+     "t": "cy",
+     "step": "C53"
+    },
+    "money": 0,
+    "days": 0
+   }
+  }
+ ]
+}
