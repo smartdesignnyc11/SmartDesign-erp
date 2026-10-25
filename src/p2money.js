@@ -893,7 +893,7 @@ if ("function" == typeof billingRows) {
     K.rows = function () {
       const R = base.apply(this, arguments) || [];
       try {
-        if (!["pm", "billing", "controller", "owner"].includes(role())) return R;
+        if (!["pm", "billing"].includes(role())) return R;
         const jobs = (DB.projects || []).filter((p) => !p.archived && "closed" !== (p.project || {}).status && p.clientId);
         jobs.forEach((p) => {
           const A = pbAhead(p.id);
