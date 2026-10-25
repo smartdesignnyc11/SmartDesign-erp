@@ -64,11 +64,13 @@ document.addEventListener(
   !0,
 );
 // A screen that hides the app's header and draws its own (the phone's Tasks page, Meeting Mode) carries Ask in it.
-const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top", ".view.on .mm-hd"];
+const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top-ph .mm-phr", ".mm-top"];
 function p2nAskOwnHeads() {
   const want = p2nHasAsk(),
     tb = document.getElementById("tb-ask"),
     tbOn = want && p2nVis(tb);
+  // the header's own Ask goes the same way as every other (a sheet or the meeting is held, not lost)
+  tb && !tb.hasAttribute("data-p2nask") && tb.setAttribute("data-p2nask", "");
   document.querySelectorAll(".p2n-ask.p2n-own").forEach((b) => {
     (!want || tbOn || !p2nVis(b.parentElement)) && b.remove();
   });

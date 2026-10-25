@@ -3956,3 +3956,9 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 .p2n-pact{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:none}
 @media (max-width:760px){ .p2n-person{flex-wrap:wrap} .p2n-pact{width:100%;justify-content:flex-start;padding-left:44px} .p2n-pact .btn{min-height:44px;min-width:88px} }
 .p2n-payrun{margin:12px 0}
+/* the phone's header (390px): menu, the page's name, search, Ask, New and Report a Problem. The demo's pinned-date chip
+   took the page's name down to one letter once Ask carried its word. It shows only on a pinned demo; the desktop keeps it. */
+@media (max-width:760px){
+  body.m-on .topbar #tb-pin{display:none}
+  body.m-on .topbar{gap:6px}
+}

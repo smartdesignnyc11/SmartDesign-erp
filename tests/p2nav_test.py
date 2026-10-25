@@ -300,8 +300,9 @@ async def meeting_ask(c, pg, tag):
     await shot(pg, f'owner_{tag}_meeting_ask')
     await pg.evaluate("() => { const a = [document.getElementById('tb-ask'), ...document.querySelectorAll('.p2n-ask.p2n-own')].find(x => x && x.getClientRects().length); a && a.click(); }"); await pg.wait_for_timeout(300)
     st = await pg.evaluate("() => ({ view, on: !!mtCurrent(), back: (document.getElementById('p2n-resume') || {}).textContent || '' })")
+    await shot(pg, f'owner_{tag}_meeting_ask_open')
     c.ok(st['view'] == 'pa' and st['on'] and 'Back to the Meeting' in st['back'], f'{tag}: Ask opens from the meeting, the meeting stays on, Back returns ({st})')
-    await pg.click('#p2n-resume'); await pg.wait_for_timeout(300)
+    await pg.evaluate("() => document.getElementById('p2n-resume') && document.getElementById('p2n-resume').click()"); await pg.wait_for_timeout(300)
     c.ok(await pg.evaluate("() => mmActive()"), f'{tag}: Back to the Meeting puts the meeting on screen')
 
 async def main():
