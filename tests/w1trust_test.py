@@ -61,12 +61,21 @@ async def t_mail_task(c, p, phone):
       const m3 = document.getElementById('mbm');
       const three = { due: m3 && (m3.querySelector('[data-f="due"]') || {}).value, notes: m3 && (m3.querySelector('[data-f="notes"]') || {}).value };
       m3 && m3.remove();
-      return { td, one, two, three };""")
+      // a mail whose only dates are when things ship and must be ordered: never the task's date
+      const o = { id: 'w1c6', threadId: 'w1t6', direction: 'in', date: td + 'T08:10:00', subject: 'Doors', from: { name: 'Window Works', email: 'ww@example.com' },
+        text: 'The windows ship 9/11. Please look at the door hardware list; order by 9/16 for the 9/30 install.', route: { projectId: 'p121' }, proposals: [] };
+      DB.comms.push(o);
+      flTaskDialog(o, { id: 'w1p6', kind: 'request', task: 'Look at the door hardware list', due: '2026-09-16', summary: 'Look at the door hardware list', projectId: 'p121' }); await sleep(200);
+      const m4 = document.getElementById('mbm');
+      const four = { due: m4 && m4.querySelector('[data-f="due"]').value, want: addWork(td, 2) };
+      m4 && m4.remove();
+      return { td, one, two, three, four };""")
     c.ok(r['one']['due'] == r['td'], f"{tag} mail task: Chen's 'by noon today (order-by 9/16)' is due today, never the order-by date ({r['one']['due']})")
     c.ok('6-door' in (r['one']['notes'] or '') and 'Laundry' not in (r['one']['notes'] or ''), f"{tag} mail task: notes from that mail's words, not the thread's old subject ({r['one']['notes']!r})")
     c.ok('due ' in r['one']['from'].lower(), f"{tag} mail task: the sheet says where the date came from ({r['one']['from']!r})")
     c.ok(r['two']['due'] == '2026-09-09', f"{tag} mail task: after her reply, due the day she gave, Wed 9/9 ({r['two']['due']})")
     c.ok(r['three']['due'] == '2026-09-09' and 'Laundry' not in (r['three']['notes'] or ''), f"{tag} Task From This Message takes the same date and notes ({r['three']})")
+    c.ok(r['four']['due'] == r['four']['want'], f"{tag} mail task: a mail dated only by ship and order-by dates takes the usual two working days, never 9/16 ({r['four']})")
     c.ok(not errs, f'{tag} mail task: no page errors ({errs[:2]})')
     await b.close()
 

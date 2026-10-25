@@ -728,7 +728,8 @@ function w1MailDue(c, p) {
   try {
     const pr = p || ((c.route || {}).projectId && (DB.projects || []).find((x) => x.id === c.route.projectId));
     const R = "function" == typeof recDueFrom ? recDueFrom(`${c.subject || ""}\n${w1Own(c)}`, pr) : null;
-    if (R) return { due: R.due, why: R.why, sentence: "" };
+    // only an event (a hearing, an inspection): a "by" date the mail names was read above, and an order-by is not one
+    if (R && /working day before/.test(R.why || "")) return { due: R.due, why: R.why, sentence: "" };
   } catch (e) {}
   return null;
 }
@@ -753,6 +754,13 @@ function w1MailNotes(c, sentence) {
         const R = w1MailDue(c, pr);
         const P2 = Object.assign({}, P, { notes: w1MailNotes(c, R && R.sentence) });
         R && ((P2.due = R.due), (P2.source = Object.assign({}, P.source, { label: `${P.source.label || "a message"}; due ${fmtL(R.due)}, ${R.why}` })));
+        // nothing dated for the person to act on, and the date offered is the mail's order-by, ship-by or delivery
+        // date: that is never the task's date; the usual two working days stand
+        if (!R && P.due) {
+          const md = `${+P.due.slice(5, 7)}/${+P.due.slice(8, 10)}`,
+            txt = w1Own(c);
+          new RegExp(`\\b(order(?:ed)?|ship(?:s|ped)?|deliver(?:y|ed)?|release[sd]?|arriv\\w*|on site|back|out)[-\\s]*(?:by|on|date|to|until)?[\\s:(]*${md.replace("/", "\\/")}\\b`, "i").test(txt) && (P2.due = addWork(today(), 2));
+        }
         arguments[0] = P2;
       }
     } catch (e) {
