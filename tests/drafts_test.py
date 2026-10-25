@@ -143,7 +143,18 @@ class DraftWalk(TapLint):
 
     async def leave(self, how, phone, depth=0):
         pg = self.pg
-        if depth > 1: return None
+        if depth > 1:
+            # a phone sheet that covers the whole screen, opened from the first screen: no bar, no outside and no
+            # screen of ours to go Back to. The person closes it with its own X (Back would leave the app; the
+            # reload pick-up below covers that). The draft must survive the X just the same.
+            pt = await pg.evaluate("""() => { const h = [...document.querySelectorAll('#mbm, #drawer.on, #ct-sheet, #msg-sheet, #tv-pop, #rp-panel, #hb-composer')].filter(e => e.getClientRects().length).pop();
+              const x = h && [...h.querySelectorAll('.mbm-x, #mbm-cancel, #d-close, #d-cancel, #rp-x, #hb-comp-x, [data-tvpx], .tv-pop-x, [data-msgsheetx], [data-cts=done], .ct-sheet-back')].find(e => e.getClientRects().length);
+              if (!x) return null; const r = x.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }""")
+            if not pt: return None
+            if phone: await pg.touchscreen.tap(pt['x'], pt['y'])
+            else: await pg.mouse.click(pt['x'], pt['y'])
+            await self.settle(120, 1200)
+            return 'its own close (full-screen sheet)'
         if how == 'back':
             can = await pg.evaluate("() => !!(history.state && history.state.rx && (history.state.d || 0) > 0)")
             if can:
