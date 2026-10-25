@@ -3022,6 +3022,164 @@
     "typo-overreach",
     "pilotfix1"
    ]
+  },
+  {
+   "id": "P101",
+   "role": "u_chen",
+   "q": "what's late to order",
+   "truth": "PRED.lateMaterial.rows().length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; the one late set (order-by passed, promise after need-by, promise passed)",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P102",
+   "role": "u_chen",
+   "q": "what arrives this week",
+   "truth": "b2Facts(briefFacts()).arriving.length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; deliveries due in 7 days, then the Buy Board lines",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P103",
+   "role": "u_chen",
+   "q": "which quotes am I waiting on",
+   "truth": "(DB.rfqs || []).filter(r => ['sent', 'quoting', 'leveled', 'negotiating', 'purchasing', 'foreman-review'].includes(r.status)).length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it answered with tasks",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P104",
+   "role": "u_chen",
+   "q": "is the tile above the estimate",
+   "truth": "['Tile \\u2014 two baths']",
+   "check": "contains",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it gave a name match",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P105",
+   "role": "u_chen",
+   "q": "which items have no price",
+   "truth": "PRED.unpriced.rows().length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; not understood",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P106",
+   "role": "u_chen",
+   "q": "what does Ferguson owe us",
+   "truth": "(() => { const R = retList().filter(r => r.vendor === 'Ferguson' && RET_OPEN.includes(r.status)); return Math.round(R.reduce((a, r) => a + retExpected(r), 0) * 100) / 100; })()",
+   "check": "number",
+   "absent": "DB.clients.map(c => c.name)",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it answered $92,265 of client receivables",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P107",
+   "role": "u_chen",
+   "q": "what does Nemo Tile owe us",
+   "truth": "['Nemo Tile']",
+   "check": "contains",
+   "absent": "DB.clients.map(c => c.name).concat(['receivable'])",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; a vendor's direction is credits and returns, never client money",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P108",
+   "role": "u_chen",
+   "q": "show me POs waiting for approval",
+   "truth": "DB.pos.filter(p => p.status === 'pending').length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it gave held-up tasks",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P109",
+   "role": "u_chen",
+   "q": "what's backordered",
+   "truth": "PRED.lateMaterial.rows().filter(r => r.ordered).length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; not understood",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P110",
+   "role": "u_chen",
+   "q": "open RFQs",
+   "truth": "(DB.rfqs || []).filter(r => ['sent', 'quoting', 'leveled', 'negotiating', 'purchasing', 'foreman-review'].includes(r.status)).length",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; not understood",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P111",
+   "role": "u_chen",
+   "q": "who is the rep at Nemo Tile",
+   "truth": "['Nemo Tile']",
+   "check": "contains",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it read rep as prep",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P112",
+   "role": "u_chen",
+   "q": "what did we pay last time for calacatta porcelain",
+   "truth": "DB.pos.flatMap(p => p.lines).find(l => /calacatta porcelain/i.test(l.item)).price",
+   "check": "number",
+   "notes": "procurement P1 (buying day 2026-10-25, 10-21 F15): the coordinator's questions answer from the Buy Board's one reader; it listed all spending",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
   }
  ]
 }

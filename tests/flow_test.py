@@ -136,9 +136,11 @@ async def s_order(p, c):
             await pg.keyboard.press('Escape')
         # the Buy Board's row says Order too, and a contract line opens the same sheet (never the FF&E board)
         await pg.evaluate("() => { setCurrent('p121'); procMode = 'lines'; buyScope = ''; buyOpen = true; view = 'proc'; render(); }"); await pg.wait_for_timeout(500)
-        nb = await pg.evaluate("() => [...document.querySelectorAll('#buy-board [data-buy^=\"order|\"]')].filter(b => b.getClientRects().length).map(b => b.innerText.trim())")
-        c.ok(len(nb) >= 3 and set(nb) == {'Order'}, f'order: the Buy Board rows say Order ({nb[:5]})')
-        await pg.locator('#buy-board tr').filter(has_text='Trim, doors, paint').locator('[data-buy^="order|"]').first.click(timeout=4000); await pg.wait_for_timeout(400)
+        # the Buy Board (procurement P1): a need still to buy has Order as its next step in its panel
+        nb = await pg.evaluate("() => buyList('').filter(r => r.tab === 'buy' && !r.ordered && !r.dec && ['line', 'material'].includes(r.kind)).slice(0, 4).map(r => { bbSel = r.id; render(); const b = document.querySelector('#buy-board .bb-panel [data-bbstep]'); return b ? b.innerText.trim() : ''; })")
+        c.ok(len(nb) >= 3 and set(nb) == {'Order'}, f'order: the Buy Board needs say Order ({nb[:5]})')
+        await pg.evaluate("() => { const r = buyList('').find(x => /Trim, doors, paint/.test(x.name)); bbSel = r.id; render(); }")
+        await pg.locator('#buy-board .bb-panel [data-buy^="order|"]').first.click(timeout=4000); await pg.wait_for_timeout(400)
         m = await modal(pg)
         c.ok(m and 'Trim, doors, paint' in m['title'] and float(m['fields'].get('price') or 0) > 0 and await pg.evaluate("() => view") == 'proc' and await pg.evaluate("() => procMode") == 'lines',
              f"order: a contract line opens the order sheet with its budget as the price, on the Buy Board ({m and m['fields']})")

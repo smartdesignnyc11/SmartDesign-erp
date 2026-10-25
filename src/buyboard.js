@@ -120,6 +120,42 @@ function bbMoreNeeds(p, c, covered, rows) {
           r && rows.push(r);
         }),
       );
+  // what is on order against a contract line and not yet here: the line's ordered part, arriving (its budget may be
+  // fully committed, so the line itself is off To Buy). Lines a material or FF&E item stands for are read there.
+  (DB.pos || [])
+    .filter((po) => po.projectId === p.id && ["pending", "issued", "partial"].includes(po.status))
+    .forEach((po) =>
+      (po.lines || []).forEach((pl) => {
+        if (pl.materialId || pl.selId || pl.requestId || !/^(estimate|co):/.test(pl.line || "") || (+pl.received || 0) >= (+pl.qty || 0)) return;
+        const ref = findLine(pl.line),
+          nb = ref ? lineNeedBy(p, ref.line) : { needBy: po.needBy || "", task: null };
+        rows.push({
+          kind: "order",
+          src: "order",
+          p: p,
+          c: c,
+          pl: pl,
+          key: `po:${po.id}:${pl.id}`,
+          presetLine: pl.line,
+          name: pl.item || pl.desc || "Order line",
+          needBy: nb.needBy || po.needBy || "",
+          orderBy: "",
+          lead: 0,
+          task: nb.task,
+          vendor: po.vendor || "",
+          price: r2((+pl.qty || 0) * (+pl.price || 0)),
+          budget: 0,
+          held: 0,
+          po: po,
+          ordered: !0,
+          eta: po.expected || "",
+          dec: null,
+          qty: `${r2((+pl.qty || 0) - (+pl.received || 0))} ${pl.unit || ""}`.trim(),
+          code: pl.code || "",
+          askedBy: "",
+        });
+      }),
+    );
   ((DB.sel || {}).items || [])
     .filter((it) => it.projectId === p.id && ["appr", "po", "ord", "ship"].includes(it.stage))
     .forEach((it) => {
@@ -191,7 +227,7 @@ function bbMoreNeeds(p, c, covered, rows) {
 // The one place a need's late, section, tab and severity are decided.
 function bbFinish(r) {
   const td = today();
-  r.lineKey = "line" === r.kind || "sub" === r.kind ? r.key : "material" === r.kind ? (r.m && r.m.line) || "" : "ffe" === r.kind ? (r.it && r.it.line) || "" : (r.q && r.q.line) || "";
+  r.lineKey = r.presetLine ? r.presetLine : "line" === r.kind || "sub" === r.kind ? r.key : "material" === r.kind ? (r.m && r.m.line) || "" : "ffe" === r.kind ? (r.it && r.it.line) || "" : (r.q && r.q.line) || "";
   r.received = !!r.received;
   const L = bbLateOf(r);
   (r.late = L.late), (r.lateKind = L.kind), (r.lateWhy = L.why);
@@ -518,12 +554,15 @@ function bbRender() {
       : "",
     head = `<div class="ph bb-ph0"><div class="bb-title"><h2>Buy Board</h2><span class="ov-count bb-latepill ${lateN ? "on" : ""}" data-ovneeds="buy">${lateN ? `${lateN} late` : "Nothing late"}</span></div><div class="bb-tools">${phone ? "" : `<label class="bb-search">${BB_IC.search}<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}"></label>`}${phone ? `<button type="button" class="bb-ib" id="bb-sbtn" aria-label="Search the Buy Board">${BB_IC.search}</button><button type="button" class="bb-ib ${bbProj || bbVendor || bbTrade ? "on" : ""}" id="bb-fbtn" aria-label="Filter by project, vendor or trade">${BB_IC.filter}</button>` : `<button type="button" class="btn" id="bb-more">FF&amp;E Buying Tools</button>`}</div></div>`,
     phoneTools = phone && (bbSearchOn || bbFilterOn || bbQ) ? `<div class="bb-ptools">${bbSearchOn || bbQ ? `<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}">` : ""}${bbFilterOn ? `<div class="bb-fl">${filters}</div>` : ""}</div>` : "";
-  root.innerHTML = `<div class="bb ${phone ? "bb-phone" : "bb-desk"}" id="buy-board" data-bbon="${bbTab}" data-os-keep>${head}<div class="bb-top">${tabs}${phone ? "" : `${chips}<span class="bb-sep"></span><div class="bb-fl">${filters}</div>`}</div>${phoneTools}${focus}<div class="bb-main"><div class="bb-list" data-nocase>${list}${empty}<div class="dg bb-foot"><span class="cnt">${R.length} of ${("buy" === bbTab ? BUY : ARR).length} shown</span>${phone ? `<button type="button" class="btn sm" id="bb-more">FF&amp;E Buying Tools</button>` : ""}</div></div>${phone ? "" : `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${bbPanelHtml(sel, picked.length)}</aside>`}</div>${bar}</div>`;
+  root.innerHTML = `<div class="bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" id="buy-board" data-bbon="${bbTab}" data-os-keep>${head}<div class="bb-top">${tabs}${phone ? "" : `${chips}<span class="bb-sep"></span><div class="bb-fl">${filters}</div>`}</div>${phoneTools}${focus}<div class="bb-main"><div class="bb-list" data-nocase>${list}${empty}<div class="dg bb-foot"><span class="cnt">${R.length} of ${("buy" === bbTab ? BUY : ARR).length} shown</span>${phone ? `<button type="button" class="btn sm" id="bb-more">FF&amp;E Buying Tools</button>` : ""}</div></div>${phone ? "" : `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${bbPanelHtml(sel, picked.length)}</aside>`}</div>${bar}</div>`;
   bbWire(root);
 }
 function bbWire(root) {
   const q = (s) => root.querySelector(s),
-    re = () => render();
+    re = () => render(),
+    tb = document.getElementById("mtabs");
+  // the pick bar rides just above the phone's bottom bar, as in Main.dc.html
+  tb && root.firstElementChild && root.firstElementChild.style.setProperty("--bb-tabs", (tb.offsetHeight || 64) + "px");
   root.querySelectorAll("[data-bbtab]").forEach((b) => b.matches("button") && (b.onclick = () => ((bbTab = b.dataset.bbtab), (bbSel = ""), re())));
   root.querySelectorAll("[data-bbf]").forEach((b) => (b.onclick = () => ((bbFilter = b.dataset.bbf), re())));
   root.querySelectorAll("[data-bbpick]").forEach((b) => (b.onclick = (e) => (e.stopPropagation(), bbPick.has(b.dataset.bbpick) ? bbPick.delete(b.dataset.bbpick) : bbPick.add(b.dataset.bbpick), re())));
@@ -1244,7 +1283,8 @@ if ("function" == typeof paAsk) {
 .bb.bb-phone .bb-cbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding:9px 0 0;border:0;background:transparent;text-align:left;color:inherit}
 .bb.bb-phone .bb-cbody .bb-t{font-size:16px}
 .bb.bb-phone .bb-w{font-size:13px;color:#3E4450}
-.bb.bb-phone .bb-bar{position:sticky;bottom:calc(74px + env(safe-area-inset-bottom,0px));margin:10px -12px 0;border-radius:0}
+.bb.bb-phone .bb-bar{position:fixed;left:0;right:0;bottom:var(--bb-tabs,64px);margin:0;border-radius:0;z-index:30}
+.bb.bb-phone.bb-picking .bb-list{padding-bottom:72px}
 .bb.bb-phone .bb-arr .bb-t{font-size:15px}
 #mbm.bb-mbm .bb-sheet{display:flex;flex-direction:column;gap:12px}
 #mbm.bb-mbm .bb-steps .btn{width:100%}

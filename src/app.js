@@ -87435,12 +87435,14 @@ function mRenderTabs() {
     ),
     nAppr = mApproveCount(),
     nTk = tabs.some(([v]) => "tkall" === v) && "function" == typeof tkMyCounts ? tkMyCounts().today || 0 : 0,
+    // the Buy Board's badge is the one late set, as the rail's (Main.dc.html)
+    nBuy = tabs.some(([v]) => "proc" === v) && "function" == typeof needs ? needs("buy") : 0,
     cur = view;
   (tb.innerHTML =
     tabs
       .map(
         ([v, l, i]) =>
-          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : "tkall" === v && nTk ? `<i class="n" data-ocbadge="tkall">${nTk}</i>` : ""}</button>`,
+          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : "tkall" === v && nTk ? `<i class="n" data-ocbadge="tkall">${nTk}</i>` : "proc" === v && nBuy ? `<i class="n">${nBuy}</i>` : ""}</button>`,
       )
       .join("") +
     // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px. Where
