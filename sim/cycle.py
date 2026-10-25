@@ -240,6 +240,7 @@ class Cycle:
         if c.get('line'): st, det, bind = self.po_gate(c['line'])
         elif sid == 'C40' and c.get('state') == 'sent': st, det, bind = self.co_gate()
         else: st, det, bind = self.step(sid)
+        if c.get('need') == 'right': return st == 'right', det, bind   # e.g. the client signs only an estimate that reached them
         return st in ('right', 'wrong', 'scripted'), det, bind
 
     # sales and the contract
@@ -532,7 +533,8 @@ class Cycle:
         if any(l.get('cost') in (None, '') for l in d.get('lines') or []): bad.append('no cost on a line')
         if d.get('scheduleDays') in (None, ''): bad.append('no schedule days')
         if wd_between('2026-09-04', d.get('date') or self.day) > 2: bad.append('more than 48 hours after the request')
-        if d.get('status') != 'approved': return ('not done' if d.get('status') not in ('sent', 'viewed') else 'wrong'), f"{d.get('number')} {d.get('status')} ${T:,.2f}" + ('; not approved yet' if d.get('status') in ('sent', 'viewed') else ''), bind
+        if d.get('status') != 'approved':   # sent and waiting on the client is progress, not a fault: the step is its approval recorded
+            return 'not done', f"{d.get('number')} {d.get('status')} ${T:,.2f}" + ('; sent, waiting on the approval' if d.get('status') in ('sent', 'viewed') else '') + (': ' + '; '.join(bad) if bad else ''), bind
         if not (d.get('approvedOn') or d.get('approvedAt') or d.get('signedAt') or d.get('clientApproval') or re.search('approv', text_of(d.get('history'), d.get('log')), re.I)): bad.append('no approval record')
         return ('wrong' if bad else 'right', f"{d.get('number')} ${T:,.2f} approved" + (': ' + '; '.join(bad) if bad else ''), bind)
 

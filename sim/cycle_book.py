@@ -250,7 +250,7 @@ EVENTS = [
      'payload': {'uid': 'u_owner', 'after_min': 20, 'from': 'Wren Ashby', 'via': 'call',
                  'text': 'Your phone rings: Wren Ashby. "Sorry to bother you. Two things: can you really start Tuesday the 8th, and do you need us home for anything before then?"'},
      'expect': X('u_owner', 'Answer Wren\'s call (start date, access) and come back to the work', 0, 'C60', ['Ashby'])},
-    {'id': 'Y-08', 'day': D1, 'time': '07:00', 'kind': 'mail', 'tags': ['cycle', 'contract'], 'gate': G('C06'),
+    {'id': 'Y-08', 'day': D1, 'time': '07:00', 'kind': 'mail', 'tags': ['cycle', 'contract'], 'gate': G('C06', need='right'),
      'payload': {'from': WREN, 'to': ['Alan Mishali <alan@smartdesign.nyc>'], 'cc': ['Alan <alan.pm@smartdesign.nyc>', JULIAN], 'thread': 'cy_ashby',
                  'subject': 'Re: {number}: signed',
                  'text': 'We read {number} ({total$}) and accept it as written. Signed copy attached. Please send the deposit invoice. Wren',

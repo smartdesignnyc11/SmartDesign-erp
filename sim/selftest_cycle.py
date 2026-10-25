@@ -175,6 +175,14 @@ def unit():
     check(all(missed[k] == 'nobody' for k in ('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8')) and lw['L9'] == 0 and lw['L1'] == 369.0 and lw['L4'] == 140.0 and abs(lw['L5'] - 162.6) < 0.01 and lw['L7'] == 612.40,
           f"leaks, done wrong: every plant missed, money left ${sum(lw.values()):,.2f} (" + '; '.join(f'{k} ${v:,.2f}' for k, v in lw.items()) + ')')
     check(all(LN[k]['caught'] == 'not reached' for k in LN), 'leaks, nothing done: every plant not reached (no money counted twice)')
+    # ---- the gates: the world moves on what really happened
+    Cw0 = out['wrong'][0]
+    db2, w2 = fixture('right', B)
+    next(c for c in db2['clients'] if c['id'] == 'cA')['changeOrders'][0]['status'] = 'sent'
+    Cs = CY.Cycle(db2, B, w2, [], '2026-09-08')
+    check(Cw0.gate({'t': 'cy', 'step': 'C06', 'need': 'right'})[0] is False and Cw0.gate({'t': 'cy', 'step': 'C06'})[0] is True
+          and Cs.s_C40()[0] == 'not done' and Cs.gate({'t': 'cy', 'step': 'C40', 'state': 'sent'})[0] is True and Cs.gate({'t': 'cy', 'step': 'C40'})[0] is False,
+          'gates: the Ashbys sign only an estimate that reached them; a change sent and waiting opens its approval mail, and only the approval opens its billing')
     # ---- the referee's own numbers and the answers graded against them
     C = out['right'][0]
     F = C.figures()

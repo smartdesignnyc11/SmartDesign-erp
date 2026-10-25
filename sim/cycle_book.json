@@ -1398,7 +1398,8 @@
    ],
    "gate": {
     "t": "cy",
-    "step": "C06"
+    "step": "C06",
+    "need": "right"
    },
    "payload": {
     "from": "Wren Ashby <wren.ashby@example.com>",
