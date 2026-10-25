@@ -101,7 +101,7 @@ async def picker_po(pg, cost, vendor):
     await modal_ok(pg, 900)
 async def buy_board(pg):
     """The Buy Board as the coordinator reaches it: Purchasing > Buy Board (the proc view, Contract Lines & Requests)."""
-    await pg.evaluate("() => { setCurrent('p121'); procMode = 'lines'; buyScope = ''; buyOpen = true; view = 'proc'; render(); }"); await pg.wait_for_timeout(500)
+    await pg.evaluate("() => { setCurrent('p121'); procMode = 'lines'; bbTab = 'buy'; bbFilter = 'all'; bbProj = ''; view = 'proc'; render(); }"); await pg.wait_for_timeout(500)
 
 # ------------------------------------------------------------------------------------------------ release (1)
 async def s_release(p, c):
@@ -617,7 +617,8 @@ async def s_polish(p, c):
         await pg.keyboard.press('Escape'); await pg.wait_for_timeout(200)
         c.ok(not await modal(pg), 'polish: Escape closes a modal with no input')
         # New Buy Run does not look disabled
-        await pg.evaluate("() => { setCurrent('p121'); view = 'proc'; render(); }"); await pg.wait_for_timeout(500)
+        # the FF&E buy run lives in the Buy Board's FF&E Buying Tools (procurement P1)
+        await pg.evaluate("() => { setCurrent('p121'); view = 'proc'; procMode = 'finish'; render(); }"); await pg.wait_for_timeout(500)
         run = await pg.evaluate("() => { const b = document.getElementById('proc-run'); return b && { text: b.innerText.trim(), disabled: b.disabled, aria: b.getAttribute('aria-disabled') || '' }; }")
         c.ok(run and not run['disabled'] and run['aria'] != 'true', f'polish: New Buy Run is not disabled ({run})')
         # design phases are not things to buy
@@ -625,8 +626,9 @@ async def s_polish(p, c):
         c.ok(not rows, f"polish: 140 Prospect's design phases are not on the buy list ({rows})")
         # an ordered line with no vendor or PO offers Expedite / Set Vendor
         await buy_board(pg)
-        ins = await pg.evaluate("() => { const tr = [...document.querySelectorAll('#buy-board tr.buy-row')].find(r => /Insulation/.test(r.innerText)); return tr ? [...tr.querySelectorAll('button')].map(b => b.innerText.trim()) : null; }")
-        c.ok(ins is not None and 'Expedite' in ins and 'Set Vendor' in ins, f'polish: the Insulation row (ordered, no vendor, no PO) offers Expedite / Set Vendor ({ins})')
+        # the need's panel (procurement P1): a late promise with no order behind it offers Expedite (the sheet asks the vendor)
+        ins = await pg.evaluate("() => { const r = buyList('').find(x => /Insulation/.test(x.name)); if (!r) return null; bbSel = r.id; render(); return [...document.querySelectorAll('#buy-board .bb-panel [data-bbstep]')].map(b => b.innerText.trim()); }")
+        c.ok(ins is not None and any(x.startswith('Expedite') for x in ins) and 'Other Vendor' in ins, f'polish: the Insulation need (ordered, no vendor, no PO) offers Expedite and Other Vendor ({ins})')
         # Vendors "Blocked" equals Home's blocked count: one predicate
         nums = await pg.evaluate("""() => { const T = TL_SETS.vendors(); const bl = T.find(t => t.key === 'blocked'), nc = T.find(t => /no certificate/i.test(t.k));
           let home = null; try { home = tdChase().filter(x => x.kind === 'coi').length; } catch (e) {}

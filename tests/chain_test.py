@@ -430,6 +430,8 @@ async def s2_buy(C):
     async def order(item, vendor, qty, unit, price):
         await C.as_('u_chen', 'proc', f"setCurrent('{pid}'); procMode = 'lines'; buyScope = ''; buyOpen = true;")
         key = f"order|{pid}|{est}|estimate:{est}:{L[item]}|"
+        # the Buy Board's panel carries the Order step of the need picked (procurement P1): pick the line's row first
+        await C.js("k => { const r = buyList('').find(x => bbOrderKey(x) === k); if (r) { bbTab = 'buy'; bbFilter = 'all'; bbSel = r.id; render(); } }", key)
         n = await C.js("k => [...document.querySelectorAll('#buy-board [data-buy]')].filter(b => b.dataset.buy === k && b.getClientRects().length).length", key)
         C.ok(n == 1, f'the Buy Board shows {item} with Order', key)
         if not n: return None
