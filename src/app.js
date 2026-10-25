@@ -23561,6 +23561,14 @@ const ctFirstLine = (s) =>
     .map((x) => x.trim())
     .filter(Boolean)[0] || "";
 function ctMobileList(c, d, editable, kind) {
+  // A blank line is not a line (lkLineEmpty, the rule lkPrune applies when the person leaves): the phone neither draws
+  // nor counts one. The new estimate's starter row read "1 line, Untitled line" and became 0 on return (Pilot 2, S1).
+  // The line open in the sheet is kept while it is being filled in.
+  editable &&
+    "draft" === (d.status || "draft") &&
+    "sov" !== d.mode &&
+    "function" == typeof lkLineEmpty &&
+    (d.lines = d.lines.filter((l) => l.id === ctSheetLine || !lkLineEmpty(l) || d.lines.some((x) => x.parent === l.id)));
   ctNumber(d);
   const t = docTotal(d),
     budget = ctBudget(d),
@@ -97696,7 +97704,7 @@ function bnCalendarHtml() {
     next = iso(addDays(last, 1)).slice(0, 7),
     C = DB.calendar,
     hosted = !!window.SDP_CONFIG;
-  return `<div class="ph"><div><h2>Calendar</h2><div class="lead">Everything dated in the ERP on one page — meetings, escalations, decisions, deliveries, inspections, renewals, milestones${C.last ? ` · Google Calendar synced ${esc(C.last)}` : hosted ? " · Google Calendar not connected yet" : " · Google Calendar syncs on the hosted app"}.</div></div><div class="acts"><button class="btn sm" id="bn-ics">Copy as ICS</button>${hosted ? '<button class="btn sm primary" id="bn-sync">Sync with Google Calendar</button>' : ""}</div></div>\n    <div class="row" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><button class="btn sm" data-bnm="${prev}">‹</button><b>${d0.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b><button class="btn sm" data-bnm="${next}">›</button><button class="btn sm" data-bnm="${td.slice(0, 7)}">Today</button><span class="grow"></span><div class="seg sm"><button class="${bnCalKind ? "" : "on"}" data-bnk="">All</button>${Object.entries(
+  return `<div class="ph"><div><h2>Calendar</h2><div class="lead">Everything dated in the ERP on one page — meetings, escalations, decisions, deliveries, inspections, renewals, milestones${C.last ? ` · Google Calendar synced ${esc(C.last)}` : hosted ? " · Google Calendar not connected yet" : " · Google Calendar syncs on the hosted app"}.</div></div><div class="acts"><button class="btn sm" id="bn-ics">Copy as ICS</button>${hosted ? '<button class="btn sm primary" id="bn-sync">Sync with Google Calendar</button>' : ""}</div></div>\n    <div class="row" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap"><button class="btn sm" data-bnm="${prev}" aria-label="Previous Month" title="Previous Month">‹</button><b>${d0.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b><button class="btn sm" data-bnm="${next}" aria-label="Next Month" title="Next Month">›</button><button class="btn sm" data-bnm="${td.slice(0, 7)}">Today</button><span class="grow"></span><div class="seg sm"><button class="${bnCalKind ? "" : "on"}" data-bnk="">All</button>${Object.entries(
     BN_KIND,
   )
     .map(([k, v]) => `<button class="${bnCalKind === k ? "on" : ""}" data-bnk="${k}">${v}</button>`)
@@ -195862,12 +195870,14 @@ window.addEventListener(
       }
       // Billing › Estimates
       const bb = document.getElementById("billing-body");
-      if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "est" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
+      if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "estimates" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
         const tabs = bb.querySelector(".ctabs");
         tabs &&
           (tabs.insertAdjacentHTML("afterend", '<div class="row cr-tabacts"><span class="grow"></span><button class="btn primary" id="bill-newest">New Estimate</button></div>'),
           (bb.querySelector("#bill-newest").onclick = () => {
-            const k = crDocContext();
+            // the tab's key is "estimates" (BILL_TABS); it read "est", so the button never drew (Pilot 2, S2).
+            // From a job's strip it starts for that job, not only its client.
+            const k = "function" == typeof p2EstContext ? p2EstContext() : crDocContext();
             docNewEstimate(k.clientId, k.projectId);
           }));
       }
