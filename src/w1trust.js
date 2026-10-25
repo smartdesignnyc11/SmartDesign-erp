@@ -1323,6 +1323,48 @@ document.addEventListener("click", (e) => {
   }, 60);
 });
 
+// The class, as a net under every sheet: a sheet whose Save changed the records and closed with no word (the
+// foreman's crew-hours Fix: "did not save and did not say so"; the Toolbox Talk) says what it saved, with Open to the
+// screen it was saved on. A sheet that toasts for itself is left alone.
+function w1DbSig() {
+  try {
+    const s = JSON.stringify(DB);
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) (h ^= s.charCodeAt(i)), (h = Math.imul(h, 16777619) >>> 0);
+    return s.length + ":" + h;
+  } catch (e) {
+    return "";
+  }
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const ok = e.target && e.target.closest && e.target.closest("#mbm #mbm-ok");
+    if (!ok) return;
+    const m = ok.closest("#mbm"),
+      title = w1Norm((m.querySelector(".mbm-hd h3") || {}).textContent || ""),
+      n0 = w1ToastN,
+      h0 = w1DbSig(),
+      sc = w1Screen(),
+      ask = /^(please confirm|one thing first)$/i.test(title);
+    setTimeout(() => {
+      try {
+        if ((m.isConnected && "mbm" === m.id) || w1ToastN !== n0 || document.getElementById("mbm") || w1DbSig() === h0) return;
+        const what = ask ? (w1AskD && w1AskD.txt) || "" : title;
+        what &&
+          toast(ask ? `Done: ${what}` : `Saved: ${what}`, {
+            label: "Open",
+            run: () => {
+              sc.cur && "function" == typeof setCurrent && S && S.id !== sc.cur && setCurrent(sc.cur);
+              (view = sc.view || view), render();
+            },
+          });
+      } catch (x) {}
+    }, 260);
+  },
+  !0,
+);
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}

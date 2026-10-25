@@ -215,6 +215,22 @@ async def t_silent(c, p):
     c.ok(r['asked'] and r['did'] == 1 and 'Test step done' in r['t1'], f"silent: Yes, Continue does the step though the screen drew its button again ({r})")
     c.ok(r['pay'] is None or (r['pay']['on'] and 'saved' in r['pay']['text'] and r['pay']['open']), f"silent: a payroll save toasts with Open ({r['pay']})")
     await b.close()
+    # the net under every sheet: a Save that changed the records and said nothing says what it saved (the crew Fix)
+    b, pg, errs = await fresh(p, 'u_angel', True)
+    r = await js(pg, """
+      setCurrent('p121'); view = 'fcrew'; render(); await sleep(200);
+      const t = document.getElementById('toast'); t.classList.remove('on');
+      mbModal('Fix Alberto · Thu, Sep 3', '<div class="f"><label>In</label><input type="time" data-f="in" value="07:30"></div>', { submit: 'Save & approve', onSubmit: () => { const e = DB.time[0]; e.breakMin = (+e.breakMin || 0) + 5; save(); render(); } });
+      await sleep(80); document.querySelector('#mbm #mbm-ok').click(); await sleep(400);
+      const one = { on: t.classList.contains('on'), text: t.innerText, open: !!t.querySelector('.toast-open') };
+      // a sheet that says it itself is left alone
+      t.classList.remove('on');
+      mbModal('Toolbox talk', '<input data-f="topic" value="Ladders">', { submit: 'Log it', onSubmit: () => { DB.time[0].breakMin += 1; toast('Toolbox talk logged'); } });
+      await sleep(80); document.querySelector('#mbm #mbm-ok').click(); await sleep(400);
+      return { one, two: t.innerText };""")
+    c.ok(r['one']['on'] and r['one']['text'].startswith('Saved: Fix Alberto') and r['one']['open'], f"silent: a sheet that saved with no word now says what it saved, with Open ({r['one']})")
+    c.ok(r['two'].startswith('Toolbox talk logged'), f"silent: a sheet that toasts for itself keeps its own words ({r['two']!r})")
+    await b.close()
     b, pg, errs = await fresh(p, 'u_owner', False)
     r = await js(pg, """
       const m = (DB.meetings || [])[0]; if (!m) return { none: true };

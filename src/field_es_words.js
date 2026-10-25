@@ -1066,6 +1066,7 @@ esAdd({
   "Update Progress — <span data-nocase>{x}</span>": "Actualizar el Avance — {x}",
   "Update Progress — {x}": "Actualizar el Avance — {x}",
   "More Job Chats": "Más Chats de Obra",
+  "Saved: {x}": "Guardado: {x}",
   "Driving and material runs": "Manejo y viajes por material",
   Pickups: "Recogidas",
   "What did the day go to? Tick it and the hours split evenly across what you tick; change any of them if the day was not even.": "¿En qué se fue el día? Márcalo y las horas se reparten por igual entre lo que marques; cambia cualquiera si el día no fue parejo.",
