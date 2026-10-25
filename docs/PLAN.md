@@ -9,6 +9,15 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Pilot 3: the business cycle (Alan, 10-25: "I don't know how much I trust the pilots")
+Pilot 2 created about 77 records in three days, no delivery, no report, no check of spend against an estimate line. Pilot 3 is rebuilt so that cannot happen again:
+- **Required work per role, verified by the referee in the data:** one new job from lead to estimate (8+ real lines) to contract and SOV; RFQs from estimate lines to three vendors; POs from the lines; delivery short and damaged; bills matched three-way; bank and card lines matched; deposit, progress invoice with retainage, a billed CO, payment matched; payroll; the PM's weekly job review in Projects.
+- **Planted leaks:** a PO over its estimate line, a bill over its PO, an item already in stock, a price higher than last time, a client purchase on the card not billed back. Each is reported as caught by the app, caught by the person, or missed, with the dollars.
+- **Reports:** the PM, controller and owner answer job-cost-per-line, over-budget lines, unbilled work, unbilled reimbursables, cash and AR from the app's reports; answers graded against the referee's figures from the raw records.
+- **Routine and coverage:** each role's standing work in its main module; a role that opens under 60% of its module's pages gets "not a valid grade".
+- **The live assistant** through `/api/`, multi-recipient mail, document measures of what reached the person.
+- **Status:** harness lane building (sim/ only). The run needs the Projects census and Alan's go on usage (estimate in the lane's report).
+
 ## Module census (Alan, 10-25: "did the role experts check each module and its sub pages?")
 Not yet. Pilot 2 judged the pages used for the work, not every module page by page. Recommended, Projects first to measure:
 1. **Machine census** (no model usage, about 25 minutes): `tests/ia_map.py` on the current build, extended to the job page's own sub-pages. Per module, role and device it lists every page and sub-page, its sections, the records each shows and where the same record shows twice.
