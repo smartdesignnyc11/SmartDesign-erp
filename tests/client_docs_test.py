@@ -213,10 +213,12 @@ async def t_gate(c, p):
       const inv0 = newDoc(c, 'invoice', { mode: 'sov' }); inv0.projectId = 'p121';
       await crSendToClient(c, inv0); out.inv0 = [inv0.status, modal()];
       // a blank bill-to
-      const n = DB.clients.find(x => /Nakamura/.test(x.name)), ba = [n.billingAddr, n.propertyAddr]; n.billingAddr = ''; n.propertyAddr = '';
+      // a client with no address and no job to take one from (a job's address fills the bill-to when the client has none)
+      const n = blankClient('Hollis Row Partners'); n.contacts = [{ id: 'cth', name: 'Dana Hollis', email: 'dana@hollisrow.example', primary: true }]; DB.clients.push(n);
+      const ba = [n.billingAddr, n.propertyAddr]; n.billingAddr = ''; n.propertyAddr = '';
       const i1 = newDoc(n, 'invoice'); i1.lines = [{ id: uid('l'), item: 'Design consultation', desc: '', qty: 1, unit: 'ls', rate: 800 }];
       await docAction(n, i1, 'send'); out.billto = [i1.status, modal()];
-      [n.billingAddr, n.propertyAddr] = ba;
+      n.billingAddr = '18 Hollis Row, Brooklyn, NY 11215';
       // a good one prints and sends
       await docAction(n, i1, 'print'); out.goodPrint = opened; modal();
       // the editor says why before the person tries
