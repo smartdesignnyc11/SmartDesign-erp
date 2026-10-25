@@ -1245,6 +1245,20 @@ if ("function" == typeof renderMApprove) {
   };
 }
 
+// Done's toast Open on Today went back to the list it was on (the foreman, a schedule task he may not open in the
+// schedule): it opens the task's own sheet when its record has no page of its own for this person.
+if ("function" == typeof tdyOpenSource && "function" == typeof tdyTaskSheet) {
+  const base = tdyOpenSource;
+  tdyOpenSource = function (x, co) {
+    const k0 = w1ScreenKey(w1Screen()),
+      r = base.apply(this, arguments);
+    try {
+      !co && x && w1ScreenKey(w1Screen()) === k0 && !document.querySelector("#mbm, #drawer.on") && tdyTaskSheet(x);
+    } catch (e) {}
+    return r;
+  };
+}
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}
