@@ -89,5 +89,18 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
         place (where it was, where I looked first), and what was not there at all.
     11. Too much: what on my screens today was not for me or not for today, and what I had to read past to find my work.
     12. Sub-pages: which sub-pages I opened to finish one job, how many, which should be one page, which I never need.
+    13. Outside the app: what I still did, or would do, in a spreadsheet, a text, a call, paper or my head, and why
+        the app did not do it for me.
+    14. Trust: which number would I act on without checking it somewhere else, and which I would not (and why).
+    15. Mistakes: when I got something wrong, could I see it, fix it or undo it, and did it already reach a client or
+        a vendor? What tap would I be afraid of?
+    16. Hand-offs and alerts: when I handed something on, did the person know and did it come back to me? Did the app
+        tell me the right things at the right time, too much, or too late?
+    17. A new hire: could someone new in my seat do today's work without training? Which words or steps would stop them?
+    18. What I can see: anything I should not see (pay, another job's money, private notes), or anything I need and
+        cannot open.
+    19. The switch: would I give up my current tool for this tomorrow? If not, the one thing that stops me.
+    Device-specific, in its own block: on the phone, one hand, standing, in sun or a basement with weak signal, and
+    coming back after a call; on the desktop, wide tables, two things side by side, printing or exporting to send.
     Then one line: `Grade, phone: n/10` (or desktop), a seasoned professional in my seat against the leader they
     would otherwise use (Procore, Buildertrend, NetSuite, QuickBooks, a CRM).
