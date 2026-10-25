@@ -67,6 +67,8 @@ OWNED = [
     (r'.', r'^(portal|clportal|client|clacct|cldocs)$', 'p2fix3 (client documents and the portal)'),
     (r'^(send to client|preview|print|download pdf|client view|send|resend)\b', r'^(billing|inv|est|cos|docs)$', 'p2fix3 (client documents)'),
     (r'.', r'^(proc|ovbuy|rfq|po|buy|recv)$', 'procurement P1 (Buy Board, RFQ and PO pages)'),
+    # Messages names its new thread a chat; which noun wins (Message or Chat) is the Messages consolidation's call
+    (r'^new message$', r'^(chat|msgs|messages|comms)$', 'p2nav (Messages)'),
 ]
 OWNED_ROLES = {'client': 'p2fix3 (client documents and the portal)'}
 
