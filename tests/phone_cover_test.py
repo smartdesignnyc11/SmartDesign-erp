@@ -20,6 +20,7 @@ Usage: python3 phone_cover_test.py
 """
 import asyncio, re
 from harness import *
+SHOTS = os.path.join(ROOT, 'review', 'p2fix1'); os.makedirs(SHOTS, exist_ok=True)
 
 # The visible part of a control, its centre, and what the finger would hit there. A control is checked when its
 # visible centre lies between the header and the bottom bar (the page scrolls under those by design).
@@ -148,7 +149,7 @@ async def main():
         await pg.locator('#v-clients [data-newest]').first.tap(); await pg.wait_for_timeout(400)
         await pg.locator('#mbm button', has_text=re.compile('Start', re.I)).first.tap(); await pg.wait_for_timeout(700)
         est = await pg.evaluate("() => docOpen && docOpen.id")
-        c.ok(bool(est), f'1: Start Estimate opened the new draft ({est})')
+        c.ok(bool(est), f'1: Start Estimate opened the new draft ({est})'); await pg.screenshot(path=os.path.join(SHOTS, 'pm_new_estimate.png'))
         await walk(pg, c, '1: the new estimate as the PM')
         await wide(pg, c, '1: the new estimate')
         shown = await pg.evaluate("() => (document.querySelector('.ct-m-hd span') || {}).textContent || ''")
@@ -239,7 +240,7 @@ async def main():
         await pg.locator('#subnav button[data-subtab=estimates]').first.tap(); await pg.wait_for_timeout(500)
         c.ok(await pg.evaluate("() => view === 'billing' && billTab === 'estimates'"), '3: the job strip opens Billing > Estimates')
         nb = pg.locator('#v-billing #bill-newest')
-        c.ok(await nb.count() == 1 and await nb.is_visible(), '3: the job\'s Estimates tab carries New Estimate')
+        c.ok(await nb.count() == 1 and await nb.is_visible(), '3: the job\'s Estimates tab carries New Estimate'); await pg.screenshot(path=os.path.join(SHOTS, 'pm_job_estimates_new.png'))
         if await nb.count():
             await nb.tap(); await pg.wait_for_timeout(400)
             await pg.locator('#mbm button', has_text=re.compile('Start', re.I)).first.tap(); await pg.wait_for_timeout(600)
@@ -254,7 +255,7 @@ async def main():
         taps = 0
         exp = pg.locator('#nav-groups [data-mnexp=jobs]')
         if await exp.count():
-            await exp.first.tap(); taps += 1; await pg.wait_for_timeout(250)
+            await exp.first.tap(); taps += 1; await pg.wait_for_timeout(250); await pg.screenshot(path=os.path.join(SHOTS, 'pm_menu_projects_open.png'))
         kid = pg.locator('#nav-groups [data-mnkid]', has_text=re.compile('^Estimates$'))
         if await kid.count() and await kid.first.is_visible():
             await kid.first.tap(); taps += 1; await pg.wait_for_timeout(500)

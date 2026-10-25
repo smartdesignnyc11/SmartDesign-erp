@@ -122,6 +122,12 @@ function p2EstContext() {
 // Show Pages toggle; it lists the group's own pages under it, captioned by section, and one tap opens a page.
 const P2_CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 let p2MnOpen = "";
+function p2MenuShow() {
+  document.querySelectorAll("#nav-groups .mn-gr").forEach((r) => {
+    const on = r.dataset.mngr === p2MnOpen;
+    r.querySelector(".mn-exp").setAttribute("aria-expanded", on), (r.querySelector(".mn-kids").hidden = !on);
+  });
+}
 function p2MenuGroups() {
   const wrap = document.getElementById("nav-groups");
   if (!wrap || !("function" == typeof mOn && mOn()) || !("function" == typeof mnOn && mnOn())) return;
@@ -130,11 +136,13 @@ function p2MenuGroups() {
   const G = B.groups.concat(B.more.length ? [{ id: "more", n: "More", items: B.more }] : []).concat(B.bottom ? [B.bottom] : []);
   wrap.querySelectorAll("button[data-grp]").forEach((b) => {
     const g = G.find((x) => x.id === b.dataset.grp);
-    if (!g || g.items.length < 2 || b.parentElement.classList.contains("mn-gr")) return;
+    if (!g || g.items.length < 2 || b.classList.contains("mn-has")) return;
+    // the group's entry stays where it is (a direct child of the menu); its toggle and pages follow it in one box
+    b.classList.add("mn-has");
     const row = document.createElement("div");
-    row.className = "mn-gr" + (b.classList.contains("mn-gap") ? " mn-gap" : "");
-    b.classList.remove("mn-gap");
-    b.before(row), row.appendChild(b);
+    row.className = "mn-gr";
+    row.dataset.mngr = g.id;
+    b.after(row);
     const open = p2MnOpen === g.id;
     let last = "";
     const kids = g.items
@@ -150,10 +158,7 @@ function p2MenuGroups() {
     row.querySelector(".mn-exp").onclick = (e) => {
       e.preventDefault(), e.stopPropagation();
       p2MnOpen = p2MnOpen === g.id ? "" : g.id;
-      wrap.querySelectorAll(".mn-gr").forEach((r) => {
-        const on = r.querySelector(".mn-exp").dataset.mnexp === p2MnOpen;
-        r.querySelector(".mn-exp").setAttribute("aria-expanded", on), (r.querySelector(".mn-kids").hidden = !on);
-      });
+      p2MenuShow();
     };
     row.querySelectorAll("[data-mnkid]").forEach(
       (a) =>
@@ -193,11 +198,7 @@ document.addEventListener(
     if (!e.target.closest || !e.target.closest("#menu-btn")) return;
     try {
       const cur = mnCur(mnBuild(role()));
-      p2MnOpen = (cur && cur.g.id) || p2MnOpen;
-      document.querySelectorAll("#nav-groups .mn-gr").forEach((r) => {
-        const on = r.querySelector(".mn-exp").dataset.mnexp === p2MnOpen;
-        r.querySelector(".mn-exp").setAttribute("aria-expanded", on), (r.querySelector(".mn-kids").hidden = !on);
-      });
+      (p2MnOpen = (cur && cur.g.id) || p2MnOpen), p2MenuShow();
     } catch (x) {}
   },
   !0,
@@ -237,13 +238,11 @@ function p2Names() {
 }
 (() => {
   const css = `
-#nav-groups .mn-gr{display:grid;grid-template-columns:1fr 44px;align-items:stretch;column-gap:4px;position:relative}
-#nav-groups .mn-gr.mn-gap{margin-top:14px}
-#nav-groups .mn-gr.mn-gap::before{content:"";position:absolute;left:10px;right:10px;top:-8px;border-top:1px solid rgba(255,255,255,.12)}
-#nav-groups .mn-gr>button{min-width:0}
-#nav-groups .mn-exp{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:8px;color:inherit;opacity:.8}
+#nav-groups button.mn-has{padding-right:48px !important}
+#nav-groups .mn-gr{position:relative;margin-top:-2px}
+#nav-groups .mn-exp{position:absolute;right:0;top:0;transform:translateY(-100%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:8px;color:inherit;opacity:.8;z-index:1}
 #nav-groups .mn-exp[aria-expanded=true] svg{transform:rotate(180deg)}
-#nav-groups .mn-kids{grid-column:1/3;display:flex;flex-direction:column;padding:2px 0 8px 38px}
+#nav-groups .mn-kids{display:flex;flex-direction:column;padding:2px 0 8px 38px}
 #nav-groups .mn-kids[hidden]{display:none}
 #nav-groups .mn-kid{display:flex;align-items:center;min-height:44px;padding:0 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:15px}
 #nav-groups .mn-kcap{font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;padding:8px 10px 2px}
