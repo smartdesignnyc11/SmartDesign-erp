@@ -115,6 +115,13 @@ def usage():
     return res
 
 
+def _cycle_cov():
+    """the Pilot 3 book's main-module page lists (Alan, 10-25: every page and sub-page judged, not only the four most used)"""
+    p = os.path.join(HERE, 'cycle_book.json')
+    try: return json.load(open(p)).get('coverage')
+    except Exception: return None
+
+
 def compact(uid, U):
     """the usage, short (a few hundred tokens): what an expert needs to judge their own navigation"""
     u = U.get(uid) or {}
@@ -129,6 +136,10 @@ def compact(uid, U):
         L.append(f"Click check, {dv}: {c['taps']} taps, {c['landed'] + c['done']} landed where the label said, {c['dead']} dead, "
                  f"{c['wrong']} wrong (backed out), {c['off-label']} off their label, {c['silent']} saved with no word, {c['backtrack']} back-tracks"
                  + ''.join(f"; {k}: " + ' / '.join(x.split(': ', 1)[-1] for x in v) for k, v in (c.get('examples') or {}).items() if v))
+    C = (_cycle_cov() or {}).get(uid)
+    if C:
+        seen = set(u.get('pages') or {})
+        L.append(f"Your main module, {C['module']}, page by page (opened or never): " + '; '.join(f"{lab} ({'opened' if lab in seen else 'never'})" for _, lab in C['pages']))
     m = u.get('menu_seen')
     if m: L.append('Your menu (entry: tabs): ' + ' | '.join(f"{x['label']}: {', '.join(x['tabs'][:8]) or '-'}" for x in m))
     return '\n'.join(L)
@@ -234,6 +245,16 @@ def score():
         G = sorted([(k, F) for k, F in finds.items() if k[0] == q], key=lambda kv: weight(kv[1]), reverse=True)
         L.append(f"### Q{q} {QNAME.get(q, '')}")
         L += [f"- {k[1]} · {weight(F)[0]} roles: " + ' // '.join(f"{f['role']} ({f['device']}, {f['freq']}, {f['sev']}): {f['text']}" for f in F[:4]) for k, F in G[:12]]
+    pv = defaultdict(lambda: defaultdict(list))
+    for uid, A in answers.items():
+        role = PEOPLE.get(uid, ('?',))[0]
+        for x in A.get('pages', []):
+            parts = [p.strip() for p in x.lstrip('- ').split('|')]
+            if len(parts) >= 3: pv[parts[0].title()][parts[2].lower().split(' ')[0]].append(f"{role}: " + ' | '.join(parts[1:])[:220])
+    if pv:
+        L.append('\n## Every page of each main module: keep, merge, move or remove (votes, then what each said)\n')
+        for page, V in sorted(pv.items(), key=lambda kv: -sum(len(v) for k, v in kv[1].items() if k != 'keep')):
+            L.append(f"- **{page}**: " + ', '.join(f'{k} {len(v)}' for k, v in V.items()) + ' · ' + ' // '.join(t for v in V.values() for t in v)[:600])
     L.append('\n## Each role\'s own menu, as asked\n')
     L += menus or ['- (none)']
     L.append('\n## Keep five (votes)\n')

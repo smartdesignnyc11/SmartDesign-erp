@@ -7,8 +7,9 @@
     sim/act <uid> do 'type 3 "8"; pick "Unit" "sheet"; tap "Save"' [--find "text"]   up to 8 steps in one call
     sim/act <uid> back | scroll | key Enter | go "<menu label>" | ask "question" | news
     sim/act <uid> device | device phone | device desktop     which device you are on; switch when your turn allows it
-    sim/act <uid> mail [sent] | mail read <n> | mail reply <n> "text" | mail send "to" "subject" "body"
+    sim/act <uid> mail [sent] | mail read <n> | mail reply <n> "text" [--all] | mail send "to, to" "subject" "body" [--cc "a, b"]
     sim/act <uid> call "<person>" "what was said"
+    any action may carry --why "the one-line reason" (the measure or the Standard behind it); it goes in the record
 
 It talks to the running world (sim/server.py) of the current run (sim/runs/.current, or SIM_RUN). It refuses
 anything that is not a person's action: there is no way to run JavaScript or to read or write the database.
@@ -33,9 +34,8 @@ def main(argv):
     opts, args, i = {}, [], 0
     while i < len(rest):
         a = rest[i]
-        if a in ('--full', '--shot', '--enter'): opts[a[2:]] = True
-        elif a == '--page' and i + 1 < len(rest): opts['page'] = rest[i + 1]; i += 1
-        elif a == '--find' and i + 1 < len(rest): opts['find'] = rest[i + 1]; i += 1
+        if a in ('--full', '--shot', '--enter', '--all'): opts[a[2:]] = True
+        elif a in ('--page', '--find', '--cc', '--why') and i + 1 < len(rest): opts[a[2:]] = rest[i + 1]; i += 1
         else: args.append(a)
         i += 1
     r = post({'uid': uid, 'cmd': verb, 'args': args, 'opts': opts})

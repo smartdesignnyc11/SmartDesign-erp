@@ -31,7 +31,7 @@ Read your diary `{diary}` (its daily "UI/UX, phone" and "UI/UX, desktop" blocks 
 menu `{draft}`. What the harness recorded of your work, and of where your taps landed:
 {usage}
 
-Write `{answer}` in exactly this format (the scorer reads it), at most 80 lines.
+Write `{answer}` in exactly this format (the scorer reads it), at most 110 lines.
 
 ## Menu
 1. Top-level label: what sits under it, comma-separated (your ideal menu, most used first)
@@ -58,6 +58,11 @@ Q10 the thing you look at first, at the top? · Q11 blue button = your next step
 Q13 trusted it (source, freshness)? · Q14 where you lost your place (save, Back, link)
 Q15 your top jobs: the measured taps and seconds above; does it feel right? · Q16 (answered in Keep five)
 Q17 phone: what made you scroll, zoom or use two hands · Q18 hard in a hurry, outdoors, gloves
+## Pages
+Every page and sub-page of your main module (listed above, opened or never), one line each, opened or not:
+`<page> | phone, desktop or both | keep, merge into <page>, move to <role>, or remove | what you came for and whether you got it (yes, partly, no; never came) | what on it was too much or not for you | what was missing that belongs here`.
+Alan, 10-25: are you getting the information you need in a way that is easy to digest and act on, is it in the right
+place or there at all, is there too much or the wrong information, and are there too many sub-pages? Answer that per page.
 Q19 wrong or jargon labels for a design-build firm (current -> your word)
 Q20 done by hand that the system or assistant should do · Q21 assistant: did well / should do unasked
 Q22 hesitated for fear of a mistake you could not undo · Q23 told someone outside the app, and why the app could not

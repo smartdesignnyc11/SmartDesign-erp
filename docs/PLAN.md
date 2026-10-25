@@ -5,6 +5,7 @@ This is the one list. The chief of staff keeps it current on every ask, lane rep
 Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
 
 ## 0. Usage rule (Alan)
+- **10-25: at 75% of the week; Alan: "I don't want to wait till Thursday."** Lean order to Thursday: merge and deploy the wrapping lanes; Projects census plus the PM and IA walk (est. 6%); the Projects mockup (est. 3%); a lean Pilot 3, PM and coordinator, day 1 only (est. 10–12%). Estimates assume 1M tokens is about 8% (not measured; checked with Alan after the walk).
 - Warn before any heavy step.
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
@@ -29,6 +30,24 @@ Modules: Projects (the job page and its sub-pages), Sales and clients, Estimates
 **10-25: Alan said start with Projects.** The machine pass is running on its own branch.
 **Pilot 3 harness, from this:** each role gets its routine (the standing daily and weekly work in its main module: for the PM, every job's look-ahead, budget against actual, open COs, RFIs and submittals, decisions and the weekly client update) on top of the events; longer PM and owner turns; a coverage measure per role (pages of its main module opened, out of the census's list) that fails the pilot below a floor.
 Cost: not measured. On Pilot 2's 82k tokens a turn, about 0.5–0.8M a module, 6–9M for all twelve, the size of one pilot. Projects goes first and its measured cost is reported before the rest.
+
+## Pilot 3 harness: the business cycle (Alan, 10-25: "I wonder how procurement was done, billing, were there any estimates actually created...")
+- **Built on its lane branch, not run** (`sim/README.md`, "Pilot 3").
+  - **Four roles play:** owner, PM, coordinator, billing. The foreman's and the controller's steps are scripted world actions the referee still checks.
+  - **One invented job end to end:** the Ashbys at 214 Lincoln Place, 35 checked steps (31 for the four roles, 4 scripted), 9 planted money leaks.
+  - **Messy inputs:** quotes as a table, a PDF with a typo price, prose with no lead time, and by the box; a selection change; a question back; interruptions mid-turn.
+  - **Top-down objectives:** the live Standard, a plan each morning and a review each evening, a why on every significant action, minutes per action.
+  - **The referee** checks every step and leak from the raw records and grades the meeting numbers against its own figures.
+  - **A coverage floor:** 60% of each role's main module.
+  - **A realism judge** whose flagged turns are discounted.
+  - **Harness fixes:** mail with several recipients and cc, documents report "Missing", and the live assistant behind a run-time token.
+  - **Calibration** with the firm's real coordinator and billing person is written as a script (`docs/pilot/pilot3/calibration.md`). Nobody has been contacted.
+- **Cost (estimate, not measured):** 48 turns plus 12 judge runs.
+  - About 5.2M tokens expected; up to 6.5M if every turn uses its cap.
+  - It rests on Pilot 2's 69 measured turns. The 60–90-action turns (the PM's estimate, the coordinator's buy-out) are beyond anything Pilot 2 measured, so day 1's measured cost is reported before days 2 and 3.
+- **Waiting on Alan:**
+  - his go to run it;
+  - optionally, a signed-in session token for the real assistant.
 
 ## Pilot 2 (Alan, 10-25: "run Pilot 2 after the phone lanes"; UI/UX on phone and desktop)
 - **Harness ready** (e47fbd4, selftest 55/55): Pilot 1's 3 days plus 30 events across the firm (prospect to client, estimate, contract, deposit and progress invoices; two COs; a PO received short and its bill held; clock in and out to payroll; the portal; hand-offs; Meeting Mode). Every office role works on the phone at least once a day; the referee checks every tap; each expert grades phone and desktop separately; cost recorded per turn.
