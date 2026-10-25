@@ -182020,12 +182020,15 @@ function rfqFromLines(pid, keys, opts) {
       notes.push(`${s.item}: a lump sum, broken into ${o.breakdown[s.key].length} materials from the takeoff (approved by ${rfqMe()})`);
     } else lines.push(Object.assign({ key: "line", item: s.item, spec: s.spec, qty: s.qty, unit: s.unit, derivation: `from ${s.docNo || "the selection"}: ${s.qty} ${s.unit} as the line reads`, assumption: s.coarse ? "a lump-sum line quoted as one item: a vendor may not price it" : "", needBy: N.needBy, costCode: s.code, budget: s.budget, fromLine: s.key }, link));
   });
+  // lines that are all subcontract scope (demolition, scaffold, abatement: bbSubScope) make a sub package whichever
+  // button started the request, so the award is a subcontract behind the COI gate, never a materials order
+  const sub = !!o.sub || ("function" == typeof bbSubScope && pick.every((s) => bbSubScope({ item: s.item, desc: s.spec })));
   const r = rfqCreate({
     projectId: pid,
     title: o.title || (1 === pick.length ? pick[0].item : `${pick.length} lines — ${pick.map((s) => s.item).slice(0, 2).join(", ")}${pick.length > 2 ? "…" : ""}`),
     // a subcontract scope (demolition, scaffold) is a bid package: its category is the trade, never "Materials", and
     // there is no material count for the foreman to check
-    category: o.sub ? o.category || "Subcontract" : pick.some((s) => s.framing) ? "Lumber" : o.category || "Materials",
+    category: sub ? o.category || "Subcontract" : pick.some((s) => s.framing) ? "Lumber" : o.category || "Materials",
     shippable: !0,
     by: rfqMe(),
     needBy: need,
@@ -182036,9 +182039,9 @@ function rfqFromLines(pid, keys, opts) {
     facts: pick.map((s) => `${s.docNo || "Selection"} · ${s.item}: ${s.qty} ${s.unit}, ${null == s.budget ? RFQ_NO_MAT.toLowerCase() : `material budget ${money(s.budget)}`}`).concat(notes),
     assumptions: [`lead time ${RFQ_LEAD_ASSUMED} working days before the task the line's cost code works on`],
     lines: lines,
-    status: fieldMat && !o.sub ? "foreman-review" : "purchasing",
+    status: fieldMat && !sub ? "foreman-review" : "purchasing",
   });
-  r && o.sub && ((r.sub = !0), (r.shippable = !1), rfqHist(r, "a subcontract scope", "bids level by scope; the award is a subcontract with the COI gate"));
+  r && sub && ((r.sub = !0), (r.shippable = !1), rfqHist(r, "a subcontract scope", "bids level by scope; the award is a subcontract with the COI gate"));
   return r && (rfqHist(r, "started from lines", pick.map((s) => s.key).join(", ")), save(), render(), rcToast(`${r.number} started from ${pick.length} line${1 === pick.length ? "" : "s"} — ${"foreman-review" === r.status ? `${r.foreman} checks the quantities next` : "pick the vendors next"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])), r;
 }
 // The sheet: which lines? Checkboxes on the phone (44px rows), one blue Create RFQ. A lump-sum framing line gets
@@ -182381,6 +182384,9 @@ function rfqAward(r, assign) {
       tax = r2((goods * rate) / 100),
       handling = rfqHandling(v),
       firstOrder = !rfqVendorRecord(v).pos,
+      // a sub scope (the RFQ was a sub package, the vendor is a sub, or every awarded line is sub scope: an RFQ for
+      // demolition made before the package flag) is a subcontract: labour carries no purchase or use tax
+      subPO = !!r.sub || ("function" == typeof scIsSub && scIsSub(v)) || ("function" == typeof bbSubScope && lines.every((l) => bbSubScope({ item: l.item, desc: l.spec }))),
       choice = "direct" === v.channel ? "direct" : "middleman",
       why = "direct" === choice ? `direct from the mill: ${repeat ? "a repeat item" : "the best landed cost"}` : `through a yard: ${repeat && goods < 5e3 ? "one delivery for this job, landed cost best" : "landed cost best"}`,
       po = {
@@ -182397,18 +182403,18 @@ function rfqAward(r, assign) {
         shipTo: "site",
         origin: "rfq",
         // a subcontract scope, or a sub awarded it, makes a subcontract (subs.js reads po.type), never a materials order
-        type: r.sub || ("function" == typeof scIsSub && scIsSub(v)) ? "subcontract" : "materials",
+        type: subPO ? "subcontract" : "materials",
         rfqId: r.id,
         rfqNumber: r.number,
         sourcing: { rfqId: r.id, rfqNumber: r.number, choice: choice, why: why, region: v.region || "", round: q.round },
-        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed ? "" : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
-        useTax: taxed ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
-        landed: r2(goods + (+q.freight || 0) + shortfall + tax + handling),
+        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed || subPO ? "" : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
+        useTax: taxed || subPO ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
+        landed: r2(goods + (+q.freight || 0) + shortfall + (subPO ? 0 : tax) + handling),
         lines: lines.map((l) => {
           const key = l.line || (r.estLine || {}).key || "";
           return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: l.materialId || "", requestId: l.requestId || r.requestId || "", selId: l.selId || "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), invoiceLineId: l.invoiceLineId || (key.startsWith("invoice:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
         }),
-        tax: taxed ? rate : 0,
+        tax: taxed && !subPO ? rate : 0,
         shipping: r2((+q.freight || 0) + shortfall),
         matchedTxns: [],
         createdBy: rfqMe(),

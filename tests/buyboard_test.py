@@ -126,6 +126,17 @@ async def desktop(c, p):
           return { sub: !!q.sub, cat: q.category, st0: q.status, offered: vp.list.length, picked: vp.pick.length, type: po && po.type, status: po && po.status, why: po ? poValid(po).join(' | ').slice(0, 160) : '' }; }""")
         c.ok(sb and sb['sub'] and sb['cat'] != 'Materials' and sb['offered'] > 0, f'sub: Ask for Bids on demolition starts a sub RFQ, the vendors offered by hand {sb}')
         c.ok(sb and sb['type'] == 'subcontract' and sb['status'] == 'draft' and 'insurance' in sb['why'], f'sub: the award is a subcontract and a sub with no COI is held {sb}')
+        # the P0 lane saw it: an RFQ for demolition started from the line (the plain Ask for Quotes, no sub flag), awarded
+        # to a vendor not marked as a sub, was typed "materials" and carried use tax; sub scope is read off the lines
+        sl = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name)); const pid = r0.p.id;
+          const s = rfqLineSources(pid).find(x => /Demolition/i.test(x.item)); if (!s) return { src: null };
+          const q = rfqFromLines(pid, [s.key]); if (!q) return { src: s.key, q: null };
+          const v = ensureVendor('Five Boro Wrecking', { trade: 'General' }); delete v.kind; v.insuranceExp = '2027-06-30';
+          q.status = 'leveled'; q.vendors = [v.id];
+          q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 9000, ext: 9000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
+          const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [])[0];
+          return { sub: !!q.sub, cat: q.category, st0: q.status, type: po && po.type, tax: po && po.tax, use: po && po.useTax, note: po && /use tax/.test(po.notes) }; }""")
+        c.ok(sl and sl.get('sub') and sl['type'] == 'subcontract' and not sl['tax'] and not sl['use'] and not sl['note'], f"sub: a demolition line's RFQ is a sub package from the line itself; its award is a subcontract with no purchase or use tax {sl}")
         # ---- ONE PATH: order a request and it leaves the route; a run buy cancels the draft
         op = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121');
           const onRun = id => runItems({ bought: {} }).some(x => x.r.id === id);
