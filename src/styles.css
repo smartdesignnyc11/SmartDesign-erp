@@ -3944,7 +3944,8 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 .p2n-frow .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
 .p2n-frow b{font-weight:600;overflow-wrap:anywhere}
 .p2n-frow .btn{flex:none;min-height:40px}
-.p2n-seen{display:block;margin-top:2px;color:var(--ink-3);font-size:11.5px;text-align:right}
+.p2n-seen{display:block;margin:2px 4px 0 0;color:var(--ink-3);font-size:12px;text-align:right}
+.mbm.p2n-held,#mbm-held{display:none !important}
 /* Team: every colleague with phone and email */
 .p2n-tq{display:block;margin:0 0 12px} .p2n-tq input{width:100%;max-width:420px;height:44px;box-sizing:border-box}
 .p2n-team{background:var(--paper);border:1px solid var(--rule);border-radius:14px;padding:4px 16px}

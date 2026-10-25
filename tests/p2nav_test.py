@@ -77,7 +77,7 @@ async def ask_checks(c, pg, uid, tag, phone):
     c.ok(sb == 'Ask', f'{tag}: a sheet carries Ask in its header ({sb})')
     if sb:
         await pg.click('#mbm .p2n-ask.p2n-sheet'); await pg.wait_for_timeout(300)
-        st = await pg.evaluate("() => ({ view, open: !!document.getElementById('mbm'), held: !!document.getElementById('mbm-held'), back: (document.getElementById('p2n-resume') || {}).textContent || '' })")
+        st = await pg.evaluate("() => ({ view, open: !!document.getElementById('mbm'), held: !!document.getElementById('mbm-held') && !document.getElementById('mbm-held').getClientRects().length, back: (document.getElementById('p2n-resume') || {}).textContent || '' })")
         c.ok(st['view'] == 'pa' and not st['open'] and st['held'] and 'New Note' in st['back'], f'{tag}: Ask from a sheet opens Ask and holds the sheet ({st})')
         if uid in ('u_owner', 'u_alberto'): await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_ask_from_sheet')
         await pg.click('#p2n-resume'); await pg.wait_for_timeout(300)

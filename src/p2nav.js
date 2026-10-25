@@ -420,7 +420,8 @@ if ("function" == typeof renderChat) {
         const names = p2nSeenBy(T, u),
           mine = [...list.querySelectorAll(".cm.me:not(.sys)")].pop();
         if (mine && names) {
-          const t = mine.querySelector(".msg-time");
+          // under the bubble, in the page's own ink (inside the accent bubble it could not be read)
+          const t = mine.querySelector(".msg-bub");
           t &&
             !mine.querySelector(".p2n-seen") &&
             t.insertAdjacentHTML(
@@ -588,6 +589,9 @@ function renderP2nTeam() {
     const q = document.getElementById("p2n-tq");
     q && (q.focus(), q.setSelectionRange(q.value.length, q.value.length));
   }
+  // a firm page, not a job's: the trail names it
+  const cr = document.getElementById("crumbs");
+  cr && !cr.querySelector("input,select") && (cr.innerHTML = "<b>Team</b>");
   const q = v.querySelector("#p2n-tq");
   q && (q.oninput = () => ((p2nTeamQ = q.value), renderP2nTeam()));
 }
@@ -758,6 +762,8 @@ document.addEventListener(
 // Messages after Tasks for every office role; Inbox leaves Today's group (it is Messages > Mail); People and Companies
 // leave Sales (they are Clients' tabs); Team joins Company; the foreman's bar takes Requests; Chat reads Messages.
 (() => {
+  // the rail's mark for Messages: the two square bubbles of the header's and the bar's Messages (never Ask's sparkle)
+  "object" == typeof MN_ICON && (MN_ICON.chat = '<path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/>');
   const MSG_G = () => MN_G("msgs", "Messages", "chat", [["chat", "Messages"]]);
   const office = ["owner", "pm", "coord", "billing", "controller", "designer", "design_mgr"];
   office.forEach((r) => {
