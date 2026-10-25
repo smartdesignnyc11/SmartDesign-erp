@@ -5,6 +5,7 @@ This is the one list. The chief of staff keeps it current on every ask, lane rep
 Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
 
 ## 0. Usage rule (Alan)
+- **10-25: at 75% of the week.** No new lanes; running lanes finish and hand back; Pilot 3 waits for the reset.
 - Warn before any heavy step.
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
