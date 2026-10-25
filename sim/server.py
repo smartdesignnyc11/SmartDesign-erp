@@ -990,7 +990,14 @@ class Sim:
     async def v_news(self, uid, pg, args, opts):
         items = self.state['news'].pop(uid, [])
         self.log({'uid': uid, 'cmd': 'news', 'result': f'{len(items)} items'})
-        return {'ok': True, 'text': ('What happened around you since your last turn:\n' + '\n'.join('- ' + x for x in items)) if items else 'Nothing new around you.'}
+        # a person remembers what they heard: every item is kept in their notes (files/<uid>/news.md), so a later turn
+        # (a fresh agent) can read it again; Pilot 3 lost the owner's takeoff between turns without this
+        if items:
+            fd = os.path.join(self.dir, 'files', uid); os.makedirs(fd, exist_ok=True)
+            with open(os.path.join(fd, 'news.md'), 'a', encoding='utf-8') as f:
+                f.write(f"\n## {self.state['day']} {self.state['slot']} {self.clock_str()}\n" + '\n'.join('- ' + x for x in items) + '\n')
+        note = f"\n(Everything you have heard is kept in your notes: {os.path.join(self.dir, 'files', uid, 'news.md')})"
+        return {'ok': True, 'text': (('What happened around you since your last turn:\n' + '\n'.join('- ' + x for x in items)) if items else 'Nothing new around you.') + note}
 
     # ------------------------------------------------------------------ the main session's controls
     async def admin(self, cmd, a):
