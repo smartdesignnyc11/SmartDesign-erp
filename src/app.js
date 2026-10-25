@@ -2189,7 +2189,7 @@ async function load(opts = {}) {
   }
   (DB.company = Object.assign(
     {
-      name: "SmartDesigns",
+      name: "SmartDesign",
       lic: "",
       addr: "",
       phone: "",
