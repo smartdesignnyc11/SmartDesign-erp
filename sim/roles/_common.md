@@ -84,5 +84,10 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
     7. Finding records: could I find what I had made, and what I owe, in one place?
     8. Did everything save (and did the app say so)?
     9. Did each tap go where its label said (a dead tap, a wrong page, a sheet that wasn't named)?
+    10. The information I needed (Alan, 10-25: "our biggest hurdle"): for each decision or job today, did I get what I
+        needed, in a way I could take in quickly and act on? Name what was missing, what was there but in the wrong
+        place (where it was, where I looked first), and what was not there at all.
+    11. Too much: what on my screens today was not for me or not for today, and what I had to read past to find my work.
+    12. Sub-pages: which sub-pages I opened to finish one job, how many, which should be one page, which I never need.
     Then one line: `Grade, phone: n/10` (or desktop), a seasoned professional in my seat against the leader they
     would otherwise use (Procore, Buildertrend, NetSuite, QuickBooks, a CRM).
