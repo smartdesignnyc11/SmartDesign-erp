@@ -94,6 +94,8 @@ MEASURE = r"""() => {
     if (!vis(e) || e.closest('.tk2-row, .gantt-wrap, .gantt, svg, .mbm, [data-chart]')) return;
     const r = e.getBoundingClientRect(); if (r.right < 0 || r.left > W) return;
     if (r.height >= 43.5) return;
+    // a pill in a taller hit area: an absolutely placed ::after reaching past the box (the chip strips' pattern)
+    const af = cs(e, '::after'); if (af.content && af.content !== 'none' && af.position === 'absolute') { const tp = parseFloat(af.top) || 0, bt = parseFloat(af.bottom) || 0; if (r.height - Math.min(0, tp) - Math.min(0, bt) >= 43.5) return; }
     const hit = e.closest('label, .hit44, .pr-act, .pr-row');
     if (hit && hit !== e && hit.getBoundingClientRect().height >= 43.5 && (hit.matches('label, .hit44, .pr-act') || e.matches('input[type=checkbox], input[type=radio]'))) return;
     if (e.matches('input[type=checkbox], input[type=radio]')) { const p = e.parentElement; if (p && p.getBoundingClientRect().height >= 43.5) return; }

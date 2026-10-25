@@ -86,14 +86,16 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
   .view.pr-page .ph .lead{display:none}
   .view.pr-page .ph .acts{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .view.pr-page .ph .acts>.btn{flex:1 1 0;width:auto;min-width:0;min-height:44px}
-  /* every target on a phone page is 44px tall (lint TARGET_SMALL): the shared classes, not each button; the
-     Tasks page is the taskfix lane's and sets its own */
-  .view:not(#v-tkall):not(#v-tasks) .btn,.view:not(#v-tkall):not(#v-tasks) .btn.sm,.view:not(#v-tkall):not(#v-tasks) .seg button,.view:not(#v-tkall):not(#v-tasks) .ctabs button,.view:not(#v-tkall):not(#v-tasks) .sub-tabs button,.view:not(#v-tkall):not(#v-tasks) select,.view:not(#v-tkall):not(#v-tasks) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view:not(#v-tkall):not(#v-tasks) .chip,.view:not(#v-tkall):not(#v-tasks) .hb-btn,.view:not(#v-tkall):not(#v-tasks) .hb-viewtab,.view:not(#v-tkall):not(#v-tasks) [role=tab],.view:not(#v-tkall):not(#v-tasks) .nm-act,.view:not(#v-tkall):not(#v-tasks) .mic,.view:not(#v-tkall):not(#v-tasks) .ov-stat,.view:not(#v-tkall):not(#v-tasks) [role=button],.view:not(#v-tkall):not(#v-tasks) .sel-rooms button,.view:not(#v-tkall):not(#v-tasks) .sp-groups button,.view:not(#v-tkall):not(#v-tasks) .sp-nav button{min-height:44px !important}
-  .view:not(#v-tkall):not(#v-tasks) .glance.tl>.gl,.view:not(#v-tkall):not(#v-tasks) .glance.tl-auto>.gl{height:44px !important;min-height:44px !important}
-  .view:not(#v-tkall):not(#v-tasks) .seg{min-height:44px}
+  /* every target on a phone page is 44px (lint TARGET_SMALL), through the shared classes, not each button. Chip and
+     tab strips use the taskfix lane's pattern (styles.css #21: a 36px pill in a 44px hit area, 8px gaps), extended here
+     to the two strips it did not name (a selection's rooms, Spend's groups). The Tasks pages are the taskfix lane's. */
+.view:not(#v-tkall):not(#v-tasks) .btn,.view:not(#v-tkall):not(#v-tasks) .btn.sm,.view:not(#v-tkall):not(#v-tasks) .sub-tabs button,.view:not(#v-tkall):not(#v-tasks) select,.view:not(#v-tkall):not(#v-tasks) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view:not(#v-tkall):not(#v-tasks) .chip,.view:not(#v-tkall):not(#v-tasks) .hb-btn,.view:not(#v-tkall):not(#v-tasks) .hb-viewtab,.view:not(#v-tkall):not(#v-tasks) [role=tab],.view:not(#v-tkall):not(#v-tasks) .nm-act,.view:not(#v-tkall):not(#v-tasks) .mic,.view:not(#v-tkall):not(#v-tasks) .ov-stat,.view:not(#v-tkall):not(#v-tasks) [role=button]{min-height:44px !important}
   .view:not(#v-tkall):not(#v-tasks) input.q{height:44px !important}
   .view:not(#v-tkall):not(#v-tasks) label.chip{min-height:44px !important}
   .view:not(#v-tkall):not(#v-tasks) .hb-pill{height:auto;min-height:44px}
+  body.m-on .view.on :is(.sel-rooms,.sp-groups){column-gap:8px}
+  body.m-on .view.on :is(.sel-rooms,.sp-groups) > button{position:relative}
+  body.m-on .view.on :is(.sel-rooms,.sp-groups) > button::after{content:"";position:absolute;left:0;right:0;top:-5px;bottom:-5px}
   body.pr-v-ovjobs #subnav .sub-proj{display:none}
   .view .hb-dash{grid-template-columns:minmax(0,1fr) !important}
   .view .pr-hide{display:none !important}
