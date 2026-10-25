@@ -3825,6 +3825,25 @@ const toastLinksOf = (go) =>
 // A screen with controls of its own near the bottom (Meeting Mode on the phone, src/meeting.js) adds its own place
 // to TOAST_PLACES: given the toast, it moves it and returns true, or leaves it and returns false.
 const TOAST_PLACES = [];
+// The toast sits above whatever is fixed at the foot of the screen where it would land: the phone's bottom bar, the
+// foreman's Say It, a call bar, a sticky action bar (taskfix #5). Each screen used to carry its own CSS offset, and a
+// screen without one had the toast on its bar. Measured, not guessed: the top of the lowest fixed bar it overlaps.
+const TOAST_FLOORS = "#mtabs, #tabbar, #fsay, #fab, .m-callbar, .dl-nav, .chat-compose, [data-fixedbar]";
+function toastClear(t) {
+  const H = window.innerHeight,
+    r = t.getBoundingClientRect();
+  if (!r.width) return;
+  let floor = H;
+  const bars = [...document.querySelectorAll(TOAST_FLOORS)];
+  document.body.classList.contains("has-saybar") && document.querySelectorAll(".btn.primary").forEach((b) => null === b.offsetParent && bars.push(b));
+  bars.forEach((e) => {
+    if (!e.getClientRects().length || "fixed" !== getComputedStyle(e).position) return;
+    const b = e.getBoundingClientRect();
+    if (b.height <= 0 || b.top < H / 2 || b.right <= r.left || b.left >= r.right) return;
+    floor = Math.min(floor, b.top);
+  });
+  floor < H && r.bottom > floor - 8 && (t.style.bottom = `${Math.round(H - floor + 8)}px`);
+}
 function toastPlace(t) {
   t.classList.remove("toast-up"), (t.style.top = ""), (t.style.bottom = ""), (t.className = t.className.replace(/\btoast-at-\S+/g, "").trim());
   const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
@@ -3835,7 +3854,7 @@ function toastPlace(t) {
       } catch (e) {
         console.warn("toast place", e);
       }
-    return;
+    return toastClear(t);
   }
   const r = t.getBoundingClientRect(),
     b = box.getBoundingClientRect();
@@ -3854,7 +3873,7 @@ function toast(msg, go, ms) {
     ((t.textContent = ""),
     t.appendChild(Object.assign(document.createElement("span"), { className: "toast-msg", textContent: String(msg || "") })),
     L.forEach((l) => {
-      t.appendChild(document.createTextNode(" · "));
+      t.appendChild(Object.assign(document.createElement("span"), { className: "toast-sep", textContent: " · " }));
       const a = document.createElement("a");
       (a.href = "#"),
         (a.className = "toast-open"),
@@ -86968,7 +86987,8 @@ const M_BREAK = 760,
     task: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12l3 3 5-6"/></svg>',
     decision: '<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M12 8v5M12 16h.01"/></svg>',
     call: '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
-    ask: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>',
+    // Ask is the assistant, not a conversation: a sparkle, so it never reads as the bar's Chat (taskfix #20)
+    ask: '<svg viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>',
   },
   M_TABS = {
     owner: [
@@ -87594,13 +87614,16 @@ function mRenderTabs() {
       ([v]) => (ROLE_VIEWS[mRole()] || []).includes(v) || "mapprove" === v,
     ),
     nAppr = mApproveCount(),
-    nTk = tabs.some(([v]) => "tkall" === v) && "function" == typeof tkMyCounts ? tkMyCounts().today || 0 : 0,
+    // one number for Tasks (tkTasksN, taskfix #1); the Buy Board's is its Late to Order and Order This Week, the
+    // coordinator's orders on Today (tdyBuyItems)
+    nTk = tabs.some(([v]) => "tkall" === v) && "function" == typeof tkTasksN ? tkTasksN() : 0,
+    nBuy = tabs.some(([v]) => "proc" === v) && "coord" === mRole() && "function" == typeof tdyBuyItems ? tdyBuyItems().length : 0,
     cur = view;
   (tb.innerHTML =
     tabs
       .map(
         ([v, l, i]) =>
-          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : "tkall" === v && nTk ? `<i class="n" data-ocbadge="tkall">${nTk}</i>` : ""}</button>`,
+          `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : "tkall" === v && nTk ? `<i class="n" data-ocbadge="tkall">${nTk}</i>` : "proc" === v && nBuy ? `<i class="n">${nBuy}</i>` : ""}</button>`,
       )
       .join("") +
     // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px. Where
@@ -102406,11 +102429,9 @@ let tkWho = "me",
   tkWhoSet = !1;
 function tkOpenWho() {
   if (tkWhoSet) return tkWho;
+  // Tasks opens on Mine for everyone, also when Mine is empty (taskfix #14): it fell back to Everyone, so billing's
+  // first look at Tasks was the owner's sales calls under a badge that counts only her own
   tkWhoSet = !0;
-  try {
-    const me = (S && S.project && S.project.userName) || "";
-    tkItems().filter((x) => !1 !== x.open && tkOwnerMatch(x.assignee, me)).length || (tkWho = "all");
-  } catch (e) {}
   return tkWho;
 }
 function tkMe() {
@@ -104986,6 +105007,26 @@ function b3Queue(root) {
 }
 const B3_CHEV =
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+// A chip or tab strip that scrolls sideways says so (taskfix #21): its edge fades where more chips wait, on the left
+// once it has scrolled and on the right until its end, so a label cut at the edge reads as "more this way", not as a
+// broken word ("ons", "Requ"). Measured on every draw and on every scroll of a strip.
+const B3_STRIPS = ".view.on .ctabs, .view.on .glance.tl, .view.on .seg, .view.on .td-tabs, .view.on .tv-qchips, #subnav";
+function b3StripFade(el) {
+  const more = el.scrollWidth > el.clientWidth + 1;
+  el.classList.toggle("sx-l", more && el.scrollLeft > 2);
+  el.classList.toggle("sx-r", more && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+}
+function b3StripFades() {
+  document.querySelectorAll(B3_STRIPS).forEach((el) => el.getClientRects().length && b3StripFade(el));
+}
+document.addEventListener(
+  "scroll",
+  (e) => {
+    const el = e.target;
+    el && el.classList && (el.classList.contains("sx-l") || el.classList.contains("sx-r") || el.matches(B3_STRIPS)) && b3StripFade(el);
+  },
+  { capture: !0, passive: !0 },
+);
 function b3TabOverflow() {
   document.querySelectorAll(".sub-tabs, #subnav .sub-tabs").forEach((strip) => {
     const host = strip.parentElement;
@@ -105248,6 +105289,11 @@ function b3Pass() {
         b3TabOverflow();
       } catch (e) {
         console.warn("b3 tabs", e);
+      }
+      try {
+        b3StripFades();
+      } catch (e) {
+        console.warn("b3 fades", e);
       }
     }),
     ["crew", "foreman", "driver"].includes(r))
@@ -174200,10 +174246,15 @@ function tdRender() {
       return { t: t, v: v };
     }),
     M = tdyModel(),
-    tabs = TDY_TABS.filter(([k]) => "team" !== k || M.team),
+    tabs = TDY_TABS.filter(([k]) => ("team" !== k || M.team) && ("buy" !== k || M.buy)),
     tab = tabs.some(([k]) => k === tdyTabOf()) ? tdyTabOf() : "all",
     Q = M[tab] || [],
-    MORE = { appr: ["Open the Approvals Page", "mapprove"], inbox: ["Open the Inbox", "comms"], tasks: ["Open All Tasks", "tkall"] },
+    MORE = { appr: ["Open the Approvals Page", "mapprove"], inbox: ["Open the Inbox", "comms"], tasks: ["Open All Tasks", "tkall"], buy: ["Open the Buy Board", "proc"] },
+    // tasks offered to me wait on my yes: one line above the Tasks rows, as on the Tasks list (not counted as tasks)
+    offerL = "tasks" === tab ? M.offered || [] : [],
+    offerHtml = offerL.length
+      ? `<button type="button" class="tk2-offer td-offer" data-tdyoffer><span class="tk2-offer-n">${offerL.length}</span><span class="grow">${1 === offerL.length ? `${esc(tkFirst(offerL[0].t.owner) || "Someone")} offered you “${esc(tdWords(offerL[0].title, 7))}”` : `${offerL.length} tasks offered to you`}</span><b>Review</b></button>`
+      : "",
     more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
     // a filter is its whole list, in place; All shows the first five and "N more" opens the rest in place
     top = ("all" !== tab || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
@@ -174223,7 +174274,7 @@ function tdRender() {
     .join("")}</div>` : ""}
   <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now" data-tdytab="${tab}"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div><div class="td-tabs" role="tablist">${tabs
     .map(([k, n]) => `<button type="button" role="tab" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}" data-tdytabbtn="${k}">${n}${"team" === k ? "" : `<span class="n">${(M[k] || []).length}</span>`}</button>`)
-    .join("")}</div>${
+    .join("")}</div>${offerHtml}${
     top.length
       ? top
           .map(
@@ -174231,7 +174282,7 @@ function tdRender() {
               `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"${c.ea ? ` data-ea='${esc(JSON.stringify(c.ea))}'` : ""}><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
           )
           .join("")
-      : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "No task of yours is open.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
+      : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "Nothing of yours is late or due in the next 7 days.", buy: "Nothing is late to order or due to order this week.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
   }${
     more && Q.length
       ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
@@ -174305,6 +174356,12 @@ function tdRender() {
       const v = tmore.dataset.tdymore;
       "tkall" === v && ((tkWho = "me"), (tkShow = "open"));
       setView(v);
+    });
+  const toff = root.querySelector("[data-tdyoffer]");
+  toff &&
+    (toff.onclick = (e) => {
+      e.preventDefault();
+      1 === offerL.length ? tkSheet(offerL[0].t.key) : ((tkWho = "me"), (t2View = "week"), setView("tkall"));
     });
   const topen = root.querySelector("[data-tdyopen]");
   topen &&
@@ -190122,6 +190179,9 @@ function flRenewDialog(o) {
     },
   );
 }
+// the day an obligation is filed or renewed by: its expiry less its lead (30 days unless the register says otherwise),
+// the due date its task carries (bnObligationTasks)
+const flObFile = (o) => (o && o.expires ? iso(addDays(o.expires, -(+o.renewLead || 30))) : "");
 function flObRows() {
   const td = today();
   return (DB.obligations || [])
@@ -190130,8 +190190,19 @@ function flObRows() {
       key: `oblig:${o.id}:${o.expires}`,
       route: flObRole(o),
       kind: "oblig",
-      title: `Renew ${o.name.replace(/\s+—.*$/, "")} by ${fmt(o.expires)}`,
-      why: dayDiff(td, o.expires) >= 0 ? `${dayDiff(td, o.expires)} days left` : "lapsed",
+      // one record, one state (taskfix #11): the date that matters is the filing date (the expiry less the lead), the
+      // date its task carries. It read "by 9/28 · 25 days left" here while the task read "5d late"
+      ...(() => {
+        const file = flObFile(o),
+          late = dayDiff(file, td),
+          left = dayDiff(td, o.expires),
+          what = "filing" === o.kind ? "filing" : "renewal";
+        return {
+          due: file,
+          title: `Renew ${o.name.replace(/\s+—.*$/, "")} by ${fmt(file)}`,
+          why: left < 0 ? `lapsed ${fmt(o.expires)}` : late > 0 ? `${what} ${late} day${1 === late ? "" : "s"} late · expires ${fmt(o.expires)}` : `${0 === late ? `${what} due today` : `${-late} day${-1 === late ? "" : "s"} left to ${"filing" === o.kind ? "file" : "renew"}`} · expires ${fmt(o.expires)}`,
+        };
+      })(),
       amount: 0,
       verb: "Draft the Renewal",
       no: "",
@@ -198082,6 +198153,8 @@ function tdyDecline(x, reason) {
   return !0;
 }
 function tdyHandOffSheet(x) {
+  // the one Hand Off sheet (tkHandSheet, src/tasks.js): people first, a tap picks, one button commits
+  if ("function" == typeof tkHandSheet && tkResolve(x)) return tkHandSheet(x);
   const me = tdyMe(),
     people = tdyUsers().filter((u) => u.id !== (x.ownerUid || me.id) && !/^(crew|driver)$/.test(u.role));
   mbModal(
@@ -198310,6 +198383,7 @@ const TDY_TABS = [
   ["appr", "Approvals"],
   ["inbox", "Inbox"],
   ["tasks", "Tasks"],
+  ["buy", "Buy Board"],
   ["team", "Team"],
 ];
 const tdyTabs = {};
@@ -198365,17 +198439,25 @@ function tdyModel() {
   } catch (e) {}
   const inbox = mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem);
   inbox.forEach((it) => held.add("comm:" + it.id));
-  // Today's Tasks are what is owed now: overdue, due in the next two weeks, undated (it needs a date), or offered to
-  // me. A renewal two years out is on All Tasks, not on today's list.
-  const horizon = iso(addDays(today(), TDY_HORIZON)),
-    tasks = me.id
-      ? tkAll({ open: !0, uid: me.id })
-          .filter((t) => !t.approval && !t.refs.some((k) => held.has(k)) && (!t.due || t.due <= horizon || t.offeredToUid === me.id))
-          .map(tdyTaskItem)
-      : [];
-  // the coordinator owes the orders: a Buy Board line late to order, or due to order this week, is a task with a date
-  // (it was the classic Home's "Order" rows; the Buy Board stays the list behind it)
-  "coord" === r && may("proc") && tdyBuyItems().forEach((it) => tasks.push(it));
+  // Today's Tasks are the person's Due Soon, the Tasks list's own first view: theirs, late or due in the next 7 days,
+  // not put off (taskfix #1, 2026-10-25). It is the one "Tasks" number: the side menu, the sub-tab, this chip, the phone
+  // bar and the Tasks page read tkTasksN(), these rows. It used to be a 14-day horizon less what Approvals held, so the
+  // owner read 6, 11 and 12 on one screen and his most-late task (an obligation Approvals also holds) was not in it.
+  let tasks = [];
+  try {
+    tasks = me.id ? tkSoonFor().map((x) => tdyTaskItem(tdyShape(x))) : [];
+  } catch (e) {
+    console.warn("today tasks", e);
+  }
+  // offered to me and waiting on my yes: not mine until I accept (the Tasks list's offer line), so not in the number;
+  // Today shows them on All with Accept and as one line above the Tasks rows
+  let offered = [];
+  try {
+    offered = me.id ? tkAll({ open: !0, uid: me.id }).filter((t) => !t.approval && t.offeredToUid === me.id).map(tdyTaskItem) : [];
+  } catch (e) {}
+  // the coordinator's orders are the Buy Board's own Late to Order and Order This Week: a chip of their own, never
+  // counted as tasks (they were five of the coordinator's "Tasks 9")
+  const buy = "coord" === r && may("proc") ? tdyBuyItems() : null;
   const order = (L) => {
     try {
       return standardOrder(L, stdQueueTie);
@@ -198383,7 +198465,10 @@ function tdyModel() {
       return L;
     }
   };
-  return { appr: appr, inbox: order(inbox), tasks: order(tasks), all: order(appr.concat(inbox, tasks)), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+  // All holds each thing once: a task an approval already stands for (an obligation's renewal) is its approval there
+  const keys = new Set(offered.map((it) => it.id)),
+    allTasks = offered.concat(tasks.filter((it) => !keys.has(it.id) && !it.t.refs.some((k) => held.has(k))));
+  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
 }
 // The Buy Board lines the coordinator owes today: late to order, or due to order this week (b2Facts, the brief's own).
 function tdyBuyItems() {
@@ -198847,7 +198932,7 @@ const MN_JOBS = (o) =>
   ],
   MN_G = (id, n, icon, items, x) => Object.assign({ id: id, n: n, icon: icon, items: items }, x || {}),
   // Tasks, directly under Today for every office role (Alan, 2026-10-24): the one list (tkall), its badge the person's
-  // own late and due-today tasks. Today's Tasks tab stays and opens the same list. Field roles keep their menus.
+  // own Due Soon (tkTasksN, taskfix #1). Today's Tasks tab stays and lists the same rows. Field roles keep their menus.
   MN_TASKS = () => MN_G("mytasks", "Tasks", "tasks", [["tkall", "Tasks"]]),
   MENU = {
     owner: {
@@ -198946,11 +199031,12 @@ const MN_JOBS = (o) =>
         MN_G("bank", "Banking", "bank", [["bank", "Banking"]]),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
       ],
-      // Tasks replaces Billing, the accounting shortcut (Alan, 2026-10-24); Billing stays in the menu and is home
+      // Tasks replaces Billing, the accounting shortcut (Alan, 2026-10-24); Billing stays in the menu and is home.
+      // Today first, like every role (taskfix #14): the same thumb finds the same tab on every phone in the office
       phone: [
-        ["tkall", "Tasks", "tasks"],
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
+        ["tkall", "Tasks", "tasks"],
         ["clients", "Clients", "people"],
       ],
     },

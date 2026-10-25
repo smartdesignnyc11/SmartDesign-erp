@@ -49,7 +49,7 @@ the tasks sit in the day plan's work slots (`doc_tasks` in `day_plan.json` / `da
 You are {name} ({role}) at SmartDesign. You created these documents in the pilot; the harness measured them:
 {measured}
 Read your diary `{diary}` for what you noted at the time. Write `{answer}`, one line per answer, at most 2 lines per
-question per document type, at most 40 lines, in this format: `D<n> | <document type> | blocks, slows or annoys | <answer>`
+question per document type per device, at most 48 lines, in this format: `D<n> | <document type> | phone or desktop | blocks, slows or annoys | <answer>`
 D1 how fast was it (the measured taps and seconds: right, or too slow, and where the time went)
 D2 what you typed that the system should have filled in
 D3 what was hard on the phone (skip if you made it on a desktop)
@@ -59,6 +59,7 @@ D6 what you would change, most important first
 D7 (estimate, CO, invoice) which lines you wrote from scratch that you write on every job
 D8 which descriptions you copied from elsewhere (an old estimate, a vendor quote, your notes), and from where
 D9 what should have filled itself in from an item library (item, description, unit, price, cost code)
+D10 if you made this kind of document on both devices (or saw it on the other): which was faster and clearer, and what the other should copy
 <!-- /CREATOR -->
 
 <!-- CLIENT -->
@@ -94,6 +95,7 @@ document type (estimate, change order, invoice, pay application, PO, RFQ, bill, 
 - typed versus filled (fields typed, characters per line, picks, defaults) and what an item library would have
   filled, from the measurements and D7-D9; this shapes BACKLOG 1.18 (the item library);
 - the top three fixes, each with the screen it lives on.
+Within each block, split time, taps and the creators' answers by device (phone, desktop) where both were used.
 End with the five fixes across all documents that matter most to Alan, in order. House voice: plain, specific,
 no exclamation marks.
 <!-- /SYNTHESIS -->

@@ -247,8 +247,15 @@ def score():
     L.append('\n## Client view (client, owner, designer), grouped by document type, worst first\n')
     cv = sorted([r for k in ('C', 'B') for r in rows[k]], key=lambda r: (r[1][1].lower(), {'blocks': 0, 'slows': 1, 'annoys': 2}.get(r[1][2].lower(), 3)))
     L += [f"- {p[1]} · {p[2]} · {who}: {' | '.join(p[3:])[:220]}" for who, p in cv] or ['- (no answers yet)']
-    L.append('\n## Creators, by document type\n')
-    L += [f"- {p[1]} · {p[2]} · {who}: {p[0]} {' | '.join(p[3:])[:220]}" for who, p in sorted(rows['D'], key=lambda r: r[1][1])] or ['- (no answers yet)']
+    # a creator's line may carry the device (Pilot 2: `D<n> | type | phone or desktop | severity | answer`)
+    dev_of = lambda p: p[2].lower() if len(p) > 4 and p[2].lower() in ('phone', 'desktop', 'both') else 'either'
+    body = lambda p: p[3:] if dev_of(p) == 'either' else p[4:]
+    sev = lambda p: p[2] if dev_of(p) == 'either' else p[3]
+    for dv in ('phone', 'desktop', 'both', 'either'):
+        R = [r for r in rows['D'] if dev_of(r[1]) == dv]
+        if not R and dv != 'either': continue
+        L.append(f"\n## Creators, by document type{'' if dv == 'either' else ', ' + dv}\n")
+        L += [f"- {p[1]} · {sev(p)} · {who}: {p[0]} {' | '.join(body(p))[:220]}" for who, p in sorted(R, key=lambda r: r[1][1])] or ['- (no answers yet)']
     L.append('\n## Synthesis, per document type: time and taps against the target, back-end gaps, client-view issues ranked, top fixes\n\n(to be written by the synthesis step)\n')
     p = os.path.join(d, 'docs_workshop.md'); open(p, 'w').write('\n'.join(L) + '\n')
     print(_tpl('SYNTHESIS').replace('{workshop}', p).replace('{usage}', os.path.join(d, 'docs_usage.json')).replace('{answers}', W)

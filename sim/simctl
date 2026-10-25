@@ -4,8 +4,12 @@
     sim/simctl status
     sim/simctl world <morning|work1|work2|eod> [--no-watchers|--watchers]   the outside world's events for the slot
     sim/simctl plan sim/day_plan_lean.json       which day plan this run follows (default sim/day_plan.json)
-    sim/simctl begin <uid> <slot> [--cap N] [--phone]   open a person's turn (only they may act until `end`); the
-                                                plan's cap for the slot, raised and put on the phone by a doc task
+    sim/simctl begin <uid> <slot> [--cap N] [--device phone|desktop] [--switch]   open a person's turn (only they may
+                                                act until `end`); the plan's cap for the slot, raised by a doc task; the device
+                                                from the doc task, else the plan's `devices` (day, slot, person), else the role's;
+                                                --switch (or "phone+desktop" in the plan) lets them pick up the other device
+    sim/simctl cost <uid|label> --tokens N [--tool-uses N] [--ms N]   the subagent's measured usage for the turn just
+                                                ended (copy it from the Agent tool's result); written to cost.jsonl and cost.md
     sim/simctl end                              close the turn: save, deliver the mail they sent
     sim/simctl prompt <uid>                     print the filled per-turn prompt (sim/turn_prompt.md) for that person
     sim/simctl brief <uid>                      their news and unread mail counts (to decide optional turns)
@@ -30,11 +34,28 @@ def plan():
     return json.load(open(f if os.path.isabs(f) else os.path.join(os.path.dirname(HERE), f)))
 
 
+def day_no():
+    return len(admin('status').get('days_done') or []) + 1
+
+
 def my_tasks(uid, slot):
     """the Documents Workshop's work that came in for this person, this day and slot (day_plan doc_tasks)"""
-    st = admin('status')
-    day = len(st.get('days_done') or []) + 1
+    day = day_no()
     return [t for t in plan().get('doc_tasks', []) if t['uid'] == uid and t['day'] == day and t['slot'] == slot]
+
+
+def task_device(t):
+    return (t.get('device') or ('phone' if t.get('phone') else '')).lower()
+
+
+def plan_device(uid, slot, tasks):
+    """The device for this turn: a task's device first, then the plan's `devices` for the day and slot, then the plan's
+    default for the person; "phone+desktop" starts on the phone and lets the person switch (`act <uid> device desktop`)."""
+    P = plan().get('devices') or {}
+    for t in tasks:
+        if task_device(t): return task_device(t)
+    d = ((P.get(str(day_no())) or {}).get(slot) or {}).get(uid) or (P.get('default') or {}).get(uid) or ''
+    return d.lower()
 
 
 SLOT_LABEL = {'work': 'the work day', 'morning': 'morning (brief, huddle, plan)', 'work1': 'the work day, first turn', 'work2': 'the work day, second turn',
@@ -64,11 +85,21 @@ def prompt(uid):
             'cap': cap, 'root': os.path.dirname(HERE), 'briefing': os.path.join(HERE, 'roles', uid + '.md'), 'diary': os.path.join(d, 'diary', uid + '.md'),
             'device': 'phone' if b['phone'] else 'desktop', 'eod': 'yes' if b['slot'] == 'eod' else 'no'}
     T = my_tasks(uid, b['slot'])
-    vals['tasks'] = ('Work that came in for you today (do it as part of your turn, on your ' + ('phone' if any(t['phone'] for t in T) else vals['device']) + '):\n'
+    st = admin('status')
+    if (st.get('turn') or {}).get('uid') == uid: vals['cap'] = str(st['turn']['cap'])
+    vals['tasks'] = ('Work that came in for you today (do it as part of your turn, on your ' + vals['device'] + '):\n'
                      + '\n'.join('- ' + t['task'] for t in T)) if T else 'No special work came in for this turn; run your day.'
     if T: vals['cap'] = str(max(int(vals['cap']), max(t.get('cap', 0) for t in T)))
-    if any(t['phone'] for t in T): vals['device'] = 'phone (390px, for this turn)'
+    vals['device'] = ('phone (390x844, touch, one hand)' if b['phone'] else 'desktop') + (
+        '; this turn you may also pick up your ' + ('desktop' if b['phone'] else 'phone') + f' (`sim/act {uid} device ' + ('desktop' if b['phone'] else 'phone') + '`)' if b.get('switch') else '')
+    vals['last_day'] = 'yes' if day_no() >= int(plan().get('days') or 3) else 'no'
     for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
+    reads = 0
+    for f in (os.path.join(HERE, 'roles', '_common.md'), vals['briefing'], vals['diary']):
+        try: reads += os.path.getsize(f)
+        except Exception: pass
+    try: admin('note_prompt', uid=uid, chars=len(tpl), reads=reads)
+    except Exception: pass
     return tpl
 
 
@@ -88,8 +119,12 @@ def main(a):
         admin('slot', slot=slot)
         T = my_tasks(a[1], slot)
         if T: cap = max(cap, max(t.get('cap', 0) for t in T))
-        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, phone=('--phone' in a) or any(t['phone'] for t in T))
-        if T: r['tasks'] = [t['doc'] + (' on the phone' if t['phone'] else '') for t in T]
+        dev = a[a.index('--device') + 1].lower() if '--device' in a else 'phone' if '--phone' in a else plan_device(a[1], slot, T)
+        if '+' in dev: dev, switch = dev.split('+')[0], True
+        else: switch = '--switch' in a
+        if switch and not ('--cap' in a): cap += int(plan().get('switch_cap') or 0)   # looking at the other device costs a few actions
+        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, device=dev, switch=switch, phone=dev == 'phone')
+        if T: r['tasks'] = [t['doc'] + f" on the {task_device(t) or r['turn']['device']}" for t in T]
     elif c == 'plan':
         run, d = run_dir(); open(os.path.join(d, 'plan.txt'), 'w').write(a[1]); r = {'plan': a[1]}
     elif c == 'end': r = admin('end_turn')
@@ -104,6 +139,11 @@ def main(a):
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
+    elif c == 'cost':
+        kw = {'uid': a[1]} if a[1].startswith('u_') else {'label': a[1]}
+        for k in ('tokens', 'tool-uses', 'ms', 'input', 'output', 'cache-read'):
+            if '--' + k in a: kw[k.replace('-', '_')] = int(float(a[a.index('--' + k) + 1]))
+        r = admin('cost', **kw)
     elif c == 'stop': r = admin('shutdown')
     else: print('unknown command; see --help'); return 2
     if c == 'world' and isinstance(r, dict) and 'events' in r:
@@ -111,6 +151,7 @@ def main(a):
         print(f"{r['day']} {r['slot']}: {len(r['events'])} events ({len(ev)} delivered)")
         for e in ev: print('  ', ' · '.join(map(str, e)))
         for x in r.get('replies') or []: print('   reply', ' · '.join(map(str, x)))
+        if r.get('gates'): print('   chains opened:', ', '.join(f'{g[0]} (on {g[1]})' for g in r['gates']))
         if r.get('mail'): print('   mail:', r['mail'])
         if r.get('watchers'): print('   watchers:', '; '.join(f'{k[2:]} {v}' for k, v in r['watchers'].items()))
         return 0

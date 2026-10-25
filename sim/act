@@ -6,6 +6,7 @@
     sim/act <uid> tap <n>|"Label" | type <n>|"Label" "text" [--enter] | pick <n>|"Label" "option" | upload <n> <file> | photo <n>
     sim/act <uid> do 'type 3 "8"; pick "Unit" "sheet"; tap "Save"' [--find "text"]   up to 8 steps in one call
     sim/act <uid> back | scroll | key Enter | go "<menu label>" | ask "question" | news
+    sim/act <uid> device | device phone | device desktop     which device you are on; switch when your turn allows it
     sim/act <uid> mail [sent] | mail read <n> | mail reply <n> "text" | mail send "to" "subject" "body"
     sim/act <uid> call "<person>" "what was said"
 
@@ -15,7 +16,7 @@ anything that is not a person's action: there is no way to run JavaScript or to 
 import json, os, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERBS = {'do', 'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
+VERBS = {'do', 'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key', 'device'}
 FORBIDDEN = {'eval', 'evaluate', 'js', 'javascript', 'db', 'sql', 'query', 'exec', 'run', 'script', 'console', 'devtools', 'storage', 'indexeddb',
              'localstorage', 'dump', 'export', 'state', 'set', 'get', 'admin', 'debug'}
 

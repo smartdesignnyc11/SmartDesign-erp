@@ -127,9 +127,12 @@ async def main():
             c.ok(len(hd['btns']) == 5 and hd['btns'][0].startswith('menu-btn') and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want the menu first, then four, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
-            # Today is one queue (lane "today"): All is Approvals + Inbox + Tasks, each item in one of them
-            al = await pg.evaluate("() => { const M = tdyModel(); return [+document.querySelector('.view.on [data-tdcount]').dataset.tdcount, M.appr.length + M.inbox.length + M.tasks.length, M.all.length]; }")
-            c.ok(al[0] == al[1] == al[2], f'{tag} phone: All {al[0]} vs Approvals + Inbox + Tasks {al[1]} (model {al[2]})')
+            # Today is one queue (lane "today"): All holds each thing once: Approvals, Inbox, what is offered, the tasks
+            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1)
+            al = await pg.evaluate("""() => { const M = tdyModel(), k = it => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
+              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
+              return [+document.querySelector('.view.on [data-tdcount]').dataset.tdcount, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
+            c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
             # the Approvals filter's count = its source = the Approvals page's Everything chip
             await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
@@ -170,10 +173,12 @@ async def main():
             # the top verb opens the right flow
             if tag == 'owner':
                 # Do Now ranks immediate safety and law first, then overdue / today / this week / later, then the
-                # decision principle (Alan, 2026-10-11): the top card is the first by that order (the overdue payroll,
-                # not the LLC filing 25 days out), and WW-2026-118's verb still opens the one bill-approval gate
+                # decision principle (Alan, 2026-10-11): the top card is the first by that order, and WW-2026-118's verb
+                # still opens the one bill-approval gate. The LLC filing used to rank by its expiry ("25 days out") while
+                # its task said 5 days late; it now carries its filing date (taskfix #11), so it may lead, as law and
+                # overdue, only when its card says the filing is late
                 top = await pg.evaluate("() => { const Q = tdQueue(), k = (it) => standardRankKey(it); return [k(Q[0]), Q.map(k).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3] || a[4] - b[4])[0], Q[0].title]; }")
-                c.ok(top[0] == top[1] and 'LLC' not in top[2], f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, blocked today, urgency, principle, {top[1]}")
+                c.ok(top[0] == top[1] and ('LLC' not in top[2] or 'filing' in m['topText'] and 'late' in m['topText']), f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, blocked today, urgency, principle, {top[1]}")
                 wi = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].findIndex(x => x.innerText.includes('WW-2026-118'))")
                 c.ok(wi >= 0, 'owner phone: WW-2026-118 is on Do Now')
                 await pg.click(f'.view.on .td-do .td-card [data-tdverb="{max(wi, 0)}"]'); await pg.wait_for_timeout(400)

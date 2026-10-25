@@ -2,6 +2,7 @@
 Bond is out of scope). Prompts and the answer format: sim/workshop_nav.md.
 
     python3 sim/workshop.py usage            # runs/<run>/nav_usage.json from the action log (+ menus.json if captured)
+    python3 sim/workshop.py shots [uid ...]  # each person's four most-used pages on the phone and the desktop (server up)
     python3 sim/workshop.py prompt <uid>     # the filled expert prompt for one person
     python3 sim/workshop.py score            # group every finding across roles into runs/<run>/nav_workshop.md and
                                              # print the synthesis prompt that completes it
@@ -51,8 +52,18 @@ def usage():
     for a in A:
         if (a.get('uid') or '').startswith('u_') and a.get('cmd') in NAV: by[a['uid']].append(a)
     res = {}
+    try:
+        from referee import classify_clicks, click_summary
+        rows = classify_clicks(A); cs = click_summary(rows)
+        clicks = defaultdict(dict)
+        for k, v in cs['per_role'].items():
+            u, dv = k.split('|'); clicks[u][dv] = {**v, 'examples': {kind: [x for x in cs['examples'].get(f'{kind}|{dv}', []) if x.startswith(u + ' ')][:5]
+                                                                     for kind in ('dead', 'wrong', 'off-label', 'silent')}}
+    except Exception as e:
+        clicks = {}
     for uid, L in by.items():
-        pages = defaultdict(lambda: {'visits': 0, 'taps': 0, 'seconds': 0.0, 'act_s': 0.0, 'controls': Counter()})
+        pages = defaultdict(lambda: {'visits': 0, 'taps': 0, 'seconds': 0.0, 'act_s': 0.0, 'controls': Counter(), 'devices': Counter()})
+        dev_taps, dev_secs = Counter(), Counter()
         first = defaultdict(Counter); seen_kind = set()
         trails, cur, prev_page = [], None, None
         for i, a in enumerate(L):
@@ -61,8 +72,9 @@ def usage():
             same_turn = nxt and nxt['day'] == a['day'] and nxt['slot'] == a['slot']
             gap = max(0.0, min(600.0, ts(nxt) - ts(a))) if same_turn else (a.get('ms') or 0) / 1000
             P = pages[src]; P['seconds'] += gap; P['act_s'] += (a.get('ms') or 0) / 1000
+            dev = a.get('device') or '?'; P['devices'][dev] += 1; dev_secs[dev] += gap
             if a['cmd'] in ('tap', 'key'):
-                P['taps'] += 1
+                P['taps'] += 1; dev_taps[dev] += 1
                 if a.get('control'): P['controls'][str(a['control'])[:40]] += 1
             if dst != prev_page: pages[dst]['visits'] += 1
             prev_page = dst
@@ -88,7 +100,9 @@ def usage():
         res[uid] = {
             'menu_seen': menus.get(uid, {}).get('menu'), 'phone': menus.get(uid, {}).get('phone'),
             'pages': {p: {'visits': v['visits'], 'taps': v['taps'], 'seconds': round(v['seconds']), 'act_s': round(v['act_s'], 1),
-                          'top_controls': v['controls'].most_common(5)} for p, v in sorted(pages.items(), key=lambda kv: -kv[1]['seconds'])},
+                          'top_controls': v['controls'].most_common(5), 'devices': dict(v['devices'])} for p, v in sorted(pages.items(), key=lambda kv: -kv[1]['seconds'])},
+            'devices': {d: {'taps': dev_taps[d], 'seconds': round(dev_secs[d])} for d in dev_secs},
+            'clicks': clicks.get(uid, {}),
             'trails': [{**t, 'seconds': round(t['seconds'])} for t in trails],
             'backtracks': sum(t['backtracks'] for t in trails),
             'top_jobs': [{'job': j, 'times': len(T), 'median_taps': statistics.median(t['taps'] for t in T),
@@ -110,6 +124,11 @@ def compact(uid, U):
              f"{j['job']} x{j['times']} {j['median_taps']}t {j['median_seconds']}s [{' > '.join(j['typical_trail'])}]" for j in u.get('top_jobs') or []),
          f"Back-tracks: {u.get('backtracks', 0)} over {len(u.get('trails') or [])} jobs",
          'Where you first acted, per kind (page, days): ' + '; '.join(f"{k}: " + ', '.join(f'{p} {n}' for p, n in v) for k, v in (u.get('first_looked_for') or {}).items())]
+    for dv, x in (u.get('devices') or {}).items(): L.append(f"On the {dv}: {x['taps']} taps, {x['seconds']}s")
+    for dv, c in (u.get('clicks') or {}).items():
+        L.append(f"Click check, {dv}: {c['taps']} taps, {c['landed'] + c['done']} landed where the label said, {c['dead']} dead, "
+                 f"{c['wrong']} wrong (backed out), {c['off-label']} off their label, {c['silent']} saved with no word, {c['backtrack']} back-tracks"
+                 + ''.join(f"; {k}: " + ' / '.join(x.split(': ', 1)[-1] for x in v) for k, v in (c.get('examples') or {}).items() if v))
     m = u.get('menu_seen')
     if m: L.append('Your menu (entry: tabs): ' + ' | '.join(f"{x['label']}: {', '.join(x['tabs'][:8]) or '-'}" for x in m))
     return '\n'.join(L)
@@ -123,7 +142,10 @@ def prompt(uid):
     draft = os.path.join(ROOT, 'docs', 'MENU_DRAFT.md')
     from server import PEOPLE
     role, phone, name = PEOPLE[uid]
-    vals = {'uid': uid, 'name': name, 'role': role, 'device': 'on a phone' if phone else 'on a desktop', 'usage': compact(uid, U),
+    sd = os.path.join(d, 'workshop', 'shots', uid)
+    shots = '\n'.join(os.path.join(sd, f) for f in sorted(os.listdir(sd)) if f.endswith('.png')) if os.path.isdir(sd) else '(no screenshots: run `python3 sim/workshop.py shots`)'
+    vals = {'uid': uid, 'name': name, 'role': role, 'device': 'on the phone and, once, the desktop' if phone else 'on the desktop and the phone', 'usage': compact(uid, U),
+            'shots': shots,
             'draft': draft if os.path.exists(draft) else '(no draft yet: judge what you used)',
             'answer': os.path.join(d, 'workshop', uid + '.md'), 'diary': os.path.join(d, 'diary', uid + '.md'),
             'phone_part': 'the 4-5 bottom-bar items, comma-separated, in order' if phone else 'none (desktop)'}
@@ -147,7 +169,10 @@ QNAME = {1: 'Change', 2: 'Combine', 3: 'Confusing', 4: 'Missing information', 5:
          7: 'Came to do / finished here', 8: 'Had to leave to decide', 9: 'Never used', 10: 'First thing not at the top', 11: 'Blue button',
          12: 'Numbers disagree', 13: 'Trust', 14: 'Lost my place', 15: 'Top jobs', 17: 'Phone: scroll, zoom, two hands', 18: 'In a hurry, gloves',
          19: 'Words', 20: 'Done by hand', 21: 'Assistant', 22: 'Fear of an undoable mistake', 23: 'Outside the app', 24: 'Day one',
-         25: 'Could not find', 26: 'Need from another role', 27: 'Wrong in the draft'}
+         25: 'Could not find', 26: 'Need from another role', 27: 'Wrong in the draft', 28: 'Easy on the eyes', 29: 'Five-second test', 30: 'What stands out',
+         31: 'Sections and layout', 32: 'KPIs', 33: 'Reports and tables', 34: 'Colour', 35: 'Charts', 36: 'Remove', 37: 'Worked', 38: "Didn't work",
+         39: 'Got lost', 40: 'Too many taps', 41: 'Easy to read', 42: 'Communicating', 43: 'Finding records', 44: 'Saved', 45: 'Tap went where it said',
+         46: 'Phone versus desktop'}
 
 
 def score():
@@ -156,7 +181,7 @@ def score():
     W = os.path.join(d, 'workshop')
     answers = {f[:-3]: parse(open(os.path.join(W, f)).read()) for f in sorted(os.listdir(W)) if f.endswith('.md')} if os.path.isdir(W) else {}
     names = {pair: Counter() for pair in NAME_PAIRS}
-    keep, finds = Counter(), defaultdict(list)
+    keep, finds, grades = Counter(), defaultdict(list), defaultdict(dict)
     menus = []
     for uid, A in answers.items():
         role = PEOPLE.get(uid, ('?',))[0]
@@ -169,44 +194,76 @@ def score():
             for a, b in NAME_PAIRS:
                 m = re.match(rf'{a}\s*\|\s*{b}\s*:\s*(\w+)', x, re.I)
                 if m: names[(a, b)][m.group(1).title()] += 1
+        for x in A.get('grades', []):
+            m = re.match(r'(phone|desktop)\s*:\s*(\d+(?:\.\d)?)\s*(?:/\s*10)?\s*\|?\s*(.*)', x, re.I)
+            if m: grades[role][m.group(1).lower()] = (float(m.group(2)), m.group(3)[:120])
         for x in A.get('findings', []):
             parts = [p.strip() for p in x.lstrip('- ').split('|')]
             m = re.match(r'Q(\d+)', parts[0], re.I)
             if not m or len(parts) < 5: continue
+            dev = parts[1].lower() if parts[1].lower() in ('phone', 'desktop', 'both') else ''
+            if dev: parts = [parts[0]] + parts[2:]
+            if len(parts) < 5: continue
             q = int(m.group(1)); page = parts[1].strip().title() or 'Menu'
-            finds[(q, page)].append({'role': role, 'uid': uid, 'freq': parts[2].lower(), 'sev': parts[3].lower(), 'text': ' | '.join(parts[4:])[:200]})
+            finds[(q, page)].append({'role': role, 'uid': uid, 'device': dev or 'both', 'freq': parts[2].lower(), 'sev': parts[3].lower(), 'text': ' | '.join(parts[4:])[:200]})
     def weight(F): return (len({f['role'] for f in F}), max(SEV.get(f['sev'], 0) for f in F), max(FREQ.get(f['freq'], 0) for f in F))
     L = [f'# Navigation and Pages Workshop: {run}\n', f'SmartDesign workspace; Mercer & Bond out of scope. {len(answers)} experts answered. '
          'Everything above "Synthesis" is grouped mechanically by sim/workshop.py; the synthesis step writes the rest.\n']
-    for q in (3, 5):
-        G = sorted([(k, F) for k, F in finds.items() if k[0] == q], key=lambda kv: weight(kv[1]), reverse=True)
-        L.append(f'## Shared first: {QNAME[q]} (by how many roles)\n')
-        L += [f"- **{k[1]}** · {weight(F)[0]} roles ({', '.join(sorted({f['role'] for f in F}))}) · worst {max(F, key=lambda f: SEV.get(f['sev'], 0))['sev']}: "
-              + ' // '.join(f"{f['role']}: {f['text']}" for f in F[:5]) for k, F in G] or ['- (none)']
+    if grades:
+        L.append('## Grades, per role and device (0-10)\n')
+        L.append('| Role | Phone | Desktop | Why (phone / desktop) |\n|---|---|---|---|')
+        for role, G in sorted(grades.items()):
+            L.append(f"| {role} | {G.get('phone', ('-', ''))[0]} | {G.get('desktop', ('-', ''))[0]} | {G.get('phone', ('', ''))[1]} / {G.get('desktop', ('', ''))[1]} |")
         L.append('')
+    for dev in ('phone', 'desktop', 'both'):
+        for q in (3, 5):
+            G = [(k, [f for f in F if f['device'] == dev]) for k, F in finds.items() if k[0] == q]
+            G = sorted([(k, F) for k, F in G if F], key=lambda kv: weight(kv[1]), reverse=True)
+            L.append(f'## Shared first, {dev}: {QNAME[q]} (by how many roles)\n')
+            L += [f"- **{k[1]}** · {weight(F)[0]} roles ({', '.join(sorted({f['role'] for f in F}))}) · worst {max(F, key=lambda f: SEV.get(f['sev'], 0))['sev']}: "
+                  + ' // '.join(f"{f['role']}: {f['text']}" for f in F[:5]) for k, F in G] or ['- (none)']
+            L.append('')
     heat = defaultdict(lambda: Counter())
     for (q, page), F in finds.items():
-        for f in F: heat[page][f['sev']] += 1; heat[page]['roles:' + f['role']] += 1
-    L.append('## Page heat (findings by severity, and the roles that hit them)\n')
-    for page, c in sorted(heat.items(), key=lambda kv: -(3 * kv[1]['blocks'] + 2 * kv[1]['slows'] + kv[1]['annoys']))[:25]:
-        L.append(f"- {page}: {c['blocks']} blocks, {c['slows']} slows, {c['annoys']} annoys · " + ', '.join(sorted(k[6:] for k in c if k.startswith('roles:'))))
+        for f in F: K = (page, f['device']); heat[K][f['sev']] += 1; heat[K]['roles:' + f['role']] += 1
+    L.append('## Page heat, by device (findings by severity, and the roles that hit them)\n')
+    for (page, dev), c in sorted(heat.items(), key=lambda kv: -(3 * kv[1]['blocks'] + 2 * kv[1]['slows'] + kv[1]['annoys']))[:30]:
+        L.append(f"- {page} ({dev}): {c['blocks']} blocks, {c['slows']} slows, {c['annoys']} annoys · " + ', '.join(sorted(k[6:] for k in c if k.startswith('roles:'))))
     L.append('\n## Every other finding, by question and page (most roles, worst, most frequent first)\n')
     for q in sorted({k[0] for k in finds} - {3, 5}):
         G = sorted([(k, F) for k, F in finds.items() if k[0] == q], key=lambda kv: weight(kv[1]), reverse=True)
         L.append(f"### Q{q} {QNAME.get(q, '')}")
-        L += [f"- {k[1]} · {weight(F)[0]} roles: " + ' // '.join(f"{f['role']} ({f['freq']}, {f['sev']}): {f['text']}" for f in F[:4]) for k, F in G[:12]]
+        L += [f"- {k[1]} · {weight(F)[0]} roles: " + ' // '.join(f"{f['role']} ({f['device']}, {f['freq']}, {f['sev']}): {f['text']}" for f in F[:4]) for k, F in G[:12]]
     L.append('\n## Each role\'s own menu, as asked\n')
     L += menus or ['- (none)']
     L.append('\n## Keep five (votes)\n')
     L.append(', '.join(f'{k} {n}' for k, n in keep.most_common(20)) or '(none)')
     L.append('\n## Names\n')
     for (a, b), c in names.items(): L.append(f"- {a} or {b}: " + (', '.join(f'{k} {n}' for k, n in c.most_common()) or 'no votes'))
-    L.append('\n## Synthesis: (a) menus per role, (b) page merges and cuts, (c) one place for each kind of information, (d) disagreements for Alan\n\n(to be written by the synthesis step)\n')
+    L.append('\n## Synthesis: (a) menus per role, (b) page merges and cuts, (c) one place for each kind of information, (d) disagreements for Alan, '
+             '(e) phone versus desktop; each split into Phone, Desktop and Both\n\n(to be written by the synthesis step)\n')
     p = os.path.join(d, 'nav_workshop.md')
     open(p, 'w').write('\n'.join(L) + '\n')
     syn = open(os.path.join(HERE, 'workshop_nav.md')).read().split('<!-- SYNTHESIS -->')[1].split('<!-- /SYNTHESIS -->')[0]
     print(syn.replace('{workshop}', p).replace('{answers}', W).replace('{usage}', os.path.join(d, 'nav_usage.json'))
           .replace('{menus}', os.path.join(d, 'menus.json')).replace('{draft}', os.path.join(ROOT, 'docs', 'MENU_DRAFT.md')).strip())
+
+
+def shots(only=None):
+    """Each staff member's four most-used pages (by time spent, from nav_usage.json), photographed by the server on the
+    phone and on the desktop, for the visual review (runs/<run>/workshop/shots/<uid>/)."""
+    import urllib.request
+    run, d = run_dir()
+    p = os.path.join(d, 'nav_usage.json')
+    U = json.load(open(p)) if os.path.exists(p) else usage()
+    port = json.load(open(os.path.join(d, 'server.json')))['port']; tok = open(os.path.join(d, '.admin_token')).read().strip()
+    for uid, u in U.items():
+        if uid == 'u_klein' or (only and uid not in only): continue
+        pages = [pg for pg in (u.get('pages') or {}) if pg and pg != '?'][:4]
+        req = urllib.request.Request(f'http://127.0.0.1:{port}/admin', data=json.dumps({'cmd': 'shots', 'uid': uid, 'pages': pages}).encode(),
+                                     headers={'Content-Type': 'application/json', 'X-Sim-Token': tok})
+        with urllib.request.urlopen(req, timeout=900) as f: r = json.loads(f.read())
+        print(uid, ', '.join(f'{x[0]} {x[1]}' + ('' if x[2].endswith('.png') else ' (' + x[2] + ')') for x in r.get('shots') or []) or r)
 
 
 if __name__ == '__main__':
@@ -216,4 +273,5 @@ if __name__ == '__main__':
     if a[0] == 'usage': usage()
     elif a[0] == 'prompt': print(prompt(a[1]))
     elif a[0] == 'score': score()
+    elif a[0] == 'shots': shots(a[1:])
     else: print(__doc__.strip()); sys.exit(2)

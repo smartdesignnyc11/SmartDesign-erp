@@ -57,6 +57,92 @@ SNAP_JS = """() => { const out = {}; const add = (k, arr) => { if (!Array.isArra
   return { recs: out, day: today() }; }"""
 
 
+# ---- the click check (Pilot 2): did each tap land where its label promised?
+NAV_WORDS = re.compile(r'^(open|view|see|show|go to|go|review|all|more|the|my|your|new|start|back to|to|menu:)\s+', re.I)
+DOES = re.compile(r'^(save|send|approve|confirm|mark|record|apply|submit|done|got it|delete|remove|issue|import|sign|clock|pay|match|close|reject|hold|'
+                  r'accept|acknowledge|post|assign|reply|answer|upload|take|check in|end|finish|create|add|book|log|request|order|receive|void|dispute|split|'
+                  r'attach|copy|duplicate|convert|keep|dismiss|snooze|skip|yes|no|ok|next|continue|update|set|move|share|print|export|download|draft|email|'
+                  r'text|call|won|lost|closed won|close as|unqualify|junk|refresh|run|build|release|reverse|credit|bill|invoice|categori|code|split)\b', re.I)
+STOP = {'with', 'from', 'this', 'that', 'your', 'for', 'and', 'the', 'all', 'more', 'view', 'open', 'new', 'item', 'items', 'link', 'icon', 'you', 'are', 'its', 'our', 'out', 'not', 'one'}
+
+
+def promise_words(label):
+    """the words a label promises a person will find where it lands ("Purchase Orders" -> purchase, orders)"""
+    lab = re.split(r'[>›]', str(label or '').replace('menu: ', ''))[-1]
+    lab = re.sub(r'\$[\d,.]+|\b\d[\d,./:%-]*\b|[()\[\]·|→+]', ' ', lab)
+    for _ in range(3): lab = NAV_WORDS.sub('', lab.strip())
+    return [w.lower()[:5] for w in re.findall(r"[A-Za-z][A-Za-z'-]{2,}", lab) if w.lower() not in STOP][:5]
+
+
+def classify_clicks(A):
+    """Every tap, key, menu go and back with a landing record, classified (heuristics on labels; read as leads):
+    landed (the page, sheet or record its label names), done (it changed something and said so), dead (nothing on the
+    screen or in the records changed), off-label (it moved somewhere its label does not name), wrong (off-label and
+    the person backed out within two actions), in place (the same page changed), silent (a record changed, no toast),
+    failed (the tap never happened: the control was gone or not found). Back-tracks: Back, or a return to a page
+    already visited in the same turn."""
+    out, turn_pages = [], {}
+    for i, a in enumerate(A):
+        if a.get('cmd') not in ('tap', 'key', 'go', 'back') or not (a.get('uid') or '').startswith('u_'): continue
+        L = a.get('land') or {}; f, t = L.get('from') or {}, L.get('to') or {}
+        key = (a['uid'], a.get('day'), a.get('slot'))
+        seen = turn_pages.setdefault(key, [])
+        page = f.get('sheet') or f.get('title') or a.get('screen') or '?'
+        dest = t.get('sheet') or t.get('title') or a.get('after') or '?'
+        rec = {'i': i, 'uid': a['uid'], 'day': a.get('day'), 'slot': a.get('slot'), 'device': a.get('device') or '?', 'cmd': a['cmd'],
+               'label': str(a.get('control') or (a.get('args') or [''])[0])[:60], 'page': page[:50], 'dest': dest[:50], 'backtrack': False}
+        toast, db = bool(a.get('toasts')), bool(a.get('changed'))
+        if a['cmd'] == 'back': rec['backtrack'] = True
+        elif dest in seen[:-1] and dest != page and not (toast or db): rec['backtrack'] = True   # a save that returns to the list is not one
+        if dest not in seen: seen.append(dest)
+        if not a.get('ok') or not L:
+            rec['verdict'] = 'failed' if not a.get('ok') else 'unmeasured'; out.append(rec); continue
+        moved = any(f.get(k) != t.get(k) for k in ('view', 'title', 'sheet'))
+        changed = f.get('hash') != t.get('hash')
+        words = promise_words(rec['label'])
+        hay = ' '.join([t.get('title', ''), t.get('sheet', ''), t.get('top', ''), ' '.join(a.get('toasts') or [])]).lower()
+        hit = bool(words) and any(w in hay for w in words)
+        does = bool(DOES.match(str(rec['label']).strip())) and a['cmd'] != 'go'
+        # it went somewhere (a page's own state may save on the way: not a mutation); an action that opens its sheet first counts too
+        nav = moved and not toast and (not does or not db)
+        if a['cmd'] == 'back': v = 'landed' if moved else ('in place' if changed else 'dead')
+        elif not changed and not toast and not db:
+            v = 'in place' if (a['cmd'] == 'go' and hit) else 'dead'   # a menu entry for the page you are on does nothing, rightly
+        elif nav: v = 'landed' if hit else ('off-label' if words else 'unclear')
+        elif toast or db:
+            v = 'landed' if (moved and hit and not does) else 'done'
+            if db and not toast and a['cmd'] != 'go': rec['silent'] = True   # a menu go that saves the page's own state is not a mutation
+            if toast and db and not t.get('toastOpen'): rec['noopen'] = True   # the Standard: a mutation's toast carries Open
+        else: v = 'landed' if (hit and a.get('kind') == 'tab') else 'in place'
+        rec['verdict'] = v; out.append(rec)
+    # off-label followed by Back (or a menu go) within the next two of the person's actions in the same turn: wrong
+    by_turn = defaultdict(list)
+    for r in out: by_turn[(r['uid'], r['day'], r['slot'])].append(r)
+    for R in by_turn.values():
+        for j, r in enumerate(R):
+            if r['verdict'] in ('off-label', 'unclear') and any(x['cmd'] in ('back', 'go') for x in R[j + 1:j + 3]): r['verdict'] = 'wrong'
+    return out
+
+
+def click_summary(rows):
+    keys = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'no open', 'failed', 'backtrack')
+    def blank(): return {k: 0 for k in keys}
+    per_role, per_page = defaultdict(blank), defaultdict(blank)
+    worst = defaultdict(list)
+    for r in rows:
+        if r['verdict'] == 'unmeasured': continue
+        for K, D in (((r['uid'], r['device']), per_role), ((r['page'], r['device']), per_page)):
+            x = D[K]; x['taps'] += 1; x[r['verdict']] += 1
+            if r.get('silent'): x['silent'] += 1
+            if r.get('noopen'): x['no open'] += 1
+            if r['backtrack']: x['backtrack'] += 1
+        if r['verdict'] in ('dead', 'wrong', 'off-label', 'failed') or r.get('silent'):
+            worst[(r['verdict'] if not r.get('silent') else 'silent', r['device'])].append(f"{r['uid']} on {r['page']}: \"{r['label']}\"" + (f" -> {r['dest']}" if r['verdict'] in ('wrong', 'off-label') else ''))
+    return {'per_role': {f'{u}|{d}': v for (u, d), v in sorted(per_role.items())}, 'per_page': {f'{p}|{d}': v for (p, d), v in sorted(per_page.items(), key=lambda kv: -kv[1]['taps'])},
+            'examples': {f'{k}|{d}': list(dict.fromkeys(v))[:12] for (k, d), v in worst.items()},
+            'totals': {dev: {k: sum(v[k] for (u, d), v in per_role.items() if d == dev) for k in keys} for dev in ('phone', 'desktop')}}
+
+
 class Referee:
     def __init__(self, sim):
         self.sim = sim
@@ -108,13 +194,21 @@ class Referee:
             days_lost = (x.get('days') or 0) if verdict == 'missed' else min(x.get('days') or 0, late or 0) if verdict == 'late' else 0
             rows.append({'id': e['id'], 'day': e['day'], 'kind': e['kind'], 'who': x['who'], 'what': x['what'], 'by': x['by'], 'verdict': verdict, 'done': d,
                          'late': late if verdict == 'late' else 0, 'detail': detail.get(e['id'], ''), 'seen': seen, 'money_left': money_left, 'days_lost': days_lost,
-                         'heldout': 'held-out' in (e.get('tags') or []), 'check': x['check']['t']})
+                         'heldout': 'held-out' in (e.get('tags') or []), 'check': x['check']['t'], 'pilot2': 'pilot2' in (e.get('tags') or [])})
         scored = [r for r in rows if r['verdict'] != 'open']
         on = sum(r['verdict'] == 'on time' for r in scored); la = sum(r['verdict'] == 'late' for r in scored); mi = sum(r['verdict'] == 'missed' for r in scored)
         money = sum(r['money_left'] for r in scored); dl = sum(r['days_lost'] for r in scored)
+        def tally(R):
+            S = [r for r in R if r['verdict'] != 'open']
+            return {'scored': len(S), 'on_time': sum(r['verdict'] == 'on time' for r in S), 'late': sum(r['verdict'] == 'late' for r in S),
+                    'missed': sum(r['verdict'] == 'missed' for r in S), 'open': len(R) - len(S), 'money_left': round(sum(r['money_left'] for r in S), 2),
+                    'days_lost': sum(r['days_lost'] for r in S)}
+        sets = {'pilot1_events': tally([r for r in rows if not r['pilot2']]), 'pilot2_events': tally([r for r in rows if r['pilot2']]), 'all_events': tally(rows)}
         A = self.actions()
         fia = self.fia(A)
         places = self.places(A)
+        clicks_rows = classify_clicks(A)
+        clicks = click_summary(clicks_rows)
         tie = await pg.evaluate(TIE_JS, W.st['bank'] + [b for b in W.st.get('scheduled_bank', []) if False])
         standard = self.standard(A)
         from docs import AUDIT_JS, doc_type
@@ -123,14 +217,27 @@ class Referee:
         line = (f"AGENT MONTH ({sim.run}, through {day}) caught {on}/{len(scored)} on time · {la} late · {mi} missed · ${money:,.0f} left behind · "
                 f"{dl} schedule days lost · {len(fia['failures'])} find-it-again failures · {places['findings']} places-to-look findings · "
                 f"{sum(len(d['findings']) for d in docs)} back-end gaps on {len(docs)} documents")
-        out = {'line': line, 'day': day, 'events': rows, 'fia': fia, 'places': places, 'tie': tie, 'standard': standard, 'docs': docs,
+        tl = lambda T: f"{T['on_time']}/{T['scored']} on time · {T['late']} late · {T['missed']} missed · ${T['money_left']:,.0f} left behind" + (f" · {T['open']} still open" if T['open'] else '')
+        line2 = f"Pilot 1 events: {tl(sets['pilot1_events'])} | all events: {tl(sets['all_events'])}"
+        ct = clicks['totals']
+        line3 = 'Click check: ' + ' | '.join(f"{dev} {c['taps']} taps, {c['landed'] + c['done']} landed, {c['dead']} dead, {c['wrong'] + c['off-label']} off their label, "
+                                             f"{c['backtrack']} back-tracks" for dev, c in ct.items() if c['taps'])
+        out = {'line': line, 'line_sets': line2, 'line_clicks': line3, 'sets': sets, 'clicks': clicks, 'cost': self.cost_days(),
+               'day': day, 'events': rows, 'fia': fia, 'places': places, 'tie': tie, 'standard': standard, 'docs': docs,
                'actions': {'total': sum(1 for a in A if a.get('uid') in sim.state['people'] or (a.get('uid') or '').startswith('u_')),
                            'by_person': Counter(a['uid'] for a in A if (a.get('uid') or '').startswith('u_') and a.get('cmd') not in ('end_turn',))},
                'persist': st.get('persist')}
+        out['click_rows'] = clicks_rows
         json.dump(out, open(os.path.join(sim.dir, 'ledger.json'), 'w'), indent=1, default=str)
         self.write_md(out)
         sim.save_state()
-        return {'line': line, 'ledger': os.path.join(sim.dir, 'ledger.md')}
+        return {'line': line, 'sets': line2, 'clicks': line3, 'ledger': os.path.join(sim.dir, 'ledger.md')}
+
+    def cost_days(self):
+        out = {}
+        for f in sorted(os.listdir(self.sim.dir)):
+            if re.match(r'cost_\d{4}-\d\d-\d\d\.json$', f): out[f[5:15]] = json.load(open(os.path.join(self.sim.dir, f)))
+        return out
 
     def fia(self, A):
         fails, ok = [], 0
@@ -195,8 +302,42 @@ class Referee:
 
     def write_md(self, out):
         sim = self.sim
-        L = [f"# The agent month: {sim.run}\n", out['line'] + '\n',
-             'Invented data only. Scored by sim/referee.py from the world, never by the players. "Reached" is the first time the event was on the screen of the person who should act.\n']
+        L = [f"# The agent month: {sim.run}\n", out['line'] + '\n', out.get('line_sets', '') + '\n', out.get('line_clicks', '') + '\n',
+             'Invented data only. Scored by sim/referee.py from the world, never by the players. "Reached" is the first time the event was on the screen of the person who should act. '
+             '"Pilot 1 events" are the book\'s events Pilot 1 was scored on (plus that run\'s held-out and world events); Pilot 2\'s events are tagged pilot2.\n']
+        S = out.get('sets') or {}
+        if S:
+            L.append('| Events | Scored | On time | Late | Missed | Still open | $ left behind | Schedule days lost |\n|---|---|---|---|---|---|---|---|')
+            for k, nm in (('pilot1_events', 'Pilot 1 events'), ('pilot2_events', 'Pilot 2 events'), ('all_events', 'All events')):
+                T = S[k]; L.append(f"| {nm} | {T['scored']} | {T['on_time']} | {T['late']} | {T['missed']} | {T['open']} | {T['money_left']:,.0f} | {T['days_lost']} |")
+            L.append('')
+        C = out.get('clicks')
+        if C:
+            L.append('## Click check: did each tap land where its label promised (phone and desktop apart)\n')
+            L.append('Heuristic on labels (read as leads): landed = on the page, sheet or record the label names; done = it changed something and said so; '
+                     'dead = nothing changed; off-label = moved somewhere the label does not name; wrong = off-label and backed out; silent = a record changed with no toast.\n')
+            cols = ('taps', 'landed', 'done', 'dead', 'off-label', 'wrong', 'unclear', 'in place', 'silent', 'no open', 'failed', 'backtrack')
+            for dev in ('phone', 'desktop'):
+                R = {k.split('|')[0]: v for k, v in C['per_role'].items() if k.endswith('|' + dev)}
+                if not R: continue
+                L.append(f'### {dev.title()}, per person\n')
+                L.append('| Person | ' + ' | '.join(cols) + ' |'); L.append('|---' * (len(cols) + 1) + '|')
+                L += [f"| {u} | " + ' | '.join(str(v[c]) for c in cols) + ' |' for u, v in R.items()]
+                P = [(k.split('|')[0], v) for k, v in C['per_page'].items() if k.endswith('|' + dev)][:15]
+                L.append(f'\n### {dev.title()}, the 15 most tapped pages\n')
+                L.append('| Page | ' + ' | '.join(cols) + ' |'); L.append('|---' * (len(cols) + 1) + '|')
+                L += [f"| {p[:40]} | " + ' | '.join(str(v[c]) for c in cols) + ' |' for p, v in P]
+                for kind in ('dead', 'wrong', 'off-label', 'silent', 'failed'):
+                    ex = C['examples'].get(f'{kind}|{dev}')
+                    if ex: L.append(f"\n{kind.title()} ({dev}): " + '; '.join(ex[:8]))
+                L.append('')
+        cd = out.get('cost') or {}
+        if cd:
+            L.append('## Cost so far (runs/<run>/cost.md has the detail)\n')
+            for d, D in sorted(cd.items()):
+                L.append(f"- {d}: {D['turns']} turns, {D['calls']} toolkit calls, measured {D['measured_tokens']:,} tokens on {D['measured_turns']} turns; "
+                         f"estimated {D['est_processed']:,} processed input, {D['est_new_context']:,} new context, {D['est_output']:,} output")
+            L.append('')
         rows = out['events']; scored = [r for r in rows if r['verdict'] != 'open']
         L.append('## Missed and late, most expensive first\n')
         L.append('| Event | Day | Who | Reached their screen | Verdict | Detail | $ left | Days |')

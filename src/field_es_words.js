@@ -968,6 +968,15 @@ esAdd({
 esAdd({
   "Due Soon": "Para Pronto",
   "Hand Off": "Pasar a Otro",
+  // the one Hand Off sheet (taskfix #2, #3, 2026-10-25)
+  "Hand Off {x}": "Pasar a Otro {x}",
+  "Hand Off to {x}": "Pasárselo a {x}",
+  "{x}. It stays yours until they accept.": "{x}. Sigue siendo tuyo hasta que acepten.",
+  "{x}. It stays {x}'s until they accept.": "{x}. Sigue siendo de {x} hasta que acepten.",
+  "What they need to know": "Lo que necesitan saber",
+  "Hand off to": "Pasárselo a",
+  "Pick who takes it": "Elige quién lo toma",
+  "Nobody else on the team can take this one": "Nadie más del equipo puede tomar esta",
   "Hand off to {x}": "Pasárselo a {x}",
   "{x} owns it until the other person accepts": "Es de {x} hasta que la otra persona acepte",
   "it stays yours until they accept": "sigue siendo tuyo hasta que acepten",

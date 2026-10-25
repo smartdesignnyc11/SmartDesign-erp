@@ -93,7 +93,7 @@ PHONE_BAR = {
     'u_owner': ['Today', 'Chat', 'Projects', 'Tasks'],
     'u_alan': ['Today', 'Chat', 'Projects', 'Tasks'],
     'u_chen': ['Today', 'Chat', 'Tasks', 'Buy Board'],
-    'u_billing': ['Tasks', 'Today', 'Chat', 'Clients'],
+    'u_billing': ['Today', 'Chat', 'Tasks', 'Clients'],   # Today first, like every office role (taskfix #14)
     'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll'],
     'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects'],
     'u_angel': ['Today', 'Site', 'Daily Log', 'Chat'],
