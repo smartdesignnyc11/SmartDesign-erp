@@ -737,6 +737,11 @@ document.addEventListener(
   },
   !0,
 );
+// every staff role may open Team. Run again at boot and sign-in: the designer's and the foreman's lists are rebuilt by
+// sections that load after this one (menu_test found Team missing for them).
+function p2nTeamViews() {
+  ["owner", "pm", "coord", "designer", "design_mgr", "billing", "controller", "foreman", "crew", "driver"].forEach((r) => ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("team") && ROLE_VIEWS[r].push("team"));
+}
 // the page itself and who may open it: every staff role
 (() => {
   if (!document.getElementById("v-team")) {
@@ -744,7 +749,7 @@ document.addEventListener(
     (sec.className = "view"), (sec.id = "v-team");
     (document.getElementById("v-chat") || document.querySelector(".view"))?.parentElement?.appendChild(sec);
   }
-  ["owner", "pm", "coord", "designer", "design_mgr", "billing", "controller", "foreman", "crew", "driver"].forEach((r) => ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("team") && ROLE_VIEWS[r].push("team"));
+  p2nTeamViews();
   "object" == typeof NAV_LABELS && (NAV_LABELS.team = "Team");
   "object" == typeof IA_LABELS && (IA_LABELS.team = "Team");
   "object" == typeof NAV_LABELS && (NAV_LABELS.chat = "Messages");
@@ -839,6 +844,9 @@ if ("function" == typeof signIn) {
   const base = signIn;
   signIn = function () {
     p2nLastView = "";
+    try {
+      p2nTeamViews();
+    } catch (e) {}
     return base.apply(this, arguments);
   };
 }
@@ -871,6 +879,7 @@ if ("function" == typeof finishBoot) {
   finishBoot = function () {
     const r = base.apply(this, arguments);
     try {
+      p2nTeamViews();
       p2nTeamSeed() && save();
     } catch (e) {
       console.warn("team seed", e);

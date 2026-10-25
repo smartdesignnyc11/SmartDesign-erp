@@ -222,7 +222,9 @@ async def directory_checks(c, pg, uid, tag, phone):
             c.ok(sw <= 1, f'{tag}: People has no sideways scroll (+{sw}px)')
 
 async def team_checks(c, pg, uid, tag, phone):
-    if not await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('team')"): return
+    may = await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('team')")
+    c.ok(may, f'{tag}: every staff role may open Team')
+    if not may: return
     reach = await pg.evaluate("() => { const m = mnMap(); const L = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more).map(s => s.split('=')[0]); return L.includes('team'); }")
     c.ok(reach, f'{tag}: Team is reachable from the menu')
     await go(pg, 'team')
