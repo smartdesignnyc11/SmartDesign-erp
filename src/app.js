@@ -18321,6 +18321,9 @@ function runItems(run) {
       (p.requests || []).forEach((r) => {
         ["new", "ack", "bought", "ordered"].includes(r.status) &&
           ("ordered" !== r.status || r.buyOnRun) &&
+          // one path per request (procurement P1, buying day finding 2): one being ordered or taken from stock is not
+          // on the driver's list, so the same studs are never bought twice
+          !["order", "stock"].includes(r.path) &&
           reqItems(r).forEach((it, i) => out.push({ p: p, r: r, it: it, i: i, key: `${r.id}:${i}` }));
       }),
     ),
@@ -18369,7 +18372,8 @@ function closeRun(run) {
       n++,
       reqItems(r).every((x) => x.bought) &&
         ((r.status = "bought"),
-        r.log.push({ t: nowStamp(), by: run.driver, text: `Bought at ${run.store}` })));
+        r.log.push({ t: nowStamp(), by: run.driver, text: `Bought at ${run.store}` }),
+        "function" == typeof bbReqPath && bbReqPath(p, r, "run", `bought on the store run at ${run.store}`)));
   }),
     DB.projects.forEach((p) =>
       p.chat.push({
@@ -19673,7 +19677,8 @@ function requestAction(pid, rid, a) {
     ("stock" === a &&
       ((r.status = "delivered"),
       (r.deliveredAt = today()),
-      r.log.push({ ...stamp, text: "Supplied from stock / direct purchase" })),
+      r.log.push({ ...stamp, text: "Supplied from stock / direct purchase" }),
+      "function" == typeof bbReqPath && bbReqPath(p, r, "stock", "supplied from stock")),
     "delivered" === a)
   ) {
     reqItems(r).forEach((it) => {
@@ -19715,6 +19720,9 @@ function requestAction(pid, rid, a) {
       };
     S.materials.push(m),
       (r.materialId = m.id),
+      // the request is on the order path now: it leaves the driver's list (runItems), one path per request
+      (r.path = "order"),
+      r.line && (m.line = r.line),
       (r.status = "ack"),
       (r.ackBy = by),
       (r.ackAt = r.ackAt || appNowIso());
@@ -19738,8 +19746,9 @@ function requestAction(pid, rid, a) {
           unit: it.unit || "ea",
           price: 0,
           materialId: 0 === i ? m.id : "",
-          line: "",
-          code: "function" == typeof codeForLine ? codeForLine({ item: it.what, desc: r.note || "" }) : "",
+          // the line the coordinator linked the request to, and its cost code (finding 21: the code was 99)
+          line: r.line || "",
+          code: (r.line && "function" == typeof findLine && ((findLine(r.line) || {}).line || {}).code) || ("function" == typeof codeForLine ? codeForLine({ item: it.what, desc: r.note || "" }) : ""),
           received: 0,
           requestId: r.id,
         })),
@@ -50472,12 +50481,23 @@ function ctPrint(c, d) {
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
+// The budget left on a line after the orders already on it (buying day finding 14: the whole line showed while
+// PO-2026-041 and PO-2026-048 were already on it), the same number the order sheet and the Buy Board show.
+function ctpLeftText(key, l, have) {
+  let f = null;
+  try {
+    f = lineFin(key);
+  } catch (e) {}
+  if (!f || !(+f.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
+  const left = Math.max(0, r2(f.budget - f.actual - f.committed));
+  return ` · budget ${money(f.budget)} · ${money(left)} left${(have || []).length ? ` after ${have.map((po) => po.number).join(", ")}` : ""}`;
+}
 const ROWFN = (d, l, key, have, its, lq, lc, preKey) =>
-  `<tr class="ctp-line"><td><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${l.cost ? ` · budget ${money(l.cost)}` : ""}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
+  `<tr class="ctp-line"><td><label class="ctp-tick"><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></label></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${ctpLeftText(key, l, have)}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
   its
     .map(
       (it, i) =>
-        `<tr class="ctp-item"><td><input type="checkbox" data-ctpsel="${l.id}#${i}"></td><td style="padding-left:22px">${esc(it.name)}${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ""}</td><td><input class="num" data-ctpq="${l.id}#${i}" type="number" step="any" value="${it.qty}"></td><td><input data-ctpu="${l.id}#${i}" value="${esc(it.unit || "ea")}"></td><td><input class="num" data-ctpc="${l.id}#${i}" type="number" step="any" value="${it.cost || ""}"></td><td><input data-ctpv="${l.id}#${i}" value="${esc(it.vendor || l.vendor || "")}" list="ct-vendors"></td><td></td></tr>`,
+        `<tr class="ctp-item"><td><label class="ctp-tick"><input type="checkbox" data-ctpsel="${l.id}#${i}"></label></td><td style="padding-left:22px">${esc(it.name)}${it.note ? `<div class="small muted">${esc(it.note)}</div>` : ""}</td><td><input class="num" data-ctpq="${l.id}#${i}" type="number" step="any" value="${it.qty}"></td><td><input data-ctpu="${l.id}#${i}" value="${esc(it.unit || "ea")}"></td><td><input class="num" data-ctpc="${l.id}#${i}" type="number" step="any" value="${it.cost || ""}"></td><td><input data-ctpv="${l.id}#${i}" value="${esc(it.vendor || l.vendor || "")}" list="ct-vendors"></td><td></td></tr>`,
     )
     .join("");
 function ctPOPicker(projectId, preferId, preKey) {
@@ -181402,7 +181422,10 @@ function rfqVendorRecord(v) {
   return { pos: P.length, spent: r2(P.reduce((a, po) => a + poTotal(po).total, 0)), bills: B.length, delivered: due.length, onTime: onTime };
 }
 function rfqProposeVendors(r) {
-  const V = (DB.vendors || []).filter((v) => rfqCatMatch(v, r.category) || v.rfqSuggest),
+  // when no vendor on file is tagged with the category (a sub scope, a new trade), every vendor is offered unticked so the
+  // coordinator picks by hand; subs first for a subcontract scope (buying day findings 7 and 8: it dead-ended)
+  const V0 = (DB.vendors || []).filter((v) => rfqCatMatch(v, r.category) || v.rfqSuggest),
+    V = V0.length ? V0 : (DB.vendors || []).slice(),
     big = rfqBasketGuess(r) > 2500,
     out = V.map((v) => {
       const rec = rfqVendorRecord(v),
@@ -181423,11 +181446,12 @@ function rfqProposeVendors(r) {
             : { t: big ? "a yard (middleman): fine for one delivery, and it can hold the price for this job" : "a yard (middleman): fine for a one-off order", rule: "direct" },
         );
       v.rfqSuggest && because.push({ t: `added from ${v.rfqSuggest}`, rule: "" });
-      const score = (rfqCatMatch(v, r.category) ? 4 : 0) + (rec.pos ? 2 : 0) + (rfqOutNyc(v) && r.shippable ? 2 : 0) + (v.rfqSuggest ? 1 : 0) - ("harlem" === String(v.id).replace("vrfq_", "") ? 0 : 0);
+      V0.length || because.unshift({ t: `on file${v.trade ? ` as ${v.trade}` : ""}, not tagged ${String(r.category || "this category").toLowerCase()}: tick to ask them`, rule: "" });
+      const score = (rfqCatMatch(v, r.category) ? 4 : 0) + (r.sub && "function" == typeof scIsSub && scIsSub(v) ? 3 : 0) + (rec.pos ? 2 : 0) + (rfqOutNyc(v) && r.shippable ? 2 : 0) + (v.rfqSuggest ? 1 : 0) - ("harlem" === String(v.id).replace("vrfq_", "") ? 0 : 0);
       return { v: v, rec: rec, because: because, score: score };
     }).sort((a, b) => b.score - a.score || String(a.v.name).localeCompare(b.v.name));
   // pick: everyone in the category up to five, and at least one outside NYC for a shippable material
-  const pick = out.slice(0, 5).map((x) => x.v.id);
+  const pick = V0.length ? out.slice(0, 5).map((x) => x.v.id) : [];
   if (r.shippable && !out.some((x) => pick.includes(x.v.id) && rfqOutNyc(x.v))) {
     const o = out.find((x) => rfqOutNyc(x.v));
     o && pick.push(o.v.id);
@@ -181937,7 +181961,9 @@ function rfqFromLines(pid, keys, opts) {
   const r = rfqCreate({
     projectId: pid,
     title: o.title || (1 === pick.length ? pick[0].item : `${pick.length} lines — ${pick.map((s) => s.item).slice(0, 2).join(", ")}${pick.length > 2 ? "…" : ""}`),
-    category: pick.some((s) => s.framing) ? "Lumber" : o.category || "Materials",
+    // a subcontract scope (demolition, scaffold) is a bid package: its category is the trade, never "Materials", and
+    // there is no material count for the foreman to check
+    category: o.sub ? o.category || "Subcontract" : pick.some((s) => s.framing) ? "Lumber" : o.category || "Materials",
     shippable: !0,
     by: rfqMe(),
     needBy: need,
@@ -181948,8 +181974,9 @@ function rfqFromLines(pid, keys, opts) {
     facts: pick.map((s) => `${s.docNo || "Selection"} · ${s.item}: ${s.qty} ${s.unit}, ${null == s.budget ? RFQ_NO_MAT.toLowerCase() : `material budget ${money(s.budget)}`}`).concat(notes),
     assumptions: [`lead time ${RFQ_LEAD_ASSUMED} working days before the task the line's cost code works on`],
     lines: lines,
-    status: fieldMat ? "foreman-review" : "purchasing",
+    status: fieldMat && !o.sub ? "foreman-review" : "purchasing",
   });
+  r && o.sub && ((r.sub = !0), (r.shippable = !1), rfqHist(r, "a subcontract scope", "bids level by scope; the award is a subcontract with the COI gate"));
   return r && (rfqHist(r, "started from lines", pick.map((s) => s.key).join(", ")), save(), render(), rcToast(`${r.number} started from ${pick.length} line${1 === pick.length ? "" : "s"} — ${"foreman-review" === r.status ? `${r.foreman} checks the quantities next` : "pick the vendors next"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])), r;
 }
 // The sheet: which lines? Checkboxes on the phone (44px rows), one blue Create RFQ. A lump-sum framing line gets
@@ -182307,6 +182334,8 @@ function rfqAward(r, assign) {
         status: "draft",
         shipTo: "site",
         origin: "rfq",
+        // a subcontract scope, or a sub awarded it, makes a subcontract (subs.js reads po.type), never a materials order
+        type: r.sub || ("function" == typeof scIsSub && scIsSub(v)) ? "subcontract" : "materials",
         rfqId: r.id,
         rfqNumber: r.number,
         sourcing: { rfqId: r.id, rfqNumber: r.number, choice: choice, why: why, region: v.region || "", round: q.round },
@@ -182321,7 +182350,6 @@ function rfqAward(r, assign) {
         shipping: r2((+q.freight || 0) + shortfall),
         matchedTxns: [],
         createdBy: rfqMe(),
-        type: "materials",
         entityId: (p && p.entityId) || "",
         receipts: [],
         srcDocs: [],
@@ -191199,6 +191227,9 @@ function poNewVendorSheet(name, after) {
             ev.stopImmediatePropagation(), ev.preventDefault();
             let note = m.querySelector("#po-unknown-vendor");
             note || ((note = document.createElement("div")), (note.id = "po-unknown-vendor"), (note.className = "note bad"), (m.querySelector(".mbm-bd") || m).prepend(note));
+            // in view, and said: at 390px the note sat 2,200px above the button (buying day finding 14)
+            setTimeout(() => note.isConnected && note.scrollIntoView({ block: "center" }), 0);
+            toast(`${names.join(", ")} ${1 === names.length ? "is" : "are"} not a vendor on file: pick one, or add it as a draft vendor`);
             // inline, so the lines ticked in this sheet are kept: New Vendor… opens a small form right here
             note.innerHTML = names.map((n) => `<div class="row po-nv" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow small"><b data-nocase>${esc(n)}</b> is not a vendor on file. Pick one from the list, or add it as a draft vendor that must be vetted before it gets a PO.</span><button type="button" class="btn sm" data-ponewv="${esc(n)}">New Vendor…</button></div>`).join("");
             note.querySelectorAll("[data-ponewv]").forEach(
