@@ -24,16 +24,17 @@ ICON_NEW = 'Ask'
 RAIL = {
     # the owner's More held My Day and Chief of Staff; with My Day folded into Tasks its one page is drawn in its place
     # (the menu's rule for a group of one, as the designer's Dashboard)
-    'u_owner': ['Today', 'Tasks', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
-    'u_alan': ['Today', 'Tasks', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
-    'u_chen': ['Today', 'Tasks', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
-    'u_billing': ['Billing', 'Today', 'Tasks', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
-    'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Tasks', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
-    'u_sarah': ['Today', 'Tasks', 'Drawings', 'Projects', 'Design', 'Clients', 'Dashboard', 'Settings'],
+    'u_owner': ['Today', 'Tasks', 'Messages', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
+    'u_alan': ['Today', 'Tasks', 'Messages', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
+    'u_chen': ['Today', 'Tasks', 'Messages', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
+    'u_billing': ['Billing', 'Today', 'Tasks', 'Messages', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
+    'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Tasks', 'Messages', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
+    'u_sarah': ['Today', 'Tasks', 'Messages', 'Drawings', 'Projects', 'Design', 'Clients', 'More', 'Settings'],
     # field roles: one list, the tab bar first, then the rest, then Connections and the Standard
-    'u_angel': ['Today', 'Site', 'Daily Log', 'Chat', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Connections', 'The SmartDesign Standard'],
-    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat', 'Photos', 'Deliveries', 'Drawings', 'Connections', 'The SmartDesign Standard'],
-    'u_alex': ['Route', 'Chat', 'Clock', 'Receipts', 'Requests', 'Connections', 'The SmartDesign Standard'],
+    # p2nav (Alan, 2026-10-25): the foreman's bar takes Requests, four shortcuts, Site leads the rest; every role reaches Team
+    'u_angel': ['Today', 'Daily Log', 'Requests', 'Messages', 'Site', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Team', 'Connections', 'The SmartDesign Standard'],
+    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Messages', 'Photos', 'Deliveries', 'Drawings', 'Team', 'Connections', 'The SmartDesign Standard'],
+    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests', 'Team', 'Connections', 'The SmartDesign Standard'],
     # the client portal keeps its own menu (out of scope; Klein took no part in the workshop)
     'u_klein': ['Overview', 'Schedule', 'Decisions', 'Account', 'Chat'],
 }
@@ -45,12 +46,13 @@ STRIPS = {
     ('u_alan', 'jobs'): ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
                          '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates', 'Billing',
                          '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
-    ('u_owner', 'home'): ['Today', 'Approvals', 'Inbox', 'Tasks'],
+    # Inbox is Messages > Mail (p2nav, 2026-10-25)
+    ('u_owner', 'home'): ['Today', 'Approvals', 'Tasks'],
     ('u_owner', 'money'): ['Accounting', 'Bills & Payroll', 'Time & Crew', 'Banking', 'Spend', 'Billing', 'Ledger', 'Controls', 'Budget'],
     ('u_owner', 'buy'): ['Purchasing', '[Buy]', 'Requests', 'Buy Board', 'RFQs', 'Purchase Orders', '[Receive]', 'Deliveries', 'Route',
                          '[Vendors & Stock]', 'Vendors', 'Inventory'],
     ('u_owner', 'studio'): ['Design', 'Project Board', 'Drawings', 'Filings', 'Selections'],
-    ('u_owner', 'office'): ['Company', 'Calendar', 'Meetings', 'The Brain', 'Obligations'],
+    ('u_owner', 'office'): ['Company', 'Calendar', 'Team', 'Meetings', 'The Brain', 'Obligations'],
     ('u_owner', 'reports'): ['Reports', 'Dashboard'],
     ('u_owner', 'setup'): ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Reports', 'Your Own Data', 'Sales Settings'],
     ('u_chen', 'buy'): ['Purchasing', '[Buy]', 'Selections', 'Requests', 'Buy Board', 'RFQs', 'Purchase Orders', '[Receive]', 'Deliveries', 'Route',
@@ -59,7 +61,7 @@ STRIPS = {
     ('u_controller', 'ap'): ['Bills & Payroll', 'Time & Crew'],
     ('u_controller', 'gl'): ['Ledger', 'Controls', 'Budget'],
     ('u_controller', 'buy'): ['Purchasing', 'Purchase Orders', 'Vendors'],
-    ('u_sarah', 'home'): ['Today', 'Inbox', 'Tasks'],
+    ('u_sarah', 'home'): ['Today', 'Tasks'],
     ('u_sarah', 'studio'): ['Design', 'Project Board', 'Filings', 'Selections'],
 }
 # Pages cut from each role's daily menu (the workshop's cut list and the decided menus). Each is still one tap away
@@ -71,15 +73,17 @@ STRIPS = {
 CUTS = {
     'u_owner': ['cos'],
     # PMs do not get Sales, Design or Accounting by default (open question 4, workshop cut list)
-    'u_alan': ['bank', 'ap', 'time', 'spend', 'verify', 'ovmoney', 'hbcontacts', 'hbcompanies', 'ovsales', 'partners',
+    # People and Companies are tabs of Clients (p2nav): they fold under Clients in More as they do in the menu
+    'u_alan': ['bank', 'ap', 'time', 'spend', 'verify', 'ovmoney', 'ovsales', 'partners',
                'playbook', 'salesnum', 'sboard', 'sfile', 'ovstudio', 'cos'],
     # Sales and Time & Crew leave the coordinator's rail
-    'u_chen': ['time', 'hbcontacts', 'hbcompanies', 'hbforecast', 'hbdash', 'ovsales', 'partners', 'playbook', 'clients',
+    'u_chen': ['time', 'hbforecast', 'hbdash', 'ovsales', 'partners', 'playbook', 'clients',
                'dashboard', 'cos'],
-    'u_billing': ['ap', 'spend', 'ovmoney', 'hbcontacts', 'hbcompanies', 'hbforecast', 'hbdash', 'ovsales', 'partners',
-                  'playbook', 'vendors', 'meetings', 'cos'],
-    'u_controller': ['ovjobs', 'ovmoney', 'clients', 'meetings', 'calendar', 'brain', 'obligations', 'ovoffice', 'cos'],
-    'u_sarah': ['dashboard'],
+    'u_billing': ['ap', 'spend', 'ovmoney', 'hbforecast', 'hbdash', 'ovsales', 'partners',
+                  'playbook', 'vendors', 'meetings', 'cos', 'team'],
+    'u_controller': ['ovjobs', 'ovmoney', 'clients', 'meetings', 'calendar', 'brain', 'obligations', 'ovoffice', 'cos', 'team'],
+    # Team (p2nav) sits under Company; an office role with no Company group finds it under More; the field's menus place it
+    'u_sarah': ['dashboard', 'team'],
     'u_angel': [], 'u_alberto': [], 'u_alex': [],
 }
 HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'billing', 'u_controller': 'bank', 'u_sarah': 'sday',
@@ -90,15 +94,15 @@ PHONE_BAR = {
     # need to have a max of 4 shortcuts there"); everyone opens the rest from the hamburger at the top left ("the
     # hamburger menu should be on the top left of the page"), so the office bar has no More
     # Tasks takes one shortcut for the office pilot (Alan, 2026-10-24); what it replaced stays in the menu
-    'u_owner': ['Today', 'Chat', 'Projects', 'Tasks'],
-    'u_alan': ['Today', 'Chat', 'Projects', 'Tasks'],
-    'u_chen': ['Today', 'Chat', 'Tasks', 'Buy Board'],
-    'u_billing': ['Today', 'Chat', 'Tasks', 'Clients'],   # Today first, like every office role (taskfix #14)
-    'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll'],
-    'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects'],
-    'u_angel': ['Today', 'Site', 'Daily Log', 'Chat'],
-    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat'],
-    'u_alex': ['Route', 'Chat', 'Clock', 'Receipts'],
+    'u_owner': ['Today', 'Messages', 'Projects', 'Tasks'],
+    'u_alan': ['Today', 'Messages', 'Projects', 'Tasks'],
+    'u_chen': ['Today', 'Messages', 'Tasks', 'Buy Board'],
+    'u_billing': ['Today', 'Messages', 'Tasks', 'Clients'],   # Today first, like every office role (taskfix #14)
+    'u_controller': ['Banking', 'Today', 'Messages', 'Bills & Payroll'],
+    'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],
+    'u_angel': ['Today', 'Daily Log', 'Requests', 'Messages'],
+    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Messages'],
+    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts'],
 }
 FIELD = {'u_angel', 'u_alberto', 'u_alex'}
 
@@ -204,7 +208,7 @@ async def desktop(c, p, users):
         # Chat: beside Ask for every office role (Alan, 2026-10-19: "Where's the chat?"); it opens the threads and lights itself
         if u not in FIELD:
             ch = await pg.evaluate("() => { const b = document.getElementById('tb-chat'); return !!b && !b.hidden && !!b.offsetParent; }")
-            c.ok(ch, f'{u}: a Chat button in the header')
+            c.ok(ch, f'{u}: a Messages button in the header')
             if ch:
                 await press(pg, '#tb-chat')
                 st = await pg.evaluate("() => ({ view, on: document.getElementById('tb-chat').classList.contains('on'), list: !!document.querySelector('#v-chat .msg-side, #v-chat .msg-rows') })")
@@ -220,7 +224,7 @@ async def phone(c, p, users):
         sel = '#tabbar button' if u in FIELD else '#mtabs button'
         bar = await pg.evaluate("s => [...document.querySelectorAll(s)].filter(b => b.getClientRects().length).map(b => (b.innerText || '').replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim())", sel)
         c.ok(bar == PHONE_BAR[u], f'{u} phone: bar {bar}\n      want {PHONE_BAR[u]}')
-        c.ok(len([x for x in bar if x != 'More']) <= 4 and 'Chat' in bar, f'{u} phone: at most four shortcuts, Chat one of them {bar}')
+        c.ok(len([x for x in bar if x != 'More']) <= 4 and 'Messages' in bar, f'{u} phone: at most four shortcuts, Messages one of them {bar}')
         await check_screen(c, pg, f'{u} phone landing', errs, HOME[u], phone=True)
         n = await pg.evaluate("s => document.querySelectorAll(s).length", sel)
         for k in range(n):

@@ -16,7 +16,8 @@ the menu opens it (mnGo), at 390x844 with touch, it flags:
                   label, title or alt), on the page, the header, the bottom bar or the page strip; the page's closed
                   <details> are opened for the check, so a control in a More menu is read too (Pilot 2, S3)
   PAGE_NAME       the page's section has no name, or is named by its id ("v-flog")
-  NO_ASK          an office role's header has no Ask on screen, named and tappable (Pilot 2: no way to the assistant)
+  NO_ASK          an office role's header has no Ask on screen, named and tappable (Pilot 2: no way to the assistant);
+                  a screen that is full screen by design (a conversation) passes with Ask in its own header (p2nav)
 A screen is the space between the header and the bottom bar. Inline links in sentences are not targets.
 
 The pages the procurement lane is rebuilding (Buy Board, Purchasing, RFQs, Purchase Orders) and the Tasks page (the
@@ -143,7 +144,8 @@ NAMES = r"""(office) => {
   const page = !v ? 'no page' : !pn || /^v-/.test(pn) || pn === v.id ? `the page ${v.id} reads "${pn || v.id}"` : '';
   let ask = '';
   if (office) { const a = document.getElementById('tb-ask'); if (!a || a.hidden) ask = 'no Ask in the header'; else { const r = a.getBoundingClientRect(), h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    if (!vis(a) || r.right > W) ask = 'Ask is off screen'; else if (name(a) !== 'Ask') ask = `Ask reads "${name(a)}"`; else if (!h || !a.contains(h)) ask = 'Ask is covered'; } }
+    if (!vis(a) || r.right > W) ask = 'Ask is off screen'; else if (name(a) !== 'Ask') ask = `Ask reads "${name(a)}"`; else if (!h || !a.contains(h)) { const o = [...document.querySelectorAll('.p2n-ask.p2n-own')].find(vis), ro = o && o.getBoundingClientRect(), ho = o && document.elementFromPoint(ro.left + ro.width / 2, ro.top + ro.height / 2);
+      if (!(o && name(o) === 'Ask' && ho && o.contains(ho) && ro.height >= 44)) ask = 'Ask is covered'; } } }
   return { noname: out, page: page ? [page] : [], ask: ask ? [ask] : [] };
 }"""
 OFFICE = {'u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah'}
