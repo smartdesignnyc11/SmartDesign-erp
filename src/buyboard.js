@@ -408,7 +408,7 @@ function bbChipHtml(r) {
 }
 // phone card (Main.dc.html)
 function bbCardHtml(r) {
-  return `<div class="bb-card" data-bbrow="${esc(r.id)}">${bbPickBox(r)}<button type="button" class="bb-cbody" data-bbopen="${esc(r.id)}"><span class="bb-t" data-nocase>${esc(r.name)}</span><span class="bb-s" data-nocase>${esc([bbJob(r.p), r.qty, bbLineLabel(r)].filter(Boolean).join(" · "))}</span><span class="bb-w ${r.late ? "late" : ""}">${esc(bbWhen(r))}</span>${bbChipHtml(r)}</button></div>`;
+  return `<div class="bb-card" data-bbrow="${esc(r.id)}">${bbPickBox(r)}<button type="button" class="bb-cbody" data-bbopen="${esc(r.id)}"><span class="bb-t" data-nocase>${esc(r.name)}</span><span class="bb-s" data-nocase>${esc([bbJob(r.p), r.vendor || "No vendor", r.qty, bbLineLabel(r)].filter(Boolean).join(" · "))}</span><span class="bb-w ${r.late ? "late" : ""}">${esc(bbWhen(r))}</span>${bbChipHtml(r)}</button></div>`;
 }
 // desktop row (Desk.dc.html): pick, need and line, project, qty, need by, where it stands
 function bbRowHtml(r) {
