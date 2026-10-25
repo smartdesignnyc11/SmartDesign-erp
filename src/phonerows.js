@@ -15,11 +15,13 @@
 //    Questions, then the rest behind one "More for Today".
 // Desktop is untouched: every pass here returns at once above 760px. tests/phone_rows_lint.py holds the rule.
 // =====================================================================================================================
-const PR_ON = () => "function" == typeof mOn && mOn();
+const PR_ON = () => "function" == typeof mOn && mOn(),
+  // a field person's rows are read by the Spanish pass (the meta line holds the app's words: "expected", "received")
+  PR_FIELD = () => ["foreman", "crew", "driver"].includes(role());
 function prRowHtml(o) {
   const chip = o.chip ? `<span class="pr-chip ${o.chip.tone || ""}">${esc(o.chip.t)}</span>` : "",
     dot = o.dot ? `<i class="pr-dot ${o.dot}" aria-hidden="true"></i>` : "";
-  return `<div class="pr-row ${o.cls || ""}"${o.attrs ? " " + o.attrs : ""}>${dot}<div class="pr-mid"><div class="pr-t" data-nocase>${o.titleHtml || esc(o.title || "")}</div>${o.meta ? `<div class="pr-m" data-nocase>${esc(o.meta)}</div>` : ""}</div>${chip}<span class="pr-act-slot"></span></div>`;
+  return `<div class="pr-row ${o.cls || ""}"${o.attrs ? " " + o.attrs : ""}>${dot}<div class="pr-mid"><div class="pr-t"${PR_FIELD() ? "" : " data-nocase"}>${o.titleHtml || esc(o.title || "")}</div>${o.meta || chip ? `<div class="pr-m">${chip}<span${PR_FIELD() ? "" : " data-nocase"}>${esc(o.meta || "")}</span></div>` : ""}</div><span class="pr-act-slot"></span></div>`;
 }
 const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() : ""),
   prTone = (el) => {
@@ -44,7 +46,7 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
 .pr-t .sub,.pr-t small{font-weight:400;color:var(--ink-3);font-size:13px;margin-left:6px}
 .pr-m{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pr-m.late,.pr-row.late .pr-m b{color:var(--bad,#b3261e)}
-.pr-chip{flex:0 1 auto;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600;line-height:20px;padding:1px 9px;border-radius:11px;background:var(--paper-2);color:var(--ink-2)}
+.pr-chip{display:inline-block;vertical-align:-5px;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600;line-height:18px;padding:0 8px;margin-right:6px;border-radius:9px;background:var(--paper-2);color:var(--ink-2)}
 .pr-chip.bad{background:#fbe9e7;color:var(--bad,#b3261e)} .pr-chip.warn{background:#fdf3dc;color:#8a5a00} .pr-chip.ok{background:#e6f4ea;color:var(--ok-2,#2e7d32)} .pr-chip.info{background:var(--accent-2,#e8eefb);color:var(--accent)}
 .pr-dot{flex:0 0 10px;width:10px;height:10px;border-radius:50%;background:var(--ink-4,#c4c8cf)}
 .pr-dot.ok{background:var(--ok,#2e7d32)} .pr-dot.warn{background:var(--warn,#c98a00)} .pr-dot.bad{background:var(--bad,#b3261e)}
@@ -76,7 +78,8 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
   .pr-card.pr-open>.pr-row{border-bottom:1px solid var(--rule-2)}
   .pr-card.pr-open{padding:0 0 10px !important}
   .pr-card.pr-open>:not(.pr-row){margin-left:14px;margin-right:14px}
-  .pr-cards{gap:0 !important;border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:var(--paper)}
+  .pr-cards{gap:0 !important}
+  .pr-cards.pr-own{border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:var(--paper)}
   .pr-cards>.pr-card{margin:0 !important;border:0 !important;border-radius:0 !important;border-bottom:1px solid var(--rule-2) !important;box-shadow:none !important}
   /* a list page's own buttons sit on one line; the blue one is the safe next step (the urgent row's, when there is one) */
   .view.pr-page .ph{margin-bottom:8px}
@@ -84,12 +87,13 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
   .view.pr-page .ph .acts{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .view.pr-page .ph .acts>.btn{flex:1 1 0;width:auto;min-width:0;min-height:44px}
   /* every target on a phone page is 44px tall (lint TARGET_SMALL): the shared classes, not each button */
-  .view .btn,.view .btn.sm,.view .seg button,.view .ctabs button,.view .sub-tabs button,.view select,.view input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view .chip,.view .hb-btn,.view .hb-viewtab,.view [role=tab]{min-height:44px}
-  .view .glance.tl>.gl,.view .glance.tl-auto>.gl{height:44px;min-height:44px}
+  .view .btn,.view .btn.sm,.view .seg button,.view .ctabs button,.view .sub-tabs button,.view select,.view input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view .chip,.view .hb-btn,.view .hb-viewtab,.view [role=tab],.view .nm-act,.view .mic,.view .ov-stat,.view [role=button],.view .sel-rooms button,.view .sp-groups button,.view .sp-nav button{min-height:44px !important}
+  .view .glance.tl>.gl,.view .glance.tl-auto>.gl{height:44px !important;min-height:44px !important}
   .view .seg{min-height:44px}
-  .view input.q{height:44px}
-  .view label.chip{min-height:44px}
+  .view input.q{height:44px !important}
+  .view label.chip{min-height:44px !important}
   body.pr-v-ovjobs #subnav .sub-proj{display:none}
+  .view .hb-dash{grid-template-columns:minmax(0,1fr) !important}
   .view .pr-hide{display:none !important}
 }`;
   const s = document.createElement("style");
@@ -217,6 +221,51 @@ function prCards(list, sel, spec) {
     });
   });
 }
+// Any other card list the phone opens, found the way tests/phone_rows_lint.py finds one: three or more full-width cards
+// of one kind side by side, each with its own controls, fewer than four to a screen. Each folds to the row the card
+// would say first: its bold line, its first small line, its status pill, its verb (a blue one, else the first that is
+// not Open, Call, Text or Message: those stay in the card, a tap away). Sections that group records (a week of the
+// look-ahead, a day of photos, a chain of checks, the field's cards) are not records: PR_SECTIONS, read by the lint too.
+const PR_SECTIONS = ["card", "f-card", "portlet", "tw", "msg", "t2-group", "td-card", "nm-band", "hd", "row", "f", "grid2", "kpi", "kpis", "ph", "glance", "acts", "la-week", "pst-day", "cs-chainblock", "tk2-row", "gl", "sec", "section"];
+const PR_PASSIVE = /^(open|call|text|message|email|view|show|hide|more|less|why|details?)\b/i;
+function prCardGeneric(c) {
+  const t = [...c.querySelectorAll("h3, h4, b, strong, .title, .t")].find((e) => !e.closest("button, a, .pill") && /[A-Za-z]{3}/.test(prTxt(e)));
+  if (!t) return null;
+  const sm = [...c.querySelectorAll(".small, .muted, .sub, .s, p")].find((e) => !e.contains(t) && !t.contains(e) && !e.closest("button") && prTxt(e).length > 2),
+    pill = c.querySelector(".pill, .tag, .badge"),
+    btns = [...c.querySelectorAll("button, a.btn, .btn")].filter((b) => prTxt(b).length > 1 && !b.closest(".pr-row")),
+    act = btns.find((b) => b.classList.contains("primary")) || btns.find((b) => !PR_PASSIVE.test(prTxt(b)) && !b.matches("a[href^='tel'], a[href^='mailto'], a[href^='sms']")) || null;
+  return {
+    title: prTxt(t),
+    meta: sm ? prTxt(sm).slice(0, 140) : "",
+    chip: pill && !t.contains(pill) ? { t: prTxt(pill), tone: prTone(pill) } : null,
+    cls: c.classList.contains("bad") || c.classList.contains("sev3") ? "pr-sev3" : c.classList.contains("warn") || c.classList.contains("sev2") ? "pr-sev2" : "",
+    actEl: act,
+  };
+}
+function prFoldCards(v) {
+  const W = v.getBoundingClientRect().width || vw(),
+    usable = (window.innerHeight || 844) - 120,
+    found = [];
+  v.querySelectorAll("*").forEach((p) => {
+    if (p.children.length < 3 || "TBODY" === p.tagName || "TR" === p.tagName || "TABLE" === p.tagName || p.closest("table, .pr-card, .tk2-list, #mbm, .mbm, .gantt-wrap, .pr-keep")) return;
+    const by = {};
+    for (const c of p.children) {
+      const k = [...c.classList].filter((x) => "card" !== x && !/^(on|bad|warn|ok|info|late|sev\d|open)$/.test(x))[0];
+      if (!k || PR_SECTIONS.includes(k) || /^pr-/.test(k) || c.classList.contains("pr-card")) continue;
+      (by[k] = by[k] || []).push(c);
+    }
+    Object.entries(by).forEach(([k, cs]) => {
+      if (cs.length < 3) return;
+      const hs = cs.map((c) => [c.offsetWidth, c.offsetHeight]);
+      if (hs.some(([w, h]) => !h || w < W * 0.75)) return;
+      if (!cs.every((c) => c.querySelector("button, select, input"))) return;
+      const avg = hs.reduce((s, x) => s + x[1], 0) / hs.length;
+      Math.floor(usable / avg) < 4 && found.push([p, k]);
+    });
+  });
+  found.forEach(([p, k]) => prCards(p, "." + k, prCardGeneric));
+}
 // ---- what each page's row says ----------------------------------------------------------------------------------------
 const PR_SPECS = {
   // Projects (finding 6): one row per job: the name, a health dot, what needs me, the next milestone
@@ -330,6 +379,14 @@ function prPage() {
   } catch (e) {
     console.warn("phone page", e);
   }
+  v.querySelectorAll(".m-appr-list.pr-cards, #recv-body.pr-cards").forEach((x) => x.classList.add("pr-own"));
+  // the Tasks page is the taskfix lane's and the foreman's Today has its own order; every other page folds its card lists
+  if ("tkall" !== view && "ftoday" !== view)
+    try {
+      prFoldCards(v);
+    } catch (e) {
+      console.warn("phone card lists", e);
+    }
   v.querySelector(".pr-tbl, .pr-cards") && v.classList.add("pr-page");
 }
 // what a page does beyond its rows: its one blue button and its filters
@@ -387,7 +444,11 @@ const PR_PAGE = {
           title = t ? prTxt(t).replace(prTxt(n), "").trim() : prTxt(c).slice(0, 80);
         return {
           title: title,
-          meta: [prTxt(n), prTxt(d).replace(/^Because:\s*/i, "")].filter(Boolean).join(" · "),
+          // the card's facts are a list (who, when, how much): each its own part of the line
+          meta: [prTxt(n)]
+            .concat(c.querySelectorAll("li").length ? [...c.querySelectorAll("li")].map(prTxt) : [prTxt(d).replace(/^Because:\s*/i, "")])
+            .filter(Boolean)
+            .join(" · "),
           cls: c.classList.contains("bad") ? "pr-sev3" : c.classList.contains("warn") ? "pr-sev2" : "",
           actEl: act,
           primary: !!act && act.classList.contains("primary") && 0 === li && c === list.querySelector(".m-appr"),
@@ -420,6 +481,116 @@ const PR_PAGE = {
       });
   },
 };
+// The foreman's Today (finding 10): one job, big targets, plain words. Clock In (Clock Out once in) is the blue button,
+// then Today's Work, Arriving Today and the questions answered for him (For You); everything else on the page (the
+// packing slip camera, the log and time notes, Now, Put on You, Who's Here, Tomorrow, the next two weeks) is one tap
+// away under More for Today. The page title is the header's; the sentence under it goes. Text is 15 to 16px.
+PR_PAGE.ftoday = (v) => {
+  if ("foreman" !== role()) return;
+  const body = v.querySelector("#ftoday-body");
+  if (!body) return;
+  v.classList.add("pr-ftoday");
+  const hero = body.querySelector(":scope > .f-hero"),
+    keep = [hero, body.querySelector(":scope > .f-work"), body.querySelector(":scope > .f3-arriving"), body.querySelector(":scope > .f-you")].filter(Boolean),
+    clock = hero && hero.querySelector("[data-fclock]");
+  clock && clock.classList.add("primary");
+  // the one blue button is the clock: a blue elsewhere on the first two screens would be a second
+  keep.slice(1).forEach((c) => c.querySelectorAll(".btn.primary").forEach((b) => b.classList.remove("primary")));
+  let more = body.querySelector(":scope > details.pr-more");
+  if (!more) {
+    more = document.createElement("details");
+    more.className = "pr-more card f-card";
+    more.innerHTML = '<summary class="pr-more-s"><span>More for Today</span><i class="n"></i></summary><div class="pr-more-b"></div>';
+  }
+  const box = more.querySelector(".pr-more-b"),
+    title = body.querySelector(":scope > .ph");
+  title && title.classList.add("pr-hide");
+  keep.forEach((c) => body.appendChild(c));
+  const rest = [...body.children].filter((c) => !keep.includes(c) && c !== more && c !== title);
+  const cap = v.querySelector(":scope > #trk-capture");
+  cap && rest.unshift(cap);
+  rest.forEach((c) => box.appendChild(c));
+  more.querySelector(".n").textContent = String(box.children.length || "");
+  box.children.length ? body.appendChild(more) : more.remove();
+};
+(() => {
+  const css = `
+@media (max-width:760px){
+  #v-ftoday.pr-ftoday{padding-bottom:132px;font-size:16px}
+  #v-ftoday.pr-ftoday .small,#v-ftoday.pr-ftoday .muted{font-size:15px}
+  #v-ftoday.pr-ftoday .f-hero{padding:4px 0 8px}
+  #v-ftoday.pr-ftoday .f-hero [data-fclock]{min-width:132px;font-size:16px}
+  #v-ftoday.pr-ftoday .f-card .hd h3{font-size:18px}
+  #v-ftoday.pr-ftoday .f-work .f-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:4px;align-items:center;padding:10px 0}
+  #v-ftoday.pr-ftoday .f-work .f-row>.grow{display:contents}
+  #v-ftoday.pr-ftoday .f-work .f-row>.grow>b{grid-column:1/-1;font-size:16px;line-height:20px}
+  #v-ftoday.pr-ftoday .f-work .f-row>.grow>span.small{grid-column:1/-1;font-size:15px;line-height:19px}
+  #v-ftoday.pr-ftoday .f-work .f-row>.grow>.prg-chip{grid-column:1;justify-self:start;width:auto;min-width:112px;margin:0}
+  #v-ftoday.pr-ftoday .f-work .f-row>.row{grid-column:2;gap:8px !important}
+  #v-ftoday.pr-ftoday .f-you .f-row b,#v-ftoday.pr-ftoday .f3-row b{font-size:16px}
+  #v-ftoday.pr-ftoday details.pr-more{padding:0}
+  #v-ftoday.pr-ftoday .pr-more-s{display:flex;align-items:center;gap:8px;min-height:56px;padding:0 16px;font-size:17px;font-weight:600;cursor:pointer;list-style:none}
+  #v-ftoday.pr-ftoday .pr-more-s::-webkit-details-marker{display:none}
+  #v-ftoday.pr-ftoday .pr-more-s .n{font-style:normal;font-weight:500;color:var(--ink-3);font-size:15px}
+  #v-ftoday.pr-ftoday .pr-more-b{padding:0 12px 12px}
+  #v-ftoday.pr-ftoday .pr-more-b>.card{margin:10px 0 0}
+  #v-ftoday.pr-ftoday .pr-hide{display:none !important}
+}`;
+  const s = document.createElement("style");
+  (s.textContent = css), document.head.appendChild(s);
+})();
+// The foreman's Today is redrawn on its own by some presses (Clock In, Got It) without a render: the fold follows it
+{
+  let busy = !1;
+  const mo = new MutationObserver(() => {
+    if (busy || !PR_ON() || "ftoday" !== view) return;
+    const v = document.getElementById("v-ftoday"),
+      body = v && v.querySelector("#ftoday-body");
+    if (!body || (body.querySelector(":scope > details.pr-more") && !body.querySelector(":scope > .ph:not(.pr-hide)"))) return;
+    busy = !0;
+    try {
+      PR_PAGE.ftoday(v);
+    } catch (e) {
+      console.warn("field today", e);
+    }
+    busy = !1;
+  });
+  const arm = () => {
+    const b = document.getElementById("ftoday-body");
+    b && !b.dataset.prmo && ((b.dataset.prmo = "1"), mo.observe(b, { childList: !0 }));
+  };
+  arm(), document.addEventListener("DOMContentLoaded", arm);
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      arm();
+    } catch (e) {}
+    return r;
+  };
+}
+// A list drawn after the render (a report that fills in later, a section redrawn on a press) is a table too: on the
+// phone, a table added to the page is made rows where it lands. Only added tables are read, so typing costs nothing.
+{
+  const mo = new MutationObserver((recs) => {
+    if (!PR_ON()) return;
+    const v = document.querySelector(".view.on");
+    if (!v) return;
+    const hit = [];
+    for (const r of recs)
+      for (const n of r.addedNodes)
+        1 === n.nodeType && v.contains(n) && ("TABLE" === n.tagName ? hit.push(n) : n.querySelector && n.querySelector("table") && hit.push(n));
+    if (!hit.length) return;
+    try {
+      hit.forEach((n) => ("TABLE" === n.tagName ? prCandidate(n) && prTable(n, PR_SPECS[view] || null) : mCardTables(n)));
+    } catch (e) {
+      console.warn("phone rows, late table", e);
+    }
+    mo.takeRecords();
+  });
+  const main = () => document.querySelector(".main");
+  main() ? mo.observe(main(), { childList: !0, subtree: !0 }) : document.addEventListener("DOMContentLoaded", () => main() && mo.observe(main(), { childList: !0, subtree: !0 }));
+}
 // Projects: the job picker belongs to a job's pages, not the list of every job (CSS on body.pr-v-ovjobs)
 {
   const base = render;

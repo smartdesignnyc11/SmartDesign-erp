@@ -63,7 +63,7 @@ MEASURE = r"""() => {
     if (r.right > R + 1 || r.left < L - 1 || r.width > W) out.tables.push(`${Math.round(r.width)}px in ${Math.round(R - L)}px: ` + txt(t.tHead || t.rows[0] || t));
   });
   // 2. label/value card lists and 3. lists too sparse for a phone
-  const lvRow = tr => [...tr.cells].filter(td => { if (!vis(td)) return false; const c = cs(td, '::before').content; return c && c !== 'none' && c !== 'normal' && c !== '""'; }).length >= 2;
+  const lvRow = tr => !!tr.cells && [...tr.cells].filter(td => { if (!vis(td)) return false; const c = cs(td, '::before').content; return c && c !== 'none' && c !== 'normal' && c !== '""'; }).length >= 2;
   const lists = [];
   v.querySelectorAll('table').forEach(t => { if (!vis(t)) return; const rows = [...t.querySelectorAll(':scope > tbody > tr')].filter(tr => vis(tr) && !tr.classList.contains('m-row-flat') && tr.cells.length > 1); if (rows.length) lists.push({ rows, t, name: txt(t.tHead || rows[0]) }); });
   const prs = new Map(); v.querySelectorAll('.pr-row').forEach(r => { if (!vis(r)) return; const p = r.parentElement; prs.has(p) || prs.set(p, []); prs.get(p).push(r); });
@@ -75,15 +75,16 @@ MEASURE = r"""() => {
     else if (!lv && rows.length >= 4 && fit < 4) out.dense.push(`${fit} of ${rows.length} per screen (${Math.round(avg)}px each): ${name}`);
   });
   // card lists: three or more full-width sibling cards of one kind, each holding a control (a record with its buttons),
-  // fewer than four to a screen. Page sections (.card alone, .portlet) and chat lines are not records.
-  const NOT_RECORDS = /^(card|portlet|tw|msg|t2-group|td-card|nm-band|hd|row|f|grid2|kpi|kpis|ph|glance|acts)$/;
+  // fewer than four to a screen. Sections that group records are not records: the app declares them (PR_SECTIONS in
+  // src/phonerows.js: a card on its own, a week of the look-ahead, a day of photos, a chain of checks).
+  const SECTIONS = new Set(typeof PR_SECTIONS !== 'undefined' ? PR_SECTIONS : ['card']), NOT_RECORDS = { test: k => SECTIONS.has(k) };
   const parents = new Set(); v.querySelectorAll('*').forEach(e => { const p = e.parentElement; if (p && p.children.length >= 3 && p.tagName !== 'TBODY' && p.tagName !== 'TR') parents.add(p); });
   parents.forEach(p => { if (p.closest('table')) return; const by = {};
     [...p.children].forEach(c => { if (!vis(c) || typeof c.className !== 'string') return; const k = c.className.trim().split(/\s+/).filter(x => x !== 'card' && !/^(on|bad|warn|ok|info|late|sev\d)$/.test(x))[0]; if (!k || NOT_RECORDS.test(k) || /^pr-/.test(k)) return; (by[k] = by[k] || []).push(c); });
     Object.entries(by).forEach(([k, cs]) => { if (cs.length < 3) return; const rs = cs.map(c => c.getBoundingClientRect()); if (rs.some(r => r.width < W * 0.75)) return;
       if (!cs.every(c => c.querySelector('button, select, input'))) return;
       const avg = rs.reduce((s, r) => s + r.height, 0) / rs.length, fit = Math.floor(usable / avg);
-      if (fit < 4) out.lv.push(`card list .${k}: ${fit} of ${cs.length} per screen (${Math.round(avg)}px each)`); }); });
+      if (fit < Math.min(4, cs.length)) out.lv.push(`card list .${k}: ${fit} of ${cs.length} per screen (${Math.round(avg)}px each)`); }); });
   // 4. row titles
   v.querySelectorAll('.pr-t, td.m-title, .tk2-title').forEach(e => { if (!vis(e)) return; const f = parseFloat(cs(e).fontSize); if (f < 13) out.small.push(`${f}px: ${txt(e)}`); });
   // 5. targets: 44px tall, or held in a 44px label or hit area

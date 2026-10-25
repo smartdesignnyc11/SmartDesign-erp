@@ -1034,4 +1034,12 @@ esAdd({
   "Follow up {d}": "Seguimiento {d}",
   "Waiting on {x}: {x}, promised {d}": "Esperando a {x}: {x}, prometido para {d}",
   "Waiting on {x}, promised {d}": "Esperando a {x}, prometido para {d}",
+  // phone rows (src/phonerows.js, 2026-10-25): the foreman's Today fold and a delivery row; not yet reviewed
+  "More for Today": "Más para Hoy",
+  Receive: "Recibir",
+  "{n} line": "{n} línea",
+  "{n} lines": "{n} líneas",
+  "no date yet": "sin fecha todavía",
+  "Close search": "Cerrar la búsqueda",
+  "Search bills, orders, deliveries, tasks, clients": "Buscar facturas, órdenes, entregas, tareas, clientes",
 });
