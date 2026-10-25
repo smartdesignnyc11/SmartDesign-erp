@@ -176063,7 +176063,7 @@ standardRegisterRule(
   },
   {
     id: "sourcingAudit", owner: "owner", p: "cost", c: ["pb", "procurement", "actFrom", /Direct to the source/i], surface: "watch",
-    partial: "The weekly sourcing audit: orders issued more than a week ago with no sourcing choice recorded, or over $2,500 with no quote from outside Manhattan and Brooklyn. They can no longer be re-sourced, so they are not on Today.",
+    partial: "The weekly sourcing audit: orders issued more than seven days before today with no sourcing choice recorded, or over $2,500 with no quote from outside Manhattan and Brooklyn. They can no longer be re-sourced, so they are not on Today.",
     rows: () =>
       (DB.pos || [])
         .filter((po) => !["cancelled", "void"].includes(po.status) && !stdSourcingNow(po))
