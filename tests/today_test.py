@@ -127,9 +127,12 @@ async def main():
             c.ok(len(hd['btns']) == 5 and hd['btns'][0].startswith('menu-btn') and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want the menu first, then four, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
-            # Today is one queue (lane "today"): All is Approvals + Inbox + Tasks, each item in one of them
-            al = await pg.evaluate("() => { const M = tdyModel(); return [+document.querySelector('.view.on [data-tdcount]').dataset.tdcount, M.appr.length + M.inbox.length + M.tasks.length, M.all.length]; }")
-            c.ok(al[0] == al[1] == al[2], f'{tag} phone: All {al[0]} vs Approvals + Inbox + Tasks {al[1]} (model {al[2]})')
+            # Today is one queue (lane "today"): All holds each thing once: Approvals, Inbox, what is offered, the tasks
+            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1)
+            al = await pg.evaluate("""() => { const M = tdyModel(), k = it => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
+              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
+              return [+document.querySelector('.view.on [data-tdcount]').dataset.tdcount, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
+            c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
             # the Approvals filter's count = its source = the Approvals page's Everything chip
             await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
