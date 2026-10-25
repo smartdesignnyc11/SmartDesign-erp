@@ -838,14 +838,23 @@ function td2Chrome() {
   const on = "home" === view && tdOn() && !!td2Cur,
     phone = on && !td2Desk(),
     // the foreman's Today (TodayForeman): the same header, his job and the day under the title, and the clock card
-    fm = "ftoday" === view && "foreman" === role() && window.innerWidth <= 760,
+    narrow = window.innerWidth <= 760,
+    fm = "ftoday" === view && "foreman" === role() && narrow,
+    // where no board was drawn (the designer's Today, the crew's Clock, the driver's Route), the same header: the
+    // title over the day, Search for the designer, Ask; their pages keep their own rows
+    own = { designer: "sday", crew: "time", driver: "route" }[role()],
+    other = narrow && !!own && view === own,
     body = document.body;
   body.classList.toggle("td2-on", on);
-  body.classList.toggle("td2-ph", phone || fm);
-  body.classList.toggle("td2-fm", fm);
+  body.classList.toggle("td2-ph", phone || fm || other);
+  body.classList.toggle("td2-fm", fm || (other && "designer" !== role()));
   const hb = document.querySelector("header.topbar");
   let d = document.getElementById("td2-hdate");
-  if ((phone || fm) && hb) {
+  if (other && hb) {
+    const c = document.getElementById("crumbs");
+    d || ((d = document.createElement("span")), (d.id = "td2-hdate"), (d.className = "td2-hdate"), c ? c.after(d) : hb.appendChild(d));
+    d.textContent = parse(today()).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  } else if ((phone || fm) && hb) {
     const c = document.getElementById("crumbs");
     d || ((d = document.createElement("span")), (d.id = "td2-hdate"), (d.className = "td2-hdate"), c ? c.after(d) : hb.appendChild(d));
     const job = fm ? ((document.querySelector("#ftoday-body .f-hero b") || {}).textContent || "").trim() : "";

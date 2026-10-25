@@ -41,7 +41,7 @@ PHONE = r"""() => {
   const cards = [...home.querySelectorAll('.td-do .td-card')];
   const first = cards[0];
   const more = home.querySelector('.td-do .td-more'), mm = more ? (more.textContent.match(/^(\d+) more/) || []) : [];
-  const small = btns.filter(b => b.getBoundingClientRect().height < 44 && !b.closest('#mtabs')).map(b => b.innerText.trim());
+  const small = btns.concat([...home.querySelectorAll('.td2-chips button')]).filter(b => b.getBoundingClientRect().height < 44 && !b.closest('#mtabs')).map(b => b.innerText.trim());
   const brief = home.querySelector('.td2-brief');
   return { tb, crumbs: (document.getElementById('crumbs') || {}).innerText, hdate: (document.getElementById('td2-hdate') || {}).innerText || '',
     chips, words, btns: btns.length, prim: prim.map(b => b.innerText.trim()), primInFirst: prim.length === 1 && !!first && first.contains(prim[0]),

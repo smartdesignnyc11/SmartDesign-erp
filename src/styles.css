@@ -3975,7 +3975,7 @@ html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !import
 .td2{--t2-ink:#1A1D23;--t2-ink2:#3E4450;--t2-ink3:#5B616E;--t2-mute:#6A7080;--t2-blue:#2456C9;--t2-late:#B42318;--t2-line:#ECEEF2;--t2-sep:#F0F1F4;display:flex;flex-direction:column;color:var(--t2-ink);max-width:none}
 .td2 .td2-ph{margin:0}
 .td2 .td-tabs.td2-chips{display:flex;flex-wrap:nowrap;gap:8px;padding:0}
-.td2 .td-tabs.td2-chips button{display:inline-flex;align-items:center;gap:5px;height:44px;min-height:44px;padding:0 14px;border:0;border-radius:999px;background:#F1F3F6;color:var(--t2-ink2);font-size:14px;font-weight:500;white-space:nowrap}
+.td2 .td-tabs.td2-chips button{display:inline-flex;align-items:center;gap:5px;height:44px !important;min-height:44px !important;padding:0 14px;border:0;border-radius:999px;background:#F1F3F6;color:var(--t2-ink2);font-size:14px;font-weight:500;white-space:nowrap}
 .td2 .td-tabs.td2-chips button .n{font-size:14px;opacity:1;color:inherit}
 .td2 .td-tabs.td2-chips button.late{color:var(--t2-late);font-weight:600}
 .td2 .td-tabs.td2-chips button.on{background:var(--t2-ink);color:#fff;font-weight:600}
@@ -4033,7 +4033,7 @@ body.td2-ph header.topbar > #tb-ask{display:flex !important;grid-row:1 / span 2;
 .td2-title h2{margin:0;font-size:24px;font-weight:700}
 .td2-title .td2-date{font-size:14px;color:var(--t2-mute)}
 .td2-desk .td-tabs.td2-chips{gap:4px;padding:3px !important;margin-left:8px;background:#ECEEF2;border-radius:10px}
-.td2-desk .td-tabs.td2-chips button{height:38px;min-height:38px;border-radius:8px;background:transparent;font-weight:400;color:#4A5060}
+.td2-desk .td-tabs.td2-chips button{height:38px !important;min-height:38px !important;border-radius:8px;background:transparent;font-weight:400;color:#4A5060}
 .td2-desk .td-tabs.td2-chips button.late{color:var(--t2-late);font-weight:600}
 .td2-desk .td-tabs.td2-chips button.on{background:#fff;color:var(--t2-ink);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.08)}
 .td2-main{display:flex;gap:16px;align-items:flex-start}
