@@ -283,7 +283,9 @@ function cxMoveTyped(c, d) {
 // client field. The Standard: "Accuracy is client service" and "The Name Test" (would you sign your name to it?).
 // where the bill goes: the client's billing address, else the property, else the job's own address (it fills itself)
 function cxBillAddr(c, d) {
-  const p = d && d.projectId ? DB.projects.find((x) => x.id === d.projectId) : (DB.projects || []).find((x) => x.clientId === (c && c.id));
+  // only the client's own job: a document tagged with another client's job never borrows that job's address
+  const mine = (DB.projects || []).filter((x) => x.clientId === (c && c.id)),
+    p = (d && d.projectId && mine.find((x) => x.id === d.projectId)) || mine[0];
   return String((c && (c.billingAddr || c.propertyAddr)) || (p && p.project && p.project.addr) || "").trim();
 }
 const CX_GENERIC_TITLE = /^\s*(proposal|estimate|change order|invoice|new (estimate|proposal|change order|invoice)|untitled|draft)?\s*$/i;
