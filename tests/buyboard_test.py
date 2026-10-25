@@ -163,9 +163,10 @@ async def desktop(c, p):
         c.ok(sub[:6] == ['Buy Board', 'Quotes', 'Orders', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Quotes, Orders, Deliveries, Vendors, Stock {sub}')
         # ---- ROLES
         await sign_in(pg, 'u_alan')
-        pm = await pg.evaluate("""() => { const B = tdyModel().all.filter(i => i.kind === 'tdyBuy'); setCurrent('p121'); view = 'dash'; render();
-          const card = document.querySelector('#v-dash #bb-job'); return { n: B.length, allLate: B.every(i => i.x.late), card: card && card.innerText.slice(0, 120) }; }""")
-        c.ok(pm['n'] > 0 and pm['allLate'] and pm['card'] and 'late' in pm['card'], f'PM: late needs on his Today and Buying on This Job on the job page {pm}')
+        pm = await pg.evaluate("""() => { setCurrent('p121'); view = 'dash'; render();
+          const card = document.querySelector('#v-dash #bb-job'), rail = document.querySelector('#nav-groups button[data-grp="buy"] .n');
+          return { card: card && card.innerText.slice(0, 120), rows: card ? card.querySelectorAll('[data-bbjob], [data-bbjpo]').length : 0, rail: rail ? +rail.innerText : null, need: needs('buy') }; }""")
+        c.ok(pm['card'] and 'late' in pm['card'] and pm['rows'] > 0 and pm['rail'] == pm['need'], f'PM: Buying on This Job on the job page (late needs, open orders) and the Purchasing badge {pm}')
         await sign_in(pg, 'u_owner'); await pg.evaluate("() => { view = 'proc'; render(); }"); await pg.wait_for_timeout(200)
         c.ok(await pg.evaluate("() => !!document.querySelector('#v-proc .bb')"), 'owner: opens the Buy Board')
         await sign_in(pg, 'u_angel')

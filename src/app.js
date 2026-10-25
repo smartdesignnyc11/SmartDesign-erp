@@ -198178,8 +198178,9 @@ function tdyModel() {
   } catch (e) {}
   // the coordinator's orders are the Buy Board's own Late to Order and Order This Week: a chip of their own, never
   // counted as tasks (they were five of the coordinator's "Tasks 9")
-  // (procurement P1) read from the Buy Board's one reader, bbTodayItems; the PM gets the ones on his own jobs
-  const buy = ("coord" === r || "pm" === r) && may("proc") ? tdyBuyItems() : null;
+  // (procurement P1) read from the Buy Board's one reader, bbTodayItems: late, or due to order this week. The PM's Today
+  // keeps its five filters (the today lane's budget); his job's buying is on its Overview (Buying on This Job).
+  const buy = "coord" === r && may("proc") ? tdyBuyItems() : null;
   const order = (L) => {
     try {
       return standardOrder(L, stdQueueTie);
