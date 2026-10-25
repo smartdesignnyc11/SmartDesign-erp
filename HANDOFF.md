@@ -72,7 +72,7 @@ The cloud workspace that built rounds 1–5 was reclaimed. Four things were lost
 |---|---|
 | Cash | $184,231 |
 | AR | $92,265 |
-| Unmatched bank lines | 16 · $75,272 |
+| Unmatched bank lines | 15 · $67,272 (16 · $75,272 until procurement P0 linked Tino's $8,000 to PO-2026-047 as a prepayment) |
 | AP owed | $0 bills + $16,040 payroll past due ($33,500 paid from the bank before approval, and AMP-311 $9,800 held as possibly already paid by the earlier check 2205: neither is owed) |
 | WIP over-billed | $156,274 |
 | Backlog | $582,941 |

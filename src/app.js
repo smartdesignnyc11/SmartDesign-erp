@@ -38866,7 +38866,8 @@ newPODialog = function () {
       (po.needBy = need),
       (po.shipTo = shipTo),
       (po.shipVia = ["subcontract", "service"].includes(type) ? "" : "vendor"),
-      (po.taxStatus = "materials" === type ? "exempt-ci" : "none"),
+      // one purchase-tax rule (src/p0money.js): materials pay the vendor's NY tax or accrue use tax, never "exempt"
+      (po.taxStatus = p0TaxStatusFor(po)),
       applyTax(po),
       (po.termsPreset = "delivery"),
       v?.terms && /net ?30/i.test(v.terms) && applyTerms(po, "net30"),
@@ -38902,7 +38903,7 @@ ctPOPicker = function (projectId, preferId, preKey) {
           (po.entityId = vendorDefaultEntity(v, po)),
           (po.shipTo = "site"),
           (po.shipVia = "vendor"),
-          (po.taxStatus = "materials" === po.type ? "exempt-ci" : "none"),
+          (po.taxStatus = p0TaxStatusFor(po)),
           applyTax(po),
           (po.termsPreset = "delivery"),
           (po.receipts = []),
@@ -133900,7 +133901,8 @@ function fin2SalesTax(year) {
     const billed = r2(inv.reduce((a, i) => a + docNet(i), 0)),
       tax = r2(inv.reduce((a, i) => a + (docTotal(i).tax || 0), 0)),
       cert = !(!p.st124 && !c.st124),
-      cited = (DB.pos || []).some((po) => po.projectId === p.id && "exempt-ci" === po.taxStatus),
+      // the job was treated as a capital improvement on its orders (before the purchase-tax rule corrected them)
+      cited = (DB.pos || []).some((po) => po.projectId === p.id && ("exempt-ci" === po.taxStatus || (po.taxRepair && "exempt-ci" === po.taxRepair.from))),
       flag =
         tax || cert
           ? ""
@@ -148238,10 +148240,11 @@ function trkCheck(d) {
   if (["invoice", "receipt"].includes(d.kind) && sub) {
     const rate = ((P && +P.tax) || +C.useTaxRate || 0) / 100,
       due = r2(sub * rate),
-      ts = (P && P.taxStatus) || "",
+      // a store run or card purchase has no order: the one purchase-tax rule (src/p0money.js) reads its vendor
+      ts = (P && P.taxStatus) || (P || "function" != typeof p0TaxStatusFor ? "" : p0TaxStatusFor({ type: "materials", vendor: (V && V.name) || "" })),
       outOfState = !!(V && V.region && !/^(NY|NYC|New York)$/i.test(V.region));
     if (/^exempt/.test(ts) && tax > tol) add("taxExempt", "tax", `Tax charged on an exempt job (${TAX_STATUS[ts] || ts})`, trkUsd(0), trkUsd(tax), tax, "draft", trkWhy("money"));
-    else if (("taxable" === ts || (P && P.useTax)) && tax <= tol && (outOfState || (P && P.useTax))) add("useTax", "tax", `Use tax due at ${C.useTaxRate}% (the vendor charged none)`, trkUsd(due), trkUsd(0), due, "accrue", "Use tax is owed by us when an out-of-state vendor charges no sales tax.");
+    else if (("taxable" === ts || "use-tax" === ts || (P && P.useTax)) && tax <= tol && (outOfState || (P && P.useTax) || "use-tax" === ts || !P)) add("useTax", "tax", `Use tax due at ${C.useTaxRate}% (the vendor charged none)`, trkUsd(due), trkUsd(0), due, "accrue", "Use tax is owed by us when the vendor charges no sales tax on what we buy (confirm with the accountant).");
     else if ("taxable" === ts && Math.abs(tax - due) > tol) add("taxRate", "tax", `Sales tax at ${r2(rate * 100)}%`, trkUsd(due), trkUsd(tax), tax - due, "draft", trkWhy("money"));
     else checked.push(tax ? "tax rate" : "tax");
   }
@@ -161077,13 +161080,13 @@ function smDraftPO(p, mats, vendor) {
       entityId: p.entityId || "",
       shipToText: "",
       shipVia: "vendor",
-      taxStatus: "exempt-ci",
+      taxStatus: "",
       termsPreset: "delivery",
       receipts: [],
       srcDocs: [],
       __v2: 1,
     };
-  return DB.pos.push(po), po;
+  return DB.pos.push(po), p0TaxDecide(po, "rule"), po;
 }
 function smRelease(s, p) {
   const po = smPO(s);
@@ -184049,7 +184052,7 @@ const PW_HYP = {
   pwRareVendor: ["the usual vendors were out of stock", "a special item only this vendor carries", "an emergency on site"],
   pwNotDelivered: ["shop stock the crew will carry to site", "a delivery the foreman has not logged yet", "a will-call pickup recorded as a delivery"],
   pwCardNoJob: ["shop or truck stock for several jobs", "the receipt is not uploaded yet", "an office purchase"],
-  pwUseTax: ["the vendor did charge tax and the line is missing from the bill", "the purchase is exempt (resale, or a capital improvement with an ST-124)"],
+  pwUseTax: ["the vendor did charge tax and the line is missing from the bill", "the purchase is exempt (resale with an ST-120, or an exempt organization's project with its ST-120.1; a capital improvement never exempts our purchases)"],
 };
 const PW_STEPS = {
   pwPaidMore: ["credit", "pricebook", "rfq", "explain"],

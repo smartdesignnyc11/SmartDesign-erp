@@ -3910,3 +3910,5 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
   .sx-l{-webkit-mask-image:linear-gradient(to right,transparent,#000 28px);mask-image:linear-gradient(to right,transparent,#000 28px)}
   .sx-l.sx-r{-webkit-mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
 }
+/* procurement P0 (src/p0money.js): its buttons are a finger wide on the phone */
+@media (max-width: 600px) { .p0-pomoney .btn, .p0-taxfix .btn { min-height: 44px; margin-top: 6px; } }

@@ -57,8 +57,9 @@ SETUP = r"""() => {
     expected: '2026-09-10', status: st, shipTo: 'site', notes: '', lines, tax: 0, shipping: 0, taxStatus: 'taxable', type: 'materials', entityId: 'ent1', receipts: [], srcDocs: [] }, o || {}));
   P('tpo1', 'PO-2026-990', 'received', [{ id: 'tl1', item: 'Carrara mosaic 2x2', desc: '', qty: 48, unit: 'sf', price: 18, received: 48, line: '' },
     { id: 'tl2', item: 'White subway tile 3x6', desc: '', qty: 192, unit: 'sf', price: 8, received: 192, line: '' }], { shipping: 100, tax: 8.875, receipts: [{ date: '2026-09-03', t: '', by: 'Alex', lines: [], slip: '', note: '' }] });
-  P('tpo2', 'PO-2026-991', 'received', [{ id: 'tl3', item: 'Marble threshold 36in', desc: '', qty: 4, unit: 'ea', price: 10.5, quotePrice: 10, received: 4, line: '' }], { taxStatus: 'exempt-ci' });
-  P('tpo3', 'PO-2026-992', 'issued', [{ id: 'tl4', item: 'Glass mosaic accent', desc: '', qty: 30, unit: 'sf', price: 22, received: 0, line: '' }], { taxStatus: 'exempt-ci' });
+  // a real exemption (resale, ST-120 on file): a capital improvement never exempts the firm's purchases (procurement P0)
+  P('tpo2', 'PO-2026-991', 'received', [{ id: 'tl3', item: 'Marble threshold 36in', desc: '', qty: 4, unit: 'ea', price: 10.5, quotePrice: 10, received: 4, line: '' }], { taxStatus: 'exempt-resale' });
+  P('tpo3', 'PO-2026-992', 'issued', [{ id: 'tl4', item: 'Glass mosaic accent', desc: '', qty: 30, unit: 'sf', price: 22, received: 0, line: '' }], { taxStatus: 'exempt-resale' });
   P('tpo4', 'PO-2026-993', 'received', [{ id: 'tl5', item: 'Porcelain plank 8x48', desc: '', qty: 100, unit: 'sf', price: 6, received: 100, line: '' }], { useTax: true });
   const B = (id, number, poId, amt, o) => DB.bills.push(Object.assign({ id, vendor: 'Nemo Tile', number, date: '2026-09-03', due: '2026-09-30', entityId: 'ent1', projectId: 'p121', poId,
     cat: 'materials', code: '08', line: '', lines: [{ id: id + 'l', desc: 'Tile', amount: amt }], payMethod: 'ACH', fileId: '', notes: '', status: 'submitted',
