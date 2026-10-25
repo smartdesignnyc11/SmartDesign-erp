@@ -3,7 +3,7 @@
 src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md and docs/STANDARD_ES.md (as data)
 + src/app.js + src/mind.js + src/subs.js + src/assistant.js + src/livejobs.js + src/reports.js
 + src/costintel.js + src/specialists.js + src/tasks.js (the one task list and sheet) + src/taskviews.js (its Table, Board, Calendar and saved views) + src/meeting.js (the task record
-and Meeting Mode) + src/teamws.js (the team's workspace and the Asana import) + src/meetdoc_core.js and src/mtreview.js (the meeting transcript and its review) + src/items.js + src/field_es.js + src/field_es_words.js (the SRC list below)."""
+and Meeting Mode) + src/teamws.js (the team's workspace and the Asana import) + src/meetdoc_core.js and src/mtreview.js (the meeting transcript and its review) + src/phonerows.js (one phone row for every list the phone opens) + src/items.js + src/field_es.js + src/field_es_words.js (the SRC list below)."""
 import os, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
 r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()

@@ -518,10 +518,13 @@ PR_PAGE.ftoday = (v) => {
 @media (max-width:760px){
   #v-ftoday.pr-ftoday{padding-bottom:132px;font-size:16px}
   #v-ftoday.pr-ftoday .small,#v-ftoday.pr-ftoday .muted{font-size:15px}
-  #v-ftoday.pr-ftoday .f-hero{padding:4px 0 8px}
-  #v-ftoday.pr-ftoday .f-hero [data-fclock]{min-width:132px;font-size:16px}
+  #v-ftoday.pr-ftoday .f-hero{padding:0;margin-bottom:10px;flex-wrap:nowrap}
+  #v-ftoday.pr-ftoday .f-hero>div:first-child{min-width:0}
+  #v-ftoday.pr-ftoday .f-hero>div:first-child>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #v-ftoday.pr-ftoday .f-hero [data-fclock]{flex:0 0 auto;min-width:116px;font-size:16px}
   #v-ftoday.pr-ftoday .f-card .hd h3{font-size:18px}
-  #v-ftoday.pr-ftoday .f-work .f-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:4px;align-items:center;padding:10px 0}
+  #v-ftoday.pr-ftoday .f-card .hd{margin-bottom:4px}
+  #v-ftoday.pr-ftoday .f-work .f-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:2px;align-items:center;padding:7px 0}
   #v-ftoday.pr-ftoday .f-work .f-row>.grow{display:contents}
   #v-ftoday.pr-ftoday .f-work .f-row>.grow>b{grid-column:1/-1;font-size:16px;line-height:20px}
   #v-ftoday.pr-ftoday .f-work .f-row>.grow>span.small{grid-column:1/-1;font-size:15px;line-height:19px}
@@ -546,13 +549,15 @@ PR_PAGE.ftoday = (v) => {
     if (busy || !PR_ON() || "ftoday" !== view) return;
     const v = document.getElementById("v-ftoday"),
       body = v && v.querySelector("#ftoday-body");
-    if (!body || (body.querySelector(":scope > details.pr-more") && !body.querySelector(":scope > .ph:not(.pr-hide)"))) return;
+    if (!body) return;
+    // a pass that adds a card after the fold (the log note, a late answer) is folded too; our own moves are not news
     busy = !0;
     try {
       PR_PAGE.ftoday(v);
     } catch (e) {
       console.warn("field today", e);
     }
+    mo.takeRecords();
     busy = !1;
   });
   const arm = () => {
