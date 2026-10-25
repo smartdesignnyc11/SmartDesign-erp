@@ -37,7 +37,12 @@ async def main():
         # row is $13,969.99, not $13,968.74, so 47599.99 -> 47601.24. Less the seed's 6.5 designer hours dated 9/4
         # (a day not yet worked, read as ready to bill), removed by pilotfix2: 46301.24.
         c.ok(r['rtb'] == 46301.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
+        # Purchasing 10 -> 16 (procurement P1, 2026-10-25): the badge is the Buy Board's one late set, no longer "late to
+        # order, held, due this week or waiting on a decision". 12 needs not ordered by their order-by date (the 6 it
+        # counted before, plus 2 approved FF&E items, 2 change-order lines and the 2 sub scopes, demolition and scaffold,
+        # with no sub contracted) and 4 ordered with a promise after the site needs them (appliances, insulation, white
+        # oak flooring, Carlos's millwork). The 4 waiting on a decision and not yet late left it.
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 16, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         c.ok('Tino' in r['po'] and '8,010' in r['po'], f"PO lookup: {r['po']}")
         c.ok(not r['users'], f"missing demo users {r['users']}")
