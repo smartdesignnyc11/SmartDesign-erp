@@ -216,7 +216,9 @@ async def s_bill(p, c):
             before = await pg.evaluate("() => ({ billed: poBilled(DB.pos.find(x => x.id === 'po4')), n: DB.bills.length })")
             did = await apply_real(pg, pr['cid'], pr['pid'])
             m = await modal(pg)
-            if m: await pg.keyboard.press('Escape')
+            # Apply on a vendor invoice opens the bill, filled in; the person presses Enter the Bill (Pilot 2)
+            if m and m['title'].startswith('Enter the Bill'): await modal_ok(pg, 600)
+            elif m: await pg.keyboard.press('Escape')
             bl = await pg.evaluate("""() => { const b = DB.bills.find(x => x.number === 'CM-0102'); if (!b) return null;
               const po = DB.pos.find(x => x.id === 'po4'); return { poId: b.poId || '', projectId: b.projectId || '', cat: b.cat, code: b.code || '', line: b.line || (b.lines[0] || {}).line || '', poLineId: (b.lines[0] || {}).poLineId || '', amount: billTotal(b), billed: poBilled(po), st: lkPOBillState(po), flags: billFlags(b) }; }""")
             c.ok(bool(bl), f'bill: CM-0102 was created ({did!r})')
