@@ -41,6 +41,32 @@ Each wave ends with its own checks in the test net, so the same class of problem
 | 4. The assistant, for real | run on the live model through the platform's `/api/ai`; it makes the task when asked, answers the question asked or says it does not know, proposes catches on its own, and never mails outside without approval | an Ask bank of the pilot's failed questions passes; Pilot 3 runs on the live model | next; the harness needs `/api/` forwarded to the live proxy |
 | 5. Phone-native top flows | the five daily jobs of each role, built for one hand: the foreman's log in five taps and clock-out with cost code; the PM's quick-price change order and estimate on the phone; receiving and ordering (procurement P1 to P3); billing's preview without spending a number; the owner's approvals and cash drill-down | each flow at or under its tap target, measured by the pilot's harness | procurement building; the rest after wave 3 |
 
+**UI, running beside waves 1 to 3 (Alan, 10-25: "What about the UI?").** Pilot 2's visual findings are their own class:
+- first screens show counters, "Made Today" journals and sub-links instead of the person's work;
+- the blue button is not the next step, or there are two;
+- headers overlap and chips and tiles scroll sideways at 390px;
+- colour means three things;
+- pages from different lanes look like different products. Tasks looks modern; Banking and Billing look older.
+
+The fix is what worked for Tasks, the screen the experts rated best:
+1. a mockup for Alan's yes;
+2. a lane that builds to match;
+3. an expert check.
+
+The order, phone and desktop:
+- each role's first screen, Today;
+- the two or three pages each role lives in (Banking, Billing, the job page, the daily log, the change order);
+- one design system (tokens and the shared row, card, sheet, tile, chip and header) so every page reads as one product.
+
+A screen-standard lint enforces the rules:
+- the first screen shows the person's work;
+- one blue button, and it is the next step;
+- no overlap, clipping or sideways chips at 390px;
+- one meaning per colour;
+- 15px or larger rows on field screens.
+
+The five-second test is measured in every pilot.
+
 Premium client documents and the portal ride with wave 1 (the documents lane) and finish in wave 5.
 
 ## Is the path clear?
