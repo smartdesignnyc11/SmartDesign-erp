@@ -149,15 +149,21 @@ function vbGate(b, root, okSel) {
 {
   const base = saveBill;
   saveBill = function () {
+    let tmp = null;
     try {
       const id = editing && editing.id,
         o = !id && editing && editing.collect ? editing.collect() : null,
         dr = document.getElementById("drawer");
-      if (o && o.vendor && !vbGate(Object.assign({ id: "__new" }, o), dr, "#d-save")) return;
+      tmp = o && o.vendor ? Object.assign({ id: "__new" }, o) : null;
+      if (tmp && !vbGate(tmp, dr, "#d-save")) return;
     } catch (e) {
       console.warn("bill duplicate check", e);
     }
-    return base.apply(this, arguments);
+    const n0 = (DB.bills || []).length,
+      r = base.apply(this, arguments);
+    // the person's "it is a different invoice" goes on the bill the form saved
+    tmp && tmp.dupOf && (DB.bills || []).length > n0 && Object.assign(DB.bills[DB.bills.length - 1], { dupOf: tmp.dupOf }) && save();
+    return r;
   };
 }
 // a person said it is a different invoice: Approvals says so, with the other bill
@@ -167,6 +173,8 @@ function vbGate(b, root, okSel) {
     const f = base.apply(this, arguments) || [];
     try {
       const d = b && b.dupOf && (DB.bills || []).find((x) => x.id === b.dupOf.billId && vbLive(x));
+      // the person's word replaces the plain "possible duplicate" line, so Approvals reads one line for one question
+      d && b.dupOf.ack && f.splice(0, f.length, ...f.filter((x) => !/^Possible duplicate/.test(x)));
       d && !f.some((x) => /duplicate/i.test(x)) && f.push(`Possible duplicate of ${d.number || "a bill"} (${money(billTotal(d))}${d.date ? ", " + fmtL(d.date) : ""})${b.dupOf.ack ? `: ${b.dupOf.by} said it is a different invoice` : ""}`);
       const S2 = b && b.poId && vbPoSiblings(b.poId, { billId: b.id });
       S2 && S2.others.length && f.push(S2.words);
@@ -410,7 +418,10 @@ function vbPost(x, f, m, after) {
       notes: `Entered from the vendor's invoice${x.src === "mail" ? " in mail" : ""}, checked by ${by}`,
       status: "submitted",
       approvals: [{ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "entered from the vendor's invoice after review" }],
-      createdBy: by,
+      // the mail reader entered it and the person checked it, as before: separation of duties is between the one who
+      // enters and the one who approves, and approving stays with the PM and the Owner
+      createdBy: "mail" === x.src ? "reader" : by,
+      checkedBy: by,
       createdAt: appNowIso(),
       commId: x.commId || "",
     };
@@ -836,7 +847,8 @@ function pbFurther(c, d) {
               try {
                 audit("invoice", d.id, "billed-ahead", "", F.map((x) => `${x.l.item} ${x.to}%`).join("; "), `${vbWho()}: ${w}`);
               } catch (e) {}
-              docAction(c, d, a);
+              // after this sheet closes, so the send's own sheet is not closed with it
+              setTimeout(() => docAction(c, d, a), 0);
             },
           );
       }
@@ -893,4 +905,19 @@ if ("function" == typeof billingRows) {
       return R;
     };
   }
+}
+// It leads billing's and the PM's Caught for You: it is theirs to hold before the next application goes out, and the
+// four shown above the fold were other detectors' turns (tdCaught takes each detector's biggest in turn).
+if ("function" == typeof tdCaught) {
+  const base = tdCaught;
+  tdCaught = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      if (["billing", "pm"].includes(role())) {
+        const lead = out.filter((x) => "portalBilledAhead" === x.src && /^Billed ahead of the work/.test(x.what || ""));
+        return lead.concat(out.filter((x) => !lead.includes(x)));
+      }
+    } catch (e) {}
+    return out;
+  };
 }
