@@ -935,6 +935,114 @@ function w1DriverDay(e) {
   m.querySelectorAll("[data-f3t2],[data-f3h]").forEach((x) => x.addEventListener("change", sum)), sum();
 }
 
+// ---- D2: every button does what its label says (tests/tap_label_lint.py) ---------------------------------------------
+// A mail row's verb says what the tap does. "Apply" on a row whose apply only notes it and makes a task (the client's
+// "money is sent" mail: it records that a payment is expected and gives the controller a task; the bank line is matched
+// where money is matched) read as if it recorded something (Pilot 2, billing: "Apply did not apply anything").
+// A certificate or a W-9 files on the vendor, and says so.
+function w1MailVerb(pkind, pr) {
+  if ("deposit" === pkind) return "Watch the Feed";
+  if ("ar" === pkind && !pr.clientId) return "Watch for the Money";
+  if ("coi" === pkind || "w9" === pkind) return pr.vendorId ? "File on the Vendor" : "Make It a Task";
+  return null;
+}
+if ("function" == typeof nyhRowsAll) {
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      (out || []).forEach((r) => {
+        if ("mail" !== r.kind || "Apply" !== r.verb) return;
+        const c = (DB.comms || []).find((x) => x.id === r.commId),
+          pr = c && (c.proposals || []).find((p) => p.kind === r.pkind && (r.key || "").startsWith(`mail:${p.kind}:`));
+        const v = pr && w1MailVerb(r.pkind, pr);
+        v && (r.verb = v);
+      });
+    } catch (e) {}
+    return out;
+  };
+}
+// The toast's Open goes to the record the tap changed, not to the mail it came from: the controller's Enter the Bill
+// toast opened Inbox, a page the controller does not have ("Mail is opened by the Owner, the PM and the coordinator"),
+// not SE-0922. What changed is read from the records themselves, before and after.
+const W1_REC = [
+  ["bills", () => DB.bills || [], (x) => flowGo.bill(x)],
+  ["pos", () => DB.pos || [], (x) => flowGo.po(x)],
+  ["vendors", () => DB.vendors || [], (x) => flowGo.vendor(x)],
+  ["leads", () => DB.leads || [], (x) => flowGo.lead(x)],
+  ["txns", () => DB.txns || [], (x) => () => ("function" == typeof txnDialog ? txnDialog(x.id) : flowGo.viewOf("bank")())],
+];
+function w1Snapshot() {
+  const S0 = {};
+  W1_REC.forEach(([k, get]) => {
+    const m = new Map();
+    try {
+      get().forEach((x) => x && x.id && m.set(x.id, JSON.stringify(x)));
+    } catch (e) {}
+    S0[k] = m;
+  });
+  try {
+    S0.tasks = new Map();
+    (DB.projects || []).forEach((p) => (p.actions || []).forEach((a) => S0.tasks.set(a.id, p.id)));
+  } catch (e) {}
+  return S0;
+}
+// the record a tap made or changed, as a toast link the person may follow
+function w1Touched(S0) {
+  for (const [k, get, go] of W1_REC) {
+    const before = S0[k] || new Map();
+    let hit = null;
+    try {
+      hit = get().find((x) => x && x.id && !before.has(x.id)) || get().find((x) => x && x.id && before.has(x.id) && before.get(x.id) !== JSON.stringify(x));
+    } catch (e) {}
+    if (hit) return { kind: k, rec: hit, run: go(hit) };
+  }
+  try {
+    for (const p of DB.projects || [])
+      for (const a of p.actions || [])
+        if (!S0.tasks.has(a.id))
+          return {
+            kind: "task",
+            rec: a,
+            run: () => ("function" == typeof crOpenTask ? crOpenTask({ kind: "action", id: a.id, projectId: p.id, rec: a }) : (setCurrent(p.id), (view = "tasks"), render())),
+          };
+  } catch (e) {}
+  return null;
+}
+const w1MayOpen = (k) => {
+  const v = { bills: ["ap", "bills"], pos: ["po", "proc"], vendors: ["vendors", "vend"], leads: ["hbdeals", "leads"], txns: ["bank", "txns"] }[k];
+  return !v || v.some((x) => (ROLE_VIEWS[role()] || []).includes(x));
+};
+if ("function" == typeof nyhApplyMail) {
+  const base = nyhApplyMail;
+  nyhApplyMail = function (c, pr) {
+    const S0 = w1Snapshot(),
+      r = base.apply(this, arguments);
+    try {
+      const t = w1Touched(S0),
+        el = document.getElementById("toast"),
+        msg = el && el.classList.contains("on") ? ((el.querySelector(".toast-msg") || el).textContent || "").trim() : "";
+      t && msg && (w1MayOpen(t.kind) || "task" === t.kind) && toast(msg, { label: "Open", run: t.run });
+    } catch (e) {}
+    return r;
+  };
+}
+// Add Milestone opened the editor titled "New Task": the editor's title says what is being made
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (!t || "e-type" !== t.id || !t.closest("#drawer")) return;
+  const h = document.getElementById("d-title");
+  h && /^New (Task|Milestone)$/.test(h.textContent.trim()) && (h.textContent = "milestone" === t.value ? "New Milestone" : "New Task");
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest || !e.target.closest("#btn-addms")) return;
+  setTimeout(() => {
+    const h = document.getElementById("d-title"),
+      ty = document.getElementById("e-type");
+    h && ty && "milestone" === ty.value && /^New Task$/.test(h.textContent.trim()) && (h.textContent = "New Milestone");
+  }, 0);
+});
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}
