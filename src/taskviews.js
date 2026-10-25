@@ -2628,7 +2628,9 @@ function tvWaitSeed() {
 /* Alan's mockup (Main.dc.html, Board.dc.html, 2026-10-24): one white top bar, then a white band with the saved tabs and
    the filter row, on the gray ground; the table fills the rest of the screen and scrolls inside itself */
 @media (min-width:761px){
-  #v-tkall:has(#tkall-body.tv-on){padding:0;height:calc(100vh - 52px);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
+  /* .on: a display here outranks ".view{display:none}", so without it the Tasks page showed under every page opened
+     after it (its New Task a second blue button under Billing; taskfix #23) */
+  #v-tkall.on:has(#tkall-body.tv-on){padding:0;height:calc(100vh - 52px);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
   #v-tkall:has(#tkall-body.tv-on .tv-mode-cal),#v-tkall:has(#tkall-body.tv-on .t2-list:not(.tv-host)){height:auto;overflow:visible}
   #v-tkall #tkall-body.tv-on{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
   #v-tkall .tv-on>.ph{order:-2}
