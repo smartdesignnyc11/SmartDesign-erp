@@ -584,7 +584,7 @@ function p0PrepayUnlink(tid) {
     audit("txn", t.id, "vendor-prepayment-declined", po ? po.number : "", "", p0Me());
   } catch (e) {}
   save(), render();
-  rcToast(`${p0M(-t.amt)} ${t.desc || ""} is not a prepayment on ${po ? po.number : "an order"}: it waits in Banking to be coded`, (ROLE_VIEWS[role()] || []).includes("banking") ? [{ label: "Open", run: () => setView("banking") }] : null);
+  rcToast(`${p0M(-t.amt)} ${t.desc || ""} is not a prepayment on ${po ? po.number : "an order"}: it waits in Banking to be coded`, (ROLE_VIEWS[role()] || []).includes("banking") ? [{ label: "Open", run: () => setView("banking") }] : po && "undefined" != typeof flowGo && (ROLE_VIEWS[role()] || []).includes("po") ? [{ label: "Open", run: flowGo.po(po) }] : null);
 }
 
 // A person matching a bank line to an order nothing has arrived on, with no bill on it, records a prepayment: the

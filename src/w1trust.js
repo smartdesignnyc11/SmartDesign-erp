@@ -1219,6 +1219,32 @@ if ("function" == typeof fRaiseDialog) {
   };
 }
 
+// An Approvals card whose one button is a verb ("Chase COI") opened a page (Vendors) and chased nothing (the tap lint,
+// the coordinator). The card's button runs the step its Today card runs (tdCard: the same item, the same verb).
+const W1_OPENISH = /^(open|view|review|see|details|go)\b/i;
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove");
+      if (!v || "function" != typeof mApprovals || "function" != typeof tdCard) return r;
+      let items = null;
+      v.querySelectorAll(".m-appr").forEach((el) => {
+        const op = el.querySelector("[data-mopen]");
+        if (!op || el.querySelector("[data-myes]") || W1_OPENISH.test((op.textContent || "").trim())) return;
+        items = items || mApprovals({ everyone: !0 }) || [];
+        const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid);
+        const c = it && tdCard(it);
+        c && "function" == typeof c.run && (op.onclick = () => c.run());
+      });
+    } catch (e) {
+      console.warn("approvals verbs", e);
+    }
+    return r;
+  };
+}
+
 (() => {
   const css = `
 .w1-dr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--amber-bg, #fff7e0);color:var(--ink, #222);font-size:13.5px;line-height:1.35}
