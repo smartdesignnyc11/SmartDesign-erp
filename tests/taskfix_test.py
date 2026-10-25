@@ -58,6 +58,9 @@ async def one_number(c, pg, phone):
           return { cards: d.querySelectorAll('.td-card').length + (m ? +m[1] : 0), buy: d.querySelectorAll('.td-card[data-kind="tdyBuy"]').length,
             ids: tdyModel().tasks.map(it => it.t ? (it.t.row && it.t.row.code) || it.t.title : it.kind) }; }""")
         c.ok(rows and rows['cards'] == W and rows['buy'] == 0, f'{tag} {r}: Today\'s Tasks chip shows its {W} rows and no orders ({rows})')
+        if phone and r in ('owner', 'coord'):
+            await pg.evaluate("() => scrollTo(0, 0)")
+            await pg.screenshot(path=os.path.join(SHOTS, f'p_{r}_today_tasks.png'))
         if r == 'owner':
             late = await pg.evaluate("() => { const L = tkSoonFor().filter(x => x.due && x.due < today()).sort((a, b) => a.due.localeCompare(b.due)); return L[0] ? { code: L[0].code, due: L[0].due } : null; }")
             c.ok(late and late['code'] in (rows or {}).get('ids', []), f'{tag} owner: the most-late task ({late}) is on Today\'s Tasks ({(rows or {}).get("ids")})')
@@ -67,6 +70,9 @@ async def one_number(c, pg, phone):
         if r == 'coord':
             buy = await pg.evaluate("() => tdyBuyItems().length")
             c.ok(buy > 0 and h['buyChip'] == buy and (not phone or h['buyBar'] == buy), f'{tag} coord: the orders are the Buy Board\'s {buy}: Today chip {h["buyChip"]}, bar {h["buyBar"]}')
+            if phone:
+                await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tdytabbtn=\"buy\"]'); b && b.click(); scrollTo(0, 0); }"); await pg.wait_for_timeout(250)
+                await pg.screenshot(path=os.path.join(SHOTS, 'p_coord_today_buyboard.png'))
             await go(pg, 'proc')
             tiles = await pg.evaluate("""() => [...document.querySelectorAll('.view.on button.gl')].filter(b => b.getClientRects().length).map(b => [(b.querySelector('.gl-k') || {}).textContent, +((b.querySelector('.gl-v') || {}).textContent || '').replace(/\\D+/g, '')])""")
             t = dict((k, v) for k, v in tiles if k)
@@ -220,7 +226,7 @@ async def waiting(c, pg):
     await pg.evaluate("() => document.querySelector('#mbm .tvs-addwait').click()"); await pg.wait_for_timeout(300)
     f = await pg.evaluate("""() => { const d = document.getElementById('tv-pop'); if (!d) return null; const ok = d.querySelector('[data-tvwsave]'), r = ok.getBoundingClientRect(), D = d.getBoundingClientRect();
       return { w: Math.round(r.width), pw: Math.round(D.width), h: Math.round(r.height), blue: getComputedStyle(ok).backgroundColor, bottom: Math.round(D.bottom), H: innerHeight }; }""")
-    await pg.screenshot(path=os.path.join(SHOTS, 'p_pm_waiting.png'))
+    await pg.wait_for_timeout(400); await pg.screenshot(path=os.path.join(SHOTS, 'p_pm_waiting.png'))
     c.ok(f and f['h'] >= 48 and f['w'] >= f['pw'] * 0.5, f'#18 Waiting On uses the shared sheet footer: a wide 48px Save ({f})')
     await pg.evaluate(CLOSE)
 

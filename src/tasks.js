@@ -623,13 +623,13 @@ function tkHandSheet(k) {
     me = tdyMe(),
     P = tkPeopleFor(R),
     code = (R.rec && R.rec.code) || x.code || "",
-    from = t.owner && t.owner !== me.name ? tkFirst(t.owner) + "'s" : "your";
+    from = t.owner && t.owner !== me.name ? tkFirst(t.owner) + "'s" : "yours";
   if (!R.rec || !P.length) return toast("Nobody else on the team can take this one"), null;
   let pick = "";
   const m = mbModal(
     `Hand Off${code ? ` ${esc(code)}` : ""}`,
-    `<p class="small muted tkh-say">${esc(tdWords(x.title || t.title || "", 10))}. It stays on ${esc(from)} list until they accept.</p>
-<div class="tkh-people" role="radiogroup" aria-label="Hand off to">${P.map((u) => `<button type="button" class="tkh-p" role="radio" aria-checked="false" data-tkhto="${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b><small>${esc(TK_ROLE_SAY[u.role] && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? TK_ROLE_SAY[u.role] : u.name)}</small></button>`).join("")}</div>
+    `<p class="small muted tkh-say">${esc(tdWords(x.title || t.title || "", 10))}. It stays ${esc(from)} until they accept.</p>
+<div class="tkh-people" role="radiogroup" aria-label="Hand off to">${P.map((u) => `<button type="button" class="tkh-p" role="radio" aria-checked="false" data-tkhto="${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b>${TK_ROLE_SAY[u.role] && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? `<small>${esc(TK_ROLE_SAY[u.role])}</small>` : ""}</button>`).join("")}</div>
 <input class="tks-in tkh-note" data-tkhnote placeholder="What they need to know (optional)" aria-label="What they need to know">`,
     {
       submit: "Hand Off",
@@ -1105,6 +1105,9 @@ tdyGoTask = function (x) {
     try {
       const me = tdyMe();
       t && t.offeredToUid && t.offeredToUid === me.id && (it.due = today());
+      // an obligation's date is its filing (or renewal) date: Today says so, as the list's row does (taskfix #11)
+      const o = t && t.row && !t.done && t.due ? tkObOf(t.row) : null;
+      o && "function" == typeof flObFile && t.due === flObFile(o) && (it.detail = it.detail.replace(/\b(overdue since|due) /, (m0) => `${"filing" === o.kind ? "filing" : "renewal"} ${m0}`));
     } catch (e) {}
     return it;
   };
