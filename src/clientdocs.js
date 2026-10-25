@@ -281,6 +281,11 @@ function cxMoveTyped(c, d) {
 // ---- the send gate ---------------------------------------------------------------------------------------------------
 // What stops a document reaching a client: a $0 total, a line with no words, no one to bill, or a working note in a
 // client field. The Standard: "Accuracy is client service" and "The Name Test" (would you sign your name to it?).
+// where the bill goes: the client's billing address, else the property, else the job's own address (it fills itself)
+function cxBillAddr(c, d) {
+  const p = d && d.projectId ? DB.projects.find((x) => x.id === d.projectId) : (DB.projects || []).find((x) => x.clientId === (c && c.id));
+  return String((c && (c.billingAddr || c.propertyAddr)) || (p && p.project && p.project.addr) || "").trim();
+}
 const CX_GENERIC_TITLE = /^\s*(proposal|estimate|change order|invoice|new (estimate|proposal|change order|invoice)|untitled|draft)?\s*$/i;
 function cxGate(c, d) {
   const R = [];
@@ -295,7 +300,7 @@ function cxGate(c, d) {
       String(l.item || "").trim() || String(l.desc || "").trim() || R.push({ k: "empty", msg: `Line ${l.num || i + 1} has no description: the client would sign or pay a blank line.` });
     });
   String(c.name || "").trim() || R.push({ k: "billto", msg: "The client has no name to bill." });
-  String(c.billingAddr || c.propertyAddr || "").trim() || R.push({ k: "billto", msg: `${esc(c.name || "The client")} has no billing or property address: add it on the client.` });
+  cxBillAddr(c, d) || R.push({ k: "billto", msg: `${esc(c.name || "The client")} has no billing or property address: add it on the client.` });
   const re = cxStaffRe(c),
     note = (txt, where) =>
       cxHits(txt, c, re).forEach((h) => R.push({ k: "note", fix: !0, msg: `${where} says "${esc(h.length > 90 ? h.slice(0, 88) + "…" : h)}": a working note or a staff name never goes to the client.` }));
@@ -510,7 +515,7 @@ function cxDocHtml(c, d, o) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} · ${esc(K.name)}</title><style>body{margin:36px;background:#fff}${CX_CSS}@media print{body{margin:.45in}}</style></head><body><div class="cxd" data-cxkind="${kind}">${o.draft ? '<div class="cxd-draft">DRAFT · NOT SENT</div>' : ""}
   ${cxLetterhead(d)}
   <div class="cxd-hd"><div class="cxd-kind">${CX_LABEL[kind]}</div><div class="cxd-num sans"><b>${esc(d.number)}</b><br>${dates.join("<br>")}</div></div>
-  <div class="cxd-meta"><div><div class="cxd-k sans">${inv ? "Bill to" : "Prepared for"}</div><b>${esc(c.name)}</b><br>${esc(c.billingAddr || c.propertyAddr || "")}${bt && bt.name ? `<br><span class="sans" style="font-size:11.5px">${esc(bt.name)}${bt.email ? " · " + esc(bt.email) : ""}</span>` : ""}</div><div><div class="cxd-k sans">Project</div><b>${esc(pr.name)}</b>${pr.addr ? `<br>${esc(pr.addr)}` : ""}</div></div>
+  <div class="cxd-meta"><div><div class="cxd-k sans">${inv ? "Bill to" : "Prepared for"}</div><b>${esc(c.name)}</b><br>${esc(cxBillAddr(c, d))}${bt && bt.name ? `<br><span class="sans" style="font-size:11.5px">${esc(bt.name)}${bt.email ? " · " + esc(bt.email) : ""}</span>` : ""}</div><div><div class="cxd-k sans">Project</div><b>${esc(pr.name)}</b>${pr.addr ? `<br>${esc(pr.addr)}` : ""}</div></div>
   ${pr.subj ? `<div class="cxd-subj">${esc(pr.subj)}</div>` : ""}
   ${body}
   ${"co" === kind ? cxCoBlock(c, d, re) : ""}${"design" === kind ? cxDesignFee(c, d) : ""}
