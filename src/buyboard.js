@@ -391,6 +391,9 @@ function bbRowsFor(tab) {
 }
 const bbAll = () => buyList("").filter((r) => "buy" === r.tab || "arriving" === r.tab);
 const bbFind = (id) => buyList("").find((r) => r.id === id) || null;
+// The board's sections (Late, Order This Week, Waiting on Quotes, Later) group the needs; they are not records, so the
+// phone pass (src/phonerows.js prFoldCards) and tests/phone_rows_lint.py read them as sections, not a card list.
+"undefined" != typeof PR_SECTIONS && !PR_SECTIONS.includes("bb-sec") && PR_SECTIONS.push("bb-sec");
 const BB_IC = {
   search: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
   filter: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
@@ -1260,6 +1263,8 @@ if ("function" == typeof paAsk) {
 .bb .bb-search input{border:0;outline:0;flex:1;min-width:0;font-size:14px;background:transparent;height:36px;padding:0}
 .bb .bb-ib{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;border-radius:12px;background:#F1F3F6;color:#1A1D23;padding:0}
 .bb .bb-ib.on{background:#EEF3FD;color:#1D47A8}
+/* the phone pass sets every page button to height:auto, min 36px; the board's icon buttons keep their 44px */
+#v-proc .bb .bb-ib{height:44px;min-height:44px}
 .bb .bb-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
 .bb .bb-tabs{display:flex;gap:4px;padding:3px;background:#ECEEF2;border-radius:10px;border:0}
 .bb .bb-tabs button{height:32px;padding:0 14px;border:0;border-radius:8px;background:transparent;color:#4A5060;font-size:14px;display:flex;align-items:center;gap:6px}

@@ -14,9 +14,8 @@ the menu opens it (mnGo), at 390x844 with touch, it flags:
   PRIMARY_MULTI   more than one blue primary button on the page
 A screen is the space between the header and the bottom bar. Inline links in sentences are not targets.
 
-The pages the procurement lane is rebuilding (Buy Board, Purchasing, RFQs, Purchase Orders) and the Tasks page (the
-taskfix lane) are listed in OWNED and reported as INFO, not flags, until those lanes merge; remove a page from OWNED
-when its lane lands.
+The Tasks page (the taskfix lane) is listed in OWNED and reported as INFO, not flags, until that lane's rows land; remove a page from OWNED
+when its lane lands. (The Buy Board, Quotes, Orders and Deliveries landed with procurement P1 and are linted.)
 
 Usage: python3 phone_rows_lint.py [--user u_owner,...] [--view v,...] [--shots DIR] [--json PATH] [--quiet]
 Exit 1 when anything is flagged.
@@ -27,8 +26,7 @@ from harness import *
 
 ROLES = ['u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah', 'u_angel', 'u_alberto', 'u_alex']
 # pages another lane owns right now (CLAUDE.md lane rules): reported, not flagged
-OWNED = {'proc': 'procurement P1', 'ovbuy': 'procurement P1', 'rfq': 'procurement P1', 'po': 'procurement P1',
-         'tkall': 'taskfix', 'tasks': 'taskfix'}
+OWNED = {'tkall': 'taskfix', 'tasks': 'taskfix'}
 
 ENTRIES = r"""() => { const B = mnBuild(role()); if (!B) return [];
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest, B.more) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
