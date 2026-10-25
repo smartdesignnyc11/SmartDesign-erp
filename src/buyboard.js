@@ -923,8 +923,9 @@ if ("function" == typeof renderDash) {
       if (v && "dash" === view && S && ["owner", "pm", "coord"].includes(role()) && (ROLE_VIEWS[role()] || []).includes("proc")) {
         const old = v.querySelector("#bb-job");
         old && old.remove();
-        const ph = v.querySelector(".ph");
-        ph ? ph.insertAdjacentHTML("afterend", bbJobCardHtml(S)) : v.insertAdjacentHTML("afterbegin", bbJobCardHtml(S));
+        // below the job's glance (never at the top: the page's own header is found there on the next draw)
+        const at = v.querySelector(":scope > .glance") || v.querySelector(":scope > .hero");
+        at ? at.insertAdjacentHTML(at.matches(".glance") ? "afterend" : "beforebegin", bbJobCardHtml(S)) : v.insertAdjacentHTML("beforeend", bbJobCardHtml(S));
         const c = v.querySelector("#bb-job"),
           pid = S.id;
         c.querySelector("#bb-job-all").onclick = () => ((bbProj = pid), (bbTab = "buy"), (bbFilter = "all"), setView("proc"));

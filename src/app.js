@@ -142246,7 +142246,9 @@ function ocPatchSubs() {
     sub &&
     (sub.querySelectorAll("[data-sub]").forEach((b) => {
       const v = b.dataset.sub;
-      if (OC_RETIRED[v]) return void b.remove();
+      // a retired page leaves the strip only for a role it retires for (the controller, who cannot open the Buy Board,
+      // keeps the Purchasing overview)
+      if (OC_RETIRED[v] && ocRetiredTarget(v)) return void b.remove();
       const n = ocBadgeN(v);
       if (null == n) return;
       let i = b.querySelector(".n");
