@@ -202,7 +202,8 @@ function td2Model() {
     rows = td2Rows(M),
     chips = S.chips.map((k) => ({ k: k, label: TD2_CHIP[k], n: rows.filter((x) => td2Match(k, x)).length })),
     stored = tdyTabOf(),
-    tab = S.chips.includes(stored) ? stored : "all",
+    // a filter the board has no chip for (the PM's approvals, opened from Ask or a link) still reads the same rows
+    tab = ["all", "late", "appr", "wait"].includes(stored) ? stored : "all",
     Q = rows.filter((x) => td2Match(tab, x)),
     desk = td2Desk(),
     // All folds to the first rows of each section (the phone's first screen, the mockup's six); a chip shows its
@@ -224,7 +225,14 @@ function td2LateN() {
   if (td2LateMemo.t === td2Tick && td2LateMemo.u === u) return td2LateMemo.n;
   let n = 0;
   try {
-    n = TD2_SPEC[role()] ? td2Rows(tdyModel()).filter((x) => x.late).length : 0;
+    // the rows' own rule (td2Rows: late is the task's flag or a due date before today), without drawing each card
+    const td = today();
+    n = TD2_SPEC[role()]
+      ? (tdyModel().all || []).filter((it) => {
+          const d = td2DueOf(it);
+          return !!((it.t && it.t.late) || (d && d < td));
+        }).length
+      : 0;
   } catch (e) {}
   return (td2LateMemo = { t: td2Tick, n: n, u: u }), n;
 }
@@ -609,13 +617,13 @@ function td2RowHtml(x, i, lead, desk, sel) {
     due = x.dueW ? `<span class="td2-due${x.late ? " late" : ""}">${esc(x.dueW)}</span>` : "",
     wait = x.wait ? `<span class="td2-wait">${td2Svg("clock", 12, 2.2)}${esc(x.wait)}</span>` : "";
   if (desk)
-    return `<div class="td-card td2-row${sel ? " sel" : ""}" data-td2sel="${i}" data-kind="${esc(x.it.kind)}" data-id="${esc(String(x.it.id))}"${ea}><span class="td2-ic">${td2Svg(x.icon)}</span><span class="td2-what"><a href="#" data-tdrec>${esc(x.title)}</a><span class="td2-meta">${esc(x.meta)}</span>${wait}</span><span class="td2-amt">${x.amt ? esc(td2Money(x.amt)) : ""}</span><span class="td2-when${x.late ? " late" : ""}">${esc(x.dueW)}</span><span class="td2-act">${sel ? "" : `<button type="button" class="btn td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button>`}</span></div>`;
+    return `<div class="td-card td2-row${sel ? " sel" : ""}" data-td2sel="${i}" data-kind="${esc(x.it.kind)}" data-id="${esc(String(x.it.id))}" data-verb="${esc(c.verb)}"${ea}><span class="td2-ic">${td2Svg(x.icon)}</span><span class="td2-what"><a href="#" data-tdrec>${esc(x.title)}</a><span class="td2-meta">${esc(x.meta)}</span>${wait}</span><span class="td2-amt">${x.amt ? esc(td2Money(x.amt)) : ""}</span><span class="td2-when${x.late ? " late" : ""}">${esc(x.dueW)}</span><span class="td2-act">${sel ? "" : `<button type="button" class="btn td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button>`}</span></div>`;
   let note = "";
   if (lead)
     try {
       note = tdWords(String(standardWhy(x.it) || "").replace(/^Because:\s*/, ""), 12);
     } catch (e) {}
-  return `<div class="td-card td2-row" data-kind="${esc(x.it.kind)}" data-id="${esc(String(x.it.id))}"${ea}><span class="td2-ic">${td2Svg(x.icon)}</span><div class="td-txt td2-txt"><a href="#" class="td2-t" data-tdrec>${esc(x.title)}</a><span class="td2-meta">${due}${due && x.meta ? " · " : ""}${esc(x.meta)}</span>${wait}${note ? `<span class="td2-note">${esc(note)}</span>` : ""}${lead ? `<button type="button" class="btn primary td2-lead td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}${x.amt && !/\$/.test(c.verb) ? `, ${esc(td2Money(x.amt))}` : ""}</button>` : ""}</div>${lead ? "" : `<button type="button" class="btn td2-act td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button>`}</div>`;
+  return `<div class="td-card td2-row" data-kind="${esc(x.it.kind)}" data-id="${esc(String(x.it.id))}" data-verb="${esc(c.verb)}"${ea}><span class="td2-ic">${td2Svg(x.icon)}</span><div class="td-txt td2-txt"><a href="#" class="td2-t" data-tdrec>${esc(x.title)}</a><span class="td2-meta">${due}${due && x.meta ? " · " : ""}${esc(x.meta)}</span>${wait}${note ? `<span class="td2-note">${esc(note)}</span>` : ""}${lead ? `<button type="button" class="btn primary td2-lead td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}${x.amt && !/\$/.test(c.verb) ? `, ${esc(td2Money(x.amt))}` : ""}</button>` : ""}</div>${lead ? "" : `<button type="button" class="btn td2-act td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button>`}</div>`;
 }
 function td2AsideHtml(x) {
   if (!x) return "";
@@ -683,7 +691,14 @@ function tdRender() {
     )
     .join("");
   const empty = `<div class="td-empty">${{ late: "Nothing of yours is late.", appr: "Nothing waits on your approval.", wait: "Nothing of yours waits on someone else." }[T.tab] || "Nothing waits on you today."}</div>`,
-    more = T.hidden > 0 ? `<a href="#" class="td-more td2-more" data-tdyopen>${T.hidden} more</a>` : "all" === T.tab && tdyAllOpen ? '<a href="#" class="td-more td2-more" data-tdyopen>Show Fewer</a>' : "",
+    more =
+      T.hidden > 0
+        ? `<a href="#" class="td-more td2-more" data-tdyopen>${T.hidden} more</a>`
+        : "all" === T.tab && tdyAllOpen
+          ? '<a href="#" class="td-more td2-more" data-tdyopen>Show Fewer</a>'
+          : "appr" === T.tab && (ROLE_VIEWS[r] || []).includes("mapprove") && T.Q.length
+            ? '<a href="#" class="td-more td2-more" data-tdall>Open the Approvals Page</a>'
+            : "",
     quiet = `<button type="button" class="td2-quiet" aria-expanded="${td2QuietOpen}" data-td2quiet><span class="grow">${esc(td2QuietWords(P, caught.length))}</span>${td2Svg("down", 16, 2)}</button>${td2QuietOpen ? `<div class="td2-quietbox">${td2QuietHtml(P, caught, shownC)}</div>` : ""}`,
     cal = (() => {
       if (!desk || "function" != typeof lnCalFor) return "";
@@ -741,6 +756,8 @@ function tdRender() {
         e.preventDefault(), tdyTabSet(b.dataset.tdytabbtn), (td2Sel[k] = 0), render();
       }),
   );
+  const tall = root.querySelector("[data-tdall]");
+  tall && (tall.onclick = (e) => (e.preventDefault(), (window.mApprKind = "all"), setView("mapprove")));
   const topen = root.querySelector("[data-tdyopen]");
   topen && (topen.onclick = (e) => (e.preventDefault(), (tdyAllOpen = !tdyAllOpen), render()));
   const q = root.querySelector("[data-td2quiet]");

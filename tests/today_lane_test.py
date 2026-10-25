@@ -72,18 +72,19 @@ async def union_and_counts(c, pg, uid, tag):
         ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
         c.ok(ev is None or ev == len(m['appr']), f"{tag}: the Approvals page's Everything {ev} vs Today's Approvals {len(m['appr'])}")
     if tag == 'coord':
-        # the coordinator owes the orders: the Buy Board lines late or due this week are Today's Buy Board chip, with
-        # Order (they are not tasks: taskfix #1)
+        # the coordinator owes the orders: the Buy Board lines late or due this week are rows of her Today, with Order
+        # (they are not tasks: taskfix #1). The approved Today mockup (2026-10-25) gives her All, Late and Waiting, so the
+        # orders are read from All opened in full, not from a Buy Board chip
         await go(pg, 'home'); await pg.wait_for_timeout(200)
-        await pg.click('.view.on [data-tdytabbtn="buy"]'); await pg.wait_for_timeout(300)
-        buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.querySelector('[data-tdverb]').innerText.trim(), e.dataset.ea || ''])")
-        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines he owes are Today's Buy Board chip with Order ({len(m['buyChip'])}: {buy[:3]})")
+        await pg.evaluate(ROWS); await pg.wait_for_timeout(200)
+        buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.dataset.verb, e.dataset.ea || ''])")
+        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines she owes are rows of her Today with Order ({len(m['buyChip'])}: {buy[:3]})")
         if buy:
-            await pg.click('.view.on .td-do .td-card[data-kind="tdyBuy"] [data-tdverb]'); await pg.wait_for_timeout(400)
+            await pg.click('.view.on .td-do .td-card[data-kind="tdyBuy"] [data-tdverb] >> nth=0'); await pg.wait_for_timeout(400)
             t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
             c.ok(t.startswith('Order'), f'coord: Order opens the PO sheet on the line ({t!r})')
             await pg.evaluate("() => mbCloseModal()")
-        await pg.click('.view.on [data-tdytabbtn="all"]'); await pg.wait_for_timeout(200)
+        await pg.evaluate("() => { tdyAllOpen = false; render(); }"); await pg.wait_for_timeout(200)
     if tag in ('owner', 'pm'):
         c.ok(m['team'] is not None, f'{tag}: a manager has Team')
     else:
