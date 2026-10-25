@@ -25,10 +25,11 @@ import json, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUN = f'selftest-{int(time.time())}'
-ENV = dict(os.environ, SIM_RUN=RUN)
+ENV = {k: v for k, v in dict(os.environ, SIM_RUN=RUN).items() if k not in ('SIM_AI_TOKEN', 'SIM_AI_TOKEN_FILE', 'SIM_PLAN')}   # the selftest never reaches the live assistant
 RD = os.path.join(HERE, 'runs', RUN)
 FAILS, N = [], [0]
 PROC = [None]
+CYC = [{}]
 
 
 def check(ok, msg):
@@ -126,10 +127,16 @@ def main():
     os.makedirs(os.path.join(HERE, 'runs'), exist_ok=True)
     t0 = time.time()
     click_unit()
+    import selftest_cycle   # Pilot 3 without a browser: the book, the referee on fixture companies, coverage, the judge
+    F0 = len(selftest_cycle.FAILS); selftest_cycle.unit()
+    N[0] += selftest_cycle.N[0]; FAILS.extend(selftest_cycle.FAILS[F0:])
+    if '--unit' in sys.argv:
+        print(f"\n{N[0] - len(FAILS)}/{N[0]} checks passed (units only)"); return 1 if FAILS else 0
     secs = start()
     print(f'world up in {secs}s (run {RUN})', flush=True)
     try:
         flow()
+        flow_p3()
     except Stop as e:
         check(False, f'the flow stopped: {e}')
     finally:
@@ -160,6 +167,7 @@ def flow():
     except urllib.error.HTTPError as e:
         check(e.code == 403, 'admin without the run token is refused')
     ctl('party', 'Ferguson', json.dumps({'reply_p': 1, 'delay': [0, 0], 'ship': [0], 'pay': 'card', 'late_p': 0}))
+    CYC[0] = ctl('cycle', 'on', '--play', 'u_controller')   # Pilot 3's book from the first morning; the controller plays here (step 7 imports the statement)
     w = ctl('world', 'morning', '--no-watchers')
     check('P2-01 · mail' in str(w.get('raw') or w), 'Pilot 2 book: the prospect\'s first mail (P2-01) goes out with the morning')
 
@@ -280,6 +288,7 @@ def flow():
     inv = (re.findall(r'Invoice ([A-Z]{2,4}-\d+) for ' + re.escape(po), out) or [''])[0]
     check(bool(inv), f'world: the supplier\'s invoice {inv} is in the coordinator\'s mailbox')
     rc, out = act('u_chen', 'go', 'Today > Inbox')
+    if not num(out, r'^To Decide'): rc, out = act('u_chen', 'go', 'Messages > Mail')   # the inbox is Messages > Mail since the p2nav merge
     rc, out = act('u_chen', 'tap', num(out, r'^To Decide'))
     rc, full = act('u_chen', 'screen', '--full')
     rc, out = act('u_chen', 'tap', row_before(full, r'Invoice ' + re.escape(inv)))
@@ -367,6 +376,72 @@ def flow():
     md = open(os.path.join(RD, 'cost.md')).read()
     check('123,456' in md and any(os.path.exists(os.path.join(RD, f'cost_{d}.json')) for d in ('2026-09-03', '2026-09-04')),
           'cost: the conductor\'s measured tokens reach cost.md and the per-day file')
+
+
+def flow_p3():
+    """Pilot 3 on the live world: the cycle book on, mail to several people with a cc, the why and the page on every
+    action, an interruption mid-turn, the live-assistant door closed without a token, a scripted controller import,
+    the Pilot 3 prompt with the live Standard, the referee's Business cycle section and the judge's trail."""
+    r = CYC[0]
+    check(r.get('cycle') is True and r.get('roles') == ['u_owner', 'u_alan', 'u_chen', 'u_billing'] and 'u_angel' in (r.get('scripted') or []) and r.get('play') == ['u_controller'],
+          f"Pilot 3: the cycle book is on from the first morning, four roles play, the rest scripted unless told to play ({r})")
+    ctl('plan', 'sim/day_plan_pilot3.json')
+    ctl('begin', 'u_owner', 'work1', '--cap', '6')
+    rc, out = act('u_owner', 'mail', 'send', 'Chen, Billing', 'Selftest: numbers for Tuesday', 'Bring your numbers to the meeting.',
+                  '--cc', 'alan.pm@smartdesign.nyc', '--why', 'the meeting decides from the numbers')
+    check(rc == 0 and all(f'delivered to {u}' in out for u in ('u_chen', 'u_billing', 'u_alan')) and '(cc ' in out,
+          f'mail: one message to two colleagues with the PM on cc reaches all three ({out.splitlines()[0][:120] if out else out})')
+    rc, out = act('u_owner', 'go', 'Sales')
+    ctl('end')
+    w = ctl('world', 'work1', '--no-watchers')
+    wr = str(w.get('raw') or w)
+    first = next((json.loads(x) for x in open(os.path.join(RD, 'actions.jsonl')) if '"cmd": "world"' in x), {})
+    check(['Y-01', 'mail', 'u_owner,u_alan'] in ((first.get('result') or {}).get('events') or []) and 'Y-19 · interrupt · queued for u_alan' in wr,
+          'cycle book: the Ashbys\' first mail reaches the owner and the PM (cc), and Angel\'s call is queued to cut into the PM\'s turn')
+    ctl('begin', 'u_alan', 'work1', '--cap', '8')
+    rc, out = act('u_alan', 'news')
+    check('pendant' in out and '214 Lincoln' in out, 'cycle book: the PM\'s news has the walk-through notes and the pendants he bought')
+    for _ in range(3): rc, out = act('u_alan', 'screen')
+    check('INTERRUPTION (call from Angel)' in out and 'GFI' in out, 'interruption: Angel\'s call cuts into the PM\'s turn, in front of the next result')
+    rc, out = act('u_alan', 'call', 'Angel', 'Yes, the pantry GFI is approved; John can do it Monday with the rough.', '--why', 'a blocking field question answered inside the hour')
+    ctl('end')
+    ctl('begin', 'u_chen', 'work1', '--cap', '3')
+    rc, out = act('u_chen', 'mail')
+    check('Selftest: numbers for Tuesday' in out, 'mail: the coordinator has the owner\'s message in his own mailbox')
+    ctl('end')
+    port = json.load(open(os.path.join(RD, 'server.json')))['port']
+    try:
+        urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{port}/api/ai', data=b'{"messages":[]}', headers={'Content-Type': 'application/json'}))
+        check(False, 'the live assistant door is closed without a session token')
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        check(e.code == 503 and 'SIM_AI_TOKEN' in body, f'the live assistant door is closed without a session token (503: {body[:80]})')
+    csv = 'Date,Description,Amount,Reference\n2026-09-04,SELFTEST CARD LINE,-12.34,AC2-SELFTEST-1\n'
+    r1 = ctl('script', json.dumps({'do': 'import_statement', 'as': 'u_controller', 'acct': 'ac2', 'name': 'selftest_ac2.csv', 'csv': csv}))
+    r2 = ctl('script', json.dumps({'do': 'match', 'as': 'u_controller', 'rx': 'SELFTEST CARD'}))
+    db = json.load(open(os.path.join(RD, 'db.json')))
+    check((r1.get('result') or {}).get('ok') and any(t.get('desc') == 'SELFTEST CARD LINE' for t in db.get('txns') or []) and (r2.get('result') or {}).get('ok'),
+          f"scripted controller: a statement imported through Banking's own import and the app's matches confirmed ({(r1.get('result') or {}).get('text', r1)})")
+    p = ctl('prompt', 'u_chen')
+    pt = str(p.get('raw') or p)
+    sp = (re.findall(r'`([^`]*standard/u_chen\.md)`', pt) or [''])[0]
+    check('Buy out 214 Lincoln Place' in pt and '--why' in pt and sp and 'Procurement Manager' in open(sp).read() and 'plan' in pt,
+          'Pilot 3 prompt: top-down objectives, the why on significant actions, the plan, and the live Standard with the procurement playbook')
+    r = ctl('referee')
+    L = json.load(open(os.path.join(RD, 'ledger.json')))
+    S = {s['id']: s for s in (L.get('cycle') or {}).get('steps') or []}
+    md = open(os.path.join(RD, 'ledger.md')).read()
+    check(S.get('C62', {}).get('status') == 'right' and S.get('C01', {}).get('status') == 'not done' and '## Business cycle' in md and 'Money leaks planted' in md,
+          f"referee: the Business cycle section is in the ledger; the PM answered Angel's call (C62 {S.get('C62', {}).get('status')}); the Ashbys are not on file yet (C01 {S.get('C01', {}).get('status')})")
+    check('things missing on' in (L.get('line') or '') and 'Documents: what is missing' in md, 'documents: the ledger reports what is missing (what reached the person), not back-end gaps')
+    acts = [json.loads(x) for x in open(os.path.join(RD, 'actions.jsonl'))]
+    check(any(a.get('why') and a.get('cmd') == 'mail' for a in acts) and any(a.get('cmd') == 'why' for a in acts) and any((a.get('where') or {}).get('view') for a in acts)
+          and any(a.get('minutes') for a in acts), 'the action log carries the why, the page (view, tab, job) and the minutes of each action')
+    j = ctl('judge', 'u_alan')
+    jt = str(j.get('raw') or j)
+    tp = (re.findall(r'`([^`]*judge/u_alan_[\d-]+_trail\.md)`', jt) or [''])[0]
+    tr = open(tp).read() if tp and os.path.exists(tp) else ''
+    check('realism judge' in jt and 'INTERRUPTION' in tr and 'why:' in tr and '"realistic"' in jt, f'judge: the prompt names the trail, which carries the interruption and the reasons ({tp})')
 
 
 if __name__ == '__main__':

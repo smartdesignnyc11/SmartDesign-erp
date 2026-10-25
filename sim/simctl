@@ -22,12 +22,17 @@
     sim/simctl world-agent on|off               write each scheduled outside reply to world/pending/ for an LLM to voice
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
+    sim/simctl cycle on|off [--play u_controller]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles (--play: those that play after all)
+    sim/simctl script '<json>'                 Pilot 3: run one scripted world action again (sim/script_p3.js), e.g. '{"do": "payroll", "as": "u_controller"}'
+    sim/simctl judge <uid> [--day D]            Pilot 3: the realism judge's prompt for that person's day (sim/realism_judge.md); the trail is written beside it
+    sim/simctl begin ... --minutes N            a budget of working minutes for the turn (the plan's `minutes` per slot otherwise)
     sim/simctl stop                             save everything and stop the server
 """
 import json, os, sys, urllib.request
 from datetime import date
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 def plan():
     run, d = run_dir()
     f = os.environ.get('SIM_PLAN') or (open(os.path.join(d, 'plan.txt')).read().strip() if os.path.exists(os.path.join(d, 'plan.txt')) else os.path.join(HERE, 'day_plan.json'))
@@ -76,8 +81,103 @@ def admin(cmd, **kw):
     with urllib.request.urlopen(req, timeout=1800) as f: return json.loads(f.read())
 
 
+def plan_cap(uid, slot):
+    """the turn's action cap: Pilot 3's per role, per slot and per day (caps[uid][slot], cap_days[day][uid][slot]),
+    else the plan's per slot (the work slots share 'work'), else SIM_CAP"""
+    P = plan(); C = P.get('caps', {})
+    day = (P.get('cap_days') or {}).get(str(day_no()), {}).get(uid, {})
+    if slot in day: return int(day[slot])
+    if isinstance(C.get(uid), dict): return int(C[uid].get(slot) or C[uid].get('work' if slot.startswith('work') else slot) or 25)
+    return int(C.get(slot) or C.get('work' if slot.startswith('work') else slot) or os.environ.get('SIM_CAP', '25'))
+
+
+def plan_minutes(slot):
+    return float((plan().get('minutes') or {}).get(slot) or 0)
+
+
+def write_standard(uid):
+    """the Standard as the company holds it today, for this person (sim/pilot3.py), into the run folder"""
+    import cycle as CY, pilot3 as P3
+    run, d = run_dir()
+    os.makedirs(os.path.join(d, 'standard'), exist_ok=True)
+    p = os.path.join(d, 'standard', f'{uid}.md')
+    db = json.load(open(os.path.join(d, 'db.json'), encoding='utf-8')) if os.path.exists(os.path.join(d, 'db.json')) else {}
+    open(p, 'w', encoding='utf-8').write(P3.standard_md(db, uid, CY.load_book()))
+    return p
+
+
+def prompt_p3(uid, b):
+    """Pilot 3's turn prompt (sim/turn_prompt_p3.md): goals and measures from the top, a plan each morning, a review each
+    evening, a why on every significant action, a budget of minutes, and the meeting's questions on the last day"""
+    import cycle as CY
+    run, d = run_dir(); P = plan(); B = CY.load_book()
+    tpl = open(os.path.join(os.path.dirname(HERE), P['turn_prompt'])).read()
+    st = admin('status'); t = st.get('turn') or {}
+    cap = str(t['cap']) if t.get('uid') == uid else str(plan_cap(uid, b['slot']))
+    mins = round((t.get('min_cap') if t.get('uid') == uid and t.get('min_cap') else plan_minutes(b['slot'])) or 0)
+    day, last = b['day'], day_no() >= int(P.get('days') or 3)
+    briefing = os.path.join(os.path.dirname(HERE), P.get('roles_dir', 'sim/roles'), uid + '.md')
+    vals = {**{k: str(v) for k, v in b.items()}, 'weekday': date.fromisoformat(day).strftime('%A %B %-d'), 'slot_label': SLOT_LABEL.get(b['slot'], b['slot']),
+            'cap': cap, 'minutes': str(mins or 'the rest of the'), 'root': os.path.dirname(HERE), 'briefing': briefing, 'diary': os.path.join(d, 'diary', uid + '.md'),
+            'standard': write_standard(uid), 'objectives': '\n'.join('- ' + o for o in B['objectives'].get(uid, [])),
+            'eod': 'yes' if b['slot'] == 'eod' else 'no'}
+    T = my_tasks(uid, b['slot'])
+    vals['tasks'] = ('Work that came in for you today:\n' + '\n'.join('- ' + x['task'] for x in T)) if T else ''
+    vals['device'] = ('phone (390x844, touch, one hand)' if b['phone'] else 'desktop') + (
+        '; this turn you may also pick up your ' + ('desktop' if b['phone'] else 'phone') + f' (`sim/act {uid} device ' + ('desktop' if b['phone'] else 'phone') + '`)' if b.get('switch') else '')
+    if b['slot'] == 'morning':
+        vals['plan_or_review'] = (f'Your first turn of the day: before anything else, write today\'s plan in your diary under `## {day} plan`: your priorities in order '
+                                  'and why (your measures and the Standard\'s decision order), what could go wrong today, and what you will check before you call each thing done. Then work it.')
+    elif b['slot'] == 'eod':
+        vals['plan_or_review'] = 'The last turn of your day: finish what must not wait for tomorrow, then write your review (below).'
+    else:
+        vals['plan_or_review'] = 'Work your plan. If the day changed it (a call, a client, a problem on site), say in one diary line what moved and why.'
+    eod = ''
+    if b['slot'] == 'eod':
+        eod = (f'Write `## {day} end of day` in your diary: what got done against this morning\'s plan; what you checked and how you checked it '
+               '(for example: did the order show against its estimate line? does the invoice match the schedule of values? does AR tie to the bank?); '
+               'what you hand off, to whom, by when; then the judgement blocks `_common.md` asks for, the UI/UX for the phone and the desktop each ending '
+               'with its `Grade, phone: n/10` or `Grade, desktop: n/10` line.')
+        if last:
+            Q = B['questions'].get(uid, [])
+            eod += ('\n  It is the day of the team meeting: bring your numbers. Find them in the app the way you would, then write them in your diary under '
+                    '`## Numbers for the team meeting`, one line per question, `Q1: ...`, with the figures and where in the app you read them. If the app '
+                    'cannot tell you, say so and say what you would do:\n' + '\n'.join(f'  - {q[0]}: {q[2]}' for q in Q))
+    vals['eod_text'] = eod
+    for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
+    reads = 0
+    for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, vals['diary'], vals['standard']):
+        try: reads += os.path.getsize(f)
+        except Exception: pass
+    try: admin('note_prompt', uid=uid, chars=len(tpl), reads=reads)
+    except Exception: pass
+    return tpl
+
+
+ROLE_TITLE = {'u_owner': 'founder and owner of a design-build firm', 'u_alan': 'project manager', 'u_chen': 'procurement manager and coordinator', 'u_billing': 'construction billing and AR lead'}
+
+
+def judge(uid, day=None):
+    """the realism judge's prompt for one person's day (sim/realism_judge.md), with the trail written beside it"""
+    import pilot3 as P3
+    run, d = run_dir()
+    st = admin('status'); day = day or st['day']
+    A = [json.loads(l) for l in open(os.path.join(d, 'actions.jsonl')) if l.strip()]
+    os.makedirs(os.path.join(d, 'judge'), exist_ok=True)
+    tp = os.path.join(d, 'judge', f'{uid}_{day}_trail.md')
+    open(tp, 'w', encoding='utf-8').write(P3.trail_md(A, uid, day))
+    P = plan()
+    vals = {'uid': uid, 'day': day, 'name': {'u_owner': 'Alan Mishali', 'u_alan': 'Alan (PM)', 'u_chen': 'Chen Biron', 'u_billing': 'Billing'}.get(uid, uid),
+            'role_title': ROLE_TITLE.get(uid, 'professional'), 'briefing': os.path.join(os.path.dirname(HERE), P.get('roles_dir', 'sim/roles'), uid + '.md'),
+            'standard': os.path.join(d, 'standard', f'{uid}.md'), 'diary': os.path.join(d, 'diary', uid + '.md'), 'trail': tp,
+            'answer': os.path.join(d, 'judge', f'{uid}_{day}.json')}
+    tpl = open(os.path.join(HERE, 'realism_judge.md')).read().split('-->', 1)[-1].strip()
+    return P3.judge_prompt(tpl, vals)
+
+
 def prompt(uid):
     b = admin('brief', uid=uid)
+    if plan().get('turn_prompt'): return prompt_p3(uid, b)
     run, d = run_dir()
     tpl = open(os.path.join(HERE, 'turn_prompt.md')).read()
     cap = str(plan().get('caps', {}).get(b['slot']) or os.environ.get('SIM_CAP', '25'))
@@ -115,7 +215,8 @@ def main(a):
         r = admin('world', **kw)
     elif c == 'begin':
         slot = a[2] if len(a) > 2 and not a[2].startswith('--') else admin('status')['slot']
-        cap = int(a[a.index('--cap') + 1]) if '--cap' in a else int(plan().get('caps', {}).get(slot) or os.environ.get('SIM_CAP', '25'))
+        cap = int(a[a.index('--cap') + 1]) if '--cap' in a else plan_cap(a[1], slot)
+        minutes = float(a[a.index('--minutes') + 1]) if '--minutes' in a else plan_minutes(slot)
         admin('slot', slot=slot)
         T = my_tasks(a[1], slot)
         if T: cap = max(cap, max(t.get('cap', 0) for t in T))
@@ -123,7 +224,7 @@ def main(a):
         if '+' in dev: dev, switch = dev.split('+')[0], True
         else: switch = '--switch' in a
         if switch and not ('--cap' in a): cap += int(plan().get('switch_cap') or 0)   # looking at the other device costs a few actions
-        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, device=dev, switch=switch, phone=dev == 'phone')
+        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, minutes=minutes, device=dev, switch=switch, phone=dev == 'phone')
         if T: r['tasks'] = [t['doc'] + f" on the {task_device(t) or r['turn']['device']}" for t in T]
     elif c == 'plan':
         run, d = run_dir(); open(os.path.join(d, 'plan.txt'), 'w').write(a[1]); r = {'plan': a[1]}
@@ -139,6 +240,10 @@ def main(a):
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
+    elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [])
+    elif c == 'script': r = admin('script', payload=json.loads(a[1]))
+    elif c == 'judge':
+        print(judge(a[1], a[a.index('--day') + 1] if '--day' in a else None)); return 0
     elif c == 'cost':
         kw = {'uid': a[1]} if a[1].startswith('u_') else {'label': a[1]}
         for k in ('tokens', 'tool-uses', 'ms', 'input', 'output', 'cache-read'):

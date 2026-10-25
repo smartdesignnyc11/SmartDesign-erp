@@ -15,12 +15,15 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
   - `do '<step>; <step>; ...'` runs up to 8 of those steps in one call (see Saving effort below).
   - `go "<menu label>"` opens your menu entry by the label you see in `Menu:` ("Purchasing", or "Purchasing > Deliveries").
   - `ask "question"` asks your own assistant in the app.
-  - `mail`, `mail read <n>`, `mail reply <n> "text"`, `mail send "to" "subject" "body"`, `mail drafts`,
+  - `mail`, `mail read <n>`, `mail reply <n> "text"` (add `--all` to answer everyone on it), `mail send "to, to" "subject" "body"`
+    (several people, by name or email; `--cc "name, name"` for copies), `mail drafts`,
     `mail senddraft <n>`: your own mailbox. Attachments you read are saved under your files folder; the path is
     printed so you can `upload` them.
   - `call "<person>" "what you said"`: a phone call. It goes in both diaries and nowhere else. A call is not a
     record: if it is a promise or a decision, log it in the app.
   - `news`: what happened around you since your last turn (on site, at home, calls you got). Read it first.
+  - `--why "..."` on any action: the one-line reason you did it (the goal, the measure or the line of the Standard).
+    It goes in the record with the action; your day is reviewed from it.
   - `device`: which device you are on. The day plan puts you on your phone (390px, touch, one hand) or your desktop
     for each turn; office people take at least one turn a day on the phone. When your turn allows it,
     `device phone` or `device desktop` picks up the other one (same login, same screen).
