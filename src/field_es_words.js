@@ -378,7 +378,7 @@ esAdd({
   "Requests on This Job": "Pedidos de Esta Obra",
   "My Requests": "Mis Pedidos",
   "Your Requests": "Tus Pedidos",
-  "What do you need? e.g. 40 2x4x8, a box of 3": "¿Qué necesitas? ej. 40 2x4x8, una caja de 3",
+  "What do you need? e.g. 40 2x4x8, a box of 3 inch screws, bring the table saw": "¿Qué necesitas? ej. 40 2x4x8, una caja de tornillos de 3 pulgadas, trae la sierra de mesa",
   "What Do You Need": "Qué Necesitas",
   "What You Need": "Lo que Necesitas",
   "Did you forget?": "¿Se te olvidó?",

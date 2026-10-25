@@ -60,14 +60,30 @@ NAV_AWAY = r"""(cur) => {
   const b = C.find(x => !x.classList.contains('on') && !x.matches('[aria-current=page]') && !/menu|more/i.test(x.innerText || x.getAttribute('aria-label') || '')) || null;
   if (!b) return null;
   b.setAttribute('data-w1nav', '1');
-  const r = b.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, label: (b.innerText || b.getAttribute('aria-label') || '').trim().slice(0, 30) };
+  const r = b.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  // a phone sheet covers the bottom bar: the person cannot tap the bar through it (they tap outside or go Back)
+  const top = document.elementFromPoint(x, y);
+  if (!(top && b.contains(top))) return null;
+  return { x, y, label: (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 30) };
 }"""
 OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u); const B = mnBuild(role());
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   if (it) mnGo(g, it); else { view = v; render(); } return view; }"""
-TEXTLIKE_KINDS ={'button', 'card', 'link', 'tile', 'chip', 'summary'}
+# The pilot's sheets by name (Q14, Q44), opened the way the person reached them; walked whether or not the menu walk
+# reached them. (person, phone?, name, what opens it, the field typed in). A page form (no sheet) is typed on the page.
+NAMED = [
+    ('u_owner', False, 'New Lead (Sales)', "view = 'ovsales'; render(); scLeadSheet(null);", '#mbm [data-f="name"]'),
+    ('u_alan', False, 'Answer to the field', "const r = DB.field.raises.find(x => !['answered', 'closed'].includes(x.status)) || DB.field.raises[0]; setCurrent(r.projectId); view = 'home'; render(); fAnswerRaise(r);", '#mbm [data-f="a"]'),
+    ('u_alan', True, 'Answer to the field', "const r = DB.field.raises.find(x => !['answered', 'closed'].includes(x.status)) || DB.field.raises[0]; setCurrent(r.projectId); view = 'home'; render(); fAnswerRaise(r);", '#mbm [data-f="a"]'),
+    ('u_angel', True, 'Crew hours Fix', "setCurrent('p121'); view = 'fcrew'; render(); const b = document.querySelector('[data-ffix]'); b ? b.click() : openTime((DB.time.find(t => t.empId === 'em2') || DB.time[0]).id);", '#mbm input[type="time"], #mbm textarea, #drawer.on #d-body input[type="time"], #drawer.on #d-body textarea'),
+    ('u_sarah', False, 'Make It a Task from a mail', "const c = DB.comms.find(x => x.direction !== 'out' && (x.route || {}).projectId) || DB.comms[0]; view = 'home'; render(); newTaskDialog({ title: 'Answer ' + ((c.from || {}).name || 'them'), projectId: (c.route || {}).projectId || '', source: { commId: c.id, label: 'a message' } });", '#mbm [data-f="waitsOn"]'),
+    ('u_chen', False, 'Payment terms, Custom', "const po = DB.pos.find(x => x.status === 'draft') || DB.pos[0]; poOpen = po.id; view = 'po'; render(); poTermsDialog(po);", '#mbm textarea, #mbm input[type="number"], #mbm input[data-f]'),
+    ('u_chen', True, 'Payment terms, Custom', "const po = DB.pos.find(x => x.status === 'draft') || DB.pos[0]; poOpen = po.id; view = 'po'; render(); poTermsDialog(po);", '#mbm textarea, #mbm input[type="number"], #mbm input[data-f]'),
+    ('u_controller', False, 'Bill entry', "view = 'ap'; render(); openEditor('bill', null);", '#drawer.on #d-body textarea, #drawer.on #d-body input[type="text"], #drawer.on #d-body input:not([type])'),
+    ('u_alberto', True, 'The request sheet (Requests)', "setCurrent('p121'); view = 'req'; render();", '#cp-text'),
+]
+TEXTLIKE_KINDS = {'button', 'card', 'link', 'tile', 'chip', 'summary'}
 
 
 class DraftWalk(TapLint):
@@ -125,8 +141,9 @@ class DraftWalk(TapLint):
         await self.pg.wait_for_timeout(120)
         return True
 
-    async def leave(self, how, phone):
+    async def leave(self, how, phone, depth=0):
         pg = self.pg
+        if depth > 1: return None
         if how == 'back':
             can = await pg.evaluate("() => !!(history.state && history.state.rx && (history.state.d || 0) > 0)")
             if can:
@@ -147,7 +164,7 @@ class DraftWalk(TapLint):
                 await self.settle(120, 1200); return 'a tap outside'
             how = 'nav'
         nv = await pg.evaluate(NAV_AWAY, None)
-        if not nv: return None
+        if not nv: return await self.leave('outside', phone, depth + 1)
         # the bar may sit under the sheet: the person closes nothing first, they tap the bar where it shows
         if phone: await pg.touchscreen.tap(nv['x'], nv['y'])
         else: await pg.mouse.click(nv['x'], nv['y'])
@@ -221,6 +238,39 @@ class DraftWalk(TapLint):
         await pg.evaluate(CLEAN)
         return ok
 
+    async def named_trip(self, uid, phone, name, setup, sel):
+        pg, C = self.pg, self.checks
+        vp = 'phone' if phone else 'desktop'
+        tag = f'{vp} {uid} "{name}"'
+        await pg.evaluate(CLEAN)
+        await pg.evaluate("([db, u]) => { DB = JSON.parse(db); signIn(u); render(); }", [self.boot_db, uid])
+        await self.settle(150, 1500)
+        run = "async (s) => { try { (new Function(s))(); } catch (e) { return String(e); } return ''; }"
+        err = await pg.evaluate(run, setup)
+        await pg.wait_for_timeout(350)
+        pick = """(sel) => { document.querySelectorAll('[data-w1t]').forEach(x => x.removeAttribute('data-w1t'));
+          const f = [...document.querySelectorAll(sel)].find(x => x.getClientRects().length && !x.disabled && !x.readOnly);
+          if (!f) return null; f.setAttribute('data-w1t', '1'); return { type: f.type || f.tagName.toLowerCase(), sheet: !!f.closest('#mbm, #drawer.on') }; }"""
+        f = await pg.evaluate(pick, sel)
+        if not f:
+            self.results.append({'vp': vp, 'user': uid, 'title': name, 'how': 'by name', 'ok': None, 'detail': 'did not open: ' + (err or 'no field')})
+            C.ok(False, f"{tag}: the sheet opens with its field ({err or 'no field'})"); return
+        val = {'number': '173', 'time': '06:45', 'date': '2026-09-09'}.get(f['type'], f"Typed for {name}, kept")
+        await pg.fill('[data-w1t="1"]', val)
+        await pg.wait_for_timeout(450)
+        said = await self.leave('nav', phone)
+        await pg.wait_for_timeout(300)
+        open_after = await pg.evaluate("() => !!document.querySelector('#mbm, #drawer.on')")
+        await pg.evaluate(run, setup)
+        await pg.wait_for_timeout(400)
+        f2 = await pg.evaluate(pick, sel)
+        got = await pg.evaluate("() => { const f = document.querySelector('[data-w1t=\"1\"]'); return f ? f.value : null; }") if f2 else None
+        ok = got == val and (not f['sheet'] or not open_after)
+        if f['sheet']: C.ok(not open_after, f"{tag}: left by {said}, the sheet closed with its screen")
+        C.ok(got == val, f"{tag}: left by {said} and opened again, it holds what was typed ({got!r})")
+        self.results.append({'vp': vp, 'user': uid, 'title': name, 'how': f'by name, left by {said}', 'ok': ok, 'detail': '' if ok else f'value {got!r}, still open {open_after}'})
+        await pg.evaluate(CLEAN)
+
     async def run(self):
         a = self.a
         hows = ['nav', 'escape', 'outside', 'back']
@@ -230,13 +280,19 @@ class DraftWalk(TapLint):
                 await self.boot(p, phone)
                 for u in a.users:
                     t0 = time.time()
-                    F = await self.discover(u, phone, vp)
+                    F = [] if a.named else await self.discover(u, phone, vp)
                     self.found += F
                     if not a.quiet: print(f'-- {vp} {u}: {len(F)} sheets that take typing ({time.time() - t0:.0f}s): ' + ' | '.join(f['title'][:30] for f in F), flush=True)
                     for i, f in enumerate(F[:a.max] if a.max else F):
                         try: await self.round_trip(f, hows[i % len(hows)], phone, extra=(i == 0))
                         except Exception as e:
                             self.checks.ok(False, f"{vp} {u} \"{f['title'][:40]}\": the walk failed: {str(e).splitlines()[0][:120]}")
+                            await self.load()
+                    for (nu, nph, name, setup, sel) in NAMED:
+                        if nu != u or nph != phone or a.views: continue
+                        try: await self.named_trip(nu, nph, name, setup, sel)
+                        except Exception as e:
+                            self.checks.ok(False, f"{vp} {u} \"{name}\": the walk failed: {str(e).splitlines()[0][:120]}")
                             await self.load()
                     await self.pg.evaluate(CLEAN)
                 await self.b.close()
@@ -263,7 +319,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--user'); ap.add_argument('--view')
     ap.add_argument('--phone', action='store_true'); ap.add_argument('--desktop', action='store_true')
-    ap.add_argument('--max', type=int, default=0); ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--max', type=int, default=0); ap.add_argument('--quiet', action='store_true'); ap.add_argument('--named', action='store_true', help='only the pilot sheets by name')
     a = ap.parse_args()
     a.rules = None; a.no_confirm = True
     a.users = a.user.split(',') if a.user else USERS
