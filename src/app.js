@@ -51579,6 +51579,10 @@ function finishBoot() {
     console.error("phase 6 migrate", e);
   }
   (document.body.dataset.booted = "1"), wire();
+  // a shell that boots without bootRun: sent invoices' postings are kept from the turn after the boot (glInvoiceLines)
+  setTimeout(() => {
+    glFreezeReady = !0;
+  }, 0);
   // the memo of derived numbers (speed.js) for a boot that did not come through bootRun (a shell calling finishBoot
   // directly): every render layer exists by now, so its layer is the outermost; a first boot keeps the old path
   try {
@@ -71570,10 +71574,15 @@ const glL = (acct, dr, cr, d) => Object.assign({ acct: acct, dr: r2(dr || 0), cr
 // never re-books money (glSync reversed and re-posted on any change, so a retitle moved a paid application's revenue
 // to deposits held). The first posting is kept on the invoice (glLines), with the print kind it went out as; a later
 // edit that would post differently is a Controller finding (glInvoiceDrift), corrected by a credit or a reversal.
+// Nothing is kept while the app boots: the seed and the migrations finish across the boot chain's layers, and a
+// posting kept half-way (121 State's INV-2026-035 at $80,833.50, settled a layer later at $80,833.51) left 1100 a
+// cent off the receivables (glFreezeReady, set when bootRun has finished).
+let glFreezeReady = !1;
 function glInvoiceLines(c, d) {
   if (!d || ["draft", "void"].includes(d.status)) return glInvoiceLinesLive(c, d);
   if (Array.isArray(d.glLines)) return d.glLines.map((l) => Object.assign({}, l));
   const L = glInvoiceLinesLive(c, d);
+  if (!glFreezeReady) return L;
   d.glLines = L.map((l) => Object.assign({}, l));
   try {
     !d.printKind && "function" == typeof cxKindAtSend && (d.printKind = cxKindAtSend(d));
@@ -107722,7 +107731,10 @@ function bootRun() {
   };
   // A first boot on this device seeds the demo company, and the seed is finished by work the render layers do
   // between the chain's layers (lnLoop("boot") reads what a render seeded): it runs exactly as it always did.
-  if (bootSeeded) return void (finishBoot(), install());
+  const settled = () => {
+    glFreezeReady = !0;
+  };
+  if (bootSeeded) return void (finishBoot(), install(), settled());
   install();
   const draw = render;
   // window.__sdBootDrawFirst (tests/speed_test.py) boots as before this change, drawing first, to compare
@@ -107746,6 +107758,7 @@ function bootRun() {
     holding = !1;
     const t = render.__tick || 0;
     render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, t)), wanted && render();
+    settled();
   }
 }
 /*<<speed.js>>*/
