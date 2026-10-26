@@ -22,7 +22,12 @@ Each rule below comes from time we lost this week. Every iteration of the improv
 6. **Never run the same thing twice on the same build.** Results are kept by build hash (`review/runs.md`). A suite already green on an unchanged build is not re-run. Only what a change touches is re-run, plus the month walk and the screen walk before a deploy. *(Lost: hours of nets re-run after a docs-only change.)*
 
 ## While building
-7. **One or two lanes, never sharing files.** A lane merges master and runs the screen walk, the full net and the month walk on its final head before it hands back. A hand-back without the month walk is not a hand-back. *(Lost: four lanes green alone and red together; a month walk that collapsed because no lane had run it.)*
+7. **One or two lanes, never sharing files; two test tiers (Alan, 10-26: "why does it feel like everything is taking 8x longer?").**
+   - **Review first.** The chief of staff reads a lane's diff as soon as its code is done, before the long tests. *(Lost 10-26: the estimate lane's 2-hour net ran before the review found two money faults, so it runs again.)*
+   - **The fast tier, per lane and per merge (about 20 to 30 minutes):** smoke, the suites of the modules touched, the lane's own new checks, and the screen walk. A lane hands back on the fast tier.
+   - **The full tier, once per deploy batch:** everything in the net, the drafts check (sharded by role across the slots) and the month walk, on the merged head that will ship. Lanes merged in one batch share one full tier.
+   - **Lanes do not merge master mid-work** unless a conflict forces it; the main session merges. *(Lost 10-26: the estimate lane merged master twice and re-ran its net twice.)*
+   *(Lost before: four lanes green alone and red together; a month walk that collapsed because no lane had run it. The full tier on the merged batch still catches that.)*
 8. **A pinned check changes only for an approved design.** The commit names which design changed what the check pins. Otherwise the app is wrong, not the check.
 9. **Ask what the checks did not check.** Before calling anything done, name the class of thing no check covers and either add the check or say plainly that it is uncovered.
 
@@ -34,3 +39,4 @@ Each rule below comes from time we lost this week. Every iteration of the improv
 | Date | What cost time without a result | The rule that changed |
 |---|---|---|
 | 10-26 | Green nets while real work failed; harness faults found after four turns; four lanes colliding at integration; re-running nets on unchanged builds | rules 1 to 7 written |
+- **10-26, afternoon.** Alan: everything takes 8x longer. Measured: a full net is 2 to 3 hours of wall time (drafts 100 min, month 60, walk 18) on four slots; today three merges each paid it, the estimate lane's review came after its net and sent it back, and an hour went to a drafts failure that was the check's own. Changed rule 7: review first, a fast tier per lane, one full tier per deploy batch, lanes stop chasing master, the drafts check sharded by role. Expected: lane to live from about 8 to 9 hours to 4 to 5. Measure it on the next two lanes.

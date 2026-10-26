@@ -341,6 +341,8 @@ def main():
     ap.add_argument('--phone', action='store_true'); ap.add_argument('--desktop', action='store_true')
     ap.add_argument('--max', type=int, default=0); ap.add_argument('--quiet', action='store_true'); ap.add_argument('--named', action='store_true', help='only the pilot sheets by name')
     a = ap.parse_args()
+    global OUT
+    OUT = os.environ.get('SD_DRAFTS_OUT') or OUT   # tests/drafts_shards.sh gives each shard its own folder
     a.rules = None; a.no_confirm = True
     a.users = a.user.split(',') if a.user else USERS
     a.views = set(a.view.split(',')) if a.view else None
