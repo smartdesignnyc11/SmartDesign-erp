@@ -4,7 +4,7 @@
 
 **What this is.** Step 1 of the module census (docs/PLAN.md): a machine inventory, not a judgment. No app code changed. `tests/projects_census.py` (its reader `tests/census_js.js` sits on the information map's `tests/ia_js.js`) signs in as each role at 1440 and at 390 and opens the Projects list the way the person does. Then, for two jobs, it opens the job page and every sub-page the job page reaches (the sub-tab strip, the job page's own links, and the job pages of the field roles' and the client's own menus), presses every tab of every tab group (and the tabs those reveal), and reads every screen. The two jobs are **121 State Street** (active construction) and **45 Cranberry St — design** (design stage, the design job with the most on it).
 
-1166 screens in all. Built 2026-10-25 22:14 on the demo day (Thu 2026-09-03); the walk took 15.8 minutes. Raw read: `review/census/projects/data.json`. Every screen per role in tables: `review/census/projects/tables.md`. Screenshots of every PM page on both jobs and both devices: `review/census/projects/shots/` (`desktop_` and `phone_`, then the job and the page; the page as it opens, up to 3 desktop or 5 phone screens tall). The run also shoots every tab; those stay on the machine that ran it and are not committed.
+**Build bd3180c27e33.** 1150 screens in all. Built 2026-10-26 07:16 on the demo day (Thu 2026-09-03); the walk took 17.4 minutes. Raw read: `review/census/projects/data.json`. Every screen per role in tables: `review/census/projects/tables.md`. Screenshots of every PM page on both jobs and both devices: `review/census/projects/shots/` (`desktop_` and `phone_`, then the job and the page; the page as it opens, up to 3 desktop or 5 phone screens tall). The run also shoots every tab; those stay on the machine that ran it and are not committed.
 
 Run it: `python3 build.py && cd tests && ./slot.sh python3 projects_census.py` (then `python3 projects_census.py --report` rewrites this page from data.json).
 
@@ -12,16 +12,16 @@ Run it: `python3 build.py && cd tests && ./slot.sh python3 projects_census.py` (
 
 - **The PM's job is 18 pages: the job page and 17 sub-pages, with 57 more screens behind their tabs** on the desktop (41 on the phone), about 26 desktop screens end to end. They hang off one sub-tab strip of 19 entries in four captioned groups (Plan, Field, Costs & Billing, Files & Mail).
 - **Sub-pages each role reaches from the job, desktop:** PM 17, Owner 16, Coordinator 13, Foreman 7, Designer 5, Billing 1, Controller 0, Client 4, Crew 4, Driver 1.
-- **Two office roles have no job page.** A tap on a job in the Projects list opens `sboard` for the designer; `gl` for the controller (`sboard` is the Design module's Project Board, `gl` the Ledger).
+- **Two office roles have no job page.** A tap on a job in the Projects list opens `sboard` for the designer; `home` for the controller (`home` is Today, `sboard` is the Design module's Project Board).
 - **On a phone, a tap on a job in the Projects list opens the overview on All projects, not the job** (PM, Owner, Coordinator, Billing). The heading reads "All projects", the tiles and the Look-Ahead are every job's, and the strip under it holds the tapped job's pages. It stays that way until the person picks a job in the switcher (app.js: a phone with nothing stored defaults to All projects).
 - **Change Orders, Estimates and Billing are one page (Billing) under three strip entries, and it is not the job's.** It shows the same tiles on both jobs (Ready to Bill $46K), while each job page says $12,651 (121 State Street) and $23,366 (45 Cranberry St — design). Its blue button on 121 State Street reads "Draft $17,080 — 45 Cranberry St".
-- **91 of 121 State Street's records show on two or more of its pages** (31 schedule lines, 18 materials, 11 to-dos, 5 decisions). "Insulation" is on 8: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks.
-- **15 pairs of pages list largely the same records,** led by Job Page and Tasks (27 shared); Job Page and Schedule (22 shared); Schedule and Tasks (22 shared); Materials and Schedule (21 shared). The job page repeats most of Tasks and Schedule; Materials and Schedule repeat each other.
+- **94 of 121 State Street's records show on two or more of its pages** (31 schedule lines, 21 materials, 11 to-dos, 5 files). "Insulation" is on 8: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks.
+- **13 pairs of pages list largely the same records,** led by Job Page and Tasks (27 shared); Job Page and Schedule (22 shared); Schedule and Tasks (22 shared); Materials and Schedule (21 shared). The job page repeats most of Tasks and Schedule; Materials and Schedule repeat each other.
 - **One label, different numbers:** "ready bill" $12,651 on Job Page against $46K on Billing (section 3).
-- **On the phone** the PM's strip shows 3 of its 19 entries without a swipe; 5 of the 18 pages are taller than three screens (Job Page, Schedule, Costs, Documents, Drawings); 13 pages have no section heading above the fold. No page scrolls sideways.
-- **Menu and job page:** Messages › Messages is in the PM's menu but not reached from the job page; Purchasing › Selections is in the PM's menu but not reached from the job page; `recv` sits in 2 menu places (Projects › Deliveries, Purchasing › Deliveries); `billing` sits in 3 menu places (Projects › Change Orders, Projects › Estimates, Projects › Billing).
+- **On the phone** the PM's strip shows 3 of its 19 entries without a swipe; 5 of the 18 pages are taller than three screens (Job Page, Schedule, Costs, Documents, Drawings); 12 pages have no section heading above the fold. No page scrolls sideways.
+- **Menu and job page:** Messages › Messages is in the PM's menu but not reached from the job page; More › Selections is in the PM's menu but not reached from the job page; `recv` sits in 2 menu places (Projects › Deliveries, Purchasing › Deliveries); `billing` sits in 3 menu places (Projects › Change Orders, Projects › Estimates, Projects › Billing).
 - **Nothing crashed and no page raised an error**; every page opened.
-- **1 screen(s) saved while the census only read and pressed filters** (PM (Alan) desktop, Materials). Not traced; most likely the task list remembering its view.
+- **2 screen(s) saved while the census only read and pressed filters** (PM (Alan) desktop, Change Orders[Progress Billing]; Owner phone, Photos[Site Visit]). Not traced; most likely the task list remembering its view.
 
 ## 1. The Tree, Role by Role
 
@@ -29,13 +29,13 @@ Run it: `python3 build.py && cd tests && ./slot.sh python3 projects_census.py` (
 
 | Role | Reaches the Projects list by | Job page | 121 State Street: sub-pages / tabs / sections | 45 Cranberry St — design: sub-pages / tabs / sections |
 |---|---|---|---|---|
-| PM (Alan) | rail: Projects 2 / rail: Projects 2 | `dash` (the phone opens it on All projects) | 17 / 57 / 21 and 17 / 41 / 20 | 17 / 49 / 22 and 17 / 34 / 21 |
-| Owner | rail: Projects 2 / rail: Projects 2 | `dash` (the phone opens it on All projects) | 16 / 57 / 21 and 16 / 39 / 20 | 16 / 49 / 22 and 16 / 34 / 21 |
-| Coordinator (Chen) | rail: Projects 2 / rail:  | `dash` (the phone opens it on All projects) | 13 / 47 / 17 and 13 / 30 / 16 | 13 / 39 / 18 and 13 / 25 / 17 |
+| PM (Alan) | rail: Projects 2 / rail: Projects 2 | `dash` (the phone opens it on All projects) | 17 / 57 / 22 and 17 / 41 / 21 | 17 / 49 / 23 and 17 / 34 / 22 |
+| Owner | rail: Projects 2 / rail: Projects 2 | `dash` (the phone opens it on All projects) | 16 / 57 / 22 and 16 / 39 / 21 | 16 / 49 / 23 and 16 / 34 / 22 |
+| Coordinator (Chen) | rail: Projects 2 / rail:  | `dash` (the phone opens it on All projects) | 13 / 47 / 18 and 13 / 30 / 17 | 13 / 39 / 19 and 13 / 25 / 18 |
 | Foreman (Angel) | cannot open it / cannot open it | `fsite` | 7 / 23 / 15 and 7 / 19 / 29 | 7 / 18 / 17 and 7 / 14 / 24 |
 | Designer (Sarah) | rail: Projects 2 / rail: Projects 2 | none; the row opens `sboard` | 5 / 41 / 11 and 5 / 24 / 11 | 6 / 33 / 10 and 6 / 19 / 10 |
-| Billing | rail: Projects 2 / rail:  | `dash` (the phone opens it on All projects) | 1 / 10 / 6 and 1 / 10 / 5 | 1 / 10 / 6 and 1 / 10 / 5 |
-| Controller | no button: set view / no button: set view | none; the row opens `gl` | 0 / 6 / 3 and 0 / 6 / 3 | 0 / 6 / 3 and 0 / 6 / 3 |
+| Billing | rail: Projects 2 / rail:  | `dash` (the phone opens it on All projects) | 1 / 10 / 7 and 1 / 10 / 6 | 1 / 10 / 7 and 1 / 10 / 6 |
+| Controller | no button: set view / no button: set view | none; the row opens `home` | 0 / 2 / 3 and 0 / 2 / 2 | 0 / 2 / 3 and 0 / 2 / 2 |
 | Client (Klein) | cannot open it / cannot open it | `client` | 4 / 1 / 20 and 4 / 1 / 20 | not theirs and not theirs |
 | Crew (Alberto) | cannot open it / cannot open it | `sched` | 4 / 11 / 4 and 4 / 7 / 18 | 4 / 11 / 6 and 4 / 7 / 13 |
 | Driver (Alex) | cannot open it / cannot open it | `files` | 1 / 7 / 1 and 1 / 7 / 1 | 1 / 7 / 1 and 1 / 7 / 1 |
@@ -46,7 +46,7 @@ Each cell is the number of screens the page has (the page and its tabs); "-" mea
 
 | Page | PM | Owner | Coordinator | Foreman | Designer | Billing | Controller | Client | Crew | Driver |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Job page (or the page a tap on the job opens) | 1 | 1 | 1 | 1 | 4 | 1 | 7 | 1 | 5 | 8 |
+| Job page (or the page a tap on the job opens) | 1 | 1 | 1 | 1 | 4 | 1 | 3 | 1 | 5 | 8 |
 | Project Settings | 1 | 1 | 1 | - | - | - | - | - | - | - |
 | Schedule | 5 | 5 | 5 | 5 | 5 | - | - | 1 | - | - |
 | Tasks | 19 | 19 | 18 | - | 18 | - | - | - | - | - |
@@ -76,18 +76,18 @@ Tall is in screens, desktop / phone. Sections are the headed parts as the page o
 
 | Page | Heading | Tall | Sections (phone above the fold) | Tabs | Tiles and figures | What it lists | Blue button |
 |---|---|---|---|---|---|---|---|
-| Job page | Overview | 3.7 / 4.6 | 6 (0) | 0 / 0 | Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk | 19 schedule lines, 11 materials, 10 to-dos, 5 decisions | none |
+| Job page | Overview | 4.2 / 5.1 | 7 (1) | 0 / 0 | Schedule At risk; Costs +$131,058 billed ahead; Needs You 23 now; Materials 5 at risk | 19 materials, 19 schedule lines, 10 to-dos, 5 decisions | none |
 | Project Settings | Project Settings | 1.5 / 2.2 | 1 (1) | 0 / 0 | - | - | none |
-| Schedule | Schedule | 1.9 / 3.9 | 0 (0) | 4 / 4 | - | 33 schedule lines, 4 materials, 1 decisions | New Task |
+| Schedule | Schedule | 1.9 / 4.0 | 0 (0) | 4 / 4 | - | 33 schedule lines, 4 materials, 1 decisions | New Task |
 | Tasks | Tasks | 1.1 / 1.3 | 0 (0) | 18 / 2 | - | 10 to-dos, 6 schedule lines, 1 decisions, 1 site questions | New Task |
 | Decisions | Decisions | 0.8 / 1.1 | 0 (0) | 1 / 1 | Blocking Work 3; Past Due 3; With Client 5; Ours to Make 3 | 8 decisions, 6 materials, 3 schedule lines | New Decision |
 | Submittals | Submittals | 0.8 / 1.3 | 0 (0) | 2 / 2 | Late Submittals 2; With Reviewers 2; Revise and Resubmit 1; Ready to Order 0 | 6 submittals, 1 materials | New Submittal |
 | Permits | Permits | 1.1 / 2.0 | 2 (0) | 0 / 0 | Failed 0; Book Now 1; This Week 1; Permits Expiring 1 | 10 inspections, 8 schedule lines, 2 materials | New Inspection |
 | Field | Field | 1.1 / 1.4 | 2 (1) | 2 / 2 | - | 5 schedule lines, 4 site questions, 1 materials, 1 to-dos | New Item |
 | Photos | Photos | 1.5 / 2.2 | 0 (0) | 6 / 6 | - | 2 schedule lines, 1 files | Add Photos |
-| Deliveries | Deliveries | 0.5 / 0.4 | 0 (0) | 0 / 0 | - | 2 purchase orders, 2 files, 1 materials | Received |
-| Materials | Materials | 1.3 / 2.9 | 1 (1) | 5 / 5 | Late to Order 3; Order This Week 0; At Risk 5; Not on Site 22 | 25 materials, 17 schedule lines | New Material |
-| Costs | Costs | 2.8 / 4.1 | 4 (1) | 2 / 2 | Billed Ahead +$131K; Margin at Completion 21%; Committed $39K; Bills to Approve $34K | 4 materials, 1 schedule lines | none |
+| Deliveries | Deliveries | 0.5 / 0.4 | 0 (0) | 0 / 0 | - | 2 materials, 2 purchase orders, 2 files | Received |
+| Materials | Materials | 1.3 / 2.9 | 1 (1) | 5 / 5 | Late 14; Order This Week 1; At Risk 5; Not on Site 22 | 25 materials, 17 schedule lines | New Material |
+| Costs | Costs | 2.8 / 4.1 | 4 (1) | 2 / 2 | Billed Ahead +$131K; Margin at Completion 21%; Committed $39K; Bills to Approve $34K | 8 materials, 1 schedule lines | none |
 | Change Orders | Change Orders | 0.4 / 0.7 | 0 (0) | 7 / 7 | - | 2 change orders | New Change Order |
 | Estimates | Estimates | 0.5 / 0.7 | 0 (0) | 0 / 0 | - | 2 estimates | New Estimate |
 | Billing | Billing | 0.7 / 1.1 | 0 (0) | 0 / 0 | Ready to Bill $46K; Drafts 0; Sent and Unpaid $92K; Overdue $0 | 2 invoices | Draft $17,080 — 45 Cranberry S |
@@ -101,7 +101,7 @@ Tall is in screens, desktop / phone. Sections are the headed parts as the page o
 
 | Page | Heading | Tall | Sections (phone above the fold) | Tabs | Tiles and figures | What it lists | Blue button |
 |---|---|---|---|---|---|---|---|
-| Job page | Overview | 1.8 / 2.5 | 6 (0) | 0 / 0 | Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site | 4 to-dos, 3 schedule lines | none |
+| Job page | Overview | 1.9 / 2.6 | 7 (1) | 0 / 0 | Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site | 4 to-dos, 3 schedule lines | none |
 | Project Settings | Project Settings | 1.5 / 2.2 | 1 (1) | 0 / 0 | - | - | none |
 | Schedule | Schedule | 0.8 / 1.2 | 0 (0) | 4 / 4 | - | 5 schedule lines | New Task |
 | Tasks | Tasks | 0.4 / 1.0 | 0 (0) | 15 / 0 | - | 4 to-dos, 1 schedule lines | New Task |
@@ -128,19 +128,19 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 | Records | Found | Pages that list them |
 |---|---|---|
-| materials | 27 | 11: Materials 25, Job Page 11, Decisions 6, Schedule 4, Costs 4, Change Orders 4, Tasks 2, Permits 2, Field 2, Submittals 1, Deliveries 1 |
+| materials | 38 | 11: Materials 25, Job Page 19, Costs 8, Change Orders 7, Decisions 6, Schedule 4, Tasks 2, Permits 2, Field 2, Deliveries 2, Submittals 1 |
 | schedule lines | 35 | 11: Schedule 33, Job Page 19, Tasks 19, Materials 17, Permits 8, Field 8, Change Orders 6, Decisions 3, Photos 2, Costs 1, Drawings 1 |
-| files | 40 | 5: Documents 40, Job Page 3, Deliveries 2, Photos 1, Drawings 1 |
+| files | 40 | 5: Documents 40, Job Page 4, Deliveries 2, Photos 1, Drawings 1 |
 | decisions | 8 | 4: Decisions 8, Job Page 5, Schedule 1, Tasks 1 |
 | to-dos | 11 | 3: Tasks 11, Job Page 10, Field 1 |
-| purchase orders | 2 | 3: Deliveries 2, Documents 2, Job Page 1 |
+| purchase orders | 2 | 3: Job Page 2, Deliveries 2, Documents 2 |
 | site questions | 5 | 3: Job Page 4, Field 4, Tasks 2 |
 | inspections | 10 | 2: Permits 10, Job Page 2 |
 | bills | 1 | 2: Job Page 1, Documents 1 |
 | submittals | 10 | 2: Submittals 10, Documents 5 |
 | invoices | 2 | 2: Change Orders 2, Billing 2 |
-| estimates | 2 | 2: Change Orders 2, Estimates 2 |
 | change orders | 2 | 2: Change Orders 2, Documents 2 |
+| estimates | 2 | 2: Change Orders 2, Estimates 2 |
 | field requests | 2 | 1: Job Page 2 |
 | drawing sheets | 24 | 1: Documents 24 |
 | subs to confirm | 1 | 1: Drawings 1 |
@@ -152,7 +152,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 | schedule lines | 10 | 7: Change Orders 10, Schedule 5, Tasks 5, Costs 4, Job Page 3, Permits 1, Drawings 1 |
 | to-dos | 4 | 2: Job Page 4, Tasks 4 |
 | submittals | 9 | 2: Submittals 9, Documents 2 |
-| materials | 5 | 2: Change Orders 4, Submittals 1 |
+| materials | 8 | 2: Change Orders 7, Submittals 1 |
 | invoices | 2 | 2: Change Orders 2, Billing 2 |
 | estimates | 1 | 2: Change Orders 1, Estimates 1 |
 | change orders | 1 | 1: Change Orders 1 |
@@ -161,7 +161,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 ### Records on two or more pages, and lists that are the same list twice
 
-**PM (Alan), desktop, 121 State Street:** 91 records on two or more pages: schedule lines 31 (up to 6 pages); materials 18 (up to 8 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); site questions 5 (up to 2 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
+**PM (Alan), desktop, 121 State Street:** 94 records on two or more pages: schedule lines 31 (up to 6 pages); materials 21 (up to 8 pages); to-dos 11 (up to 2 pages); files 5 (up to 3 pages); decisions 5 (up to 4 pages); site questions 5 (up to 2 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
 
 - "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
 - "Flooring" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
@@ -169,7 +169,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "Framing & blocking – 3rd floor" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
 - "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
 - "Millwork – parlor kitchen & laundry" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 58 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 58 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Field and Job Page (12 shared, of 15 and 58: schedule lines, site questions, materials); Decisions and Job Page (11 shared, of 17 and 58: decisions, schedule lines, materials)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 68 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 68 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Field and Job Page (12 shared, of 15 and 68: schedule lines, site questions, materials); Decisions and Job Page (11 shared, of 17 and 68: decisions, schedule lines, materials)
 
 **PM (Alan), desktop, 45 Cranberry St — design:** 14 records on two or more pages: schedule lines 5 (up to 6 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 1 (up to 2 pages).
 
@@ -179,9 +179,9 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "LPC Certificate of Appropriateness" (schedule lines) on 4 pages: Change Orders, Permits, Schedule, Tasks
 - "Construction administration" (schedule lines) on 4 pages: Change Orders, Costs, Schedule, Tasks
 - "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 18 and 5: schedule lines); Change Orders and Tasks (5 shared, of 18 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 18 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 21 and 5: schedule lines); Change Orders and Tasks (5 shared, of 21 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 21 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
 
-**Owner, desktop, 121 State Street:** 86 records on two or more pages: schedule lines 31 (up to 6 pages); materials 18 (up to 8 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); site questions 2 (up to 2 pages); change orders 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
+**Owner, desktop, 121 State Street:** 89 records on two or more pages: schedule lines 31 (up to 6 pages); materials 21 (up to 8 pages); to-dos 11 (up to 2 pages); files 5 (up to 3 pages); decisions 5 (up to 4 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); site questions 2 (up to 2 pages); change orders 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
 
 - "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
 - "Flooring" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
@@ -189,7 +189,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "Framing & blocking – 3rd floor" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
 - "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
 - "Millwork – parlor kitchen & laundry" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 55 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 55 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 55: decisions, schedule lines, materials); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 65 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 65 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 65: decisions, schedule lines, materials); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials)
 
 **Owner, desktop, 45 Cranberry St — design:** 12 records on two or more pages: schedule lines 5 (up to 6 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); estimates 1 (up to 2 pages).
 
@@ -199,11 +199,11 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "LPC Certificate of Appropriateness" (schedule lines) on 4 pages: Change Orders, Permits, Schedule, Tasks
 - "Construction administration" (schedule lines) on 4 pages: Change Orders, Costs, Schedule, Tasks
 - "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 18 and 5: schedule lines); Change Orders and Tasks (5 shared, of 18 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 18 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 21 and 5: schedule lines); Change Orders and Tasks (5 shared, of 21 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 21 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
 
-**Coordinator (Chen), desktop, 121 State Street:** 82 records on two or more pages: schedule lines 32 (up to 6 pages); materials 16 (up to 6 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); submittals 5 (up to 2 pages); site questions 4 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages).
+**Coordinator (Chen), desktop, 121 State Street:** 82 records on two or more pages: schedule lines 32 (up to 6 pages); materials 16 (up to 6 pages); to-dos 11 (up to 2 pages); files 5 (up to 3 pages); decisions 5 (up to 4 pages); submittals 5 (up to 2 pages); site questions 4 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages).
 
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 58 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 58 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 58: decisions, schedule lines, materials); Field and Job Page (11 shared, of 15 and 58: schedule lines, site questions, materials)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 68 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 68 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 68: decisions, schedule lines, materials); Field and Job Page (11 shared, of 15 and 68: schedule lines, site questions, materials)
 
 **Coordinator (Chen), desktop, 45 Cranberry St — design:** 11 records on two or more pages: schedule lines 5 (up to 4 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages).
 
@@ -217,7 +217,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "Millwork – parlor kitchen & laundry" (schedule lines) on 3 pages: Daily Log, Job Page, Schedule
 - "Rough plumbing" (schedule lines) on 3 pages: Crew, Job Page, Schedule
 - "Demo & subfloor prep" (schedule lines) on 3 pages: Daily Log, Requests, Schedule
-- the same list twice (3 or more shared records, at least half of the shorter list): Daily Log and Schedule (8 shared, of 9 and 29: schedule lines); Requests and Schedule (3 shared, of 5 and 29: schedule lines)
+- the same list twice (3 or more shared records, at least half of the shorter list): Daily Log and Schedule (8 shared, of 9 and 29: schedule lines)
 
 **Designer (Sarah), desktop, 121 State Street:** 27 records on two or more pages: schedule lines 15 (up to 3 pages); decisions 8 (up to 3 pages); materials 3 (up to 2 pages); files 1 (up to 2 pages).
 
@@ -241,9 +241,9 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 **Crew (Alberto), desktop, 121 State Street:** 5 records on two or more pages: schedule lines 3 (up to 2 pages); materials 1 (up to 2 pages); files 1 (up to 2 pages).
 
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Requests (3 shared, of 29 and 4: schedule lines)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Requests (3 shared, of 29 and 5: schedule lines)
 
-**PM (Alan), phone, 121 State Street:** 71 records on two or more pages: schedule lines 26 (up to 6 pages); materials 14 (up to 8 pages); to-dos 8 (up to 3 pages); files 5 (up to 4 pages); submittals 5 (up to 2 pages); decisions 4 (up to 4 pages); purchase orders 2 (up to 4 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 3 pages).
+**PM (Alan), phone, 121 State Street:** 78 records on two or more pages: schedule lines 26 (up to 6 pages); materials 21 (up to 8 pages); to-dos 8 (up to 3 pages); files 5 (up to 4 pages); submittals 5 (up to 2 pages); decisions 4 (up to 4 pages); purchase orders 2 (up to 4 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 3 pages).
 
 - "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
 - "Flooring" (materials) on 7 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Schedule
@@ -251,7 +251,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "Rough plumbing" (schedule lines) on 6 pages: Decisions, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
 - "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
 - "Framing & blocking – 3rd floor" (schedule lines) on 5 pages: Field, Job Page, Materials, Schedule, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Job Page as it opens (All projects) (26 shared, of 32 and 28: to-dos, schedule lines, materials); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Job Page and Tasks (15 shared, of 32 and 18: to-dos, schedule lines, decisions); Job Page as it opens (All projects) and Tasks (11 shared, of 28 and 18: to-dos, schedule lines); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials); Permits and Schedule (10 shared, of 20 and 38: schedule lines, materials)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Job Page as it opens (All projects) (34 shared, of 40 and 35: materials, to-dos, schedule lines); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Job Page and Tasks (15 shared, of 40 and 18: to-dos, schedule lines, decisions); Job Page as it opens (All projects) and Tasks (11 shared, of 35 and 18: to-dos, schedule lines); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials); Permits and Schedule (10 shared, of 20 and 38: schedule lines, materials)
 
 **PM (Alan), phone, 45 Cranberry St — design:** 14 records on two or more pages: schedule lines 5 (up to 5 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 1 (up to 2 pages).
 
@@ -261,7 +261,7 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "LPC Certificate of Appropriateness" (schedule lines) on 3 pages: Change Orders, Permits, Schedule
 - "Construction administration" (schedule lines) on 3 pages: Change Orders, Costs, Schedule
 - "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
-- the same list twice (3 or more shared records, at least half of the shorter list): Change Orders and Schedule (5 shared, of 13 and 5: schedule lines); Job Page and Tasks (5 shared, of 7 and 5: to-dos, schedule lines); Change Orders and Costs (4 shared, of 13 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines); Costs and Job Page (3 shared, of 4 and 7: schedule lines); Job Page and Schedule (3 shared, of 7 and 5: schedule lines)
+- the same list twice (3 or more shared records, at least half of the shorter list): Change Orders and Schedule (5 shared, of 16 and 5: schedule lines); Job Page and Tasks (5 shared, of 7 and 5: to-dos, schedule lines); Change Orders and Costs (4 shared, of 16 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines); Costs and Job Page (3 shared, of 4 and 7: schedule lines); Job Page and Schedule (3 shared, of 7 and 5: schedule lines)
 
 ## 3. One Label, Different Numbers
 
@@ -289,23 +289,23 @@ The same label (a tile, a figure, a tab or section count, a strip badge) with nu
 
 | Device | Role | Job | Screen | What |
 |---|---|---|---|---|
-| desktop | PM (Alan) | 121 State Street | Materials | 1 save(s) while reading |
 | desktop | PM (Alan) | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | desktop | PM (Alan) | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
 | desktop | PM (Alan) | 45 Cranberry St — design | Deliveries | 22 words; lists nothing: "Nothing on order for this job." |
-| desktop | PM (Alan) | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| desktop | PM (Alan) | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | desktop | PM (Alan) | 45 Cranberry St — design | Change Orders | lists nothing: "No change orders yet." |
+| desktop | PM (Alan) | 45 Cranberry St — design | Change Orders[Progress Billing] | 1 save(s) while reading |
 | desktop | PM (Alan) | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | desktop | Owner | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | desktop | Owner | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
 | desktop | Owner | 45 Cranberry St — design | Deliveries | 22 words; lists nothing: "Nothing on order for this job." |
-| desktop | Owner | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| desktop | Owner | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | desktop | Owner | 45 Cranberry St — design | Change Orders | lists nothing: "No change orders yet." |
 | desktop | Owner | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | desktop | Coordinator (Chen) | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | desktop | Coordinator (Chen) | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
 | desktop | Coordinator (Chen) | 45 Cranberry St — design | Deliveries | 22 words; lists nothing: "Nothing on order for this job." |
-| desktop | Coordinator (Chen) | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| desktop | Coordinator (Chen) | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | desktop | Coordinator (Chen) | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | desktop | Foreman (Angel) | 45 Cranberry St — design | Job page | lists nothing: "No sub days on the calendar. Add one so it can be confirmed." |
 | desktop | Foreman (Angel) | 45 Cranberry St — design | Daily Log | lists nothing: "No earlier logs on this job." |
@@ -321,19 +321,20 @@ The same label (a tile, a figure, a tab or section count, a strip badge) with nu
 | phone | PM (Alan) | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | phone | PM (Alan) | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
 | phone | PM (Alan) | 45 Cranberry St — design | Deliveries | 8 words; lists nothing: "Nothing on order for this job." |
-| phone | PM (Alan) | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| phone | PM (Alan) | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | phone | PM (Alan) | 45 Cranberry St — design | Change Orders | lists nothing: "No change orders yet." |
 | phone | PM (Alan) | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | phone | Owner | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | phone | Owner | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
+| phone | Owner | 45 Cranberry St — design | Photos[Site Visit] | 1 save(s) while reading |
 | phone | Owner | 45 Cranberry St — design | Deliveries | 8 words; lists nothing: "Nothing on order for this job." |
-| phone | Owner | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| phone | Owner | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | phone | Owner | 45 Cranberry St — design | Change Orders | lists nothing: "No change orders yet." |
 | phone | Owner | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | phone | Coordinator (Chen) | 45 Cranberry St — design | Decisions | lists nothing: "All clear blocking work · past due · with client · ours to m" |
 | phone | Coordinator (Chen) | 45 Cranberry St — design | Field | lists nothing: "nothing waiting on an answer" |
 | phone | Coordinator (Chen) | 45 Cranberry St — design | Deliveries | 8 words; lists nothing: "Nothing on order for this job." |
-| phone | Coordinator (Chen) | 45 Cranberry St — design | Materials | lists nothing: "All clear late to order · order this week · at risk · not on" |
+| phone | Coordinator (Chen) | 45 Cranberry St — design | Materials | lists nothing: "All clear late · order this week · at risk · not on site — n" |
 | phone | Coordinator (Chen) | 45 Cranberry St — design | Mail | lists nothing: "No messages routed to 45 Cranberry St — design yet. Mail, te" |
 | phone | Foreman (Angel) | 45 Cranberry St — design | Job page | lists nothing: "No sub days on the calendar. Add one so it can be confirmed." |
 | phone | Foreman (Angel) | 45 Cranberry St — design | Daily Log | lists nothing: "No earlier logs on this job." |
@@ -356,13 +357,13 @@ The same label (a tile, a figure, a tab or section count, a strip badge) with nu
 
 | Role | Screens | The page scrolls sideways | Text cut off at the edge | Strips that scroll inside the page | The sub-tab strip | Pages taller than 3 screens |
 |---|---|---|---|---|---|---|
-| PM (Alan) | 113 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 15: Billing, Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail | shown: 3 of 19 entries on screen without a swipe | 5: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.6, Drawings 5.8 |
-| Owner | 109 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 14: Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail, Materials | shown: 3 of 18 entries on screen without a swipe | 5: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.5, Drawings 5.8 |
-| Coordinator (Chen) | 85 | 0 | 8: Decisions, Documents, Field, Materials, Permits, Projects, Schedule, Tasks | 11: Decisions, Documents, Field, Mail, Materials, Permits, Photos, Project Settings | shown: 3 of 15 entries on screen without a swipe | 4: Job page 4.4, Schedule 3.9, Documents 5.5, Drawings 5.7 |
+| PM (Alan) | 113 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 15: Billing, Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail | shown: 3 of 19 entries on screen without a swipe | 5: Job page 5.1, Schedule 4.0, Costs 4.1, Documents 5.6, Drawings 5.8 |
+| Owner | 109 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 14: Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail, Materials | shown: 3 of 18 entries on screen without a swipe | 5: Job page 5.1, Schedule 4.0, Costs 4.1, Documents 5.5, Drawings 5.8 |
+| Coordinator (Chen) | 85 | 0 | 8: Decisions, Documents, Field, Materials, Permits, Projects, Schedule, Tasks | 11: Decisions, Documents, Field, Mail, Materials, Permits, Photos, Project Settings | shown: 3 of 15 entries on screen without a swipe | 4: Job page 4.9, Schedule 4.0, Documents 5.5, Drawings 5.7 |
 | Foreman (Angel) | 49 | 0 | 3: Documents, Drawings, Job Page | 2: Documents, Photos | none | 4: Job page 3.5, Drawings 5.5, Schedule 3.1, Documents 4.7 |
 | Designer (Sarah) | 57 | 0 | 5: Decisions, Documents, Projects, Schedule, Tasks | 6: Decisions, Documents, Job Page, Photos, Projects, Schedule | shown: 4 of 4 entries on screen without a swipe | 1: Documents 5.5 |
-| Billing | 26 | 0 | 2: Documents, Projects | 2: Documents, Projects | shown: 3 of 3 entries on screen without a swipe | 2: Job page 4.4, Documents 5.5 |
-| Controller | 15 | 0 | 2: Job Page, Projects | 2: Job Page, Projects | shown: 3 of 3 entries on screen without a swipe | 0 |
+| Billing | 26 | 0 | 2: Documents, Projects | 2: Documents, Projects | shown: 3 of 3 entries on screen without a swipe | 2: Job page 4.6, Documents 5.5 |
+| Controller | 7 | 0 | 1: Projects | 1: Projects | none | 0 |
 | Client (Klein) | 6 | 0 | 0 | 1: Chat | none | 1: Job page 3.7 |
 | Crew (Alberto) | 24 | 0 | 2: Drawings, Photos | 1: Photos | none | 3: Job page 3.6, Photos 4.7, Drawings 5.5 |
 | Driver (Alex) | 18 | 0 | 1: Job Page | 1: Job Page | none | 1: Job page 4.7 |
@@ -373,18 +374,18 @@ Module pages only (the job's pages, Messages, Drawings, Selections). Desktop men
 
 | Role | Device | In the menu, not reached from the job page | Reached from the job page, not in the menu | Module pages in two or more menu places |
 |---|---|---|---|---|
-| PM (Alan) | desktop | chat (Messages › Messages), sel (Purchasing › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Projects › Billing) |
-| PM (Alan) | phone | chat (Messages › Messages), sel (Purchasing › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Projects › Billing) |
+| PM (Alan) | desktop | chat (Messages › Messages), sel (More › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Projects › Billing) |
+| PM (Alan) | phone | chat (Messages › Messages), sel (More › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Projects › Billing) |
 | Owner | desktop | chat (Messages › Messages), sel (Design › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Accounting › Billing; Sales › Estimates); plans (Projects › Drawings; Design › Drawings) |
 | Owner | phone | chat (Messages › Messages), sel (Design › Selections) | - | chat (Messages › Messages; Bar › Messages); ovjobs (Projects › Projects; Bar › Projects); recv (Projects › Deliveries; Purchasing › Deliveries); billing (Projects › Change Orders; Projects › Estimates; Accounting › Billing; Sales › Estimates); plans (Projects › Drawings; Design › Drawings) |
-| Coordinator (Chen) | desktop | chat (Messages › Messages), sel (Purchasing › Selections) | - | chat (Messages › Messages; Bar › Messages); recv (Purchasing › Deliveries; Projects › Deliveries) |
-| Coordinator (Chen) | phone | chat (Messages › Messages), sel (Purchasing › Selections) | - | chat (Messages › Messages; Bar › Messages); recv (Purchasing › Deliveries; Projects › Deliveries) |
+| Coordinator (Chen) | desktop | chat (Messages › Messages), sel (More › Selections) | - | chat (Messages › Messages; Bar › Messages); recv (Purchasing › Deliveries; Projects › Deliveries) |
+| Coordinator (Chen) | phone | chat (Messages › Messages), sel (More › Selections) | - | chat (Messages › Messages; Bar › Messages); recv (Purchasing › Deliveries; Projects › Deliveries) |
 | Foreman (Angel) | desktop | chat (Bar › Messages) | - | - |
 | Foreman (Angel) | phone | chat (Bar › Messages) | - | - |
 | Designer (Sarah) | desktop | chat (Messages › Messages), plans (Drawings › Drawings), sel (Design › Selections) | - | chat (Messages › Messages; Bar › Messages); plans (Drawings › Drawings; Bar › Drawings); ovjobs (Projects › Projects; Bar › Projects) |
 | Designer (Sarah) | phone | chat (Messages › Messages), plans (Drawings › Drawings), sel (Design › Selections) | - | chat (Messages › Messages; Bar › Messages); plans (Drawings › Drawings; Bar › Drawings); ovjobs (Projects › Projects; Bar › Projects) |
-| Billing | desktop | billing (Billing › Billing), chat (Messages › Messages) | - | chat (Messages › Messages; Bar › Messages) |
-| Billing | phone | billing (Billing › Billing), chat (Messages › Messages) | - | chat (Messages › Messages; Bar › Messages) |
+| Billing | desktop | billing (Billing › Billing), chat (Messages › Messages) | - | billing (Billing › Billing; Bar › Billing); chat (Messages › Messages; Bar › Messages) |
+| Billing | phone | billing (Billing › Billing), chat (Messages › Messages) | - | billing (Billing › Billing; Bar › Billing); chat (Messages › Messages; Bar › Messages) |
 | Controller | desktop | billing (Billing › Billing), chat (Messages › Messages) | - | chat (Messages › Messages; Bar › Messages) |
 | Controller | phone | billing (Billing › Billing), chat (Messages › Messages) | - | chat (Messages › Messages; Bar › Messages) |
 | Client (Klein) | desktop | - | chat, clacct, client, dec, sched | - |
@@ -398,32 +399,32 @@ Module pages only (the job's pages, Messages, Drawings, Selections). Desktop men
 
 | Role | Device | Job | Tapped | Opens |
 |---|---|---|---|---|
-| PM (Alan) | desktop | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121) |
+| PM (Alan) | desktop | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121) |
 | PM (Alan) | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45) |
-| PM (Alan) | phone | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121), showing All projects |
+| PM (Alan) | phone | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121), showing All projects |
 | PM (Alan) | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45), showing All projects |
-| Owner | desktop | 121 State Street | 121 State StreetSarah & David Klein481211/4on targ | dash (job p121) |
+| Owner | desktop | 121 State Street | 121 State StreetSarah & David Klein482311/4on targ | dash (job p121) |
 | Owner | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9011/11on tar | dash (job p45) |
-| Owner | phone | 121 State Street | 121 State StreetSarah & David Klein481211/4on targ | dash (job p121), showing All projects |
+| Owner | phone | 121 State Street | 121 State StreetSarah & David Klein482311/4on targ | dash (job p121), showing All projects |
 | Owner | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9011/11on tar | dash (job p45), showing All projects |
-| Coordinator (Chen) | desktop | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121) |
+| Coordinator (Chen) | desktop | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121) |
 | Coordinator (Chen) | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45) |
-| Coordinator (Chen) | phone | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121), showing All projects |
+| Coordinator (Chen) | phone | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121), showing All projects |
 | Coordinator (Chen) | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45), showing All projects |
 | Foreman (Angel) | desktop | - | cannot open the Projects list | - |
 | Foreman (Angel) | phone | - | cannot open the Projects list | - |
-| Designer (Sarah) | desktop | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | sboard (job p121) |
+| Designer (Sarah) | desktop | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | sboard (job p121) |
 | Designer (Sarah) | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | sboard (job p45) |
-| Designer (Sarah) | phone | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | sboard (job p121) |
+| Designer (Sarah) | phone | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | sboard (job p121) |
 | Designer (Sarah) | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | sboard (job p45) |
-| Billing | desktop | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121) |
+| Billing | desktop | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121) |
 | Billing | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45) |
-| Billing | phone | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | dash (job p121), showing All projects |
+| Billing | phone | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | dash (job p121), showing All projects |
 | Billing | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | dash (job p45), showing All projects |
-| Controller | desktop | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | gl (job p121) |
-| Controller | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | gl (job p45) |
-| Controller | phone | 121 State Street | 121 State StreetSarah & David Klein541211/4on targ | gl (job p121) |
-| Controller | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | gl (job p45) |
+| Controller | desktop | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | home (job p121) |
+| Controller | desktop | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | home (job p45) |
+| Controller | phone | 121 State Street | 121 State StreetSarah & David Klein542311/4on targ | home (job p121) |
+| Controller | phone | 45 Cranberry St — design | 45 Cranberry St — designRivera family9811/11on tar | home (job p45) |
 | Client (Klein) | desktop | - | cannot open the Projects list | - |
 | Client (Klein) | phone | - | cannot open the Projects list | - |
 | Crew (Alberto) | desktop | - | cannot open the Projects list | - |
@@ -448,13 +449,13 @@ The Projects list (rail: Projects 2):
   - empty states: "Nothing checked yet."
   - a tap on the 121 State Street row opens `dash`
 
-The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
+The sub-tab strip (shown on this screen size): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 3.7 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 4.2 screens tall, 7 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "121 State Street — what is happening on this job today and what is about to."
-  - sections: Look-Ahead; Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (6)
-  - figures: Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk; Ready to bill on this job $12,651; Over budget on this job $3,800
-  - records: 19 schedule lines, 11 materials, 10 to-dos, 5 decisions, 4 site questions, 3 files, 2 field requests, 2 inspections
+  - sections: Buying on This Job (14); Look-Ahead; Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (6)
+  - figures: Schedule At risk; Costs +$131,058 billed ahead; Needs You 23 now; Materials 5 at risk; Ready to bill on this job $12,651; Over budget on this job $3,800
+  - records: 19 materials, 19 schedule lines, 10 to-dos, 5 decisions, 4 files, 4 site questions, 2 purchase orders, 2 field requests
   - tab groups: 10 Working Days / 
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "Dates, address, client, entity, holidays and site hours for this project."
@@ -536,12 +537,12 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
   - tab **Delivery**: heading "Photos", 0 sections; 1 files
 - **Deliveries** (`recv`): heading "Deliveries", 0.5 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: Received
   - lead: "Check in what arrived, line by line. Materials on the schedule update themselves."
-  - records: 2 purchase orders, 2 files, 1 materials
+  - records: 2 materials, 2 purchase orders, 2 files
   - fields: input
-- **Materials** (`mat`): heading "Materials", 1.3 screens tall, 1 sections (1 above the fold), 5 tab screens; blue: New Material; 1 save(s) while reading
+- **Materials** (`mat`): heading "Materials", 1.3 screens tall, 1 sections (1 above the fold), 5 tab screens; blue: New Material
   - lead: "Need-by and order-by dates follow the schedule. Click a row to edit."
   - sections: Order this week · 3 items · 2 already late
-  - figures: Late to Order 3; Order This Week 0; At Risk 5; Not on Site 22
+  - figures: Late 14; Order This Week 1; At Risk 5; Not on Site 22
   - records: 25 materials, 17 schedule lines
   - columns: table: MATERIAL, FOR, ORDER BY, ON SITE BY, LEAD, VENDOR, STATUS, FLAG, ETA (24 rows)
   - fields: Search…
@@ -555,11 +556,11 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
   - lead: "Budget → committed → actual → billed, by cost code. Earned vs. billed tells you whether you're ahead of the client or behind."
   - sections: Line Profitability; By Cost Code; Work in Progress; Recent Job Transactions
   - figures: Billed Ahead +$131K; Margin at Completion 21%; Committed $39K; Bills to Approve $34K
-  - records: 4 materials, 1 schedule lines
+  - records: 8 materials, 1 schedule lines
   - columns: table: LINE, FLAGS, CLIENT PRICE, BUDGET COST, ACTUAL TO DATE, SPENT % OF BUDGET, PROJECTED MARGIN, MARGIN %, BILLED % (17 rows); table: CODE, COST CODE, BUDGET, COMMITTED, ACTUAL, REMAINING, USED (14 rows)
   - tab groups: All Lines / Flagged; Gross / After Overhead
-  - tab **Flagged**: heading "Costs", 4 sections; 2 materials, 1 schedule lines
-  - tab **After Overhead**: heading "Costs", 4 sections; 4 materials, 1 schedule lines
+  - tab **Flagged**: heading "Costs", 4 sections; 3 materials, 1 schedule lines
+  - tab **After Overhead**: heading "Costs", 4 sections; 8 materials, 1 schedule lines
 - **Change Orders** (`billing`): heading "Change Orders", 0.4 screens tall, 0 sections (0 above the fold), 7 tab screens; blue: New Change Order
   - lead: "What is ready to bill, what is drafted, what is sent and what is still owed."
   - records: 2 change orders
@@ -567,12 +568,12 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
   - fields: bill-client, Search…
   - tab groups: Billing Queue / Progress Billing / Estimates 2 / Change Orders 2 / Invoices 3 / Schedule of Values / Payments 2 / Client Funds
   - tab **Billing Queue**: heading "Billing", 0 sections; 2 invoices
-  - tab **Progress Billing**: heading "Billing", 6 sections; 6 schedule lines, 4 materials, 1 change orders
+  - tab **Progress Billing**: heading "Billing", 6 sections; 6 schedule lines, 6 materials, 1 change orders
   - tab **Estimates**: heading "Estimates", 0 sections; 2 estimates
   - tab **Invoices**: heading "Billing", 0 sections; 1 invoices
   - tab **Schedule of Values**: heading "Billing", 1 sections
   - tab **Payments**: heading "Billing", 0 sections
-  - tab **Client Funds**: heading "Billing", 3 sections; 3 materials
+  - tab **Client Funds**: heading "Billing", 3 sections; 4 materials
 - **Estimates** (`billing`): heading "Estimates", 0.5 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: New Estimate
   - lead: "What is ready to bill, what is drafted, what is sent and what is still owed."
   - records: 2 estimates
@@ -618,7 +619,7 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
 ### PM, phone, 121 State Street
 
 The Projects list (rail: Projects 2):
-- **Projects** (`ovjobs`): heading "Projects", 1.0 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: New Project; runs past the edge: cut off by pr-m (12 need you: Garden bedroom framing layo, 3 need you: Paint — 3rd floor walls, tri)
+- **Projects** (`ovjobs`): heading "Projects", 1.0 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: New Project; runs past the edge: cut off by pr-m (23 need you: Garden bedroom framing layo, 3 need you: Paint — 3rd floor walls, tri)
   - lead: "Every job, ranked by how much attention it needs today. Open one for its overview."
   - sections: Email
   - figures: Finish Dates Late 0; Jobs Needing You 2; Materials at Risk 1; Billed Ahead +$156K
@@ -628,25 +629,25 @@ The Projects list (rail: Projects 2):
   - empty states: "Nothing needs you · Next 9/29 Filing & permits"; "Nothing needs you · Next 9/8 Kitchen option 3 — antique island, sink under arched window"; "Nothing checked yet."
   - a tap on the 121 State Street row opens `dash` on **All projects**, not the job
 
-The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
+The sub-tab strip (shown on this screen size): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
 
-- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 4.9 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 5.4 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "All projects — what is happening across every job today and what is about to."
-  - sections: Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (11)
+  - sections: Buying on This Job (14); Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (11)
   - figures: Projects 2 of 4 at risk; Profitability 27% margin; Approvals 15 now; Materials 7 at risk; Ready to bill on this job $12,651; Over budget on this job $3,800
-  - records: 8 to-dos, 7 schedule lines, 5 materials, 3 files, 3 decisions, 1 purchase orders, 1 bills
+  - records: 11 materials, 8 to-dos, 6 schedule lines, 4 files, 3 decisions, 2 purchase orders, 1 bills
   - tab groups: 10 Working Days / 
-- **Job Page** (`dash`): heading "Look-Ahead", 4.6 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 5.1 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "121 State Street — what is happening on this job today and what is about to."
-  - sections: Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (6)
-  - figures: Schedule At risk; Costs +$131,058 billed ahead; Needs You 12 now; Materials 5 at risk; Ready to bill on this job $12,651; Over budget on this job $3,800
-  - records: 10 schedule lines, 8 to-dos, 5 materials, 4 decisions, 3 files, 1 purchase orders, 1 bills
+  - sections: Buying on This Job (14); Needs Attention (4); Pinned Plans (17); Daily Brief; Ahead of Schedule; Since Yesterday (6)
+  - figures: Schedule At risk; Costs +$131,058 billed ahead; Needs You 23 now; Materials 5 at risk; Ready to bill on this job $12,651; Over budget on this job $3,800
+  - records: 11 materials, 10 schedule lines, 8 to-dos, 4 files, 4 decisions, 2 purchase orders, 1 bills
   - tab groups: 10 Working Days / 
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "Dates, address, client, entity, holidays and site hours for this project."
   - sections: Project
   - fields: Name, Address, Target substantial completion, Crew Out (Hard Finish), BIN or job #, LPC-…, Milestone That Marks substantial complet, Holidays (one per line, YYYY-MM-DD, opti, Today (leave blank to use the real date), e.g. Chen, Automation, Site Working Hours
-- **Schedule** (`sched`): heading "Schedule", 3.9 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
+- **Schedule** (`sched`): heading "Schedule", 4.0 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
   - lead: "Site hours 07:30–16:30, Mon Tue Wed Thu Fri, 30 min lunch (8.5 h/day). All tracks — design, permitting, procurement, construction and closeout share one depende"
   - records: 33 schedule lines, 4 materials, 1 decisions
   - columns: table: Task, Owner, Start, Days (39 rows)
@@ -708,7 +709,7 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
 - **Materials** (`mat`): heading "Materials", 2.9 screens tall, 1 sections (1 above the fold), 5 tab screens; blue: New Material; runs past the edge: cut off by pr-m (Parlor kitchen countertop (template → in, Millwork – parlor kitchen & laundry · 8/)
   - lead: "Need-by and order-by dates follow the schedule. Click a row to edit."
   - sections: Order this week · 3 items · 2 already late
-  - figures: Late to Order 3; Order This Week 0; At Risk 5; Not on Site 22
+  - figures: Late 14; Order This Week 1; At Risk 5; Not on Site 22
   - records: 25 materials, 17 schedule lines
   - columns: table: Material, For, Order By, On Site By, Lead, Vendor, Status, Flag, ETA (24 rows)
   - fields: Search…
@@ -722,11 +723,11 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
   - lead: "Budget → committed → actual → billed, by cost code. Earned vs. billed tells you whether you're ahead of the client or behind."
   - sections: Line Profitability; By Cost Code; Work in Progress; Recent Job Transactions
   - figures: Billed Ahead +$131K; Margin at Completion 21%; Committed $39K; Bills to Approve $34K
-  - records: 4 materials, 1 schedule lines
+  - records: 8 materials, 1 schedule lines
   - columns: table: Line, Flags, Client Price, Budget Cost, Actual to Date, Spent % of Budget, Projected Margin, Margin %, Billed % (17 rows); table: Code, Cost Code, Budget, Committed, Actual, Remaining, Used (14 rows)
   - tab groups: All Lines / Flagged; Gross / After Overhead
-  - tab **Flagged**: heading "Costs", 4 sections; 2 materials, 1 schedule lines
-  - tab **After Overhead**: heading "Costs", 4 sections; 4 materials, 1 schedule lines
+  - tab **Flagged**: heading "Costs", 4 sections; 3 materials, 1 schedule lines
+  - tab **After Overhead**: heading "Costs", 4 sections; 8 materials, 1 schedule lines
 - **Change Orders** (`billing`): heading "Change Orders", 0.7 screens tall, 0 sections (0 above the fold), 7 tab screens; blue: New Change Order
   - lead: "What is ready to bill, what is drafted, what is sent and what is still owed."
   - records: 2 change orders
@@ -734,12 +735,12 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
   - fields: bill-client, Search…
   - tab groups: Billing Queue / Progress Billing / Estimates 2 / Change Orders 2 / Invoices 3 / Schedule of Values / Payments 2 / Client Funds
   - tab **Billing Queue**: heading "Billing", 0 sections; 2 invoices
-  - tab **Progress Billing**: heading "Billing", 6 sections; 4 materials, 1 change orders, 1 schedule lines (runs past the edge: cut off by pr-m (Demolition & disposalContract · 02 · $28, Framing, blocking & rough carpentryContr))
+  - tab **Progress Billing**: heading "Billing", 6 sections; 6 materials, 1 change orders, 1 schedule lines (runs past the edge: cut off by pr-m (Demolition & disposalContract · 02 · $28, Framing, blocking & rough carpentryContr))
   - tab **Estimates**: heading "Estimates", 0 sections; 2 estimates
   - tab **Invoices**: heading "Billing", 0 sections; 1 invoices
   - tab **Schedule of Values**: heading "Billing", 1 sections
   - tab **Payments**: heading "Billing", 0 sections
-  - tab **Client Funds**: heading "Client Funds & Purchasing Obligations", 2 sections; 3 materials
+  - tab **Client Funds**: heading "Client Funds & Purchasing Obligations", 2 sections; 4 materials
 - **Estimates** (`billing`): heading "Estimates", 0.7 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: New Estimate
   - lead: "What is ready to bill, what is drafted, what is sent and what is still owed."
   - records: 2 estimates
@@ -785,11 +786,12 @@ The sub-tab strip (shown on this screen size): Projects, Overview 12, Project Se
 
 The sub-tab strip (shown on this screen size): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 1.8 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 1.9 screens tall, 7 sections (2 above the fold), 0 tab screens; blue: none
   - lead: "45 Cranberry St — what is happening on this job today and what is about to."
-  - sections: Look-Ahead; Needs Attention (0); Pinned Plans (6); Daily Brief; Ahead of Schedule; Since Yesterday (2)
+  - sections: Buying on This Job (0); Look-Ahead; Needs Attention (0); Pinned Plans (6); Daily Brief; Ahead of Schedule; Since Yesterday (2)
   - figures: Schedule On target; Costs +$2,705 billed ahead; Needs You Nothing; Materials All on site; Ready to bill on this job $23,366
   - records: 4 to-dos, 3 schedule lines
+  - empty states: "Nothing late, nothing on order."
   - tab groups: 10 Working Days / 
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
   - lead: "Dates, address, client, entity, holidays and site hours for this project."
@@ -863,7 +865,7 @@ The sub-tab strip (shown on this screen size): Projects, Overview, Project Setti
 - **Materials** (`mat`): heading "Materials", 0.4 screens tall, 0 sections (0 above the fold), 5 tab screens; blue: New Material
   - lead: "Need-by and order-by dates follow the schedule. Click a row to edit."
   - fields: Search…
-  - empty states: "All clear late to order · order this week · at risk · not on site — nothing needs you here"; "No materials match this filter."
+  - empty states: "All clear late · order this week · at risk · not on site — nothing needs you here"; "No materials match this filter."
   - tab groups: All / Rough / Finish / Not on Site; Flat / By Vendor / By Task
   - tab **Rough**: heading "Materials", 0 sections
   - tab **Finish**: heading "Materials", 0 sections
@@ -886,12 +888,12 @@ The sub-tab strip (shown on this screen size): Projects, Overview, Project Setti
   - empty states: "No change orders yet."
   - tab groups: Billing Queue / Progress Billing / Estimates 1 / Change Orders / Invoices 2 / Schedule of Values / Payments 2 / Client Funds
   - tab **Billing Queue**: heading "Billing", 0 sections; 2 invoices
-  - tab **Progress Billing**: heading "Billing", 6 sections; 10 schedule lines, 4 materials, 1 change orders
+  - tab **Progress Billing**: heading "Billing", 6 sections; 10 schedule lines, 6 materials, 1 change orders (1 save(s) while reading)
   - tab **Estimates**: heading "Estimates", 0 sections; 1 estimates
   - tab **Invoices**: heading "Billing", 0 sections
   - tab **Schedule of Values**: heading "Billing", 1 sections
   - tab **Payments**: heading "Billing", 1 sections
-  - tab **Client Funds**: heading "Billing", 3 sections; 3 materials
+  - tab **Client Funds**: heading "Billing", 3 sections; 4 materials
 - **Estimates** (`billing`): heading "Estimates", 0.4 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: New Estimate
   - lead: "What is ready to bill, what is drafted, what is sent and what is still owed."
   - records: 1 estimates
@@ -938,7 +940,7 @@ The sub-tab strip (shown on this screen size): Projects, Overview, Project Setti
 
 The sub-tab strip (shown on this screen size): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Costs, Change Orders, Estimates, Billing, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Look-Ahead", 2.5 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 2.6 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 1.2 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.0 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: none; runs past the edge: cut off by tk2-sub (Tomorrow)
@@ -961,9 +963,9 @@ The sub-tab strip (shown on this screen size): Projects, Overview, Project Setti
 
 ### Owner, desktop, 121 State Street
 
-Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
+Strip (shown): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 3.7 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 4.1 screens tall, 7 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 1.9 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.1 screens tall, 0 sections (0 above the fold), 18 tab screens; blue: New Task
@@ -985,7 +987,7 @@ Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisio
 
 Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 1.8 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 1.9 screens tall, 7 sections (2 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 0.8 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 0.4 screens tall, 0 sections (0 above the fold), 15 tab screens; blue: New Task
@@ -1005,12 +1007,12 @@ Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decision
 
 ### Owner, phone, 121 State Street
 
-Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
+Strip (shown): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
 
-- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 5.2 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
-- **Job Page** (`dash`): heading "Look-Ahead", 4.6 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 5.7 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 5.1 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
-- **Schedule** (`sched`): heading "Schedule", 3.9 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
+- **Schedule** (`sched`): heading "Schedule", 4.0 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.3 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: none
 - **Decisions** (`dec`): heading "Decisions", 1.1 screens tall, 0 sections (0 above the fold), 1 tab screens; blue: Decide; runs past the edge: cut off by pr-m (8 days late · Owed by Architect / design, 3 days late · Owed by Architect / design)
 - **Submittals** (`subm`): heading "Submittals", 1.3 screens tall, 0 sections (0 above the fold), 2 tab screens; blue: New Submittal
@@ -1030,7 +1032,7 @@ Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisio
 
 Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Costs, Change Orders, Estimates, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Look-Ahead", 2.8 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 2.9 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 1.2 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.0 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: none; runs past the edge: cut off by tk2-sub (Tomorrow)
@@ -1050,9 +1052,9 @@ Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decision
 
 ### Coordinator (Chen), desktop, 121 State Street
 
-Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Documents, Drawings, Mail.
+Strip (shown): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 3.6 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 4.0 screens tall, 7 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 1.9 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.1 screens tall, 0 sections (0 above the fold), 17 tab screens; blue: New Task
@@ -1071,7 +1073,7 @@ Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisio
 
 Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Overview", 1.8 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 1.9 screens tall, 7 sections (2 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 1.5 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 0.8 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 0.4 screens tall, 0 sections (0 above the fold), 14 tab screens; blue: New Task
@@ -1088,12 +1090,12 @@ Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decision
 
 ### Coordinator (Chen), phone, 121 State Street
 
-Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Documents, Drawings, Mail.
+Strip (shown): Projects, Overview 23, Project Settings, Schedule, Tasks, Decisions 3, Submittals 2, Permits 1, Field 3, Photos, Deliveries, Materials 5, Documents, Drawings, Mail.
 
-- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 4.8 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
-- **Job Page** (`dash`): heading "Look-Ahead", 4.4 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 5.3 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 4.9 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
-- **Schedule** (`sched`): heading "Schedule", 3.9 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
+- **Schedule** (`sched`): heading "Schedule", 4.0 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.3 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: none
 - **Decisions** (`dec`): heading "Decisions", 1.1 screens tall, 0 sections (0 above the fold), 1 tab screens; blue: Decide; runs past the edge: cut off by pr-m (8 days late · Owed by Architect / design, 3 days late · Owed by Architect / design)
 - **Submittals** (`subm`): heading "Submittals", 1.3 screens tall, 0 sections (0 above the fold), 2 tab screens; blue: New Submittal
@@ -1110,7 +1112,7 @@ Strip (shown): Projects, Overview 12, Project Settings, Schedule, Tasks, Decisio
 
 Strip (shown): Projects, Overview, Project Settings, Schedule, Tasks 1, Decisions, Submittals, Permits, Field, Photos, Deliveries, Materials, Documents, Drawings, Mail.
 
-- **Job Page** (`dash`): heading "Look-Ahead", 2.5 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 2.6 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Project Settings** (`proj`): heading "Project Settings", 2.2 screens tall, 1 sections (1 above the fold), 0 tab screens; blue: none
 - **Schedule** (`sched`): heading "Schedule", 1.2 screens tall, 0 sections (0 above the fold), 4 tab screens; blue: New Task
 - **Tasks** (`tasks`): heading "Tasks", 1.0 screens tall, 0 sections (0 above the fold), 0 tab screens; blue: none; runs past the edge: cut off by tk2-sub (Tomorrow)
@@ -1217,56 +1219,56 @@ Strip (shown): Design, Project Board, Filings, Selections.
 
 ### Billing, desktop, 121 State Street
 
-Strip (shown): Projects, Overview 12, Documents.
+Strip (shown): Projects, Overview 23, Documents.
 
-- **Job Page** (`dash`): heading "Overview", 3.4 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 3.5 screens tall, 7 sections (2 above the fold), 0 tab screens; blue: none
 - **Documents** (`files`): heading "Documents", 2.1 screens tall, 0 sections (0 above the fold), 10 tab screens; blue: Upload Files
 
 ### Billing, desktop, 45 Cranberry St — design
 
 Strip (shown): Projects, Overview, Documents.
 
-- **Job Page** (`dash`): heading "Overview", 1.8 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Overview", 1.9 screens tall, 7 sections (2 above the fold), 0 tab screens; blue: none
 - **Documents** (`files`): heading "Documents", 0.7 screens tall, 0 sections (0 above the fold), 10 tab screens; blue: Upload Files
 
 ### Billing, phone, 121 State Street
 
-Strip (shown): Projects, Overview 12, Documents.
+Strip (shown): Projects, Overview 23, Documents.
 
-- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 4.7 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
-- **Job Page** (`dash`): heading "Look-Ahead", 4.4 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page as it opens (All projects)** (`dash`): heading "Look-Ahead", 4.9 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 4.6 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Documents** (`files`): heading "Documents", 5.5 screens tall, 0 sections (0 above the fold), 10 tab screens; blue: none
 
 ### Billing, phone, 45 Cranberry St — design
 
 Strip (shown): Projects, Overview, Documents.
 
-- **Job Page** (`dash`): heading "Look-Ahead", 2.5 screens tall, 5 sections (0 above the fold), 0 tab screens; blue: none
+- **Job Page** (`dash`): heading "Look-Ahead", 2.6 screens tall, 6 sections (1 above the fold), 0 tab screens; blue: none
 - **Documents** (`files`): heading "Documents", 1.0 screens tall, 0 sections (0 above the fold), 10 tab screens; blue: none
 
 ### Controller, desktop, 121 State Street
 
-Strip (shown): Ledger, Controls 15, Budget.
+Strip (shown): Today, Approvals 4, Tasks 1.
 
-- **Job Page** (`gl`): heading "Ledger", 0.8 screens tall, 3 sections (3 above the fold), 6 tab screens; blue: none
+- **Job Page** (`home`): heading "Today", 0.9 screens tall, 3 sections (3 above the fold), 2 tab screens; blue: Enter the Bill, $2,
 
 ### Controller, desktop, 45 Cranberry St — design
 
-Strip (shown): Ledger, Controls 15, Budget.
+Strip (shown): Today, Approvals 4, Tasks 1.
 
-- **Job Page** (`gl`): heading "Ledger", 0.8 screens tall, 3 sections (3 above the fold), 6 tab screens; blue: none
+- **Job Page** (`home`): heading "Today", 0.9 screens tall, 3 sections (3 above the fold), 2 tab screens; blue: Enter the Bill, $2,
 
 ### Controller, phone, 121 State Street
 
-Strip (shown): Ledger, Controls 15, Budget.
+Strip (not shown): Today, Approvals 4, Tasks 1.
 
-- **Job Page** (`gl`): heading "Ledger", 1.4 screens tall, 3 sections (2 above the fold), 6 tab screens; blue: none
+- **Job Page** (`home`): heading "Now", 1.3 screens tall, 2 sections (2 above the fold), 2 tab screens; blue: Enter the Bill, $2,
 
 ### Controller, phone, 45 Cranberry St — design
 
-Strip (shown): Ledger, Controls 15, Budget.
+Strip (not shown): Today, Approvals 4, Tasks 1.
 
-- **Job Page** (`gl`): heading "Ledger", 1.4 screens tall, 3 sections (2 above the fold), 6 tab screens; blue: none
+- **Job Page** (`home`): heading "Now", 1.3 screens tall, 2 sections (2 above the fold), 2 tab screens; blue: Enter the Bill, $2,
 
 ### Client (Klein), desktop, 121 State Street
 
