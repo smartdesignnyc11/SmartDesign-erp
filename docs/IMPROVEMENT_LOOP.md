@@ -46,6 +46,13 @@ All five of these must hold:
   - triage is about 0.1M;
   - one or two fix lanes are 0.5 to 1M each;
   - so about 2.5 to 3.5M an iteration.
+- **What the instrument's new eyes cost (measured 10-26, `sim/picture_cost.py` through the live AI door on claude-opus-5-5):**
+  - one screen picture: **437 input tokens on the phone** (390x844 JPEG, about 42 KB), **1,719 on the desktop** (1440x900, about 125 KB);
+  - pictures per turn: one per new screen, capped at 8 a turn (`SIM_PICTURE_CAP`). The dry runs took 3 in a 7-action local turn and 14 in a 25-action live turn before the cap;
+  - **added to a turn's context at the cap: about 3.5k on the phone, 14k on the desktop, 9k mixed** (+4%, +15% and +10% of the 96k a turn measured on Pilot 3);
+  - each picture is also one more model call (the expert reads it). The harness's own estimate (`cost.jsonl`, `picture_tokens`) puts a capped turn's processed input at +49% (phone) to +83% (desktop), almost all of it the context read again from the cache at a tenth of the price;
+  - the voicer: about 0.4k to 1k input and 0.1k to 0.9k output on the small model per reply (measured on a quote and a client answer), under a cent each, charged to the QA owner;
+  - a live turn costs what a local turn costs plus its pictures (two devices means more new screens: the live dry run had 14). Its assistant calls are charged to the QA account.
 - **Cadence:** iterations run back to back under the standing go. When weekly usage passes the threshold Alan sets (default 85%), the loop pauses after the current iteration and resumes after the reset. Each iteration ends with a short scoreboard to Alan:
   - journeys passing, phone and desktop;
   - expert grades;

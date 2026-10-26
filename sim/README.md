@@ -20,6 +20,10 @@ This folder is the harness; the main session runs the agents (`day_plan.md`). Th
 | `day_plan_lean.json` | The lean pilot: 3 days, 7 daily roles, 3 slots, crew and driver on day 3, the client's portal side played by world rules (`simctl world-client on`). |
 | `day_plan_pilot3.json`, `cycle_book.py` > `cycle_book.json`, `cycle.py`, `script_p3.js`, `pilot3.py`, `turn_prompt_p3.md`, `roles/p3/`, `realism_judge.md`, `plan_p3.py` | Pilot 3, the business cycle (below). |
 | `selftest.py`, `selftest_cycle.py` | A scripted mini-day through `act` with no LLM; proves the harness. `selftest_cycle.py` (also `selftest.py --unit`) checks Pilot 3's book, referee, coverage and judge on invented fixture companies, with no browser. |
+| `live.py`, `turn_prompt_live.md` | Live mode (`server.py --live <role>`): the same verbs on the hosted site as the role's QA account, a phone and a desktop that meet only through sync, no world, no clock pin (below). |
+| `voicer.py` | The voicer (`simctl world-voice on`): each outside reply written in the party's own words by the live model, facts kept, template on failure (below). |
+| `picture_cost.py` | What one screen picture costs a model, measured through the live AI door. |
+| `selftest_gaps.py` | Units for the picture, memory, the voicer, live mode and the run ledger (in `selftest.py --unit`). |
 | `runs/<run>/` | Everything a run writes (git-ignored): `world.json` (server state), `db.json` (the database snapshot, after every change), `db_<day>.json`, `actions.jsonl`, `diary/<uid>.md`, `files/<uid>/` (attachments and photos), `shots/`, `world/pending` and `world/answers`, `ledger.*`. |
 
 ## Run it
@@ -145,10 +149,36 @@ overspent a line. Pilot 3 adds required work the referee verifies in the data:
 - **Turns and tokens:** `plan_p3.py` measures Pilot 2's run. The estimate is in `day_plan_pilot3.json`, `turns_and_tokens`.
 - **Calibration** against the firm's real coordinator and billing person: `docs/pilot/pilot3/calibration.md`.
 
+## What the instrument sees, and what it still does not (Alan 10-26: "we only see 50% of the puzzle")
+- **The page as a picture.** When an action lands on a screen the person has not seen this turn (a new view, page
+  heading, sheet, record, tab, or the other device), the server saves a JPEG at the device's size under
+  `runs/<run>/shots/<uid>/` and the result ends with `Screen picture: <path>`. The expert reads it before acting. At most
+  one per screen and 8 per turn (`SIM_PICTURE_CAP`); `SIM_PICTURES=0` turns them off (the screen walk). Cost: 437 tokens
+  a phone picture, 1,719 a desktop one (docs/IMPROVEMENT_LOOP.md).
+- **The live site.** `SD_QA_USERS=<file> python3 sim/server.py --run live-pm-1 --live pm` (owner, pm, coord, billing,
+  controller; the QA accounts in the 'qa-loop' workspace, `platform/test/qa_accounts.py --add`). Then
+  `SIM_RUN=live-pm-1 sim/simctl begin u_alan live --device phone` and `simctl prompt u_alan`. Two browsers (phone, desktop),
+  each signed in through the real sign-in screen with its own copy; `act <uid> device desktop` picks up the other one;
+  every screen ends with the app's save status. `news`, `call` and `mail` say there is no world. The scripted check of
+  the same is `platform/test/live_journeys_test.py`.
+- **A world that answers like people.** `simctl world-voice on` (with `SIM_AI_TOKEN_FILE` on the server, e.g. from
+  `platform/test/qa_token.py owner <file> --every 40`): a reply that falls due is written by the live model as that party,
+  in a style seeded per run and reply (plain, terse, a question back, another layout, a slot late, or in two parts). Every
+  fact of the rule's reply (prices, dates, quantities, numbers, a decision's words) must be kept and none invented, or the
+  template goes out; `world/voice.jsonl` and "World voice" in ledger.md say which. Who answers, when, and the money stay
+  with the rules.
+- **Memory between turns.** What a person heard is in `files/<uid>/news.md`, what they said and promised (mail sent, calls
+  both ways) in `files/<uid>/said.md`, and each turn ends with an `## Open promises` list in the diary that the next turn
+  reads.
+- **Still different from an employee:** a turn is a fresh agent that reads its notes rather than remembers; the expert sees
+  a picture only of new screens, not every glance; the world's people are a model voicing rules, not people with their own
+  agenda (they never start a conversation, change their mind or call back on their own); the live site has no world and
+  shares one QA workspace; a day is a few turns, not eight hours.
+
 ## Limits worth knowing
 - An action takes 2-8 s; a page reload (when someone else saved) 6-10 s. A 35-turn day of about 12 actions each
   is roughly 40-70 minutes of wall time on this machine, plus the agents' own thinking.
 - Places-to-look and outside-the-Standard are heuristics on control labels (approve / money / owed) and on the
   delegation in plain terms; read them as leads, not verdicts.
-- The world's replies are template text unless the world-agent hook is used. Held-out events need live records
+- The world's replies are template text unless the voicer (`world-voice on`) or the world-agent hook is used. Held-out events need live records
   (open POs); early days with few POs get fewer of them.

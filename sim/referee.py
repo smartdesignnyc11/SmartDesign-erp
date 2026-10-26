@@ -395,6 +395,11 @@ class Referee:
                 L.append(f"- {d}: {D['turns']} turns, {D['calls']} toolkit calls, measured {D['measured_tokens']:,} tokens on {D['measured_turns']} turns; "
                          f"estimated {D['est_processed']:,} processed input, {D['est_new_context']:,} new context, {D['est_output']:,} output")
             L.append('')
+        try:
+            import voicer as VO
+            vm = VO.ledger_md(sim.dir)
+            if vm: L.append(vm)
+        except Exception as e: L.append(f'## World voice\n\n(could not read world/voice.jsonl: {e})\n')
         rows = out['events']; scored = [r for r in rows if r['verdict'] != 'open']
         L.append('## Missed and late, most expensive first\n')
         L.append('| Event | Day | Who | Reached their screen | Verdict | Detail | $ left | Days |')

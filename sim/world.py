@@ -21,8 +21,14 @@ sim/runs/<run>/world/pending/<id>.json ({party, persona, their_message, template
 may run an LLM as that party and write the free-text reply to sim/runs/<run>/world/answers/<id>.txt before
 the due slot; the world sends that text instead of the template. Nothing else changes: delays, who never
 answers and the money that follows stay with the rules, so the referee's numbers do not depend on the LLM.
+
+THE VOICER (10-26). With `simctl world-voice on` the world does that itself: when a reply falls due and no answer is
+written, sim/voicer.py has the live model write it in the party's voice through /api/ai (SIM_AI_TOKEN_FILE), with a
+style seeded per run and reply (plain, terse, a question back, another layout, late by a slot, or in two parts), and
+checks that every fact of the template (prices, dates, quantities, numbers) is kept and none is invented. On any
+failure the template goes out and world/voice.jsonl (and "World voice" in ledger.md) says so.
 """
-import json, os, random, re, hashlib
+import asyncio, json, os, random, re, hashlib
 from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -622,19 +628,58 @@ class World:
         rid = f"R{self.st['n']:04d}"
         rec = {'id': rid, 'party': k, 'to_uid': m['uid'], 'to': m['from'], 'subject': subj, 'text': text, 'att': att, 'day': day, 'slot': slot, 'kind': kind,
                'thread': m.get('thread') or m['id'], 'bank': bank, 'their_message': f"{m['subject']}\n{m['body'][:1500]}"}
-        if self.sim.state['world'].get('agent'):
+        if self.sim.state['world'].get('agent') or self.voice_on:
             d = os.path.join(self.sim.dir, 'world', 'pending'); os.makedirs(d, exist_ok=True)
-            json.dump({'id': rid, 'party': self.parties[k], 'persona': self.parties[k].get('voice', ''), 'their_message': rec['their_message'],
-                       'template_reply': text, 'due': [day, slot], 'answer_file': os.path.join(self.sim.dir, 'world', 'answers', rid + '.txt')},
-                      open(os.path.join(d, rid + '.json'), 'w'), indent=1)
+            json.dump(self.pending_rec(rec), open(os.path.join(d, rid + '.json'), 'w'), indent=1)
         return rec
+
+    # ---- the voicer (sim/voicer.py): the reply in the party's own words, the rule's facts kept
+    @property
+    def voice_on(self):
+        return bool(self.sim.state.get('world', {}).get('voice'))
+
+    def pending_rec(self, rp):
+        p = self.parties.get(rp['party'], {})
+        return {'id': rp['id'], 'party': p, 'persona': p.get('voice', ''), 'kind': rp.get('kind'), 'their_message': rp.get('their_message', ''),
+                'template_reply': rp['text'], 'att': [a.get('filename') for a in rp.get('att') or []], 'due': [rp['day'], rp['slot']],
+                'answer_file': os.path.join(self.sim.dir, 'world', 'answers', rp['id'] + '.txt')}
+
+    def next_slot(self, day, slot):
+        i = SI(slot)
+        return (day, SLOT_ORDER[i + 1]) if i < 3 else (self.wd_add(day, 1), 'work1')
+
+    async def voice_reply(self, rp, day, slot):
+        """Voice a reply that is due now: returns 'deliver', or 'later' when its style holds it a slot (late) """
+        import voicer as V
+        rec = self.pending_rec(rp)
+        r = await asyncio.to_thread(V.voice, rec, self.sim.state['seed'])
+        rp['voiced'] = r['style']
+        ans = rec['answer_file']; os.makedirs(os.path.dirname(ans), exist_ok=True)
+        if r['ok']: open(ans, 'w', encoding='utf-8').write(r['text'])
+        when = 'now'
+        if r['style'] == 'late' and r['ok']:
+            rp['day'], rp['slot'] = self.next_slot(day, slot); when = f"late, at {rp['day']} {rp['slot']}"
+        if r['ok'] and r['second']:
+            d2, s2 = self.next_slot(day, slot)
+            self.st['pending'].append({**{k: v for k, v in rp.items() if k not in ('expect', 'bank', 'att')}, 'id': rp['id'] + 'b', 'text': r['second'], 'att': [],
+                                       'day': d2, 'slot': s2, 'voiced': 'partial (the rest)', 'kind': rp.get('kind', '') + ' (rest)'})
+            when = f"now, the rest at {d2} {s2}"
+        V.log(self.sim.dir, {'id': rp['id'], 'party': (self.parties.get(rp['party']) or {}).get('name', rp['party']), 'kind': rp.get('kind'), 'style': r['style'],
+                             'ok': r['ok'], 'why': r['why'], 'missing': r['missing'], 'invented': r['invented'], 'facts': len(V.facts(rp['text'])), 'when': when,
+                             'day': day, 'slot': slot, 'usage': r['usage']})
+        self.sim.log({'uid': '__world', 'cmd': 'voice', 'args': [rp['id'], r['style']], 'ok': r['ok'], 'result': (r['why'] or when)[:200]})
+        return 'later' if when.startswith('late') else 'deliver'
 
     async def deliver_replies(self, pg, day, slot):
         out, keep = [], []
         now = (day, SI(slot))
-        for rp in self.st['pending']:
-            if (rp['day'], SI(rp['slot'])) > now: keep.append(rp); continue
+        due = [rp for rp in self.st['pending'] if (rp['day'], SI(rp['slot'])) <= now]
+        keep = [rp for rp in self.st['pending'] if (rp['day'], SI(rp['slot'])) > now]
+        self.st['pending'] = keep   # a voiced reply's second part is appended here while the due ones go out
+        for rp in due:
             ans = os.path.join(self.sim.dir, 'world', 'answers', rp['id'] + '.txt')
+            if self.voice_on and not rp.get('voiced') and not os.path.exists(ans):
+                if await self.voice_reply(rp, day, slot) == 'later': self.st['pending'].append(rp); continue
             text = open(ans).read().strip() if os.path.exists(ans) else rp['text']
             p = self.parties[rp['party']]
             e = {'id': rp['id'], 'day': day, 'time': self.sim.clock_str(), 'payload': {'from': p['addr'], 'to': [rp['to']], 'cc': [], 'subject': rp['subject'], 'text': text,
@@ -644,8 +689,7 @@ class World:
                 self.st['extra'].append({'id': rp['id'], 'day': day, 'time': self.sim.clock_str(), 'kind': 'reply', 'payload': {}, 'expect': rp['expect'], 'tags': ['world reply', rp['kind']]})
                 self.st['fired'][rp['id']] = 'delivered'
             if rp.get('bank'): self.st.setdefault('scheduled_bank', []).append(rp['bank'])
-            out.append([rp['id'], rp['party'], rp['kind'], r])
-        self.st['pending'] = keep
+            out.append([rp['id'], rp['party'], rp['kind'], r] + ([f"voiced: {rp['voiced']}"] if rp.get('voiced') else []))
         # promised payments arrive at the bank on their day, on the next statement
         sb, rest = self.st.get('scheduled_bank', []), []
         for b in sb:
@@ -702,6 +746,16 @@ class World:
                     json.dump({'id': rid, 'party': 'the Kleins (client)', 'persona': self.parties.get('sarah_klein', {}).get('voice', ''), 'their_message': f"{it['number']} {it['title']} sent for approval",
                                'template_reply': q, 'answer_file': os.path.join(sim.dir, 'world', 'answers', rid + '.txt')}, open(os.path.join(d, rid + '.json'), 'w'), indent=1)
                 af = os.path.join(sim.dir, 'world', 'answers', rid + '.txt')
+                if self.voice_on and not os.path.exists(af):   # the Kleins ask in their own words (a portal chat line: plain or terse)
+                    import voicer as V
+                    rec = {'id': rid, 'party': self.parties.get('sarah_klein', {'name': 'Sarah Klein'}), 'persona': self.parties.get('sarah_klein', {}).get('voice', ''), 'kind': 'portal question',
+                           'their_message': f"{it['number']} {it['title']} sent for approval", 'template_reply': q, 'att': []}
+                    st0 = V.style_for(rec, sim.state['seed']); st0 = st0 if st0 in ('plain', 'terse', 'question_back') else 'plain'
+                    vr = await asyncio.to_thread(V.voice, rec, sim.state['seed'], st0)
+                    os.makedirs(os.path.dirname(af), exist_ok=True)
+                    if vr['ok']: open(af, 'w', encoding='utf-8').write(vr['text'])
+                    V.log(sim.dir, {'id': rid, 'party': 'Sarah Klein', 'kind': 'portal question', 'style': vr['style'], 'ok': vr['ok'], 'why': vr['why'],
+                                    'missing': vr['missing'], 'invented': vr['invented'], 'facts': len(V.facts(q)), 'when': 'now', 'day': day, 'slot': slot, 'usage': vr['usage']})
                 if os.path.exists(af): q = open(af).read().strip()
                 ok = await pg.evaluate("""async (q) => { view = 'chat'; render(); await new Promise(r => setTimeout(r, 200)); const ta = document.querySelector('#chat-text'), b = document.querySelector('#chat-send');
                     if (!ta || !b) return false; ta.value = q; ta.dispatchEvent(new Event('input', { bubbles: true })); b.click(); return true; }""", q)

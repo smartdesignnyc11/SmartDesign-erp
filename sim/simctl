@@ -4,6 +4,8 @@
     sim/simctl status
     sim/simctl world <morning|work1|work2|eod> [--no-watchers|--watchers]   the outside world's events for the slot
     sim/simctl plan sim/day_plan_lean.json       which day plan this run follows (default sim/day_plan.json)
+    sim/simctl begin <uid> live [--cap N] [--device phone|desktop]   a turn on the LIVE site (a run started with server.py --live <role>,
+                                                sim/live.py): both devices in hand, no world, no clock pin; `prompt` gives sim/turn_prompt_live.md
     sim/simctl begin <uid> <slot> [--cap N] [--device phone|desktop] [--switch]   open a person's turn (only they may
                                                 act until `end`); the plan's cap for the slot, raised by a doc task; the device
                                                 from the doc task, else the plan's `devices` (day, slot, person), else the role's;
@@ -20,6 +22,8 @@
     sim/simctl party "<name>" '<json patch>'      change an outside party's rules, e.g. '{"reply_p": 1, "delay": [0, 0]}'
     sim/simctl world-client on|off              the client's portal side (approve, ask, pay) played by world rules (lean plan)
     sim/simctl world-agent on|off               write each scheduled outside reply to world/pending/ for an LLM to voice
+    sim/simctl world-voice on|off               the voicer: each outside reply written in the party's own words by the live model when it
+                                                falls due (sim/voicer.py; needs SIM_AI_TOKEN_FILE on the server), facts kept, template on failure
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
     sim/simctl cycle on|off [--play u_controller]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles (--play: those that play after all)
@@ -146,7 +150,8 @@ def prompt_p3(uid, b):
     vals['eod_text'] = eod
     for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
     reads = 0
-    for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, vals['diary'], vals['standard']):
+    for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, vals['diary'], vals['standard'],
+              os.path.join(d, 'files', uid, 'news.md'), os.path.join(d, 'files', uid, 'said.md')):
         try: reads += os.path.getsize(f)
         except Exception: pass
     try: admin('note_prompt', uid=uid, chars=len(tpl), reads=reads)
@@ -175,8 +180,28 @@ def judge(uid, day=None):
     return P3.judge_prompt(tpl, vals)
 
 
+def prompt_live(uid, b):
+    """a live turn's prompt (sim/turn_prompt_live.md): the live site, two devices, no world, no clock pin"""
+    run, d = run_dir()
+    st = admin('status'); t = st.get('turn') or {}
+    tpl = open(os.path.join(HERE, 'turn_prompt_live.md')).read()
+    briefing = os.path.join(HERE, 'roles', 'p3', uid + '.md')
+    if not os.path.exists(briefing): briefing = os.path.join(HERE, 'roles', uid + '.md')
+    from datetime import datetime as _dt
+    vals = {'name': b['name'], 'role': b['role'], 'uid': uid, 'run': run, 'site': b['site'], 'live': b['live'], 'clock': b['clock'],
+            'weekday': _dt.fromisoformat(b['day']).strftime('%A %B %-d'), 'root': os.path.dirname(HERE), 'briefing': briefing,
+            'diary': os.path.join(d, 'diary', uid + '.md'), 'cap': str(t.get('cap') or 15),
+            'device': 'phone (390x844, touch, one hand)' if b['phone'] else 'desktop'}
+    for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
+    reads = sum(os.path.getsize(f) for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, os.path.join(os.path.dirname(HERE), '.claude', 'agents', '_LOOP.md')) if os.path.exists(f))
+    try: admin('note_prompt', uid=uid, chars=len(tpl), reads=reads)
+    except Exception: pass
+    return tpl
+
+
 def prompt(uid):
     b = admin('brief', uid=uid)
+    if b.get('live'): return prompt_live(uid, b)
     if plan().get('turn_prompt'): return prompt_p3(uid, b)
     run, d = run_dir()
     tpl = open(os.path.join(HERE, 'turn_prompt.md')).read()
@@ -213,8 +238,11 @@ def main(a):
         if '--no-watchers' in a: kw['watchers'] = False
         if '--watchers' in a: kw['watchers'] = True
         r = admin('world', **kw)
+    elif c == 'begin' and admin('status').get('live'):   # a live run (sim/live.py): one person, both devices, no plan
+        dev = a[a.index('--device') + 1].lower() if '--device' in a else ''
+        r = admin('begin_turn', uid=a[1], cap=int(a[a.index('--cap') + 1]) if '--cap' in a else 15, device=dev)
     elif c == 'begin':
-        slot = a[2] if len(a) > 2 and not a[2].startswith('--') else admin('status')['slot']
+        slot =a[2] if len(a) > 2 and not a[2].startswith('--') else admin('status')['slot']
         cap = int(a[a.index('--cap') + 1]) if '--cap' in a else plan_cap(a[1], slot)
         minutes = float(a[a.index('--minutes') + 1]) if '--minutes' in a else plan_minutes(slot)
         admin('slot', slot=slot)
@@ -240,6 +268,7 @@ def main(a):
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
+    elif c == 'world-voice': r = admin('world_voice', on=a[1] == 'on')
     elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [])
     elif c == 'script': r = admin('script', payload=json.loads(a[1]))
     elif c == 'judge':
