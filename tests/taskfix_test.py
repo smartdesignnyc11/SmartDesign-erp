@@ -74,9 +74,11 @@ async def one_number(c, pg, phone):
                 await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tdytabbtn=\"buy\"]'); b && b.click(); scrollTo(0, 0); }"); await pg.wait_for_timeout(250)
                 await pg.screenshot(path=os.path.join(SHOTS, 'p_coord_today_buyboard.png'))
             await go(pg, 'proc')
-            tiles = await pg.evaluate("""() => [...document.querySelectorAll('.view.on button.gl')].filter(b => b.getClientRects().length).map(b => [(b.querySelector('.gl-k') || {}).textContent, +((b.querySelector('.gl-v') || {}).textContent || '').replace(/\\D+/g, '')])""")
-            t = dict((k, v) for k, v in tiles if k)
-            c.ok(t.get('Late to Order', 0) + t.get('Order This Week', 0) == buy, f'{tag} coord: the Buy Board\'s Late to Order and Order This Week are those {buy} ({t})')
+            # the P1 Buy Board (10-25) groups To Buy into sections (Late, Order This Week, Waiting on Quotes, Later) instead of
+            # tiles; the chip's count is the board's Late plus Order This Week on To Buy
+            t = await pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.view.on [data-bbsec]')].filter(s => s.getClientRects().length)
+              .map(s => [s.dataset.bbsec, +((s.querySelector('.bb-sh i') || {}).textContent || 0)]))""")
+            c.ok(t.get('late', 0) + t.get('week', 0) == buy, f'{tag} coord: the Buy Board\'s Late and Order This Week are those {buy} ({t})')
         # the Tasks page says the same number where the person reads it
         await go(pg, 'tkall'); await pg.wait_for_timeout(200)
         page = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
