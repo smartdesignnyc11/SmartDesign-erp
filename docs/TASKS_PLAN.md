@@ -46,6 +46,15 @@ No real meeting content is in this file (CLAUDE.md, Privacy). The examples below
    - the existing IDs (`PAD-23` keeps its name).
 
    Nothing is retyped. Unmatched rows go to a review list, never into "General".
+
+   **The rules after the first real dry run (Alan, 10-26).** The first dry run of the team board changed keys, gave one person's tasks to others and split projects. Now:
+   - a task keeps its key exactly as the team wrote it (the team's Task ID column, else the key the name starts with), case and zero padding kept, numeric series (`123-01`) too; a key mentioned in the notes is never the task's key; only a row with no key gets one, in its project's series, padded like its neighbours;
+   - a key series is firm-wide (a finance and an ops series sit on the Office list and on jobs); a project can hold several; a key is unique firm-wide and a true duplicate is refused to the review list;
+   - the owner is the assignee, by Assignee Email, else the exact full name; never a first name, never the lead; anyone else waits on Your Own Data by name, where the owner picks an owner or adds the person to the team;
+   - PROJECT NAME is the project, case and spacing evened out; "General" and the meeting-notes section are the Office list; a project that is a job here joins it;
+   - every field is kept (dates, both notes, priority, NEW or CARRIED, parent, dependencies, tags, the Asana id); re-importing the same file changes nothing.
+
+   Proof: `tests/asana_import_test.py` (an invented export of the board's shape, `tests/asana_invented/board/`). Not yet: the transcript reader (`meetdoc_core.js`) and Meeting Review still read only letter keys (`PAD-23`), not numeric series (`123-01`).
 3. **The task record gains what the meeting uses.** These are fields on the existing task stores (`tkItems`), not a new store:
    - a project key and number (`PAD-23`), shown and searchable everywhere, Ask included;
    - **one internal owner, always** (Alan, 10-23): a team member who makes sure it gets done. A vendor, consultant, designer or client is never the owner. They are **Waiting On**: who owes what, by when they promised it, and the evidence (mail, call, meeting). Others on the team can be collaborators. "The group" must name a lead. A task cannot be saved, imported or approved without an internal owner: an import row or a proposal with no owner waits for one to be picked;
