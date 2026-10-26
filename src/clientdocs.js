@@ -625,7 +625,8 @@ if ("function" == typeof repStatement) {
         if (out && "draft" === d.status) {
           CX_GENERIC_TITLE.test(d.title || "") && (d.lines || []).find((l) => l.item) && (d.title = cxClean((d.lines || []).find((l) => l.item).item, c));
           "co" === d.type && !d.reasonType && (d.reasonType = cxInferReason(d));
-          "invoice" === d.type && d.due && d.due !== cxBizDay(d.due) && (d.due = cxBizDay(d.due));
+          // the due date the person saved stands: Send moved a saved 9/19 (a Saturday) to 9/21 without a word (round
+          // one, TRIAGE class 7). Dates the app picks itself land on business days (cxDueFor, at newDoc).
         }
       }
     }
