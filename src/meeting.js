@@ -26,7 +26,53 @@
    Exports for lane B (the transcript reader): mtCurrent(), mtLog(change), mtScreenLog(), tkByCode(code).
 --------------------------------------------------------------------------------------------------------------------- */
 var tkRecReady = !1;
-const TK_CODE_RE = /^([A-Z][A-Z0-9]{0,7})-(\d{1,5})$/;
+// A key is a series and a number, kept exactly as the team wrote it (Alan, 10-26): letters ("PAD-23", "OPS-02") or a
+// numeric series ("144-01"), case and zero padding kept. A series is firm-wide: one board can hold keys of several
+// series (the firm's finance and ops series sit on the Office list and on jobs), so the next number of a series is
+// counted across every board, and padded like the keys already in it. Two keys that read the same aloud ("PAT-02" and
+// "PAT-2") are one key (tkKeyNorm), so they can never name two tasks.
+const TK_CODE_RE = /^([A-Za-z][A-Za-z0-9]{0,7}|\d{1,6})-(\d{1,5})$/;
+function tkKeyNorm(code) {
+  const c = String(code || "").trim(),
+    m = TK_CODE_RE.exec(c);
+  return m ? `${m[1].toUpperCase()}-${+m[2]}` : c.toUpperCase();
+}
+// every series in use: {SERIES: {max, width, boards:Set}}; width is the zero padding its keys use (0: none)
+function tkSeriesScan(recs) {
+  const S = {},
+    add = (code, board) => {
+      const m = TK_CODE_RE.exec(String(code || "").trim());
+      if (!m) return;
+      const k = m[1].toUpperCase(),
+        x = (S[k] = S[k] || { max: 0, width: 0, boards: new Set() });
+      x.max = Math.max(x.max, +m[2]);
+      /^0\d/.test(m[2]) && (x.width = Math.max(x.width, m[2].length));
+      board && x.boards.add(board);
+    };
+  (recs || tkCodedRecs()).forEach((r) => {
+    add(r.rec.code, r.board);
+    (r.rec.keyWas || []).forEach((k) => add(k, ""));
+  });
+  // the Asana rows still waiting for an owner hold their keys: a number they hold is never given to another task
+  try {
+    ((DB.asanaImport && DB.asanaImport.pending) || []).forEach((x) => add(x.code, ""));
+  } catch (e) {}
+  return S;
+}
+// a key in a series: the number padded like the series' keys ("PAT-03" beside "PAT-02", "PAD-28" beside "PAD-27")
+function tkKeyFmt(prefix, n, S) {
+  const x = (S || tkSeriesScan())[String(prefix || "").toUpperCase()],
+    w = (x && x.width) || 0;
+  return `${prefix}-${String(n).padStart(w, "0")}`;
+}
+// the next key a board gives (its own series), never one any board holds or held
+function tkNextKey(id, S) {
+  const meta = tkBoardMeta(id);
+  if (!meta || !meta.prefix) return "";
+  const Z = S || tkSeriesScan(),
+    x = Z[meta.prefix.toUpperCase()];
+  return tkKeyFmt(meta.prefix, Math.max(+meta.keyNext || 1, ((x && x.max) || 0) + 1), Z);
+}
 const TK_STATUS = [
   ["todo", "To Do"],
   ["doing", "Doing"],
@@ -194,11 +240,15 @@ function tkPrefixGuess(name, exceptId) {
   return b + "X";
 }
 // the prefix a board's codes already use (an imported board keeps its PAD), the most common one
-function tkPrefixInUse(recs) {
+// A series whose keys sit on more than one board is a firm-wide one (finance, ops): it is never a board's own.
+function tkPrefixInUse(recs, S) {
   const n = {};
   recs.forEach((r) => {
     const m = TK_CODE_RE.exec(String(r.rec.code || ""));
-    m && (n[m[1]] = (n[m[1]] || 0) + 1);
+    if (!m) return;
+    const x = S && S[m[1].toUpperCase()];
+    if (x && x.boards.size > 1) return;
+    n[m[1]] = (n[m[1]] || 0) + 1;
   });
   return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || "";
 }
@@ -208,7 +258,7 @@ function tkSetPrefix(id, pre) {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 8);
-  if (!P || !/^[A-Z]/.test(P)) return { ok: !1, why: "A prefix is letters, then letters or numbers (PAD, OPS, F)" };
+  if (!P || !/^([A-Z][A-Z0-9]*|\d+)$/.test(P)) return { ok: !1, why: "A prefix is letters, then letters or numbers (PAD, OPS, F), or a number (144)" };
   if (tkPrefixTaken(P, id)) return { ok: !1, why: `${P} is already another project's prefix` };
   const meta = tkBoardMeta(id);
   if (!meta) return { ok: !1, why: "That project is no longer here" };
@@ -220,7 +270,7 @@ function tkSetPrefix(id, pre) {
     .filter((r) => r.board === id)
     .forEach((r) => {
       const m = TK_CODE_RE.exec(String(r.rec.code || ""));
-      if (!m || m[1] !== was) return;
+      if (!m || m[1].toUpperCase() !== was.toUpperCase()) return;
       (r.rec.keyWas = r.rec.keyWas || []).push(r.rec.code);
       r.rec.code = `${P}-${m[2]}`;
     });
@@ -239,14 +289,23 @@ function tkRecSweep() {
   let n = 0;
   try {
     const R = tkCodedRecs(),
-      byBoard = {};
+      byBoard = {},
+      S = tkSeriesScan(R),
+      give = (meta) => {
+        const k = meta.prefix.toUpperCase(),
+          x = S[k],
+          n = Math.max(+meta.keyNext || 1, ((x && x.max) || 0) + 1);
+        meta.keyNext = n + 1;
+        x ? (x.max = Math.max(x.max, n)) : (S[k] = { max: n, width: 0, boards: new Set() });
+        return tkKeyFmt(meta.prefix, n, S);
+      };
     R.forEach((r) => (byBoard[r.board] = byBoard[r.board] || []).push(r));
     Object.keys(byBoard).forEach((id) => {
       const L = byBoard[id],
         meta = tkBoardMeta(id);
       if (!meta) return;
-      const inUse = tkPrefixInUse(L),
-        cnt = (pre) => L.filter((r) => String(r.rec.code || "").toUpperCase().startsWith(pre + "-")).length;
+      const inUse = tkPrefixInUse(L, S),
+        cnt = (pre) => L.filter((r) => String(r.rec.code || "").toUpperCase().startsWith(pre.toUpperCase() + "-")).length;
       let was = "";
       if (!meta.prefix) (meta.prefix = inUse || tkPrefixGuess(tkBoardName(id), id)), n++;
       else if (!meta.prefixSet && inUse && inUse !== meta.prefix && cnt(inUse) > cnt(meta.prefix) && !tkPrefixTaken(inUse, id)) {
@@ -256,20 +315,16 @@ function tkRecSweep() {
         meta.prefix = inUse;
         n++;
       }
-      const P = meta.prefix;
-      let max = 0;
-      L.forEach((r) => {
-        const m = TK_CODE_RE.exec(String(r.rec.code || ""));
-        m && m[1] === P && (max = Math.max(max, +m[2]));
-      });
-      const next = Math.max(+meta.keyNext || 1, max + 1);
+      // the series is firm-wide: its next number follows every board's keys, not this board's alone
+      const x = S[meta.prefix.toUpperCase()],
+        next = Math.max(+meta.keyNext || 1, ((x && x.max) || 0) + 1);
       meta.keyNext !== next && ((meta.keyNext = next), n++);
       was &&
         L.forEach((r) => {
           const m = TK_CODE_RE.exec(String(r.rec.code || ""));
-          if (!m || m[1] !== was) return;
+          if (!m || m[1].toUpperCase() !== was.toUpperCase()) return;
           (r.rec.keyWas = r.rec.keyWas || []).push(r.rec.code);
-          r.rec.code = `${P}-${meta.keyNext++}`;
+          r.rec.code = give(meta);
         });
     });
     // one code, one task: a board task (a to-do, the firm's own, a sales task: what the meeting and an Asana import
@@ -280,12 +335,12 @@ function tkRecSweep() {
     order.forEach((r) => {
       const c = String(r.rec.code || "").trim();
       if (!c) return;
-      const k = c.toUpperCase();
+      const k = tkKeyNorm(c);
       if (!seen[k]) return void (seen[k] = r);
       const meta = tkBoardMeta(r.board);
       (r.rec.keyWas = r.rec.keyWas || []).push(c);
-      r.rec.code = `${meta.prefix}-${meta.keyNext++}`;
-      seen[r.rec.code.toUpperCase()] = r;
+      r.rec.code = give(meta);
+      seen[tkKeyNorm(r.rec.code)] = r;
       n++;
     });
     // a task with no key gets the next one on its board, in the board's own order
@@ -293,7 +348,7 @@ function tkRecSweep() {
       if (String(r.rec.code || "").trim()) return;
       const meta = tkBoardMeta(r.board);
       if (!meta) return;
-      r.rec.code = `${meta.prefix}-${meta.keyNext++}`;
+      r.rec.code = give(meta);
       n++;
     });
     tkIntMemo = new Map();
@@ -367,8 +422,13 @@ function tkOwnerFix(r) {
 function tkByCode(code) {
   const c = String(code || "").trim().toUpperCase();
   if (!c) return null;
-  const R = tkKeyedRecs();
-  const r = R.find((x) => String(x.rec.code || "").toUpperCase() === c) || R.find((x) => (x.rec.keyWas || []).some((k) => String(k).toUpperCase() === c));
+  const R = tkKeyedRecs(),
+    k = tkKeyNorm(c);
+  // exactly as written first, then as it reads aloud ("PAT-2" finds PAT-02), then a key it used to have
+  const r =
+    R.find((x) => String(x.rec.code || "").toUpperCase() === c) ||
+    R.find((x) => x.rec.code && tkKeyNorm(x.rec.code) === k) ||
+    R.find((x) => (x.rec.keyWas || []).some((y) => String(y).toUpperCase() === c || tkKeyNorm(y) === k));
   return r ? Object.assign({ key: tkRecKey(r) }, r) : null;
 }
 const tkCodeOfKey = (key) => {
@@ -1254,7 +1314,7 @@ function mmCardData(code) {
   return R ? Object.assign({ T: T, R: R }, {}) : null;
 }
 function mmCardHtml(m, s, W) {
-  if ("empty" === s.t) return `<article class="mm-card mm-fyi"><div class="mm-key">${esc((tkBoardMeta(s.board) || {}).prefix || "")}</div><h2 class="mm-title">${esc(tkBoardName(s.board))} has no tasks yet</h2><p class="muted">Add its first task: it will be ${esc((tkBoardMeta(s.board) || {}).prefix || "")}-${esc(String((tkBoardMeta(s.board) || {}).keyNext || 1))}.</p></article>`;
+  if ("empty" === s.t) return `<article class="mm-card mm-fyi"><div class="mm-key">${esc((tkBoardMeta(s.board) || {}).prefix || "")}</div><h2 class="mm-title">${esc(tkBoardName(s.board))} has no tasks yet</h2><p class="muted">Add its first task: it will be ${esc(tkNextKey(s.board))}.</p></article>`;
   if ("fyi" === s.t) {
     const F = (m.agenda || []).flatMap((b) => b.fyi.map((c) => [c, b]));
     return `<article class="mm-card mm-fyi"><div class="mm-key">FYI Only</div><h2 class="mm-title">${F.length} item${1 === F.length ? "" : "s"} for information</h2><ul class="mm-fyilist">${F.map(([c, b]) => {
@@ -1621,7 +1681,7 @@ function mmAddProject(m, f) {
   } catch (e) {}
   save();
   renderTkAll();
-  toast(`${name} added with the prefix ${tkBoardMeta(id).prefix}: its first task will be ${tkBoardMeta(id).prefix}-${tkBoardMeta(id).keyNext}`);
+  toast(`${name} added with the prefix ${tkBoardMeta(id).prefix}: its first task will be ${tkNextKey(id)}`);
   return id;
 }
 // the order within a project: moved only from the menu, never by a stray drag
