@@ -621,6 +621,12 @@ async def s3_receive(C):
         pressed = await C.js("""k => { const b = [...document.querySelectorAll('#v-home [data-nyh], #v-home [data-nyhrun], #v-home button')].find(x => x.getClientRects().length && ((x.dataset.nyh || x.dataset.nyhrun || '') === k));
             if (b) { b.click(); return 'Home button'; } nyhRun(k); return 'nyhRun'; }""", row['key'])
         await C.wait(600)
+        # Enter the Bill opens the bill, filled in from the invoice (Pilot 2: nothing is entered on one blind tap); the
+        # Controller checks it and presses Enter the Bill on the review
+        rev = await C.js("""() => { const m = document.getElementById('mbm'); if (!m || !/^Enter the Bill/.test(m.querySelector('h3').innerText)) return '';
+            const v = Object.fromEntries([...m.querySelectorAll('[data-f]')].map(i => [i.dataset.f, i.value])); m.querySelector('#mbm-ok').click(); return v.poId || '-'; }""")
+        C.ok(rev, f'{num}: Enter the Bill opens the review, filled in from the invoice, and enters it on the person\'s yes', rev)
+        await C.wait(600)
         b = await C.js("""n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId, status: b.status, retainagePct: +b.retainagePct || 0,
             due: b.due || '', file: b.fileId || '', lines: b.lines.map(l => ({id: l.id || '', poLineId: l.poLineId || '', line: l.line || ''})), flags: billFlags(b)}; }""", num)
         C.ok(b and b['poId'] == po['id'], f'{num} lands on its PO {po["number"]}', b)
@@ -977,6 +983,13 @@ async def s5_bill(C):
         await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{iid}'}};")
         await C.click_text('section.view.on', r'^Send to Client$', 600)
         m = await C.modal()
+        # a line billed further ahead of its measured work asks why first (Pilot 2): the CO line goes at 100% on the
+        # PM's word that the rough-in is in, which the schedule does not measure yet, so billing says so
+        if m and m['title'].startswith('Billed Ahead of the Work'):
+            await C.fill('#mbm [data-f="why"]', 'The PM confirmed the pot filler rough-in on site')
+            await C.modal_ok(900)
+            C.t(f"Billing > {key} > Send to Client > {m['title']} > reason: the PM confirmed the rough-in")
+            m = await C.modal()
         if m: await C.modal_ok(700)
         st = await C.js("([c, id]) => { const i = DB.clients.find(x => x.id === c).invoices.find(x => x.id === id); return {number: i.number, status: i.status, total: docTotal(i).total}; }", [cid, iid])
         C.ok(st['status'] == 'sent', f"{st['number']} > Send to Client > {m and m['buttons'][-1]} → sent", st)
