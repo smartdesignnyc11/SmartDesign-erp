@@ -1102,4 +1102,16 @@ esAdd({
   "{n} ticked · the rest splits evenly": "{n} marcadas · el resto se reparte por igual",
   "{n} of {n} h": "{n} de {n} h",
   "That step did not go through: the screen changed under the question. Tap {x} again": "Ese paso no se hizo: la pantalla cambió debajo de la pregunta. Toca {x} otra vez",
+  // the feedback session (src/fbsession.js, 2026-10-26): the menu entry and the bar a field person sees; not yet reviewed
+  "Record a Feedback Session": "Grabar una Sesión de Comentarios",
+  "Feedback Session": "Sesión de Comentarios",
+  Recording: "Grabando",
+  Mark: "Marcar",
+  Pause: "Pausa",
+  Resume: "Seguir",
+  Finish: "Terminar",
+  "Keep Recording": "Seguir Grabando",
+  "Finish the Feedback Session": "Terminar la Sesión de Comentarios",
+  "Save the Session": "Guardar la Sesión",
+  "Discard the Session": "Descartar la Sesión",
 });
