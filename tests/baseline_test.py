@@ -40,7 +40,12 @@ async def main():
         # the work. 121 State is billed $66,470 ahead line by line, so its application ($12,651.25) and the windows'
         # stored materials (now $10,169.99, delivered less billed: the disputed $3,800 never bills) are held rows with
         # the reason: 46301.24 / 4 rows / 0 held -> 19680 / 2 rows / 2 held.
-        c.ok(r['rtb'] == 19680 and r['rtbN'] == 2 and r['held'] == 2, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
+        # lane 1, round three (2026-10-26, the month walk's E248): holding the whole application left measured work
+        # unbilled. A job billed ahead on the whole still bills every line behind its measure and holds only the lines
+        # ahead (at 0), so 121 State's application ($12,651.25: framing and electrical) is ready again, with the reason
+        # naming the 7 lines it holds; the windows' stored materials stay held (the windows line is itself ahead):
+        # 19680 / 2 rows / 2 held -> 32331.25 / 3 rows / 1 held, and Billing's badge (its ready rows) 2 -> 3.
+        c.ok(r['rtb'] == 32331.25 and r['rtbN'] == 3 and r['held'] == 1, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         # Purchasing 10 -> 17 (procurement P1, 2026-10-25): the badge is the Buy Board's one reader, late or due to order
         # this week (PRED.buyNeeds, the coordinator's Buy Board chip on Today), no longer "late to order, held, due this
         # week or waiting on a decision". 16 late: 12 not ordered by their order-by date (the 6 it counted before, plus 2
@@ -50,7 +55,7 @@ async def main():
         # Approvals card). The 4 waiting on a decision and not yet late left it.
         # Billing 4 -> 2 (lane 1, 2026-10-26, TRIAGE class 2's accept): 121 State is billed ahead, so its application and
         # the windows' stored materials are held rows with the reason, not items to bill or send
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 2}, f"rail badges {r['badges']}")
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 3}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
         # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)

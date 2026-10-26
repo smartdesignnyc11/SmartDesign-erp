@@ -303,12 +303,62 @@ async def t_queue(C, p, phone):
       const draft = rows.filter(r => r.kind === 'draft').map(r => r.id);
       const ahead = rows.filter(r => r.kind === 'ready' && r.job && r.job.id === 'p121' && r.rtb && ['application', 'floated', 'progress'].includes(r.rtb.kind));
       const held = rows.filter(r => r.kind === 'held' && r.job && r.job.id === 'p121');
-      return { draftBtns: btns.filter(b => draft.includes(b.id)).map(b => b.label), ahead: ahead.map(r => r.what), held: held.map(r => r.why),
+      return { draftBtns: btns.filter(b => draft.includes(b.id)).map(b => b.label), ahead: ahead.map(r => r.what + ' | ' + r.why), held: held.map(r => r.why),
                win: rows.filter(r => /Windows/.test(r.what + ' ' + r.why)).map(r => r.amount) };""")
     C.ok(q['draftBtns'] and not any(l.lower() == 'send' for l in q['draftBtns']), f'Q {dev}: a draft row offers Review, never a one-tap Send: {q["draftBtns"]}')
-    C.ok(not q['ahead'] and q['held'] and all('ahead of the work' in w for w in q['held']), f'Q {dev}: 121 State, billed ahead, has nothing ready to bill; what waits says why: {q}')
+    # 121 State is billed ahead on the whole: its application bills only what is behind its measure and says what it
+    # holds (E248); nothing else that is progress is ready on it, and whatever waits says why
+    C.ok(q['ahead'] and all(w.startswith('line-by-line application') for w in q['ahead']) and all('ahead of the work' in w for w in q['held']),
+         f'Q {dev}: 121 State, billed ahead, offers only its line-by-line application; what waits says why: {q}')
     C.ok(q['win'] and all(abs(a - 10170) < 1 for a in q['win']), f'Q {dev}: the windows bought and delivered, not billed, read $10,170 (the disputed $3,800 never bills): {q["win"]}')
     C.ok(not errs, f'Q {dev}: no page errors: {errs[:3]}')
+    await b.close()
+
+
+# the line the month walk reads for a task (tests/month_runtime.js lineBilled): its code, then the job's measured line
+ELEC_LINE = """const pr = DB.projects.find(x => x.id === 'p121'), t = pr.tasks.find(x => x.id === 'relec');
+      let code = ''; try { code = codeForTrade(t.trade, t.name); } catch (e) {}
+      const L = (tpJobPctDetail(pr).lines || []).find(x => x.x && x.x.code === code), svId = L ? L.x.sv.id : '';"""
+
+
+async def t_measured(C, p, phone):
+    """the month walk's E248: on a job billed ahead on the whole, the foreman's measured work still bills at month end;
+    only the lines billed ahead hold, at 0, and the row says both"""
+    dev = 'phone' if phone else 'desktop'
+    b, pg, errs = await fresh(p, 'u_angel', phone)
+    await js(pg, """const pr = DB.projects.find(x => x.id === 'p121'), t = pr.tasks.find(x => x.id === 'relec');
+      prgSet(pr, t, { pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Rough electrical complete' }); save();""")
+    await sign_in(pg, 'u_billing')
+    await nav(pg, phone, 'billing')
+    q = await js(pg, ELEC_LINE + """
+      const r = billingRows().find(x => x.kind === 'ready' && x.job && x.job.id === 'p121' && x.rtb && x.rtb.kind === 'application'), A = pbAhead('p121');
+      const btn = r && [...document.querySelectorAll('[data-blact]')].find(x => x.dataset.blact === r.id && x.getClientRects().length);
+      return { id: r && r.id, why: r && r.why, amt: r && r.amount, btn: btn ? btn.innerText.trim() : '', ahead: A.lines.map(l => l.svId), n: A.lines.length, net: A.net, svId: svId };""")
+    m = re.search(r'bills \$[\d,.]+ of measured work on \d+ lines?; holds (\d+) lines? billed ahead, net \$[\d,.]+, not counting the 20% deposit', q['why'] or '')
+    C.ok(q['id'] and q['net'] > 0 and m and int(m.group(1)) == q['n'] and q['n'] > 0,
+         f'MEAS {dev}: 121 State, billed ahead on the whole, still has its application ready; the row says what it bills and what it holds: {q}')
+    C.ok(q['btn'], f'MEAS {dev}: the row has its own button in the Billing Queue: {q["btn"]!r}')
+    if q['btn']:
+        await pg.locator(f'[data-blact="{q["id"]}"]').filter(has_text=q['btn']).first.click()
+        await pg.wait_for_timeout(600)
+    d = await js(pg, ELEC_LINE + """
+      const c = DB.clients.find(x => x.id === 'cl121'), inv = (c.invoices || []).find(i => i.mode === 'sov' && i.status === 'draft' && i.projectId === 'p121');
+      if (!inv) return null;
+      const R = pgRows('p121'), ahead = pbAhead('p121').lines.map(l => l.svId);
+      const lines = inv.lines.map(l => { const r = R.find(x => x.sv.id === l.sovId); return { sv: l.sovId, prev: +l.prevPct || 0, pct: +l.pct || 0, meas: r && r.pr.pct != null ? r.pr.pct : null, ahead: ahead.includes(l.sovId) }; });
+      return { n: inv.number, lines: lines, elec: lines.find(l => l.sv === svId) || null, svId: svId };""")
+    C.ok(d and d['elec'] and d['elec']['prev'] + d['elec']['pct'] >= 99.99,
+         f'MEAS {dev}: the drafted application bills the rough electrical up to its 100% measure: {d and d["elec"]}')
+    over = [l for l in (d or {}).get('lines', []) if l['pct'] > 0.001 and (l['meas'] is None or l['prev'] + l['pct'] > l['meas'] + 0.01)]
+    pushed = [l for l in (d or {}).get('lines', []) if l['ahead'] and l['pct'] > 0.001]
+    C.ok(d and not over and not pushed, f'MEAS {dev}: no line is billed past its measure this period, and no line billed ahead is pushed further: over {over} ahead {pushed}')
+    s2 = await js(pg, ELEC_LINE + """
+      const c = DB.clients.find(x => x.id === 'cl121'), inv = (c.invoices || []).find(i => i.mode === 'sov' && i.status === 'draft' && i.projectId === 'p121');
+      if (!inv) return null; await docAction(c, inv, 'send'); await sleep(200);
+      const r = pgRows('p121').find(x => x.sv.id === svId);
+      return { status: inv.status, billed: r ? +r.ev.billedPct : null, aheadWhy: inv.aheadWhy || null };""")
+    C.ok(s2 and s2['status'] != 'draft' and s2['billed'] is not None and s2['billed'] >= 99, f'MEAS {dev}: sent, the rough electrical reads measured 100%, billed 100% (E248 on time): {s2}')
+    C.ok(not errs, f'MEAS {dev}: no page errors: {errs[:3]}')
     await b.close()
 
 
@@ -442,7 +492,7 @@ async def t_class(C, p, phone):
 
 async def main():
     C = Checks()
-    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED', 'BANK', 'LBL', 'CLS']
+    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED', 'BANK', 'LBL', 'CLS', 'MEAS']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'DEP' in only: await t_deposit(C, p, phone)
@@ -454,6 +504,7 @@ async def main():
             if 'BANK' in only: await t_bank(C, p, phone)
             if 'LBL' in only: await t_labels(C, p, phone)
             if 'CLS' in only: await t_class(C, p, phone)
+            if 'MEAS' in only: await t_measured(C, p, phone)
     sys.exit(C.done())
 
 asyncio.run(main())
