@@ -58,3 +58,24 @@ All five of these must hold:
 | Iteration | Date | Phone | Desktop | Owner | PM | Procurement | Accounting | S1 / S2 open | Cost |
 |---|---|---|---|---|---|---|---|---|---|
 | 0 (Pilot 3 day 1) | 10-25 | not measured | not measured | 5 / 5 | 4 / 5 | - | - | many | 0.97M |
+| 0 (first screen walk, master cc6e42c) | 10-26 | 0 of 10 | 0 of 10 | - | - | - | - | walk: 65 of 83 checks fail | machine only |
+
+## Iteration 0: the first screen walk (10-26), journey by journey
+`tests/cycle_walk.py` covers J1, J2, J5, J6 and J8 so far. J3, J4, J7, J9 and J10 are not in the walk yet.
+
+| Journey | Records right? | Inside budget? | Verdict |
+|---|---|---|---|
+| J1 | yes on both devices | no (22 taps against 15) | fail |
+| J1 (the proposal at won) | no: the estimate is never tied to its job | | fail |
+| J2 | desktop yes (101 taps against 40, every line needs two Saves); phone no (Add Line Item dead) | | fail |
+| J5 | yes on both devices | no (60 taps against 30) | fail |
+| J6 | no on both devices | | fail: the PO never reached the vendor; the second plumbing buy blocked by a COI the first buy ignored; no price check against PO-2026-041 |
+| J8 | yes on the desktop | no (14 taps against 12) | fail: the deposit is not in Ready to Bill; Send opens the mail app only |
+
+**The dangerous-button class:**
+- Approve is first on a held, paid-before-approval bill.
+- Draft the Renewal opens Record the Filing dated today.
+- Mark Sent is blue, and first on the phone, on every draft estimate.
+- "Recommended by PM" and "approved by Owner" stamps have no audit entry behind them.
+
+**Mail is not sent from the app.** RFQs, POs and estimate cover mails each stop at a mailbox draft or a mail-app link, so nothing is recorded as sent.
