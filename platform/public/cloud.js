@@ -211,6 +211,7 @@ window.Cloud = (() => {
     conn: {kind: 'keyed'},                                                                // each person's Google connection
     asst: {kind: 'keyed'},                                                                // each person's assistant: thread, memory, delegation
     msgSeen: {kind: 'keyed'},                                                             // where each person stopped reading each conversation
+    rpSessions: {kind: 'list', priv: it => !!(it && it.owner)},                           // each person's recorded feedback sessions (src/fbsession.js)
   };
   const meApp = () => window.__cloudPerson || null;                                         // the person in the app (DB.users id)
   // Whose private rows: the profile's private key when the server has linked several sign-ins of one person
