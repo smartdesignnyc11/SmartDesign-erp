@@ -39,7 +39,9 @@ walk does Pilot 3's required work the way a person does it, and fails where a pe
   state, on the owner's, PM's, coordinator's and billing's screens, phone and desktop: the blue button and the first button
   must be a safe next step for that state (`UNSAFE`); no draft-like button may open a sheet that records the thing as done
   or arrives with today's date in its Filed/Paid/Sent On; no "recommended / approved by <person>" without that person's own
-  entry in the audit trail. The blue button is read with the harness's `screen --marks`.
+  entry in the audit trail. The blue button is read with the harness's `screen --marks`. The walk runs twice: on every
+  role's Today in the morning, before anyone has worked it (where Pilot 3 met Draft the Renewal), and at the end over
+  every list above, after the owner has put WW-2026-118 on hold through its own Hold.
 
 ## Run it
 ```
@@ -48,6 +50,7 @@ tests/slot.sh python3 tests/cycle_walk.py                       # everything, on
 tests/slot.sh python3 tests/cycle_walk.py --only J2             # one journey (the chain before it runs on the desktop)
 tests/slot.sh python3 tests/cycle_walk.py --devices desktop --no-danger
 python3 tests/cycle_walk.py --attach <run> --only J3 --devices desktop   # a world you started (development)
+python3 tests/cycle_walk.py --attach <run> --danger-only                  # only the dangerous-button walk, on that world
 ```
 The report is `review/cycle_walk/report.md` (and `report.json`): the journeys with taps, budgets and times, every failure,
 and each journey's trail. The last line is `CYCLE WALK N checks · F failed`; it exits 1 on any failure. `--keep` leaves the

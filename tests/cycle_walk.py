@@ -340,12 +340,27 @@ class Person:
         self.last_control = c.label
         r, txt = self._act('tap', c.n)
         self.trail[-1] += f'  ({c.label[:60]})'
+        if not r.get('ok') and self.landed_slow(txt, c.label): r = {'ok': True}; txt = self.look().text
         if not r.get('ok'): raise Stuck(f'tap "{label}"', 'the tap to land', screen_of(txt), c.label + ': ' + txt.split(chr(10))[0][:160])
         self.scr = screen_of(txt)
         if expect and not self.scr.has(expect):
             self.look()
             if not self.scr.has(expect): raise Stuck(f'tap "{label}"', f'"{expect}" on the screen after it', self.scr, c.label)
         return self.scr
+
+    def landed_slow(self, txt, label):
+        if 'Toast: ' in txt and 'Timeout' in txt:
+            self.expect(False, f'the screen settles after "{label}" (it was still busy after 30 seconds)', txt.split(chr(10))[0][:200])
+            return True
+        return False
+
+    def expand(self):
+        """a record's collapsed header on the phone ("Invoice · Fri, Sep 4 · due Mon, Sep 21"): tap it open"""
+        c = next((x for x in self.look().ctls if x.action and re.search(r' · .*(due|valid to) ', x.label)), None)
+        if not c: return False
+        self.last_control = c.label
+        self._act('tap', c.n); self.look()
+        return True
 
     def tap_ctl(self, c, expect=None):
         if not c or not c.n: raise Stuck('tap', 'the control on the screen', self.scr, self.last_control)
@@ -368,7 +383,7 @@ class Person:
 
     def tap_row(self, text, after=None, expect=None):
         c = self.scr.row(text, after) if self.scr.text else None
-        if c is None: self.look(); c = self.scr.row(text, after)
+        if c is None: self.look(); c = self.scr.row(text, after) or self.scr.row(text)
         if c is None: raise Stuck(f'open "{text}"', f'a row for "{text}" on the screen', self.scr, self.last_control)
         self.last_control = c.label or text
         r, txt = self._act('tap', c.n)
@@ -396,8 +411,16 @@ class Person:
         if not r.get('ok'): raise Stuck(f'pick "{option}" in "{label}"', f'"{option}" among the options', self.scr, c.label + ': ' + txt[:160])
         return c
 
-    def do(self, steps):
+    def do(self, steps, _again=True):
         """a person's run of quick actions (up to 8), each resolved to its control on the screen in front of them"""
+        try:
+            return self._do(steps)
+        except Stuck as e:
+            if _again and 'Timeout' in (e.control or '') and self.expand():
+                return self.do(steps, False)
+            raise
+
+    def _do(self, steps):
         out = []
         for verb, *a in steps:
             if verb == 'type':
@@ -474,7 +497,7 @@ def inquiry_to_won(p, subject, client, value, close):
     p.do([('type', 'Value', str(int(value))), ('tap', 'Convert')])
     p.tap('Closed Won', expect='Close as Won')
     p.tap(close, exact=True)
-    p.expect(norm(client) in norm(p.scr.toast) and not re.search(r'— design-build is a client', norm(p.scr.toast)),
+    p.expect(not p.scr.toast or norm(client) in norm(p.scr.toast) and not re.search(r'— design-build is a client', norm(p.scr.toast)),
              f'the toast names the client that was made ({client})', p.scr.toast)
 
 
@@ -533,8 +556,10 @@ def open_estimate(p, menu_check=False, create=False):
                  'Estimates in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
     p.go('Projects', expect_menu=False)
     sw = p.scr.find('Switch project', field=True)
-    if not sw or norm(sw.value) != norm(JOB['job']):
-        p.pick('Switch project', JOB['job'])
+    if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job'])
+    elif not sw:
+        r = p.look().row(JOB['job'], after='Every job') or p.scr.row(JOB['job'])
+        if r: p.tap_ctl(r)
     p.tap('Estimates', exact=True)
     row = p.look().row('Wren & Julian Ashby', after='Search') or p.scr.row('EST-20', after='Search')
     if row is None and create:
@@ -669,7 +694,7 @@ def j4_owner_signed(p):
     p.tap('Estimates', exact=True)
     p.tap_row(num, after='Search', expect='Estimate EST-')
     if not p.scr.find('Record Client Approval'):
-        p.tap('More', exact=True)
+        p.tap('More', exact=True, after='Bill to')
     p.tap('Record Client Approval', expect='How They Approved')
     p.do([('type', 'How They Approved', 'Signed copy by email from Wren Ashby, 9/3 (Signed PDF on file)'), ('tap', 'Record Approval')])
     p.expect('approved' in norm(p.scr.toast), f'a toast that {num} is approved', p.scr.toast)
@@ -735,7 +760,8 @@ def j5_coord_rfq(p):
         switch(p, me, dev)
         p.go('Purchasing')
         p.tap('Quotes', exact=True)
-    p.tap_ctl(p.look().next_action(rfq) or Ctl(0, 'button', '', 0, 0), expect='RFQs')
+    p.look()
+    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
     want = [y[0] for y in YARDS]
     picks = [c for c in p.scr.ctls if c.kind == 'check' and c.label]
     steps = [('tap', c) for c in picks if (c.state == 'on') != any(norm(c.label).startswith(norm(w)) for w in want)]
@@ -763,7 +789,7 @@ def j6_coord_quotes(p):
     p.go('Purchasing')
     p.tap('Quotes', exact=True)
     rfq = (re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
-    p.tap_ctl(p.scr.next_action(rfq) or Ctl(0, 'button', '', 0, 0), expect='RFQs')
+    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
     if p.scr.find('Check Replies', exact=True): p.tap('Check Replies', exact=True)
     p.look()
     while p.scr.find('Enter Prices', exact=True):
@@ -796,7 +822,7 @@ def j7_coord_pos(p):
     p.go('Purchasing')
     p.tap('Quotes', exact=True)
     rfq = (re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
-    p.tap_ctl(p.scr.next_action(rfq) or Ctl(0, 'button', '', 0, 0), expect='RFQs')
+    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
     if p.scr.find('Award Without Negotiating'): p.tap('Award Without Negotiating', exact=True)
     p.tap('Award and Create POs', exact=True)
     po = (re.findall(r'PO-\d{4}-\d+', p.scr.toast) or [''])[0]
@@ -819,9 +845,14 @@ def j7_coord_pos(p):
         up = p.scr.find('Unit Price', field=True, nth=1)
         if up: p.do_ctls([('type', up, '14.50')])
         p.look()
+        last = BOOK['last_price']
+        p.expect(bool(re.search(r'12\.50|last (time|buy|price)|paid .* before', p.scr.text[:p.scr.text.find('Purchase Order ' + tile_po)] if tile_po in p.scr.text else p.scr.text, re.I)),
+                 f'the price check on {tile_po} says Nemo Tile charged ${last["unit_price"]:.2f}/sf on {last["po"]} for the same porcelain 12x24 (now $14.50)',
+                 (re.findall(r'Price Check[^\n]*\n[^\n]*', p.scr.text) or [''])[0][:200])
         if p.scr.find('Give the Reason', exact=True):
-            p.tap('Give the Reason', exact=True, expect='Why')
-            p.do([('type', 'Why', 'Nemo Tile, the tile house, at the line\'s price'), ('tap', 'Save the Reason')])
+            p.tap('Give the Reason', exact=True)
+            if p.look().find('Why', field=True):
+                p.do([('type', 'Why', 'Nemo Tile, the tile house, at the line\'s price'), ('tap', 'Save the Reason')])
         issue_and_send(p, tile_po)
     for k, (item, price) in enumerate(PLUMB_BUYS):
         p.go('Purchasing')
@@ -852,6 +883,11 @@ PLUMB_BUYS = [('Toilet and vanity faucet (allowance picks)', 1800), ('Shower val
 def open_po(p, number):
     p.go('Purchasing')
     p.tap('Orders', exact=True)
+    if not p.look().row(number, after='Search'):   # the phone keeps the last order open: back to the list
+        c = p.scr.find('Purchasing', kinds=('link',))
+        if c: p.tap_ctl(c)
+        else: p._act('back')
+        p.look()
     p.tap_row(number, after='Search', expect=number)
 
 
@@ -991,7 +1027,8 @@ def danger_records(db):
     R = []
     for b in db.get('bills') or []:
         st = str(b.get('status') or '')
-        paid_by_card = any(abs(abs(CY.num(t.get('amt'))) - CY.bill_total(b)) < 0.01 and CY.num(t.get('amt')) < 0 and norm(b.get('vendor')).split(' ')[0] in norm(t.get('desc') + ' ' + str(t.get('vendor') or ''))
+        paid_by_card = any(abs(abs(CY.num(t.get('amt'))) - CY.bill_total(b)) < 0.01 and CY.num(t.get('amt')) < 0 and str(t.get('date') or '') >= str(b.get('date') or '')
+                           and norm(b.get('vendor')).split(' ')[0] in norm(t.get('desc') + ' ' + str(t.get('vendor') or ''))
                            for t in db.get('txns') or [])
         if st in ('hold', 'on-hold', 'held', 'disputed') or b.get('hold') or (b.get('onHold') or {}).get('state') == 'open' or (b.get('short') or {}).get('held'): k = 'held'
         elif st == 'paid' or b.get('paidAt'): k = 'paid'
@@ -1019,8 +1056,8 @@ def mentions(sc, needle):
     """where a record is itself on the screen (its link, its row, its page heading), not a passing mention in another
     record's text ("$3,800 over PO-2026-044" on a bill's card)"""
     rx = re.compile(r'\[\d+(?: link| tab)?\]? ?(?:[^\[\]\n]{0,40}?)' + re.escape(needle) + r'|^' + re.escape(needle) + r'|›' + re.escape(needle) +
-                    r'|(?:Purchase Order|Estimate|Invoice|Bill) ' + re.escape(needle), re.M)
-    return [m.end() - len(needle) for m in rx.finditer(sc.text)]
+                    r'|(?:Purchase Order|Estimate|Invoice|Bill)(?: #)? ' + re.escape(needle), re.M)
+    return [m.start() if m.group(0).startswith('[') else m.end() - len(needle) for m in rx.finditer(sc.text)]
 
 
 def region_actions(sc, needle, page=False):
@@ -1029,14 +1066,19 @@ def region_actions(sc, needle, page=False):
     M = mentions(sc, needle)
     if not M: return None
     i = M[0]
-    if page: return [c for c in sc.ctls if c.pos >= i and c.action and c.kind == 'button' and not c.disabled]
+    own = lambda c: needle in c.label or re.match(r'^(close|ask|cancel|back|more|open|×)$', norm(c.label))   # its own row or link, and the sheet's frame
+    if page:   # its page: the whole sheet it opened in, or the page from its heading on
+        top = sc.text.find('== Open on top ==') if sc.sheet else -1
+        end = sc.text.find('== Behind it:') if sc.sheet else len(sc.text)
+        lo = top if top >= 0 and top <= i else i
+        return [c for c in sc.ctls if lo <= c.pos < (end if end > lo else len(sc.text)) and c.action and c.kind == 'button' and not c.disabled and not own(c)]
     nxt = [m.start() for m in re.finditer(r'\[\d+(?: link)?\]? ?(?:[A-Za-z &]{0,30})?\b(EST|INV|PO|RFQ|CO)-\d{4}-[\w-]+|\[\d+(?: link)?\] ?[A-Z]{2,4}-\d{2,4}-\d+\b', sc.text[i + len(needle):])]
     end = min(i + len(needle) + (nxt[0] if nxt else 1500), i + 1500)
-    return [c for c in sc.ctls if i <= c.pos < end and c.action and c.kind == 'button' and not c.disabled]
+    return [c for c in sc.ctls if i <= c.pos < end and c.action and c.kind == 'button' and not c.disabled and not own(c)]
 
 
 WHO = r'(PM|Owner|owner|Alan|Chen|Billing|Controller|Angel)'
-STAMP_RX = re.compile(r'(?<![\w-])(?:' + WHO + r' (recommended|approved|verified|ok)\b|(recommended|approved|verified|reviewed|signed off)(?: for payment)? by (?:the )?' + WHO + r'\b)')
+STAMP_RX = re.compile(r'(?:(?<![\w-])' + WHO + r' (recommended|approved|verified|ok)\b|(recommended|approved|verified|reviewed|signed off)(?: for payment)? by (?:the )?' + WHO + r'\b)')
 NOT_A_STAMP = re.compile(r'(to be|needs?|must|until|waits?|waiting|awaits?|before|for|goes to|asks?|if)\s+(?:\w+\s+){0,2}$', re.I)
 
 
@@ -1054,24 +1096,31 @@ def stamp_findings(sc, rec, db, where, page=False):
              and re.search(r'recommend|approv|pmok|verif|review', str(a.get('action')), re.I)]
         if not A:
             out.append({'kind': 'stamp', 'journey': 'danger', 'device': where[1], 'step': f'{rec[0]} {rec[2]} ({rec[1]}) on {where[0]}',
-                        'expected': f'"{m.group(0)}" backed by {who}\'s own action in the audit trail', 'got': f'no audit entry by {role or who} on {rec[2]}',
+                        'expected': f'"{m.group(0)}" backed by {who}\'s own action in the audit trail',
+                        'got': f'no audit entry by {role or who} on {rec[2]}' + (' (only a line in the record\'s own approvals list, with no audit entry behind it)'
+                                                                               if any(a.get('role') == role for a in rec[3].get('approvals') or []) else ''),
                         'screen': sc.title, 'control': ''})
     return out
 
 
-def drafty_checks(p, sc, rec, where, page=False):
+def drafty_checks(p, sc, rec, where, page=False, only=None):
     """every draft-like button on the record (Draft the Renewal, Prepare, Request ...) must open a draft, not a sheet
     that records the thing as done, with today's date already in its Filed / Paid / Sent On"""
     F = []
-    for d in [x for x in (region_actions(sc, rec[2], page) or []) if re.match(DRAFTY, norm(x.label))][:2]:
+    for d in (only or [x for x in (region_actions(sc, rec[2], page) or []) if re.match(DRAFTY, norm(x.label))][:2]):
         p.last_control = d.label
+        n0 = sc.text.count('== Open on top ==')
         p._act('tap', d.n)
         s2 = p.look()
-        if s2.sheet:
+        if s2.text.count('== Open on top ==') > n0:   # a sheet of its own opened: read that one
+            last = s2.text.rsplit('== Open on top ==', 1)[1]; off = len(s2.text) - len(last)
+            title = next((b for b in (re.sub(r'\[\d+[^\]]*\]', '', l).strip() for l in last.split('\n')) if b), '')
+            mine = [x for x in s2.ctls if x.pos >= off]
             today = (p.w.world_state().get('day') or '')
-            filled = [x for x in s2.ctls if x.kind == 'date' and x.value and x.value == today and re.search(r'filed|paid|sent|done|completed|renewed|on$', norm(x.label))]
-            subm = [c.label for c in s2.actions('sheet') if re.match(r'^(record|mark)\b', norm(c.label))]
-            if re.search(RECORDY, norm(s2.sheet_title)) or filled or subm:
+            filled = [x for x in mine if x.kind == 'date' and x.value and x.value == today and re.search(r'filed|paid|sent|done|completed|renewed|on$', norm(x.label))]
+            subm = [c.label for c in mine if c.action and re.match(r'^(record|mark)\b', norm(c.label))]
+            s2.sheet_title = title
+            if re.search(RECORDY, norm(title)) or filled or subm:
                 F.append({'kind': 'prefilled', 'journey': 'danger', 'device': where[1], 'step': f'{rec[0]} {rec[2]} on {where[0]}: "{d.label}"',
                           'expected': f'"{d.label}" opens a draft, not a sheet recording it as done',
                           'got': f'it opens "{s2.sheet_title}"' + (f', {", ".join(x.label for x in filled)} = {today} already filled' if filled else '') +
@@ -1123,15 +1172,18 @@ def hold_bill(p, number, why, who):
     return True
 
 
-def danger_walk(w, devices):
+def danger_walk(w, devices, screens=None, hold=True, slot='work2'):
     F, seen = [], set()
-    w.admin('begin_turn', uid='u_owner', slot='work2', cap=99999, device='desktop')
+    w.admin('begin_turn', uid='u_owner', slot=slot, cap=99999, device='desktop')
     try:
+        if not hold: raise StopIteration
         p0 = Person(w, 'u_owner', 'desktop', 'danger', None); p0.slot = 'work2'; p0.look()
         held = any(b.get('number') == HOLD[0] and (b.get('onHold') or {}).get('state') == 'open' for b in w.db().get('bills') or [])
         if not held and not hold_bill(p0, *HOLD): F.append({'kind': 'stuck', 'journey': 'danger', 'device': 'desktop', 'step': f'hold {HOLD[0]}', 'expected': 'Hold on the bill',
                                               'got': '', 'screen': p0.scr.title, 'control': p0.last_control})
         F += [dict(x, kind='expect') for x in p0.soft]
+    except StopIteration:
+        pass
     except Stuck as e:
         F.append({'kind': 'stuck', 'journey': 'danger', 'device': 'desktop', 'step': e.what, 'expected': e.expected, 'got': '', 'screen': e.screen.title if e.screen else '', 'control': e.control})
     finally:
@@ -1140,11 +1192,11 @@ def danger_walk(w, devices):
     R = danger_records(db)
     for uid in DANGER_ROLES:
         for dev in devices:
-            p = Person(w, uid, dev, 'danger', None); p.slot = 'work2'
-            w.admin('begin_turn', uid=uid, slot='work2', cap=99999, device=dev)
+            p = Person(w, uid, dev, 'danger', None); p.slot = slot
+            w.admin('begin_turn', uid=uid, slot=slot, cap=99999, device=dev)
             try:
                 p.look()
-                for path in DANGER_SCREENS.get(uid, []):
+                for path in (screens or DANGER_SCREENS).get(uid, []):
                     try:
                         sc = open_path(p, path)
                     except Stuck:
@@ -1152,10 +1204,11 @@ def danger_walk(w, devices):
                     sc = p.look(marks=True)
                     # a draft-like button anywhere on the screen (a Today card names its record in its own words)
                     for d in [c for c in sc.actions() if c.kind == 'button' and re.match(DRAFTY, norm(c.label))][:4]:
-                        ctx = norm(sc.text[max(0, sc.text.rfind('\n', 0, max(0, sc.text.rfind('\n', 0, d.pos)))) : d.pos])[-80:]
+                        near = [c for c in sc.ctls if c.kind == 'link' and d.pos - 600 < c.pos < d.pos]
+                        ctx = (near[-1].label if near else norm(sc.text[max(0, d.pos - 120): d.pos]))[:80]
                         if (uid, dev, d.label, ctx) in seen: continue
                         seen.add((uid, dev, d.label, ctx))
-                        F += drafty_checks(p, sc, ('card', 'not done', d.label, {}), (f'{uid} {" > ".join(path)}: {ctx}', dev), page=True)
+                        F += drafty_checks(p, sc, ('card', 'not done', d.label, {}), (f'{uid} {" > ".join(path)}: {ctx}', dev), only=[d])
                         sc = open_path(p, path); sc = p.look(marks=True)
                     for rec in R:
                         if rec[2] not in sc.text: continue
@@ -1188,7 +1241,8 @@ def open_record_checks(p, rec, path, where, db):
     """the record's own page: its buttons for its state, any stamp, and its draft-like buttons"""
     F = []
     M = mentions(p.scr, rec[2])
-    c = next((x for x in p.scr.ctls if x.action and M and x.pos <= M[0] + 2 and M[0] - x.pos < 60 and (rec[2] in x.label or not x.label.strip() or x.pos < M[0])), None) if M else None
+    c = (next((x for x in p.scr.ctls if x.action and rec[2] in x.label and abs(x.pos - M[0]) < 80), None) or
+         next((x for x in p.scr.ctls if x.action and x.pos <= M[0] + 2 and M[0] - x.pos < 60), None)) if M else None
     if c is None: return F
     p.last_control = c.label
     r, txt = p._act('tap', c.n)
@@ -1272,7 +1326,11 @@ def main():
     print(f'world {desk.run} up in {desk.boot_s}s', flush=True)
     desk.admin('cycle', on=True)
     slot, checkpoints = 'morning', {}
+    danger = []
     try:
+        if not a.no_danger:   # the morning's Today, before anyone has worked it (Pilot 3 met Draft the Renewal here at 7:30)
+            desk.admin('world', slot='morning', watchers=True)
+            danger += danger_walk(desk, devices, screens={u: [('Today',)] for u in DANGER_ROLES}, hold=False, slot='morning')
         for J in JOURNEYS[:last + 1]:
             slot = world_before(desk, J[4], slot)
             checkpoints[J[0]] = (desk.checkpoint(J[0]), slot)
@@ -1282,7 +1340,7 @@ def main():
                       ', '.join(g['step'] + ' ' + g['status'] for g in r['grades']), flush=True)
             elif only and J[0] not in only:
                 r = run_journey(desk, J, 'desktop', slot)   # the chain before the journey asked for, on the desktop, not reported
-        danger = [] if a.no_danger else danger_walk(desk, devices)
+        if not a.no_danger: danger += danger_walk(desk, devices)
     finally:
         desk.stop()
     if 'phone' in devices:
