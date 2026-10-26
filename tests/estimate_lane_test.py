@@ -85,6 +85,7 @@ async def desktop(c, p):
     await two_jobs(c, pg)
     await job_rules(c, pg)
     await job_tasks(c, pg)
+    await job_picks(c, pg)
     await replay(c, pg)
     c.ok(not errs, f'page errors {errs[:2]}')
     await b.close()
@@ -309,6 +310,69 @@ async def job_tasks(c, pg):
     await pg.evaluate(portal, [cid, eid]); await pg.wait_for_timeout(300)
     a = await pg.evaluate(info, [cid, eid])
     c.ok(a['status'] == 'converted' and a['pid'] == J[0] and 'their only job' in a['log'] and 'at its address' not in a['log'], f"JOB4: the log says it went on their only job: {a['log'][-200:]!r}")
+
+
+async def job_picks(c, pg):
+    """JOB5 (chief of staff, fourth review): a choice is dropped when its sheet closes without Yes, never by a timer
+    (a slow convert step lost it); an action that ends without converting drops a "new job" choice (unless a sheet is
+    waiting on the person); the PM's choose-the-job task closes when the estimate is rejected or deleted."""
+    mk = """([cname, prop, jobs]) => { const c = blankClient(cname); c.propertyAddr = prop; DB.clients.push(c);
+        const J = jobs.map(([n, a]) => { const p = blankProject(n, a, today(), ''); p.clientId = c.id; DB.projects.push(p); return p.id; });
+        return [c.id, J]; }"""
+    est = """([cid, title, st, date]) => { const c = DB.clients.find(x => x.id === cid);
+        const e = newDoc(c, 'estimate', {template: 'construction', fields: {title: title, projectId: ''}});
+        e.status = st; date && (e.date = date); e.lines = [{id: uid('l'), item: 'Demo', qty: 1, unit: 'ls', rate: 1000, cost: 600}]; return e.id; }"""
+    info = """([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); const d = (c.estimates || []).find(e => e.id === eid);
+        const T = (DB.tasks || []).filter(t => t.estKey === 'choose:' + eid);
+        return {status: d ? d.status : 'deleted', pid: d ? d.projectId || '' : '', n: DB.projects.length, pick: estPicks.has(eid), task: T.map(t => t.status)}; }"""
+    # (1) a slow convert step (each convert waits 1.2s before it runs): the choice made on Which Job survives to Yes
+    cid, J = await pg.evaluate(mk, ['Saul Wexler', '', [['214 Lincoln Place', '214 Lincoln Place'], ['88 Pierrepont St', '88 Pierrepont St']]])
+    eid = await pg.evaluate(est, [cid, 'Kitchen proposal', 'approved', ''])
+    await pg.evaluate("""() => { if (window.__slowOn) return; window.__slowOn = 1; const B = docAction;
+        docAction = async function (c, d, a) { if ('convert' === a && window.__slow) await new Promise(r => setTimeout(r, 1200)); return B.apply(this, arguments); }; }""")
+    await pg.evaluate("([cid, eid]) => { window.__slow = 1; clientOpen = cid; clientTab = 'fin'; finTab = 'estimates'; docOpen = {kind: 'estimate', id: eid}; view = 'clients'; render(); }", [cid, eid])
+    await pg.wait_for_timeout(300)
+    await pg.locator(f'#doc-{eid} [data-docact="convert"]').first.click(); await pg.wait_for_timeout(300)
+    await pg.locator('#mbm [data-f="job"]').select_option(J[1]); await pg.locator('#mbm #mbm-ok').click()
+    await pg.wait_for_timeout(1800)   # the slow step: Which Job is gone, the confirmation not up yet
+    m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : ''; }")
+    ok = 'It goes on 88 Pierrepont St' in m
+    if ok:
+        await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(2200)
+    a = await pg.evaluate(info, [cid, eid])
+    await pg.evaluate("() => { window.__slow = 0; try { mbCloseModal(); } catch (e) {} }")
+    c.ok(ok and a['status'] == 'converted' and a['pid'] == J[1] and not a['pick'], f"JOB5: a slow convert keeps the job chosen to Yes: confirmation {m[:90]!r}, {a}")
+    # (2) an approval that ends without converting drops its "new job" choice: a no-job client signs in the portal on an
+    # estimate dated in a closed month; the closed-month reason is asked and cancelled
+    # (June is closed for the check: a lock on the books for 2026-06, taken off after)
+    dt = await pg.evaluate("""() => { DB.gl = DB.gl || {}; window.__locks = DB.gl.locks; DB.gl.locks = Object.assign({}, DB.gl.locks || {}, {__t: {'2026-06': {gl: true}}});
+        return isLocked('2026-06-15') ? '2026-06-15' : ''; }""")
+    if not dt:
+        c.ok(False, 'JOB5: a closed month to date the estimate in')
+    else:
+        cid, _ = await pg.evaluate(mk, ['Nell Ambrose', '5 Strong Place, Brooklyn', []])
+        eid = await pg.evaluate(est, [cid, '5 Strong Place — proposal', 'sent', dt])
+        await pg.evaluate("([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); docAction(c, c.estimates.find(e => e.id === eid), 'approve'); }", [cid, eid])
+        await pg.wait_for_timeout(500)
+        await pg.evaluate("() => { const m = document.getElementById('mbm'); const b = m && [...m.querySelectorAll('button')].find(x => /^cancel$/i.test(x.textContent.trim())); b ? b.click() : (m && m.remove()); }")
+        await pg.wait_for_timeout(600)
+        a = await pg.evaluate(info, [cid, eid])
+        c.ok(a['status'] != 'converted' and not a['pick'], f'JOB5: an approval that ends without a convert leaves no "new job" choice behind: {a}')
+    await pg.evaluate("() => { DB.gl.locks = window.__locks || {}; }")
+    # (3) the choose-the-job task closes when the estimate is rejected, or deleted, before it converts
+    cid, J = await pg.evaluate(mk, ['Ivo Brandt', '', [['214 Lincoln Place', '214 Lincoln Place'], ['88 Pierrepont St', '88 Pierrepont St']]])
+    for act in ('reject', 'del'):
+        eid = await pg.evaluate(est, [cid, 'Kitchen proposal', 'sent', ''])
+        await pg.evaluate("([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); return Promise.resolve(docAction(c, c.estimates.find(e => e.id === eid), 'approve')); }", [cid, eid])
+        before = (await pg.evaluate(info, [cid, eid]))['task']
+        # rejected through its action; deleted the way a removal outside the estimate's own actions leaves it (an approved
+        # estimate has no Delete), closed by the app day's sweep
+        await pg.evaluate("""([cid, eid, act]) => { const c = DB.clients.find(x => x.id === cid); const d = c.estimates.find(e => e.id === eid);
+            if (act === 'reject') return Promise.resolve(docAction(c, d, 'reject'));
+            c.estimates = c.estimates.filter(e => e !== d); const h = APP_DAY_HOOKS.find(x => x[0] === 'estChooseSweep'); return h ? h[1]() : null; }""", [cid, eid, act])
+        await pg.wait_for_timeout(200)
+        a = await pg.evaluate(info, [cid, eid])
+        c.ok(before == ['todo'] and a['task'] == ['done'], f"JOB5: the choose-the-job task closes when the estimate is {'rejected' if act == 'reject' else 'deleted'}: {before} -> {a['task']} ({a['status']})")
 
 
 async def replay(c, pg):
