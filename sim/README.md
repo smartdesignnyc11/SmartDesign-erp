@@ -153,7 +153,8 @@ overspent a line. Pilot 3 adds required work the referee verifies in the data:
 - **The page as a picture.** When an action lands on a screen the person has not seen this turn (a new view, page
   heading, sheet, record, tab, or the other device), the server saves a JPEG at the device's size under
   `runs/<run>/shots/<uid>/` and the result ends with `Screen picture: <path>`. The expert reads it before acting. At most
-  one per screen and 8 per turn (`SIM_PICTURE_CAP`); `SIM_PICTURES=0` turns them off (the screen walk). Cost: 437 tokens
+  one per screen; 8 per journey turn (`SIM_PICTURE_CAP`) and 30 per page walk (`simctl begin ... --kind pages`,
+  `SIM_PICTURE_CAP_PAGES`; `--pictures N` for one turn); `SIM_PICTURES=0` turns them off (the screen walk). Cost: 437 tokens
   a phone picture, 1,719 a desktop one (docs/IMPROVEMENT_LOOP.md).
 - **The live site.** `SD_QA_USERS=<file> python3 sim/server.py --run live-pm-1 --live pm` (owner, pm, coord, billing,
   controller; the QA accounts in the 'qa-loop' workspace, `platform/test/qa_accounts.py --add`). Then

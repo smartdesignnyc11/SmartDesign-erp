@@ -25,15 +25,28 @@ window.addEventListener('error', e => S.errs.push(String(e.message || e).slice(0
 // Anything laid over the page is a sheet to the eye, whatever its class. The named ones first; then, as a class, any
 // fixed element at the top of the body that covers most of the screen (the phone's full-screen line editor, .ct-sheet,
 // was invisible to the text and read as "Add Line Item does nothing" until a screen picture showed it open, 10-26).
+const onScreenArea = el => { const r = el.getBoundingClientRect();
+  return Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)); };
+const SHELL = ['toast', 'fatal', 'signin', 'scrim', 'railscrim', 'tabbar'];
 const COVERS = el => { if (!vis(el)) return false; const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false;
-  const r = el.getBoundingClientRect(), a = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
-  return a >= 0.6 * innerWidth * innerHeight && !['toast', 'fatal', 'signin'].includes(el.id); };
+  return onScreenArea(el) >= 0.6 * innerWidth * innerHeight && !SHELL.includes(el.id); };
+// Anything else laid over the page at the top of the body is a sheet too, whatever its size or class: the owner's Skills
+// sheet (aside#ai.drawer.on) and the opportunity's Note / Meeting composer (div#hb-composer, a floating 560x329 box) were
+// unlisted, so taps went through them and "Note did nothing" (round one, owner turn 2). A floating box that covers little
+// is listed on top with the page still usable under it; a covering one hides the page (S.modal).
+const FLOATS = el => { if (!vis(el) || SHELL.includes(el.id) || el.matches('script, style, .shell, #app, .app, .rail')) return false;
+  const cs = getComputedStyle(el); if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+  if (onScreenArea(el) < 0.02 * innerWidth * innerHeight) return false;
+  return !!norm(el.innerText) || !!el.querySelector('button, input, select, textarea, a[href]'); };
+const NAMED = '#mbm, .mbm, #drawer.on, .drawer.on, #viewer.on, #pal.on, [role=dialog], [aria-modal=true], .sheet.on, .msheet.on, .cmdk.on, #cmdk.on, .ct-sheet';
 S.overlays = () => {
-  const c = [...document.querySelectorAll('#mbm, .mbm, #drawer.on, #viewer.on, [role=dialog], [aria-modal=true], .sheet.on, .msheet.on, .cmdk.on, #cmdk.on, .ct-sheet')].filter(vis)
-    .concat([...document.body.children].filter(e => !e.matches('section, main, nav, header, aside, #app, .app, .shell') && COVERS(e)));
+  const c = [...document.querySelectorAll(NAMED)].filter(vis)
+    .concat([...document.body.children].filter(e => !e.matches('section, main, nav, header, #app, .app, .shell, .rail') && (COVERS(e) || FLOATS(e))));
   const u = [...new Set(c)];
   return u.filter(el => !u.some(o => o !== el && o.contains(el)));
 };
+// a sheet that hides the page (a modal, a drawer, a full-screen editor): the page under it cannot be used until it closes
+S.modal = el => el.matches(NAMED) || COVERS(el);
 S.viewRoot = () => document.querySelector('section.view.on') || document.querySelector('main') || document.body;
 const BLOCKS = /^(block|flex|grid|table|table-row|list-item|table-caption)$/;
 const CTL_TAGS = { BUTTON: 1, A: 1, INPUT: 1, SELECT: 1, TEXTAREA: 1, SUMMARY: 1 };
@@ -174,9 +187,13 @@ S.screen = (marks) => {
   const files = root => [...root.querySelectorAll('input[type=file]')].filter(f => !f.hasAttribute('data-simn') && !f.disabled)
     .map(f => { const n = reg(f, 'file'); const lab = fieldLabel(f) || norm((f.closest('label, .f, .drop, div') || {}).innerText || '').slice(0, 50) || (f.accept || 'a file');
       return `[${n} file "${lab}"${f.accept ? ' (' + f.accept + ')' : ''}${f.multiple ? ' multiple' : ''}]`; });
+  const pageWalk = () => { const p = []; S._fold = false;
+    ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
+    walk(S.viewRoot(), p); return [...tidy(p), ...files(S.viewRoot())]; };
   if (ov.length) {
     ov.forEach(o => { const p = ['\n']; S._fold = false; walk(o, p); out.push('== Open on top ==', ...tidy(p), ...files(o)); });
-    out.push(`== Behind it: ${S.title()} (close the sheet to use it) ==`);
+    if (ov.some(S.modal)) out.push(`== Behind it: ${S.title()} (close the sheet to use it) ==`);
+    else out.push(`== Under it, still usable: ${S.title()} ==`, ...pageWalk());   // a floating composer leaves the page usable
   } else { const p = []; S._fold = false;
     ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); out.push(...tidy(p), ...files(S.viewRoot())); }
@@ -205,10 +222,16 @@ S.where = () => { let tab = ''; try { if (typeof view !== 'undefined' && view ==
   return { view: typeof view !== 'undefined' ? String(view) : '', tab, cur, title: S.title() }; };
 S.visibleText = () => { const parts = [S.viewRoot(), ...S.overlays(), document.getElementById('toast')].filter(Boolean).map(e => norm(e.innerText)); return parts.join(' \n '); };
 // a number from the last screen back to its element; if the screen re-rendered, find the same control again
+// a control under a sheet that hides the page cannot be tapped (a number read before the sheet opened): the eye sees the
+// sheet, and a tap through it would land on the page behind (round one: an hour of taps went through the Skills sheet)
+const under = el => { const ov = S.overlays(); if (!ov.some(S.modal) || ov.some(o => o.contains(el))) return '';
+  const top = ov[ov.length - 1]; return norm((top.querySelector('h1, h2, h3, .hd, header, b') || top).innerText || '').split('\n')[0].slice(0, 60) || 'a sheet'; };
 S.resolve = n => {
   const i = n - 1, el = S.ctl[i], sg = S.sig[i];
   if (!sg) return { ok: false, why: `there is no control ${n} on your last screen` };
   const now = el && ((sg.k === 'button' || sg.k === 'link' || sg.k === 'tab') ? ctlLabel(el) : fieldLabel(el)).slice(0, 80);
+  const cov = el && el.isConnected ? under(el) : '';
+  if (cov) return { ok: false, why: `control ${n} ("${sg.label}") is under the open sheet "${cov}": close it first (back), or run screen again`, sig: sg };
   if (el && el.isConnected && (vis(el) || sg.k === 'file') && now === sg.label) { el.setAttribute('data-simn', String(n)); return { ok: true, sig: sg }; }
   const same = sg.k === 'file' ? [...(S.overlays()[0] || S.viewRoot()).querySelectorAll('input[type=file]')]
     : [...document.querySelectorAll(sg.tag)].filter(x => vis(x) && ((sg.k === 'button' || sg.k === 'link' || sg.k === 'tab') ? ctlLabel(x) : fieldLabel(x)).slice(0, 80) === sg.label);
@@ -231,19 +254,35 @@ S.fileInputNear = n => { const el = S.el(n); if (!el) return false;
   const scope = el.closest('#mbm, .mbm, #drawer, section.view, form, .card') || document.body;
   const f = el.querySelector('input[type=file]') || (el.htmlFor && document.getElementById(el.htmlFor)) || scope.querySelector('input[type=file]');
   if (!f) return false; f.setAttribute('data-simfile', '1'); return true; };
+// A control by the words a person reads. The exact label first; a count after a label ("Approvals 33") is ignored only on
+// the control's side; a prefix or a part of a label must name ONE control. "This Period % — 1" had its own number stripped
+// as if it were a count, and matched lines 10 to 12 as well (round one, accounting); one label matched 12 fields.
+S.matchLabel = (label, C) => {
+  const raw = s => norm(s).toLowerCase(), bare = s => raw(s).replace(/\s+\d+$/, '');
+  const Wr = raw(label), Wb = bare(label);
+  const tiers = [['exact', c => raw(c.l) === Wr], ['exact', c => bare(c.l) === Wr], ['count', c => bare(c.l) === Wb && Wb !== Wr],
+                 ['prefix', c => raw(c.l).startsWith(Wr)], ['part', c => raw(c.l).includes(Wr)]];
+  for (const [kind, test] of tiers) {
+    const hit = C.filter(test); if (!hit.length) continue;
+    if (hit.length === 1) return { hit: hit[0] };
+    const names = [...new Set(hit.map(c => norm(c.l)))];
+    return { why: names.length === 1 ? `${hit.length} controls are labelled "${names[0]}": use its number from screen or find`
+      : `"${label}" ${kind === 'exact' ? 'names' : 'is the start or part of'} ${hit.length} labels (${names.slice(0, 5).join(' | ')}): use the exact label or its number` };
+  }
+  return { why: '' };
+};
 S.markByLabel = (label, want) => {
   document.querySelectorAll('[data-simlab]').forEach(e => e.removeAttribute('data-simlab'));
-  const ov = S.overlays(); const roots = ov.length ? ov : [document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
-  const W = norm(label).toLowerCase().replace(/\s+\d+$/, ''), C = [];
+  const ov = S.overlays(), page = [document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
+  const roots = ov.length ? (ov.some(S.modal) ? ov : ov.concat(page)) : page, C = [];
   roots.forEach(r => r.querySelectorAll('*').forEach(el => { if (!isCtl(el)) return; const k = kindOf(el);
     const act = k === 'button' || k === 'link' || k === 'tab'; if ((want === 'field') === act) return;
     if (!(vis(el) || k === 'file')) return;
-    const l = (act ? ctlLabel(el) : fieldLabel(el)).toLowerCase().replace(/\s+\d+$/, ''); C.push({ el, k, l }); }));
-  let hit = C.filter(c => c.l === W); if (!hit.length) hit = C.filter(c => c.l.startsWith(W)); if (!hit.length) hit = C.filter(c => c.l.includes(W));
-  if (!hit.length) return { ok: false, why: `no ${want === 'field' ? 'field' : 'control'} labelled "${label}" on the screen` };
-  if (hit.length > 1 && hit.filter(c => c.l === hit[0].l).length > 1) return { ok: false, why: `${hit.length} controls are labelled "${label}": use its number from screen or find` };
-  hit[0].el.setAttribute('data-simlab', '1');
-  return { ok: true, sig: { k: hit[0].k, label: (want === 'field' ? fieldLabel(hit[0].el) : ctlLabel(hit[0].el)).slice(0, 80), tag: hit[0].el.tagName } }; };
+    C.push({ el, k, l: act ? ctlLabel(el) : fieldLabel(el) }); }));
+  const m = S.matchLabel(label, C);
+  if (!m.hit) return { ok: false, why: m.why || `no ${want === 'field' ? 'field' : 'control'} labelled "${label}" on the screen` };
+  m.hit.el.setAttribute('data-simlab', '1');
+  return { ok: true, sig: { k: m.hit.k, label: (want === 'field' ? fieldLabel(m.hit.el) : ctlLabel(m.hit.el)).slice(0, 80), tag: m.hit.el.tagName } }; };
 // navigation by the label a person sees in their menu (the rail on a desktop, the tab bar and More on a phone)
 S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav button, #mtabs button, .m-sheet-list button, .m-sheet-list a, .more-sheet button')]
   .filter(el => !el.closest('section.view'));
@@ -259,8 +298,10 @@ S.go = label => {
   hit.el.click(); return { ok: true, label: hit.t };
 };
 S.closeTop = () => { const ov = S.overlays(); if (!ov.length) return false; const o = ov[ov.length - 1];
-  const b = [...o.querySelectorAll('button, a')].filter(vis).find(x => /^(cancel|close|done|back|not now|×|x)$/i.test(norm(x.innerText || x.getAttribute('aria-label') || '')));
-  if (b) { b.click(); return 'closed with ' + norm(b.innerText || b.getAttribute('aria-label')); }
+  const B = [...o.querySelectorAll('button, a')].filter(vis);
+  const b = B.find(x => /^(cancel|close|done|back|not now|×|x)$/i.test(norm(x.innerText || x.getAttribute('aria-label') || x.title || '')))
+    || B.find(x => !norm(x.innerText) && /(^|[\s-])(x|close)($|[\s-])/i.test(String(x.className || '') + ' ' + (x.id || '')));   // an icon-only close (the composer's .hb-x)
+  if (b) { b.click(); return 'closed with ' + (norm(b.innerText || b.getAttribute('aria-label') || b.title) || 'its close button'); }
   try { if (o.id === 'mbm' || o.classList.contains('mbm')) { mbCloseModal(); return 'closed'; } } catch (e) {}
   try { if (o.id === 'drawer') { closeEditor(); return 'closed'; } } catch (e) {}
   o.classList.remove('on'); return 'closed'; };
@@ -287,8 +328,18 @@ S.recordName = key => { const [coll, id] = [key.slice(0, key.lastIndexOf(':')), 
   else r = find(DB[coll]);
   if (!r) return { coll, id, name: '' };
   const name = r.number || r.title || r.name || r.what || r.subject || r.fileName || r.filename || r.desc || r.item || r.label || r.text || r.memo || '';
-  return { coll, id, name: norm(name).slice(0, 80) };
+  // who made it: a record another account made (synced in from the shared QA workspace while this person acted) is not
+  // "you just created" (round one: the owner was told he made INV-2026-039, another expert's draft)
+  const h0 = [].concat(r.history || [], r.log || [])[0] || {};
+  const who = norm(r.createdBy || r.byName || r.by || r.sentBy || r.author || h0.by || '');
+  return { coll, id, name: norm(name).slice(0, 80), who, mine: S.isMe(who) };
 };
+S.isMe = who => { const w = norm(who).toLowerCase(); if (!w) return true;
+  let u = {}; try { u = (typeof currentUser === 'function' && currentUser()) || {}; } catch (e) {}
+  let ro = ''; try { ro = typeof role === 'function' ? String(role() || '') : ''; } catch (e) {}
+  const me = [u.name, u.id, ro, u.role].filter(Boolean).map(x => norm(x).toLowerCase());
+  const first = s => s.split(/[\s(,]/)[0];
+  return me.some(m => w === m || first(w) === first(m) || (m.length >= 4 && w.includes(m)) || (w.length >= 4 && m.includes(w))); };
 S.onScreen = name => { const n = norm(name).toLowerCase(); if (!n) return { on: false, toast: false };
   const view = norm([S.viewRoot(), ...S.overlays()].map(e => e.innerText).join(' ')).toLowerCase();
   const t = document.getElementById('toast'); const toast = !!(t && t.classList.contains('on') && norm(t.innerText).toLowerCase().includes(n.slice(0, 40)));

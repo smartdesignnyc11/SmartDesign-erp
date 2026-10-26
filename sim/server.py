@@ -68,6 +68,16 @@ OVERHEAD = 10000   # tokens of fixed subagent overhead per model call (system pr
 # per turn. SIM_PICTURES=0 turns it off (the screen walk, which reads no pictures).
 PICTURES = os.environ.get('SIM_PICTURES', '1') != '0'
 PICTURE_CAP = int(os.environ.get('SIM_PICTURE_CAP', '8'))   # pictures per turn: each costs a model call to read (docs/IMPROVEMENT_LOOP.md, cost)
+# The cap by the kind of turn (round one: the 8 ran out in the owner's page walk at 10:29). A journey turn keeps
+# SIM_PICTURE_CAP; a page walk (`begin --kind pages`) sees every page it opens, up to SIM_PICTURE_CAP_PAGES; `--pictures N`
+# sets one turn's cap outright.
+PICTURE_CAPS = {'journey': PICTURE_CAP, 'pages': int(os.environ.get('SIM_PICTURE_CAP_PAGES', '30'))}
+
+
+def picture_cap(t):
+    t = t or {}
+    if t.get('picture_cap'): return int(t['picture_cap'])
+    return PICTURE_CAPS.get(t.get('kind') or 'journey', PICTURE_CAP)
 PICTURE_TOKENS = {'phone': 437, 'desktop': 1719}   # measured on claude-opus-5-5 through /api/ai (sim/picture_cost.py), 10-26
 PICTURE_CMDS = {'tap', 'go', 'back', 'key', 'screen', 'upload', 'photo', 'device', 'ask'}
 FINGERPRINT_JS = """() => { const l = __SIM.landing(), w = __SIM.where(); return [l.view, l.title, l.sheet, w.cur, w.tab].join(' | '); }"""
@@ -261,8 +271,8 @@ class Sim:
         except Exception: return
         seen = self.pictured.setdefault(uid, [])
         if fp in seen: return
-        if t is not None and t.get('pictures', 0) >= PICTURE_CAP:
-            out['text'] = (out.get('text') or '').rstrip('\n') + f'\n(No picture of this new screen: this turn\'s {PICTURE_CAP} are used. `screen --shot` takes one if you need it.)'
+        if t is not None and t.get('pictures', 0) >= picture_cap(t):
+            out['text'] = (out.get('text') or '').rstrip('\n') + f'\n(No picture of this new screen: this turn\'s {picture_cap(t)} are used. `screen --shot` takes one if you need it.)'
             return
         seen.append(fp)
         d = os.path.join(self.dir, 'shots', uid); os.makedirs(d, exist_ok=True)
@@ -521,6 +531,7 @@ class Sim:
             for k in new:
                 nm = await pg.evaluate("k => __SIM.recordName(k)", k)
                 if not nm['name']: continue   # a record with no name a person could look for (a line, a log row)
+                if nm.get('mine') is False: continue   # another person's record (synced in on the live site), not this person's own
                 seen = await pg.evaluate("n => __SIM.onScreen(n)", nm['name'])
                 creates.append({'key': k, 'name': nm['name'], 'on_screen': seen['on'], 'in_toast': seen['toast']})
                 if not seen['on']:
@@ -1078,7 +1089,7 @@ class Sim:
                 phone = (dev == 'phone') if dev in ('phone', 'desktop') else (bool(a.get('phone')) or PEOPLE[uid][1])
                 self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'minutes': 0.0, 'min_cap': float(a.get('minutes') or 0), 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone,
                                       'device': 'phone' if phone else 'desktop', 'switch': bool(a.get('switch')), 'day': self.state['day'],
-                                      'diary0': self.diary_size(uid)}
+                                      'diary0': self.diary_size(uid), 'kind': a.get('kind') or 'journey', 'picture_cap': int(a.get('pictures') or 0)}
                 await self.page(uid); await self.set_device(uid, phone)
                 self.pictured[uid] = []
                 self.log({'uid': uid, 'cmd': 'begin_turn', 'args': [self.state['slot']], 'device': self.state['turn']['device'],
