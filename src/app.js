@@ -1231,8 +1231,9 @@ function invoiceStatus(c, x) {
         : "sent";
 }
 function sovBilled(c, sovId, exceptId) {
+  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit)
   return c.invoices
-    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId)
+    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
     .flatMap((i) => i.lines)
     .filter((l) => l.sovId === sovId)
     .reduce((a, l) => a + (+l.pct || 0), 0);
@@ -8937,6 +8938,8 @@ function newDoc(c, kind, opts = {}) {
       ((base.mode = opts.mode || "items"),
       (base.due = iso(addDays(today(), 15))),
       (base.retainagePct = ("sov" === opts.mode && +DB.company.ret) || 0),
+      // an application is never a deposit (invIsDeposit); the deposit is its own invoice, stamped true
+      "sov" === base.mode && (base.isDeposit = !1),
       (base.title =
         "sov" === opts.mode
           ? `Progress billing #${c.invoices.filter((i) => "sov" === i.mode).length + 1}`
@@ -25012,16 +25015,35 @@ const CT_SEED = [
     DB.clients.find(
       (c) => c.estimates.includes(doc) || c.changeOrders.includes(doc) || c.invoices.includes(doc),
     );
-// A deposit invoice bills the deposit, and it says so: isDeposit is stamped when it is made (ctDepositInvoice, the
-// two-payer deposits in src/livejobs.js). Every progress application also carries depositOf, to name the deposit it
-// draws on (ctProgressInvoice), so depositOf alone never makes an invoice a deposit. Records made before the stamp:
-// a non-SOV invoice with depositOf, or an SOV invoice with depositOf, no retainage and titled as the deposit.
-// One predicate for the ledger (glInvoiceLines), the bridges, lineFin's deposit points and the printout (cxKind).
+// Is it a deposit? One answer, from the stamp made when the invoice is made: ctDepositInvoice and the two-payer
+// deposits stamp isDeposit true, every application (newDoc, mode sov) stamps it false. An unstamped record made before
+// the stamp is a deposit only when it is not an application (a non-SOV invoice with depositOf). Nothing else guesses:
+// a title or a zero retainage never re-books money (a paid application retitled "(less deposit)" moved $80,833 from
+// 4100 to 2400). An old application that looks like a deposit goes to the Controller as a finding (invLegacyDeposit).
+// Every reader asks this: the ledger (glInvoiceLines) and its bridges, depositBalance, depositPctOf, sovBilled,
+// lineFin, ctDepositDue and ctDepositInvoice, the invoices list and the printout (cxKind).
 function invIsDeposit(i) {
   if (!i || "invoice" !== (i.type || "invoice")) return !1;
   if (!0 === i.isDeposit) return !0;
-  if (!1 === i.isDeposit || !i.depositOf) return !1;
-  return "sov" !== i.mode || (!(+i.retainagePct > 0) && /\bdeposit\b/i.test(i.title || ""));
+  if (!1 === i.isDeposit) return !1;
+  return !!i.depositOf && "sov" !== i.mode;
+}
+// an application sent before deposits were stamped that reads as the deposit (titled so, no retainage): it was booked
+// as work; the Controller confirms it or re-classes it by reversal and re-post with a reason
+function docKindFreeze() {
+  "function" == typeof cxKindAtSend &&
+    (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => !i.printKind && !["draft", "void"].includes(i.status) && (i.printKind = cxKindAtSend(i))));
+}
+function invLegacyDeposit(i) {
+  return !!(i && "invoice" === (i.type || "invoice") && "sov" === i.mode && !invIsDeposit(i) && !["draft", "void"].includes(i.status) && !(+i.retainagePct > 0) && (/\bdeposit\b/i.test(i.title || "") || "deposit" === i.printKind));
+}
+// the payer a deposit or an application belongs to on a two-payer contract (src/livejobs.js); "" on one payer
+function depPayer(c, i) {
+  try {
+    return "function" == typeof ljInvPayer && (c.payers || []).length > 1 ? ljInvPayer(c, i) : "";
+  } catch (e) {
+    return "";
+  }
 }
 function invoicePaid(c, inv) {
   return c.payments.filter((p) => p.invoiceId === inv.id).reduce((a, p) => a + (+p.amount || 0), 0);
@@ -26356,6 +26378,34 @@ function analystFindings() {
     t0 = today(),
     days = (a, b) => Math.round((parse(b) - parse(a)) / 864e5),
     spend = DB.txns.filter((t) => t.amt < 0 && "transfer" !== t.cat);
+  // An application sent as the deposit before deposits were stamped was booked as the first draw: the Controller
+  // confirms it, or re-classes it by reversal and re-post with a reason (never silently). A sent invoice edited so it
+  // would now post differently keeps its sent postings; the edit is named here.
+  try {
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((i) => {
+        invLegacyDeposit(i) &&
+          add(
+            "med",
+            "Controller",
+            `${c.name}: ${i.number} "${i.title || ""}" was booked as the first draw`,
+            `It went out as the deposit but is posted as work (revenue), so the job shows over-billed on WIP until the work catches up. Confirm it as the first draw, or re-class it as the deposit by reversal and re-post with a reason.`,
+            docTotal(i).total,
+            { view: "clients", client: c.id },
+          );
+        const dr = "function" == typeof glInvoiceDrift ? glInvoiceDrift(c, i) : 0;
+        dr > 0.5 &&
+          add(
+            "high",
+            "Controller",
+            `${c.name}: ${i.number} was changed after it was sent`,
+            `The books keep what it posted when it was sent; the change would move ${money(dr / 2)}. Correct it with a credit or a reversal and re-post, with a reason.`,
+            r2(dr / 2),
+            { view: "clients", client: c.id },
+          );
+      }),
+    );
+  } catch (e) {}
   // The two billed-ahead measures (adopted 2026-10-26 as a reversible default): "Over-Billed (WIP)" is cost to cost,
   // "Billed Ahead of the Work" is each line against the work on site. Far apart on one job (121 State: $131,058 against
   // $66,470), they are the Controller's to reconcile, as a finding of their own.
@@ -35907,27 +35957,38 @@ render = function () {
   } else st && st.querySelector(".stat-proj")?.remove();
 };
 const remindersBase7 = reminders;
-function depositBalance(c, estId) {
-  const paid = c.invoices
-      .filter((i) => i.depositOf === estId && "sov" !== i.mode && "void" !== i.status)
+// What of the deposit is on account: paid deposits (invIsDeposit) less what applications took off. On a two-payer
+// contract each payer's deposit is its own (payer), credited only on that payer's applications.
+function depositBalance(c, estId, payer) {
+  const mine = (i) => !payer || depPayer(c, i) === payer,
+    paid = c.invoices
+      .filter((i) => i.depositOf === estId && invIsDeposit(i) && "void" !== i.status && mine(i))
       .reduce((a, i) => a + invoicePaid(c, i), 0),
     applied = c.invoices
       .filter(
         (i) =>
           "void" !== i.status &&
           "sov" === i.mode &&
+          !invIsDeposit(i) &&
           (+i.depositApplied || 0) &&
-          (!estId || i.depositOf === estId || !i.depositOf),
+          (!estId || i.depositOf === estId || !i.depositOf) &&
+          mine(i),
       )
       .reduce((a, i) => a + (+i.depositApplied || 0), 0);
   return r2(paid - applied);
 }
-function depositPctOf(c, estId) {
+// the deposit's share of the contract (of the payer's part of it, on a two-payer contract)
+function depositPctOf(c, estId, payer) {
   const d = estId && findDoc(c, "estimate", estId),
     dep = c.invoices
-      .filter((i) => i.depositOf === estId && "sov" !== i.mode && "void" !== i.status)
-      .reduce((a, i) => a + docTotal(i).total, 0),
-    base = d ? docNet(d) : 0;
+      .filter((i) => i.depositOf === estId && invIsDeposit(i) && "void" !== i.status && (!payer || depPayer(c, i) === payer))
+      .reduce((a, i) => a + docTotal(i).total, 0);
+  let base = d ? docNet(d) : 0;
+  if (payer && "function" == typeof ljSvPayer && d) {
+    const pre = `estimate:${d.id}:`,
+      s = r2((c.sov || []).filter((v) => String(v.lineRef || "").startsWith(pre) && ljSvPayer(c, v) === payer).reduce((a, v) => a + (+v.scheduled || 0), 0));
+    s > 0 && (base = s);
+  }
   return base ? Math.min(100, r2((dep / base) * 100)) : 0;
 }
 reminders = function () {
@@ -35968,16 +36029,17 @@ function depositRefresh(d, t) {
   let c = depositDocClient.get(d);
   (c && (c.invoices || []).includes(d)) || ((c = "function" == typeof finClientOfDoc ? finClientOfDoc(d) : null), c && depositDocClient.set(d, c));
   if (!c) return;
-  const pct = depositPctOf(c, d.depositOf);
+  const payer = depPayer(c, d),
+    pct = depositPctOf(c, d.depositOf, payer);
   if (!(pct > 0)) return void (+d.depositApplied && (d.depositApplied = 0));
-  const room = r2(depositBalance(c, d.depositOf) + (+d.depositApplied || 0)),
+  const room = r2(depositBalance(c, d.depositOf, payer) + (+d.depositApplied || 0)),
     want = room > 0 ? r2(Math.min(room, (r2(t.sub - t.disc) * pct) / 100)) : 0;
   d.depositApplied = Math.max(0, want);
 }
 (docTotal = function (d) {
   const t = docTotalBase(d);
   if ("invoice" !== d.type || "sov" !== d.mode) return t;
-  if ("draft" === d.status && d.depositOf && !d.depositByHand)
+  if ("draft" === d.status && d.depositOf && !d.depositByHand && !invIsDeposit(d))
     try {
       depositRefresh(d, t);
     } catch (e) {}
@@ -51091,8 +51153,9 @@ function ctDepositDue(c, d) {
   const pct = ctDepositPct(c, d);
   if (!(pct > 0)) return null;
   const live = (c.invoices || []).filter((i) => "void" !== i.status);
-  if (live.some((i) => i.depositOf === d.id && "sov" !== i.mode)) return null;
-  if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || /deposit/i.test(i.title || "")))) return null;
+  if (live.some((i) => i.depositOf === d.id && invIsDeposit(i))) return null;
+  // billing on the job began without one (an application sent, or an old one that reads as the deposit)
+  if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || invLegacyDeposit(i)))) return null;
   const net = docNet(d),
     amount = r2((net * pct) / 100);
   if (!(amount > 0)) return null;
@@ -51103,7 +51166,7 @@ function ctDepositDue(c, d) {
 function ctDepositInvoice(c, d) {
   const D = ctDepositDue(c, d);
   if (!D) {
-    const had = (c.invoices || []).find((i) => i.depositOf === d.id && "sov" !== i.mode && "void" !== i.status);
+    const had = (c.invoices || []).find((i) => i.depositOf === d.id && invIsDeposit(i) && "void" !== i.status);
     return void toast(had ? `The deposit is on ${had.number} already` : `No deposit is owed on ${d.number}`, had ? () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: had.id }), render()) : void 0);
   }
   const amt = (pct) => r2((D.net * (+pct || 0)) / 100);
@@ -51505,6 +51568,12 @@ function finishBoot() {
       retInit();
     } catch (e) {
       console.error("returns init", e);
+    }
+    // a sent invoice reprints as it was sent: its print kind is kept from the first boot of this build (cxKind)
+    try {
+      docKindFreeze();
+    } catch (e) {
+      console.error("print kinds", e);
     }
   } catch (e) {
     console.error("phase 6 migrate", e);
@@ -66347,7 +66416,7 @@ function iaDocGrid(kind) {
               get: (r) => {
                 return "sov" === (x = r.x).mode
                   ? "Progress"
-                  : x.depositOf
+                  : invIsDeposit(x)
                     ? "Deposit"
                     : x.retainerOf
                       ? "Retainer"
@@ -71497,7 +71566,27 @@ function glUnreconciled(entityId, ym) {
   ).length;
 }
 const glL = (acct, dr, cr, d) => Object.assign({ acct: acct, dr: r2(dr || 0), cr: r2(cr || 0) }, d || {});
+// A sent or paid invoice's postings are what they were when it left draft: an edit to its title, retainage or lines
+// never re-books money (glSync reversed and re-posted on any change, so a retitle moved a paid application's revenue
+// to deposits held). The first posting is kept on the invoice (glLines), with the print kind it went out as; a later
+// edit that would post differently is a Controller finding (glInvoiceDrift), corrected by a credit or a reversal.
 function glInvoiceLines(c, d) {
+  if (!d || ["draft", "void"].includes(d.status)) return glInvoiceLinesLive(c, d);
+  if (Array.isArray(d.glLines)) return d.glLines.map((l) => Object.assign({}, l));
+  const L = glInvoiceLinesLive(c, d);
+  d.glLines = L.map((l) => Object.assign({}, l));
+  try {
+    !d.printKind && "function" == typeof cxKindAtSend && (d.printKind = cxKindAtSend(d));
+  } catch (e) {}
+  return L;
+}
+function glInvoiceDrift(c, d) {
+  if (!d || !Array.isArray(d.glLines) || ["draft", "void"].includes(d.status)) return 0;
+  const sum = (L, a) => r2(L.filter((l) => l.acct === a).reduce((s, l) => s + (+l.dr || 0) - (+l.cr || 0), 0)),
+    now = glInvoiceLinesLive(c, d);
+  return r2(["1100", "1150", "2400", "4000", "4100", "4200", "4300", "2300"].reduce((a, k) => a + Math.abs(sum(now, k) - sum(d.glLines, k)), 0));
+}
+function glInvoiceLinesLive(c, d) {
   const T = docTotal(d),
     L = [],
     dims = { projectId: d.projectId, partyType: "client", partyId: c.id },

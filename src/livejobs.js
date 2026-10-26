@@ -900,7 +900,7 @@ if ("function" == typeof draftDocEmail) {
           (d.payer = pid),
             "sov" === d.mode &&
               ((d.lines = (d.lines || []).filter((l) => ljLinePayer(c, d, l) === pid)),
-              (d.title = `Progress billing #${(c.invoices || []).filter((i) => "sov" === i.mode && i !== d && !i.depositOf && !i.retainageRelease && "void" !== i.status && ljInvPayer(c, i) === pid).length + 1} · ${ljPayerName(c, pid)}`)),
+              (d.title = `Progress billing #${(c.invoices || []).filter((i) => "sov" === i.mode && i !== d && !invIsDeposit(i) && !i.retainageRelease && "void" !== i.status && ljInvPayer(c, i) === pid).length + 1} · ${ljPayerName(c, pid)}`)),
             clean && docMark(d);
         }
       }
@@ -1595,14 +1595,34 @@ async function ljDemoSeed() {
   ];
   ljSplitLine(A, eA, eA.lines[6].id, 50);
   docMark(eA), await send(A, eA, "2026-07-20"), await docAction(A, eA, "approve");
-  const depL = progress(A, "pay_lj_l", "Construction deposit · Atlantic Row Holdings LLC", "2026-08-03", "2026-08-10", { "": 20 }),
-    depT = progress(A, "pay_lj_t", "Construction deposit · Morning Loaf Bakery Inc.", "2026-08-03", "2026-08-10", { "": 20 });
-  (depL.depositOf = depT.depositOf = eA.id), (depL.isDeposit = depT.isDeposit = !0), (depL.retainagePct = depT.retainagePct = 0), docMark(depL), docMark(depT);
+  // each payer's deposit is the firm's own deposit invoice (ctDepositInvoice's model): one line, 20% of that payer's
+  // share of the contract, no retainage, never on the schedule of values, stamped a deposit; each payer's progress
+  // applications take their share of it off what is due. It was an application billing 20% on every SOV line, which
+  // posted to deposits held but read as work done, and was never credited back (Atlantic Row's $59,400 sat in 2400).
+  const deposit = (pid, title) => {
+    LJ.pick = pid;
+    let inv;
+    try {
+      inv = newDoc(A, "invoice", { mode: "items", payer: pid });
+    } finally {
+      LJ.pick = "";
+    }
+    const pre = `estimate:${eA.id}:`,
+      share = r2((A.sov || []).filter((v) => String(v.lineRef || "").startsWith(pre) && ljSvPayer(A, v) === pid).reduce((a, v) => a + (+v.scheduled || 0), 0)),
+      amt = r2(share * 0.2);
+    return Object.assign(inv, { template: "construction", title: title, date: "2026-08-03", due: "2026-08-03", ljDemo: 1, payer: pid, depositOf: eA.id, isDeposit: !0, retainagePct: 0, terms: "Due on receipt" }),
+      (inv.lines = [{ id: uid("l"), item: "Deposit on the contract", desc: `20% of ${ljPayerName(A, pid)}'s share of ${eA.number} (${money(share)}), held on account and taken off each progress application`, qty: 1, unit: "ls", rate: amt, taxable: !1, payer: pid }]),
+      docMark(inv),
+      inv;
+  };
+  const depL = deposit("pay_lj_l", "Construction deposit · Atlantic Row Holdings LLC"),
+    depT = deposit("pay_lj_t", "Construction deposit · Morning Loaf Bakery Inc.");
   await send(A, depL, "2026-08-03", "2026-08-10"), await send(A, depT, "2026-08-03", "2026-08-10");
   pay(A, depL, "2026-08-07", docTotal(depL).total, "Wire", "ARH-0807"), pay(A, depT, "2026-08-12", docTotal(depT).total, "Check", "1043");
   const prL = progress(A, "pay_lj_l", "Progress billing #1 · Atlantic Row Holdings LLC", "2026-08-25", "2026-09-01", { Storefront: 30, Electrical: 40, Sprinkler: 10, "General conditions": 25 }),
     prT = progress(A, "pay_lj_t", "Progress billing #1 · Morning Loaf Bakery Inc.", "2026-08-25", "2026-09-01", { "Bakery fit-out": 20, "Kitchen plumbing": 35, "General conditions": 25 });
-  (prL.retainagePct = prT.retainagePct = 10), docMark(prL), docMark(prT);
+  // each application names the contract's deposit and takes its payer's share of it off what is due (depositRefresh)
+  (prL.retainagePct = prT.retainagePct = 10), (prL.depositOf = prT.depositOf = eA.id), docTotal(prL), docTotal(prT), docMark(prL), docMark(prT);
   await send(A, prL, "2026-08-25", "2026-09-01"), await send(A, prT, "2026-08-25", "2026-09-01");
   pay(A, prL, "2026-09-02", docTotal(prL).total, "ACH", "ARH-0902");
   // 2. A paid exploratory phase, then construction priced in ranges for the unknowns

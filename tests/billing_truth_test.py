@@ -165,17 +165,29 @@ async def t_prorata(C, p, phone):
     g = await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), i = c.invoices.find(x => x.id === arg.id);
       const S = {}; glInvoiceLines(c, i).forEach(l => S[l.acct] = r2((S[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return S;""", inv | {'cid': S['cid']})
     C.ok(abs(g.get('4100', 0) + 1140) < 0.01 and abs(g.get('2400', 0) - 285) < 0.01, f'PRO {dev}: the application posts its work to revenue (Cr 4100 $1,140) and relieves the deposit (Dr 2400 $285): {g}')
-    # the two-payer deposits (Atlantic Row, the Live Jobs demo) are SOV invoices billing 20% as the deposit: one
-    # predicate says deposit to the ledger (Cr 2400, never revenue), to lineFin (deposit points, not billed work) and
-    # to the printout (a Deposit Invoice)
+    # the two-payer deposits (Atlantic Row, the Live Jobs demo): each payer's deposit is the firm's own deposit invoice,
+    # never on the SOV; Progress #1 credits its payer's share; once every line is billed, 2400 for the contract nets to 0
     await sign_in(pg, 'u_owner')
     lj = await js(pg, """await ljDemoSwitch(true); await sleep(200);
       const c = DB.clients.find(x => x.id === 'cl_lj_atl'); if (!c) return null;
-      return c.invoices.filter(i => /Construction deposit/.test(i.title || '')).map(i => { const S = {}; glInvoiceLines(c, i).forEach(l => S[l.acct] = r2((S[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0)));
-        const ln = (i.lines || []).find(l => +l.pct > 0), sv = ln && c.sov.find(v => v.id === ln.sovId), f = sv && sv.lineRef ? lineFin(sv.lineRef) : null;
-        return { n: i.number, net: docNet(i), S: S, kind: cxKind(i), dep: f ? f.depositPct : null }; });""")
-    C.ok(lj and len(lj) == 2 and all(abs(x['S'].get('2400', 0) + x['net']) < 0.01 and not x['S'].get('4100') and x['kind'] == 'deposit' and x['dep'] == 20 for x in lj),
-         f'PRO {dev}: the Atlantic Row deposits post to deposits held (Cr 2400), count as deposit points on their lines and print as Deposit Invoices: {lj}')
+      const S = (L) => { const o = {}; L.forEach(l => o[l.acct] = r2((o[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return o; };
+      const deps = c.invoices.filter(i => invIsDeposit(i)).map(i => ({ n: i.number, mode: i.mode, net: docNet(i), S: S(glInvoiceLines(c, i)), kind: cxKind(i), payer: (typeof depPayer === 'function' ? depPayer(c, i) : (i.payer || '')) }));
+      const apps = c.invoices.filter(i => i.mode === 'sov' && i.status !== 'void').map(i => ({ n: i.number, gross: r2(docTotal(i).sub - docTotal(i).disc), dep: +i.depositApplied || 0, payer: (typeof depPayer === 'function' ? depPayer(c, i) : (i.payer || '')) }));
+      // bill every remaining line to 100%, one final application per payer, and send it
+      for (const pid of ['pay_lj_l', 'pay_lj_t']) {
+        LJ.pick = pid; let inv; try { inv = newDoc(c, 'invoice', { mode: 'sov', payer: pid }); } finally { LJ.pick = ''; }
+        const est = c.estimates.find(e => e.status === 'converted' || e.status === 'approved'); inv.depositOf = est.id; inv.retainagePct = 10;
+        inv.lines.forEach(l => { l.prevPct = r2(sovBilled(c, l.sovId, inv.id)); l.pct = r2(100 - l.prevPct); }); inv.lines = inv.lines.filter(l => l.pct > 0);
+        docTotal(inv); inv.status = 'sent'; docMark(inv);
+      }
+      const est = c.estimates.find(e => e.status === 'converted' || e.status === 'approved');
+      const all = c.invoices.filter(i => !['void', 'draft'].includes(i.status) && (i.depositOf === est.id || invIsDeposit(i)));
+      const held = r2(all.reduce((a, i) => a + (S(glInvoiceLines(c, i))['2400'] || 0), 0));
+      return { deps, apps, held, sovDep: c.invoices.filter(i => invIsDeposit(i) && i.mode === 'sov').length };""")
+    ok = lj and len(lj['deps']) == 2 and all(x['mode'] != 'sov' and abs(x['S'].get('2400', 0) + x['net']) < 0.01 and not x['S'].get('4100') and x['kind'] == 'deposit' for x in lj['deps'])
+    C.ok(ok, f'PRO {dev}: each Atlantic Row payer\'s deposit is its own one-line deposit invoice, off the SOV, posted to deposits held and printed as a Deposit Invoice: {lj and lj["deps"]}')
+    C.ok(lj and lj['apps'] and all(abs(a['dep'] - round(a['gross'] * 0.2, 2)) < 1 for a in lj['apps'][:2]), f'PRO {dev}: Progress #1 for each payer credits its share of that payer\'s deposit (20% of its work): {lj and lj["apps"]}')
+    C.ok(lj and abs(lj['held']) < 0.01, f'PRO {dev}: once every line is billed, deposits held (2400) for the contract net to $0: {lj and lj["held"]}')
     C.ok(not errs, f'PRO {dev}: no page errors: {errs[:3]}')
     await b.close()
 
@@ -405,9 +417,32 @@ async def t_labels(C, p, phone):
     await b.close()
 
 
+async def t_class(C, p, phone):
+    """one answer to "is it a deposit", from the stamp; a sent invoice's books and print are what was sent"""
+    dev = 'phone' if phone else 'desktop'
+    b, pg, errs = await fresh(p, 'u_controller', phone)
+    r = await js(pg, """const k = DB.clients.find(x => x.id === 'cl121'), pr = k.invoices.find(i => i.number === 'INV-2026-035');
+      const S = (L) => { const o = {}; L.forEach(l => o[l.acct] = r2((o[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return o; };
+      glSync(); const before = S(glInvoiceLines(k, pr)), j0 = JSON.stringify(S((DB.gl.journals || []).filter(j => j.sourceId === pr.id).flatMap(j => j.lines)));
+      pr.title = 'Progress billing #1 (less deposit)'; pr.retainagePct = 0; pr.depositOf = (k.estimates.find(e => e.status === 'converted') || {}).id; save(); render(); await sleep(200);
+      glSync(); const after = S(glInvoiceLines(k, pr)), j1 = JSON.stringify(S((DB.gl.journals || []).filter(j => j.sourceId === pr.id).flatMap(j => j.lines)));
+      const f = analystFindings().filter(x => x.area === 'Controller' && /INV-2026-035/.test(x.title)).map(x => x.title);
+      return { before, after, j0, j1, dep: invIsDeposit(pr), kind: cxKind(pr), f };""")
+    C.ok(r['before'] == r['after'] and r['j0'] == r['j1'] and not r['dep'] and r['kind'] == 'progress',
+         f'CLS {dev}: retitling a paid application "(less deposit)" and zeroing its retainage never re-books it or reprints it as a deposit: {r}')
+    C.ok(any('changed after it was sent' in t for t in r['f']), f'CLS {dev}: the change after it was sent is a Controller finding: {r["f"]}')
+    q = await js(pg, """const k = DB.clients.find(x => x.id === 'cl121'), d = k.invoices.find(i => i.number === 'INV-2026-031');
+      const html = docPrintHtml(k, d).replace(/<[^>]+>/g, ' ');
+      return { kind: cxKind(d), dep: invIsDeposit(d), print: /Deposit Invoice/.test(html), f: analystFindings().filter(x => x.area === 'Controller' && /INV-2026-031/.test(x.title)).map(x => [x.title, x.detail]) };""")
+    C.ok(q['kind'] == 'deposit' and q['print'] and not q['dep'], f'CLS {dev}: the Kleins\' INV-2026-031 reprints as the Deposit Invoice they were sent (booked as work, never re-classed silently): {q}')
+    C.ok(q['f'] and 'first draw' in q['f'][0][0] and 'reversal and re-post' in q['f'][0][1], f'CLS {dev}: and it is a Controller finding: confirm it as the first draw, or re-class by reversal and re-post: {q["f"]}')
+    C.ok(not errs, f'CLS {dev}: no page errors: {errs[:3]}')
+    await b.close()
+
+
 async def main():
     C = Checks()
-    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED', 'BANK', 'LBL']
+    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED', 'BANK', 'LBL', 'CLS']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'DEP' in only: await t_deposit(C, p, phone)
@@ -418,6 +453,7 @@ async def main():
             if 'TYPED' in only: await t_typed(C, p, phone)
             if 'BANK' in only: await t_bank(C, p, phone)
             if 'LBL' in only: await t_labels(C, p, phone)
+            if 'CLS' in only: await t_class(C, p, phone)
     sys.exit(C.done())
 
 asyncio.run(main())

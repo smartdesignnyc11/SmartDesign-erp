@@ -369,18 +369,27 @@ function cxEnsureCoLines(c, d) {
 }
 
 // ---- one renderer for every client document --------------------------------------------------------------------------
+// What a document prints as. A sent document reprints as it was sent (printKind, frozen at Send, or at the first
+// posting for one sent before this was kept): the Kleins' INV-2026-031 went out as their Deposit Invoice and reprints so.
+// A draft prints by the one deposit predicate (invIsDeposit), the ledger's own answer.
 function cxKind(d) {
+  if ("invoice" === d.type && d.printKind && "draft" !== d.status) return d.printKind;
+  return cxKindLive(d);
+}
+function cxKindLive(d) {
   if ("estimate" === d.type) return "estimate";
   if ("co" === d.type) return "co";
-  // depositOf names the estimate whose deposit an application draws on; a deposit invoice is one that bills the deposit
-  // the contract's deposit invoice (one line, no retainage; ctDepositInvoice) prints as a Deposit Invoice with its own
-  // footer, never the construction or plain invoice footer
-  // one predicate with the ledger and lineFin (invIsDeposit): an application booked as work prints as an application
   if ("invoice" === d.type && "function" == typeof invIsDeposit && invIsDeposit(d)) return "deposit";
   if ("sov" === d.mode) return "progress";
   if ("design" === d.template || d.retainerOf) return "design";
   const est = d.fromDoc && (DB.clients || []).flatMap((c) => c.estimates || []).find((e) => e.id === d.fromDoc);
   return est && "design" === est.template ? "design" : "invoice";
+}
+// the kind a document went out as. One made before deposits were stamped (no isDeposit) went out by the rule of its
+// day: an application with no retainage titled or lined as the deposit printed as the Deposit Invoice
+function cxKindAtSend(d) {
+  if ("invoice" === d.type && "boolean" != typeof d.isDeposit && "sov" === d.mode && !(+d.retainagePct > 0) && (/\bdeposit\b/i.test(d.title || "") || (d.lines || []).some((l) => +l.pct && /^deposit\b/i.test(l.desc || "")))) return "deposit";
+  return cxKindLive(d);
 }
 const CX_LABEL = { estimate: "Proposal", co: "Change Order", progress: "Application for Payment", deposit: "Deposit Invoice", design: "Design Fee Invoice", invoice: "Invoice" };
 const CX_MARK =
@@ -624,6 +633,8 @@ if ("function" == typeof repStatement) {
         "draft" !== d.status && (R = R.filter((r) => "note" !== r.k));
         if (R.length) return void cxGateModal(c, d, R, "print" === a ? "print" : "send");
         if (out && "draft" === d.status) {
+          // the kind it goes out as is kept: a sent document reprints as it was sent (cxKind)
+          "invoice" === d.type && (d.printKind = cxKindLive(d));
           CX_GENERIC_TITLE.test(d.title || "") && (d.lines || []).find((l) => l.item) && (d.title = cxClean((d.lines || []).find((l) => l.item).item, c));
           "co" === d.type && !d.reasonType && (d.reasonType = cxInferReason(d));
           // the due date the person saved stands: Send moved a saved 9/19 (a Saturday) to 9/21 without a word (round
@@ -641,6 +652,7 @@ if ("function" == typeof crSendToClient) {
       "sov" === d.mode && cxEnsureCoLines(c, d);
       const R = cxGate(c, d);
       if (R.length) return void cxGateModal(c, d, R, "send");
+      "invoice" === d.type && (d.printKind = cxKindLive(d));
     }
     return base.apply(this, arguments);
   };

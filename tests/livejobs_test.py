@@ -156,9 +156,14 @@ async def s1_two_payers(p):
     C.ok(all(s[0] in ('pay_lj_l', 'pay_lj_t') for s in f['sov']), 'every SOV line names its payer')
     C.ok(sum(s[1] for s in f['sov'] if s[0] == 'pay_lj_l') == 138500 and sum(s[1] for s in f['sov'] if s[0] == 'pay_lj_t') == 158500, 'the landlord carries $138,500 of the contract, the tenant $158,500 (the shared general conditions split 50/50)')
     C.ok(L['revised'] == 138500 and T['revised'] == 158500, f"each payer's contract: {L['revised']} / {T['revised']}")
-    C.ok(abs(L['invoiced'] - 63295) < 0.01 and abs(T['invoiced'] - 56607.5) < 0.01, f"billed: landlord $63,295.00, tenant $56,607.50 ({L['invoiced']}, {T['invoiced']})")
-    C.ok(abs(L['paid'] - 63295) < 0.01 and abs(T['paid'] - 31700) < 0.01, f"paid: landlord $63,295, tenant $31,700 ({L['paid']}, {T['paid']})")
-    C.ok(L['outstanding'] == 0 and abs(T['outstanding'] - 24907.5) < 0.01 and abs(T['overdue'] - 24907.5) < 0.01, 'open: the tenant owes $24,907.50, two days overdue; the landlord owes nothing')
+    # lane 1, 2026-10-26: each payer's deposit is the firm's deposit invoice (20% of that payer's share, off the SOV),
+    # and Progress #1 takes 20% of its work off what is due, so the deposit comes back out of deposits held as the work
+    # is billed. Before, the deposits were applications billing 20% of every line and were never credited back
+    # ($63,295 / $56,607.50 billed, the tenant owing $24,907.50). Landlord: $27,700 + ($39,550 - $7,910 - $3,955 retainage)
+    # = $55,385; tenant: $31,700 + ($27,675 - $5,535 - $2,767.50) = $51,072.50, the tenant owing $19,372.50.
+    C.ok(abs(L['invoiced'] - 55385) < 0.01 and abs(T['invoiced'] - 51072.5) < 0.01, f"billed: landlord $55,385.00, tenant $51,072.50 ({L['invoiced']}, {T['invoiced']})")
+    C.ok(abs(L['paid'] - 55385) < 0.01 and abs(T['paid'] - 31700) < 0.01, f"paid: landlord $55,385, tenant $31,700 ({L['paid']}, {T['paid']})")
+    C.ok(L['outstanding'] == 0 and abs(T['outstanding'] - 19372.5) < 0.01 and abs(T['overdue'] - 19372.5) < 0.01, f"open: the tenant owes $19,372.50, two days overdue; the landlord owes nothing ({L['outstanding']}, {T['outstanding']}, {T['overdue']})")
     C.ok(abs(L['invoiced'] + T['invoiced'] - f['all']['invoiced']) < 0.01 and abs(L['paid'] + T['paid'] - f['all']['paid']) < 0.01 and abs(L['outstanding'] + T['outstanding'] - f['all']['outstanding']) < 0.01, 'the payers add up to the contract: billed, paid and open tie to the client to the cent')
     C.ok(all(i[1] in ('pay_lj_l', 'pay_lj_t') for i in f['inv']) and all(x in ('pay_lj_l', 'pay_lj_t') for x in f['pays']), 'every invoice and payment names its payer')
     # AR: one list, with the payer on each row; the Receivables report has the By Payer table
@@ -167,12 +172,12 @@ async def s1_two_payers(p):
     await ev(pg, "() => { repTab = 'ar'; view = 'reports'; render(); }")
     await pg.wait_for_timeout(250)
     byp = await ev(pg, "() => [...document.querySelectorAll('.lj-ar-payer tbody tr')].map(r => r.innerText.replace(/\\s+/g, ' '))")
-    C.ok(len(byp) == 2 and any('Morning Loaf' in r and '$24,908' in r for r in byp), f'Receivables: By Payer shows both payers, the tenant $24,908 open: {byp}')
+    C.ok(len(byp) == 2 and any('Morning Loaf' in r and '$19,373' in r for r in byp), f'Receivables: By Payer shows both payers, the tenant $19,373 open: {byp}')
     await shot(pg, 'desktop_receivables_by_payer', '.lj-ar-payer')
     # a statement per payer
     st = await ev(pg, f"() => {{ const c = {A}; return [ljStatementHtml(c, 'pay_lj_t'), ljStatementHtml(c, 'pay_lj_l')]; }}")
     inv = await ev(pg, f"() => {{ const c = {A}; const n = p => c.invoices.filter(i => i.payer === p).map(i => i.number); return [n('pay_lj_t'), n('pay_lj_l')]; }}")
-    C.ok(all(n in st[0] for n in inv[0]) and not any(n in st[0] for n in inv[1]) and 'Morning Loaf Bakery Inc.' in st[0] and '$24,908' in st[0], "the tenant's statement holds only the tenant's invoices, addressed to the tenant, balance $24,908")
+    C.ok(all(n in st[0] for n in inv[0]) and not any(n in st[0] for n in inv[1]) and 'Morning Loaf Bakery Inc.' in st[0] and '$19,373' in st[0], "the tenant's statement holds only the tenant's invoices, addressed to the tenant, balance $19,373")
     C.ok(all(n in st[1] for n in inv[1]) and not any(n in st[1] for n in inv[0]), "the landlord's statement holds only the landlord's invoices")
     # the client's Billing tab: the payers card, then a progress invoice for the tenant only, by tapping it
     await open_client(pg, 'cl_lj_atl')
@@ -182,7 +187,7 @@ async def s1_two_payers(p):
     await shot(pg, 'desktop_payers_card', '.lj-payers')
     ok = await tap(pg, 'Statement', within='[data-ljpayer="cl_lj_atl|pay_lj_t"]')
     m = await ev(pg, "() => (document.querySelector('#mbm') || {}).innerText || ''")
-    C.ok(ok and 'Statement: Morning Loaf Bakery Inc.' in m and '24,908' in m, "Statement on the tenant's row opens the tenant's statement")
+    C.ok(ok and 'Statement: Morning Loaf Bakery Inc.' in m and '19,373' in m, "Statement on the tenant's row opens the tenant's statement")
     await ev(pg, '() => mbCloseModal()')
     await tap(pg, 'New Progress Invoice', within='[data-ljpayer="cl_lj_atl|pay_lj_t"]')
     nv = await ev(pg, f"""() => {{ const c = {A}, d = docOpen && findDoc(c, docOpen.kind, docOpen.id);
@@ -228,18 +233,18 @@ async def s1_two_payers(p):
         m.querySelectorAll('[data-pyalloc]').forEach(i => i.value = i.dataset.pyalloc === d.id ? '10000' : '0');
         m.querySelector('#mbm-ok').click(); await new Promise(r => setTimeout(r, 300)); await saveNow();
         const py = c.payments[c.payments.length - 1]; return {{ amt: py.amount, payer: py.payer, T: ljPayerFin(c, 'pay_lj_t').outstanding, L: ljPayerFin(c, 'pay_lj_l').outstanding }}; }}""")
-    C.ok(pay['amt'] == 10000 and pay['payer'] == 'pay_lj_t' and abs(pay['T'] - 14907.5) < 0.01 and pay['L'] == 0, f"a $10,000 check on the tenant's invoice is the tenant's: they owe $14,907.50 now, the landlord still nothing ({pay})")
+    C.ok(pay['amt'] == 10000 and pay['payer'] == 'pay_lj_t' and abs(pay['T'] - 9372.5) < 0.01 and pay['L'] == 0, f"a $10,000 check on the tenant's invoice is the tenant's: they owe $9,372.50 now, the landlord still nothing ({pay})")
     # job cost and Ask read the same contract
     J = await ev(pg, "() => { const J = jobFin(DB.projects.find(p => p.id === 'p_lj_atl')); return [J.contract, J.budget]; }")
     C.ok(J == [297000, 229000], f'job cost: contract $297,000, budget $229,000 ({J})')
     q = await ev(pg, "() => eqRows('payers').filter(r => r.clientId === 'cl_lj_atl').map(r => [r.payer, r.outstanding])")
-    C.ok(len(q) == 2 and any(r[0] == 'Morning Loaf Bakery Inc.' and abs(r[1] - 14907.5) < 0.01 for r in q), f'Ask and the Report Builder read the payers table: {q}')
+    C.ok(len(q) == 2 and any(r[0] == 'Morning Loaf Bakery Inc.' and abs(r[1] - 9372.5) < 0.01 for r in q), f'Ask and the Report Builder read the payers table: {q}')
     # a payment on account (no invoice) waits for billing to say whose it is: on no payer's statement, raised on Today,
     # and one tap assigns it (2026-10-20: it used to land on the first payer)
     u = await ev(pg, f"""() => {{ const c = {A}; c.payments.push({{ id: 'py_lj_onacct', date: today(), amount: 5000, note: 'on account', ref: '1102' }}); save();
         const before = ljByPayer(c).map(f => [f.pid, f.paid]); render();
         return {{ payer: ljPayPayer(c, c.payments[c.payments.length - 1]), before, today: reminders().some(r => /not assigned to a payer/.test(r.label)), un: ljUnassigned(c).length }}; }}""")
-    C.ok(u['payer'] == '' and u['un'] == 1 and u['today'] and dict(u['before'])['pay_lj_l'] == 63295 and abs(dict(u['before'])['pay_lj_t'] - 41700) < 0.01, f"a payment on account is on no payer's statement and raised on Today ({u})")
+    C.ok(u['payer'] == '' and u['un'] == 1 and u['today'] and dict(u['before'])['pay_lj_l'] == 55385 and abs(dict(u['before'])['pay_lj_t'] - 41700) < 0.01, f"a payment on account is on no payer's statement and raised on Today ({u})")
     await open_client(pg, 'cl_lj_atl', 'invoices')
     btn = await ev(pg, "() => { const b = document.querySelector('[data-ljassign$=\"|pay_lj_t\"]'); if (b) b.click(); return !!b; }")
     await pg.wait_for_timeout(300)
@@ -256,7 +261,7 @@ async def s1b_portal_per_payer(p, phone):
     await sign_in(pg, 'u_lj_owen'); await go(pg, 'clacct')
     txt = await ev(pg, "() => document.querySelector('.view.on').innerText")
     C.ok(all(n in txt for n in nums['t']) and not any(n in txt for n in nums['l']), f'{tag}: the tenant\'s portal lists only the tenant\'s invoices')
-    C.ok('$24,908' in txt and '$63,295' not in txt and '$94,995' not in txt, f'{tag}: the tenant sees their own balance ($24,908) and never the contract\'s totals')
+    C.ok('$19,373' in txt and '$55,385' not in txt and '$87,085' not in txt, f'{tag}: the tenant sees their own balance ($19,373) and never the contract\'s totals')
     await screen_ok(pg, f'{tag} tenant portal', '.view.on')
     await shot(pg, f'{tag}_portal_tenant_account')
     st = await ev(pg, "async () => { const c = DB.clients.find(c => c.id === 'cl_lj_atl'); portalStatement(c); await new Promise(r => setTimeout(r, 150)); const t = (document.querySelector('#mbm') || {}).innerText || ''; mbCloseModal(); return t; }")
@@ -391,9 +396,14 @@ async def s3_normal_estimate(p):
     await tap(pg, 'Create Deposit Invoice', within='#mbm', wait=600)
     di = await ev(pg, f"async () => {{ const c = {K}, d = c.invoices[c.invoices.length - 1]; await docAction(c, d, 'send'); return [d.number, docTotal(d).total, d.status]; }}")
     C.ok(di[1] == 67400 and di[2] == 'sent', f'the deposit invoice is 20% of the contract, $67,400, and sent ({di})')
-    pay = await ev(pg, f"""async () => {{ const c = {K}, d = c.invoices[c.invoices.length - 1]; paymentAllocate(c, d.id); await new Promise(r => setTimeout(r, 200));
-        const m = document.getElementById('mbm'); m.querySelector('#py-method').value = 'Wire'; m.querySelector('#py-ref').value = 'SHAH-0903';
-        const a = m.querySelector('#py-acct'); a.value = a.options[1] ? a.options[1].value : ''; m.querySelector('#py-auto').click();
+    # a wire is recorded from its bank line (p2fix2, 2026-10-25): the Shahs' wire lands in the bank, then Record Payment
+    # takes it from the line, and the line backs the payment
+    pay = await ev(pg, f"""async () => {{ const c = {K}, d = c.invoices[c.invoices.length - 1];
+        const acct = (payBankAccts()[0] || {{}}).id || 'ac1';
+        DB.txns.push(txnStamp({{ id: 't_lj_shah', date: '2026-09-03', acct: acct, desc: 'WIRE IN SHAH DANIEL', amt: 67400, cat: 'uncat', status: 'new', source: 'ofx', ljDemo: 1 }}, 'stmt:lj', 'shah0903'));
+        paymentAllocate(c, d.id); await new Promise(r => setTimeout(r, 200));
+        const m = document.getElementById('mbm'), sel = m.querySelector('#py-txn'); if (sel) {{ sel.value = 't_lj_shah'; sel.dispatchEvent(new Event('change')); }}
+        m.querySelector('#py-method').value = 'Wire'; m.querySelector('#py-ref').value = 'SHAH-0903';
         m.querySelector('#mbm-ok').click(); await new Promise(r => setTimeout(r, 300)); return [invoiceStatus(c, d), clientFin(c).paid, clientFin(c).outstanding]; }}""")
     C.ok(pay == ['paid', 67400, 0], f'the deposit is paid in full ({pay})')
     # a bill coded to an estimate line lands in job cost, on that line
