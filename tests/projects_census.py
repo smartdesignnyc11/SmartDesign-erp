@@ -345,6 +345,15 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
     return out
 
 
+def build_hash():
+    """the build walked: the run ledger's hash of dist/ (tests/ledger.sh)"""
+    try:
+        import subprocess
+        return subprocess.check_output([os.path.join(HERE, 'ledger.sh'), '--hash'], text=True).strip()
+    except Exception:
+        return '?'
+
+
 def load():
     if os.path.exists(DATA):
         with open(DATA) as f: return json.load(f)
@@ -384,6 +393,7 @@ async def walk(users, devices, shots):
             await b.close()
     data['wall'] = int(time.time() - t_all)
     data['built'] = time.strftime('%Y-%m-%d %H:%M')
+    data['build'] = build_hash()
     save(data)
     return data
 
@@ -402,6 +412,8 @@ ROLE_NAME = {'u_alan': 'PM (Alan)', 'u_owner': 'Owner', 'u_chen': 'Coordinator (
              'u_sarah': 'Designer (Sarah)', 'u_billing': 'Billing', 'u_controller': 'Controller', 'u_klein': 'Client (Klein)',
              'u_alberto': 'Crew (Alberto)', 'u_alex': 'Driver (Alex)'}
 DEVS = ('desktop', 'phone')
+# what a row tap opens, named in the headline from the read (not written in by hand)
+VIEW_NAME = {'sboard': "the Design module's Project Board", 'gl': 'the Ledger', 'home': 'Today', 'bank': 'Banking', 'dash': 'the job overview'}
 
 
 def job_name(data, pid):
@@ -671,7 +683,7 @@ def report():
     P(f"**What this is.** Step 1 of the module census (docs/PLAN.md): a machine inventory, not a judgment. No app code changed. `tests/projects_census.py` (its reader `tests/census_js.js` sits on the information map's `tests/ia_js.js`) signs in as each role at 1440 and at 390 and opens the Projects list the way the person does. Then, for two jobs, it opens the job page and every sub-page the job page reaches (the sub-tab strip, the job page's own links, and the job pages of the field roles' and the client's own menus), presses every tab of every tab group (and the tabs those reveal), and reads every screen. The two jobs are **{jn[jobs[0]]}** (active construction) and **{jn[jobs[1]]}** ({(data.get('jobs') or {}).get('why', '')}).")
     P('')
     n_screens = sum(len(r.get('screens', [])) for d in DEVS for r in (W.get(d) or {}).values())
-    P(f"{n_screens} screens in all. Built {data.get('built', '')} on the demo day (Thu 2026-09-03); the walk took {round((data.get('wall') or 0) / 60, 1)} minutes. Raw read: `review/census/projects/data.json`. Every screen per role in tables: `review/census/projects/tables.md`. Screenshots of every PM page on both jobs and both devices: `review/census/projects/shots/` (`desktop_` and `phone_`, then the job and the page; the page as it opens, up to 3 desktop or 5 phone screens tall). The run also shoots every tab; those stay on the machine that ran it and are not committed.")
+    P(f"**Build {data.get('build') or build_hash()}.** {n_screens} screens in all. Built {data.get('built', '')} on the demo day (Thu 2026-09-03); the walk took {round((data.get('wall') or 0) / 60, 1)} minutes. Raw read: `review/census/projects/data.json`. Every screen per role in tables: `review/census/projects/tables.md`. Screenshots of every PM page on both jobs and both devices: `review/census/projects/shots/` (`desktop_` and `phone_`, then the job and the page; the page as it opens, up to 3 desktop or 5 phone screens tall). The run also shoots every tab; those stay on the machine that ran it and are not committed.")
     P('')
     P('Run it: `python3 build.py && cd tests && ./slot.sh python3 projects_census.py` (then `python3 projects_census.py --report` rewrites this page from data.json).')
     P('')
@@ -968,7 +980,7 @@ def headline(data, W, jobs, jn):
     nojob = [(u, ((D.get(u) or {}).get('jobs') or {}).get(FIRST_JOB, {}).get('rowOpens')) for u in USERS]
     nojob = [(u, v) for u, v in nojob if v]
     if nojob:
-        H.append('- **Two office roles have no job page.** A tap on a job in the Projects list opens ' + '; '.join(f"`{v}` for the {ROLE_NAME[u].split(' (')[0].lower()}" for u, v in nojob) + ' (`sboard` is the Design module\'s Project Board, `gl` the Ledger).')
+        H.append('- **Two office roles have no job page.** A tap on a job in the Projects list opens ' + '; '.join(f"`{v}` for the {ROLE_NAME[u].split(' (')[0].lower()}" for u, v in nojob) + ' (' + ', '.join(f"`{v}` is {VIEW_NAME.get(v, 'that page')}" for v in sorted({v for _, v in nojob})) + ').')
     # the phone opens the overview on All projects
     alls = [u for u in USERS if any(((Ph.get(u) or {}).get('rowTaps') or {}).get(pid, {}).get('after', {}).get('all') for pid in jobs)]
     if alls:

@@ -491,7 +491,7 @@ def link_names(D):
                 if s.get('from') != 'link' or s.get('tabOf') or s.get('linkText') or s['name'] in EXTRA_LINKS.values(): continue
                 old = s['name']
                 new = (s.get('heading') or s.get('view') or old).strip()[:40]
-                if new != old and new in names: new = f"{new} ({s.get('view')})"
+                if new != old and new in names: new = f"{new} (by the link {old[:28]})"
                 if new == old: continue
                 names.add(new)
                 s['linkText'] = old
@@ -801,7 +801,13 @@ def report_module(mod, w):
     P('')
     un = [(u, dev, r.get('unplaced')) for u in roles_of(D) for dev in DEVS for r in [(W.get(dev) or {}).get(u)] if r and r.get('unplaced')]
     if un:
-        P('**Pages of this module the role may open (ROLE_VIEWS) that no menu entry or walked link reached:** ' + '; '.join(f"{ROLE_NAME[u]} {dev}: {', '.join('`' + v + '`' for v in vs)}" for u, dev, vs in un) + '. Most are retired pages that land on another (the menu\'s aliases, MN_ALIAS and OC_RETIRED); each is a page a person can still reach only through search or an old link.')
+        P('**Pages of this module the role may open (ROLE_VIEWS) that no menu entry of this module or walked link reached.** Where the census landed on the page from another module (a tab that leaves, another group\'s entry), that place is named; "not reached" means no walked screen showed it, which for most is a retired page that lands on another (MN_ALIAS, OC_RETIRED) and is left to search and old links.')
+        P('')
+        for u, dev, vs in un:
+            def where(v):
+                hits = sorted({f"{TITLE.get(m, m)} › {page_of(s) if m != 'projects' else PC.page_of(s)}" for m, s in w.all[(dev, u)] if s.get('view') == v})
+                return f"`{v}` ({'reached as ' + ', '.join(hits[:3]) if hits else 'not reached'})"
+            P(f"- {ROLE_NAME[u]}, {dev}: " + '; '.join(where(v) for v in vs))
         P('')
     # ------------------------------------------------------------------------------------------- 2. data
     P('## 2. Where the Data Lives, and Where It Shows Twice')
@@ -994,7 +1000,7 @@ def report_module(mod, w):
     P('- **Tabs** are rows of two or more buttons with exactly one on. A dropdown that switches the view, a row of toggles, the rows of Settings and Project Settings, and a button that commits (New, Send, Approve...) are never pressed. One level of revealed tabs is walked; a tab group seen once on a page is not walked again from another route to the same page.')
     P('- **What opens, not what is two taps away:** a record opened from a row (an invoice, a PO, a bill), "N more" rows, folded cards and sheets are not walked.')
     P('- **Ways in are a floor:** a link counts when the element names a page in a data attribute or its onclick; a tap that opens a record (a PO number, a bill) and lands on its page, ⌘K search and Ask are not counted. "One way" means one menu entry and no counted link.')
-    P('- **The phone menu** is the hamburger at the top left, which opens the same rail as the desktop; the strip under the header scrolls sideways, and an entry past the edge is recorded as "swipe the strip".')
+    P('- **The phone menu** is the hamburger at the top left, which opens the same rail as the desktop; the strip under the header scrolls sideways, and an entry past the edge is recorded as "swipe the strip" (the strip also ends in a More button that lists its entries, one more way the census does not count).')
     P('- **One job:** job-scoped pages are read on 121 State Street where the role may open it. The Projects census reads two jobs.')
     P('- **Each role runs on a fresh app,** as a new device: what a page remembers (a tab, All projects on the phone) starts as a first visit.')
     P('- **Not judged:** whether the content is right, what is missing, and what should merge. That is the experts\' walk with this census in hand.')
@@ -1137,6 +1143,16 @@ def readme(w):
         P(f'| {title} | ' + ' | '.join(cells) + ' |')
     P('')
     P('Projects counts 121 State Street only (its census also walks a design-stage job).')
+    # a role whose Projects list, on a device, opened no job: the tap on each walked job's row stayed on the list
+    stuck = []
+    for d in DEVS:
+        for u, r in ((w.P.get('walk') or {}).get(d) or {}).items():
+            t = r.get('rowTaps') or {}
+            if t and all(x.get('err') or (x.get('after') or {}).get('v') == 'ovjobs' for x in t.values()):
+                stuck.append(f"{ROLE_NAME[u]} ({d})")
+    if stuck:
+        P('')
+        P(f"**The Projects list opened no job for** {', '.join(stuck)}: the tap on each walked job stayed on the list (no row names the job, or the words that name it sit on a tile), so the Projects census reached none of their job pages on that device. See its section 7.")
     P('')
     with open(os.path.join(DOCS, 'README.md'), 'w') as f: f.write('\n'.join(L) + '\n')
 
