@@ -40,10 +40,13 @@ Its last lines are the number progress is measured by (PROCESS.md rule 10): `JOU
   journey starts from its checkpoint in a world of its own (`server.py --resume`), so a phone failure upstream never hides
   one downstream.
 - **Pass or fail.** A journey passes on a device only with no stop, no failed expectation on the way (what a person checks
-  with their eyes), every record check right and JOURNEYS.md's budget kept: taps (every tap, type, pick, go, back, key, file
-  and photo, each step of a `do`, every person in the journey) and minutes (the person's, by sim/server.py's MINUTES; the
-  walk's own re-reads of the screen are not counted). Where JOURNEYS.md names a budget for one device, the other is held to
-  the same. The report names where each journey stops, whose taps they were, and what the walk did by hand (a person's way
+  with their eyes), every record check right and JOURNEYS.md's tap budget kept (every tap, type, pick, go, back, key, file
+  and photo, each step of a `do`, every person in the journey; the walk's own re-reads of the screen are not counted).
+  Where JOURNEYS.md names a budget for one device, the other is held to the same.
+- **Minutes are reported, not gating.** The minutes beside each budget are the harness's model (sim/server.py's MINUTES:
+  about a minute per typed field), not a person's time, so the report prints them as "modelled" and no journey fails on
+  them. They gate only once the model is calibrated against real recorded sessions: Alan's feedback-session recordings give
+  real times per step to set it from. The report names where each journey stops, whose taps they were, and what the walk did by hand (a person's way
   round the app, such as a mail sent from their own mailbox): those ways round keep the chain going, and the expectation
   that failed before them still fails the journey.
 - **Faults of the walk are not findings.** An exception in the walk is reported as `THE WALK ITSELF FAILED` and listed under
@@ -63,10 +66,11 @@ tests/slot.sh python3 tests/cycle_walk.py --devices desktop --no-danger --keep
 tests/slot.sh python3 tests/cycle_walk.py --from cw_<stamp>_desktop:J7 --only J7   # from a kept checkpoint, no chain before it
 tests/slot.sh python3 tests/cycle_walk.py --checkpoints cw_<stamp>_desktop          # the phone from a kept desktop run
 python3 tests/cycle_walk.py --selftest                          # the walk's own units, no browser (seconds)
+python3 tests/cycle_walk.py --rereport                          # the pass rule applied again to the last report (no browser)
 python3 tests/cycle_walk.py --attach <run> --only J3 --devices desktop   # a world you started (development)
 python3 tests/cycle_walk.py --attach <run> --danger-only                  # only the dangerous-button walk, on that world
 ```
-The report is `review/cycle_walk/report.md` (and `report.json`): the journeys with taps, budgets, minutes and where each
+The report is `review/cycle_walk/report.md` (and `report.json`): the journeys with taps, budgets, modelled minutes and where each
 stops, every failure, what was done by hand, and each journey's trail. It exits 1 on any failure. `--keep` leaves the worlds
 and their checkpoints in `sim/runs/` (`sim/runs/<run>.ck/<J>`) to look at or to start from. Never run it while other heavy
 runs share the machine if you can avoid it: check `uptime`.
