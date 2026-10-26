@@ -9218,7 +9218,10 @@ function docActions(c, d, st) {
     B = (a, l, cls = "") => `<button class="btn sm ${cls}" data-docact="${a}">${l}</button>`;
   let h = "";
   if (
-    ("draft" === d.status && (h += B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
+    // a draft estimate's safe next step is to review what the client will get and send it; marking it sent is a
+    // record of something done elsewhere, so it is never the blue button nor the first (cycle walk, dangerous buttons)
+    ("draft" === d.status &&
+      (h += "estimate" === k ? B("email", "Review and send", "primary") : B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
     "estimate" === k && "construction" === d.template && "converted" === d.status)
   ) {
     h += c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status)
@@ -9261,6 +9264,7 @@ function docActions(c, d, st) {
           B("email", "overdue" === st ? "Draft reminder" : "Draft cover email")),
       "void" !== d.status && "paid" !== st && (h += B("void", "Void"))),
     (h += B("print", "Print / PDF") + B("dup", "Duplicate")),
+    "estimate" === k && "draft" === d.status && (h += B("marksent", "Mark sent")),
     "draft" === d.status && (h += B("del", "Delete", "danger")),
     h
   );
@@ -122385,6 +122389,37 @@ if ("function" == typeof renderBilling) {
     } catch (e) {
       console.warn("billing new co", e);
     }
+  };
+}
+// Mark Sent on a draft estimate records a sending done outside the app: it asks how it went, to whom and on what
+// day (nothing is filled in for the person; the day is theirs to say), then marks it sent with that record.
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if ("marksent" !== a || !d || "draft" !== d.status) return base.apply(this, arguments);
+    const pc = "function" == typeof crBillTo ? crBillTo(c) : {},
+      HOW = ["Email from my own mailbox", "Printed and handed over", "Through the client portal", "Another way"];
+    mbModal(
+      `Mark Sent — ${esc(d.number)}`,
+      `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
+      ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+      {
+        submit: "Record It Sent",
+        onSubmit: (f) => {
+          if (!f.how) return toast("Say how it went to the client"), !1;
+          if (!f.on) return toast("Say the day it was sent"), !1;
+          if (f.on > today()) return toast("A sending cannot be in the future"), !1;
+          (async () => {
+            const was = d.status;
+            if ((await base.call(this, c, d, "send"), d.status === was)) return;
+            (d.sentAt = f.on), (d.sentTo = f.to || ""), (d.sentVia = f.how), (d.sentBy = S.project.userName || role());
+            c.activity.push({ t: nowStamp(), by: d.sentBy, text: `${d.number} recorded as sent ${fmtL(f.on)} (${f.how}${f.to ? " to " + f.to : ""})` });
+            save(), render(), toast(`${d.number} recorded as sent ${fmtL(f.on)}`, flowGo.doc(c, d.type, d));
+          })();
+        },
+      },
+    );
   };
 }
 // who a document's mail goes to: the client's billing contact when one is named, else the primary contact
