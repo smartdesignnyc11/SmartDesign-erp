@@ -147,10 +147,74 @@ def ledger_unit():
     shutil.rmtree(d, ignore_errors=True)
 
 
+def picture_cap_unit(tmp):
+    """the picture cap by the kind of turn (round one: the owner's page walk ran out of its 8 at 10:29)"""
+    import server as SV
+    check(SV.picture_cap({}) == SV.PICTURE_CAP == 8 and SV.picture_cap({'kind': 'journey'}) == 8, 'picture cap: a journey turn keeps 8 (SIM_PICTURE_CAP)')
+    check(SV.picture_cap({'kind': 'pages'}) == 30, 'picture cap: a page walk (begin --kind pages) gets 30 (SIM_PICTURE_CAP_PAGES)')
+    check(SV.picture_cap({'kind': 'pages', 'picture_cap': 12}) == 12, 'picture cap: --pictures N sets one turn\'s cap')
+    fake = types.SimpleNamespace(pictured={}, device={'u_owner': False}, dir=tmp, state={'day': '2026-09-03', 'actions': 1}, logs=[])
+    fake.clock_str = lambda: '10:29'
+    async def shot(uid, path, jpeg=False): open(path, 'wb').write(b'\xff\xd8jpeg')
+    fake.shot = shot; fake.log = lambda rec: fake.logs.append(rec)
+    pg, t = FakePage(), {'uid': 'u_owner', 'kind': 'pages', 'pictures': 8}
+    out = {'ok': True, 'text': 'the ninth page'}; asyncio.run(SV.Sim.picture(fake, 'u_owner', pg, t, out))
+    check('Screen picture' in out['text'] and t['pictures'] == 9, 'picture cap: a page walk is still pictured after 8')
+    t2 = {'uid': 'u_owner', 'pictures': 8}; pg.fp = 'other | Other |  |  | '; out2 = {'ok': True, 'text': 'the ninth screen'}
+    asyncio.run(SV.Sim.picture(fake, 'u_owner', pg, t2, out2))
+    check('Screen picture' not in out2['text'] and 'this turn\'s 8 are used' in out2['text'], 'picture cap: a journey turn stops at 8 and says so')
+    sc = open(os.path.join(HERE, 'simctl')).read()
+    check("'--kind'" in sc and "'--pictures'" in sc, 'picture cap: simctl begin takes --kind and --pictures')
+
+
+READER_JS = r"""
+const src = require('fs').readFileSync(process.argv[2], 'utf8');
+const noop = () => {};
+global.window = { addEventListener: noop }; global.addEventListener = noop; global.innerWidth = 1440; global.innerHeight = 900;
+global.document = { getElementById: () => null, querySelectorAll: () => [], querySelector: () => null, body: { children: [] }, addEventListener: noop };
+global.MutationObserver = function () { this.observe = noop; };
+global.getComputedStyle = () => ({ display: 'block', visibility: 'visible', opacity: '1', position: 'static' });
+eval(src)();
+const S = window.__SIM, C = labels => labels.map(l => ({ l }));
+const lines = ['This Period % \u2014 1', 'This Period % \u2014 10', 'This Period % \u2014 11', 'This Period % \u2014 12', 'Stored \u2014 1'];
+const out = {
+  exact: S.matchLabel('This Period % \u2014 1', C(lines)).hit,
+  ten: S.matchLabel('This Period % \u2014 10', C(lines)).hit,
+  prefix: S.matchLabel('This Period %', C(lines)),
+  count: S.matchLabel('Approvals', C(['Approvals 33', 'Approve'])).hit,
+  stale: S.matchLabel('Approvals 32', C(['Approvals 33', 'Approve'])).hit,
+  twice: S.matchLabel('Save', C(['Save', 'Save'])),
+  part: S.matchLabel('Quote', C(['Save the Quote'])).hit,
+  none: S.matchLabel('Delete', C(['Save'])),
+  me: [S.isMe(''), S.isMe('Billing'), S.isMe('System')],
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def reader_unit():
+    """the in-page reader's label matching and attribution, run under node with a stub page (no browser)"""
+    pt = os.path.join(HERE, 'page_tools.js')
+    js = os.path.join(tempfile.mkdtemp(), 'reader_unit.js'); open(js, 'w').write(READER_JS)
+    r = subprocess.run(['node', js, pt], capture_output=True, text=True)
+    if not check(r.returncode == 0, f'reader: page_tools.js loads under node ({r.stderr.strip()[-200:]})'): return
+    o = json.loads(r.stdout.strip().splitlines()[-1])
+    one, ten = (o['exact'] or {}).get('l', ''), (o['ten'] or {}).get('l', '')
+    check(one.endswith(' 1') and ten.endswith(' 10'), 'reader: "This Period % - 1" matches line 1 only, not lines 10 to 12 (its number is not a count)')
+    check(not o['prefix'].get('hit') and '4 labels' in o['prefix'].get('why', ''), f"reader: a prefix that starts several labels is refused, naming them ({o['prefix'].get('why', '')[:80]})")
+    check((o['count'] or {}).get('l') == 'Approvals 33' and (o['stale'] or {}).get('l') == 'Approvals 33', 'reader: a menu count after a label is still the same control')
+    check(not o['twice'].get('hit') and '2 controls are labelled' in o['twice'].get('why', ''), 'reader: two controls with one label are refused (use the number)')
+    check((o['part'] or {}).get('l') == 'Save the Quote' and not o['none'].get('hit'), 'reader: a part of one label still finds it; no match is no match')
+    pt_src = open(pt).read()
+    check('FLOATS' in pt_src and '.drawer.on' in pt_src and 'S.modal' in pt_src and 'is under the open sheet' in pt_src,
+          'reader: drawers and floating boxes at the top of the page are sheets; a tap under a covering sheet is refused')
+    check(o['me'][0] is True and o['me'][2] is False, 'reader: a record with no maker is the actor\'s; one made by "System" or another account is not "you just created"')
+
+
 def unit():
     tmp = tempfile.mkdtemp()
     try:
-        picture_unit(tmp); memory_unit(tmp); voicer_unit(); live_unit(); ledger_unit()
+        picture_unit(tmp); picture_cap_unit(tmp); reader_unit(); memory_unit(tmp); voicer_unit(); live_unit(); ledger_unit()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

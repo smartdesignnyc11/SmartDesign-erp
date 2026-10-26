@@ -26,10 +26,14 @@
                                                 falls due (sim/voicer.py; needs SIM_AI_TOKEN_FILE on the server), facts kept, template on failure
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
-    sim/simctl cycle on|off [--play u_controller]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles (--play: those that play after all)
+    sim/simctl cycle on|off [--play u_controller,u_angel:receive] [--feed]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its
+                                                scripted roles (--play: those that play after all, or one kind of their steps; --feed: bank lines land
+                                                through the bank feed, unmatched, instead of a statement mailed to the controller)
     sim/simctl script '<json>'                 Pilot 3: run one scripted world action again (sim/script_p3.js), e.g. '{"do": "payroll", "as": "u_controller"}'
     sim/simctl judge <uid> [--day D]            Pilot 3: the realism judge's prompt for that person's day (sim/realism_judge.md); the trail is written beside it
     sim/simctl begin ... --minutes N            a budget of working minutes for the turn (the plan's `minutes` per slot otherwise)
+    sim/simctl begin ... --kind pages|journey [--pictures N]   the screen-picture cap: a journey turn SIM_PICTURE_CAP (8), a
+                                                page walk SIM_PICTURE_CAP_PAGES (30); --pictures sets this turn's cap
     sim/simctl stop                             save everything and stop the server
 """
 import json, os, sys, urllib.request
@@ -69,6 +73,13 @@ def plan_device(uid, slot, tasks):
 
 SLOT_LABEL = {'work': 'the work day', 'morning': 'morning (brief, huddle, plan)', 'work1': 'the work day, first turn', 'work2': 'the work day, second turn',
               'eod': 'end of day (log, confirm tomorrow, diary, judgement)'}
+
+
+def pic_kw(a):
+    """the turn's kind for the picture cap (journey: SIM_PICTURE_CAP; pages: SIM_PICTURE_CAP_PAGES) and `--pictures N`"""
+    kw = {'kind': a[a.index('--kind') + 1] if '--kind' in a else 'journey'}
+    if '--pictures' in a: kw['pictures'] = int(a[a.index('--pictures') + 1])
+    return kw
 
 
 def run_dir():
@@ -240,7 +251,7 @@ def main(a):
         r = admin('world', **kw)
     elif c == 'begin' and admin('status').get('live'):   # a live run (sim/live.py): one person, both devices, no plan
         dev = a[a.index('--device') + 1].lower() if '--device' in a else ''
-        r = admin('begin_turn', uid=a[1], cap=int(a[a.index('--cap') + 1]) if '--cap' in a else 15, device=dev)
+        r = admin('begin_turn', uid=a[1], cap=int(a[a.index('--cap') + 1]) if '--cap' in a else 15, device=dev, **pic_kw(a))
     elif c == 'begin':
         slot =a[2] if len(a) > 2 and not a[2].startswith('--') else admin('status')['slot']
         cap = int(a[a.index('--cap') + 1]) if '--cap' in a else plan_cap(a[1], slot)
@@ -252,7 +263,7 @@ def main(a):
         if '+' in dev: dev, switch = dev.split('+')[0], True
         else: switch = '--switch' in a
         if switch and not ('--cap' in a): cap += int(plan().get('switch_cap') or 0)   # looking at the other device costs a few actions
-        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, minutes=minutes, device=dev, switch=switch, phone=dev == 'phone')
+        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, minutes=minutes, device=dev, switch=switch, phone=dev == 'phone', **pic_kw(a))
         if T: r['tasks'] = [t['doc'] + f" on the {task_device(t) or r['turn']['device']}" for t in T]
     elif c == 'plan':
         run, d = run_dir(); open(os.path.join(d, 'plan.txt'), 'w').write(a[1]); r = {'plan': a[1]}
@@ -269,7 +280,7 @@ def main(a):
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
     elif c == 'world-voice': r = admin('world_voice', on=a[1] == 'on')
-    elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [])
+    elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [], feed='--feed' in a)
     elif c == 'script': r = admin('script', payload=json.loads(a[1]))
     elif c == 'judge':
         print(judge(a[1], a[a.index('--day') + 1] if '--day' in a else None)); return 0

@@ -595,6 +595,28 @@
     "reimb",
     "Purchases made for a client that are not billed back yet."
    ]
+  ],
+  "u_controller": [
+   [
+    "Q1",
+    "cash",
+    "Cash in the bank today, the start of the two-week view."
+   ],
+   [
+    "Q2",
+    "ar",
+    "What clients owe us today, in total."
+   ],
+   [
+    "Q3",
+    "job_cost",
+    "Job cost on 214 Lincoln Place by estimate line (actual)."
+   ],
+   [
+    "Q4",
+    "over_lines",
+    "Which estimate lines on 214 Lincoln Place are over budget, and by how much."
+   ]
   ]
  },
  "steps": [
@@ -877,6 +899,110 @@
    "day": "2026-09-08",
    "by": 3,
    "money": 612.4
+  },
+  {
+   "id": "C09",
+   "owner": "u_owner",
+   "what": "The walk-through notes on the project, not only on the lead",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C37",
+   "owner": "u_alan|u_owner",
+   "what": "The estimate on the Ashbys' portal as well as in their mail",
+   "day": "2026-09-03",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C43",
+   "owner": "u_alan",
+   "what": "The joists the foreman found priced as a change order (price, cost, days), sent within 48 hours, its approval recorded (who, when)",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C44",
+   "owner": "u_alan",
+   "what": "The joist change order's cost on the job (on its estimate line or cost code)",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C45",
+   "owner": "u_alan",
+   "what": "The Friday review of 214 Lincoln (schedule, costs, change orders, decisions, submittals) and the client update naming the lines over budget",
+   "day": "2026-09-04",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C16",
+   "owner": "u_chen",
+   "what": "Each delivery received with what came and its condition (6 cement boards short, 31 sf of tile damaged)",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
+  },
+  {
+   "id": "C17",
+   "owner": "u_chen",
+   "what": "The vendor bills held at what arrived (three-way match: PO, receipt, bill)",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C18",
+   "owner": "u_chen",
+   "what": "A claim open with the tile vendor for the damaged boxes",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C19",
+   "owner": "u_chen",
+   "what": "The vendor's credit memo recorded and the claim closed",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C35",
+   "owner": "u_billing",
+   "what": "The approved joist change order billed on the next progress invoice",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C36",
+   "owner": "u_billing",
+   "what": "The collections chase set on the progress invoice (a due date the steps at due, 7, 15 and 30 days count from)",
+   "day": "2026-09-08",
+   "by": 2,
+   "money": 0
+  },
+  {
+   "id": "C25",
+   "owner": "u_controller",
+   "what": "The week's bank and card lines matched to their records (bills, invoices, the job line), none typed in",
+   "day": "2026-09-08",
+   "by": 1,
+   "money": 0
+  },
+  {
+   "id": "C54",
+   "owner": "u_controller",
+   "what": "The controller's numbers (cash, AR, job cost by estimate line, the lines over) against the referee's",
+   "day": "2026-09-08",
+   "by": 0,
+   "money": 0
   }
  ],
  "plants": [
@@ -2195,7 +2321,6 @@
     "t": "cy",
     "step": "C30"
    },
-   "delay": 1,
    "payload": {
     "acct": "ac1",
     "date": "{today}",
@@ -2400,6 +2525,138 @@
     "check": {
      "t": "cy",
      "step": "C53"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-45",
+   "day": "2026-09-08",
+   "time": "07:30",
+   "kind": "script",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "field",
+    "change"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C03"
+   },
+   "payload": {
+    "do": "field_issue",
+    "as": "u_angel",
+    "project": "{job}",
+    "type": "extra",
+    "photo": true,
+    "title": "Garden bath: two floor joists rotted at the old waste line; they need sistering before the new subfloor",
+    "note": "Found when the old bath floor came up this morning. Two 2x8 joists soft for about 3 ft where the old waste line leaked. Photo attached.",
+    "guess": "One day for two of us, 2 LVL 1-3/4 x 9-1/4 x 12 ft, hangers"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Price the joist repair as a change order (price, cost, days) and send it within 48 hours",
+    "by": 2,
+    "see": [
+     "joist"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C43"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-46",
+   "day": "2026-09-08",
+   "time": "10:00",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "change"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C43",
+    "state": "sent"
+   },
+   "payload": {
+    "from": "Wren Ashby <wren.ashby@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Julian Ashby <julian.ashby@example.com>"
+    ],
+    "thread": "cy_ashby_joists",
+    "att": [],
+    "subject": "Re: {number}",
+    "text": "Thank you for the photo. Approved: please go ahead with the joists ({number}, {total$}). Wren"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Record the Ashbys' approval of {number}",
+    "by": 1,
+    "see": [
+     "{number}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C43"
+    },
+    "money": 0,
+    "days": 0
+   }
+  },
+  {
+   "id": "Y-47",
+   "day": "2026-09-08",
+   "time": "13:30",
+   "kind": "mail",
+   "tags": [
+    "pilot3",
+    "cycle",
+    "bill",
+    "credit"
+   ],
+   "gate": {
+    "t": "cy",
+    "step": "C18"
+   },
+   "mint": {
+    "cm": "credit_memo"
+   },
+   "payload": {
+    "from": "{vendor_addr}",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "thread": "cy_inv_tile",
+    "subject": "Credit memo {cm} for {number}",
+    "text": "Sorry about the cracked boxes. Credit memo {cm} for {number}: {credit$} credited against invoice {inv}. Please take it off what you pay us.",
+    "att": [
+     {
+      "filename": "Credit memo {cm}.pdf",
+      "text": "CREDIT MEMO {cm}\n{vendor}\nPO: {number}\nInvoice: {inv}\n31 sf porcelain tile received damaged\nCREDIT {credit$}"
+     }
+    ]
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Record credit memo {cm} against {inv} and close the claim",
+    "by": 2,
+    "see": [
+     "{cm}"
+    ],
+    "check": {
+     "t": "cy",
+     "step": "C19"
     },
     "money": 0,
     "days": 0

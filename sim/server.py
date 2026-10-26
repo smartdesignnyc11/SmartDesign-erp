@@ -68,6 +68,16 @@ OVERHEAD = 10000   # tokens of fixed subagent overhead per model call (system pr
 # per turn. SIM_PICTURES=0 turns it off (the screen walk, which reads no pictures).
 PICTURES = os.environ.get('SIM_PICTURES', '1') != '0'
 PICTURE_CAP = int(os.environ.get('SIM_PICTURE_CAP', '8'))   # pictures per turn: each costs a model call to read (docs/IMPROVEMENT_LOOP.md, cost)
+# The cap by the kind of turn (round one: the 8 ran out in the owner's page walk at 10:29). A journey turn keeps
+# SIM_PICTURE_CAP; a page walk (`begin --kind pages`) sees every page it opens, up to SIM_PICTURE_CAP_PAGES; `--pictures N`
+# sets one turn's cap outright.
+PICTURE_CAPS = {'journey': PICTURE_CAP, 'pages': int(os.environ.get('SIM_PICTURE_CAP_PAGES', '30'))}
+
+
+def picture_cap(t):
+    t = t or {}
+    if t.get('picture_cap'): return int(t['picture_cap'])
+    return PICTURE_CAPS.get(t.get('kind') or 'journey', PICTURE_CAP)
 PICTURE_TOKENS = {'phone': 437, 'desktop': 1719}   # measured on claude-opus-5-5 through /api/ai (sim/picture_cost.py), 10-26
 PICTURE_CMDS = {'tap', 'go', 'back', 'key', 'screen', 'upload', 'photo', 'device', 'ask'}
 FINGERPRINT_JS = """() => { const l = __SIM.landing(), w = __SIM.where(); return [l.view, l.title, l.sheet, w.cur, w.tab].join(' | '); }"""
@@ -261,8 +271,8 @@ class Sim:
         except Exception: return
         seen = self.pictured.setdefault(uid, [])
         if fp in seen: return
-        if t is not None and t.get('pictures', 0) >= PICTURE_CAP:
-            out['text'] = (out.get('text') or '').rstrip('\n') + f'\n(No picture of this new screen: this turn\'s {PICTURE_CAP} are used. `screen --shot` takes one if you need it.)'
+        if t is not None and t.get('pictures', 0) >= picture_cap(t):
+            out['text'] = (out.get('text') or '').rstrip('\n') + f'\n(No picture of this new screen: this turn\'s {picture_cap(t)} are used. `screen --shot` takes one if you need it.)'
             return
         seen.append(fp)
         d = os.path.join(self.dir, 'shots', uid); os.makedirs(d, exist_ok=True)
@@ -521,6 +531,7 @@ class Sim:
             for k in new:
                 nm = await pg.evaluate("k => __SIM.recordName(k)", k)
                 if not nm['name']: continue   # a record with no name a person could look for (a line, a log row)
+                if nm.get('mine') is False: continue   # another person's record (synced in on the live site), not this person's own
                 seen = await pg.evaluate("n => __SIM.onScreen(n)", nm['name'])
                 creates.append({'key': k, 'name': nm['name'], 'on_screen': seen['on'], 'in_toast': seen['toast']})
                 if not seen['on']:
@@ -699,6 +710,14 @@ class Sim:
         if not r['ok']: return None, {'ok': False, 'text': r['why']}, None, None
         return r['sig'], None, '[data-simlab="1"]', '[data-simlab="1"]'
 
+    @staticmethod
+    async def reach(loc):
+        """bring a control into view the way a thumb does: scroll the page, and swipe a sideways row (the phone's change-order
+        header keeps Schedule Impact in an overflow-x row 600 px right of the screen; Playwright's own scroll did not reach
+        it and the type timed out, so a field a person can swipe to read as broken)"""
+        try: await loc.evaluate("e => e.scrollIntoView({ block: 'center', inline: 'center' })", timeout=2000)
+        except Exception: pass
+
     async def _after(self, uid, pg, opts):
         """the screen after an action, unless it is a step inside a batch (the batch shows the screen once, at the end)"""
         if opts.get('quiet'): return {'ok': True, 'text': ''}
@@ -710,6 +729,7 @@ class Sim:
         if err: return err
         loc = pg.locator(sel).first
         forced = ''
+        await self.reach(loc)
         try: await loc.click(timeout=4000)
         except Exception:
             # a click that landed late (the control was covered for a few seconds, then tapped) has already run and its
@@ -731,6 +751,7 @@ class Sim:
         loc = pg.locator(sel).first
         info = await pg.evaluate("n => __SIM.fieldInfo(n)", key)
         if info and info['kind'] in ('select', 'check', 'file'): return {'ok': False, 'text': f"{args[0]} is a {info['kind']}: use {'pick' if info['kind'] == 'select' else 'tap' if info['kind'] == 'check' else 'upload'}"}
+        await self.reach(loc)
         try: await loc.fill(text, timeout=4000)
         except Exception:
             await loc.click(timeout=3000); await pg.keyboard.type(text)
@@ -758,6 +779,7 @@ class Sim:
         if err: return err
         r = await pg.evaluate("([n, o]) => __SIM.pick(n, o)", [key, args[1]])
         if not r['ok']: return {'ok': False, 'text': r['why']}
+        await self.reach(pg.locator(sel).first)
         await pg.locator(sel).first.select_option(r['value'], timeout=4000)
         await self.settle(pg, 250)
         return {'ok': True, 'text': f"picked \"{r['text']}\" in {args[0]} \"{sig['label'][:50]}\"", 'control': sig['label'], 'kind': 'select'}
@@ -992,6 +1014,9 @@ class Sim:
             rec = self.state['sent_seen'].setdefault(m['id'], {'by': m['uid'], 'how': 'system' if not self.state['turn'] else ('person' if self.state['turn']['uid'] == m['uid'] else 'system')})
             if rec.get('done'): continue
             rec.update({'done': True, 'to': m['to'], 'subject': m['subject'], 'day': self.state['day'], 'slot': self.state['slot']})
+            # what the app's own Send put in its outbox carries no From: it left from the person who pressed Send, so the
+            # answer goes back to them (the Ashbys' answer to a change order the app sent was lost: "no mailbox", 10-26)
+            if not m.get('from') and m.get('uid'): m['from'] = self.addr_of(m['uid'])
             for addr in re.split(r',\s*(?=[^,]*@)', (m['to'] or '') + (',' + m['cc'] if m.get('cc') else '')):
                 addr = addr.strip()
                 if not addr: continue
@@ -1078,7 +1103,7 @@ class Sim:
                 phone = (dev == 'phone') if dev in ('phone', 'desktop') else (bool(a.get('phone')) or PEOPLE[uid][1])
                 self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'minutes': 0.0, 'min_cap': float(a.get('minutes') or 0), 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone,
                                       'device': 'phone' if phone else 'desktop', 'switch': bool(a.get('switch')), 'day': self.state['day'],
-                                      'diary0': self.diary_size(uid)}
+                                      'diary0': self.diary_size(uid), 'kind': a.get('kind') or 'journey', 'picture_cap': int(a.get('pictures') or 0)}
                 await self.page(uid); await self.set_device(uid, phone)
                 self.pictured[uid] = []
                 self.log({'uid': uid, 'cmd': 'begin_turn', 'args': [self.state['slot']], 'device': self.state['turn']['device'],
@@ -1165,10 +1190,11 @@ class Sim:
                 self.log({'uid': '__world', 'cmd': 'script', 'args': [(a.get('payload') or {}).get('do')], 'result': r})
                 return {'result': r}
             if cmd == 'cycle':   # Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles
-                if a.get('on'): self.world.enable_cycle(); self.state['world']['cycle_play'] = list(a.get('play') or [])   # a scripted role that plays this run after all
+                if a.get('on'):   # a scripted role that plays this run after all ('u_controller', or one kind of step: 'u_angel:receive'); feed: the bank feed
+                    self.world.enable_cycle(); self.state['world']['cycle_play'] = list(a.get('play') or []); self.state['world']['bank_feed'] = bool(a.get('feed'))
                 else: self.state['world']['cycle'] = False
                 self.save_state(); return {'cycle': self.world.cycle_on, 'roles': (self.world.cycle or {}).get('roles'),
-                                           'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or []}
+                                           'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or [], 'feed': bool(self.state['world'].get('bank_feed'))}
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
             if cmd == 'world_voice':   # the voicer (sim/voicer.py): outside replies in the party's own words, the rule's facts kept

@@ -59,8 +59,10 @@ def doc_total(d):
 
 
 def po_total(po):
-    return r2(sum(num(l.get('qty')) * num(l.get('price') if l.get('price') not in (None, '') else l.get('cost')) for l in po.get('lines') or [])
-              + num(po.get('tax')) + num(po.get('shipping')))
+    """the order's total as the app's poTotal has it: lines, the tax RATE (po.tax is a percent) on them, shipping. It added
+    the rate as dollars, so the world's vendors billed $3,049.68 for a $3,307 order (10-26)"""
+    sub = sum(num(l.get('qty')) * num(l.get('price') if l.get('price') not in (None, '') else l.get('cost')) for l in po.get('lines') or [])
+    return r2(sub + sub * num(po.get('tax')) / 100 + num(po.get('shipping')))
 
 
 def po_line_total(l):
@@ -77,6 +79,7 @@ def held_on(b):
     sh = b.get('short') or {}
     if num(sh.get('held')) > 0: return r2(sh['held'])
     if str(b.get('status') or '') in ('hold', 'on-hold', 'held', 'disputed', 'rejected', 'void'): return bill_total(b)
+    if (b.get('onHold') or {}).get('state') == 'open': return bill_total(b)   # the bill's own Hold (the owner's): none of it is paid
     return 0.0
 
 
@@ -239,6 +242,7 @@ class Cycle:
         sid = c.get('step')
         if c.get('line'): st, det, bind = self.po_gate(c['line'])
         elif sid == 'C40' and c.get('state') == 'sent': st, det, bind = self.co_gate()
+        elif sid == 'C43' and c.get('state') == 'sent': st, det, bind = self.co_gate(self.joist_co(), about='joist')
         else: st, det, bind = self.step(sid)
         if c.get('need') == 'right': return st == 'right', det, bind   # e.g. the client signs only an estimate that reached them
         return st in ('right', 'wrong', 'scripted'), det, bind
@@ -447,11 +451,16 @@ class Cycle:
         return 'scripted', f'{len(T)} lines imported; ' + ', '.join(f"{t['desc'][:20]} {t.get('status')}" for t in T), {}
 
     def payroll_run(self):
-        return next((r for r in self.db.get('payroll') or [] if r.get('from') == '2026-08-31' and r.get('to') == '2026-09-04' and r.get('status') not in ('void', 'rejected')), None)
+        """the run that pays the week of 8/31: the book's 8/31-9/4, or the firm's own two-week period from 8/31 (the app
+        builds 8/31-9/11 from approved time; the seed's last run was 8/17-8/28)"""
+        return next((r for r in self.db.get('payroll') or [] if r.get('from') == '2026-08-31' and str(r.get('to') or '') >= '2026-09-04'
+                     and r.get('status') not in ('void', 'rejected')), None)
 
     def s_C23(self):
         r = self.payroll_run()
-        return ('scripted', f"{r['id']} ${num(r.get('total')):,.2f} {r.get('status')}", {}) if r else ('not done', 'no 8/31-9/4 run', {})
+        if not r: return 'not done', 'no 8/31-9/4 run', {}
+        # a run the world built (sim/script_p3.js marks it) stands in for the controller; one built through the screens is his
+        return ('scripted' if r.get('scripted') else 'right'), f"{r['id']} ${num(r.get('total')):,.2f} {r.get('status')}" + (' (scripted)' if r.get('scripted') else ''), {}
 
     def s_C24(self):
         r = self.payroll_run()
@@ -518,10 +527,12 @@ class Cycle:
         C = [d for d in (c or {}).get('changeOrders') or [] if (not p or d.get('projectId') == p['id']) and re.search(r'vanity|rhea|36', text_of(d.get('title'), d.get('memo'), d.get('lines')), re.I)]
         return max(C, key=lambda d: ({'approved': 3, 'sent': 2}.get(d.get('status'), 1), doc_total(d))) if C else None
 
-    def co_gate(self):
-        d = self.vanity_co()
-        if not d or d.get('status') not in ('sent', 'viewed', 'approved'): return 'not done', 'no vanity CO sent', {}
-        if not self.to_ashby(re.escape(d.get('number') or '#') + '|vanity|change order') and d.get('status') != 'approved': return 'not done', f"{d['number']} never reached the Ashbys", {}
+    def co_gate(self, d=False, about='vanity|change order'):
+        """a change order the Ashbys can answer: sent, and its mail reached them (the number, or what it is about); the
+        portal alone does not count, the Ashbys have no portal seat in the world"""
+        d = self.vanity_co() if d is False else d
+        if not d or d.get('status') not in ('sent', 'viewed', 'approved'): return 'not done', 'no change order sent', {}
+        if not self.to_ashby(re.escape(d.get('number') or '#') + '|' + about) and d.get('status') != 'approved': return 'not done', f"{d['number']} never reached the Ashbys", {}
         return 'right', d['number'], {'number': d['number'], 'total': doc_total(d)}
 
     def s_C40(self):
@@ -539,10 +550,14 @@ class Cycle:
         return ('wrong' if bad else 'right', f"{d.get('number')} ${T:,.2f} approved" + (': ' + '; '.join(bad) if bad else ''), bind)
 
     def billed_lines(self, rx=None, co=None, txn=None):
+        """the sent invoice lines that bill it: a line at 0% or $0 names it without billing it (a change order's SOV line on a
+        progress invoice is there at 0% until someone bills it)"""
         out = []
         for i in self.invoices():
             if i.get('status') not in SENT: continue
             for l in i.get('lines') or []:
+                amt = num(l.get('scheduled')) * num(l.get('pct')) / 100 if i.get('mode') == 'sov' else num(l.get('qty') if l.get('qty') not in (None, '') else 1) * num(l.get('rate'))
+                if amt <= 0: continue
                 t = text_of(l.get('item'), l.get('desc'), l.get('source'))
                 if (rx and re.search(rx, t, re.I)) or (co and (l.get('coId') == co['id'] or l.get('srcCo') == co['id'] or re.search(re.escape(co.get('number') or '#'), t))) or \
                         (txn and (l.get('txnId') == txn['id'] or l.get('srcTxn') == txn['id'])):
@@ -566,6 +581,216 @@ class Cycle:
             amt = sum(num(l.get('qty') or 1) * num(l.get('rate')) for i, l in B)
             return ('right' if amt >= pl['amount'] - 0.5 else 'wrong', f"on {', '.join(i['number'] for i, l in B)} ${amt:,.2f}" + ('' if amt >= pl['amount'] - 0.5 else f" (below the ${pl['amount']:,.2f} paid)"), {})
         return 'not done', ('the card line is flagged billable, not invoiced' if t and t.get('billable') else 'not billed back'), {}
+
+
+    # ---------------------------------------------------------------- JOURNEYS.md J1, J2, J3, J4, J7, J9, J10 (the screen walk)
+    WALK_RX = r'walk-?through|radiator|parlor kitchen gut|garden-level bath|takeoff'
+
+    def s_C09(self):
+        """J1: the walk-through notes on the project (not only on the lead or the opportunity)"""
+        p, c = self.project(), self.client()
+        if not p: return 'not done', 'no project', {}
+        rx = re.compile(self.WALK_RX, re.I)
+        on_p = text_of(p.get('project', {}).get('notes'), p.get('project', {}).get('desc'), p.get('notes'), [x.get('msg') for x in p.get('log') or [] if x.get('src') != 'auto'],
+                       [x.get('text') for x in p.get('chat') or [] if not x.get('system')], [(f.get('name'), f.get('notes')) for f in p.get('files') or []],
+                       [(a.get('title'), a.get('notes')) for a in p.get('actions') or []], [m.get('notes') for m in p.get('meetings') or []], p.get('docs'))
+        hits = len(set(m.group(0).lower() for m in rx.finditer(on_p)))
+        if hits >= 2 or re.search(r'walk-?through', on_p, re.I): return 'right', f'the walk-through is on {p["id"]}', {}
+        elsewhere = text_of([(l.get('notes'), l.get('notes_')) for l in self.leads()], (c or {}).get('notes'))
+        if rx.search(elsewhere): return 'wrong', 'the walk-through notes are on the lead or the client, not on the project', {}
+        return 'not done', 'no walk-through notes anywhere', {}
+
+    def s_C37(self):
+        """J2: the estimate reached the client's portal as well as their mail"""
+        e = self.estimate()
+        if not e or e.get('status') not in ('sent', 'viewed', 'approved', 'converted'): return 'not done', 'not sent', {}
+        via = text_of(e.get('sentVia'), e.get('history'))
+        if re.search(r'portal', via, re.I) or e.get('portalAt') or e.get('portal'): return 'right', f"{e.get('number')} on the portal", {}
+        return 'wrong', f"{e.get('number')} sent by \"{e.get('sentVia') or '?'}\": not posted to the client's portal", {}
+
+    # J3: the field issue to a priced, approved change order
+    def raise_(self):
+        p = self.project()
+        return next((r for r in ((self.db.get('field') or {}).get('raises') or []) if p and r.get('projectId') == p['id'] and re.search(r'joist', str(r.get('title')), re.I)), None)
+
+    def joist_co(self):
+        c, p, r = self.client(), self.project(), self.raise_()
+        C = [d for d in (c or {}).get('changeOrders') or [] if (not p or d.get('projectId') == p['id']) and d.get('status') != 'void' and
+             ((r and (r.get('coId') == d['id'] or (d.get('scope') or {}).get('id') == r['id'])) or re.search(r'joist', text_of(d.get('title'), d.get('memo'), d.get('lines')), re.I))]
+        return max(C, key=lambda d: ({'approved': 3, 'sent': 2}.get(d.get('status'), 1), doc_total(d))) if C else None
+
+    def s_C43(self):
+        r, d = self.raise_(), self.joist_co()
+        if not r: return 'not done', 'the field issue has not been raised', {}
+        if not d: return 'not done', f"the joist issue ({r['id']}) has no change order", {}
+        T = doc_total(d); bind = {'number': d.get('number'), 'total': T, 'coId': d['id']}
+        bad = []
+        if T <= 0: bad.append('$0')
+        if any(l.get('cost') in (None, '') or num(l.get('cost')) <= 0 for l in d.get('lines') or []): bad.append('no cost on a line')
+        if d.get('scheduleDays') in (None, ''): bad.append('no schedule days')
+        sent = d.get('sentAt') or ''
+        if sent and wd_between(str(r.get('at') or '')[:10], sent[:10]) > 2: bad.append('sent more than 48 hours after the field found it')
+        if d.get('status') not in ('approved',):
+            return 'not done', f"{d.get('number')} {d.get('status')} ${T:,.2f}" + ('; sent, waiting on the client' if d.get('status') in ('sent', 'viewed') else '') + (': ' + '; '.join(bad) if bad else ''), bind
+        ap = d.get('clientApproval') or {}
+        who = (ap.get('name') if isinstance(ap, dict) else '') or d.get('approvedBy') or ''
+        when = (ap.get('ts') or ap.get('t') if isinstance(ap, dict) else '') or d.get('approvedOn') or d.get('approvedAt') or ''
+        if not (who and when): bad.append('no record of who approved and when')
+        return ('wrong' if bad else 'right', f"{d.get('number')} ${T:,.2f} approved" + (f' by {who}' if who else '') + (': ' + '; '.join(bad) if bad else ''), bind)
+
+    def s_C44(self):
+        """J3: the change order's cost on the job: each line carries its cost and lands on an estimate line or a cost code"""
+        d = self.joist_co()
+        if not d or d.get('status') != 'approved': return 'not done', 'no approved joist change order', {}
+        L = d.get('lines') or []
+        cost = sum(num(l.get('cost')) for l in L)
+        if cost <= 0: return 'wrong', f"{d.get('number')} carries no cost, so the job's budget never moves", {}
+        loose = [l.get('item') or '?' for l in L if not (l.get('fromEstLine') or l.get('code') or l.get('line'))]
+        return ('wrong', f"{d.get('number')} ${cost:,.2f} cost not tied to an estimate line or cost code: {', '.join(str(x)[:30] for x in loose)}", {}) if loose else \
+            ('right', f"{d.get('number')} ${cost:,.2f} cost on the job", {})
+
+    def s_C35(self):
+        """J3.4 and J9: the approved joist change order billed on the next progress invoice"""
+        d = self.joist_co()
+        if not d or d.get('status') != 'approved': return 'not done', 'no approved joist change order', {}
+        B = self.billed_lines(co=d)
+        return ('right', f"{d['number']} on " + ', '.join(i['number'] for i, l in B), {}) if B else ('not done', f"{d['number']} approved, on no invoice sent", {})
+
+    def s_C36(self):
+        """J9: the collections chase set on the progress invoice: a due date the Standard's steps (due, 7, 15, 30) count from"""
+        I, ids = self.sov_invoices()
+        I = [i for i in I if i.get('status') in SENT]
+        if not I: return 'not done', 'no progress invoice sent', {}
+        i = I[-1]
+        if not i.get('due'): return 'wrong', f"{i.get('number')} has no due date: no chase can be set", {}
+        if i.get('due') < (i.get('sentAt') or i.get('date') or ''): return 'wrong', f"{i.get('number')} due {i.get('due')} before it was sent", {}
+        return 'right', f"{i.get('number')} due {i.get('due')}: the chase runs at due, 7, 15 and 30 days", {}
+
+    # J4: the Friday review of the new job
+    def s_C45(self):
+        p = self.project()
+        if not p: return 'not done', 'no project', {}
+        pages = (self.b['coverage'].get('u_alan', {}).get('per_job') or {}).get('pages', [])
+        seen = set()
+        for a in self.A:
+            if a.get('uid') != 'u_alan': continue
+            w = self.where(a)
+            if w.get('cur') != p['id'] or not w.get('view'): continue
+            seen.update({w['view'] + (':' + w['tab'] if w.get('tab') and w['view'] == 'billing' else ''), w['view']})
+        miss = [x for x in pages if x not in seen]
+        upd = [m for m in self.to_ashby(r'update|week|this week|next week') if m['by'] == 'u_alan' and (m.get('day') or '') >= '2026-09-04']
+        over = [r for r in self.line_table() if r['over'] > 0]
+        named = [r for r in over if upd and any(re.search(re.escape(str(r['line']).split(':')[0][:24]), m['text'], re.I) for m in upd)]
+        bad = []
+        if miss: bad.append('not opened: ' + ', '.join(miss))
+        if not upd: bad.append('no client update to the Ashbys')
+        elif len(named) < len(over): bad.append('the update does not name the lines over budget: ' + ', '.join(str(r['line'])[:30] for r in over if r not in named))
+        if not seen and not upd: return 'not done', 'no review and no update', {}
+        return ('wrong' if bad else 'right', f"{len(seen & set(pages))} of {len(pages)} pages opened on {p['id']}" + ('; ' + '; '.join(bad) if bad else '; the update sent'), {})
+
+    # J7: receive and match (the coordinator)
+    def receipts_of(self, P):
+        return [(po, rc) for po in P for rc in po.get('receipts') or []]
+
+    def s_C16(self):
+        """J7.1: each delivery received with what came and its condition: the 6 short cement boards and the 31 sf of cracked
+        tile recorded on the receipt or the line (quantity or a problem on it), against the PO"""
+        D, T = self.pos_for('drywall'), self.pos_for('tile')
+        R = self.receipts_of(D + T)
+        if not R: return 'not done', 'nothing received yet', {}
+        scripted = R and all(rc.get('scripted') for po, rc in R)
+        def cond(P, kind, rx, qty):
+            for po in P:
+                for l in po.get('lines') or []:
+                    if not re.search(rx, text_of(l.get('item'), l.get('desc')), re.I): continue
+                    if kind == 'short' and str(l.get('unit') or '').lower() not in ('ls', 'lot', 'lump') and num(l.get('qty')) - num(l.get('received')) >= qty - 0.01: return True
+                    if kind == 'damaged' and num(l.get('damaged')) >= qty - 0.01: return True
+                for i in po.get('issues') or []:
+                    if (i.get('type') in ((kind,) if kind == 'damaged' else ('short', 'backorder'))) and (num(i.get('qty')) >= qty - 0.01 or re.search(str(int(qty)), str(i.get('note')))): return True
+            return False
+        miss = [w for w, ok in (('the 6 short cement boards', cond(D, 'short', r'cement|drywall', 6)), ('the 31 sf of damaged tile', cond(T, 'damaged', r'tile|porcelain', 31))) if not ok]
+        got = ', '.join(f"{po['number']} {po.get('status')}" for po in {id(po): po for po, rc in R}.values())
+        if scripted and not miss: return 'scripted', got, {}
+        return ('wrong' if miss else 'right', got + ('; not recorded: ' + ', '.join(miss) if miss else ''), {})
+
+    def vendor_bill(self, key):
+        """the vendor's bill for the line's PO (the world's minted invoice number, else any bill on the PO)"""
+        eid = {'drywall': 'Y-32', 'tile': 'Y-33'}[key]
+        bl, bind = self.gated_bill(eid)
+        if bl: return bl, bind
+        P = {po['id'] for po in self.pos_for(key, live=False)}
+        return next((b for b in self.db.get('bills') or [] if b.get('poId') in P and bill_total(b) > 0), None), bind
+
+    def s_C17(self):
+        """J7.2: both vendor bills entered against their PO and held at what arrived (three-way match)"""
+        out, bad = [], []
+        for key, pl_kind in (('drywall', 'short'), ('tile', 'damaged')):
+            bl, bind = self.vendor_bill(key)
+            if not bind.get('inv') and not bl: bad.append(f'{key}: the bill has not come'); continue
+            if not bl: bad.append(f"{key}: {bind.get('inv')} not entered"); continue
+            pl = next(x for x in self.b['plants'] if x['kind'] == pl_kind)
+            r = getattr(self, 'p_' + pl_kind)(pl)
+            (out if r['caught'].startswith('person') else bad).append(f"{bl.get('number')} {r['detail']}")
+        if all('has not come' in x or 'not entered' in x for x in bad) and not out: return 'not done', '; '.join(bad), {}
+        return ('wrong' if bad else 'right', '; '.join(out + bad), {})
+
+    def s_C18(self):
+        """J7.3: a claim open with the tile vendor for the damaged boxes: the difference held in dispute on the bill, or a
+        return or credit asked for on the PO; binds what the vendor's credit memo answers"""
+        bl, bind = self.vendor_bill('tile')
+        P = self.pos_for('tile', live=False)
+        po = next((x for x in self.db.get('pos') or [] if x.get('number') == bind.get('number')), None) or (P[-1] if P else None)
+        sh = (bl or {}).get('short') or {}
+        rets = [r for r in ((self.db.get('sel') or {}).get('returns') or []) if po and (r.get('poId') == po['id'] or re.search(re.escape(po.get('number') or '#'), text_of(r)))]
+        claim_issue = [i for i in (po or {}).get('issues') or [] if i.get('type') == 'damaged' and (i.get('claim') or i.get('credit') or re.search(r'claim|credit|return', text_of(i.get('note'), i.get('action')), re.I))]
+        unit = next((num(l.get('price')) / (15.5 if re.search('box', str(l.get('unit')), re.I) else 1) for l in (po or {}).get('lines') or [] if num(l.get('price')) > 0), 13.90)
+        dmg = r2(31 * unit)
+        held = num(sh.get('held'))
+        credit = r2(held) if dmg - 1 <= held <= dmg + 141 else dmg
+        b = {'number': (po or {}).get('number', ''), 'vendor': (po or {}).get('vendor', ''), 'inv': (bl or {}).get('number') or bind.get('inv', ''), 'credit': credit, 'damaged': dmg}
+        if sh.get('state') in ('open', 'credited') and held > 0: return 'right', f"{b['inv']} holds ${held:,.2f} in dispute ({sh.get('state')})", b
+        oh = (bl or {}).get('onHold') or {}
+        if oh.get('state') in ('open', 'released') and re.search(r'damag|crack|broke|credit|claim|return', str(oh.get('why')), re.I):
+            b['credit'] = dmg   # the whole bill held for the damage: the vendor credits the damaged tile
+            return 'right', f"{b['inv']} on hold for the damage: {str(oh.get('why'))[:80]}", b
+        if rets or claim_issue: return 'right', f"a {'return' if rets else 'claim'} on {b['number']}", b
+        mail = [m for m in self.sent_mail() if m['by'] == 'u_chen' and re.search(re.escape(str(b['number']) or '#'), m['text']) and re.search(r'damag|crack|credit|claim', m['text'], re.I)]
+        if mail: return 'wrong', f"claimed by mail only ({len(mail)}): nothing open on the bill or the PO", b
+        return 'not done', 'no claim for the damaged tile', {}
+
+    def s_C19(self):
+        """J7.4: the vendor's credit memo recorded and the claim closed"""
+        G = (self.w.get('gated') or {}).get('Y-47')
+        if not G: return 'not done', 'no credit memo has come (no claim, or not yet)', {}
+        cm = (G.get('bind') or {}).get('cm', '')
+        bl, bind = self.vendor_bill('tile')
+        sh = (bl or {}).get('short') or {}
+        if sh.get('state') == 'credited': return 'right', f"{(bl or {}).get('number')} credited ({sh.get('note') or sh.get('memo') or cm})", {}
+        neg = [x for x in self.db.get('bills') or [] if bill_total(x) < 0 and (re.search(re.escape(cm or '#'), text_of(x.get('number'), x.get('memo'), x.get('notes'))) or x.get('vendor') == (bl or {}).get('vendor'))]
+        if neg: return ('right' if any(x.get('status') in ('approved', 'applied', 'paid', 'verified') or x.get('appliedTo') for x in neg) else 'wrong'), \
+            f"credit {neg[0].get('number')} ${bill_total(neg[0]):,.2f} {neg[0].get('status')}", {}
+        return 'not done', f"credit memo {cm} came; not recorded", {}
+
+    # J10: the week's money (the controller and the owner)
+    def s_C25(self):
+        """J10.1: every bank and card line of the week (9/3 to 9/8) matched to its record or category; none typed in"""
+        W = [t for t in self.db.get('txns') or [] if '2026-09-03' <= str(t.get('date') or '') <= '2026-09-08']
+        lines = [t for t in W if (t.get('prov') or {}).get('kind') == 'statement']
+        manual = [t for t in W if (t.get('prov') or {}).get('kind') == 'manual' and not t.get('seed') and not (t.get('prov') or {}).get('confirmedBy')]
+        # typed this week by the people at work: when the run knows the company it started from (the screen walk keeps the
+        # seed's line ids), the seed's own typed lines are context, not this week's typing
+        seed = set(self.w.get('seed_txns') or [])
+        typed = [t for t in manual if t.get('id') not in seed]
+        linked = lambda t: t.get('billId') or t.get('invoiceId') or t.get('paymentId') or t.get('payrollId') or t.get('poId') or (t.get('match') or {}).get('invoiceId')
+        open_ = [t for t in lines if not (linked(t) or (t.get('status') in ('categorized', 'reconciled', 'matched') and t.get('cat') not in (None, '', 'uncat')))]
+        if not lines: return 'not done', 'no statement lines this week', {}
+        bad = []
+        if open_: bad.append(f"{len(open_)} of {len(lines)} lines unmatched: " + ', '.join(f"{t['desc'][:22]} {num(t['amt']):,.2f}" for t in open_[:5]))
+        if typed: bad.append(f"{len(typed)} typed in with no bank line behind them: " + ', '.join(t['desc'][:22] for t in typed[:3]))
+        ctx = f" ({len(manual) - len(typed)} typed lines of the week came with the seed, still with no bank line)" if len(manual) > len(typed) else ''
+        return ('wrong' if bad else 'right', ('; '.join(bad) or f'{len(lines)} lines matched') + ctx, {})
+
+    def s_C54(self): return self.answers_step('u_controller')
 
     # the PM's routine
     def where(self, a):
@@ -911,6 +1136,8 @@ class Cycle:
         elif kind == 'open_cos':
             out = [(d.get('number'), doc_total(d)) for c in self.db.get('clients') or [] for d in c.get('changeOrders') or []
                    if d.get('status') in ('sent', 'viewed', 'draft') or (d.get('status') == 'approved' and d.get('projectId') in F['unbilled'] and re.search(re.escape(d.get('number') or '#'), ' '.join(F['unbilled_detail'].get(d.get('projectId'), []))))]
+        elif kind == 'job_cost':
+            out = [(r['line'], r['actual']) for r in F['line_table'] if r['actual'] > 0] or [('no cost yet', 0.0)]
         elif kind == 'cash_in':
             out = [(f"{c['name']} {p.get('date')}", num(p.get('amount'))) for c in self.db.get('clients') or [] for p in c.get('payments') or [] if '2026-09-03' <= (p.get('date') or '') <= '2026-09-08']
         return out

@@ -260,7 +260,8 @@ class LiveSim(SV.Sim):
                 if dev in self.dev: self.use(dev)
                 self.state['turn'] = {'uid': self.uid, 'cap': int(a.get('cap') or 15), 'used': 0, 'minutes': 0.0, 'min_cap': float(a.get('minutes') or 0),
                                       'slot': 'live', 'started': SV.now_iso(), 'phone': self.cur == 'phone', 'device': self.cur, 'switch': True,
-                                      'day': self.state['day'], 'diary0': self.diary_size(self.uid)}
+                                      'day': self.state['day'], 'diary0': self.diary_size(self.uid),
+                                      'kind': a.get('kind') or 'journey', 'picture_cap': int(a.get('pictures') or 0)}
                 self.pictured[self.uid] = []
                 self.log({'uid': self.uid, 'cmd': 'begin_turn', 'args': ['live'], 'device': self.cur, 'result': f"cap {self.state['turn']['cap']} · live {SITE}"})
                 self.save_state(); return {'turn': self.state['turn'], 'clock': self.clock_str()}

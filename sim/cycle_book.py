@@ -154,6 +154,12 @@ QUESTIONS = {
                   ['Q2', 'cash_in', 'Payments received this week (9/3 to 9/8) and the invoices they paid.'],
                   ['Q3', 'unbilled', 'Work done and not billed, by job.'],
                   ['Q4', 'reimb', 'Purchases made for a client that are not billed back yet.']],
+    # the controller's week (JOURNEYS.md J10, the screen walk): the numbers the books hand the owner. Two-week cash is graded
+    # on its starting balance, today's cash in the bank: the referee keeps no forecast of its own.
+    'u_controller': [['Q1', 'cash', 'Cash in the bank today, the start of the two-week view.'],
+                     ['Q2', 'ar', 'What clients owe us today, in total.'],
+                     ['Q3', 'job_cost', 'Job cost on 214 Lincoln Place by estimate line (actual).'],
+                     ['Q4', 'over_lines', 'Which estimate lines on 214 Lincoln Place are over budget, and by how much.']],
 }
 
 # ---------------------------------------------------------------- the steps the referee checks (sim/cycle.py)
@@ -329,7 +335,9 @@ EVENTS = [
     {'id': 'Y-35', 'day': D3, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'reimbursable'],
      'payload': {'acct': 'ac2', 'date': D2, 'desc': 'LIGHTOLOGY CHICAGO IL', 'amt': -612.40, 'ref': 'AC2-20260904-LIGHT'},
      'expect': X('u_billing', 'The pendants on the Amex billed back to the Ashbys', 3, 'C34', ['LIGHTOLOGY'], money=612.40)},
-    {'id': 'Y-36', 'day': D1, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'deposit'], 'gate': G('C30'), 'delay': 1,
+    # the Ashbys' transfer clears at the first statement after the deposit invoice went (the next morning in the screen walk's
+    # J8; a delay counts from the day the gate opens, so 'delay': 1 had it land the Tuesday after)
+    {'id': 'Y-36', 'day': D1, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'deposit'], 'gate': G('C30'),
      'payload': {'acct': 'ac1', 'date': '{today}', 'desc': JOB['bank_desc'], 'amt': '{total}', 'ref': 'AC1-{today}-ASHBY'},
      'expect': X('u_billing', 'Record the Ashbys\' deposit ({total$}) against {number}', 1, 'C31', ['ASHBY'], money='{total}')},
     {'id': 'Y-38', 'day': D3, 'time': '10:30', 'kind': 'seed', 'tags': ['cycle', 'payroll'], 'payload': {},
@@ -349,6 +357,44 @@ EVENTS = [
     {'id': 'Y-44', 'day': D3, 'time': '16:30', 'kind': 'seed', 'tags': ['cycle', 'reports'], 'payload': {}, 'expect': X('u_billing', 'Billing\'s numbers', 0, 'C53')},
 ]
 STEPS.append(['C34', 'u_billing', 'The pendants bought for the Ashbys billed back', D3, 3, 612.40])
+# The steps of JOURNEYS.md's journeys the screen walk (tests/cycle_walk.py) grades and Pilot 3 did not: the walk-through on
+# the project (J1), the estimate on the portal (J2), the field issue to an approved change order (J3), the Friday review of
+# the new job (J4), receive and match (J7), the change order and the chase on the progress invoice (J9), the week's money (J10).
+STEPS += [
+    ['C09', 'u_owner', 'The walk-through notes on the project, not only on the lead', D1, 1, 0],
+    ['C37', 'u_alan|u_owner', 'The estimate on the Ashbys\' portal as well as in their mail', D1, 1, 0],
+    ['C43', 'u_alan', 'The joists the foreman found priced as a change order (price, cost, days), sent within 48 hours, its approval recorded (who, when)', D3, 2, 0],
+    ['C44', 'u_alan', 'The joist change order\'s cost on the job (on its estimate line or cost code)', D3, 2, 0],
+    ['C45', 'u_alan', 'The Friday review of 214 Lincoln (schedule, costs, change orders, decisions, submittals) and the client update naming the lines over budget', D2, 0, 0],
+    ['C16', 'u_chen', 'Each delivery received with what came and its condition (6 cement boards short, 31 sf of tile damaged)', D3, 0, 0],
+    ['C17', 'u_chen', 'The vendor bills held at what arrived (three-way match: PO, receipt, bill)', D3, 1, 0],
+    ['C18', 'u_chen', 'A claim open with the tile vendor for the damaged boxes', D3, 1, 0],
+    ['C19', 'u_chen', 'The vendor\'s credit memo recorded and the claim closed', D3, 2, 0],
+    ['C35', 'u_billing', 'The approved joist change order billed on the next progress invoice', D3, 2, 0],
+    ['C36', 'u_billing', 'The collections chase set on the progress invoice (a due date the steps at due, 7, 15 and 30 days count from)', D3, 2, 0],
+    ['C25', 'u_controller', 'The week\'s bank and card lines matched to their records (bills, invoices, the job line), none typed in', D3, 1, 0],
+    ['C54', 'u_controller', 'The controller\'s numbers (cash, AR, job cost by estimate line, the lines over) against the referee\'s', D3, 0, 0],
+]
+# The events those journeys need (Pilot 3 had none): the foreman's find (J3), the client's approval of its change order, and the
+# tile vendor's credit memo once the coordinator has claimed the damaged boxes (J7). The trucks of J7 come from Y-29 to Y-31:
+# scripted when the foreman receives, a delivery for the coordinator when she does (world.py `played`, the walk's --play).
+EVENTS += [
+    {'id': 'Y-45', 'day': D3, 'time': '07:30', 'kind': 'script', 'tags': ['cycle', 'field', 'change'], 'gate': G('C03'),
+     'payload': {'do': 'field_issue', 'as': 'u_angel', 'project': '{job}', 'type': 'extra', 'photo': True,
+                 'title': 'Garden bath: two floor joists rotted at the old waste line; they need sistering before the new subfloor',
+                 'note': 'Found when the old bath floor came up this morning. Two 2x8 joists soft for about 3 ft where the old waste line leaked. Photo attached.',
+                 'guess': 'One day for two of us, 2 LVL 1-3/4 x 9-1/4 x 12 ft, hangers'},
+     'expect': X('u_alan', 'Price the joist repair as a change order (price, cost, days) and send it within 48 hours', 2, 'C43', ['joist'])},
+    {'id': 'Y-46', 'day': D3, 'time': '10:00', 'kind': 'mail', 'tags': ['cycle', 'change'], 'gate': G('C43', state='sent'),
+     'payload': {'from': WREN, 'to': ['Alan <alan.pm@smartdesign.nyc>'], 'cc': [JULIAN], 'thread': 'cy_ashby_joists', 'att': [],
+                 'subject': 'Re: {number}', 'text': 'Thank you for the photo. Approved: please go ahead with the joists ({number}, {total$}). Wren'},
+     'expect': X('u_alan', 'Record the Ashbys\' approval of {number}', 1, 'C43', ['{number}'])},
+    {'id': 'Y-47', 'day': D3, 'time': '13:30', 'kind': 'mail', 'tags': ['cycle', 'bill', 'credit'], 'gate': G('C18'), 'mint': {'cm': 'credit_memo'},
+     'payload': {'from': '{vendor_addr}', 'to': ['Chen Biron <chen@smartdesign.nyc>'], 'cc': [], 'thread': 'cy_inv_tile', 'subject': 'Credit memo {cm} for {number}',
+                 'text': 'Sorry about the cracked boxes. Credit memo {cm} for {number}: {credit$} credited against invoice {inv}. Please take it off what you pay us.',
+                 'att': [{'filename': 'Credit memo {cm}.pdf', 'text': 'CREDIT MEMO {cm}\n{vendor}\nPO: {number}\nInvoice: {inv}\n31 sf porcelain tile received damaged\nCREDIT {credit$}'}]},
+     'expect': X('u_chen', 'Record credit memo {cm} against {inv} and close the claim', 2, 'C19', ['{cm}'])},
+]
 
 # Coverage (BACKLOG §1.16; Alan, 10-25): each role's main module, the pages and sub-pages from the app's own menu
 # (MN_JOBS, MN_BUY, MN_SALES, BILL_TABS in src/app.js) until docs/modules/projects_census.md lands. A page is
