@@ -2,7 +2,7 @@
 """sim/act: a person's toolkit in the agent month. You act only as yourself, only through your own screens.
 
     sim/act <uid> help                     every verb
-    sim/act <uid> screen [--full] [--shot] | find "text"
+    sim/act <uid> screen [--full] [--shot] [--marks] | find "text"
     sim/act <uid> tap <n>|"Label" | type <n>|"Label" "text" [--enter] | pick <n>|"Label" "option" | upload <n> <file> | photo <n>
     sim/act <uid> do 'type 3 "8"; pick "Unit" "sheet"; tap "Save"' [--find "text"]   up to 8 steps in one call
     sim/act <uid> back | scroll | key Enter | go "<menu label>" | ask "question" | news
@@ -34,7 +34,7 @@ def main(argv):
     opts, args, i = {}, [], 0
     while i < len(rest):
         a = rest[i]
-        if a in ('--full', '--shot', '--enter', '--all'): opts[a[2:]] = True
+        if a in ('--full', '--shot', '--enter', '--all', '--marks'): opts[a[2:]] = True
         elif a in ('--page', '--find', '--cc', '--why') and i + 1 < len(rest): opts[a[2:]] = rest[i + 1]; i += 1
         else: args.append(a)
         i += 1

@@ -564,8 +564,8 @@ class Sim:
 
     def has_box(self, uid): return uid in STAFF_MAIL
 
-    async def render_screen(self, uid, pg, full=False, shot=False):
-        S = await pg.evaluate("__SIM.screen()")
+    async def render_screen(self, uid, pg, full=False, shot=False, marks=False):
+        S = await pg.evaluate("m => __SIM.screen(m)", bool(marks))
         role, phone, name = PEOPLE[uid]
         wd = datetime.fromisoformat(self.state['day']).strftime('%a %b %-d')
         head = f"{wd} {self.clock_str()} · {name} ({role}{', phone' if self.device.get(uid) else ''}) · {S['title']}"
@@ -607,7 +607,7 @@ class Sim:
         except Exception: pass
 
     async def v_screen(self, uid, pg, args, opts):
-        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'))
+        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
 
     async def v_find(self, uid, pg, args, opts):
         """Scan the whole screen for a word, the way a person's eye does: the matching lines with the controls near them."""
@@ -1309,7 +1309,8 @@ class Sim:
 
 
 HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
-  screen [--full] [--shot]     what is on your screen, controls numbered [n ...]
+  screen [--full] [--shot] [--marks]   what is on your screen, controls numbered [n ...]; --marks adds {blue} on the
+                               blue (primary) button and {disabled} on a greyed-out one
   do "step; step; ..." [--find "text"]   up to 8 steps in one call (tap, type, pick, key, go, find, scroll, back,
                                upload, photo); stops at the first error; one result and the final screen
                                (or only the lines with the text). Steps target a number or a label: tap "Save" .
