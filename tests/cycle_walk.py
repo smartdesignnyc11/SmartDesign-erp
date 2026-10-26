@@ -559,7 +559,7 @@ def open_estimate(p, menu_check=False, create=False):
                  'Estimates in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
     p.go('Projects', expect_menu=False)
     sw = p.scr.find('Switch project', field=True)
-    if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job'])
+    if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job']); p.look()   # the page redraws for the job: read it again
     elif not sw:
         r = p.look().row(JOB['job'], after='Every job') or p.scr.row(JOB['job'])
         if r: p.tap_ctl(r)

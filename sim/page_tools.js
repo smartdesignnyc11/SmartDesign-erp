@@ -139,8 +139,20 @@ const tidy = parts => {
 };
 const MENU_SEL = '#nav-groups button, #nav-groups a, #nav button[data-v], #tabbar button';
 S.menu = () => {
+  const txt = el => norm(el.innerText || el.getAttribute('aria-label') || el.title || '');
   const items = [...document.querySelectorAll(MENU_SEL)]
-    .filter(el => vis(el) && !el.closest('section.view')).map(el => norm(el.innerText || el.getAttribute('aria-label') || el.title || '')).filter(Boolean);
+    .filter(el => vis(el) && !el.closest('section.view')).map(txt).filter(Boolean);
+  // an office phone: its bottom bar, and the menu's own entries one tap away under the Menu button (the menu read
+  // empty on the phone, so "Estimates in the PM's menu" could never be seen there; cycle walk J2, 10-26)
+  const mb = document.getElementById('menu-btn');
+  if (!items.length && mb && vis(mb)) {
+    items.push(...[...document.querySelectorAll('#mtabs button')].filter(vis).map(txt).filter(Boolean));
+    items.push(...[...document.querySelectorAll('#nav-groups button[data-grp]')].map(el => {
+      const n = norm((el.querySelector('.n') || {}).textContent || ''), c = el.cloneNode(true);
+      c.querySelectorAll('.n, svg').forEach(x => x.remove());
+      return norm(c.textContent || el.title || '') + (n ? ' ' + n : '');
+    }).filter(Boolean));
+  }
   return [...new Set(items)];
 };
 S.title = () => { const r = S.viewRoot(); const h = r.querySelector('h1, h2, .ph h2, .f-hero b'); return norm(h ? h.innerText : (r.id || '')).slice(0, 80); };
