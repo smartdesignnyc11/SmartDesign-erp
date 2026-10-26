@@ -1393,6 +1393,8 @@ def main():
     if not a.keep:
         for x in worlds:
             shutil.rmtree(x.dir, ignore_errors=True); shutil.rmtree(x.dir + '.ck', ignore_errors=True)
+            try: os.remove(os.path.join(RUNS, f'{x.run}.server.log'))
+            except Exception: pass
         try: os.remove(pinned)
         except Exception: pass
     n = sum(len(r['grades']) + 2 for r in results) + len(danger)
