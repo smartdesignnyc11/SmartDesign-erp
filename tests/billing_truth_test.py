@@ -289,6 +289,12 @@ async def t_typed(C, p, phone):
     sec = await pg.evaluate("() => [...document.querySelectorAll('#v-bank .prop-card')].map(e => e.innerText).join('\\n')")
     typed = await js(pg, "return proposals().filter(t => !bfBacked(t)).map(t => t.desc);")
     C.ok(not typed and 'SATISH' not in sec.upper() and 'ROSARIO' not in sec.upper(), f'TYPED {dev}: no line typed by hand waits as a match to confirm: {typed} {sec[:200]!r}')
+    # each Confirm the person can see has what it links, and the "possibly already paid" warning, beside it
+    rows = await pg.evaluate("""() => [...document.querySelectorAll('#v-bank .prop-card button')].filter(b => /^Confirm$/.test(b.innerText.trim()) && b.getClientRects().length)
+        .map(b => { let r = b; while (r && !(r.innerText || '').includes('·')) r = r.parentElement; const x = b.closest('.prop-row, .pr-card, .pr-row') || r; return x ? x.innerText : ''; })""")
+    alb = [r for r in rows if 'ALBERTO' in r.upper()]
+    C.ok(rows and all('→' in r for r in rows) and alb and all('Possibly already paid' in r for r in alb),
+         f'TYPED {dev}: every visible Confirm shows what it links and the possibly-paid warning: {[r[:160] for r in rows]}')
     C.ok(not errs, f'TYPED {dev}: no page errors: {errs[:3]}')
     await b.close()
 

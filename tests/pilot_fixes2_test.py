@@ -305,14 +305,17 @@ async def t_money(c, p):
       const row = [...document.querySelectorAll('#v-billing tr[data-edit="billpay:' + c.id + ':pf2py"]')][0];
       const cells = row ? row.innerText : '';
       row.querySelector('td').click(); await sleep(200);
-      const m = document.getElementById('mbm'), has = !!(m && m.querySelector('#mbm-ok') && /Reverse Payment/.test(m.querySelector('#mbm-ok').innerText));
+      // lane 1 (TRIAGE class 8): the payment opens read only, with no blue; Reverse Payment… opens the reversal sheet
+      const m0 = document.getElementById('mbm'), ro = !!(m0 && !m0.querySelector('#mbm-ok') && m0.querySelector('[data-payrev]'));
+      m0 && m0.querySelector('[data-payrev]') && m0.querySelector('[data-payrev]').click(); await sleep(200);
+      const m = document.getElementById('mbm'), has = ro && !!(m && m.querySelector('#mbm-ok') && /Reverse Payment/.test(m.querySelector('#mbm-ok').innerText));
       m.querySelector('#mbm-ok').click(); await sleep(150);
       const refused = !c.payments.some(x => x.reverses === 'pf2py');
       m.querySelector('[data-f="why"]').value = 'recorded twice'; m.querySelector('#mbm-ok').click(); await sleep(250);
       const rv = c.payments.find(x => x.reverses === 'pf2py'), orig = c.payments.find(x => x.id === 'pf2py');
       return { cells, has, refused, rv, orig, st: inv.status, toast: [...document.querySelectorAll('.toast, #toast, .rc-toast')].map(x => x.innerText).join(' | ') };""")
     c.ok('ACH' not in r['cells'] and 'not recorded' in r['cells'], f"money: a payment with no method reads 'not recorded', never ACH ({r['cells']!r})")
-    c.ok(r['has'] and r['refused'], 'money: the payment opens its own sheet with Reverse Payment, which needs a reason')
+    c.ok(r['has'] and r['refused'], 'money: the payment opens read only (no blue); Reverse Payment… opens its own sheet, which needs a reason')
     c.ok(r['rv'] and r['rv']['amount'] == -500 and r['orig']['amount'] == 500 and r['orig'].get('reversalId') == r['rv']['id'], f"money: the reversal is a linked record; the payment is untouched ({r['rv']}, {r['orig']})")
     c.ok('reversed' in r['toast'] and 'Open' in r['toast'], f"money: it toasts with Open ({r['toast'][:120]!r})")
     await b.close()

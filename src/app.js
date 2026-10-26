@@ -25606,7 +25606,7 @@ function repProfit() {
     range = repFrom || repTo ? ` · ${repFrom || "start"} → ${repTo || "today"}` : " · to date",
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
+  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r2(r.actual - r.labor.cost))} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
     r.byCode
       .map((b) => {
         const act = b.actual + b.labor,
@@ -25614,7 +25614,19 @@ function repProfit() {
         return `<tr><td><b>${b.code}</b> ${esc(b.name)}</td>${[b.contract, b.budget, b.committed, b.actual, b.labor, act, b.budget - act].map((v) => `<td class="money ${v < 0 ? "bad" : ""}">${repMoney(v)}</td>`).join("")}<td><div class="rep-bar-wrap"><i style="width:${Math.min(100, pct)}%;background:${pct > 100 ? "var(--bad)" : pct > 85 ? "var(--warn)" : "var(--ok)"}"></i></div><span class="small muted">${pct}%</span></td></tr>`;
       })
       .join("") || '<tr><td colspan="9" class="muted">No approved estimate lines for this project.</td></tr>'
-  }${r.unlinked ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
+  }${(() => {
+      // The total row is its columns' sum, and the job's own figures: what the job carries on no cost code is a row of
+      // its own, so nothing is in the total that is not on a row (121 State's Bills & Bank column added to $101,694
+      // under a total of $75,750, and Committed to $38,010 under $38,721).
+      const S = (k) => r2(r.byCode.reduce((a, b) => a + (+b[k] || 0), 0)),
+        cAct = S("actual"),
+        cLab = S("labor"),
+        cCom = S("committed"),
+        xCom = r2(r.committed - cCom),
+        xAct = r2(r.actual - cAct - cLab),
+        no = Math.abs(xCom) >= 0.005 || Math.abs(xAct) >= 0.005;
+      return `${no ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td class="money">${xCom ? money(xCom) : ""}</td><td class="money">${xAct ? money(xAct) : ""}</td><td></td><td class="money">${xAct ? money(xAct) : ""}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r2(cCom + xCom))}</td><td class="money">${money(r2(cAct + xAct))}</td><td class="money">${money(cLab)}</td><td class="money">${money(r2(cAct + xAct + cLab))}</td><td class="money">${money(r2(r.budget - (cAct + xAct + cLab)))}</td><td></td></tr>`;
+    })()}</tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
 }
 function repPortfolio() {
   const rows = DB.projects.map((p) => ({ p: p, r: projectProfit(p) })),
@@ -66196,22 +66208,44 @@ function iaDocGrid(kind) {
     empty: `No ${"co" === kind ? "change orders" : kind + "s"} yet.`,
   });
 }
+// Billing > Schedule of Values, as the continuation sheet (AIA G703): each line by its name (the Line column read
+// v.item, which an SOV line never has, so every row was blank), its scheduled value, what earlier applications billed,
+// this period (the draft), materials stored, completed and stored to date with its %, the balance to finish and the
+// retainage held, with totals. The deposit is never on these lines: it is its own invoice, credited on each application.
 function iaSovHtml() {
   const cs = DB.clients.filter((c) => (!billClient || c.id === billClient) && c.sov.length);
-  return cs.length
-    ? cs
-        .map(
-          (c) =>
-            `<div class="card" style="margin-bottom:16px"><div class="hd"><h3>${esc(c.name)}</h3><span class="grow"></span><button class="btn sm" data-billclient="${c.id}">Open client</button></div>\n    <div class="tw"><table class="t"><thead><tr><th>Line</th><th>Source</th><th class="money">Scheduled</th><th class="money">Billed</th><th class="num">Billed %</th></tr></thead><tbody>${c.sov
-              .map((v) => {
-                const f = v.lineRef ? lineFin(v.lineRef) : null,
-                  billed = f ? f.billed : 0;
-                return `<tr><td><b>${esc(v.item || v.name || "")}</b></td><td class="dim">${esc(v.source || "")}</td><td class="money">${money(+v.scheduled || 0)}</td><td class="money">${billed ? money(billed) : "—"}</td><td class="num">${f ? f.billedPct + "%" : "—"}</td></tr>`;
-              })
-              .join("")}</tbody></table></div></div>`,
-        )
-        .join("")
-    : '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
+  if (!cs.length) return '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
+  const cell = (v, cls) => `<td class="money ${cls || ""}">${Math.abs(v) >= 0.005 ? money(v) : "—"}</td>`;
+  return cs
+    .map((c) => {
+      const live = (c.invoices || []).filter((i) => "sov" === i.mode && "void" !== i.status),
+        rows = c.sov.map((v, n) => {
+          let prev = 0,
+            now = 0,
+            stored = 0,
+            ret = 0;
+          live.forEach((i) =>
+            (i.lines || [])
+              .filter((l) => l.sovId === v.id)
+              .forEach((l) => {
+                const amt = lineAmount(l, i);
+                "draft" === i.status ? (now += amt) : (prev += amt);
+                stored += +l.stored || 0;
+                "draft" !== i.status && (ret += (amt * (+i.retainagePct || 0)) / 100);
+              }),
+          );
+          const sched = +v.scheduled || 0,
+            done = r2(prev + now);
+          return { v: v, n: n + 1, sched: sched, prev: r2(prev), now: r2(now), stored: r2(stored), done: done, pct: sched ? Math.round((done / sched) * 1000) / 10 : 0, bal: r2(sched - done), ret: r2(ret) };
+        }),
+        T = (k) => r2(rows.reduce((a, r) => a + r[k], 0)),
+        sch = T("sched");
+      return `<div class="card" style="margin-bottom:16px"><div class="hd"><h3>${esc(c.name)}</h3><span class="grow"></span><button class="btn sm" data-billclient="${c.id}">Open Client</button></div>
+    <div class="tw"><table class="t sov-g703"><thead><tr><th>#</th><th>Line</th><th class="money">Scheduled Value</th><th class="money">Previous Applications</th><th class="money">This Period</th><th class="money">Materials Stored</th><th class="money">Completed and Stored</th><th class="num">%</th><th class="money">Balance to Finish</th><th class="money">Retainage</th></tr></thead><tbody>${rows
+      .map((r) => `<tr><td class="dim">${r.n}</td><td><b data-nocase>${esc(r.v.desc || r.v.item || r.v.name || "")}</b>${r.v.source && "Contract" !== r.v.source ? `<span class="sub">${esc(r.v.source)}</span>` : ""}</td>${cell(r.sched)}${cell(r.prev)}${cell(r.now)}${cell(r.stored)}${cell(r.done)}<td class="num">${r.pct ? r.pct + "%" : "—"}</td>${cell(r.bal)}${cell(r.ret)}</tr>`)
+      .join("")}<tr style="font-weight:600"><td></td><td>Totals</td>${cell(sch)}${cell(T("prev"))}${cell(T("now"))}${cell(T("stored"))}${cell(T("done"))}<td class="num">${sch ? Math.round((T("done") / sch) * 1000) / 10 + "%" : "—"}</td>${cell(T("bal"))}${cell(T("ret"))}</tr></tbody></table></div><div class="small muted">This period is the draft application; previous applications are those sent. The deposit is its own invoice and is taken off each application's amount due, never put on these lines.</div></div>`;
+    })
+    .join("");
 }
 // ---- A client payment carries its trace (pilot day 2: a payment held only date, amount and invoice, so one that
 // was not in the bank could not be traced): how it came (method), the check number or wire reference, the account it
@@ -66273,7 +66307,9 @@ function payReverse(c, py, why) {
   (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Payment ${money(+py.amount || 0)} of ${fmtL(py.date)} reversed — ${w}` });
   return save(), { ok: !0, rv: rv, inv: inv };
 }
-function paySheet(c, py) {
+// A payment opens read only: its one blue is never Reverse Payment (round one: a blue Reverse Payment on a read-only
+// payment sheet). Reverse Payment… (not blue) opens the reversal on its own sheet, which asks why before it commits.
+function paySheet(c, py, rev) {
   if (!c || !py) return;
   const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId),
     t = payBankLine(py),
@@ -66283,9 +66319,9 @@ function paySheet(c, py) {
     can = payCanReverse() && !py.reversalId && !py.reverses && +py.amount > 0,
     m = mbModal(
       `Payment · ${esc(c.name)} · ${money(+py.amount || 0)}`,
-      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "not in the bank")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
-      ${can ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
-      can
+      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "recorded, not yet in the bank: no bank or card line behind it, so it is not counted as collected")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
+      ${can && !rev ? `<div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-payrev="1">Reverse Payment…</button></div>` : ""}${can && rev ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
+      can && rev
         ? {
             submit: "Reverse Payment",
             onSubmit: (f) => {
@@ -66298,6 +66334,8 @@ function paySheet(c, py) {
           }
         : { submit: null },
     );
+  const rb = m && m.querySelector && m.querySelector("[data-payrev]");
+  rb && (rb.onclick = () => (mbCloseModal(), paySheet(c, py, !0)));
   return m;
 }
 // ---- In the Bank, Not Applied (pilot day 3): money that reached a bank account and is on no invoice. Each deposit
