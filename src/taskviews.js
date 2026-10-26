@@ -435,11 +435,17 @@ function tvSetProject(I, pid) {
     was = { code: a.code, keyWas: a.keyWas ? a.keyWas.slice() : undefined };
   (to.actions = to.actions || []).push(a);
   try {
-    const meta = tkBoardMeta("p:" + to.id);
-    if (meta && meta.prefix && a.code && !String(a.code).startsWith(meta.prefix + "-")) {
+    // a key of the job it leaves takes the new job's next number; a key of a firm-wide series (finance, ops) is
+    // the same task wherever it sits, so it stays
+    const meta = tkBoardMeta("p:" + to.id),
+      fromPre = String(((from.project || {}).prefix) || "").toUpperCase(),
+      ser = String(a.code || "").split("-")[0].toUpperCase();
+    if (meta && meta.prefix && a.code && ser !== meta.prefix.toUpperCase() && (!fromPre || ser === fromPre)) {
       (a.keyWas = a.keyWas || []).push(a.code);
-      meta.keyNext = Math.max(+meta.keyNext || 1, 1);
-      a.code = `${meta.prefix}-${meta.keyNext++}`;
+      const k = tkNextKey("p:" + to.id),
+        n = +String(k).split("-").pop();
+      meta.keyNext = n + 1;
+      a.code = k;
     }
   } catch (e) {}
   tkLog(a, { ev: "job", from: shortName(from), to: shortName(to) });
@@ -1695,13 +1701,7 @@ function tvQaNextId(pid) {
     const p = (DB.projects || []).find((q) => q.id === pid),
       meta = p && p.project;
     if (!meta || !meta.prefix) return "";
-    let n = +meta.keyNext || 0;
-    tkCodedRecs().forEach((r) => {
-      if (r.board !== "p:" + pid) return;
-      const mm = /-(\d+)$/.exec(String(r.rec.code || ""));
-      mm && (n = Math.max(n, +mm[1] + 1));
-    });
-    return `${meta.prefix}-${n || 1}`;
+    return tkNextKey("p:" + pid);
   } catch (e) {
     return "";
   }
