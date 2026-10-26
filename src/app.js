@@ -24997,6 +24997,17 @@ function paysBanked(c, P) {
 function paysUnbanked(c, P) {
   return r2((P || []).filter((p) => !payBanked(c, p)).reduce((a, p) => a + (+p.amount || 0), 0));
 }
+// A bank or card line is the bank's record when it came from a feed or an imported statement (bfProv), or a typed line
+// the bank has since confirmed (bfBacked). A line typed by hand and never seen at the bank is not: it backs no
+// payment and is never offered as a match. One reading for payBankLine and proposals().
+function txnFromBank(t) {
+  if (!t) return !1;
+  try {
+    return ("function" == typeof bfBacked && bfBacked(t)) || ("function" == typeof bfProv && "manual" !== bfProv(t).kind) || "function" != typeof bfProv;
+  } catch (e) {
+    return !0;
+  }
+}
 // money in from clients over a stretch: only what the bank has
 function paysInBank(pred) {
   return r2((DB.clients || []).reduce((a, c) => a + paysBanked(c, (c.payments || []).filter((p) => pred(p, c))), 0));
@@ -37565,13 +37576,7 @@ matchPO = function (po) {
 // A line typed by hand is not the bank's record, so it is never offered as a match to confirm (TRIAGE class 1: Satish
 // $7,400 and the Rosario Zelle sat here as if the bank had sent them). It keeps its own flag on the bank row, "No bank
 // line behind it: typed by hand", with Match to a Line; once the bank's line arrives it confirms the typed one.
-const propTyped = (t) => {
-    try {
-      return "function" == typeof bfBacked && !bfBacked(t) && "manual" === bfProv(t).kind;
-    } catch (e) {
-      return !1;
-    }
-  },
+const propTyped = (t) => !txnFromBank(t),
   proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId) && !propTyped(t));
 function proposalsHtml(list, title) {
   return list.length
@@ -66348,11 +66353,7 @@ function payBankLine(py) {
   if (!py || !(+py.amount > 0)) return null;
   const real = (t) => {
       if (!t || !(+t.amt > 0) || "void" === t.status) return !1;
-      try {
-        return "function" != typeof bfBacked || bfBacked(t);
-      } catch (e) {
-        return !0;
-      }
+      return txnFromBank(t);
     },
     own = py.txnId && (DB.txns || []).find((t) => t.id === py.txnId);
   if (own) return real(own) ? own : null;
