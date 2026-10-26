@@ -876,7 +876,7 @@ if ("function" == typeof billingRows) {
     try {
       R.forEach((r) => {
         const pid = (r.job && r.job.id) || (r.inv && r.inv.projectId);
-        if (!pid || r.ahead || !(r.inv ? "sov" === r.inv.mode : ["progress", "held", "ready"].includes(r.kind) || /application|line/i.test(r.what || ""))) return;
+        if (!pid || r.ahead || (r.held && r.held.ahead) || !(r.inv ? "sov" === r.inv.mode : ["progress", "held", "ready"].includes(r.kind) || /application|line/i.test(r.what || ""))) return;
         const A = pbAhead(pid);
         A.lines.length && ((r.ahead = { n: A.lines.length, amount: A.total }), (r.why = `${r.why ? r.why + " · " : ""}billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`));
       });

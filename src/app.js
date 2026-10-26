@@ -9011,8 +9011,11 @@ function renderFinTab(c, f, projs) {
           type: "status",
           w: "100px",
           get: (x) => {
-            const st = "invoice" === kind ? invoiceStatus(c, x) : x.status;
-            return { text: st, cls: st };
+            if ("invoice" === kind) {
+              const s = invoiceStatusShown(c, x);
+              return { text: s.text, cls: s.cls };
+            }
+            return { text: x.status, cls: x.status };
           },
         },
       ],
@@ -9069,7 +9072,8 @@ function renderDocEditor(c, d) {
     editable = "draft" === d.status,
     st = "invoice" === kind ? invoiceStatus(c, d) : d.status,
     flow = DOC_FLOW[kind],
-    fi = flow.indexOf("overdue" === st ? "sent" : st),
+    // Paid is reached when the bank has the money; a payment only recorded leaves it at Sent, with the pill below
+    fi = flow.indexOf("overdue" === st || ("invoice" === kind && "paid" === st && invoiceUnbanked(c, d) > 0.005) ? "sent" : st),
     projOpts = estProjOpts(c, d, editable),
     label = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" }[kind],
     paidOn =
@@ -9103,7 +9107,7 @@ function renderDocEditor(c, d) {
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
             : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
-  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
+  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}${"invoice" === kind && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005 ? `<span class="pill warn" style="margin-left:6px" data-unbanked="${r2(invoiceUnbanked(c, d))}">${money(invoiceUnbanked(c, d))} recorded, not yet in the bank</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
           CT_TEMPLATES,
@@ -9395,8 +9399,11 @@ function docActions(c, d, st) {
         (h += '<span class="small muted">In SOV — bill it on the next progress invoice.</span>')),
     "invoice" === k &&
       (["sent", "partial", "overdue"].includes(st) &&
+        // the safe next step is to find the client's money in the bank's own lines; a payment typed here is
+        // "recorded, not yet in the bank" until a bank line stands behind it, so it is never the blue button
         (h +=
-          B("pay", "Record payment", "primary") +
+          B("findbank", "Find in Bank", "primary") +
+          B("pay", "Record Payment") +
           B("email", "overdue" === st ? "Draft reminder" : "Draft cover email")),
       "void" !== d.status && "paid" !== st && (h += B("void", "Void"))),
     (h += B("print", "Print / PDF") + B("dup", "Duplicate")),
@@ -9780,6 +9787,7 @@ async function docAction(c, d, a) {
     ),
       (docOpen = null);
   }
+  if ("findbank" === a) return void invFindInBank(c, d);
   if ("pay" === a)
     return (
       save(),
@@ -15989,13 +15997,16 @@ function cashForecast() {
           );
       });
   } catch (e) {}
-  const cash = companyBalance().cash + (companyBalance().undeposited || 0);
+  // Cash Today is what the bank holds. A payment recorded but never seen at the bank is not cash: it was added here
+  // (Rivera's $21,350 made Cash Today $205,581 against $184,231 in the bank), and it is now carried apart, by name.
+  const B0 = companyBalance(),
+    cash = B0.cash;
   let bal = cash;
   return (
     weeks.forEach((w) => {
       (w.net = w.inflow - w.outflow), (bal += w.net), (w.balance = bal);
     }),
-    { cash: cash, weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
+    { cash: cash, unbanked: r2(B0.undeposited || 0), weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
   );
 }
 function renderCash() {
@@ -24967,6 +24978,40 @@ const CT_SEED = [
 function invoicePaid(c, inv) {
   return c.payments.filter((p) => p.invoiceId === inv.id).reduce((a, p) => a + (+p.amount || 0), 0);
 }
+// ---- No bank line, not collected (Financial truth; TRIAGE class 1). A recorded payment counts as collected cash,
+// cash-basis revenue, Cash Today or Paid only when a bank or card line stands behind it (payBankLine: the line it is
+// matched to, or one from the bank's own record, never a line typed by hand). Until then it is "recorded, not yet in
+// the bank": it still settles the client's balance (it sits in Undeposited Funds, 1050), but no figure calls it cash.
+// A reversal counts when the payment it reverses counted.
+function payBanked(c, py) {
+  if (!py) return !1;
+  if (py.reverses) {
+    const o = ((c && c.payments) || []).find((x) => x.id === py.reverses);
+    return !!(o && payBankLine(o));
+  }
+  return !!payBankLine(py);
+}
+function paysBanked(c, P) {
+  return r2((P || []).filter((p) => payBanked(c, p)).reduce((a, p) => a + (+p.amount || 0), 0));
+}
+function paysUnbanked(c, P) {
+  return r2((P || []).filter((p) => !payBanked(c, p)).reduce((a, p) => a + (+p.amount || 0), 0));
+}
+// money in from clients over a stretch: only what the bank has
+function paysInBank(pred) {
+  return r2((DB.clients || []).reduce((a, c) => a + paysBanked(c, (c.payments || []).filter((p) => pred(p, c))), 0));
+}
+function invoiceUnbanked(c, inv) {
+  return paysUnbanked(c, (c.payments || []).filter((p) => p.invoiceId === inv.id));
+}
+const PAY_NOT_IN_BANK = "recorded, not yet in the bank";
+// the status a person reads: Paid only when the bank has the money
+function invoiceStatusShown(c, x) {
+  const st = invoiceStatus(c, x);
+  return ["paid", "partial", "overdue", "sent"].includes(st) && invoiceUnbanked(c, x) > 0.005
+    ? { text: "paid" === st ? PAY_NOT_IN_BANK : `${st}; part ${PAY_NOT_IN_BANK}`, cls: "warn", st: st }
+    : { text: st, cls: st, st: st };
+}
 function lineLabor(doc, line) {
   try {
     const pid = doc && doc.projectId,
@@ -25960,12 +26005,9 @@ function companyPL(range) {
     ),
     wipAdj = wipAdjustment(range),
     income = r2(invoiced + wipAdj),
-    collected = r2(
-      DB.clients
-        .flatMap((c) => c.payments)
-        .filter((p) => !p.unapplied && within(p.date, range))
-        .reduce((a, p) => a + (+p.amount || 0), 0),
-    ),
+    // collected is money the bank has (payBanked); a payment only recorded is counted apart, never as collected
+    collected = r2(DB.clients.reduce((a, c) => a + paysBanked(c, c.payments.filter((p) => !p.unapplied && within(p.date, range))), 0)),
+    unbanked = r2(DB.clients.reduce((a, c) => a + paysUnbanked(c, c.payments.filter((p) => !p.unapplied && within(p.date, range))), 0)),
     accrued = r2(
       DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billCost(b), 0),
     ),
@@ -26002,6 +26044,7 @@ function companyPL(range) {
     wipAdj: wipAdj,
     accrued: accrued,
     collected: collected,
+    unbanked: unbanked,
     cogs: cogs,
     cogsT: cogsT,
     oh: oh,
@@ -26052,10 +26095,7 @@ function companyBalance() {
         out = ledger([m[0] + "-01", today()])
           .filter((r) => !r.income)
           .reduce((a, r) => a + r.amt, 0),
-        inn = DB.clients
-          .flatMap((c) => c.payments)
-          .filter((p) => within(p.date, [m[0] + "-01", today()]))
-          .reduce((a, p) => a + (+p.amount || 0), 0);
+        inn = paysInBank((p) => within(p.date, [m[0] + "-01", today()]));
       return r2(Math.max(0, out - inn) / 3);
     })();
   return {
@@ -26126,7 +26166,7 @@ function repCompany() {
             `<tr><td>${esc(k)}</td><td class="money">${money(v)}</td><td class="dim">${P.income ? Math.round((v / P.income) * 100) : 0}% of income</td><td style="width:120px"><div class="rep-bar-wrap"><i style="width:${tot ? Math.round((v / tot) * 100) : 0}%;background:var(--ink-4)"></i></div></td></tr>`,
         )
         .join("") || '<tr><td colspan="4" class="muted">Nothing in this period.</td></tr>';
-  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `available ${money(B.available)} · client funds held ${money(B.clientFunds)}`, B.available < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
+  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected${P.unbanked ? ` · ${money(P.unbanked)} recorded, not yet in the bank` : ""}`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `available ${money(B.available)} · client funds held ${money(B.clientFunds)}`, B.available < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
     P.nonT
       ? `<p class="small muted">Excluded from P&L: ${Object.entries(P.non)
           .map(([k, v]) => `${esc(k)} ${money(v)}`)
@@ -26905,10 +26945,7 @@ function dashData() {
     bal = companyBalance(),
     per = B.map((b) => {
       const pl = companyPL([b.from, b.to]),
-        paid = DB.clients
-          .flatMap((c) => c.payments)
-          .filter((p) => within(p.date, [b.from, b.to]))
-          .reduce((a, p) => a + (+p.amount || 0), 0),
+        paid = paysInBank((p) => within(p.date, [b.from, b.to])),
         out = pl.L.filter((r) => !r.income).reduce((a, r) => a + r.amt, 0);
       return {
         k: b.k,
@@ -27273,10 +27310,7 @@ const inR = (d, R) => within(d, R),
       good: "up",
       go: { view: "bank" },
       fn: (R) => {
-        const inn = DB.clients
-            .flatMap((c) => c.payments)
-            .filter((p) => inR(p.date, R))
-            .reduce((a, p) => a + (+p.amount || 0), 0),
+        const inn = paysInBank((p) => inR(p.date, R)),
           out = ledger(R)
             .filter((r) => !r.income)
             .reduce((a, r) => a + r.amt, 0);
@@ -28574,12 +28608,7 @@ function repFinancials() {
                 })),
               ),
           ];
-        rows["Collected from clients"].push(
-          DB.clients
-            .flatMap((c) => c.payments)
-            .filter((p) => within(p.date, R))
-            .reduce((a, p) => a + (+p.amount || 0), 0),
-        ),
+        rows["Collected from clients"].push(paysInBank((p) => within(p.date, R))),
           rows["Paid: job costs"].push(
             L.filter((r) => "cogs" === catType(r.cat) && "payroll" !== r.kind).reduce((a, r) => a + r.amt, 0),
           ),
@@ -28746,10 +28775,7 @@ function repFlash() {
   const B = companyBalance(),
     wk = kpiRange("l30"),
     wk7 = [iso(addDays(today(), -6)), today()],
-    coll = DB.clients
-      .flatMap((c) => c.payments)
-      .filter((p) => within(p.date, wk7))
-      .reduce((a, p) => a + (+p.amount || 0), 0),
+    coll = paysInBank((p) => within(p.date, wk7)),
     billed = DB.clients
       .flatMap((c) => c.invoices)
       .filter((i) => !["void", "draft"].includes(i.status) && within(i.date, wk7))
@@ -28795,8 +28821,8 @@ companyPL = function (range) {
     (P.income = r2(P.invoiced + P.wipAdj)),
     (P.collected = r2(
       DB.clients
-        .flatMap((c) => c.payments.map((p) => ({ p: p, i: c.invoices.find((x) => x.id === p.invoiceId) })))
-        .filter((x) => !x.p.unapplied && within(x.p.date, range) && x.i && projs.includes(x.i.projectId))
+        .flatMap((c) => c.payments.map((p) => ({ c: c, p: p, i: c.invoices.find((x) => x.id === p.invoiceId) })))
+        .filter((x) => !x.p.unapplied && within(x.p.date, range) && x.i && projs.includes(x.i.projectId) && payBanked(x.c, x.p))
         .reduce((a, x) => a + (+x.p.amount || 0), 0),
     )),
     (P.gross = r2(P.income - P.cogsT)),
@@ -29717,7 +29743,8 @@ function jobFin(p, range) {
     pays = c
       ? c.payments.filter((py) => !py.unapplied && invs.some((i) => i.id === py.invoiceId) && inRng(py.date))
       : [],
-    collected = r2(pays.reduce((a, py) => a + (+py.amount || 0), 0)),
+    collected = c ? paysBanked(c, pays) : 0,
+    unbanked = c ? paysUnbanked(c, pays) : 0,
     credits = c ? r2(c.payments.filter((py) => py.unapplied).reduce((a, py) => a + (+py.amount || 0), 0)) : 0,
     est = c
       ? c.estimates.find(
@@ -29892,8 +29919,10 @@ function jobFin(p, range) {
       retWithheld: retWithheld,
       retReleased: retReleased,
       collected: collected,
+      // recorded but not seen at the bank: it settles the client's balance, it is not collected cash
+      unbanked: unbanked,
       credits: credits,
-      outstanding: r2(billed + taxBilled - collected - retHeld),
+      outstanding: r2(billed + taxBilled - collected - unbanked - retHeld),
       contract: contract,
       base: r2(contract - coAmt),
       coAmt: coAmt,
@@ -34445,11 +34474,10 @@ function undepositedReceipts() {
   return (
     DB.clients.forEach((c) =>
       c.payments
-        .filter((py) => !py.unapplied && (+py.amount || 0) > 0)
+        // one reading with payBankLine (the line behind a payment), so this list and every "collected" agree
+        .filter((py) => !py.unapplied && (+py.amount || 0) > 0 && !py.reversalId)
         .forEach((py) => {
-          DB.txns.find(
-            (t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10,
-          ) || out.push({ c: c, py: py });
+          payBankLine(py) || out.push({ c: c, py: py });
         }),
     ),
     out
@@ -35401,10 +35429,31 @@ repBarV2 = function (projs) {
     );
 };
 const renderReportsBase7 = renderReports;
+// Safe to Spend is one figure, read by every screen that names it (Today reads PRED.safeToSpend, which reads this):
+// the lower of truly ours and the 13-week low. Screens that printed truly ours under the label read stsSafe().
 function safeToSpend() {
   const B = companyBalance(),
     F = cashForecast();
   return { B: B, F: F, safe: r2(Math.min(B.trulyOurs, F.low)), low: F.low };
+}
+function stsSafe() {
+  let v = null;
+  try {
+    v = ocMemo("stsSafe", () => safeToSpend().safe);
+  } catch (e) {}
+  return null == v ? safeToSpend().safe : v;
+}
+// the one line under it: what is set aside, and what is not counted
+function stsWhy(X) {
+  X = X || safeToSpend();
+  const B = X.B,
+    parts = [
+      B.cards ? `${money(-B.cards)} owed on cards` : "",
+      B.ap ? `${money(B.ap)} of unpaid bills` : "",
+      B.payrollAccrued ? `${money(B.payrollAccrued)} of payroll due` : "",
+      B.over ? `${money(B.over)} billed ahead of the work (client money for work not done)` : "",
+    ].filter(Boolean);
+  return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low (${money(X.low)}) is lower, so it is the figure` : ""}${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
 }
 function biggestReceivable() {
   let best = null;
@@ -35570,7 +35619,7 @@ const ptJobsBase3 = ptJobs;
   (ptCash = function () {
     const { B: B, F: F, safe: safe } = safeToSpend(),
       lowWk = F.weeks.reduce((a, w) => (w.balance < a.balance ? w : a), F.weeks[0]);
-    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>+ receipts not yet deposited</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− billed ahead of work (client money for work not done)</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
+    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− billed ahead of work (client money for work not done)</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
   }),
   Object.assign(PORTLETS, { today: "Today strip" });
 const renderPortletBase3 = renderPortlet;
@@ -36411,7 +36460,7 @@ function drillRows(key, range) {
           : "collected" === key &&
             DB.clients.forEach((c) =>
               c.payments
-                .filter((py) => !py.unapplied && within(py.date, R))
+                .filter((py) => !py.unapplied && within(py.date, R) && payBanked(c, py))
                 .forEach((py) => {
                   const i = c.invoices.find((x) => x.id === py.invoiceId);
                   rows.push({
@@ -37501,7 +37550,17 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId));
+// A line typed by hand is not the bank's record, so it is never offered as a match to confirm (TRIAGE class 1: Satish
+// $7,400 and the Rosario Zelle sat here as if the bank had sent them). It keeps its own flag on the bank row, "No bank
+// line behind it: typed by hand", with Match to a Line; once the bank's line arrives it confirms the typed one.
+const propTyped = (t) => {
+    try {
+      return "function" == typeof bfBacked && !bfBacked(t) && "manual" === bfProv(t).kind;
+    } catch (e) {
+      return !1;
+    }
+  },
+  proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId) && !propTyped(t));
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -40977,11 +41036,12 @@ function briefSentences(F, r) {
     "owner" === r
       ? S_.push(
           (() => {
-            const b = F.B;
+            const b = F.B,
+              sf = stsSafe();
             let s =
-              b.trulyOurs < 0
-                ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we're ${moneyK(-b.trulyOurs)} short — collect before spending`
-                : `Cash is ${moneyK(b.cash)}, ${moneyK(b.trulyOurs)} truly ours after client funds and what we owe`;
+              sf < 0
+                ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we're ${moneyK(-sf)} short — collect before spending`
+                : `Cash is ${moneyK(b.cash)}, ${moneyK(sf)} safe to spend after client funds and what we owe`;
             return (
               F.lowWeek &&
                 F.low < 0.5 * b.cashToday &&
@@ -41104,7 +41164,7 @@ function h4Home(F) {
         ? `<div class="small muted" style="padding:6px 0">+ ${F.needs.length - 6} more</div>`
         : ""),
     b = F.B,
-    moneyHtml = `<div class="h4kv"><span>Safe to spend</span><b class="${b.trulyOurs < 0 ? "bad" : ""}">${money(b.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(b.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(b.ap)}</b><i>${money(F.dueWeek.reduce((a, x) => a + billTotal(x), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+    moneyHtml = `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(b.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(b.ap)}</b><i>${money(F.dueWeek.reduce((a, x) => a + billTotal(x), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
     jobsHtml = F.jobs
       .slice(0, 6)
       .map(
@@ -41325,7 +41385,7 @@ async function jvAsk(F) {
     facts = {
       today: F.td,
       cash: F.B.cash,
-      safeToSpend: F.B.trulyOurs,
+      safeToSpend: stsSafe(),
       cashLow13w: F.low,
       receivables: F.arTotal,
       overdue: F.overdue.map((x) => ({
@@ -46124,9 +46184,10 @@ function ptRunway() {
       (F.weeks.reduce((a, w) => a + w.outflow, 0) - F.weeks.reduce((a, w) => a + (w.inflow || 0), 0)) /
       Math.max(1, F.weeks.length) /
       7,
-    days = B.trulyOurs < 0 ? -1 : net > 0 ? Math.round(B.trulyOurs / net) : null,
-    cls = B.trulyOurs < 0 || F.low < 0 ? "bad" : null != days && days >= 0 && days < 60 ? "warn" : "ok";
-  return `<div class="dx-tiles">${tile(money(B.trulyOurs), "Safe to Spend · Truly Ours", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "Safe to Spend Is Negative" : null == days ? "Collections Cover the Spend" : "Days of Runway on Safe-to-Spend Cash", cls)}${tile(money(F.low), `13-Week Low · Week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
+    sf = stsSafe(),
+    days = sf < 0 ? -1 : net > 0 ? Math.round(sf / net) : null,
+    cls = sf < 0 || F.low < 0 ? "bad" : null != days && days >= 0 && days < 60 ? "warn" : "ok";
+  return `<div class="dx-tiles">${tile(money(sf), "Safe to Spend", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "Safe to Spend Is Negative" : null == days ? "Collections Cover the Spend" : "Days of Runway on Safe-to-Spend Cash", cls)}${tile(money(F.low), `13-Week Low · Week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
     F.weeks.map((w) => w.balance),
     300,
     34,
@@ -66117,7 +66178,14 @@ function iaDocGrid(kind) {
       ...("invoice" === kind
         ? [{ key: "open", label: "Open", type: "money", w: "100px", get: (r) => r.open || "" }]
         : []),
-      { key: "status", label: "Status", type: "status", w: "110px", get: (r) => r.st },
+      {
+        key: "status",
+        label: "Status",
+        type: "status",
+        w: "110px",
+        // an invoice paid by money the bank never saw reads "recorded, not yet in the bank", never Paid
+        get: (r) => ("invoice" === kind ? ((x) => ({ text: x.text, cls: x.cls }))(invoiceStatusShown(r.c, r.x)) : r.st),
+      },
     ];
   return grid({
     id: "bill-" + kind,
@@ -66236,9 +66304,27 @@ function paySheet(c, py) {
 // from an import or a feed with the invoice the matcher proposes for it (payer name and amount); Record It applies it.
 // the bank line behind a recorded payment: the one it is linked to, else the one undepositedReceipts reads as its
 // deposit (same amount within $1, within 10 days), so this list and "Recorded, Not Yet in the Bank" never disagree
+// Only the bank's own record counts (a feed or an imported statement, bfBacked): a line typed by hand is not the bank
+// seeing the money. A line already standing behind another payment never stands behind this one too.
 function payBankLine(py) {
   if (!py || !(+py.amount > 0)) return null;
-  return (py.txnId && (DB.txns || []).find((t) => t.id === py.txnId)) || (DB.txns || []).find((t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10) || null;
+  const real = (t) => {
+      if (!t || !(+t.amt > 0) || "void" === t.status) return !1;
+      try {
+        return "function" != typeof bfBacked || bfBacked(t);
+      } catch (e) {
+        return !0;
+      }
+    },
+    own = py.txnId && (DB.txns || []).find((t) => t.id === py.txnId);
+  if (own) return real(own) ? own : null;
+  const taken = new Set();
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => p !== py && p.txnId && taken.add(p.txnId)));
+  return (
+    (DB.txns || []).find(
+      (t) => real(t) && !taken.has(t.id) && !(t.paymentId && t.paymentId !== py.id) && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10,
+    ) || null
+  );
 }
 function payInBankRows() {
   const banks = new Set(payBankAccts().map((a) => a.id)),
@@ -66260,6 +66346,19 @@ function payInBankRows() {
       return { t: t, best: best };
     })
     .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
+}
+// Find in Bank (a sent invoice's blue): the bank's own deposit the matcher reads as this invoice's money opens, to be
+// recorded from the line; with none, Banking opens and says what the bank has not shown yet. Nothing is recorded here.
+function invFindInBank(c, d) {
+  const bal = r2(docTotal(d).total - invoicePaid(c, d)),
+    R = payInBankRows(),
+    hit =
+      R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
+      R.find((x) => Math.abs(+x.t.amt - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
+  if (hit && "function" == typeof openVerifyTxn) return void openVerifyTxn(hit.t.id);
+  const last = (DB.txns || []).filter((t) => +t.amt > 0 && payBankLine({ amount: +t.amt, date: t.date, txnId: t.id })).map((t) => t.date).sort().pop();
+  (ROLE_VIEWS[role()] || []).includes("bank") && setView("bank");
+  toast(`No deposit of ${money(bal)} for ${d.number} is in the bank's lines yet${last ? ` (the last deposit seen is ${fmtL(last)})` : ""}. When it arrives it is proposed against ${d.number} on Banking.`);
 }
 function payInBankHtml() {
   const R = payInBankRows();
@@ -69204,9 +69303,9 @@ briefSentences = function (F, r) {
     ],
     b = F.B,
     cash = () =>
-      b.trulyOurs < 0
-        ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we are ${moneyK(-b.trulyOurs)} short — collect before spending.`
-        : `Cash is ${moneyK(b.cash)}, ${moneyK(b.trulyOurs)} truly ours; the 13-week low is ${moneyK(F.low)}${F.lowWeek ? ` (week of ${fmt(F.lowWeek.start)})` : ""}.`;
+      stsSafe() < 0
+        ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we are ${moneyK(-stsSafe())} short — collect before spending.`
+        : `Cash is ${moneyK(b.cash)}, ${moneyK(stsSafe())} safe to spend; the 13-week low is ${moneyK(F.low)}${F.lowWeek ? ` (week of ${fmt(F.lowWeek.start)})` : ""}.`;
   if ("owner" === r) {
     const n = X.billsOwner.length + X.posPending.length + X.excOwner.length;
     out.push(
@@ -69344,7 +69443,7 @@ const h4HomeBase_b2 = h4Home;
   const X = b2Facts(F),
     cards = [],
     moneyCard = () =>
-      `<div class="h4kv"><span>Safe to spend</span><b class="${F.B.trulyOurs < 0 ? "bad" : ""}">${money(F.B.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+      `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
     jobsCard = (list) =>
       list
         .map(
@@ -69856,7 +69955,7 @@ function b2Plate(r, F) {
           `POs over your threshold: ${X.posPending.map((po) => `${po.number} ${po.vendor} ${money(poTotal(po).total)}`).join(", ")}`,
         ),
       X.excOwner.length && L.push(`Bank exceptions for you: ${X.excOwner.length}`),
-      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(F.B.trulyOurs)}, 13-week low ${money(F.low)}`),
+      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(stsSafe())}, 13-week low ${money(F.low)}`),
       X.risk.length &&
         L.push(
           `Jobs at risk: ${X.risk.map((j) => `${j.name} (${j.late > 0 ? j.late + "d behind" : "health " + j.score})`).join(", ")}`,
@@ -69938,7 +70037,7 @@ function b2Plate(r, F) {
         L.push(
           `Payroll to pay: ${X.payrollDue.map((rn) => `${rn.from}–${rn.to} ${money(rn.total || 0)}`).join(", ")}`,
         ),
-      L.push(`Cash ${money(F.B.cash)}, truly ours ${money(F.B.trulyOurs)}`)),
+      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(stsSafe())}`)),
     L.join("\n")
   );
 }
@@ -70373,9 +70472,9 @@ function eaToday(r, F, X) {
             data: { view: "verify" },
           }),
         ),
-      F.B.trulyOurs < 0 &&
+      stsSafe() < 0 &&
         out.push({
-          n: "!" + money(-F.B.trulyOurs),
+          n: "!" + money(-stsSafe()),
           t: "We are short after client funds and payables",
           sub: F.arOver
             ? `${money(F.arOver)} is overdue from clients — I'd collect that first.`
@@ -70755,9 +70854,9 @@ briefSentences = function (F, r) {
       ),
     ("owner" !== r && "controller" !== r) ||
       out.push(
-        F.B.trulyOurs < 0
-          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-F.B.trulyOurs)} short once client funds and payables are set aside.`
-          : `Cash: ${moneyK(F.B.cash)} in the bank, ${moneyK(F.B.trulyOurs)} truly ours.`,
+        stsSafe() < 0
+          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-stsSafe())} short once client funds and payables are set aside.`
+          : `Cash: ${moneyK(F.B.cash)} in the bank, ${moneyK(stsSafe())} safe to spend.`,
       ),
     out
   );
@@ -70858,7 +70957,7 @@ const h4HomeBase_ea = h4Home;
       cards.push(
         h4Card(
           "Accounting",
-          `<div class="h4kv"><span>Safe to spend</span><b class="${F.B.trulyOurs < 0 ? "bad" : ""}">${money(F.B.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+          `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
           { view: "dashboard" },
         ),
       ),
@@ -120936,11 +121035,12 @@ function rxReadView(c, d, html) {
   const w = box.querySelector(".docwrap");
   if (!w) return html;
   w.classList.add("rx-read");
-  const st = "invoice" === d.type ? invoiceStatus(c, d) : d.status,
+  // an invoice paid by money the bank never saw reads "recorded, not yet in the bank", never Paid
+  const st = "invoice" === d.type ? invoiceStatusShown(c, d).text : d.status,
     bar = w.querySelector(".docbar");
   if (bar) {
     bar
-      .querySelectorAll('[data-docact="save"], [data-docact="discard"], .pill.warn')
+      .querySelectorAll('[data-docact="save"], [data-docact="discard"], .pill.warn:not([data-unbanked])')
       .forEach((x) => x.remove());
     const saved = bar.querySelector(".small.muted"),
       eb = `<button type="button" class="btn sm" data-rxedit="${d.id}">Edit</button><span class="small muted">${esc("function" == typeof tcase ? tcase(st) : st)} · read only</span>`;
@@ -124873,7 +124973,7 @@ function finAnswer(raw) {
     if (!finFirmOk() && !finCan("billing")) return finBlocked();
     const rows = (DB.clients || []).flatMap((c) =>
         (c.payments || [])
-          .filter((p) => !p.unapplied && within(p.date, P.range))
+          .filter((p) => !p.unapplied && within(p.date, P.range) && payBanked(c, p))
           .map((p) => ({ c: c, p: p })),
       ),
       amt = r2(rows.reduce((a, r) => a + (+r.p.amount || 0), 0)),
@@ -124884,12 +124984,7 @@ function finAnswer(raw) {
           e = iso(new Date(d.getFullYear(), d.getMonth(), 0));
         return {
           s: s,
-          amt: r2(
-            (DB.clients || [])
-              .flatMap((c) => c.payments || [])
-              .filter((p) => !p.unapplied && within(p.date, [s, e]))
-              .reduce((a, p) => a + (+p.amount || 0), 0),
-          ),
+          amt: paysInBank((p) => !p.unapplied && within(p.date, [s, e])),
         };
       })();
     return out(
@@ -130769,7 +130864,7 @@ const LK_DOC_OPEN = ["memo", "internal"],
   LK_LABEL = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" },
   lkPast = (d) => !(!d || !d.status || "draft" === d.status),
   lkStatusWord = (c, d) => {
-    const st = "invoice" === d.type && "function" == typeof invoiceStatus ? invoiceStatus(c, d) : d.status;
+    const st = "invoice" === d.type && "function" == typeof invoiceStatusShown ? invoiceStatusShown(c, d).text : d.status;
     return "function" == typeof tcase ? tcase(st) : st;
   };
 function lkDocKey(el) {
@@ -142677,7 +142772,7 @@ if (
         (t.s = R.n
           ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
           : R.held.length
-            ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
+            ? `nothing ready · ${tlN(R.held.length, "line")} held, each with its reason`
             : "nothing earned is waiting on an invoice");
     }
     return T;
@@ -146513,7 +146608,7 @@ function billingRows() {
       }),
         R.held.forEach((h) =>
           rows.push({
-            id: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
+            id: "held:" + (h.hid || h.p.id + (h.sv ? ":" + h.sv.id : "")),
             kind: "held",
             held: h,
             key: h.sv ? `line:${h.p.id}:${h.sv.id}` : "app:" + h.p.id,
@@ -146521,7 +146616,7 @@ function billingRows() {
             job: h.p,
             amount: r2(h.amount),
             date: "",
-            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
+            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : h.ahead ? `Held, billed ahead — ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
             why: `held — ${h.why}`,
             needs: !1,
           }),
@@ -146700,9 +146795,7 @@ function blRowAct(row) {
       ? blCreditAct(row)
       : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
         ? rtbAct(row.key)
-        : "draft" === row.kind && row.inv && row.client
-          ? blSendSheet(row.client, row.inv)
-          : blOpenRow(row);
+        : blOpenRow(row);
 }
 // A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
 // draft opens for review. Nothing is sent from here.
@@ -146715,8 +146808,9 @@ function blBillHeldLine(key) {
   (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
   rcToast(`${out.n ? "The held line is" : "Nothing new"} on ${out.inv.number} (${money(docTotal(out.inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
 }
-// "Send" on a drafted invoice in the Billing Queue: the one Send to Client sheet (crSendToClient: to whom, the
-// subject and message, then Send), so a draft never waits behind a second screen.
+// The one Send to Client sheet (crSendToClient: to whom, the subject and message, then Send). The Billing Queue's
+// draft row no longer opens it: its next step is Review, which opens the draft (round one: Send on a half-filled
+// draft's row went out at $9,702 of $22,780). Send is pressed from the invoice, after the person has read it.
 function blSendSheet(c, inv) {
   c && inv && ("function" == typeof crSendToClient ? crSendToClient(c, inv) : docAction(c, inv, "sendclient"));
 }
@@ -146736,7 +146830,7 @@ function blTiles() {
       s: R.n
         ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
         : R.held.length
-          ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
+          ? `nothing ready · ${tlN(R.held.length, "line")} held, each with its reason`
           : "nothing earned is waiting on an invoice",
       grid: "billing",
       pred: (r) => "ready" === r.kind,
@@ -146829,7 +146923,7 @@ const blStage = (r) =>
           ? "Bill"
           : "Open WIP"
         : "draft" === r.kind
-          ? "Send"
+          ? "Review"
           : "Open";
 function blListHtml() {
   return grid({
@@ -170994,7 +171088,7 @@ const AG_FIN = [
     run(P) {
       const B = agBF().B;
       return {
-        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(B.trulyOurs)} once client funds and payables are set aside.`,
+        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(stsSafe())} once client funds and payables are set aside.`,
         go: agGo("bank"),
         ran: agRan("bank accounts", ["balance as of " + fmtL(today())], "", (DB.accounts || []).length),
       };
@@ -172237,9 +172331,9 @@ AG_FIN.push(
     run(P) {
       const B = agBF().B;
       return {
-        headline: B.trulyOurs < 0
-          ? `Short by ${money(-B.trulyOurs)} today: safe to spend is ${money(B.trulyOurs)} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
-          : `${money(B.trulyOurs)} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
+        headline: stsSafe() < 0
+          ? `Short by ${money(-stsSafe())} today: safe to spend is ${money(stsSafe())} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
+          : `${money(stsSafe())} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
         work: [`Cash ${money(B.cash)}`, `Cards owed ${money(-B.cards)}`, `Client funds held ${money(B.clientFunds)}`, `Payables accrued ${money(B.apAccrued)}`, `Payroll accrued ${money(B.payrollAccrued)}`],
         go: agGo("bank"),
         ran: agRan("bank accounts, client funds and payables", ["as of " + fmtL(today())], "", (DB.accounts || []).length),
@@ -173706,7 +173800,8 @@ function tdMyJobs() {
 // ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
 predDef("safeToSpend", {
   label: "Safe to Spend",
-  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low",
+  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low; a payment recorded but not yet in the bank is not counted",
+  why: () => stsWhy(),
   figure: () => safeToSpend().safe,
   // the build-up behind the figure, line for line as companyBalance computes it: cash today is the bank
   // plus the card balances (negative) less unpaid bills and payroll due; truly ours takes off what was billed ahead
@@ -173997,7 +174092,7 @@ function tdPulseOpen(t) {
       `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
     m = mbModal(
       esc(t.label),
-      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
+      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p>${"function" == typeof PRED[t.pred].why ? `<p class="small td-sh-why">${esc(PRED[t.pred].why())}</p>` : ""}<div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
         lines.length
           ? `<div class="td-sh-list">${lines
               .map(
@@ -188343,14 +188438,19 @@ function rbRows(pid) {
       if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
       // what was bought for the line and is the client's to pay as contract work, billed in dollars; a purchase billed
       // back on its own invoice line is already out of the line's cost (lineFin, txnRebilled)
+      // The client pays for what was delivered, never for a vendor's overage in dispute: the windows read $13,970
+      // (cost $33,500 less $19,530 billed) while $3,800 of the cost is Window Works' charge over its PO, held and
+      // disputed. The figure is delivered less billed ($29,700 − $19,530 = $10,170), and the rest is named.
       const cost = r2(+r.ev.cost || 0),
+        got = r2(+r.ev.del.received || 0),
+        over = r2(Math.max(0, cost - got)),
         sched = +r.ev.scheduled || 0,
         // on an application already (a draft counts, as sovBilled counts it: the draft is where the person put it)
         billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && "void" !== i.status).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
-        amt = r2(Math.min(Math.min(cost, sched) - billed - per, +r.pr.stored || 0));
+        amt = r2(Math.min(Math.min(cost, got, sched) - billed - per, +r.pr.stored || 0));
       amt >= 100 &&
-        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: cost, billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, disputed: over, markupPct: 0, date: "", label: r.sv.desc, why: `${money(got)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for${over >= 1 ? `; the other ${money(over)} of cost is over what was delivered (in dispute with the vendor) and is never billed to the client` : ""}` });
     });
   });
   return out;
@@ -188454,10 +188554,23 @@ function rbDraftFloated(pid, svId) {
     const R = base.apply(this, arguments);
     try {
       const X = ocMemo("rbReady", () => rbReady()) || [];
-      if (X.length) {
-        const rows = R.rows.concat(X).sort((a, b) => b.amount - a.amount);
-        return Object.assign({}, R, { rows: rows, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
-      }
+      let rows = R.rows.concat(X);
+      const held = R.held.slice();
+      // A job billed ahead of the work (line by line, pbAhead) is offered no more progress billing: its application
+      // and its stored materials wait as held rows that say why, so the queue never proposes billing further ahead
+      // (121 State: billed $66,470 ahead while the queue offered $12,651 and $13,970 more). What was bought for the
+      // client and is owed back is not progress, so it stays ready.
+      "function" == typeof pbAhead &&
+        (rows = rows.filter((r) => {
+          if (!r.p || !["application", "floated", "progress"].includes(r.kind)) return !0;
+          const A = pbAhead(r.p.id);
+          if (!(A && A.total > 0.005)) return !0;
+          const what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)})`;
+          held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: the job is billed ${money(A.total)} ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}; billing more needs a reason` });
+          return !1;
+        }));
+      rows.sort((a, b) => b.amount - a.amount);
+      return Object.assign({}, R, { rows: rows, held: held, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
     } catch (e) {
       console.warn("reimbursables", e);
     }
