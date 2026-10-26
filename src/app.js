@@ -3903,7 +3903,77 @@ function toast(msg, go, ms) {
     // placed again once the step that raised it has finished: a sheet's submit toasts before the sheet closes, and
     // the toast stayed at the top of the screen, over the header, for the next six seconds
     requestAnimationFrame(() => t.classList.contains("on") && toastPlace(t)),
-    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
+    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400))),
+    toastWatch(t);
+}
+// A sheet that opens while a toast is still up (Convert's toast, then Closed Won's sheet a second later) had the
+// toast over its buttons on the phone for the toast's last seconds: the tap on Close and Start the Proposal waited
+// four seconds for it to go (cycle walk J1b). The toast is placed again whenever a sheet opens under it.
+// A tap is never lost to a redraw. Pressing a button while a field still has focus commits the field first (its
+// change event fires on the press); when that change redraws the screen, the button under the finger is replaced
+// before the press ends and the browser drops the click. Save on an estimate line needed a second tap (101 taps for 12
+// lines on the desktop) and Done on the phone's line editor stayed open (cycle walk J2).
+// The pressed control is pressed again on its replacement only when it is surely the same control for the same record:
+//  - the same tag, id, data attributes and words, AND the same record around it: the ids and data attributes of every
+//    ancestor up to the view, sheet or drawer it sits in (a list of identical Approve buttons carries its identity on
+//    the row, data-nyhrow; if the list re-ranked under the finger, the Approve now there is another record's);
+//  - the replacement covers the point where the press began;
+//  - no click of any kind reached the page after the press ended. One recorder, registered here on the window in the
+//    capture phase before every other click handler (Needs You's window handler stops the click's propagation), sees
+//    every click; a click that reached anything means the browser delivered the press, and nothing is pressed again.
+{
+  const sel = 'button, a, [role="button"], [data-docact], [data-cts]',
+    edge = "section.view, #mbm, .modal, #drawer, #ct-sheet, .ct-sheet, body",
+    own = (el) =>
+      (el.id || "") +
+      "{" +
+      [...el.attributes]
+        .filter((a) => a.name.startsWith("data-") && !/^data-sim/.test(a.name))
+        .map((a) => a.name + "=" + a.value)
+        .sort()
+        .join("&") +
+      "}",
+    keyOf = (el) => {
+      const up = [];
+      for (let x = el.parentElement; x && !x.matches(edge); x = x.parentElement) up.push(own(x));
+      const top = el.closest(edge);
+      return [el.tagName, own(el), String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80), up.join("<"), top ? top.tagName + "#" + (top.id || "") : ""].join("|");
+    };
+  let press = null,
+    clicks = 0;
+  window.addEventListener("click", () => clicks++, !0);
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      const el = e.target && e.target.closest ? e.target.closest(sel) : null;
+      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null;
+    },
+    !0,
+  );
+  document.addEventListener(
+    "mouseup",
+    (e) => {
+      const p = press;
+      if (((press = null), !p || p.el.isConnected || Date.now() - p.t > 2e3)) return;
+      const now = e.target && e.target.closest ? e.target.closest(sel) : null;
+      if (!now || now === p.el || now.disabled || keyOf(now) !== p.key) return;
+      const r = now.getBoundingClientRect();
+      if (!(p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom)) return;
+      const n = clicks;
+      setTimeout(() => {
+        clicks > n || !now.isConnected || now.click();
+      }, 0);
+    },
+    !0,
+  );
+}
+function toastWatch(t) {
+  clearInterval(t._w);
+  t._w = setInterval(() => {
+    if (!t.classList.contains("on")) return clearInterval(t._w);
+    const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
+    box && box.getClientRects().length && !t.classList.contains("toast-up") && toastPlace(t);
+  }, 120);
 }
 // A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the
 // editor and leave the editor on top (the side drawer) or drop what was typed in it (a sheet). Now the editor
@@ -5639,6 +5709,8 @@ function openEditor(kind, id) {
   setTimeout(() => $("#e-name")?.focus(), 50);
 }
 function closeEditor() {
+  // a New Project opened from an estimate and closed unsaved no longer waits to take that estimate
+  "undefined" != typeof estNewJobFor && (estNewJobFor = null),
   (editing = null),
     delete $("#drawer").dataset.dirty,
     $("#drawer").classList.remove("on"),
@@ -8995,13 +9067,7 @@ function renderDocEditor(c, d) {
     st = "invoice" === kind ? invoiceStatus(c, d) : d.status,
     flow = DOC_FLOW[kind],
     fi = flow.indexOf("overdue" === st ? "sent" : st),
-    projOpts = DB.projects
-      .filter((p) => p.clientId === c.id || p.id === d.projectId)
-      .map(
-        (p) =>
-          `<option value="${p.id}" ${d.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`,
-      )
-      .join(""),
+    projOpts = estProjOpts(c, d, editable),
     label = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" }[kind],
     paidOn =
       "invoice" === kind
@@ -9082,6 +9148,81 @@ function docSnapBoot() {
     }),
   );
 }
+// ---- An estimate and its job (cycle walk J1b, 2026-10-26). An estimate started at won ("Close and Start the
+// Proposal") had no job: its Project select offered only "—", once the job existed it showed the job while the record
+// stayed empty, and Convert then opened a second job of the same name with the SOV on neither. One rule now, used by
+// every path: an estimate's job is the client's job at its address, matched by street (number and name) against the
+// job's name and address. When the estimate's title names an address, only that decides. When it names none, a client
+// with one live job gets it (unless their leads or property address point elsewhere) and a client with more than one
+// is left blank for the person to choose (a repeat client's estimate titled
+// "88 Pierrepont St" went on 214 Lincoln Place: every hint was pooled and the first job matching any of them won).
+const estStreet = (s) => {
+  const m = String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .match(/\b(\d+[a-z]?(?:-\d+)?)\s+((?:[a-z0-9][a-z0-9.'-]*\s?){1,4}?)(?:\s*(?:—|-|,|:|\(|$)|\s(?:design|renovation|proposal|kitchen|bath|apt|unit|#))/);
+  return m ? (m[1] + " " + m[2].trim().replace(/\b(street|st\.?)$/, "st").replace(/\b(place|pl\.?)$/, "pl").replace(/\b(avenue|ave\.?)$/, "ave")).trim() : "";
+};
+const estLiveJobs = (c) =>
+  (DB.projects || []).filter((p) => c && p.clientId === c.id && !p.archived && "closed" !== ((p.project || {}).status || ""));
+function estHints(c, d) {
+  const L = (DB.leads || []).filter((l) => c && l.clientId === c.id);
+  return [d && d.title, ...L.map((l) => l.addr || l.property), ...L.map((l) => l.oppName), c && c.propertyAddr].filter(Boolean);
+}
+function estJobFor(c, d) {
+  const jobs = estLiveJobs(c);
+  if (!jobs.length) return null;
+  const at = (keys) => jobs.filter((p) => [estStreet(p.project.name), estStreet(p.project.addr)].some((x) => x && keys.includes(x))),
+    own = estStreet(d && d.title);
+  if (own) {
+    const H = at([own]);
+    return 1 === H.length ? H[0] : null;
+  }
+  // no address in the title: a repeat client (more than one live job) is asked, never guessed for; a client with one
+  // job gets it unless their leads or property address point somewhere else
+  if (jobs.length > 1) return null;
+  const keys = estHints(c, null).map(estStreet).filter(Boolean);
+  return !keys.length || at(keys).length ? jobs[0] : null;
+}
+// A job opened for a client takes the client's draft and sent estimates that have no job yet and whose job, by the
+// rule above, is this one; each tie is logged on the estimate's audit trail and the client's activity. An approved or
+// converted estimate is never moved by it (its contract and SOV follow its job). Returns the estimates it took.
+function estTieNewJob(p) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!c) return [];
+  return (c.estimates || []).filter((e) => {
+    if (e.projectId || !["draft", "sent"].includes(e.status) || estJobFor(c, e) !== p) return !1;
+    e.projectId = p.id;
+    const note = `${e.number} put on ${p.project.name}, the job just opened at its address`;
+    try {
+      audit("estimate", e.id, "tie job", { projectId: "" }, { projectId: p.id }, note);
+    } catch (x) {}
+    return (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || "", text: note }), !0;
+  });
+}
+// The estimate's Project select: the client's jobs, a blank while none is chosen (so what shows is what is saved),
+// and New Project, which opens the job in place and puts the estimate on it.
+var estNewJobFor = null;
+function estProjOpts(c, d, editable) {
+  const jobs = (DB.projects || []).filter((p) => p.clientId === c.id || p.id === d.projectId);
+  return (
+    (d.projectId ? "" : `<option value="" selected>${jobs.length ? "— Choose the job —" : "No job yet"}</option>`) +
+    jobs.map((p) => `<option value="${p.id}" ${d.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("") +
+    (editable && "estimate" === d.type ? '<option value="__newjob">New Project…</option>' : "")
+  );
+}
+function estNewJob(c, d) {
+  estNewJobFor = { cid: c.id, did: d.id, kind: d.type, view: view, clientOpen: clientOpen, docOpen: docOpen };
+  newProjectDialog(c.id);
+  const hint = estHints(c, d).find((s) => estStreet(s)) || "",
+    name = document.getElementById("e-name"),
+    addr = document.getElementById("e-addr");
+  if (name && !name.value && hint) {
+    const k = String(hint).split(/\s+[—–-]\s+|,|:/)[0].trim();
+    (name.value = k), name.dispatchEvent(new Event("input", { bubbles: !0 }));
+  }
+  addr && !addr.value && (addr.value = (c.propertyAddr || hint.split(/\s+[—–-]\s+/)[0] || "").trim());
+}
 // Leaving a document keeps what was typed (a quantity commits on blur, Send saves first: the edits are live
 // already); nothing is reverted on the way out and nothing is asked. Discard is the docbar's own button.
 function docLeave(c, d) {
@@ -9097,7 +9238,10 @@ function docActions(c, d, st) {
     B = (a, l, cls = "") => `<button class="btn sm ${cls}" data-docact="${a}">${l}</button>`;
   let h = "";
   if (
-    ("draft" === d.status && (h += B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
+    // a draft estimate's safe next step is to review what the client will get and send it; marking it sent is a
+    // record of something done elsewhere, so it is never the blue button nor the first (cycle walk, dangerous buttons)
+    ("draft" === d.status &&
+      (h += "estimate" === k ? B("email", "Review and send", "primary") : B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
     "estimate" === k && "construction" === d.template && "converted" === d.status)
   ) {
     h += c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status)
@@ -9140,13 +9284,15 @@ function docActions(c, d, st) {
           B("email", "overdue" === st ? "Draft reminder" : "Draft cover email")),
       "void" !== d.status && "paid" !== st && (h += B("void", "Void"))),
     (h += B("print", "Print / PDF") + B("dup", "Duplicate")),
+    "estimate" === k && "draft" === d.status && (h += B("marksent", "Mark sent")),
     "draft" === d.status && (h += B("del", "Delete", "danger")),
     h
   );
 }
 function wireDocEditor(c) {
   const d = findDoc(c, docOpen.kind, docOpen.id),
-    root = document.getElementById("doc-" + d.id);
+    // a document left open for another client (won from Sales with an estimate open) is not drawn here
+    root = d && document.getElementById("doc-" + d.id);
   if (!root) return;
   const rerender = () => {
     render();
@@ -9154,6 +9300,8 @@ function wireDocEditor(c) {
   root.querySelectorAll("[data-d]").forEach((el) =>
     el.addEventListener("change", (e) => {
       const k = e.target.dataset.d;
+      // New Project in the Project select opens the job in place; the estimate goes on it once it is made
+      if ("projectId" === k && "__newjob" === e.target.value) return (e.target.value = d.projectId || ""), void estNewJob(c, d);
       "discType" === k
         ? (d.discount.type = e.target.value)
         : "discValue" === k
@@ -9307,7 +9455,35 @@ function docAudit(c, d, action, note) {
     audit(d.type, d.id, action, d.status, "void" === action ? "void" : action, `${d.number} · ${note || ""}`);
   } catch (e) {}
 }
+// Mark Sent on a draft estimate records a sending done outside the app: it asks how it went, to whom and on what
+// day (nothing is filled in for the day; it is the person's to say), then sends it through docAction with that record.
+function docMarkSentSheet(c, d) {
+  const pc = "function" == typeof crBillTo ? crBillTo(c) : {},
+    HOW = ["Email from my own mailbox", "Printed and handed over", "Through the client portal", "Another way"];
+  mbModal(
+    `Mark Sent — ${esc(d.number)}`,
+    `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
+      ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+    {
+      submit: "Record It Sent",
+      onSubmit: (f) => {
+        if (!f.how) return toast("Say how it went to the client"), !1;
+        if (!f.on) return toast("Say the day it was sent"), !1;
+        if (f.on > today()) return toast("A sending cannot be in the future"), !1;
+        (async () => {
+          const was = d.status;
+          if ((await docAction(c, d, "send"), d.status === was)) return;
+          (d.sentAt = f.on), (d.sentTo = f.to || ""), (d.sentVia = f.how), (d.sentBy = S.project.userName || role());
+          c.activity.push({ t: nowStamp(), by: d.sentBy, text: `${d.number} recorded as sent ${fmtL(f.on)} (${f.how}${f.to ? " to " + f.to : ""})` });
+          save(), render(), toast(`${d.number} recorded as sent ${fmtL(f.on)}`, flowGo.doc(c, d.type, d));
+        })();
+      },
+    },
+  );
+}
 async function docAction(c, d, a) {
+  if ("marksent" === a) return "draft" === d.status ? docMarkSentSheet(c, d) : void 0;
   const k = d.type,
     by = S.project.userName || "",
     act = (txt) => c.activity.push({ t: nowStamp(), by: by, text: txt });
@@ -9377,11 +9553,20 @@ async function docAction(c, d, a) {
     "expire" === a && (d.status = "expired"),
     "convert" === a || "approveconvert" === a)
   ) {
-    const t = docTotal(d);
+    const t = docTotal(d),
+      // the job it goes on is said before it happens (never chosen silently): its own, the client's job at its address
+      // (estJobFor), or a new job, naming the client's other jobs so a wrong address is caught here
+      job = d.projectId ? (DB.projects || []).find((p) => p.id === d.projectId) : estJobFor(c, d),
+      others = job ? [] : estLiveJobs(c),
+      where = job
+        ? ` It goes on ${job.project.name}.`
+        : others.length
+          ? ` It opens a new job: ${c.name}'s jobs (${others.map((p) => p.project.name).join(", ")}) are not at this estimate's address. If it belongs on one of them, choose it in Project first.`
+          : " It opens the job for it.";
     if (
       "convert" === a &&
       !appConfirm(
-        `Convert ${d.number}: set the base contract to ${money(t.total)} and build the schedule of values from its ${d.lines.length} lines?${c.contract ? " This replaces the current contract and SOV base." : ""}`,
+        `Convert ${d.number}: set the base contract to ${money(t.total)} and build the schedule of values from its ${d.lines.length} lines?${c.contract ? " This replaces the current contract and SOV base." : ""}${where}`,
       )
     )
       return;
@@ -9409,12 +9594,14 @@ async function docAction(c, d, a) {
       (d.status = "converted"),
       act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.length} SOV lines`),
       docMark(d),
+      // never a second job: an estimate with no job goes on the job named above (estJobFor), and says so
+      !d.projectId && job && ((d.projectId = job.id), docMark(d), act(`${d.number} put on ${job.project.name}, the client's job at its address`)),
       !d.projectId && appConfirm("Create a project for this contract now?"))
     ) {
       const p = projectFromTemplate(d.title || c.name, c.propertyAddr || "", nextWork(today()), "");
       (p.clientId = c.id), DB.projects.push(p), (d.projectId = p.id);
     }
-    toast("Contract and schedule of values set");
+    toast(`Contract and schedule of values set${(DB.projects || []).find((p) => p.id === d.projectId) ? " on " + DB.projects.find((p) => p.id === d.projectId).project.name : ""}`);
   }
   if ("revise" === a) {
     const n = newDoc(c, "estimate", {
@@ -19875,13 +20062,33 @@ function newProjectDialog(forClientId) {
             text: `Project ${p.project.name} created`,
           }));
       }
-      DB.projects.push(p),
-        setCurrent(p.id),
+      DB.projects.push(p);
+      // the estimate that asked for this job (its Project select's New Project) goes on it and is shown again; any
+      // other estimate of the client's with no job yet, at this address, goes on it too (estTieNewJob)
+      const ask = estNewJobFor;
+      estNewJobFor = null;
+      const askC = ask && ask.cid === p.clientId && DB.clients.find((x) => x.id === ask.cid),
+        askD = askC && findDoc(askC, ask.kind, ask.did);
+      askD && !askD.projectId && (askD.projectId = p.id);
+      const tied = estTieNewJob(p).concat(askD && askD.projectId === p.id ? [askD] : []).filter((e, i, a) => a.indexOf(e) === i),
+        on = tied.length ? ` · ${tied.map((e) => e.number).join(", ")} ${1 === tied.length ? "is" : "are"} on it` : "";
+      if (askD)
+        return (
+          setCurrent(p.id),
+          closeEditor(),
+          save(),
+          ($("#d-save").onclick = saveEditor),
+          (clientOpen = ask.clientOpen || askC.id),
+          (docOpen = ask.docOpen || { kind: askD.type, id: askD.id }),
+          setView(ask.view || "clients"),
+          void toast(`Created ${p.project.name}${on}`, () => setView("dash"))
+        );
+      setCurrent(p.id),
         closeEditor(),
         save(),
         ($("#d-save").onclick = saveEditor),
         setView("tpl" === o.tpl ? "sched" : "dash"),
-        toast(`Created ${p.project.name}`);
+        toast(`Created ${p.project.name}${on}`);
     }),
     setTimeout(() => $("#e-name").focus(), 50);
 }
@@ -23621,11 +23828,20 @@ function ctLineSheet(c, d, l, editable) {
     (s.id = "ct-sheet"),
     (s.className = "ct-sheet"),
     document.body.appendChild(s));
+  const figures = () => {
+    const amt = lineAmount(l, d),
+      cost = +l.cost || 0,
+      m = amt && cost ? Math.round(((amt - cost) / amt) * 100) : null,
+      tb = s.querySelector(".ct-sheet-total b"),
+      mi = s.querySelector('[aria-label="Margin"]');
+    tb && (tb.textContent = money(amt));
+    mi && ((mi.value = null != m ? m + "%" : "—"), mi.classList.toggle("bad", null != m && m < (DB.company.minMargin || 20)));
+  };
   const paint = () => {
     const amt = lineAmount(l, d),
       cost = +l.cost || 0,
       m = amt && cost ? Math.round(((amt - cost) / amt) * 100) : null;
-    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" ${ro}></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""}</b></button>\n        <details class="ct-sheet-int" ${l.cost || l.vendor ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <div class="ct-f3"><label class="ct-f"><span>Budget cost</span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="0"></label><label class="ct-f"><span>Margin</span><input value="${null != m ? m + "%" : "—"}" readonly class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label><label class="ct-f"><span>Code</span><select data-csf="code"><option value="">—</option>${codes}</select></label></div>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it"></label>${(() => {
+    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" aria-label="Item" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" aria-label="Scope of work" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" aria-label="Quantity" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" aria-label="Unit" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" aria-label="Rate" ${ro}></label></div>\n        <div class="ct-f2c"><label class="ct-f"><span>Budget cost <i>internal</i></span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="what it costs us" aria-label="Budget cost" ${ro}></label><label class="ct-f"><span>Margin <i>internal</i></span><input value="${null != m ? m + "%" : "—"}" readonly tabindex="-1" aria-label="Margin" class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""}</b></button>\n        <details class="ct-sheet-int" ${l.vendor || l.code ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <label class="ct-f"><span>Cost code</span><select data-csf="code" aria-label="Cost code" ${dis}><option value="">—</option>${codes}</select></label>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it" aria-label="Vendor / sub" ${ro}></label>${(() => {
       const f = "draft" !== d.status ? lineFin(ctKey(d, l)) : null;
       return f
         ? `<div class="ct-fin-m"><div><span>Billed</span><b>${f.billedPct}%</b></div><div><span>Committed</span><b>${money(f.committed)}</b></div><div><span>Actual</span><b>${money(f.actual)}</b></div><div><span>Margin</span><b>${f.marginPct}%</b></div></div><button class="ct-sheet-btn" data-cts="fin"><span>Financial thread <i>invoices, POs, bills on this line</i></span><b>›</b></button>`
@@ -23639,10 +23855,17 @@ function ctLineSheet(c, d, l, editable) {
             : ["qty", "rate", "cost"].includes(f)
               ? (l[f] = +inp.value || 0)
               : (l[f] = inp.value),
+            "cost" === f && (l.costSet = "" !== String(inp.value).trim()),
             "item" !== f || l.code || (l.code = ctCode(l)),
             save(),
-            "desc" !== f && "item" !== f && "vendor" !== f && paint();
+            // the figures that follow from the field are updated in place: redrawing the sheet replaced the field the
+            // person was tapping next, so every field took two taps on the phone (cycle walk J2)
+            ["qty", "rate", "cost", "unit", "taxable"].includes(f) && figures();
         }),
+      ),
+      s.querySelectorAll("[data-csf]").forEach((inp) =>
+        // with the keyboard up the field being typed stays in sight
+        inp.addEventListener("focus", () => setTimeout(() => inp.isConnected && inp.scrollIntoView({ block: "center" }), 280)),
       );
     const ta = s.querySelector("textarea"),
       grow = () => {
@@ -35660,7 +35883,9 @@ docAction = async function (c, d, a) {
       ("approve" === a && ["construction", "design", "materials"].includes(d.template))) &&
     "estimate" === d.type
   ) {
-    const pid = d.projectId || "";
+    // the job it will go on is read, not set: the root's convert names it in its confirmation and sets it once the
+    // person says yes; the job is read again after (the SOV and the contract went on "" before)
+    let pid = d.projectId || (estJobFor(c, d) || {}).id || "";
     if (
       c.invoices.some(
         (i) => "sov" === i.mode && !["void", "draft"].includes(i.status) && (i.projectId || "") === pid,
@@ -35674,8 +35899,9 @@ docAction = async function (c, d, a) {
     const keepSov = c.sov.filter((v) => "Contract" === v.source && (v.projectId || "") !== pid),
       r = (c.contract, await docActionBase6(c, d, a));
     if ("converted" === d.status) {
+      pid = d.projectId || pid;
       c.sov.forEach((v) => {
-        "Contract" === v.source && null == v.projectId && (v.projectId = pid);
+        "Contract" === v.source && (null == v.projectId || ("" === v.projectId && pid && String(v.lineRef || "").startsWith(`estimate:${d.id}:`))) && (v.projectId = pid);
       }),
         keepSov.forEach((v) => {
           c.sov.includes(v) || c.sov.push(v);
@@ -40131,6 +40357,8 @@ const docActionBase_wf1 = docAction;
 docAction = async function (c, d, a) {
   d.status;
   const before = d.projectId,
+    // a job the convert found (the client's job at the estimate's address) is not a job it created
+    had = new Set((DB.projects || []).map((p) => p.id)),
     _ck = askKey("Create a project for this contract now?"),
     _auto = ("approve" === a || "approveconvert" === a || "convert" === a) && !d.projectId;
   let r;
@@ -40140,7 +40368,7 @@ docAction = async function (c, d, a) {
   } finally {
     _auto && askMem.delete(_ck);
   }
-  if (!before && d.projectId) {
+  if (!before && d.projectId && !had.has(d.projectId)) {
     const p = DB.projects.find((x) => x.id === d.projectId);
     p &&
       (c.propertyAddr && !p.project.addr && (p.project.addr = c.propertyAddr),
@@ -65642,11 +65870,16 @@ const BILL_TABS = [
   ["funds", "Client Funds"],
 ];
 function iaDocRows(kind) {
-  const out = [];
+  const out = [],
+    // the PM's Estimates is this list on his jobs only (and the estimates not on a job yet, so a new proposal is
+    // never out of his sight); every other role and list reads every job
+    mine =
+      "estimate" === kind && "pm" === role() && "function" == typeof tdMyJobs ? new Set(tdMyJobs().map((p) => p.id)) : null;
   return (
     DB.clients.forEach((c) => {
       (billClient && c.id !== billClient) ||
         ("invoice" === kind ? c.invoices : "co" === kind ? c.changeOrders : c.estimates).forEach((x) => {
+          if (mine && x.projectId && !mine.has(x.projectId)) return;
           const t = docTotal(x),
             st = "invoice" === kind ? invoiceStatus(c, x) : x.status,
             paid = "invoice" === kind ? invoicePaid(c, x) : 0;
@@ -76359,11 +76592,19 @@ function slMove(id, stage, extra) {
         p.thanks.push({ at: today(), for: l.name, done: !1 })),
       (clientOpen = c.id),
       (clientTab = "overview"),
+      (docOpen = null),
       (crmTab = "clients"),
       (view = "clients"),
       save(),
       render(),
-      void toast(`${l.name} is a client — approve the proposal on the record and it becomes the agreement`)
+      // the toast names the client that was made, never the opportunity ("214 Lincoln Place — Design-build is a
+      // client", cycle walk J1), and opens it
+      void toast(`${c.name} is a client`, {
+        label: "Open the Client",
+        run: () => {
+          (clientOpen = c.id), (clientTab = "overview"), (docOpen = null), (view = "clients"), render();
+        },
+      })
     );
   }
   if (
@@ -101934,9 +102175,11 @@ if ("function" == typeof slEnsureClient) {
                   try {
                     const c = DB.clients.find((x) => x.id === l.clientId);
                     if (c) {
-                      const d = newDoc(c, "estimate", {
-                        fields: { title: `${l.name} — proposal`, projectId: "" },
-                      });
+                      // the proposal goes on the lead's job when the client has it (estJobFor, by address); else its
+                      // Project select offers New Project, and the job opened later at this address takes it
+                      const title = `${l.name} — proposal`,
+                        job = estJobFor(c, { title: title }),
+                        d = newDoc(c, "estimate", { fields: { title: title, projectId: job ? job.id : "" } });
                       return (
                         (clientOpen = c.id),
                         (clientTab = "fin"),
@@ -101963,26 +102206,8 @@ if ("function" == typeof slEnsureClient) {
                   window.confirm = oc;
                 }
                 return (
+                  // slMove's own toast names the client and opens it (it was overwritten here with a second one)
                   /^hb|^scleads/.test(view) || ((view = "hbdeals"), (hbOpenId.deal = ""), render()),
-                  setTimeout(() => {
-                    const t = document.getElementById("toast");
-                    t &&
-                      ((t.innerHTML = `${esc(l.leadName || l.name)} is a client <a href="#" data-scclient="${l.clientId || ""}" style="margin-left:8px;color:inherit;text-decoration:underline">Open the Client</a>`),
-                      t.classList.add("on"),
-                      clearTimeout(t._t),
-                      (t._t = setTimeout(() => t.classList.remove("on"), 6e3)),
-                      t.querySelectorAll("[data-scclient]").forEach(
-                        (a) =>
-                          (a.onclick = (ev) => {
-                            ev.preventDefault(),
-                              t.classList.remove("on"),
-                              (clientOpen = a.dataset.scclient),
-                              (clientTab = "overview"),
-                              (view = "clients"),
-                              render();
-                          }),
-                      ));
-                  }, 60),
                   r
                 );
               },
@@ -120501,6 +120726,40 @@ function rxReadLines(c, d) {
       .join("") || '<tr><td colspan="8" class="muted">No lines.</td></tr>'
   }</tbody></table>${int && budget ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal — never printed. Total budget ${money(budget)} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - budget) / docTotal(d).sub) * 100) : 0}%</div>` : ""}`;
 }
+// A construction estimate past draft keeps its line cards (the item lists and the orders on each line live there),
+// but read only means read only: its 48 line fields could still be typed into on a converted estimate (cycle walk
+// J4). Each field is drawn as its value, the internal ones too (a budget changes on Budget, never on the signed
+// estimate), and the bar says why.
+function rxLineText(w, d) {
+  if (!w || !w.querySelector(".ct, .ct-m") || "sov" === d.mode) return;
+  const span = (cls, txt, tag) => Object.assign(document.createElement(tag || "span"), { className: "rx-ro-f " + cls, textContent: txt });
+  w.querySelectorAll(".ct input[data-ctf], .ct textarea[data-ctf], .ct select[data-ctf]").forEach((el) => {
+    const f = el.dataset.ctf,
+      v = "SELECT" === el.tagName ? (el.value ? (el.selectedOptions[0] || {}).textContent || "" : "") : String(el.value || "");
+    if ("checkbox" === el.type) {
+      const lab = el.closest("label");
+      return void (lab || el).replaceWith(span("ct-tax", el.checked ? "taxable" : ""));
+    }
+    el.replaceWith(
+      "desc" === f
+        ? span("ct-scope", v, "div")
+        : span(
+            "ct-" + f,
+            ["rate", "cost"].includes(f) ? (v === "" ? "—" : money(+v)) : "item" === f ? v || "Untitled line" : v || ("qty" === f ? "1" : ""),
+            "item" === f ? "b" : "span",
+          ),
+    );
+  });
+  const bar = w.querySelector(".docbar");
+  bar &&
+    !bar.querySelector(".rx-why") &&
+    "estimate" === d.type &&
+    ["approved", "converted"].includes(d.status) &&
+    bar.insertAdjacentHTML(
+      "beforeend",
+      `<span class="small muted rx-why">${"converted" === d.status ? "It is the contract: its lines are the schedule of values." : "The client approved it."} Scope changes go on a change order; the budget changes on Budget.</span>`,
+    );
+}
 function rxReadView(c, d, html) {
   const box = document.createElement("div");
   box.innerHTML = html;
@@ -120570,7 +120829,7 @@ function rxReadView(c, d, html) {
           out.join("") || '<span class="small muted">No memo or terms on this document.</span>');
     }
   }
-  return box.innerHTML;
+  return rxLineText(w, d), box.innerHTML;
 }
 if ("function" == typeof renderDocEditor) {
   const renderDocEditorBase_rx = renderDocEditor;
@@ -195530,9 +195789,14 @@ window.addEventListener(
     }
     let h = base.apply(this, arguments);
     try {
-      if (d && "estimate" === d.type && "string" == typeof h && !h.includes('data-d="scope"')) {
+      if (d && "estimate" === d.type && "string" == typeof h && !h.includes('data-d="scope"') && !h.includes("est-scope-ro")) {
         const ro = "draft" !== d.status ? "readonly" : "",
-          box = `<div class="card est-scope" style="margin:10px 0"><div class="grid2"><div class="f"><label>Scope</label><textarea data-d="scope" rows="3" ${ro} placeholder="What the work is, in the client's words">${esc(d.scope || "")}</textarea></div><div class="f"><label>Inclusions</label><textarea data-d="inclusions" rows="3" ${ro} placeholder="What the price includes">${esc(d.inclusions || "")}</textarea></div><div class="f"><label>Exclusions</label><textarea data-d="exclusions" rows="3" ${ro} placeholder="What it does not include">${esc(d.exclusions || "")}</textarea></div></div></div>`,
+          // past draft the three read as what they say (read only means read only, cycle walk J4)
+          fld = (k, lab, ph) =>
+            ro
+              ? `<div class="f"><label>${lab}</label><div class="rx-ro-f est-scope-ro" style="white-space:pre-wrap">${esc(d[k] || "") || '<span class="muted">—</span>'}</div></div>`
+              : `<div class="f"><label>${lab}</label><textarea data-d="${k}" rows="3" placeholder="${ph}">${esc(d[k] || "")}</textarea></div>`,
+          box = `<div class="card est-scope" style="margin:10px 0"><div class="grid2">${fld("scope", "Scope", "What the work is, in the client's words")}${fld("inclusions", "Inclusions", "What the price includes")}${fld("exclusions", "Exclusions", "What it does not include")}</div></div>`,
           at = h.indexOf('<div class="totals">');
         h = at > 0 ? h.slice(0, at) + box + h.slice(at) : h + box;
       }
@@ -198588,8 +198852,13 @@ const MN_JOBS = (o) =>
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
-        // change orders and extra estimates in each job (disagreement 1); no Sales, Design or Accounting (question 4)
+        // change orders and extra estimates in each job (disagreement 1); no Design or Accounting (question 4)
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
+        // the PM prices the job (journey J2), so he gets Sales as open question 4 decided ("only if they estimate"):
+        // Sales holds Estimates alone for him, so the rail draws it as Estimates (a group of one is its page). The
+        // same list as Billing's Estimates, his jobs only (iaDocRows); the job's own Estimates stays in Projects. Its
+        // own group id: as "sales" the entry was read as the Sales overview and owed its badge (counts_lint, rule c)
+        MN_G("estimates", "Estimates", "sales", [["billing", "Estimates", "estimates"]]),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1, vendors: 1 })),
         MN_G("reports", "Reports", "reports", MN_REPORTS),

@@ -712,7 +712,10 @@ class Sim:
         forced = ''
         try: await loc.click(timeout=4000)
         except Exception:
-            await loc.evaluate("e => e.click()"); forced = ' (it was covered; tapped through)'
+            # a click that landed late (the control was covered for a few seconds, then tapped) has already run and its
+            # control may be gone: the fallback must not wait 30 seconds for it, nor tap it a second time (cycle walk J1b)
+            try: await loc.evaluate("e => e.click()", timeout=2500); forced = ' (it was covered; tapped through)'
+            except Exception: forced = ' (the tap took over 4 seconds to land: something covered the control, or it went away)'
         await self.settle(pg, 400)
         out = await self._after(uid, pg, opts)
         out['control'] = sig['label']; out['kind'] = sig['k']

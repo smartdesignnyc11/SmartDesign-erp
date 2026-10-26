@@ -341,6 +341,8 @@ class Person:
         self.last_control = c.label
         r, txt = self._act('tap', c.n)
         self.trail[-1] += f'  ({c.label[:60]})'
+        if 'the tap took over 4 seconds to land' in txt[:300]:   # sim/server.py: the control was covered, then tapped
+            self.expect(False, f'"{c.label[:60]}" can be tapped at once (it took over 4 seconds to land: something covered it)', txt.split(chr(10))[0][:200])
         if not r.get('ok') and self.landed_slow(txt, c.label): r = {'ok': True}; txt = self.look().text
         if not r.get('ok'): raise Stuck(f'tap "{label}"', 'the tap to land', screen_of(txt), c.label + ': ' + txt.split(chr(10))[0][:160])
         self.scr = screen_of(txt)
@@ -557,7 +559,7 @@ def open_estimate(p, menu_check=False, create=False):
                  'Estimates in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
     p.go('Projects', expect_menu=False)
     sw = p.scr.find('Switch project', field=True)
-    if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job'])
+    if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job']); p.look()   # the page redraws for the job: read it again
     elif not sw:
         r = p.look().row(JOB['job'], after='Every job') or p.scr.row(JOB['job'])
         if r: p.tap_ctl(r)
@@ -675,7 +677,9 @@ def j3_pm_send(p):
     """The PM sends the estimate to the Ashbys: the cover email, sent, and the estimate marked sent."""
     open_estimate(p)
     num = est_number(p)
-    p.tap('Draft Cover Email')
+    # a draft's safe next step is Review and Send, the cover email (it was Draft Cover Email beside a blue Mark Sent;
+    # the estimate lane, 2026-10-26, cycle walk dangerous buttons)
+    p.tap('Review and Send') if p.look().find('Review and Send') else p.tap('Draft Cover Email')
     took = wait_for(p, 'Cover Email', 25)
     if took is None: raise Stuck('Draft Cover Email', 'the cover email to open', p.scr, 'Draft Cover Email')
     p.expect(took <= 5, 'the cover email opens within 5 seconds with the assistant off', f'it took {took}s')
@@ -689,6 +693,9 @@ def j3_pm_send(p):
     p.look()
     if not p.scr.has(num) or not p.scr.find('Mark Sent'): open_estimate(p)
     p.tap('Mark Sent', exact=True)
+    if p.look().sheet and p.scr.find('Sent On', field=True):   # Mark Sent asks how it went and the day (the estimate lane)
+        p.do([('pick', 'How It Went', 'Email from my own mailbox'), ('type', 'Sent On', p.w.world_state().get('day') or ''),
+              ('tap', 'Record It Sent')])
     p.expect(p.look().has('Sent'), f'{num} reads Sent', p.scr.excerpt('draft', 6))
 
 
