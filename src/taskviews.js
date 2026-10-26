@@ -694,7 +694,7 @@ function tvCell(I, field) {
     if (!W) return `<button type="button" class="tv-c tv-wait tv-empty" data-tved="wait" aria-label="Waiting on nobody: set it">${tvSvg("wait", 14)}<span>Waiting On</span></button>`;
     const late = W.promised && W.promised < td && !x.done,
       who = W.name.split(/\s+/).length > 2 ? W.name.split(/\s+/).slice(0, 2).join(" ") : W.name;
-    return `<button type="button" class="tv-c tv-wait on ${late ? "late" : ""}" data-tved="wait" aria-label="Waiting on ${esc(W.name)}${W.what ? " for " + esc(W.what) : ""}${W.promised ? ", promised " + esc(fmtL(W.promised)) : ""}" title="${esc(W.what ? `${W.name}: ${W.what}` : W.name)}"><span class="tv-chip-in">${tvSvg("wait", 13)}${esc(who)}${W.promised ? ` · ${esc(tvDay(W.promised))}` : ""}</span></button>`;
+    return `<button type="button" class="tv-c tv-wait on ${late ? "late" : ""}" data-tved="wait" aria-label="Waiting on ${esc(W.name)}${W.what ? " for " + esc(W.what) : ""}${W.promised ? ", promised " + esc(fmtL(W.promised)) : ""}" title="${esc(W.what ? `${W.name}: ${W.what}` : W.name)}"><span class="tv-chip-in">${tvSvg("wait", 13)}<span class="tv-chip-t">${esc(who)}${W.promised ? ` · ${esc(tvDay(W.promised))}` : ""}</span></span></button>`;
   }
   return "";
 }
@@ -880,13 +880,13 @@ function tvUpdated(I) {
 const TV_FIELDS = [
   { k: "ref", n: "Key", fixed: 1, w: 76, type: "text", ro: 1, val: (I) => I.ref || "", cmp: tvKeyCmp },
   { k: "title", n: "Task", fixed: 1, w: 0, type: "text", val: (I) => String(I.x.title || "") },
-  { k: "project", n: "Project", w: 104, type: "text", ro: 1, val: (I) => I.pname || "" },
-  { k: "owner", n: "Owner", w: 96, type: "person", val: (I) => I.owner || "" },
-  { k: "due", n: "Due", w: 84, type: "date", val: (I) => I.x.due || "" },
-  { k: "priority", n: "Priority", w: 80, type: "select", val: (I) => I.pri || 0, say: (I) => tvPriSay(I.pri), opts: () => [1, 2, 3].map((n) => [String(n), tvPriSay(n)]) },
+  { k: "project", n: "Project", w: 88, type: "text", ro: 1, val: (I) => I.pname || "" },
+  { k: "owner", n: "Owner", w: 92, type: "person", val: (I) => I.owner || "" },
+  { k: "due", n: "Due", w: 104, type: "date", val: (I) => I.x.due || "" },
+  { k: "priority", n: "Priority", w: 64, type: "select", val: (I) => I.pri || 0, say: (I) => tvPriSay(I.pri), opts: () => [1, 2, 3].map((n) => [String(n), tvPriSay(n)]) },
   { k: "carried", n: "New or Carried", w: 84, type: "select", val: (I) => String(tvRV(I, "carried") || "").toUpperCase(), say: (I) => tvCarSay(tvRV(I, "carried")), opts: () => [["NEW", "New"], ["CARRIED", "Carried"]], rank: { NEW: 0, CARRIED: 1 } },
   { k: "status", n: "Status", w: 104, type: "status", val: (I) => I.status, say: (I) => TV_STATUS_SAY[I.status], rank: { todo: 0, doing: 1, waiting: 2, fyi: 3, done: 4 } },
-  { k: "wait", n: "Waiting On", w: 128, type: "wait", val: (I) => (I.wait ? I.wait.name : ""), say: (I) => (I.wait ? [I.wait.name, I.wait.promised ? tvDay(I.wait.promised) : ""].filter(Boolean).join(" · ") : "") },
+  { k: "wait", n: "Waiting On", w: 144, type: "wait", val: (I) => (I.wait ? I.wait.name : ""), say: (I) => (I.wait ? [I.wait.name, I.wait.promised ? tvDay(I.wait.promised) : ""].filter(Boolean).join(" · ") : "") },
   { k: "start", n: "Start", w: 92, type: "date", place: "task", val: (I) => tvRV(I, "start") || "" },
   { k: "collab", n: "Collaborators", w: 140, type: "people", place: "task", val: (I) => tvArr(tvRV(I, "collaborators")).join(", ") },
   { k: "follow", n: "Follow Up", w: 96, type: "date", place: "task", val: (I) => I.follow || "" },
@@ -3455,6 +3455,9 @@ function tvWaitSeed() {
 #v-tkall .tv-dash{color:#4A5060}
 #v-tkall .tv-wait.on .tv-chip-in{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:28px;box-sizing:border-box;white-space:nowrap;padding:0 10px;border-radius:8px;background:#FFF6E5;color:#7A4A00;font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis}
 #v-tkall .tv-wait.on .tv-chip-in svg{flex:0 0 auto;width:13px;height:13px;stroke-width:2.2}
+/* the ellipsis sits on the name itself: on the inline-flex chip it had no effect and names were cut mid-letter */
+#v-tkall .tv-wait.on{max-width:100%;min-width:0;overflow:hidden}
+#v-tkall .tv-wait.on .tv-chip-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #v-tkall .tv-wait.on.late .tv-chip-in{background:#FDECEA;color:var(--tv-late)}
 #v-tkall .tv-check{flex:0 0 44px;width:44px;height:44px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0}
 #v-tkall .tv-check>span{display:block;width:21px;height:21px;border:1.6px solid #B8BEC9;border-radius:50%;box-sizing:border-box}

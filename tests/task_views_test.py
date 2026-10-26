@@ -633,7 +633,18 @@ TABLE_FIT = r"""() => { const h = document.getElementById('tkall-body'), fr = h.
   return { rows: rows.length, noid: noid.slice(0, 4), cut, fsw: fr.scrollWidth, fcw: fr.clientWidth, sw: document.documentElement.scrollWidth, iw: innerWidth,
     scope: [...h.querySelectorAll('.t2-scope, .tk2-views')].filter(vis).length, saved: !!h.querySelector('.tv-saved'),
     chips: [...h.querySelectorAll('.tv-fchip-b')].map(b => b.innerText.trim()), av: [...h.querySelectorAll('.tv-av')].slice(0, 30).map(a => a.querySelector('svg') ? 'svg' : a.textContent.trim()),
-    wait: h.querySelectorAll('.tv-tr .tv-wait.on').length }; }"""
+    wait: h.querySelectorAll('.tv-tr .tv-wait.on').length,
+    // a cell's words cut mid-letter: text wider than the box that clips it, with no ellipsis that actually shows (2026-10-26:
+    // Waiting On read 'Carlos Millw'; the ellipsis sat on an inline-flex chip, where it never draws, so check the text's own box)
+    clip: (() => { const out = [];
+      for (const e of h.querySelectorAll('.tv-tr[data-tvrow] *')) {
+        if (!vis(e) || ![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+        let c = e; while (c.parentElement && getComputedStyle(c).display === 'inline') c = c.parentElement;
+        const cs = getComputedStyle(c), ell = cs.textOverflow === 'ellipsis' && cs.overflow !== 'visible' && !/flex|grid/.test(cs.display);
+        const R = e.getBoundingClientRect(); let over = e.scrollWidth > e.clientWidth + 1;
+        for (let a = e.parentElement; a && a !== h && !over; a = a.parentElement) { if (getComputedStyle(a).overflowX !== 'visible' && R.right > a.getBoundingClientRect().right + 1) over = true; if (a.classList.contains('tv-tr')) break; }
+        if (over && !ell) out.push((e.textContent || '').trim().slice(0, 30));
+      } return out.slice(0, 4); })()}; }"""
 
 
 async def polish(c, p):
@@ -653,6 +664,10 @@ async def polish(c, p):
         c.ok(t['scope'] == 0 and t['saved'], f'{w}: one filter row under the saved tabs ({t["scope"]} old switch rows)')
         c.ok(t['av'] and all(len(a) == 1 and a.isalnum() for a in t['av']), f'{w}: owner avatars are initials ({t["av"][:6]})')
         c.ok(t['wait'] >= 2, f'{w}: the Waiting On column shows who the demo waits on ({t["wait"]} chips)')
+        c.ok(not t['clip'], f'{w}: no cell is cut mid-word without an ellipsis ({t["clip"]})')
+        await pg.evaluate("() => tvApply('b:wait')"); await pg.wait_for_timeout(300)
+        t2 = await pg.evaluate(TABLE_FIT)
+        c.ok(t2['wait'] >= 2 and not t2['clip'], f'{w}: Waiting on Others shows every name whole or with an ellipsis ({t2["wait"]} chips; cut {t2["clip"]})')
         await pg.evaluate("() => tvApply('b:week')"); await pg.wait_for_timeout(300)
         t = await pg.evaluate(TABLE_FIT)
         c.ok(t['chips'][:2] == ['Owner: Me', 'Due: Soon'], f'{w}: My Week says its filters as chips ({t["chips"]})')
