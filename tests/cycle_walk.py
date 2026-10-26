@@ -686,12 +686,18 @@ def j1_win_inquiry(p):
 PROBE = {'client': 'Nadia Okoro', 'job': '88 Garfield Place', 'subject': 'Renovating 88 Garfield Place', 'addr': '88 Garfield Place, Park Slope: kitchen'}
 
 
+def header_field(p, label):
+    """a field of a record's header; on the phone the header is folded under its one-line summary, which a person taps open"""
+    f = p.look().find(label, field=True)
+    if f is None and p.expand(): f = p.scr.find(label, field=True)
+    return f
+
+
 def x1_owner_proposal_first(p):
     """The owner on another inquiry (the world's Nadia Okoro, 88 Garfield Place), taking the app's own next step at won,
     Close and Start the Proposal: the estimate starts before the job exists. Can it be tied to its job?"""
     inquiry_to_won(p, PROBE['subject'], PROBE['client'], 120000, 'Close and Start the Proposal')
-    p.look()
-    f = p.scr.find('Project', field=True)
+    f = header_field(p, 'Project')
     p.expect(f is not None and (any(o not in ('—', '-', '') for o in f.opts) or any('new project' in norm(o) for o in f.opts)),
              'the new estimate\'s Project list offers the job, or a way to open it, so the estimate can be tied to its project',
              f'Project = "{f.value if f else ""}", options {{{"|".join(f.opts) if f else ""}}}')
@@ -700,7 +706,7 @@ def x1_owner_proposal_first(p):
     p.go('Sales')
     p.tap('Estimates', exact=True)
     p.tap_row(num or PROBE['client'], after='Search', expect='Estimate EST-')
-    f = p.scr.find('Project', field=True)
+    f = header_field(p, 'Project')
     p.expect(f is not None and norm(f.value) == norm(PROBE['job']), f'{num} shows its job, {PROBE["job"]}, once the job is open', f'Project = "{f.value if f else ""}"')
 
 
@@ -903,6 +909,12 @@ def record_signature(p):
         p.expect(not ed, f'{num} reads "read only" and its lines cannot be typed into', f'{len(ed)} line fields still editable (Rate, Quantity, budget)')
 
 
+def open_meta(p):
+    """an invoice's title and dates: on the phone they sit folded under the "Invoice · <date> · due <date>" line, which a
+    person taps open to edit"""
+    if not p.look().find('Title', field=True, exact=True): p.expand()
+
+
 def deposit_invoice(p):
     """Billing: the Ashbys' 25% deposit, invoiced from the contract and sent; returns its number"""
     p._act('news')
@@ -915,7 +927,7 @@ def deposit_invoice(p):
     p.expect(bool(p.look().find('Deposit Invoice') or p.scr.find('New Deposit Invoice') or p.scr.find('Bill the Deposit')),
              'a Deposit Invoice from the signed contract (25%, no retainage)', 'only New Invoice: the deposit is typed by hand')
     p.tap('New Invoice', exact=True)
-    p.look()
+    open_meta(p)
     dep = round(CONTRACT * JOB['deposit_pct'] / 100, 2)
     p.do([('type', 'Title', f"Deposit — {JOB['deposit_pct']}% on signing")])
     p.tap('Add Line', exact=True)
@@ -1037,6 +1049,12 @@ def j5_three_quotes(p):
     if p.look().has('Foreman Review') or p.scr.has('Angel checks'):
         switch(p, 'u_angel', 'phone')
         c = p.scr.next_action(rfq or 'RFQ-20')
+        more = p.scr.find('More for Today')
+        p.expect(c is not None, f'{rfq} is on the foreman\'s Today when he opens it (not folded away)',
+                 'folded under "More for Today"' if more else 'not on his Today')
+        if c is None and more:   # a person looks in the fold the Today offers
+            p.tap_ctl(more)
+            c = p.look().next_action(rfq or 'RFQ-20')
         p.expect(c is not None and bool(re.match(r'[A-Za-z]', c.label or '')), f'the foreman\'s {rfq} card has a labelled button', c.label if c else 'no card')
         if c is None: raise Stuck('the foreman checks the quantities', f'{rfq} under Materials to Check on his Today', p.scr, '')
         p.tap_ctl(c, expect='Check the Quantities')
@@ -1584,8 +1602,10 @@ def j3_price_change(p):
     else: open_co(p, co)
     sc = p.look()
     days = sc.find('Schedule Impact', field=True)
-    if days is None and p.expand(): days = p.scr.find('Schedule Impact', field=True)
-    cost = sc.find('cost', field=True, exact=True) or p.scr.find('cost', field=True, exact=True)
+    if days is None and p.expand():   # the numbers move once the header is open: read both from the new screen
+        sc = p.scr
+        days = sc.find('Schedule Impact', field=True)
+    cost = sc.find('cost', field=True, exact=True)
     if days is None or cost is None: raise Stuck(f'price {co}', 'the change order\'s Schedule Impact and the line\'s cost', p.scr, co)
     p.do_ctls([('type', days, JOIST['days']), ('type', cost, JOIST['cost'])])
     p.expect(bool(re.search(r'margin\s+\d+(\.\d+)?\s?%', p.look().text, re.I)), f'{co} shows its margin once the cost is in', p.scr.excerpt('margin', 3))
@@ -1662,6 +1682,7 @@ def j9_bill_progress(p):
     if exp is None:   # the pendants on an invoice of their own, the way billing would still bill them back
         client_billing(p)
         p.tap('New Invoice', exact=True)
+        open_meta(p)
         p.do([('type', 'Title', 'Pendant lights for the island (bought for you, at cost)')])
         p.tap('Add Line', exact=True)
         p.look()
@@ -1689,7 +1710,7 @@ def j10_week_money(p):
     for _ in range(12):
         sc = p.look()
         c = None
-        for m in re.finditer(r'(?m)^9/[3-8] · ', sc.text):
+        for m in re.finditer(r'(?m)^(?:\[\d+\] )?9/[3-8] · ', sc.text):   # the phone's cards carry their number in front
             x = next((y for y in sc.ctls if y.pos > m.start() and y.action), None)
             if x is not None and norm(x.label) == 'confirm' and x.pos - m.start() < 700: c = x; break
         if c is None: break
@@ -1707,7 +1728,7 @@ def j10_week_money(p):
         k = sc.text.find('Needs Category')
         if k < 0: break
         c = None
-        for m in re.finditer(r'(?m)^9/[3-8] · ', sc.text[k:]):
+        for m in re.finditer(r'(?m)^(?:\[\d+\] )?9/[3-8] · ', sc.text[k:]):
             x = next((y for y in sc.ctls if y.pos > k + m.start() and y.action), None)
             if x is not None and norm(x.label) == 'accept' and x.pos - (k + m.start()) < 400: c = x; break
         if c is None: break
@@ -1715,7 +1736,15 @@ def j10_week_money(p):
     for words, (cat_name, job_name) in KNOWN_LINES.items():
         sc = p.look()
         row = next((i for i, l in enumerate(sc.text.split('\n')) if words in l and '|' in l), None)
-        if row is None: continue
+        if row is None:   # the phone: the line is a card; tapped, it opens the transaction with its Category and Job
+            c = next((c for c in sc.ctls if c.action and words in c.label and 'statement' in norm(c.label)), None)
+            if c is None: continue
+            p.tap_ctl(c)
+            if not (p.scr.find('Category', field=True, exact=True) and p.scr.find('Job', field=True, exact=True)): p._act('back'); continue
+            for verb, lab, val in (('pick', 'Category', cat_name), ('pick', 'Job', job_name)):   # the sheet may change under a pick
+                p.look(); p.do([(verb, lab, val)])
+            p.look(); p.tap('Save', exact=True)
+            continue
         F = [c for c in sc.ctls if c.line == row and c.kind == 'select']
         cat = next((c for c in F if c.label.lower().startswith('category')), None)
         job = next((c for c in F if c.label.lower().startswith('job')), None)
