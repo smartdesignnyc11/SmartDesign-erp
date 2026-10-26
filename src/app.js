@@ -188603,7 +188603,9 @@ function rbDraftFloated(pid, svId) {
         (rows = rows.filter((r) => {
           if (!r.p || !["application", "floated", "progress"].includes(r.kind)) return !0;
           const A = pbAhead(r.p.id);
-          if (!(A && A.total > 0.005)) return !0;
+          // ahead on the whole: lines behind are netted against lines ahead (a job one line ahead and the rest
+          // behind still bills what is behind)
+          if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
           const what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)})`;
           held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: the job is billed ${money(A.total)} ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}; billing more needs a reason` });
           return !1;

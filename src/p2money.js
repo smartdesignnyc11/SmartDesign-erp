@@ -752,7 +752,10 @@ function pbAhead(pid) {
   if (pid in pbCache) return pbCache[pid];
   const p = (DB.projects || []).find((x) => x.id === pid),
     c = p && (DB.clients || []).find((x) => x.id === p.clientId),
-    out = { pid: pid, lines: [], total: 0, depPct: 0, depAmt: 0 };
+    // net: every measured line's billed less earned, behind lines offsetting those ahead (the job's own position, read
+    // by Ready to Bill: a job ahead on the whole proposes no more progress billing; one ahead on a line and behind on
+    // others still bills the lines that are behind)
+    out = { pid: pid, lines: [], total: 0, depPct: 0, depAmt: 0, net: 0 };
   if (!p || !c) return (pbCache[pid] = out);
   let rows = [];
   try {
@@ -775,6 +778,15 @@ function pbAhead(pid) {
       pts = r2(billed - pct),
       depPts = co ? 0 : r2(Math.min(dep, Math.max(0, pts))),
       net = r2(pts - depPts);
+    // the net reads what the client has been sent: a draft application being put together is not billing ahead yet
+    // (its own lines would otherwise hold the stored materials that are meant to go on it)
+    const sent = r2(
+        (c.invoices || [])
+          .filter((i) => "sov" === i.mode && !["void", "draft"].includes(i.status))
+          .reduce((a, i) => a + (i.lines || []).filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + (+l.pct || 0), 0), 0),
+      ),
+      sentPts = r2(sent - pct);
+    out.net = r2(out.net + ((+r.ev.scheduled || 0) * r2(sentPts - (co ? 0 : Math.min(dep, Math.max(0, sentPts))))) / 100);
     if (!(net > (cfg.ahead || 5))) return;
     const sched = +r.ev.scheduled || 0,
       amount = r2((sched * net) / 100);
