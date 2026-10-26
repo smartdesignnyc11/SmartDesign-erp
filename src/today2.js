@@ -459,8 +459,13 @@ function td2Facts(T) {
     vis = new Set(T.shown.map((x) => x.key)),
     add = (f) => out.push(Object.assign({ why: "" }, f)),
     s = (n, a, b) => (1 === n ? a : b);
+  // the tasks-only pilot (the team workspace's start, DB.company.pilot.tasksOnly) shows no money anywhere: the update
+  // never states cash, leaks, billed-ahead or prepayments while the money pages are out of the menu
+  const pilotNoMoney = !!(((DB.company || {}).pilot || {}).tasksOnly),
+    MONEY_CATS = ["cash", "leak", "ahead", "prepay"];
   const run = (cat, f) => {
     if (!want.includes(cat)) return;
+    if (pilotNoMoney && MONEY_CATS.includes(cat)) return;
     try {
       f();
     } catch (e) {

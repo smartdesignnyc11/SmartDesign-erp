@@ -39,6 +39,9 @@ async def home_money(pg):
     """What on Home reads as money: the Pulse's money tiles and any money sentence, in the page as drawn."""
     await go(pg, 'home')
     await pg.wait_for_timeout(200)
+    # the approved Today (10-25) keeps the Pulse behind the quiet line at the foot: open it, as a person would, to read it
+    await pg.evaluate("() => { const q = document.querySelector('.view.on [data-td2quiet], .view.on .td2-quiet'); q && q.getAttribute('aria-expanded') !== 'true' && q.click(); }")
+    await pg.wait_for_timeout(200)
     return await pg.evaluate("""() => { const h = document.getElementById('v-home') || document.body;
       return {tiles: [...h.querySelectorAll('[data-tdpulse]')].map(a => a.dataset.tdpulse), text: h.innerText}; }""")
 
