@@ -320,6 +320,7 @@ class Screen:
         start = self.where(after) or 0
         L = self.text.split('\n'); pos = 0
         for i, l in enumerate(L):
+            if l.startswith('== Toast =='): break   # a toast names the record but is not its row (tapping it opens nothing)
             if pos >= start and text.lower() in l.lower():
                 C = [c for c in self.ctls if c.line == i and c.action]
                 if C: return C[0]
@@ -2245,6 +2246,9 @@ def selftest():
                 '== Open on top ==\nNote\n[4 Save note]\n== Under it, still usable: Opportunity ==\n[5 Note]')
     check(sc.find('This Period % — 1', field=True).n == 1 and sc.find('This Period % — 10', field=True).n == 2, 'reader: an exact label wins over a longer one that starts the same')
     check([c.n for c in sc.actions('sheet')] == [4] and sc.sheet, 'reader: a floating sheet\'s own buttons are told from the page still usable under it')
+    po = Screen('Fri Sep 4 13:57 · Chen Biron (coord, phone) · Orders\n[1 link Purchasing] ›FM-1\n[2 input "Search…"]\nPurchase Order FM-1\n[3 Receive All]\n'
+                '== Toast ==\n[4] PO-2026-050 issued to Ferguson — $1,960\n[5 link Open]')
+    check(po.row('PO-2026-050', after='Search') is None, 'reader: a toast that names a record is not that record\'s row')
     # the Costs table read as a PM reads it: a line committed over its budget cost is over, flagged or not
     costs = ('[32] Line | Flags | [33 CLIENT PRICE] | [34 BUDGET COST] | [35 ACTUAL TO DATE] | [36 SPENT % OF BUDGET] | [37 PROJECTED MARGIN] | [38 MARGIN %] | [39 BILLED %] | [40 COMMITTED]\n'
              'Framing lumber: supplyEST-2026-016 | — | $1,450 | $1,100 | — | — | $350 | 24% | 0% | $827\n'
