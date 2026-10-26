@@ -239,9 +239,13 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
               const name = (p.project.name || '').toLowerCase();
               const cands = [...v.querySelectorAll('tr, .pr-row, .ov-row, .card, li, a, button, [data-pid], [data-p], [data-proj], [data-job]')].filter(vis)
                 .filter(e => (e.innerText || '').toLowerCase().includes(name.slice(0, 16)));
-              // the smallest element that names the job and can be tapped
-              cands.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
-              const t = cands.find(e => e.matches('a, button, [data-pid], [data-p], [data-proj], [data-job], tr[onclick], tr[data-open]') || e.onclick) || cands[0];
+              // the job's own row: an element whose words start with the job's name (a tile that mentions the job in a
+              // sentence is not its row: tapping it filters the list, 2026-10-26), then the smallest that can be tapped
+              const lead = e => (e.innerText || '').trim().toLowerCase().startsWith(name.slice(0, 16)) ? 0 : 1;
+              cands.sort((a, b) => lead(a) - lead(b) || (a.innerText || '').length - (b.innerText || '').length);
+              const tap = e => e.matches('a, button, [data-pid], [data-p], [data-proj], [data-job], tr[onclick], tr[data-open]') || e.onclick;
+              const own = cands.filter(e => !lead(e));
+              const t = own.find(tap) || own[0] || cands.find(tap) || cands[0];
               if (!t) return { err: 'no row names the job' };
               const before = { v: view, s: S.id };
               t.click();
