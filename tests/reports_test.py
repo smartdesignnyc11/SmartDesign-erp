@@ -137,18 +137,30 @@ class Books:
         import re as _re
         owner = {q['id']: c for c in self.clients for q in c['payments']}
         names = lambda c: [w for w in _re.split(r'[^A-Z]+', (c.get('name') or '').upper()) if len(w) >= 4 and w not in ('FAMILY', 'GROUP', 'HOLDINGS', 'THE')]
-        pairs = []
+        cand = {}
         for q in pays:
             if q['id'] in linked: continue
-            nm = names(owner.get(q['id'], {}))
+            nm, L = names(owner.get(q['id'], {})), []
             for t in lines.values():
-                if t.get('paymentId') and t['paymentId'] != q['id'] or abs(float(t['amt']) - float(q['amount'])) > 1 or t['id'] in used: continue
+                if t['id'] in used or (t.get('paymentId') and t['paymentId'] != q['id']) or abs(float(t['amt']) - float(q['amount'])) > 1: continue
                 d = days(q['date'], t['date'])
-                if d <= 10: pairs.append((0 if any(w in (t.get('desc') or '').upper() for w in nm) else 1, d, q.get('date') or '', q.get('id') or '', q, t))
-        pairs.sort(key=lambda x: x[:4])
-        for _, _, _, _, q, t in pairs:
-            if t['id'] in used or q['id'] in back: continue
-            used.add(t['id']); back[q['id']] = round(min(float(q['amount']), float(t['amt'])), 2)
+                if d <= 10: L.append((0 if any(w in (t.get('desc') or '').upper() for w in nm) else 1, d, t['id'], t))
+            if L: cand[q['id']] = sorted(L, key=lambda x: x[:3])
+        take, holder = {}, {}
+        for pas in (0, 1):   # named lines first, the oldest payment choosing first
+            for q in pays:
+                if q['id'] not in cand or q['id'] in take: continue
+                x = next((y for y in cand[q['id']] if y[0] <= pas and y[2] not in holder), None)
+                if x: take[q['id']] = x[3]; holder[x[2]] = q['id']
+        for q in pays:   # a leftover takes a line from a later payment that has another free line
+            if q['id'] not in cand or q['id'] in take: continue
+            for x in cand[q['id']]:
+                o = holder.get(x[2])
+                alt = o and next((y for y in cand[o] if y[2] != x[2] and y[2] not in holder), None)
+                if alt:
+                    take[o] = alt[3]; holder[alt[2]] = o; take[q['id']] = x[3]; holder[x[2]] = q['id']; break
+        pay_by = {q['id']: q for q in pays}
+        for qid, t in take.items(): back[qid] = round(min(float(pay_by[qid]['amount']), float(t['amt'])), 2)
         self._back = back
         return back
     def banked_amt(self, p):

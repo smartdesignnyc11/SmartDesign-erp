@@ -165,6 +165,17 @@ async def t_prorata(C, p, phone):
     g = await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), i = c.invoices.find(x => x.id === arg.id);
       const S = {}; glInvoiceLines(c, i).forEach(l => S[l.acct] = r2((S[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return S;""", inv | {'cid': S['cid']})
     C.ok(abs(g.get('4100', 0) + 1140) < 0.01 and abs(g.get('2400', 0) - 285) < 0.01, f'PRO {dev}: the application posts its work to revenue (Cr 4100 $1,140) and relieves the deposit (Dr 2400 $285): {g}')
+    # the two-payer deposits (Atlantic Row, the Live Jobs demo) are SOV invoices billing 20% as the deposit: one
+    # predicate says deposit to the ledger (Cr 2400, never revenue), to lineFin (deposit points, not billed work) and
+    # to the printout (a Deposit Invoice)
+    await sign_in(pg, 'u_owner')
+    lj = await js(pg, """await ljDemoSwitch(true); await sleep(200);
+      const c = DB.clients.find(x => x.id === 'cl_lj_atl'); if (!c) return null;
+      return c.invoices.filter(i => /Construction deposit/.test(i.title || '')).map(i => { const S = {}; glInvoiceLines(c, i).forEach(l => S[l.acct] = r2((S[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0)));
+        const ln = (i.lines || []).find(l => +l.pct > 0), sv = ln && c.sov.find(v => v.id === ln.sovId), f = sv && sv.lineRef ? lineFin(sv.lineRef) : null;
+        return { n: i.number, net: docNet(i), S: S, kind: cxKind(i), dep: f ? f.depositPct : null }; });""")
+    C.ok(lj and len(lj) == 2 and all(abs(x['S'].get('2400', 0) + x['net']) < 0.01 and not x['S'].get('4100') and x['kind'] == 'deposit' and x['dep'] == 20 for x in lj),
+         f'PRO {dev}: the Atlantic Row deposits post to deposits held (Cr 2400), count as deposit points on their lines and print as Deposit Invoices: {lj}')
     C.ok(not errs, f'PRO {dev}: no page errors: {errs[:3]}')
     await b.close()
 
@@ -344,6 +355,21 @@ async def t_bank(C, p, phone):
       ['bt_chg', 'bt_rm', 'bt_demo'].forEach(id => out[id] = [typeof bfBacked === 'function' ? bfBacked(DB.txns.find(t => t.id === id)) : null, payBanked(c, c.payments.find(p => p.id === 'p_' + id))]);
       save(); render(); return out;""")
     C.ok(all(v[1] is False for v in r.values()), f'BANK {dev}: an edited, withdrawn or Demo Feed line backs no payment, as bfBacked reads them: {r}')
+    # 4. a statement import confirms a typed deposit: the payment on it is in the bank at once, not after another change
+    r = await js(pg, """const c = blankClient('Typed Holdings'); DB.clients.push(c);
+      DB.txns.push({ id: 'bt_typed', date: '2026-09-02', acct: 'ac1', desc: 'DEPOSIT TYPED HOLDINGS', amt: 4321, cat: 'income', status: 'categorized', source: 'manual', prov: { kind: 'manual', by: 'billing' } });
+      c.payments.push({ id: 'p_typed', date: '2026-09-02', amount: 4321, txnId: 'bt_typed', method: 'Check', ref: '771' }); save(); render(); await sleep(100);
+      const before = payBanked(c, c.payments[0]);
+      const o = bfIngest({ kind: 'statement', acctId: 'ac1', imp: { id: 'imp_bt', institution: 'Chase' }, institution: 'Chase' }, [{ date: '2026-09-02', amt: 4321, desc: 'DEPOSIT TYPED HOLDINGS', ref: 'FIT771' }], []);
+      return { before, confirmed: o && o.confirmed, after: payBanked(c, c.payments[0]) };""")
+    C.ok(r['before'] is False and r['confirmed'] == 1 and r['after'] is True, f'BANK {dev}: the statement that confirms a typed deposit puts its payment in the bank at once: {r}')
+    # 5. two payments of one amount, 9/1 and 9/8, and two deposits, 9/7 and 9/12: both are matched (nearest-date-first
+    #    gave 9/7 to 9/8 and left 9/1 with nothing within 10 days)
+    r = await js(pg, """const c = blankClient('Pairing Partners'); DB.clients.push(c);
+      [['bt_l7', '2026-09-07'], ['bt_l12', '2026-09-12']].forEach(([id, d]) => DB.txns.push(txnStamp({ id: id, date: d, acct: 'ac1', desc: 'MOBILE DEPOSIT', amt: 777, cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:bt', id)));
+      c.payments.push({ id: 'p_s1', date: '2026-09-01', amount: 777, method: 'Check' }, { id: 'p_s8', date: '2026-09-08', amount: 777, method: 'Check' }); save(); render();
+      return c.payments.map(p => [p.date, (payBankLine(p) || {}).id || '']);""")
+    C.ok(sorted(x[1] for x in r) == ['bt_l12', 'bt_l7'], f'BANK {dev}: the 9/1 and 9/8 payments are both matched, to 9/7 and 9/12: {r}')
     C.ok(not errs, f'BANK {dev}: no page errors: {errs[:3]}')
     await b.close()
 

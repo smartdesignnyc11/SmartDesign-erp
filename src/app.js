@@ -2544,6 +2544,10 @@ function saveStatus() {
 let lastSaved = "",
   bridgeBackoffUntil = 0;
 function save() {
+  // what the bank backs is decided again after any saved change (payBacking)
+  try {
+    payBackReset();
+  } catch (e) {}
   clearTimeout(saveTimer), (saveTimer = setTimeout(() => persist(0), 1500));
 }
 function saveNow() {
@@ -25008,11 +25012,16 @@ const CT_SEED = [
     DB.clients.find(
       (c) => c.estimates.includes(doc) || c.changeOrders.includes(doc) || c.invoices.includes(doc),
     );
-// A deposit invoice bills the deposit: the contract's one-line deposit (depositOf, never an SOV application). Every
-// progress application also carries depositOf, to name the deposit it draws on (ctProgressInvoice), so depositOf
-// alone never makes an invoice a deposit. One reading with the ledger (glInvoiceLines).
+// A deposit invoice bills the deposit, and it says so: isDeposit is stamped when it is made (ctDepositInvoice, the
+// two-payer deposits in src/livejobs.js). Every progress application also carries depositOf, to name the deposit it
+// draws on (ctProgressInvoice), so depositOf alone never makes an invoice a deposit. Records made before the stamp:
+// a non-SOV invoice with depositOf, or an SOV invoice with depositOf, no retainage and titled as the deposit.
+// One predicate for the ledger (glInvoiceLines), the bridges, lineFin's deposit points and the printout (cxKind).
 function invIsDeposit(i) {
-  return !!(i && i.depositOf && "sov" !== i.mode);
+  if (!i || "invoice" !== (i.type || "invoice")) return !1;
+  if (!0 === i.isDeposit) return !0;
+  if (!1 === i.isDeposit || !i.depositOf) return !1;
+  return "sov" !== i.mode || (!(+i.retainagePct > 0) && /\bdeposit\b/i.test(i.title || ""));
 }
 function invoicePaid(c, inv) {
   return c.payments.filter((p) => p.invoiceId === inv.id).reduce((a, p) => a + (+p.amount || 0), 0);
@@ -25028,19 +25037,26 @@ function invoicePaid(c, inv) {
 // - an unlinked payment is matched to one deposit of the same amount (within $1) within 10 days, the nearest first,
 //   that no other payment stands on: one line, one payment (two $97,000 payments both read the seed's one $97,000
 //   wire before, because only formally linked lines were taken);
-// - the decision is cached against the records it read, so it is made once per draw (the per-call rebuild grew with
-//   the square of the payments).
-let payBackMemo = null;
-function payBackSig() {
-  const P = [],
-    T = [];
-  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => P.push(`${p.id}:${p.amount}:${p.txnId || ""}:${p.date}:${p.reverses || ""}`)));
-  (DB.txns || []).forEach((t) => +t.amt > 0 && T.push(`${t.id}:${t.amt}:${t.date}:${t.status || ""}:${t.paymentId || ""}:${t.desc || ""}:${t.origin ? t.origin.sig || 1 : ""}:${t.prov ? (t.prov.kind || "") + (t.prov.removedByBank ? "r" : "") : ""}`));
-  return P.join(",") + "|" + T.join(",");
+// - matching takes the oldest payment first, each to its nearest free line (a line that names the payer before any
+//   other), then gives a payment left over a line a later payment could do without (payments 9/1 and 9/8, lines 9/7
+//   and 9/12: nearest-date-first gave 9/7 to 9/8 and left 9/1 with nothing within 10 days);
+// - the decision is made once per draw and once per save: it is kept until save(), a bank import (bfIngest) or the
+//   next draw, or until a payment or a bank line is added in between. It was a signature rebuilt over every payment
+//   and line on every call (about 460 ms for 1,200 calls at 600 payments and 1,000 deposits), and it missed the
+//   fields bfBacked reads (a statement confirming a typed deposit), so the payment stayed "not in the bank".
+let payBackMemo = null,
+  payBackEpoch = 0;
+function payBackReset() {
+  (payBackEpoch += 1), (payBackMemo = null);
+}
+function payBackKey() {
+  let n = 0;
+  (DB.clients || []).forEach((c) => (n += (c.payments || []).length));
+  return `${payBackEpoch}|${("function" == typeof render && render.__tick) || 0}|${(DB.txns || []).length}|${n}`;
 }
 function payBacking() {
-  const sig = payBackSig();
-  if (payBackMemo && payBackMemo.sig === sig) return payBackMemo.map;
+  const key = payBackKey();
+  if (payBackMemo && payBackMemo.key === key) return payBackMemo.map;
   const map = new Map(),
     lines = new Map(),
     room = new Map(),
@@ -25060,8 +25076,6 @@ function payBacking() {
     const amt = r2(Math.min(+p.amount, room.get(t.id)));
     room.set(t.id, r2(room.get(t.id) - amt)), used.add(t.id), amt > 0.005 && map.set(p, { t: t, amt: amt });
   });
-  // every candidate pair, best first: a line that names the payer, then the nearest date, then the earliest payment;
-  // each line and each payment is taken once
   const owner = new Map();
   (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => owner.set(p, c)));
   const names = (c) =>
@@ -25069,24 +25083,46 @@ function payBacking() {
         .toUpperCase()
         .split(/[^A-Z]+/)
         .filter((w) => w.length >= 4 && !/^(FAMILY|GROUP|HOLDINGS|THE)$/.test(w)),
-    pairs = [];
+    // each unlinked payment's candidate lines: the same amount within $1, within 10 days, the line naming the payer
+    // first, then the nearest date
+    cand = new Map();
   all.forEach((p) => {
     if (linked.has(p)) return;
-    const nm = names(owner.get(p));
+    const nm = names(owner.get(p)),
+      L = [];
     lines.forEach((t) => {
       if (used.has(t.id) || (t.paymentId && t.paymentId !== p.id) || Math.abs(+t.amt - +p.amount) > 1) return;
       const d = Math.abs(dayDiff(p.date, t.date));
-      if (!(d <= 10)) return;
-      const desc = String(t.desc || "").toUpperCase();
-      pairs.push({ p: p, t: t, named: nm.some((w) => desc.includes(w)) ? 0 : 1, d: d });
+      d <= 10 && L.push({ t: t, d: d, named: nm.some((w) => String(t.desc || "").toUpperCase().includes(w)) ? 0 : 1 });
     });
+    L.sort((a, b) => a.named - b.named || a.d - b.d || String(a.t.id).localeCompare(String(b.t.id))), L.length && cand.set(p, L);
   });
-  pairs.sort((a, b) => a.named - b.named || a.d - b.d || String(a.p.date || "").localeCompare(String(b.p.date || "")) || String(a.p.id || "").localeCompare(String(b.p.id || "")));
-  pairs.forEach((x) => {
-    if (used.has(x.t.id) || map.has(x.p)) return;
-    used.add(x.t.id), map.set(x.p, { t: x.t, amt: r2(Math.min(+x.p.amount, +x.t.amt)) });
+  const take = new Map(),
+    holder = new Map(),
+    give = (p, t) => (take.set(p, t), holder.set(t.id, p)),
+    free = (p) => (cand.get(p) || []).find((x) => !used.has(x.t.id) && !holder.has(x.t.id));
+  // named lines first, then the rest; the oldest payment chooses first
+  [0, 1].forEach((pass) =>
+    all.forEach((p) => {
+      if (!cand.has(p) || take.has(p)) return;
+      const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
+      x && give(p, x.t);
+    }),
+  );
+  // a payment left over takes a line from a later payment that has another free line
+  all.forEach((p) => {
+    if (!cand.has(p) || take.has(p)) return;
+    for (const x of cand.get(p)) {
+      const q = holder.get(x.t.id),
+        alt = q && (cand.get(q) || []).find((y) => y.t.id !== x.t.id && !holder.has(y.t.id));
+      if (alt) {
+        give(q, alt.t), give(p, x.t);
+        break;
+      }
+    }
   });
-  return (payBackMemo = { sig: sig, map: map }), map;
+  take.forEach((t, p) => map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) }));
+  return (payBackMemo = { key: key, map: map }), map;
 }
 // what of a payment the bank has: its backed amount; a reversal takes off what the payment it reverses had
 function payBankedAmt(c, py) {
@@ -51084,6 +51120,7 @@ function ctDepositInvoice(c, d) {
         (inv.template = "construction"),
           (inv.projectId = d.projectId || inv.projectId || ""),
           (inv.depositOf = d.id),
+          (inv.isDeposit = !0),
           (inv.title = `Deposit — ${pct}% of the contract`),
           (inv.terms = "Due on receipt"),
           (inv.due = inv.date),
@@ -157545,6 +157582,10 @@ const bfRecWords = (r) =>
     : `statement ${r.fileName || ""} lists it on ${fmt(r.date)}`;
 function bfIngest(src, added, removed) {
   bfInit();
+  // a statement or feed can confirm a typed deposit: what the bank backs is decided again (payBacking)
+  try {
+    payBackReset();
+  } catch (e) {}
   const out = {
       added: 0,
       confirmed: 0,
@@ -157617,6 +157658,7 @@ function bfIngest(src, added, removed) {
         }
         return "manual" !== p.kind || p.confirmedBy
           ? ((t.prov = Object.assign({}, p, "feed" === src.kind ? { feedSeen: rec } : { stmtSeen: rec })),
+            payBackReset(),
             void out.dup++)
           : ((rec.sig = txnSig({
               feedId: "confirm",
@@ -157626,6 +157668,7 @@ function bfIngest(src, added, removed) {
               desc: t.desc,
             })),
             (t.prov = Object.assign({}, p, { confirmedBy: rec })),
+            payBackReset(),
             (t.bankDesc = x.desc || ""),
             audit(
               "txn",
@@ -188750,7 +188793,9 @@ function rbDraftFloated(pid, svId) {
           // ahead on the whole: lines behind are netted against lines ahead (a job one line ahead and the rest
           // behind still bills what is behind)
           if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
-          const what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)})`;
+          // the held row keeps what the ready row said (the change orders on the application, the line's materials)
+          const co = "application" === r.kind ? (String(r.title || "").match(/ · with (.+)$/) || [])[1] : "",
+            what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)}${co ? ", with " + co : ""})`;
           held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: on what was sent, the job is billed ${money(A.net)} ahead of the work${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}; billing more needs a reason` });
           return !1;
         }));

@@ -1597,7 +1597,7 @@ async function ljDemoSeed() {
   docMark(eA), await send(A, eA, "2026-07-20"), await docAction(A, eA, "approve");
   const depL = progress(A, "pay_lj_l", "Construction deposit · Atlantic Row Holdings LLC", "2026-08-03", "2026-08-10", { "": 20 }),
     depT = progress(A, "pay_lj_t", "Construction deposit · Morning Loaf Bakery Inc.", "2026-08-03", "2026-08-10", { "": 20 });
-  (depL.depositOf = depT.depositOf = eA.id), (depL.retainagePct = depT.retainagePct = 0), docMark(depL), docMark(depT);
+  (depL.depositOf = depT.depositOf = eA.id), (depL.isDeposit = depT.isDeposit = !0), (depL.retainagePct = depT.retainagePct = 0), docMark(depL), docMark(depT);
   await send(A, depL, "2026-08-03", "2026-08-10"), await send(A, depT, "2026-08-03", "2026-08-10");
   pay(A, depL, "2026-08-07", docTotal(depL).total, "Wire", "ARH-0807"), pay(A, depT, "2026-08-12", docTotal(depT).total, "Check", "1043");
   const prL = progress(A, "pay_lj_l", "Progress billing #1 · Atlantic Row Holdings LLC", "2026-08-25", "2026-09-01", { Storefront: 30, Electrical: 40, Sprinkler: 10, "General conditions": 25 }),
