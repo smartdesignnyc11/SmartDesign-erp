@@ -1980,6 +1980,9 @@ function normalizeProject(p) {
     ].forEach((k) => {
       Array.isArray(p[k]) || (p[k] = []);
     }),
+    // every schedule task has its deps list (an imported or hand-made task may arrive without one; the schedule's
+    // walk reads t.deps everywhere)
+    p.tasks.forEach((t) => t && !Array.isArray(t.deps) && (t.deps = [])),
     (p.budget = p.budget || {}),
     (p.clientId = p.clientId || ""),
     void 0 === p.baseline && (p.baseline = null),
@@ -2748,7 +2751,7 @@ function topo() {
     visit = (t) => {
       seen.has(t.id) ||
         (seen.add(t.id),
-        t.deps.forEach((d) => {
+        (t.deps || []).forEach((d) => {
           const p = task(d);
           p && visit(p);
         }),
@@ -2763,12 +2766,16 @@ function computeCPM() {
     ls = {},
     lf = {};
   for (const t of order) {
-    let e = t.start;
+    // a task with no dates yet (a job made by hand or by an import, a bare test job) is planned from the job's start,
+    // else today: the app must open on any job, dated or not (a null start stopped the app at boot, 10-26)
+    let e = t.start || ((S && S.project && S.project.start) || today());
     if ("planned" === t.status)
-      for (const d of t.deps) {
+      for (const d of t.deps || []) {
         const p = task(d);
         if (!p) continue;
-        const after = "milestone" === p.type ? p.end : addWork(p.end, 1, t.weekendOk);
+        const pend = p.end || ef[p.id];
+        if (!pend) continue;
+        const after = "milestone" === p.type ? pend : addWork(pend, 1, t.weekendOk);
         parse(after) > parse(e) && (e = after);
       }
     (e = nextWork(e, t.weekendOk)), (es[t.id] = e), (ef[t.id] = endFromStart(e, dur(t), t.weekendOk));
@@ -2778,7 +2785,7 @@ function computeCPM() {
       order[0] ? ef[order[0].id] : today(),
     ),
     succ = {};
-  order.forEach((t) => t.deps.forEach((d) => (succ[d] = succ[d] || []).push(t)));
+  order.forEach((t) => (t.deps || []).forEach((d) => (succ[d] = succ[d] || []).push(t)));
   for (const t of [...order].reverse()) {
     let l = projEnd;
     for (const s of succ[t.id] || []) {
@@ -4495,13 +4502,14 @@ function renderGantt(cpm) {
       '<div class="empty" style="margin:16px">No tasks yet. Add one, or open the Assistant and paste meeting notes to build the schedule.</div>');
   const mob = isMobile();
   let minD = all
-    .filter((t) => "done" !== t.status)
+    .filter((t) => "done" !== t.status && t.start)
     .map((t) => t.start)
     .reduce((m, x) => (parse(x) < parse(m) ? x : m), td);
   const floorD = iso(addDays(td, -14));
   parse(minD) < parse(floorD) && (minD = floorD),
     (minD = iso(addDays(minD, -(parse(minD).getDay() + 6) % 7)));
-  let maxD = all.reduce((m, t) => (parse(t.end) > parse(m) ? t.end : m), all[0].end);
+  // an undated task (an import, a bare job) neither stretches nor breaks the chart's range
+  let maxD = all.reduce((m, t) => (t.end && parse(t.end) > parse(m) ? t.end : m), td);
   maxD = iso(addDays(maxD, 7));
   const nDays = dayDiff(minD, maxD) + 1,
     LW = mob ? 132 : 270,
