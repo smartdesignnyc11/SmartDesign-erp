@@ -13,7 +13,7 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 ## Overnight 10-26 (Alan asleep: "check on all the runs so they aren't stalled")
 - A check-in every 40 minutes: every run's log growth, slot holders past their timeout, the lanes; anything hung is restarted and logged here.
 - On green: deploy the import fix, the boot fix and the loop's eyes (one build, one net, the month and the screen walk); then tell Alan it is safe to import.
-- **08:55:** the feedback session recorder and wave 1 trust merged (572bfb7) after a green net; deploy and live checks running. The estimate lane (J1, J1b, J2) and the task columns lane are in their final suites; round one starts when the estimate lane deploys.
+- **08:55:** the feedback session recorder and wave 1 trust merged (572bfb7) after a green net and is live (9673d143; live checks all pass). The estimate lane (J1, J1b, J2) and the task columns lane are in their final suites; round one starts when the estimate lane deploys.
 - Then round one of the improvement loop (docs/IMPROVEMENT_LOOP.md): the screen walk, the four experts with pictures and one live turn each, triage by class, then one or two fix lanes. Nobody is invited and nothing is imported overnight.
 
 ## Pilot 3: the business cycle (Alan, 10-25: "I don't know how much I trust the pilots")
