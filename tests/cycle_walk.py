@@ -1677,6 +1677,9 @@ def j9_bill_progress(p):
 
 
 # ---------------------------------------------------------------------------------------------------- J10 the week's money
+KNOWN_LINES = {'LIGHTOLOGY': ('Materials', JOB['job']), 'RESTORATION HARDWARE': ('Materials', '121 State Street')}
+
+
 def j10_week_money(p):
     """The controller: the week's bank and card lines matched, the 8/31-9/4 payroll built and the owner's approval on his
     phone; then cash, AR and job cost by estimate line read off the books."""
@@ -1697,8 +1700,8 @@ def j10_week_money(p):
             if w is not None and b is not None: p.do_ctls([('type', w, 'Confirmed against the statement (controller, weekly close)'), ('tap', b)])
             elif b is not None: p.tap_ctl(b)
             else: p._act('back'); break
-    # the week's lines that need a category: the app's own suggestion accepted; the pendants coded to 214 Lincoln (the PM
-    # bought them for the Ashbys: his receipt); a line nobody in the world can explain is left for its cardholder
+    # the week's lines that need a category: the app's own suggestion accepted; a line the app cannot place is coded from what
+    # the firm knows about it (KNOWN: the PM's pendants for the Ashbys; the designer's pendants for the Kleins, world_book E058)
     for _ in range(10):
         sc = p.look()
         k = sc.text.find('Needs Category')
@@ -1709,16 +1712,17 @@ def j10_week_money(p):
             if x is not None and norm(x.label) == 'accept' and x.pos - (k + m.start()) < 400: c = x; break
         if c is None: break
         p.tap_ctl(c)
-    sc = p.look()
-    row = next((i for i, l in enumerate(sc.text.split('\n')) if 'LIGHTOLOGY' in l and '|' in l), None)
-    if row is not None:
+    for words, (cat_name, job_name) in KNOWN_LINES.items():
+        sc = p.look()
+        row = next((i for i, l in enumerate(sc.text.split('\n')) if words in l and '|' in l), None)
+        if row is None: continue
         F = [c for c in sc.ctls if c.line == row and c.kind == 'select']
         cat = next((c for c in F if c.label.lower().startswith('category')), None)
         job = next((c for c in F if c.label.lower().startswith('job')), None)
         if cat and job:
-            p.pick_ctl(cat, 'Materials'); p.look()
+            if norm(cat.value) != norm(cat_name): p.pick_ctl(cat, cat_name); p.look()
             job = next((c for c in p.scr.ctls if c.line == row and c.kind == 'select' and c.label.lower().startswith('job')), None) or job
-            p.pick_ctl(job, JOB['job'])
+            if norm(job.value) != norm(job_name): p.pick_ctl(job, job_name)
     sc = p.look()
     k = sc.text.find('Needs Category')
     end = sc.text.find('input "Search', k) if k >= 0 else -1
