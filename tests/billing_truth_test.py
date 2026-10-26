@@ -137,7 +137,7 @@ async def t_prorata(C, p, phone):
     await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), e = c.estimates.find(x => x.id === arg.eid);
       const inv = newDoc(c, 'invoice', { mode: 'items' }); Object.assign(inv, { template: 'construction', projectId: arg.pid, depositOf: e.id, title: 'Deposit — 25% of the contract', terms: 'Due on receipt', retainagePct: 0, status: 'sent', sentAt: today() });
       inv.due = inv.date; inv.lines = [{ id: uid('l'), item: 'Deposit on the contract', qty: 1, unit: 'ls', rate: """ + str(DEPOSIT) + """, taxable: false }]; docMark(inv);
-      const t = { id: uid('t'), acct: 'ac1', date: today(), amt: """ + str(DEPOSIT) + """, desc: 'DEPOSIT ASHBY WREN 214 LINCOLN', cat: 'income', source: 'ofx', status: 'categorized' };
+      const t = txnStamp({ id: uid('t'), acct: 'ac1', date: today(), amt: """ + str(DEPOSIT) + """, desc: 'DEPOSIT ASHBY WREN 214 LINCOLN', cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:ashby', 'dep1');
       DB.txns.push(t); c.payments.push({ id: uid('py'), invoiceId: inv.id, date: today(), amount: """ + str(DEPOSIT) + """, method: 'ACH', ref: 'deposit', txnId: t.id }); inv.status = 'paid'; save();""", S)
     await sign_in(pg, 'u_billing')
     # billing starts the application from the contract and bills 10% of framing ($11,400) this period
@@ -160,6 +160,11 @@ async def t_prorata(C, p, phone):
     C.ok(abs(r['gross'] - 1140) < 0.01 and abs(r['dep'] - 285) < 0.01 and r['screen'],
          f'PRO {dev}: 10% of framing ($1,140) takes 25% of it ($285) off the deposit, shown as Less deposit applied: {r}')
     C.ok(r['line'] == 10 and r['others'] == 0, f'PRO {dev}: the SOV lines carry only the work (10% on framing, 0 elsewhere): {r}')
+    # the ledger: a progress application names its deposit (depositOf) but is not a deposit: its work is revenue (Cr 4100),
+    # and the deposit it takes off relieves deposits held (Dr 2400); never Cr 2400 for the work
+    g = await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), i = c.invoices.find(x => x.id === arg.id);
+      const S = {}; glInvoiceLines(c, i).forEach(l => S[l.acct] = r2((S[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return S;""", inv | {'cid': S['cid']})
+    C.ok(abs(g.get('4100', 0) + 1140) < 0.01 and abs(g.get('2400', 0) - 285) < 0.01, f'PRO {dev}: the application posts its work to revenue (Cr 4100 $1,140) and relieves the deposit (Dr 2400 $285): {g}')
     C.ok(not errs, f'PRO {dev}: no page errors: {errs[:3]}')
     await b.close()
 
@@ -302,9 +307,80 @@ async def t_typed(C, p, phone):
     await b.close()
 
 
+async def undep_card(pg, phone):
+    """Billing > Payments, as billing opens it: the Recorded, Not Yet in the Bank card"""
+    await nav(pg, phone, 'billing')
+    await click_js(pg, '#v-billing [data-billtab="payments"]')
+    return await pg.evaluate("() => [...document.querySelectorAll('#v-billing .bl-undep')].map(e => e.innerText).join('\\n')")
+
+
+async def t_bank(C, p, phone):
+    """what a bank line backs: one line, one payment; a line backs at most its own amount; only the bank's own record
+    (an edited, withdrawn or Demo Feed line is not)"""
+    dev = 'phone' if phone else 'desktop'
+    b, pg, errs = await fresh(p, 'u_billing', phone)
+    # 1. a second, unlinked $97,000 payment on 8/6: the seed's one $97,000 wire (t1) already backs the Kleins' payment
+    await js(pg, """const c = blankClient('Invented Holdings'); DB.clients.push(c);
+      c.payments.push({ id: 'bt_dbl', date: '2026-08-06', amount: 97000, method: 'Wire', ref: 'dbl' }); save(); render();""")
+    card = await undep_card(pg, phone)
+    r = await js(pg, "const P = DB.clients.flatMap(c => c.payments).filter(p => +p.amount === 97000); return P.map(p => [p.id, (payBankLine(p) || {}).id || '']);")
+    C.ok('Invented Holdings' in card and sum(1 for x in r if x[1] == 't1') == 1, f'BANK {dev}: one bank line backs one payment: the second $97,000 reads recorded, not yet in the bank ({r}; {card[:160]!r})')
+    # 2. a $50,000 payment linked to a $500 bank line: the line backs $500 of it
+    await js(pg, """const c = DB.clients.find(x => x.name === 'Invented Holdings');
+      const inv = newDoc(c, 'invoice', { mode: 'items' }); inv.lines = [{ id: uid('l'), item: 'Work', qty: 1, unit: 'ls', rate: 50000 }]; inv.status = 'sent'; docMark(inv);
+      DB.txns.push(txnStamp({ id: 'bt_small', date: today(), acct: 'ac1', desc: 'DEPOSIT INVENTED HOLDINGS', amt: 500, cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:bt', 'small'));
+      c.payments.push({ id: 'bt_cap', date: today(), amount: 50000, invoiceId: inv.id, txnId: 'bt_small', method: 'ACH' }); inv.status = 'paid'; save(); render();""")
+    card = await undep_card(pg, phone)
+    r = await js(pg, "const c = DB.clients.find(x => x.name === 'Invented Holdings'), p = c.payments.find(x => x.id === 'bt_cap'); return { banked: paysBanked(c, [p]), unb: invoiceUnbanked(c, c.invoices[0]) };")
+    C.ok(abs(r['banked'] - 500) < 0.01 and abs(r['unb'] - 49500) < 0.01 and '49,500' in card, f'BANK {dev}: a $500 line backs $500 of a $50,000 payment; $49,500 reads recorded, not yet in the bank ({r}; {card[:200]!r})')
+    # 3. a line edited here after it arrived (Changed), withdrawn by the bank, or only from the Demo Feed backs nothing
+    r = await js(pg, """const c = DB.clients.find(x => x.name === 'Invented Holdings'), out = {};
+      const mk = (id, amt, f) => { const t = txnStamp({ id: id, date: today(), acct: 'ac1', desc: 'DEPOSIT ' + id, amt: amt, cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:bt', id); f(t); DB.txns.push(t);
+        c.payments.push({ id: 'p_' + id, date: today(), amount: amt, txnId: id, method: 'ACH' }); };
+      mk('bt_chg', 1234, t => { t.amt = 1234; t.desc = 'DEPOSIT EDITED HERE'; });
+      mk('bt_rm', 2345, t => { t.prov = { kind: 'feed', removedByBank: true }; });
+      mk('bt_demo', 3456, t => { t.origin = null; t.prov = { kind: 'feed', demo: true }; });
+      ['bt_chg', 'bt_rm', 'bt_demo'].forEach(id => out[id] = [typeof bfBacked === 'function' ? bfBacked(DB.txns.find(t => t.id === id)) : null, payBanked(c, c.payments.find(p => p.id === 'p_' + id))]);
+      save(); render(); return out;""")
+    C.ok(all(v[1] is False for v in r.values()), f'BANK {dev}: an edited, withdrawn or Demo Feed line backs no payment, as bfBacked reads them: {r}')
+    C.ok(not errs, f'BANK {dev}: no page errors: {errs[:3]}')
+    await b.close()
+
+
+async def t_labels(C, p, phone):
+    """two measures, two names; the gap between them is the Controller's; a check not yet deposited is week one's
+    "to deposit", outside the balance and Safe to Spend"""
+    dev = 'phone' if phone else 'desktop'
+    b, pg, errs = await fresh(p, 'u_billing', phone)
+    await nav(pg, phone, 'billing')
+    q = await js(pg, "return { held: billingRows().filter(r => r.kind === 'held' && r.job && r.job.id === 'p121').map(r => r.why), A: (() => { const A = pbAhead('p121'); return { net: A.net, total: A.total, dep: A.depPct }; })() };")
+    net = '${:,.0f}'.format(q['A']['net'])
+    C.ok(q['held'] and all(net in w and 'on what was sent' in w and '66,470' not in w and (not q['A']['dep'] or 'not counting the' in w) for w in q['held']),
+         f'LBL {dev}: the held reason quotes what the hold is decided on, the net of what was sent ({net}): {q}')
+    win = await js(pg, "return billingRows().filter(r => /Windows/.test(r.what + ' ' + r.why)).map(r => r.held ? r.held.why : r.why).concat(rbRows('p121').filter(x => x.kind === 'floated').map(x => x.why));")
+    C.ok(win and not any('dispute' in w for w in win) and any('paid ahead of delivery' in w for w in win), f'LBL {dev}: with no bill held or disputed, the windows overage reads paid ahead of delivery, never in dispute: {win}')
+    await js(pg, "const b = DB.bills.find(x => x.number === 'WW-2026-118'); b.dispute = { why: 'over its PO', on: today(), by: 'billing' }; save(); render();")
+    win = await js(pg, "return rbRows('p121').filter(x => x.kind === 'floated').map(x => x.why);")
+    C.ok(win and all('in dispute' in w for w in win), f'LBL {dev}: once the bill is disputed it says so: {win}')
+    await sign_in(pg, 'u_controller')
+    f = await js(pg, "return analystFindings().filter(x => /Over-Billed \\(WIP\\)/.test(x.title) && /Billed Ahead of the Work/.test(x.title)).map(x => [x.area, x.title]);")
+    C.ok(f and f[0][0] == 'Controller' and '121 State' in f[0][1], f'LBL {dev}: the gap between Over-Billed (WIP) and Billed Ahead of the Work is a Controller finding: {f}')
+    await nav_to(pg, 'reports', None, ['#v-reports [data-repgrp="cash"]', '#v-reports [data-reptab="cash13"]'])
+    if await pg.evaluate('repTab') != 'cash13': await js(pg, "repTab = 'cash13'; render(); await sleep(300);")
+    t = await js(pg, "const e = document.querySelector('#v-reports [data-todeposit]'); return { amt: e ? +e.dataset.todeposit : null, text: e ? e.innerText : '', low: cashForecast().low, safe: PRED.safeToSpend.figure(), w1: cashForecast().weeks[0].inflow };")
+    C.ok(t['amt'] is not None and abs(t['amt'] - 21350) < 0.01 and 'Rivera' in t['text'], f'LBL {dev}: the Cash Forecast shows Rivera\'s $21,350 as week one\'s to deposit: {t}')
+    C.ok(abs(t['safe'] + 4150.74) < 0.01, f'LBL {dev}: outside Safe to Spend (still -$4,150.74): {t}')
+    await sign_in(pg, 'u_owner')
+    await nav_to(pg, 'jobs', 'ovjobs')
+    tt = await pg.evaluate("() => (document.getElementById('v-ovjobs') || document.body).innerText")
+    C.ok('Over-Billed (WIP)' in tt and not re.search(r'Billed Ahead\s*\n', tt), f'LBL {dev}: Projects names the cost-to-cost figure Over-Billed (WIP): {tt[:200]!r}')
+    C.ok(not errs, f'LBL {dev}: no page errors: {errs[:3]}')
+    await b.close()
+
+
 async def main():
     C = Checks()
-    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED']
+    only = sys.argv[1:] or ['DEP', 'PRO', 'CASH', 'SAFE', 'Q', 'TYPED', 'BANK', 'LBL']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'DEP' in only: await t_deposit(C, p, phone)
@@ -313,6 +389,8 @@ async def main():
             if 'SAFE' in only: await t_safe(C, p, phone)
             if 'Q' in only: await t_queue(C, p, phone)
             if 'TYPED' in only: await t_typed(C, p, phone)
+            if 'BANK' in only: await t_bank(C, p, phone)
+            if 'LBL' in only: await t_labels(C, p, phone)
     sys.exit(C.done())
 
 asyncio.run(main())

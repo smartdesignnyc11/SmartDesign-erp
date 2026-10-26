@@ -106,8 +106,9 @@ function rpPL(range) {
           pid = (inv && inv.projectId) || "";
         if (repEntity && !(pid && rpInEnt(rpProj(pid)))) return;
         const r = row(pid);
-        (r.income = r2(r.income + (+pay.amount || 0))),
-          r.inc.push({ kind: "payment", date: pay.date, desc: `Payment${inv ? " on " + inv.number : ""} · ${c.name}`, amt: +pay.amount || 0, c: c, d: inv, pay: pay });
+        const got = "function" == typeof payBankedAmt ? payBankedAmt(c, pay) : +pay.amount || 0;
+        (r.income = r2(r.income + got)),
+          r.inc.push({ kind: "payment", date: pay.date, desc: `Payment${inv ? " on " + inv.number : ""} · ${c.name}`, amt: got, c: c, d: inv, pay: pay });
       }),
     );
   else {
@@ -691,7 +692,7 @@ function rpDrillRows(key) {
         (c.payments || []).forEach((pay) => {
           if (pay.unapplied || !within(pay.date, R) || ("function" == typeof payBanked && !payBanked(c, pay))) return;
           const x = { kind: "payment", c: c, pay: pay, d: (c.invoices || []).find((i) => i.id === pay.invoiceId) };
-          "bank" !== rpBackingOf(x).kind && out.push(Object.assign(x, { date: pay.date, desc: `Payment${x.d ? " on " + x.d.number : ""} · ${c.name}`, amt: +pay.amount || 0, open: x.d ? { type: "invoice", c: c, d: x.d } : null }));
+          "bank" !== rpBackingOf(x).kind && out.push(Object.assign(x, { date: pay.date, desc: `Payment${x.d ? " on " + x.d.number : ""} · ${c.name}`, amt: "function" == typeof payBankedAmt ? payBankedAmt(c, pay) : +pay.amount || 0, open: x.d ? { type: "invoice", c: c, d: x.d } : null }));
         }),
       );
     else S.rows.concat([S.none]).forEach((r) => (r.inc || []).forEach((x) => out.push({ date: x.date, desc: x.desc, amt: x.amt, kind: x.kind, c: x.c, d: x.d, pay: x.pay, open: x.d ? { type: "invoice", c: x.c, d: x.d } : null })));
@@ -951,7 +952,7 @@ function rpOverheadHtml(range) {
 // recorded and not seen at the bank is named beside it, outside the figure.
 function rpCashBasis() {
   const U = "function" == typeof undepositedReceipts ? undepositedReceipts() : [],
-    u = r2(U.reduce((a, x) => a + (+x.py.amount || 0), 0)),
+    u = r2(U.reduce((a, x) => a + (null != x.amt ? x.amt : +x.py.amount || 0), 0)),
     who = U.map((x) => x.c.name).filter((v, i, a) => a.indexOf(v) === i);
   return `the bank and card accounts' own lines${u > 0.005 ? `; ${money(u)} recorded, not yet in the bank (${esc(who.join(", "))}), not counted` : ""}`;
 }
@@ -969,7 +970,7 @@ function rpCashHtml() {
   <h3 class="rep-h">13-Week Cash Flow</h3><div class="tw"><table class="t rep-t rp-t rp-13w"><thead><tr><th>Week Of</th><th class="money">In</th><th class="money">Out</th><th class="money">Net</th><th class="money">Balance</th><th>What Moves</th></tr></thead><tbody>${F.weeks
     .map(
       (w) =>
-        `<tr class="${w.balance < 0 ? "bad" : ""}"><td>${fmt(w.start)}</td><td class="money">${w.inflow ? money(w.inflow) : "—"}</td><td class="money">${w.outflow ? money(w.outflow) : "—"}</td><td class="money ${w.net < 0 ? "bad" : ""}">${money(w.net)}</td><td class="money"><b>${money(w.balance)}</b></td><td class="small">${w.items.map(([l, a]) => `${esc(l)} ${a < 0 ? "−" : "+"}${money(Math.abs(a))}`).join(" · ") || '<span class="muted">nothing scheduled</span>'}</td></tr>`,
+        `<tr class="${w.balance < 0 ? "bad" : ""}"><td>${fmt(w.start)}</td><td class="money">${w.inflow ? money(w.inflow) : "—"}</td><td class="money">${w.outflow ? money(w.outflow) : "—"}</td><td class="money ${w.net < 0 ? "bad" : ""}">${money(w.net)}</td><td class="money"><b>${money(w.balance)}</b></td><td class="small">${w.items.map(([l, a]) => `${esc(l)} ${a < 0 ? "−" : "+"}${money(Math.abs(a))}`).join(" · ") || '<span class="muted">nothing scheduled</span>'}${(w.toDeposit || []).length ? `<div class="rp-todep" data-todeposit="${r2(w.toDepositAmt || 0)}">${w.toDeposit.map(([l, a]) => `${esc(l)} ${money(a)}`).join(" · ")} · not in the balance or Safe to Spend until the bank shows it</div>` : ""}</td></tr>`,
     )
     .join("")}<tr class="grand"><td>13 weeks</td><td class="money">${money(rpSum(F.weeks, (w) => w.inflow))}</td><td class="money">${money(rpSum(F.weeks, (w) => w.outflow))}</td><td class="money">${money(rpSum(F.weeks, (w) => w.net))}</td><td class="money">${money(F.weeks.length ? F.weeks[F.weeks.length - 1].balance : F.cash)}</td><td></td></tr></tbody></table></div><p class="small muted">In: open invoices at their due date (or the date the client promised), the next progress bill, retainage at release. Out: bills to pay (not those the bank has already paid), open PO balances, the payroll cadence, recurring overhead and what is owed on the cards. In the bank today ${money(F.cash)} + 13 weeks' net ${money(rpSum(F.weeks, (w) => w.net))} = ${money(F.weeks.length ? F.weeks[F.weeks.length - 1].balance : F.cash)}.</p>
   <h3 class="rep-h">Backlog</h3><div class="tw"><table class="t rep-t rp-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog Gross Profit</th></tr></thead><tbody>${backlog

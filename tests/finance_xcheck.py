@@ -451,7 +451,8 @@ async def check_role(pg, R, uid):
     # Projects (overview table)
     if gate('ovjobs', 'Projects'):
         await nav(pg, 'jobs', 'ovjobs'); t = await text_of(pg, 'ovjobs')
-        R.money('wip_over', S('Projects › tile "Billed Ahead"'), t, r'Billed Ahead\s*\n\s*\+?' + MONEY)
+        # the cost-to-cost figure is "Over-Billed (WIP)" (lane 1, 2026-10-26: "Billed Ahead of the Work" is the line-by-line control)
+        R.money('wip_over', S('Projects › tile "Over-Billed (WIP)"'), t, r'Over-Billed \(WIP\)\s*\n\s*\+?' + MONEY)
         if R.want('ar'):
             owed = re.findall(r'\n[^\t\n]+\t[^\t\n]*\t\d+\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t(\$[\d,]+)\t', t)
             tot = sum(parse_money(x)[0] for x in owed)

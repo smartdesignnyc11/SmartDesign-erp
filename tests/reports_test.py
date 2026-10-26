@@ -60,6 +60,7 @@ DUMP = """() => JSON.stringify({
   DB: {clients: DB.clients, projects: DB.projects.map(p => ({id: p.id, name: p.project.name, clientId: p.clientId, entityId: p.entityId})),
        txns: DB.txns, bills: DB.bills, payroll: DB.payroll, accounts: DB.accounts, pos: DB.pos, time: DB.time,
        employees: DB.employees, entities: DB.entities, gl: DB.gl, stock: DB.stock},
+  bankEvidence: DB.txns.filter(t => typeof bfBacked !== 'function' || bfBacked(t)).map(t => t.id),
   CAT: CATEGORIES.map(c => ({id: c.id, type: c.type})), today: today()})"""
 
 # ---------------------------------------------------------------------------------------------------------------- the books
@@ -68,6 +69,7 @@ class Books:
     def __init__(self, dump):
         d = json.loads(dump)
         self.D, self.today = d['DB'], d['today']
+        self.ev = d.get('bankEvidence') or []
         self.cat = {c['id']: c['type'] for c in d['CAT']}
         self.clients = self.D['clients']
         self.P = {p['id']: p for p in self.D['projects']}
@@ -109,19 +111,53 @@ class Books:
                 if i.get('status') not in ('void', 'draft'): yield c, i
     def invoiced(self, R, pid=None):
         return r2(sum(self.doc_net(i) for c, i in self.live_invoices() if not i.get('retainageRelease') and R[0] <= i['date'] <= R[1] and (pid is None or i.get('projectId') == pid)))
-    def banked(self, p):
-        """Financial truth (lane 1, 2026-10-26): a payment is collected only with a bank or card line behind it: the
-        line it is linked to, or a deposit of the same amount within $1 and 10 days that is the bank's own record (an
-        imported or fed line, never one typed by hand) and stands behind no other payment."""
-        if not float(p.get('amount') or 0) > 0: return False
+    def backing(self):
+        """Financial truth (lane 1, 2026-10-26), recomputed here: what of each payment a bank or card line backs.
+        Which lines are the bank's own record is the bank module's reading (bfBacked, in the dump as bankEvidence); the
+        matching is this suite's own: a payment linked to a line is backed by it, a line backing at most its own amount
+        across every payment linked to it; an unlinked payment takes one unused deposit of the same amount (within $1)
+        within 10 days, the nearest first, in date order: one line, one payment."""
+        if getattr(self, '_back', None) is not None: return self._back
         from datetime import date as _d
         days = lambda a, b: abs((_d.fromisoformat(a[:10]) - _d.fromisoformat(b[:10])).days)
-        bank = lambda t: float(t.get('amt') or 0) > 0 and (t.get('origin') or (t.get('prov') or {}).get('kind') not in (None, 'manual') or t.get('source') in ('csv', 'ofx', 'qfx'))
-        if p.get('txnId'): return any(t['id'] == p['txnId'] and bank(t) for t in self.D['txns'])
-        taken = {q.get('txnId') for c in self.clients for q in c['payments'] if q is not p and q.get('txnId')}
-        return any(bank(t) and t['id'] not in taken and abs(float(t['amt']) - float(p['amount'])) <= 1 and days(t['date'], p['date']) <= 10 for t in self.D['txns'])
+        ev = set(self.ev)
+        lines = {t['id']: t for t in self.D['txns'] if float(t.get('amt') or 0) > 0 and t.get('status') != 'void' and t['id'] in ev}
+        room = {k: round(float(t['amt']), 2) for k, t in lines.items()}
+        pays = sorted([q for c in self.clients for q in c['payments'] if float(q.get('amount') or 0) > 0 and not q.get('reverses')], key=lambda q: (q.get('date') or '', q.get('id') or ''))
+        by_pay = {t['paymentId']: t for t in lines.values() if t.get('paymentId')}
+        back, used, linked = {}, set(), set()
+        for q in pays:
+            t = lines.get(q['txnId']) if q.get('txnId') else by_pay.get(q['id'])
+            if not q.get('txnId') and not t: continue
+            linked.add(q['id'])
+            if not t: continue
+            amt = round(min(float(q['amount']), room[t['id']]), 2)
+            room[t['id']] = round(room[t['id']] - amt, 2); used.add(t['id'])
+            if amt > 0.005: back[q['id']] = amt
+        import re as _re
+        owner = {q['id']: c for c in self.clients for q in c['payments']}
+        names = lambda c: [w for w in _re.split(r'[^A-Z]+', (c.get('name') or '').upper()) if len(w) >= 4 and w not in ('FAMILY', 'GROUP', 'HOLDINGS', 'THE')]
+        pairs = []
+        for q in pays:
+            if q['id'] in linked: continue
+            nm = names(owner.get(q['id'], {}))
+            for t in lines.values():
+                if t.get('paymentId') and t['paymentId'] != q['id'] or abs(float(t['amt']) - float(q['amount'])) > 1 or t['id'] in used: continue
+                d = days(q['date'], t['date'])
+                if d <= 10: pairs.append((0 if any(w in (t.get('desc') or '').upper() for w in nm) else 1, d, q.get('date') or '', q.get('id') or '', q, t))
+        pairs.sort(key=lambda x: x[:4])
+        for _, _, _, _, q, t in pairs:
+            if t['id'] in used or q['id'] in back: continue
+            used.add(t['id']); back[q['id']] = round(min(float(q['amount']), float(t['amt'])), 2)
+        self._back = back
+        return back
+    def banked_amt(self, p):
+        if p.get('reverses'):
+            o = next((q for c in self.clients for q in c['payments'] if q.get('id') == p['reverses']), None)
+            return -self.banked_amt(o) if o else 0
+        return self.backing().get(p.get('id'), 0)
     def collected(self, R):
-        return r2(sum(float(p.get('amount') or 0) for c in self.clients for p in c['payments'] if not p.get('unapplied') and R[0] <= p['date'] <= R[1] and self.banked(p)))
+        return r2(sum(self.banked_amt(p) for c in self.clients for p in c['payments'] if not p.get('unapplied') and R[0] <= p['date'] <= R[1]))
     def ar(self):
         """Open invoices (balance over $0.50, as the client record keeps them) and the cents short-paid below it."""
         open_, short = [], []

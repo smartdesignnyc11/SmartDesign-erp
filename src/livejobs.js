@@ -939,7 +939,7 @@ if ("function" == typeof draftDocEmail) {
           n: un.length,
           label: `payment${1 === un.length ? "" : "s"} on a two-payer contract not assigned to a payer: ${un
             .slice(0, 2)
-            .map((x) => `${x.c.name} ${money(+x.py.amount)}`)
+            .map((x) => `${x.c.name} ${money("function" == typeof undepAmt ? undepAmt(x) : +x.py.amount)}`)
             .join("; ")}`,
           go: { view: "clients" },
           sev: "warn",

@@ -16027,12 +16027,19 @@ function cashForecast() {
   // (Rivera's $21,350 made Cash Today $205,581 against $184,231 in the bank), and it is now carried apart, by name.
   const B0 = companyBalance(),
     cash = B0.cash;
+  // A check received and recorded, not yet in the bank, is week one's "to deposit": shown in that week by name, outside
+  // the balances, the 13-week low and Safe to Spend until the bank's line arrives (it was dropped from all 13 weeks).
+  let toDeposit = [];
+  try {
+    toDeposit = undepositedReceipts().map((x) => [`To deposit: ${x.c.name.split(" ")[0]} ${fmt(x.py.date)}${x.py.ref ? " " + x.py.ref : ""}`, undepAmt(x)]);
+  } catch (e) {}
+  weeks.length && ((weeks[0].toDeposit = toDeposit), (weeks[0].toDepositAmt = r2(toDeposit.reduce((a, x) => a + x[1], 0))));
   let bal = cash;
   return (
     weeks.forEach((w) => {
       (w.net = w.inflow - w.outflow), (bal += w.net), (w.balance = bal);
     }),
-    { cash: cash, unbanked: r2(B0.undeposited || 0), weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
+    { cash: cash, unbanked: r2(B0.undeposited || 0), toDeposit: toDeposit, weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
   );
 }
 function renderCash() {
@@ -25001,6 +25008,12 @@ const CT_SEED = [
     DB.clients.find(
       (c) => c.estimates.includes(doc) || c.changeOrders.includes(doc) || c.invoices.includes(doc),
     );
+// A deposit invoice bills the deposit: the contract's one-line deposit (depositOf, never an SOV application). Every
+// progress application also carries depositOf, to name the deposit it draws on (ctProgressInvoice), so depositOf
+// alone never makes an invoice a deposit. One reading with the ledger (glInvoiceLines).
+function invIsDeposit(i) {
+  return !!(i && i.depositOf && "sov" !== i.mode);
+}
 function invoicePaid(c, inv) {
   return c.payments.filter((p) => p.invoiceId === inv.id).reduce((a, p) => a + (+p.amount || 0), 0);
 }
@@ -25009,29 +25022,101 @@ function invoicePaid(c, inv) {
 // matched to, or one from the bank's own record, never a line typed by hand). Until then it is "recorded, not yet in
 // the bank": it still settles the client's balance (it sits in Undeposited Funds, 1050), but no figure calls it cash.
 // A reversal counts when the payment it reverses counted.
-function payBanked(c, py) {
-  if (!py) return !1;
+// What the bank backs is decided once for every payment (payBacking), never per call:
+// - a payment linked to a bank line (txnId, or the line's paymentId) is backed by that line, and a line backs at most
+//   its own amount across every payment linked to it (a $500 line never backs a $50,000 payment);
+// - an unlinked payment is matched to one deposit of the same amount (within $1) within 10 days, the nearest first,
+//   that no other payment stands on: one line, one payment (two $97,000 payments both read the seed's one $97,000
+//   wire before, because only formally linked lines were taken);
+// - the decision is cached against the records it read, so it is made once per draw (the per-call rebuild grew with
+//   the square of the payments).
+let payBackMemo = null;
+function payBackSig() {
+  const P = [],
+    T = [];
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => P.push(`${p.id}:${p.amount}:${p.txnId || ""}:${p.date}:${p.reverses || ""}`)));
+  (DB.txns || []).forEach((t) => +t.amt > 0 && T.push(`${t.id}:${t.amt}:${t.date}:${t.status || ""}:${t.paymentId || ""}:${t.desc || ""}:${t.origin ? t.origin.sig || 1 : ""}:${t.prov ? (t.prov.kind || "") + (t.prov.removedByBank ? "r" : "") : ""}`));
+  return P.join(",") + "|" + T.join(",");
+}
+function payBacking() {
+  const sig = payBackSig();
+  if (payBackMemo && payBackMemo.sig === sig) return payBackMemo.map;
+  const map = new Map(),
+    lines = new Map(),
+    room = new Map(),
+    used = new Set(),
+    all = [];
+  (DB.txns || []).forEach((t) => +t.amt > 0 && "void" !== t.status && txnFromBank(t) && (lines.set(t.id, t), room.set(t.id, r2(+t.amt))));
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => +p.amount > 0 && !p.reverses && all.push(p)));
+  all.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.id || "").localeCompare(String(b.id || "")));
+  const byPay = new Map();
+  lines.forEach((t) => t.paymentId && byPay.set(t.paymentId, t));
+  const linked = new Set();
+  all.forEach((p) => {
+    const t = p.txnId ? lines.get(p.txnId) : byPay.get(p.id);
+    if (!p.txnId && !t) return;
+    linked.add(p);
+    if (!t) return;
+    const amt = r2(Math.min(+p.amount, room.get(t.id)));
+    room.set(t.id, r2(room.get(t.id) - amt)), used.add(t.id), amt > 0.005 && map.set(p, { t: t, amt: amt });
+  });
+  // every candidate pair, best first: a line that names the payer, then the nearest date, then the earliest payment;
+  // each line and each payment is taken once
+  const owner = new Map();
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => owner.set(p, c)));
+  const names = (c) =>
+      String((c && c.name) || "")
+        .toUpperCase()
+        .split(/[^A-Z]+/)
+        .filter((w) => w.length >= 4 && !/^(FAMILY|GROUP|HOLDINGS|THE)$/.test(w)),
+    pairs = [];
+  all.forEach((p) => {
+    if (linked.has(p)) return;
+    const nm = names(owner.get(p));
+    lines.forEach((t) => {
+      if (used.has(t.id) || (t.paymentId && t.paymentId !== p.id) || Math.abs(+t.amt - +p.amount) > 1) return;
+      const d = Math.abs(dayDiff(p.date, t.date));
+      if (!(d <= 10)) return;
+      const desc = String(t.desc || "").toUpperCase();
+      pairs.push({ p: p, t: t, named: nm.some((w) => desc.includes(w)) ? 0 : 1, d: d });
+    });
+  });
+  pairs.sort((a, b) => a.named - b.named || a.d - b.d || String(a.p.date || "").localeCompare(String(b.p.date || "")) || String(a.p.id || "").localeCompare(String(b.p.id || "")));
+  pairs.forEach((x) => {
+    if (used.has(x.t.id) || map.has(x.p)) return;
+    used.add(x.t.id), map.set(x.p, { t: x.t, amt: r2(Math.min(+x.p.amount, +x.t.amt)) });
+  });
+  return (payBackMemo = { sig: sig, map: map }), map;
+}
+// what of a payment the bank has: its backed amount; a reversal takes off what the payment it reverses had
+function payBankedAmt(c, py) {
+  if (!py) return 0;
   if (py.reverses) {
     const o = ((c && c.payments) || []).find((x) => x.id === py.reverses);
-    return !!(o && payBankLine(o));
+    return o ? -payBankedAmt(c, o) : 0;
   }
-  return !!payBankLine(py);
+  const b = payBacking().get(py);
+  return b ? b.amt : 0;
+}
+function payBanked(c, py) {
+  return Math.abs(payBankedAmt(c, py)) > 0.005;
 }
 function paysBanked(c, P) {
-  return r2((P || []).filter((p) => payBanked(c, p)).reduce((a, p) => a + (+p.amount || 0), 0));
+  return r2((P || []).reduce((a, p) => a + payBankedAmt(c, p), 0));
 }
 function paysUnbanked(c, P) {
-  return r2((P || []).filter((p) => !payBanked(c, p)).reduce((a, p) => a + (+p.amount || 0), 0));
+  return r2((P || []).reduce((a, p) => a + (+p.amount || 0) - payBankedAmt(c, p), 0));
 }
-// A bank or card line is the bank's record when it came from a feed or an imported statement (bfProv), or a typed line
-// the bank has since confirmed (bfBacked). A line typed by hand and never seen at the bank is not: it backs no
-// payment and is never offered as a match. One reading for payBankLine and proposals().
+// A bank or card line is the bank's record when bfBacked says so: it came from a feed or an imported statement and is
+// as the bank sent it, or it was typed and the bank has since confirmed it. A line edited here after it arrived
+// (Changed), withdrawn by the bank (Removed by Bank) or only from the Demo Feed is not. One meaning everywhere:
+// payBacking and proposals() read it.
 function txnFromBank(t) {
   if (!t) return !1;
   try {
-    return ("function" == typeof bfBacked && bfBacked(t)) || ("function" == typeof bfProv && "manual" !== bfProv(t).kind) || "function" != typeof bfProv;
+    return "function" != typeof bfBacked || !!bfBacked(t);
   } catch (e) {
-    return !0;
+    return !1;
   }
 }
 // money in from clients over a stretch: only what the bank has
@@ -25139,7 +25224,7 @@ function lineFin(key) {
       : 0,
     depositPct = sv
       ? live
-          .filter((i) => i.depositOf)
+          .filter((i) => invIsDeposit(i))
           .flatMap((i) => i.lines)
           .filter((l) => l.sovId === sv.id)
           .reduce((a, l) => a + (+l.pct || 0), 0)
@@ -26235,6 +26320,28 @@ function analystFindings() {
     t0 = today(),
     days = (a, b) => Math.round((parse(b) - parse(a)) / 864e5),
     spend = DB.txns.filter((t) => t.amt < 0 && "transfer" !== t.cat);
+  // The two billed-ahead measures (adopted 2026-10-26 as a reversible default): "Over-Billed (WIP)" is cost to cost,
+  // "Billed Ahead of the Work" is each line against the work on site. Far apart on one job (121 State: $131,058 against
+  // $66,470), they are the Controller's to reconcile, as a finding of their own.
+  try {
+    "function" == typeof pbAhead &&
+      (DB.projects || []).forEach((p) => {
+        const A = pbAhead(p.id),
+          w = r2(+jobFin(p).over || 0),
+          l = r2(+A.total || 0),
+          gap = r2(Math.abs(w - l));
+        (w > 0.005 || l > 0.005) &&
+          gap >= Math.max(1e3, 0.1 * Math.max(w, l)) &&
+          add(
+            "med",
+            "Controller",
+            `${shortName(p)}: Over-Billed (WIP) ${money(w)} against Billed Ahead of the Work ${money(l)}, ${money(gap)} apart`,
+            `The WIP schedule measures cost to cost; billing measures each line against the work on site${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}. Reconcile them before the month closes: a deposit billed as work, costs not yet in, or a line measured behind its cost.`,
+            gap,
+            { view: "reports", tab: "wip" },
+          );
+      });
+  } catch (e) {}
   spend.forEach((a, i) =>
     spend.slice(i + 1).forEach((b) => {
       Math.abs(a.amt - b.amt) < 0.01 &&
@@ -28871,8 +28978,8 @@ companyPL = function (range) {
     (P.collected = r2(
       DB.clients
         .flatMap((c) => c.payments.map((p) => ({ c: c, p: p, i: c.invoices.find((x) => x.id === p.invoiceId) })))
-        .filter((x) => !x.p.unapplied && within(x.p.date, range) && x.i && projs.includes(x.i.projectId) && payBanked(x.c, x.p))
-        .reduce((a, x) => a + (+x.p.amount || 0), 0),
+        .filter((x) => !x.p.unapplied && within(x.p.date, range) && x.i && projs.includes(x.i.projectId))
+        .reduce((a, x) => a + payBankedAmt(x.c, x.p), 0),
     )),
     (P.gross = r2(P.income - P.cogsT)),
     (P.net = r2(P.gross - P.ohT)),
@@ -34518,6 +34625,10 @@ function acctBook(a) {
     r2(a.opening + acctRegister(a))
   );
 }
+// what of an unbanked payment the bank has not shown (all of it, or the part a smaller bank line does not cover)
+function undepAmt(x) {
+  return r2(x && null != x.amt ? x.amt : +((x && x.py) || {}).amount || 0);
+}
 function undepositedReceipts() {
   const out = [];
   return (
@@ -34526,7 +34637,8 @@ function undepositedReceipts() {
         // one reading with payBankLine (the line behind a payment), so this list and every "collected" agree
         .filter((py) => !py.unapplied && (+py.amount || 0) > 0 && !py.reversalId)
         .forEach((py) => {
-          payBankLine(py) || out.push({ c: c, py: py });
+          const left = r2((+py.amount || 0) - payBankedAmt(c, py));
+          left > 0.005 && out.push({ c: c, py: py, amt: left });
         }),
     ),
     out
@@ -34563,7 +34675,7 @@ companyBalance = function () {
     )),
     (B.apRet = r2(DB.vendors.reduce((a, v) => a + apRetainage(v.name), 0))),
     (B.payrollAccrued = accruedPayroll()),
-    (B.undeposited = r2(undepositedReceipts().reduce((a, x) => a + (+x.py.amount || 0), 0))),
+    (B.undeposited = r2(undepositedReceipts().reduce((a, x) => a + undepAmt(x), 0))),
     (B.credits = r2(DB.clients.reduce((a, c) => a + clientFin(c).credits, 0)));
   const W = DB.projects.map(wipRow);
   return (
@@ -35500,7 +35612,7 @@ function stsWhy(X) {
       B.cards ? `${money(-B.cards)} owed on cards` : "",
       B.ap ? `${money(B.ap)} of unpaid bills` : "",
       B.payrollAccrued ? `${money(B.payrollAccrued)} of payroll due` : "",
-      B.over ? `${money(B.over)} billed ahead of the work (client money for work not done)` : "",
+      B.over ? `${money(B.over)} over-billed (WIP, cost-to-cost: client money for work not done)` : "",
     ].filter(Boolean);
   return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low (${money(X.low)}) is lower, so it is the figure` : ""}${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
 }
@@ -35668,7 +35780,7 @@ const ptJobsBase3 = ptJobs;
   (ptCash = function () {
     const { B: B, F: F, safe: safe } = safeToSpend(),
       lowWk = F.weeks.reduce((a, w) => (w.balance < a.balance ? w : a), F.weeks[0]);
-    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− billed ahead of work (client money for work not done)</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
+    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− over-billed (WIP): client money for work not done</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
   }),
   Object.assign(PORTLETS, { today: "Today strip" });
 const renderPortletBase3 = renderPortlet;
@@ -36526,7 +36638,7 @@ function drillRows(key, range) {
                     kind: "Payment",
                     desc: `${i?.number || ""} · ${py.method || ""} ${py.ref || ""}`,
                     who: c.name,
-                    amt: +py.amount || 0,
+                    amt: payBankedAmt(c, py),
                     open: i ? { type: "invoice", c: c, d: i } : null,
                   });
                 }),
@@ -37173,7 +37285,7 @@ renderBank = function () {
   host &&
     und.length &&
     !host.querySelector(".undep-note") &&
-    (host.innerHTML += ` <span class="bad undep-note">${und.length} client payment${und.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(und.reduce((a, x) => a + (+x.py.amount || 0), 0))}) — deposit them or fix the record.</span>`);
+    (host.innerHTML += ` <span class="bad undep-note">${und.length} client payment${und.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(und.reduce((a, x) => a + undepAmt(x), 0))}) — deposit them or fix the record.</span>`);
 };
 const closeChecklistBase = closeChecklist;
 closeChecklist = function (month) {
@@ -37486,7 +37598,7 @@ renderClients = function () {
   if (!tb) return;
   const hr = tb.querySelector("thead tr");
   if (!hr || hr.querySelector(".cx")) return;
-  ["Unsigned", "Billed ahead", "Next bill"].forEach((l) => {
+  ["Unsigned", "Over-Billed (WIP)", "Next bill"].forEach((l) => {
     const th = document.createElement("th");
     (th.className = "cx money"), (th.textContent = l), hr.appendChild(th);
   });
@@ -46255,7 +46367,7 @@ function ptWIP() {
     worst = rows.filter(
       (r) => r.J.contract && Math.abs(r.ou) > 0.15 * Math.max(1, r.J.contract - r.J.earned),
     );
-  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "Billed Ahead of Work (Liability)" : "Earned Ahead of Billing (Unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
+  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "Over-Billed (WIP) · Liability" : "Earned Ahead of Billing (Unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
 }
 function ptMarginFc() {
   return `<div class="rem">${
@@ -66386,19 +66498,8 @@ function paySheet(c, py, rev) {
 // seeing the money. A line already standing behind another payment never stands behind this one too.
 function payBankLine(py) {
   if (!py || !(+py.amount > 0)) return null;
-  const real = (t) => {
-      if (!t || !(+t.amt > 0) || "void" === t.status) return !1;
-      return txnFromBank(t);
-    },
-    own = py.txnId && (DB.txns || []).find((t) => t.id === py.txnId);
-  if (own) return real(own) ? own : null;
-  const taken = new Set();
-  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => p !== py && p.txnId && taken.add(p.txnId)));
-  return (
-    (DB.txns || []).find(
-      (t) => real(t) && !taken.has(t.id) && !(t.paymentId && t.paymentId !== py.id) && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10,
-    ) || null
-  );
+  const b = payBacking().get(py);
+  return b ? b.t : null;
 }
 function payInBankRows() {
   const banks = new Set(payBankAccts().map((a) => a.id)),
@@ -66430,7 +66531,7 @@ function invFindInBank(c, d) {
       R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
       R.find((x) => Math.abs(+x.t.amt - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
   if (hit && "function" == typeof openVerifyTxn) return void openVerifyTxn(hit.t.id);
-  const last = (DB.txns || []).filter((t) => +t.amt > 0 && payBankLine({ amount: +t.amt, date: t.date, txnId: t.id })).map((t) => t.date).sort().pop();
+  const last = (DB.txns || []).filter((t) => +t.amt > 0 && txnFromBank(t)).map((t) => t.date).sort().pop();
   (ROLE_VIEWS[role()] || []).includes("bank") && setView("bank");
   toast(`No deposit of ${money(bal)} for ${d.number} is in the bank's lines yet${last ? ` (the last deposit seen is ${fmtL(last)})` : ""}. When it arrives it is proposed against ${d.number} on Banking.`);
 }
@@ -66924,7 +67025,7 @@ function iaBillQueueHtml() {
       )
       .join(""),
     "Everything sent has been paid.",
-  )}\n    ${card("Recorded, not yet in the bank", undep.map((x) => row(money(x.py.amount), `${esc(x.c.name)} · ${fmt(x.py.date)}`, esc(x.py.method || ""), { view: "bank" }, "Banking")).join(""), "Every recorded payment has been seen in the bank.")}\n  </div>`;
+  )}\n    ${card("Recorded, not yet in the bank", undep.map((x) => row(money(undepAmt(x)), `${esc(x.c.name)} · ${fmt(x.py.date)}`, esc(x.py.method || ""), { view: "bank" }, "Banking")).join(""), "Every recorded payment has been seen in the bank.")}\n  </div>`;
 }
 const renderBillingBase_p2 = renderBilling;
 renderBilling = function () {
@@ -69860,7 +69961,7 @@ const h4HomeBase_b2 = h4Home;
     const rest = [
       ...X.undep.map((x) =>
         b2Row(
-          money(x.py.amount),
+          money(undepAmt(x)),
           `${esc(x.c.name)} · recorded ${fmt(x.py.date)}`,
           "not yet in the bank",
           { view: "bank" },
@@ -70086,7 +70187,7 @@ function b2Plate(r, F) {
     ),
       X.undep.length &&
         L.push(
-          `Recorded, not in bank: ${X.undep.map((x) => `${x.c.name} ${money(x.py.amount)}`).join(", ")}`,
+          `Recorded, not in bank: ${X.undep.map((x) => `${x.c.name} ${money(undepAmt(x))}`).join(", ")}`,
         ),
       X.cosToSign.length &&
         L.push(`Unsigned change orders: ${X.cosToSign.map((x) => `${x.x.number} ${x.c.name}`).join(", ")}`);
@@ -70712,7 +70813,7 @@ function eaToday(r, F, X) {
         ),
       X.undep.forEach((x) =>
         out.push({
-          n: money(x.py.amount),
+          n: money(undepAmt(x)),
           t: `${esc(x.c.name)} — recorded ${fmt(x.py.date)}, not in the bank`,
           sub: "either it has not been deposited or it bounced; worth a look.",
           act: "Banking",
@@ -71366,7 +71467,9 @@ function glInvoiceLines(c, d) {
     net = r2(T.sub - T.disc);
   if (d.retainageRelease)
     return L.push(glL("1100", T.total, 0, dims)), L.push(glL("1150", 0, T.total, dims)), L;
-  const isDeposit = !(!d.depositOf && !d.retainerOf),
+  // a deposit (or retainer) invoice: depositOf on a progress application only names the deposit it draws on, so an
+  // SOV invoice is never a deposit; it posted its revenue to 2400 (Cr deposits held) instead of 4100
+  const isDeposit = !!(invIsDeposit(d) || d.retainerOf),
     // docTotal already takes an applied deposit off a progress (SOV) invoice's total (T.dep); taking it off again
     // left the journal $1 short per $1 of deposit (Dr 1100 + 2400 under Cr revenue) and AR under the client record
     depOff = r2(r2(d.depositApplied || 0) - r2(T.dep || 0));
@@ -72159,7 +72262,7 @@ function glOverviewHtml(sync) {
             .flatMap((c) => c.invoices || [])
             .filter(
               (i) =>
-                (i.depositOf || i.retainerOf) &&
+                (invIsDeposit(i) || i.retainerOf) &&
                 !["void", "draft"].includes(i.status) &&
                 i.date >= from &&
                 i.date <= to &&
@@ -89248,7 +89351,7 @@ function glnProject(cpm, projEnd) {
         k: "Costs",
         go: "costs",
         tone: drift > 3 || aheadPct > 10 ? "bad" : aheadPct > 5 ? "warn" : "",
-        v: aheadPct > 5 ? `+${money(J.over)} billed ahead` : `${Math.round(J.estGPPct)}% margin`,
+        v: aheadPct > 5 ? `+${money(J.over)} over-billed (WIP)` : `${Math.round(J.estGPPct)}% margin`,
         s:
           aheadPct > 5
             ? `${Math.round(aheadPct)}% of the contract invoiced past earned work · margin ${Math.round(J.estGPPct)}% vs ${Math.round(J.plannedGPPct)}% planned`
@@ -91160,7 +91263,7 @@ const TL_SETS = {},
     return [
       {
         key: "ahead",
-        k: J.over ? "Billed Ahead" : "Earned, Not Billed",
+        k: J.over ? "Over-Billed (WIP)" : "Earned, Not Billed",
         v: J.over ? "+" + tlK(J.over) : tlK(J.under || 0),
         tone: J.over && aheadPct > 10 ? "bad" : (J.over && aheadPct > 5) || J.under > 25e3 ? "warn" : "",
         s: J.over
@@ -91468,7 +91571,7 @@ const TL_SETS = {},
       },
       {
         key: "ahead",
-        k: "Billed Ahead",
+        k: "Over-Billed (WIP)",
         v: "+" + tlK(ahead),
         tone: ahead > 1e5 ? "warn" : "",
         s: ahead
@@ -124041,7 +124144,7 @@ if ("function" == typeof glOverviewHtml) {
             .flatMap((c) => c.invoices || [])
             .filter(
               (i) =>
-                (i.depositOf || i.retainerOf) &&
+                (invIsDeposit(i) || i.retainerOf) &&
                 !["void", "draft"].includes(i.status) &&
                 i.date >= from &&
                 i.date <= to &&
@@ -124303,7 +124406,7 @@ if ("function" == typeof renderBank) {
       U = finUndeposited();
     note &&
       U.length &&
-      (note.innerHTML = `${U.length} client payment${U.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(U.reduce((a, x) => a + (+x.py.amount || 0), 0))}) — ${U.map((x) => `${esc(x.c.name)} ${money(x.py.amount)} recorded ${fmt(x.py.date)}, ${x.days} days ago${x.late ? " — past the five-day mark" : ""}`).join("; ")}. Deposit them or fix the record.`);
+      (note.innerHTML = `${U.length} client payment${U.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(U.reduce((a, x) => a + undepAmt(x), 0))}) — ${U.map((x) => `${esc(x.c.name)} ${money(undepAmt(x))} recorded ${fmt(x.py.date)}, ${x.days} days ago${x.late ? " — past the five-day mark" : ""}`).join("; ")}. Deposit them or fix the record.`);
   };
 }
 if ("function" == typeof eaToday) {
@@ -124315,8 +124418,8 @@ if ("function" == typeof eaToday) {
           .filter((x) => x.late)
           .forEach((x) =>
             out.push({
-              n: "!" + money(x.py.amount),
-              t: `${esc(x.c.name)} — ${money(x.py.amount)} recorded ${fmt(x.py.date)}, not in the bank after ${x.days} days`,
+              n: "!" + money(undepAmt(x)),
+              t: `${esc(x.c.name)} — ${money(undepAmt(x))} recorded ${fmt(x.py.date)}, not in the bank after ${x.days} days`,
               sub: "either it was never deposited or the record is wrong; the month will not close with it open.",
               act: "Banking",
               data: { view: "bank" },
@@ -124829,7 +124932,7 @@ function finAnswer(raw) {
       over = r2(rows.reduce((a, x) => a + x.J.over, 0)),
       under = r2(rows.reduce((a, x) => a + x.J.under, 0));
     return out(
-      `${money(over)} billed ahead of the work (over-billed, a liability) across ${rows.filter((x) => x.J.over).length} job${1 === rows.filter((x) => x.J.over).length ? "" : "s"}; ${money(under)} under-billed${rows.filter((x) => x.J.under).length ? ` on ${rows.filter((x) => x.J.under).length}` : ""}.`,
+      `${money(over)} over-billed (WIP, cost-to-cost; a liability) across ${rows.filter((x) => x.J.over).length} job${1 === rows.filter((x) => x.J.over).length ? "" : "s"}; ${money(under)} under-billed${rows.filter((x) => x.J.under).length ? ` on ${rows.filter((x) => x.J.under).length}` : ""}.`,
       "Over/under = billed (gross) − earned, where earned = contract × % complete, cost-to-cost. The same rows as Reports › WIP schedule.",
       rows
         .sort((a, b) => Math.abs(b.J.overUnder) - Math.abs(a.J.overUnder))
@@ -125052,7 +125155,7 @@ function finAnswer(raw) {
           .filter((p) => !p.unapplied && within(p.date, P.range) && payBanked(c, p))
           .map((p) => ({ c: c, p: p })),
       ),
-      amt = r2(rows.reduce((a, r) => a + (+r.p.amount || 0), 0)),
+      amt = r2(rows.reduce((a, r) => a + payBankedAmt(r.c, r.p), 0)),
       prev = (() => {
         if (!/month/.test(P.label)) return null;
         const d = parse(td),
@@ -125065,7 +125168,7 @@ function finAnswer(raw) {
       })();
     return out(
       `${rows.length ? `${money(amt)} collected ${P.label} across ${rows.length} payment${1 === rows.length ? "" : "s"}` : `Nothing collected ${P.label}`}${prev ? `; last month brought in ${money(prev.amt)}` : ""}.`,
-      `Client payments by the date they were recorded, ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${finUndeposited().length ? `${finUndeposited().length} recorded payment${1 === finUndeposited().length ? "" : "s"} (${money(finUndeposited().reduce((a, x) => a + (+x.py.amount || 0), 0))}) ${1 === finUndeposited().length ? "has" : "have"} not been seen in the bank yet.` : ""}`,
+      `Client payments by the date they were recorded, ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${finUndeposited().length ? `${finUndeposited().length} recorded payment${1 === finUndeposited().length ? "" : "s"} (${money(finUndeposited().reduce((a, x) => a + undepAmt(x), 0))}) ${1 === finUndeposited().length ? "has" : "have"} not been seen in the bank yet.` : ""}`,
       rows.map(
         (r) =>
           `${fmtL(r.p.date)} · ${r.c.name} · ${money(r.p.amount)}${r.p.method ? " · " + r.p.method : ""}`,
@@ -133902,7 +134005,7 @@ if ("function" == typeof pgPaneHtml) {
       );
       if (!w.contract) return h;
       const pos = w.over
-          ? `<b class="bad">${money(w.over)}</b><span>over-billed — billed ahead of the work</span>`
+          ? `<b class="bad">${money(w.over)}</b><span>over-billed (WIP, cost-to-cost)</span>`
           : w.under
             ? `<b class="ok">${money(w.under)}</b><span>under-billed — the work is ahead of billing</span>`
             : `<b>${money(0)}</b><span>billed in step with the work</span>`,
@@ -142000,7 +142103,7 @@ if (
         },
         {
           key: "ahead",
-          k: "Billed Ahead",
+          k: "Over-Billed (WIP)",
           v: aheadAmt ? "+" + tlK(aheadAmt) : "$0",
           tone: aheadAmt > 1e5 ? "warn" : "",
           s: ahead.length
@@ -147098,7 +147201,7 @@ function blUndepHtml() {
       ? undepositedReceipts().filter((x) => !billClient || x.c.id === billClient)
       : [];
   return undep.length
-    ? `<div class="card bl-undep"><div class="hd"><h3>Recorded, Not Yet in the Bank</h3><span class="small muted">${tlN(undep.length, "payment")} · ${money(undep.reduce((a, x) => a + (+x.py.amount || 0), 0))}</span><span class="grow"></span>${(ROLE_VIEWS[role()] || []).includes("bank") ? '<button class="btn sm" id="bl-gobank">Open Banking</button>' : ""}</div>${undep.map((x) => `<div class="oc-row"><b>${money(x.py.amount)}</b><span>${esc(x.c.name)} · ${fmt(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}</span></div>`).join("")}<div class="small muted">Either it has not been deposited or it bounced — match it on Banking.</div></div>`
+    ? `<div class="card bl-undep"><div class="hd"><h3>Recorded, Not Yet in the Bank</h3><span class="small muted">${tlN(undep.length, "payment")} · ${money(undep.reduce((a, x) => a + undepAmt(x), 0))}</span><span class="grow"></span>${(ROLE_VIEWS[role()] || []).includes("bank") ? '<button class="btn sm" id="bl-gobank">Open Banking</button>' : ""}</div>${undep.map((x) => `<div class="oc-row"><b>${money(undepAmt(x))}</b><span>${esc(x.c.name)} · ${fmt(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}</span></div>`).join("")}<div class="small muted">Either it has not been deposited or it bounced — match it on Banking.</div></div>`
     : "";
 }
 if ("function" == typeof renderBilling) {
@@ -171055,7 +171158,7 @@ const AG_FIN = [
       const B = agBF().B,
         jobs = (DB.projects || []).filter((p) => jobFin(p).over > 0.5);
       return {
-        headline: `${money(B.wip)} billed ahead of the work (over-billed, a liability) across ${agN(jobs.length, "job")}.`,
+        headline: `${money(B.wip)} over-billed (WIP, cost-to-cost; a liability) across ${agN(jobs.length, "job")}.`,
         work: jobs.map((p) => `${agShort(p)} — ${money(jobFin(p).over)} invoiced ahead of the work`),
         go: agGo("wip") || agGo("reports"),
         ran: agRan("projects", ["billed is more than earned"], "", jobs.length),
@@ -172477,7 +172580,7 @@ AG_FIN.push(
         };
       return {
         headline: rev
-          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} billed ahead of the work).`
+          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} over-billed (WIP)).`
           : `${money(pl.net)} net profit ${per}: ${pl.income ? Math.round((100 * pl.net) / pl.income) : 0}% of ${money(pl.income)} revenue.`,
         work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
         go: agGo("reports", { tab: "pl" }),
@@ -173876,7 +173979,7 @@ function tdMyJobs() {
 // ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
 predDef("safeToSpend", {
   label: "Safe to Spend",
-  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low; a payment recorded but not yet in the bank is not counted",
+  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and what is over-billed on the WIP schedule) and the 13-week low; a payment recorded but not yet in the bank is not counted",
   // what is set aside, one line (named setAside: other predicates use why for their own rows)
   setAside: () => stsWhy(),
   figure: () => safeToSpend().safe,
@@ -173890,7 +173993,7 @@ predDef("safeToSpend", {
       ["Credit cards", B.cards],
       ["Unpaid bills", -B.ap],
       ["Payroll due", -(B.payrollAccrued || 0)],
-      ["Billed ahead of work", -(B.over || 0)],
+      ["Over-billed (WIP)", -(B.over || 0)],
       ["Truly ours", B.trulyOurs, "total"],
       ["13-week low", X.low, "total"],
       ["Safe to spend", X.safe, "figure"],
@@ -187298,9 +187401,9 @@ function nyhRowsAll() {
         key: "undep:" + x.py.id,
         route: "billing",
         kind: "undeposited",
-        title: `Resolve: ${x.c.name} ${lnMoney(x.py.amount)} recorded ${fmtL(x.py.date)}, not in the bank`,
+        title: `Resolve: ${x.c.name} ${lnMoney(undepAmt(x))} recorded ${fmtL(x.py.date)}, not in the bank`,
         why: `${x.days} days on the books with no bank line behind it · match it to the deposit, or reverse it with a reason`,
-        amount: +x.py.amount,
+        amount: undepAmt(x),
         verb: "Resolve",
         no: "",
         run: () => nyhResolveUndeposited(x),
@@ -188525,9 +188628,12 @@ function rbRows(pid) {
         // on an application already (a draft counts, as sovBilled counts it: the draft is where the person put it)
         billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && "void" !== i.status).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
-        amt = r2(Math.min(Math.min(cost, got, sched) - billed - per, +r.pr.stored || 0));
+        amt = r2(Math.min(Math.min(cost, got, sched) - billed - per, +r.pr.stored || 0)),
+        key = r.sv.lineRef || "",
+        onLine = (b) => b.line === key || (b.lines || []).some((l) => l.line === key) || (b.poId && (DB.pos || []).some((po) => po.id === b.poId && (po.lines || []).some((l) => l.line === key))),
+        disputed = !!key && (DB.bills || []).some((b) => b.projectId === p.id && onLine(b) && (b.dispute || b.hold || ["hold", "on-hold", "held", "disputed"].includes(b.status) || (b.onHold && "open" === b.onHold.state) || (b.short && b.short.held)));
       amt >= 100 &&
-        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: cost, billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, disputed: over, markupPct: 0, date: "", label: r.sv.desc, why: `${money(got)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for${over >= 1 ? `; the other ${money(over)} of cost is over what was delivered (in dispute with the vendor) and is never billed to the client` : ""}` });
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: cost, billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, disputed: over, markupPct: 0, date: "", label: r.sv.desc, why: `${money(got)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for${over >= 1 ? (disputed ? `; the other ${money(over)} of cost is over what was delivered, in dispute with the vendor, and is never billed to the client` : `; the other ${money(over)} of cost is paid ahead of delivery and bills once it is delivered`) : ""}` });
     });
   });
   return out;
@@ -188645,7 +188751,7 @@ function rbDraftFloated(pid, svId) {
           // behind still bills what is behind)
           if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
           const what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)})`;
-          held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: the job is billed ${money(A.total)} ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}; billing more needs a reason` });
+          held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: on what was sent, the job is billed ${money(A.net)} ahead of the work${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}; billing more needs a reason` });
           return !1;
         }));
       rows.sort((a, b) => b.amount - a.amount);
