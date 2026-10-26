@@ -139517,13 +139517,24 @@ function pay3HeldCost(b) {
   return s && "accepted" !== s.state ? r2(+s.held || 0) : 0;
 }
 const pay3Short = (b) => !!(b && b.short && +b.short.held > 0);
+// What is left on the bill's PO for this bill. The other bills count when they are committed (approved, paid, held,
+// or paid before approval) or come before this one (by bill date, then entry order); a later bill still waiting does
+// not. Counting every other bill flagged each of two waiting bills "$340 over" for one $340 overage (two Caught for
+// You rows, the overage twice in the leak sum), and the dispute landed on whichever the owner opened first, the
+// earlier CM-0102, not CM-0109 that took PO-2026-048 over its $76,000 (month walk E216).
 function pay3PO(b) {
   const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
   if (!po) return null;
-  const total = poTotal(po).total,
+  const B = DB.bills || [],
+    waiting = (x) => ["submitted", "pm-approved"].includes(x.status) && !("function" == typeof billPaidUnapproved && billPaidUnapproved(x)),
+    before = (x) => {
+      const a = String(x.date || ""),
+        c = String(b.date || "");
+      return a < c || (a === c && B.indexOf(x) < B.indexOf(b));
+    },
+    total = poTotal(po).total,
     other = r2(
-      (DB.bills || [])
-        .filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status))
+      B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)))
         .reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0),
     ),
     received =
