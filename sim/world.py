@@ -87,9 +87,19 @@ class World:
         for k, v in self.cycle['parties'].items(): self.parties[k] = dict(self.parties.get(k, {}), **v)
         for k, v in (self.sim.state['world'].get('party_patch') or {}).items(): self.parties[k] = v
 
-    def scripted(self, uid):
-        """a role the world plays in this run (Pilot 3: everyone outside the cycle book's four roles)"""
-        return self.cycle_on and uid in (self.cycle.get('scripted') or {}) and uid not in (self.sim.state['world'].get('cycle_play') or [])
+    def scripted(self, uid, do=None):
+        """a role the world plays in this run (Pilot 3: everyone outside the cycle book's four roles). A role that plays
+        after all (`cycle on --play u_controller`) does its own steps; `uid:do` plays one kind of step only (the screen
+        walk: 'u_angel:receive', the coordinator receives the trucks herself, while the foreman's field day stays scripted)."""
+        play = self.sim.state['world'].get('cycle_play') or []
+        return (self.cycle_on and uid in (self.cycle.get('scripted') or {}) and uid not in play
+                and not (do and f'{uid}:{do}' in play))
+
+    @property
+    def bank_feed(self):
+        """the bank's own feed (Plaid on the hosted app): each statement line lands in Banking as it clears, unmatched,
+        for the people who match it; on with `cycle on --feed` (the screen walk, where the controller plays)"""
+        return bool(self.sim.state['world'].get('bank_feed'))
 
     def book_list(self):
         return self.book['events'] + (self.cycle['events'] if self.cycle_on else [])
@@ -312,6 +322,7 @@ class World:
             out['events'].append([e['id'], k, str(r)[:80]])
         for acct, L in bank.items():
             if self.scripted('u_controller'): out['events'].append([f'statement {acct}', 'bank', await self.import_statement(pg, acct, day, L)])
+            elif self.bank_feed: out['events'].append([f'statement {acct}', 'bank', await self.import_statement(pg, acct, day, L, match=False)])
             else: out['events'].append([f'statement {acct}', 'bank', await self.mail_statement(pg, acct, day, L)])
         out['replies'] = await self.deliver_replies(pg, day, slot)
         if slot in ('work1', 'work', 'work2') and self.st.get('client_rules'):
@@ -351,6 +362,8 @@ class World:
     async def run_script(self, pg, e):
         """a scripted world action (sim/script_p3.js) with what its gate found, then what it tells the people who play"""
         p = dict(e['payload'])
+        if not self.scripted(p.get('as') or 'u_controller', p['do']):
+            return await self.played(pg, e, p)
         if p['do'] == 'field_day': p['refs'] = self.sim.cycle_refs()
         res = await pg.evaluate("async (p) => __P3.run(p)", p)
         G = self.st.setdefault('gated', {})
@@ -366,11 +379,37 @@ class World:
             self.sim.state['news'].setdefault(p['notify'], []).append(f"{self.sim.state['day']} {self.sim.clock_str()}: Angel texted you: {txt}")
         return (res.get('text') or '')[:200] if isinstance(res, dict) else str(res)[:200]
 
-    async def import_statement(self, pg, acct, day, lines):
+    async def played(self, pg, e, p):
+        """a scripted step whose role plays it this run: the world brings what that person meets, and nothing is done
+        for them. A truck (receive): what came, short and damaged, told to the person who receives it, with the slip."""
+        if p['do'] != 'receive':
+            return f"played by {p.get('as')}: done through the screens, not scripted"
+        po = await pg.evaluate("""n => { const po = (DB.pos || []).find(x => x.number === n); if (!po) return null;
+            return { vendor: po.vendor || '', lines: (po.lines || []).map(l => ({ item: l.item || l.desc || '', qty: +l.qty || 0, unit: l.unit || '' })) }; }""", p['number'])
+        if not po: return 'no PO ' + p['number']
+        notes = []
+        if p.get('short'): notes.append(f"{p['short']['qty']} cement boards short ({p['short']['why']})")
+        if p.get('damaged'): notes.append(f"{p['damaged']['qty']} {p['damaged']['unit']} of the tile damaged ({p['damaged']['why']}): photo of the boxes attached")
+        who = p.get('notify') or 'u_chen'
+        txt = (f"{p['number']} from {po['vendor']} came to 214 Lincoln this morning. " + ('; '.join(notes) if notes else 'Everything on the slip arrived') +
+               '. It is on the sidewalk; the slip is attached. Please receive it in the app. - Angel')
+        slip = '\n'.join(f"{l['item']}: {l['qty']:g} {l['unit']} shipped" for l in po['lines'])
+        ev = {'id': f"{e['id']}_truck", 'day': self.sim.state['day'], 'time': self.sim.clock_str(), 'payload': {
+            'from': self.staff_addr['u_angel'], 'to': [self.staff_addr[who]], 'cc': [], 'thread': f"cy_recv_{p['number']}", 'subject': f"Delivery {p['number']}",
+            'text': txt, 'att': [{'filename': f"Packing slip {p['number']}.jpg", 'mime': 'image/jpeg',
+                                  'text': f"PACKING SLIP {p['number']}\n{po['vendor']}\nShip to: 214 Lincoln Place\n{slip}"}]
+                               + ([{'filename': f"Damaged boxes {p['number']}.jpg", 'mime': 'image/jpeg', 'text': 'photo: two tile boxes, corners crushed, tiles cracked'}] if p.get('damaged') else [])}}
+        await self.inject_mail(pg, ev)
+        self.sim.state['news'].setdefault(who, []).append(f"{self.sim.state['day']} {self.sim.clock_str()}: Angel texted you: {txt}")
+        return f"the truck for {p['number']} told to {who} (receiving is played): " + ('; '.join(notes) or 'complete')
+
+    async def import_statement(self, pg, acct, day, lines, match=True):
         """the controller does not play (Pilot 3): the statement is imported through Banking > Import Statement as he
-        would, then only the matches the app proposed are confirmed and the cycle job's card purchase is coded to it"""
+        would, then only the matches the app proposed are confirmed and the cycle job's card purchase is coded to it.
+        match=False: the bank's own feed (the controller plays): the lines land unmatched for the people to match."""
         csv = 'Date,Description,Amount,Reference\n' + ''.join(f"{l['date']},{l['desc']},{float(l['amt']):.2f},{l['ref']}\n" for l in lines)
         r = await pg.evaluate("async (p) => __P3.run(p)", {'do': 'import_statement', 'as': 'u_controller', 'acct': acct, 'name': f'{acct}_{day}.csv', 'csv': csv})
+        if not match: return f"the bank feed: {(r or {}).get('text', '')}"[:200]
         job = self.sim.cycle_job() if self.cycle_on else ''
         m = await pg.evaluate("async (p) => __P3.run(p)", {'do': 'match', 'as': 'u_controller', 'rx': '|'.join(re.escape(l['desc'][:14]) for l in lines) or '#',
                                                           'code': [{'rx': 'LIGHTOLOGY', 'project': job, 'cat': 'materials', 'memo': 'Lightology receipt: 2 pendant lights'}] if job else []})

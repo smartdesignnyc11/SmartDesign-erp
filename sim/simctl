@@ -26,7 +26,9 @@
                                                 falls due (sim/voicer.py; needs SIM_AI_TOKEN_FILE on the server), facts kept, template on failure
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
-    sim/simctl cycle on|off [--play u_controller]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles (--play: those that play after all)
+    sim/simctl cycle on|off [--play u_controller,u_angel:receive] [--feed]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its
+                                                scripted roles (--play: those that play after all, or one kind of their steps; --feed: bank lines land
+                                                through the bank feed, unmatched, instead of a statement mailed to the controller)
     sim/simctl script '<json>'                 Pilot 3: run one scripted world action again (sim/script_p3.js), e.g. '{"do": "payroll", "as": "u_controller"}'
     sim/simctl judge <uid> [--day D]            Pilot 3: the realism judge's prompt for that person's day (sim/realism_judge.md); the trail is written beside it
     sim/simctl begin ... --minutes N            a budget of working minutes for the turn (the plan's `minutes` per slot otherwise)
@@ -278,7 +280,7 @@ def main(a):
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
     elif c == 'world-voice': r = admin('world_voice', on=a[1] == 'on')
-    elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [])
+    elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [], feed='--feed' in a)
     elif c == 'script': r = admin('script', payload=json.loads(a[1]))
     elif c == 'judge':
         print(judge(a[1], a[a.index('--day') + 1] if '--day' in a else None)); return 0

@@ -1176,10 +1176,11 @@ class Sim:
                 self.log({'uid': '__world', 'cmd': 'script', 'args': [(a.get('payload') or {}).get('do')], 'result': r})
                 return {'result': r}
             if cmd == 'cycle':   # Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles
-                if a.get('on'): self.world.enable_cycle(); self.state['world']['cycle_play'] = list(a.get('play') or [])   # a scripted role that plays this run after all
+                if a.get('on'):   # a scripted role that plays this run after all ('u_controller', or one kind of step: 'u_angel:receive'); feed: the bank feed
+                    self.world.enable_cycle(); self.state['world']['cycle_play'] = list(a.get('play') or []); self.state['world']['bank_feed'] = bool(a.get('feed'))
                 else: self.state['world']['cycle'] = False
                 self.save_state(); return {'cycle': self.world.cycle_on, 'roles': (self.world.cycle or {}).get('roles'),
-                                           'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or []}
+                                           'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or [], 'feed': bool(self.state['world'].get('bank_feed'))}
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
             if cmd == 'world_voice':   # the voicer (sim/voicer.py): outside replies in the party's own words, the rule's facts kept

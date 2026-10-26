@@ -55,25 +55,35 @@ def fixture(kind, B):
     lines = [{'id': f'l{i}', 'item': t['item'], 'qty': t['qty'], 'unit': t['unit'], 'rate': t['price'] if (right or i != 2) else 0, 'cost': t['cost'], 'code': f'{i:02d}'}
              for i, t in enumerate(T, 1)]
     E = {'id': 'eA', 'number': 'EST-2026-020', 'status': 'converted' if right else 'approved', 'projectId': 'pA', 'lines': lines, 'taxRate': 0,
-         'clientApproval': {'via': 'mail', 'at': '2026-09-03T16:40:00'} if right else None}
+         'clientApproval': {'via': 'mail', 'at': '2026-09-03T16:40:00'} if right else None, 'sentVia': 'email + portal' if right else 'Email from my own mailbox'}
     tot = CY.doc_total(E)
     sov = [{'id': f's{i}', 'projectId': 'pA', 'lineRef': f'estimate:eA:{l["id"]}', 'scheduled': l['qty'] * l['rate'], 'desc': l['item']} for i, l in enumerate(lines, 1)]
     dep = {'id': 'iD', 'number': 'INV-2026-050', 'depositOf': 'eA', 'status': 'sent', 'projectId': 'pA', 'date': '2026-09-04', 'sentAt': '2026-09-04',
            'lines': [{'item': 'Deposit', 'qty': 1, 'rate': round(tot * (0.25 if right else 0.10), 2)}]}
     co = {'id': 'co1', 'number': 'CO-2026-010', 'title': 'Garden bath vanity: 36-inch Rhea in walnut', 'projectId': 'pA', 'status': 'approved', 'date': '2026-09-04',
           'scheduleDays': 0 if right else None, 'approvedAt': '2026-09-04', 'lines': [{'item': 'Vanity upgrade', 'qty': 1, 'rate': 890, 'cost': 740, 'fromEstLine': 'l11'}]}
+    # the joists the foreman found (J3): priced with cost and days, approved by Wren with who and when, billed (done right); done
+    # wrong, approved with no cost, no days and no record of who approved
+    co2 = {'id': 'co2', 'number': 'CO-2026-011', 'title': 'Sister two rotted joists, garden bath', 'projectId': 'pA', 'status': 'approved', 'date': '2026-09-08', 'sentAt': '2026-09-08',
+           'scheduleDays': 1 if right else None, 'clientApproval': {'name': 'Wren Ashby', 'ts': '2026-09-08T10:05:00', 'via': 'mail'} if right else None,
+           'lines': [{'item': 'Sister two joists with LVL', 'qty': 1, 'rate': 2400, 'cost': 1600 if right else None, 'fromEstLine': 'l1' if right else ''}]}
     prog = {'id': 'iP', 'number': 'INV-2026-051', 'mode': 'sov', 'status': 'sent', 'retainagePct': 10 if right else 0, 'projectId': 'pA', 'date': '2026-09-08',
+            'due': '2026-09-23' if right else '', 'sentAt': '2026-09-08',
             'lines': [{'sovId': 's1', 'item': lines[0]['item'], 'scheduled': sov[0]['scheduled'], 'pct': 40 if right else 60, 'prevPct': 0}]}
     invs = [dep, prog]
     if right: invs.append({'id': 'iC', 'number': 'INV-2026-052', 'status': 'sent', 'projectId': 'pA', 'date': '2026-09-08',
-                           'lines': [{'item': 'CO-2026-010 vanity upgrade', 'qty': 1, 'rate': 890, 'coId': 'co1'}, {'item': 'Pendant lights for the island (Lightology, at cost)', 'qty': 1, 'rate': 612.40}]})
+                           'lines': [{'item': 'CO-2026-010 vanity upgrade', 'qty': 1, 'rate': 890, 'coId': 'co1'}, {'item': 'Pendant lights for the island (Lightology, at cost)', 'qty': 1, 'rate': 612.40},
+                                     {'item': 'CO-2026-011 joists', 'qty': 1, 'rate': 2400, 'coId': 'co2'}]})
     dep_amt = CY.doc_total(dep)
     C = {'id': 'cA', 'name': 'Wren & Julian Ashby', 'contacts': [{'name': 'Wren Ashby', 'email': 'wren.ashby@example.com'}], 'contract': tot if right else 0,
-         'estimates': [E], 'invoices': invs, 'changeOrders': [co], 'payments': [{'id': 'py1', 'invoiceId': 'iD', 'amount': dep_amt, 'date': '2026-09-08', 'txnId': 'tx1' if right else ''}],
+         'estimates': [E], 'invoices': invs, 'changeOrders': [co, co2], 'payments': [{'id': 'py1', 'invoiceId': 'iD', 'amount': dep_amt, 'date': '2026-09-08', 'txnId': 'tx1' if right else ''}],
          'sov': sov if right else sov[:2]}
     db['clients'] = [C] + ([] if right else [{'id': 'cB', 'name': 'Wren Ashby', 'contacts': [], 'estimates': [], 'invoices': [], 'changeOrders': [], 'payments': []}])
-    db['leads'] = [{'id': 'ld1', 'name': 'Wren Ashby, 214 Lincoln Place', 'stage': 'won' if right else 'site-visit', 'clientId': 'cA' if right else '', 'contactIds': ['k1'] if right else []}]
+    db['leads'] = [{'id': 'ld1', 'name': 'Wren Ashby, 214 Lincoln Place', 'stage': 'won' if right else 'site-visit', 'clientId': 'cA' if right else '', 'contactIds': ['k1'] if right else [],
+                    'notes': '' if right else 'Walk-through 9/2: parlor kitchen gut and a garden-level bath; ask about the radiator'}]
+    db['field']['raises'] = [{'id': 'fr9', 'projectId': 'pA', 'type': 'extra', 'title': 'Garden bath: two floor joists rotted at the old waste line', 'at': '2026-09-08T07:30:00', 'coId': 'co2'}]
     db['projects'] = [{'id': 'pA', 'clientId': 'cA', 'project': {'name': '214 Lincoln Place', 'addr': '214 Lincoln Place, Brooklyn'}, 'tasks': [{'id': 't1', 'name': 'Demo', 'pct': 40}],
+                       'log': [{'msg': 'Walk-through notes: parlor kitchen gut, garden-level bath; the radiator to ask', 'src': 'manual'}] if right else [],
                        'requests': [{'id': 'rq1', 'note': 'From stock instead of buying', 'items': [{'invId': 'iv10', 'qty': 3}, {'invId': 'iv9', 'qty': 30}, {'invId': 'iv16', 'qty': 12}]}] if right else [],
                        'chat': []}]
     ref = lambda i: f'estimate:eA:l{i}'
@@ -103,16 +113,18 @@ def fixture(kind, B):
     db['bills'] = [{'id': 'b1', 'number': 'GOW-1111', 'vendor': 'Gowanus Building Supply', 'poId': 'P2', 'projectId': 'pA', 'code': '04', 'status': 'approved',
                     'lines': [{'amount': 2169.00}], 'short': {'held': held_dw} if right else None},
                    {'id': 'b2', 'number': 'NEM-2222', 'vendor': 'Nemo Tile', 'poId': 'P3', 'projectId': 'pA' if right else '', 'code': '06', 'status': 'approved',
-                    'lines': [{'amount': 5282.00}, {'amount': 95.0}, {'amount': 45.0}], 'short': {'held': held_tile} if right else None}]
-    db['txns'] = [{'id': 'tx1', 'acct': 'ac1', 'date': '2026-09-08', 'desc': 'ONLINE TRANSFER FROM ASHBY W', 'amt': dep_amt, 'status': 'categorized' if right else 'new', 'invoiceId': 'iD' if right else ''},
-                  {'id': 'tx2', 'acct': 'ac2', 'date': '2026-09-04', 'desc': 'LIGHTOLOGY CHICAGO IL', 'amt': -612.40, 'projectId': 'pA', 'status': 'categorized'}]
+                    'lines': [{'amount': 5282.00}, {'amount': 95.0}, {'amount': 45.0}], 'short': {'held': held_tile, 'state': 'credited', 'note': 'CRE-4242'} if right else None}]
+    if right: world['gated']['Y-47'] = {'bind': {'cm': 'CRE-4242', 'number': 'PO-2026-062', 'inv': 'NEM-2222'}}
+    db['txns'] = [{'id': 'tx1', 'acct': 'ac1', 'date': '2026-09-08', 'desc': 'ONLINE TRANSFER FROM ASHBY W', 'amt': dep_amt, 'status': 'categorized' if right else 'new', 'invoiceId': 'iD' if right else '',
+                   'prov': {'kind': 'statement'}},
+                  {'id': 'tx2', 'acct': 'ac2', 'date': '2026-09-04', 'desc': 'LIGHTOLOGY CHICAGO IL', 'amt': -612.40, 'projectId': 'pA', 'status': 'categorized', 'cat': 'materials', 'prov': {'kind': 'statement'}}]
     db['time'] = [{'id': 'te1', 'empId': 'em1', 'date': '2026-09-08', 'projectId': 'pA', 'work': [{'projectId': 'pA', 'code': '01', 'line': ref(1), 'hours': 8.5}]}]
     db['field']['logs'] = [{'projectId': 'pA', 'date': '2026-09-08'}]
-    db['payroll'] = [{'id': 'pr9', 'from': '2026-08-31', 'to': '2026-09-04', 'status': 'approved' if right else 'submitted', 'total': 4655.82,
+    db['payroll'] = [{'id': 'pr9', 'from': '2026-08-31', 'to': '2026-09-04', 'status': 'approved' if right else 'submitted', 'total': 4655.82, 'scripted': 'Pilot 3 controller',
                       'approvals': [{'role': 'owner', 'action': 'approved by the Owner'}] if right else []}]
     W = {'u_owner': [mail('Wren Ashby <wren.ashby@example.com>', 'The garden bath radiator', 'Keep it or move it under the window?', '2026-09-03'),
                      mail('Wren Ashby <wren.ashby@example.com>', 'Your estimate EST-2026-020', 'Attached is EST-2026-020.', '2026-09-03')] if right else [],
-         'u_alan': [mail('Wren Ashby <wren.ashby@example.com>', 'Weekly update, 214 Lincoln', 'This week and next week', '2026-09-04'),
+         'u_alan': [mail('Wren Ashby <wren.ashby@example.com>', 'Weekly update, 214 Lincoln', 'This week and next week. Over budget: Drywall & cement board, $369 over (the yards).', '2026-09-04'),
                     mail('Sarah Klein <sarah.klein@example.com>', 'Weekly update, 121 State', 'This week', '2026-09-04'),
                     mail('Wren Ashby <wren.ashby@example.com>', 'CO-2026-010 vanity', 'The change order', '2026-09-04')] if right else [],
          'u_billing': [mail('David Klein <david.klein@example.com>', 'Re: INV-2026-040', 'Retainage held so far: $9,000', '2026-09-08')] if right else []}
@@ -162,7 +174,8 @@ def unit():
           ('' if all(R[s['id']]['status'] == 'right' for s in people) else ': ' + '; '.join(f"{k} {v['status']} ({v['detail'][:70]})" for k, v in R.items() if v['status'] != 'right' and not v['scripted'] and not k.startswith('C5'))))
     check(all(R[k]['status'] == 'scripted' for k in ('C20', 'C21', 'C22', 'C23')), 'referee: the scripted steps (receiving, field day, statements, payroll build) read scripted when their records landed ' +
           str({k: R[k]['status'] for k in ('C20', 'C21', 'C22', 'C23')}))
-    want_wrong = {'C02': 'clients', 'C05': 'lines', 'C06': 'nothing reached', 'C07': 'no record', 'C08': 'SOV', 'C10': 'one line', 'C11': 'vendors reached', 'C30': 'is not 25%', 'C31': 'not matched', 'C32': 'retainage', 'C40': 'schedule days'}
+    want_wrong = {'C02': 'clients', 'C05': 'lines', 'C06': 'nothing reached', 'C07': 'no record', 'C08': 'SOV', 'C10': 'one line', 'C11': 'vendors reached', 'C30': 'is not 25%', 'C31': 'not matched', 'C32': 'retainage', 'C40': 'schedule days',
+                  'C09': 'not on the project', 'C37': 'portal', 'C43': 'no cost on a line.*no schedule days.*who approved', 'C44': 'no cost', 'C36': 'no due date', 'C17': r'holds \$0', 'C25': 'unmatched'}
     got = {k: (Wr[k]['status'], Wr[k]['detail']) for k in want_wrong}
     check(all(st == 'wrong' and re.search(rx, det, re.I) for (st, det), rx in zip(got.values(), want_wrong.values())),
           'referee, done wrong: each step says what is wrong: ' + '; '.join(f"{k} {st}: {det[:60]}" for k, (st, det) in got.items()))
@@ -180,6 +193,15 @@ def unit():
     db2, w2 = fixture('right', B)
     next(c for c in db2['clients'] if c['id'] == 'cA')['changeOrders'][0]['status'] = 'sent'
     Cs = CY.Cycle(db2, B, w2, [], '2026-09-08')
+    db3, w3 = fixture('right', B)
+    next(c for c in db3['clients'] if c['id'] == 'cA')['changeOrders'][1]['status'] = 'sent'
+    C3 = CY.Cycle(db3, B, w3, [], '2026-09-08')
+    g18 = out['right'][0].gate({'t': 'cy', 'step': 'C18'})
+    check(C3.s_C43()[0] == 'not done' and C3.gate({'t': 'cy', 'step': 'C43', 'state': 'sent'})[0] is True and g18[0] is True
+          and g18[2].get('inv') == 'NEM-2222' and abs(g18[2].get('credit', 0) - round(140 + 31 * 13.90, 2)) < 0.01,
+          f"gates: the joist change order sent opens Wren's approval; the claim on the tile opens the credit memo for what is held ({g18[2]})")
+    db4, w4 = fixture('right', B); db4['payroll'][0].pop('scripted')
+    check(CY.Cycle(db4, B, w4, [], '2026-09-08').s_C23()[0] == 'right', 'referee: a payroll run the controller built through the screens is his (right), not scripted')
     check(Cw0.gate({'t': 'cy', 'step': 'C06', 'need': 'right'})[0] is False and Cw0.gate({'t': 'cy', 'step': 'C06'})[0] is True
           and Cs.s_C40()[0] == 'not done' and Cs.gate({'t': 'cy', 'step': 'C40', 'state': 'sent'})[0] is True and Cs.gate({'t': 'cy', 'step': 'C40'})[0] is False,
           'gates: the Ashbys sign only an estimate that reached them; a change sent and waiting opens its approval mail, and only the approval opens its billing')

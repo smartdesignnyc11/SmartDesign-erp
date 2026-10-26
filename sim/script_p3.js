@@ -37,7 +37,7 @@ P3.receive = (p) => {
   });
   const short = (po.issues || []).some(i => i.type === 'short' || i.type === 'backorder');
   po.status = short ? 'partial' : 'received'; if (!short) po.receivedOn = today();
-  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: 'Angel', lines: got, slip: 'photo of the packing slip', note: notes.join('; ') });
+  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: 'Angel', lines: got, slip: 'photo of the packing slip', note: notes.join('; '), scripted: 'Pilot 3 foreman' });
   audit_('po', po.id, 'received', '', notes.join('; ') || 'complete', 'scripted foreman (Pilot 3)');
   pr && log_(pr, `${po.number}: received${notes.length ? ' — ' + notes.join('; ') : ' complete'} (Angel)`);
   save();
@@ -77,6 +77,24 @@ P3.field_day = (p) => {
   return { ok: true, text: out.join('; '), bind: { measured } };
 };
 
+// the foreman finds something on site (a hidden condition, an extra): he raises it from his phone the way the field
+// screen's "Hidden condition / extra" does (fSend, with the photo saved to the job's files and linked to the item), so
+// it reaches the PM; JOURNEYS.md J3 starts here
+const PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+P3.field_issue = (p) => {
+  const pr = pid(p.project); if (!pr) return { ok: false, text: 'no project ' + p.project };
+  const prev = S && S.id;
+  try { setCurrent(pr.id); } catch (e) { return { ok: false, text: 'setCurrent: ' + e.message }; }
+  let r;
+  try {
+    r = fSend({ type: p.type || 'extra', title: p.title, note: p.note || '', guess: p.guess || '', photos: p.photo ? [PHOTO] : [] });
+    if (p.photo) try { fSavePhotos([PHOTO], `${(F_TYPES[r.type] || {}).n || 'Field'}: ${p.title}`, { kind: 'raise', id: r.id }); } catch (e) {}
+  } catch (e) { return { ok: false, text: 'fSend: ' + e.message }; }
+  finally { try { if (prev && prev !== pr.id) setCurrent(prev); } catch (e) {} }
+  save();
+  return { ok: true, text: `${r.id} raised on ${(pr.project || {}).name || pr.id}: ${p.title}`, bind: { raise: r.id } };
+};
+
 // the controller's statements: Banking > Import Statement with the bank's CSV (month_runtime's importCsv), then only
 // what the app proposed itself is confirmed (bills and POs; client payments are billing's to record), and the card
 // purchase bought for the client is coded to its job like any material, with the receipt's words as the memo
@@ -100,7 +118,7 @@ P3.match = (p) => {
   return { ok: true, text: out.join('; ') || 'nothing to confirm' };
 };
 P3.payroll = () => {
-  try { const r = payrollFromTime({ quiet: true }); save(); return r ? { ok: true, text: `payroll ${r.from} to ${r.to} ${r.status} $${r2(r.total)}` } : { ok: false, text: 'no approved hours for a run' }; }
+  try { const r = payrollFromTime({ quiet: true }); if (r) r.scripted = 'Pilot 3 controller'; save(); return r ? { ok: true, text: `payroll ${r.from} to ${r.to} ${r.status} $${r2(r.total)}` } : { ok: false, text: 'no approved hours for a run' }; }
   catch (e) { return { ok: false, text: 'payroll: ' + e.message }; }
 };
 P3.run = async (p) => {

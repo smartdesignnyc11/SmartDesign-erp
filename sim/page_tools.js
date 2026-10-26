@@ -305,8 +305,9 @@ S.closeTop = () => { const ov = S.overlays(); if (!ov.length) return false; cons
   try { if (o.id === 'mbm' || o.classList.contains('mbm')) { mbCloseModal(); return 'closed'; } } catch (e) {}
   try { if (o.id === 'drawer') { closeEditor(); return 'closed'; } } catch (e) {}
   o.classList.remove('on'); return 'closed'; };
-// what the person has open, so a reload brings them back to it
-S.where = () => ({ view: typeof view !== 'undefined' ? view : '', project: (typeof S_ !== 'undefined' ? '' : ''), cur: (DB && DB.currentId) || '', y: Math.round(scrollY) });
+// what the person has open, so a reload brings them back to it: the same S.where as above (this second definition
+// replaced it and dropped Billing's tab, so the referee's coverage never saw "billing:co", the job's Change Orders)
+{ const w0 = S.where; S.where = () => Object.assign(w0(), { y: Math.round(scrollY) }); }
 
 // ------------------------------------------------------------------ records, for the find-it-again check
 const NOISE = /(^|\.)(audit|log|logs$|activity|history|touch|seen|notif|toasts|ticks|bnTicks|events|paLog|undo|snap|cache|memo|views|reads|tracks|checks|sweeps|runs|stamps|briefCache|chases|digest)/i;
