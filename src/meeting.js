@@ -1350,7 +1350,15 @@ function mmCardHtml(m, s, W) {
   return `<article class="mm-card" data-mmcard="${esc(s.code)}">
   <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span>${phone && changed ? `<span class="mm-changed">Changed since ${esc(last ? DOW[parse(last.date).getDay()] : "the last meeting")}</span>` : ""}${"done" === st || "fyi" === st ? `<span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span>` : ""}</div>
   <h2 class="mm-title">${esc(a.title || x.title || "")}</h2>
-  <div class="mm-meta"><span><span class="mm-ml">Owner</span> <b class="mm-own">${esc(phone ? tkFirst(a.assignee) || "nobody" : a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</span><span><span class="mm-ml">Due</span> <b class="${late ? "bad" : ""}">${a.due ? esc(tvRel(a.due, "done" === st)) : "No date"}</b></span><span><span class="mm-ml">Follow-up</span> <b>${a.followUp ? esc(tvRel(a.followUp, !0)) : "None"}</b></span>${a.watchUntil ? `<span><span class="mm-ml">Tracking Until</span> <b>${esc(tvRel(a.watchUntil, !0))}</b></span>` : ""}</div>
+  ${
+    // on the screen share the card reads the same columns as the table the meeting runs on (Alan, 10-26)
+    !phone && "function" == typeof tvMeetCols
+      ? `<div class="mm-meta">${tvMeetCols(x)
+          .map(([n, v, c]) => `<span><span class="mm-ml">${esc(n)}</span> <b class="${c}">${v}</b></span>`)
+          .join("")}${a.watchUntil ? `<span><span class="mm-ml">Tracking Until</span> <b>${esc(tvRel(a.watchUntil, !0))}</b></span>` : ""}</div>`
+      : ""
+  }
+  ${phone || "function" != typeof tvMeetCols ? `<div class="mm-meta"><span><span class="mm-ml">Owner</span> <b class="mm-own">${esc(phone ? tkFirst(a.assignee) || "nobody" : a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</span><span><span class="mm-ml">Due</span> <b class="${late ? "bad" : ""}">${a.due ? esc(tvRel(a.due, "done" === st)) : "No date"}</b></span><span><span class="mm-ml">Follow-up</span> <b>${a.followUp ? esc(tvRel(a.followUp, !0)) : "None"}</b></span>${a.watchUntil ? `<span><span class="mm-ml">Tracking Until</span> <b>${esc(tvRel(a.watchUntil, !0))}</b></span>` : ""}</div>` : ""}
   ${flag}
   ${W0 ? `<div class="mm-wait"><b>Waiting on ${esc(W0.name)}:</b> ${W0.what ? `${esc(W0.what)}, ` : ""}${W0.promised ? `promised ${esc(tkDay(W0.promised))}.` : "no date promised yet."}${!phone && W0.evidence ? ` ${esc(String(W0.evidence).replace(/\.$/, ""))}.` : ""}</div>` : ""}
   ${C.length ? `<div class="mm-comments" data-mmnotes>${one ? "" : '<span class="mm-nl">Last notes</span>'}${C.map((c) => `<div class="mm-comment"><b>${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")}</b> · ${esc(when(String(c.at || "").slice(0, 10)))}: ${esc(c.text)}</div>`).join("")}</div>` : '<div class="mm-comments mm-nonotes">No notes yet.</div>'}

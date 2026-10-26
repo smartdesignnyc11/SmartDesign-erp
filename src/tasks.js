@@ -270,7 +270,8 @@ function tkChipLabel(ctx) {
 }
 // counts on the view chips only where they are the person's own: Mine with no other filter. Anywhere else the chip
 // carries no number, so "Due Soon", "Today" and "Overdue" each read one number on every screen.
-const tkOwnCounts = (ctx) => "home" === ctx && "me" === tkWho && !tkProject && !tkArea && !tkPri && !t2Q && !tkQueue;
+// a field filter (taskviews.js, tvFF) narrows the list too, so its chips then count the rows shown
+const tkOwnCounts = (ctx) => "home" === ctx && "me" === tkWho && !tkProject && !tkArea && !tkPri && !t2Q && !tkQueue && !("function" == typeof tvFFOn && tvFFOn());
 
 t2Html = function () {
   const ctx = t2Fix();

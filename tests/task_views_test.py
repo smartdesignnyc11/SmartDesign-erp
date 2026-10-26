@@ -22,7 +22,7 @@ Desktop 1440 and phone 390, as the coordinator (who runs the meeting) and the ow
             the first screen above Previous and Next, with the toast above them
 Screenshots: review/taskviews/ (desktop and phone; never committed).
 Invented data only."""
-import asyncio, os, sys
+import asyncio, os, re, sys
 from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
 
 SHOTS = os.path.join(ROOT, 'review', 'taskviews')
@@ -144,10 +144,13 @@ async def edits(c, pg, who):
     t = await toast_of(pg)
     due = await pg.evaluate("k => tkResolve(k).x.due", key)
     c.ok(due == tom and t and 'Open' in t['open'], f'{who}: Due to Tomorrow is on the record ({due}) and toasts with Open ({t})')
-    # follow-up: Next Meeting
-    await pg.click(cell('follow')); await pg.wait_for_timeout(150)
+    # follow-up: Next Meeting. Follow Up is in the task only (Alan, 10-26: "some are column and some are fields within
+    # the task"), so it is set from its place in the sheet
+    await pg.evaluate("k => tkSheet(k)", key); await pg.wait_for_timeout(300)
+    await pg.click('#mbm [data-tvsf="follow"]'); await pg.wait_for_timeout(150)
     await pg.click(f'#tv-pop [data-tvd="{nxt}"]'); await pg.wait_for_timeout(300)
     fu = await pg.evaluate("k => tkResolve(k).rec.followUp", key)
+    await pg.evaluate(CLOSE)
     t = await toast_of(pg)
     c.ok(fu == nxt and t and 'Open' in t['open'], f'{who}: Follow-Up to the next meeting ({fu}, want {nxt}) toasts with Open')
     # owner: the person picker, searched
@@ -257,7 +260,9 @@ async def sheet_and_table(c, pg, who):
     hd = await pg.evaluate("() => { const h = document.querySelector('#tkall-body .tv-thead'); const s = getComputedStyle(h.querySelector('.tv-th[data-tvcol]')); return [getComputedStyle(h).position, s.textTransform, s.fontSize]; }")
     c.ok(hd == ['sticky', 'uppercase', '12px'], f'{who}: the header is sticky, 12px uppercase ({hd})')
     rows = await pg.evaluate("() => document.querySelectorAll('#tkall-body .tv-th[data-tvcol]').length")
-    c.ok(rows <= 6, f'{who}: no more than 6 default columns ({rows})')
+    # Alan, 10-26: the team's meeting table, nine columns (Key, Task, Project, Owner, Due, Priority, New or Carried,
+    # Status, Waiting On); it was six before his ask
+    c.ok(rows == 9, f'{who}: the nine default columns ({rows})')
     # sort by Due, then a second sort with Shift
     await pg.click('[data-tvsort="due"]'); await pg.wait_for_timeout(250)
     await pg.click('[data-tvsort="owner"]', modifiers=['Shift']); await pg.wait_for_timeout(250)
@@ -376,6 +381,244 @@ async def mine_views(c, pg):
     await pg.wait_for_timeout(250)
     st = await pg.evaluate("() => ({ mode: tkMode, view: t2View, who: tkWho })")
     c.ok(st == {'mode': 'table', 'view': 'blocked', 'who': 'all'}, f'coord: her view puts back what she saved ({st})')
+
+
+# ---- columns and fields (Alan, 10-26: "Make sure there's a place for field and column. The current task list doesn't
+# have columns or the ability to sort by clicking the column directly from the page", then "Some are column and some
+# are fields within the task"). The team's board shape: the invented export, tests/asana_invented/board/.
+BOARD = open(os.path.join(ROOT, 'tests', 'asana_invented', 'board', 'weekly_checkins.csv'), encoding='utf-8').read()
+BOARD_PEOPLE = """() => { DB.users.push({id: 'u_dana', name: 'Dana Whitfield', role: 'pm', contact: 'dana@example.com'},
+  {id: 'u_priya', name: 'Priya Natarajan', role: 'coord', contact: 'priya@example.com'}, {id: 'u_leo', name: 'Leo Marchetti', role: 'billing', contact: 'leo@example.com'},
+  {id: 'u_mari', name: 'Marisol Vega', role: 'pm', contact: 'marisol@example.com'}); save(); return true; }"""
+DEFAULT_COLS = ['ref', 'title', 'project', 'owner', 'due', 'priority', 'carried', 'status', 'wait']
+DEFAULT_NAMES = ['Key', 'Task', 'Project', 'Owner', 'Due', 'Priority', 'New or Carried', 'Status', 'Waiting On']
+HEADS = """() => [...document.querySelectorAll('#tkall-body .tv-thead [data-tvcol]')].map(h => ({ k: h.dataset.tvcol, n: (h.querySelector('.tv-sortb') || h).textContent.trim(),
+  sort: h.getAttribute('aria-sort'), arrow: !!h.querySelector('.tv-sortb svg') }))"""
+# what each row holds, read from the record (the test's own reading, not the app's sort keys)
+TROWS = r"""() => [...document.querySelectorAll('#tkall-body .tv-tr[data-tvrow]')].map(r => { const R = tkResolve(r.dataset.tvrow), a = R.rec || {}, x = R.x;
+  const p = String(a.pri3 || x.pri3 || '').toUpperCase(), pri = /^P[123]$/.test(p) ? +p[1] : ({ high: 1, med: 2, low: 3 }[a.priority || x.priority] || 0);
+  const txt = k => { const c = r.querySelector('.tv-col-' + k); return c ? c.innerText.replace(/\s+/g, ' ').trim() : ''; };
+  const g = r.closest('.tv-tg');
+  return { key: r.dataset.tvrow, code: a.code || x.code || '', due: x.due || '', pri, project: txt('project'), owner: ((r.querySelector('.tv-col-owner .tv-own') || {}).title || '').trim(), status: txt('status'), carried: String(a.carried || '').toUpperCase(),
+    trade: (a.custom || {}).TRADE || '', g: g ? g.querySelector('.tv-gn').textContent : '' }; })"""
+ST_ORDER = ['To Do', 'Doing', 'Waiting On', 'FYI', 'Done']
+
+
+def nat(k):
+    import re
+    m = re.match(r'^\s*([A-Za-z0-9]+?)-(\d+)\s*$', k or '')
+    return (natural(m.group(1)), int(m.group(2))) if m else (natural(k), -1)
+
+
+def natural(s):
+    """text in natural order, as a person reads it: '2 Main' before '10 Main'; case does not count"""
+    import re
+    return [(0, int(t), '') if t.isdigit() else (1, 0, t) for t in re.split(r'(\d+)', (s or '').lower()) if t != '']
+
+
+def ordered(vals, key, desc=False):
+    """non-empty values in order (ascending or descending), every empty one after them"""
+    full = [v for v in vals if v not in ('', None, 0)]
+    first_empty = next((i for i, v in enumerate(vals) if v in ('', None, 0)), len(vals))
+    tail_ok = all(v in ('', None, 0) for v in vals[first_empty:])
+    ks = [key(v) for v in full]
+    return tail_ok and ks == sorted(ks, reverse=desc)
+
+
+async def heads(pg):
+    return await pg.evaluate(HEADS)
+
+
+async def sort_click(pg, k, shift=False):
+    await pg.click(f'#tkall-body .tv-thead [data-tvsort="{k}"]', modifiers=['Shift'] if shift else [])
+    await pg.wait_for_timeout(250)
+
+
+async def columns(c, p):
+    b, pg, errs = await open_app(p, False)
+    await sign_in(pg, 'u_owner')
+    await pg.evaluate(BOARD_PEOPLE)
+    ra = await pg.evaluate("text => aimApply(aimPlan([{name: 'weekly_checkins.csv', text}]), {})", BOARD)
+    c.ok(ra['created'] >= 7, f'columns: the invented board export is imported ({ra})')
+    await go(pg, 'tkall')
+    c.ok(await pg.evaluate("() => tkMode") == 'table', 'columns: on the desktop, Tasks opens as the table with its columns')
+    # one task with no date and no priority, so the sorts have an empty value to put last
+    await pg.evaluate("() => { const m = crCreateTask({ title: 'Columns check: no date yet', for: 'p:' + DB.projects[0].id, assignee: tkMe() }); const a = tkResolve(`${m.kind}:${m.id}:${m.projectId || ''}`).rec; a.due = ''; a.priority = ''; a.pri3 = ''; save(); }")
+    await pg.evaluate("() => { tkWho = 'all'; t2View = 'all'; tkProject = ''; renderTkAll(); }"); await pg.wait_for_timeout(300)
+    H = await heads(pg)
+    c.ok([h['k'] for h in H] == DEFAULT_COLS and [h['n'] for h in H] == DEFAULT_NAMES, f'columns: the default columns, in order ({[h["n"] for h in H]})')
+    cb = await pg.evaluate("() => { const b = document.querySelector('#tkall-body .tv-thead [data-tvcols]'); return b ? { svg: !!b.querySelector('svg'), blue: b.classList.contains('primary') || getComputedStyle(b).backgroundColor === 'rgb(36, 86, 201)', label: b.getAttribute('aria-label') } : null; }")
+    c.ok(cb and cb['svg'] and not cb['blue'], f'columns: a Columns control in the table header, a line icon, not blue ({cb})')
+    # ---- click to sort, with no grouping: up, down, back to the view's own order
+    await pg.evaluate("() => { tvT().group = ''; delete tvT().sort; renderTkAll(); }"); await pg.wait_for_timeout(250)
+    base = [r['key'] for r in await pg.evaluate(TROWS)]
+    nodue = await pg.evaluate("() => tvRows().filter(x => !x.due).length")
+    nopri = sum(1 for r in await pg.evaluate(TROWS) if not r['pri'])
+    c.ok(nodue > 0 and nopri > 0, f'columns: the list has undated tasks ({nodue}) and tasks with no priority ({nopri}) to sort past')
+    checks = {
+        'due': (lambda r: r['due'], lambda v: v),
+        'priority': (lambda r: r['pri'], lambda v: v),
+        'ref': (lambda r: r['code'], nat),
+        'project': (lambda r: r['project'], natural),
+        'owner': (lambda r: r['owner'], natural),
+        'status': (lambda r: r['status'], lambda v: ST_ORDER.index(v) if v in ST_ORDER else 9),
+        'carried': (lambda r: r['carried'], lambda v: ['NEW', 'CARRIED'].index(v)),
+    }
+    for k, (get, key) in checks.items():
+        for d, say in ((False, 'ascending'), (True, 'descending')):
+            await sort_click(pg, k)
+            R = await pg.evaluate(TROWS)
+            H = {h['k']: h for h in await heads(pg)}
+            vals = [get(r) for r in R]
+            c.ok(ordered(vals, key, d), f'columns: {k} sorts {say}, empty last ({vals[:8]} … {vals[-4:]})')
+            c.ok(H[k]['sort'] == say and H[k]['arrow'] and all(h['sort'] == 'none' and not h['arrow'] for kk, h in H.items() if kk != k), f'columns: {k} shows the arrow and aria-sort {say}, the others none ({H[k]})')
+        await sort_click(pg, k)
+        back = [r['key'] for r in await pg.evaluate(TROWS)]
+        H = {h['k']: h for h in await heads(pg)}
+        c.ok(back == base and H[k]['sort'] == 'none' and not H[k]['arrow'], f'columns: a third click on {k} puts back the view\'s own order')
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_columns_unsorted.png'))
+    # priority reads P1 to P3 to none; due puts undated last
+    await sort_click(pg, 'priority')
+    pr = [r['pri'] for r in await pg.evaluate(TROWS)]
+    c.ok(pr == sorted([x for x in pr if x]) + [0] * pr.count(0), f'columns: Priority goes P1, P2, P3, then none ({pr[:6]} … {pr[-3:]})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_sorted_priority.png'))
+    await sort_click(pg, 'priority'); await sort_click(pg, 'priority')
+    await sort_click(pg, 'due')
+    du = [r['due'] for r in await pg.evaluate(TROWS)]
+    c.ok(ordered(du, lambda v: v) and du[-1] == '', f'columns: Due puts the undated last ({du[-3:]})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_sorted_due.png'))
+    await sort_click(pg, 'due')
+    dd = [r['due'] for r in await pg.evaluate(TROWS)]
+    c.ok(ordered(dd, lambda v: v, True) and dd[-1] == '', f'columns: Due descending still puts the undated last ({dd[:2]} … {dd[-3:]})')
+    await sort_click(pg, 'due')
+    # natural keys: ZQX-1, ZQX-2, ZQX-10; PAT-02 and PAT-2 are one key
+    await pg.evaluate("""() => { ['ZQX-10', 'ZQX-2', 'ZQX-1'].forEach(k => { const m = crCreateTask({ title: 'Natural key check ' + k, for: 'p:' + DB.projects[0].id, assignee: tkMe(), due: today() }); tkResolve(`${m.kind}:${m.id}:${m.projectId || ''}`).rec.code = k; }); delete tvT().sort; save(); renderTkAll(); }""")
+    await sort_click(pg, 'ref')
+    zq = [r['code'] for r in await pg.evaluate(TROWS) if r['code'].startswith('ZQX-')]
+    c.ok(zq == ['ZQX-1', 'ZQX-2', 'ZQX-10'], f'columns: Key sorts naturally ({zq})')
+    c.ok(await pg.evaluate("() => tvKeyCmp('PAT-02', 'PAT-2') === 0 && tvKeyCmp('PAT-2', 'PAT-10') < 0 && tvKeyCmp('301-02', '301-10') < 0"), 'columns: PAT-02 and PAT-2 are equal, PAT-2 before PAT-10')
+    await sort_click(pg, 'ref'); await sort_click(pg, 'ref')
+    # grouping keeps the sort inside each group
+    await pg.evaluate("() => { tvT().group = 'project'; renderTkAll(); }"); await pg.wait_for_timeout(250)
+    await sort_click(pg, 'due')
+    R = await pg.evaluate(TROWS)
+    G = {}
+    for r in R: G.setdefault(r['g'], []).append(r['due'])
+    c.ok(len(G) > 1 and all(ordered(v, lambda x: x) for v in G.values()), f'columns: grouped by project, each group reads in due order ({[(g, v[:3]) for g, v in list(G.items())[:3]]})')
+    # Shift adds a second sort
+    await sort_click(pg, 'priority', True)
+    c.ok([s['k'] for s in await pg.evaluate("() => tvSorts()")] == ['due', 'priority'], 'columns: Shift-click adds a second sort')
+    await pg.evaluate("() => { delete tvT().sort; tvT().group = ''; renderTkAll(); }")
+    # ---- the fields: the custom field the import found, each field's place in the sheet
+    F = await pg.evaluate("() => tvFields().map(f => ({ k: f.k, n: f.n, type: f.type, kind: f.kind, values: f.values || [], place: tvPlace(f), custom: !!f.custom }))")
+    tr = next((f for f in F if f['n'] == 'Trade'), None)
+    c.ok(tr and tr['custom'] and tr['type'] == 'select' and set(tr['values']) >= {'Carpentry', 'Tile', 'Permits', 'Office'}, f'fields: the export\'s TRADE column is a custom field, a select with its values ({tr})')
+    gen = next((f for f in F if f['k'] == 'general'), None)
+    c.ok(gen and gen['kind'] == 'long' and gen['place'] == 'task', f'fields: General Notes is a long field, in the task only ({gen})')
+    places = {f['k']: f['place'] for f in F}
+    c.ok(all(places.get(k) == 'task' for k in ('general', 'notes', 'start', 'tags', 'collab', 'follow', 'blockedBy', 'blocking', 'comments')), f'fields: the task-only defaults ({ {k: places.get(k) for k in ("general", "notes", "start", "tags", "collab", "follow", "blockedBy", "blocking", "comments")} })')
+    tk = tr['k'] if tr else 'none'
+    # the Columns control: show Trade, hide Owner, move Priority up one; the owner keeps each field's place
+    await pg.click('#tkall-body .tv-thead [data-tvcols]'); await pg.wait_for_timeout(200)
+    pop = await pg.evaluate("""() => { const d = document.getElementById('tv-pop'); if (!d) return null; return { cols: [...d.querySelectorAll('[data-tvcolck]')].map(i => i.dataset.tvcolck),
+      place: [...d.querySelectorAll('select[data-tvplace]')].map(s => s.dataset.tvplace), only: [...d.querySelectorAll('[data-tvonly]')].map(e => e.dataset.tvonly), up: d.querySelectorAll('[data-tvcolup]').length }; }""")
+    c.ok(pop and tk in pop['cols'] and 'start' not in pop['cols'] and 'general' in pop['only'] and 'general' not in pop['place'] and 'start' in pop['place'] and pop['up'] > 0,
+         f'columns: the control lists the columns to show and order, the task-only fields apart, and a place switch for each short field ({pop})')
+    await pg.click(f'#tv-pop [data-tvcolck="{tk}"]'); await pg.wait_for_timeout(200)
+    await pg.click('#tv-pop [data-tvcolck="owner"]'); await pg.wait_for_timeout(200)
+    await pg.click('#tv-pop [data-tvcolup="priority"]'); await pg.wait_for_timeout(200)
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_columns_control.png'))
+    await pg.evaluate(CLOSE)
+    want = ['ref', 'title', 'project', 'priority', 'due', 'carried', 'status', 'wait', tk]
+    H = await heads(pg)
+    c.ok([h['k'] for h in H] == want and H[-1]['n'] == 'Trade', f'columns: Trade shows, Owner hides, Priority moves before Due ({[h["n"] for h in H]})')
+    # the custom field sorts, sits in the sheet with its label, edits, and filters
+    await sort_click(pg, tk)
+    tv = [r['trade'] for r in await pg.evaluate(TROWS)]
+    c.ok(ordered(tv, natural) and 'Carpentry' in tv, f'fields: Trade sorts, empty last ({[v for v in tv if v]})')
+    await sort_click(pg, tk); await sort_click(pg, tk)
+    elm = await pg.evaluate("() => tkByCode('ELM-02').key")
+    await pg.evaluate("k => tkSheet(k)", elm); await pg.wait_for_timeout(350)
+    sh = await pg.evaluate("""() => { const m = document.getElementById('mbm'); const f = [...m.querySelectorAll('[data-tvsf]')].map(b => ({ k: b.dataset.tvsf, l: (b.querySelector('small') || {}).textContent || '', v: ((b.querySelector('span') || {}).innerText || '').replace(/\\s+/g, ' ').trim() }));
+      return { f, th: (tkByCode('ELM-02').rec.thread || []).map(e => e.text) }; }""")
+    S = {f['k']: f for f in sh['f']}
+    labels = {f['l'] for f in sh['f']}
+    c.ok({'Priority', 'New or Carried', 'Start', 'Tags', 'Collaborators', 'Follow-up', 'Blocked By', 'Blocking', 'General Notes', 'Notes', 'Trade', 'Comments'} <= labels, f'sheet: every field has its own labelled place ({sorted(labels)})')
+    c.ok(S.get('general', {}).get('v') == 'Client prefers wool.' and not any((t or '').startswith('General notes') for t in sh['th']), f'sheet: General Notes is its own field, not a comment ({S.get("general")}, {sh["th"]})')
+    c.ok(S.get('priority', {}).get('v', '').startswith('P1') and S.get('carried', {}).get('v') == 'Carried' and 'Oct 20' in S.get('start', {}).get('v', '') and S.get('tags', {}).get('v') == 'client' and S.get('blocking', {}).get('v') == 'ELM-03' and S.get(tk, {}).get('v') == 'Carpentry',
+         f'sheet: the imported values in their places ({[(k, S.get(k, {}).get("v")) for k in ("priority", "carried", "start", "tags", "blocking", tk)]})')
+    await pg.evaluate("k => { const e = document.querySelector(`#mbm [data-tvsf='${k}']`); e && e.scrollIntoView({ block: 'center' }); }", tk); await pg.wait_for_timeout(150)
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_sheet_fields.png'))
+    # values stay as written beside the open sheet: the app's Title Case pass is for labels ("3 Days Late" was the miss)
+    vals = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tv-tr .tv-due, #tkall-body .tv-tr .tv-fc span')].map(e => e.innerText.trim()).filter(t => / day|late|not set/i.test(t)).slice(0, 8)")
+    c.ok(vals and not any(re.search(r'Days? Late|Not Set', v) for v in vals), f'columns: row values are never Title Cased, with the sheet open too ({vals})')
+    await pg.click(f'#mbm [data-tvsf="{tk}"]'); await pg.wait_for_timeout(200)
+    await pg.click('#tv-pop [data-tvopt="Tile"]'); await pg.wait_for_timeout(300)
+    t = await toast_of(pg)
+    v = await pg.evaluate("() => (tkByCode('ELM-02').rec.custom || {}).TRADE")
+    c.ok(v == 'Tile' and t and 'Open' in t['open'], f'sheet: Trade edits in place, on the record, with a toast and Open ({v}, {t})')
+    await pg.evaluate("k => tkSheet(k)", elm); await pg.wait_for_timeout(300)
+    await pg.click('#mbm [data-tvsf="priority"]'); await pg.wait_for_timeout(200)
+    await pg.click('#tv-pop [data-tvopt="3"]'); await pg.wait_for_timeout(300)
+    pv = await pg.evaluate("() => { const a = tkByCode('ELM-02').rec; return [a.pri3, a.priority]; }")
+    c.ok(pv == ['P3', 'low'], f'sheet: Priority edits in place (P3, low: {pv})')
+    await pg.evaluate(CLOSE)
+    # the view's Filter reads each field
+    for fk, fv, test in ((tk, 'Tile', lambda r: r['trade'] == 'Tile'), ('priority', '1', lambda r: r['pri'] == 1)):
+        await pg.click('[data-tvfadd]'); await pg.wait_for_timeout(150)
+        await pg.click(f'#tv-pop [data-tvfk="ff:{fk}"]'); await pg.wait_for_timeout(150)
+        await pg.click(f'#tv-pop [data-tvffv="{fv}"]'); await pg.wait_for_timeout(300)
+        R = await pg.evaluate(TROWS)
+        s = await pg.evaluate(SHOWN)
+        chip = await pg.evaluate("() => [...document.querySelectorAll('.tv-fchip-b')].map(b => b.innerText.trim())")
+        c.ok(R and all(test(r) for r in R) and s['n'] == len(R) == s['list'], f'filter: {fk} = {fv} shows only those ({len(R)} rows, summary {s["n"]}, chips {chip})')
+        await pg.click(f'[data-tvfx="ff:{fk}"]'); await pg.wait_for_timeout(250)
+    # ---- In the Task Only: the owner moves Priority out of the table; it stays in the sheet
+    await pg.click('#tkall-body .tv-thead [data-tvcols]'); await pg.wait_for_timeout(200)
+    await pg.select_option('#tv-pop select[data-tvplace="priority"]', 'task'); await pg.wait_for_timeout(300)
+    await pg.evaluate(CLOSE)
+    H = [h['k'] for h in await heads(pg)]
+    await pg.evaluate("k => tkSheet(k)", elm); await pg.wait_for_timeout(300)
+    inSheet = await pg.evaluate("() => !!document.querySelector('#mbm [data-tvsf=\"priority\"]')")
+    c.ok('priority' not in H and inSheet and await pg.evaluate("() => DB.company.taskFields.place.priority") == 'task', f'place: Priority in the task only leaves the table and stays in the sheet ({H}, sheet {inSheet})')
+    await pg.evaluate(CLOSE)
+    await pg.click('#tkall-body .tv-thead [data-tvcols]'); await pg.wait_for_timeout(200)
+    await pg.select_option('#tv-pop select[data-tvplace="priority"]', 'column'); await pg.wait_for_timeout(300)
+    await pg.evaluate(CLOSE)
+    c.ok('priority' in [h['k'] for h in await heads(pg)], 'place: back as a column, it is in the table again where it was')
+    # someone who is not the owner shows and hides columns, never changes a field's place
+    await sign_in(pg, 'u_chen'); await go(pg, 'tkall'); await pg.wait_for_timeout(250)
+    await pg.click('#tkall-body .tv-thead [data-tvcols]'); await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate("() => document.querySelectorAll('#tv-pop [data-tvplace]').length === 0 && document.querySelectorAll('#tv-pop [data-tvcolck]').length > 0"), 'place: the coordinator shows and orders her columns; the place is the owner\'s call')
+    await pg.evaluate(CLOSE)
+    # ---- Meeting Mode shows the table's columns on its card (Key and Task head the card, Waiting On its box)
+    await pg.evaluate("() => { mtStart({}); renderTkAll(); }"); await pg.wait_for_timeout(400)
+    mm = await pg.evaluate("() => [...document.querySelectorAll('.mm-card .mm-meta .mm-ml')].map(e => e.textContent.trim())")
+    tbl = await pg.evaluate("() => tvTableCols().filter(f => !['ref', 'title', 'wait'].includes(f.k)).map(f => f.n)")
+    c.ok(mm and mm[:len(tbl)] == tbl, f'meeting: the card shows the table\'s columns ({mm} vs {tbl})')
+    await pg.screenshot(path=os.path.join(SHOTS, 'dt_meeting_columns.png'))
+    await pg.evaluate("() => mtEnd(mtCurrent())"); await pg.wait_for_timeout(200)
+    # ---- the owner's columns and sort survive a reload; the coordinator's are hers
+    await sign_in(pg, 'u_owner'); await go(pg, 'tkall'); await pg.wait_for_timeout(250)
+    await sort_click(pg, 'priority'); await sort_click(pg, 'priority')
+    before = await heads(pg)
+    await pg.evaluate("async () => { await saveNow(); }")
+    await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+    await sign_in(pg, 'u_owner'); await go(pg, 'tkall'); await pg.wait_for_timeout(300)
+    after = await heads(pg)
+    c.ok(after == before and [h['k'] for h in after] == want and next(h for h in after if h['k'] == 'priority')['sort'] == 'descending', f'reload: the columns, their order and the sort are kept ({[(h["k"], h["sort"]) for h in after]})')
+    pr = [r['pri'] for r in await pg.evaluate(TROWS)]
+    c.ok(ordered(pr, lambda v: v, True), f'reload: the rows still read P3 to P1, then none ({pr[:6]})')
+    await sign_in(pg, 'u_chen'); await go(pg, 'tkall'); await pg.wait_for_timeout(250)
+    c.ok([h['k'] for h in await heads(pg)] == DEFAULT_COLS, 'reload: the coordinator\'s table keeps the standard columns (the owner\'s choice is his)')
+    # the job's own task list has the same columns
+    await pg.evaluate("() => { setCurrent(DB.projects[0].id); view = 'tasks'; render(); }"); await pg.wait_for_timeout(300)
+    jh = [h['k'] for h in await heads(pg)]
+    c.ok(jh[:2] == ['ref', 'title'] and 'owner' in jh and 'due' in jh and 'priority' in jh, f'the job\'s Tasks: the same table and columns ({jh})')
+    sw = await pg.evaluate("() => document.documentElement.scrollWidth - innerWidth")
+    c.ok(sw <= 0, f'columns: nothing scrolls sideways ({sw}px)')
+    c.ok(not errs, f'columns: no page errors ({errs[:3]})')
+    await b.close()
 
 
 RAIL_ROLES = ('u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah')
@@ -592,6 +835,7 @@ async def main():
                 await mine_views(c, pg)
             c.ok(not errs, f'{"phone" if phone else "desktop"}: no page errors ({errs[:3]})')
             await b.close()
+        await columns(c, p)
         await polish(c, p)
         await match(c, p)
     sys.exit(c.done())

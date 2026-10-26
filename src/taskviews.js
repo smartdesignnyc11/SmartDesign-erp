@@ -69,6 +69,8 @@ const TV_IC = {
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   swipe: '<path d="M15 6l-6 6 6 6"/>',
   lines3: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  bin: '<path d="M5 7h14"/><path d="M10 7V4.5h4V7"/><path d="M7 7l1 12.5h8L17 7"/>',
 };
 const tvSvg = (k, s) => `<svg viewBox="0 0 24 24" width="${s || 16}" height="${s || 16}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TV_IC[k] || ""}</svg>`;
 const tvMine = () => TV_OWN.includes(tkMode) && !("board" === tkMode && tvPhoneNow());
@@ -136,10 +138,10 @@ function tvPrefs() {
   return P;
 }
 const tvTableGroup = () => {
-  const g = tvPrefs().table.group;
+  const g = tvT().group;
   return null == g ? "project" : g;
 };
-const tvDense = () => "compact" === tvPrefs().table.density;
+const tvDense = () => "compact" === tvT().density;
 
 // ---- the rows: exactly the list's rows (the chip's number) -----------------------------------------------------------
 function tvRows() {
@@ -243,6 +245,7 @@ function tvInfo(x) {
     pid: P.id,
     pname: P.name,
     section: x.section || (rec && rec.section) || "",
+    pri: tvPriN(x, rec),
   };
 }
 function tvFind(key) {
@@ -285,6 +288,11 @@ function tvRedraw() {
 function tvDone(msg, key, undo) {
   save();
   tvRedraw();
+  // a change made from the open sheet shows in it at once
+  try {
+    const open = document.querySelector("#mbm [data-tks]");
+    open && open.dataset.tks === key && setTimeout(() => tkSheet(key), 0);
+  } catch (e) {}
   const L = [{ label: "Open", run: () => tkOpen(key) }];
   undo &&
     L.push({
@@ -652,6 +660,9 @@ function tvEdit(key, field, anchor) {
   if ("owner" === field) return TV_CAN.owner(I.x) && I.rec ? tvPersonPop(anchor, I.owner, (n) => tvSetOwner(I, n)) : tvCant(I, "The owner");
   if ("status" === field) return tvStatusPop(anchor, I, (s) => tvSetStatus(I, s, { anchor: anchor }));
   if ("wait" === field) return TV_CAN.wait(I.x) ? tvEditWait(I, anchor) : tvCant(I, "Waiting On");
+  // any other field: its own control (src: the fields, above the Table)
+  const f = tvField(field);
+  if (f) return tvFieldEdit(I, f, anchor);
   return tkSheet(key);
 }
 
@@ -792,58 +803,223 @@ function tvDoneBy(gb) {
   return out;
 }
 
-// ---- the Table: rows in a rounded card per group, not a spreadsheet ------------------------------------------------
-// A grid of rows rather than a <table>: each group's rows sit in their own white card with a faint line between rows and
-// no cell borders, and the header stays at the top of the frame. The first header spans the done circle, the ID and
-// the title ("Task"), so six columns read by default.
-const TV_COLS = [
-  { k: "title", n: "Task", w: 0, fixed: 1, sort: (I) => String(I.x.title || "").toLowerCase() },
-  { k: "owner", n: "Owner", w: 128, sort: (I) => I.owner || "~" },
-  { k: "wait", n: "Waiting On", w: 212, sort: (I) => (I.wait ? I.wait.promised || "9" : "~") },
-  { k: "due", n: "Due", w: 112, sort: (I) => I.x.due || "9999" },
-  { k: "follow", n: "Follow-Up", w: 96, sort: (I) => I.follow || "9999" },
-  { k: "status", n: "Status", w: 118, sort: (I) => TV_STATUS.findIndex(([k]) => k === I.status) },
-  { k: "ref", n: "ID", w: 96, sort: (I) => I.ref || "~" },
-  { k: "project", n: "Project", w: 150, sort: (I) => I.pname },
-  { k: "section", n: "Section", w: 140, sort: (I) => I.section || "~" },
-  { k: "priority", n: "Priority", w: 104, sort: (I) => ({ high: 0, med: 1, low: 2 })[I.x.priority] ?? 1 },
-  { k: "watch", n: "Watch Until", w: 132, sort: (I) => I.watch || "9999" },
-  { k: "last", n: "Last Discussed", w: 140, sort: (I) => I.last || "0000" },
-  { k: "area", n: "Area", w: 130, sort: (I) => I.x.area || "~" },
-];
-const TV_COLS_DEFAULT = ["title", "owner", "wait", "due", "follow", "status"];
-// the columns that step aside while a task is open in the side panel
-const TV_PANEL_DROP = ["wait", "follow"];
-function tvTableCols() {
-  const T = tvPrefs().table,
-    on = Array.isArray(T.cols) && T.cols.length ? T.cols : TV_COLS_DEFAULT;
-  return TV_COLS.filter((c) => c.fixed || on.includes(c.k));
+// ---- the fields: a place for each, as a column or in the task only ---------------------------------------------------
+// Alan, 10-26: "Make sure there's a place for field and column. The current task list doesn't have columns or the
+// ability to sort by clicking the column directly from the page", then "Some are column and some are fields within the
+// task." The team runs its Monday and Thursday meeting from a table: each task's key, title, project, owner, due date,
+// priority and whether it is new or carried, scanned and sorted by column, as it did in Asana.
+//   - Every field, built in or the board's own, has one place, set by the owner in the Columns control: Show as a Column
+//     (the table's and the meeting card's) or In the Task Only (the sheet's). Each person still shows, hides and orders
+//     the columns for themselves. Every field has its own labelled place in the task sheet either way. A long field
+//     (General Notes, Notes) is never a column.
+//   - A custom field is a column of the team's Asana board the import does not map to a built-in field: its name, and
+//     text or a select with the values the import found. The owner can add, rename or remove one in the Columns
+//     control. A value is set on a task through its field, never typed in as a column of its own.
+//   - Sorting: a header's first click sorts up, the second down, the third goes back to the view's own order; Shift adds
+//     a second sort. An empty value sorts last both ways (undated last on Due); Priority reads P1, P2, P3, then none; a
+//     key reads naturally (PAT-2 before PAT-10, PAT-02 and PAT-2 the same). Inside a group the rows keep the sort.
+// Design gate (BACKLOG §1.16). The noun is the task. The values ride on the task record the import and the meeting
+// already write (rec.priority and pri3, carried, start, tags, blockedBy, blocking, generalNotes, notes, collaborators,
+// custom[column]). The firm's field settings ride on the company record (DB.company.taskFields: {place: {key: "column" or
+// "task"}, custom: [{k, name, col, type, values, board}]}), beside the meeting's cadence and project order. Each
+// person's columns, their order, widths and sort are that person's own settings (tvPrefs(): their assistant's record,
+// their private shard on the hosted copy), one set per page (Tasks, a job's Tasks, Sales). No new store or list.
+const TV_PRI_W = { 1: "high", 2: "med", 3: "low" };
+// the one priority scale as a number: the board's P1 to P3, else High, Medium, Low; 0 is none
+function tvPriN(x, rec) {
+  const p = String((rec && rec.pri3) || (x && x.pri3) || "")
+    .trim()
+    .toUpperCase();
+  if (/^P[123]$/.test(p)) return +p[1];
+  return { high: 1, med: 2, low: 3 }[(rec && rec.priority) || (x && x.priority)] || 0;
 }
-const tvColW = (c) => Math.max(72, Math.min(720, +((tvPrefs().table.widths || {})[c.k]) || c.w));
+const tvPriSay = (n) => (n ? `P${n} ${TK_PRI_SAY["P" + n]}` : "");
+const tvCarSay = (v) => ({ NEW: "New", CARRIED: "Carried" })[String(v || "").toUpperCase()] || "";
+const tvArr = (v) =>
+  (Array.isArray(v) ? v : String(v || "").split(/\s*,\s*/))
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+const tvEmpty = (v) => "" === v || null == v || 0 === v;
+// text as a person reads it: a run of digits is a number ("2 Main" before "10 Main"), case does not count
+function tvNatCmp(a, b) {
+  const A = String(a).toLowerCase().split(/(\d+)/).filter((t) => "" !== t),
+    B = String(b).toLowerCase().split(/(\d+)/).filter((t) => "" !== t);
+  for (let i = 0; i < Math.min(A.length, B.length); i++) {
+    const p = A[i],
+      q = B[i],
+      pn = /^\d+$/.test(p),
+      qn = /^\d+$/.test(q);
+    if (pn && qn) {
+      if (+p !== +q) return +p - +q;
+      continue;
+    }
+    if (pn !== qn) return pn ? -1 : 1;
+    if (p !== q) return p < q ? -1 : 1;
+  }
+  return A.length - B.length;
+}
+// a key by its series, then its number: PAT-2 before PAT-10, PAT-02 the same as PAT-2, 301-02 before 301-10
+const tvKeyParts = (k) => {
+  const m = /^\s*([A-Za-z0-9]+?)-(\d+)\s*$/.exec(String(k || ""));
+  return m ? [m[1], +m[2]] : [String(k || ""), -1];
+};
+function tvKeyCmp(a, b) {
+  const A = tvKeyParts(a),
+    B = tvKeyParts(b);
+  return tvNatCmp(A[0], B[0]) || A[1] - B[1];
+}
+// the record's own value, else the row's
+const tvRV = (I, f) => (I.rec && null != I.rec[f] && "" !== I.rec[f] ? I.rec[f] : I.x[f]);
+function tvUpdated(I) {
+  const r = I.rec || {},
+    L = [String(r.modifiedAt || ""), ...(r.thread || []).map((e) => String((e && e.at) || ""))].filter(Boolean).sort();
+  return L.length ? L[L.length - 1].slice(0, 10) : "";
+}
+// type: text, date, select (opts), list (comma separated), long, and the cells the views already draw (person, status,
+// wait, people, count). ro: shown, never edited here. place: where it sits until the owner says otherwise.
+const TV_FIELDS = [
+  { k: "ref", n: "Key", fixed: 1, w: 76, type: "text", ro: 1, val: (I) => I.ref || "", cmp: tvKeyCmp },
+  { k: "title", n: "Task", fixed: 1, w: 0, type: "text", val: (I) => String(I.x.title || "") },
+  { k: "project", n: "Project", w: 104, type: "text", ro: 1, val: (I) => I.pname || "" },
+  { k: "owner", n: "Owner", w: 96, type: "person", val: (I) => I.owner || "" },
+  { k: "due", n: "Due", w: 84, type: "date", val: (I) => I.x.due || "" },
+  { k: "priority", n: "Priority", w: 80, type: "select", val: (I) => I.pri || 0, say: (I) => tvPriSay(I.pri), opts: () => [1, 2, 3].map((n) => [String(n), tvPriSay(n)]) },
+  { k: "carried", n: "New or Carried", w: 84, type: "select", val: (I) => String(tvRV(I, "carried") || "").toUpperCase(), say: (I) => tvCarSay(tvRV(I, "carried")), opts: () => [["NEW", "New"], ["CARRIED", "Carried"]], rank: { NEW: 0, CARRIED: 1 } },
+  { k: "status", n: "Status", w: 104, type: "status", val: (I) => I.status, say: (I) => TV_STATUS_SAY[I.status], rank: { todo: 0, doing: 1, waiting: 2, fyi: 3, done: 4 } },
+  { k: "wait", n: "Waiting On", w: 128, type: "wait", val: (I) => (I.wait ? I.wait.name : ""), say: (I) => (I.wait ? [I.wait.name, I.wait.promised ? tvDay(I.wait.promised) : ""].filter(Boolean).join(" · ") : "") },
+  { k: "start", n: "Start", w: 92, type: "date", place: "task", val: (I) => tvRV(I, "start") || "" },
+  { k: "collab", n: "Collaborators", w: 140, type: "people", place: "task", val: (I) => tvArr(tvRV(I, "collaborators")).join(", ") },
+  { k: "follow", n: "Follow Up", w: 96, type: "date", place: "task", val: (I) => I.follow || "" },
+  { k: "tags", n: "Tags", w: 120, type: "list", place: "task", val: (I) => tvArr(tvRV(I, "tags")).join(", ") },
+  { k: "blockedBy", n: "Blocked By", w: 112, type: "list", place: "task", val: (I) => tvArr(tvRV(I, "blockedBy")).join(", "), cmp: tvKeyCmp },
+  { k: "blocking", n: "Blocking", w: 112, type: "list", place: "task", val: (I) => tvArr(tvRV(I, "blocking")).join(", "), cmp: tvKeyCmp },
+  { k: "comments", n: "Comments", w: 104, type: "count", place: "task", ro: 1, val: (I) => (I.rec ? tkComments(I.rec).length : 0), say: (I) => { const n = I.rec ? tkComments(I.rec).length : 0; return n ? `${n} comment${1 === n ? "" : "s"}` : ""; } },
+  { k: "updated", n: "Last Updated", w: 112, type: "date", ro: 1, val: tvUpdated },
+  { k: "created", n: "Created", w: 104, type: "date", ro: 1, val: (I) => String(tvRV(I, "createdAt") || "").slice(0, 10) },
+  { k: "section", n: "Section", w: 140, type: "text", ro: 1, val: (I) => I.section || "" },
+  { k: "watch", n: "Watch Until", w: 120, type: "date", val: (I) => I.watch || "" },
+  { k: "last", n: "Last Discussed", w: 132, type: "date", ro: 1, val: (I) => I.last || "" },
+  { k: "area", n: "Area", w: 120, type: "text", ro: 1, val: (I) => TK_AREA_LABEL[I.x.area] || I.x.area || "" },
+  { k: "general", n: "General Notes", kind: "long", type: "long", place: "task", val: (I) => String(tvRV(I, "generalNotes") || "") },
+  { k: "notes", n: "Notes", kind: "long", type: "long", place: "task", val: (I) => String(tvRV(I, "notes") || "") },
+];
+const TV_COLS_DEFAULT = ["project", "owner", "due", "priority", "carried", "status", "wait"];
+// the columns that step aside while a task is open in the side panel, so the table stays readable beside it
+const TV_PANEL_DROP = ["wait", "carried", "priority", "follow"];
+// the firm's field settings, read without writing; tvFieldStore() makes them when the owner changes one
+const tvFieldCfg = () => (DB.company && DB.company.taskFields) || { place: {}, custom: [] };
+function tvFieldStore() {
+  DB.company = DB.company || {};
+  const S = (DB.company.taskFields = DB.company.taskFields && "object" == typeof DB.company.taskFields ? DB.company.taskFields : {});
+  (S.place && "object" == typeof S.place) || (S.place = {});
+  Array.isArray(S.custom) || (S.custom = []);
+  return S;
+}
+function tvCustomDefs() {
+  return (tvFieldCfg().custom || [])
+    .filter((c) => c && c.k && c.name)
+    .map((c) => {
+      const col = c.col || c.k,
+        type = "long" === c.type ? "long" : "select" === c.type ? "select" : "text";
+      return {
+        k: c.k,
+        n: c.name,
+        custom: 1,
+        col: col,
+        board: c.board || "",
+        kind: "long" === type ? "long" : "short",
+        type: type,
+        values: (c.values || []).slice(),
+        w: 124,
+        val: (I) => String(((I.rec && I.rec.custom) || {})[col] || ""),
+        opts: "select" === type ? () => (c.values || []).map((v) => [v, v]) : null,
+      };
+    });
+}
+const tvFields = () => TV_FIELDS.concat(tvCustomDefs());
+const tvField = (k) => tvFields().find((f) => f.k === k) || null;
+function tvPlace(f) {
+  f = "string" == typeof f ? tvField(f) : f;
+  if (!f) return "task";
+  if (f.fixed) return "column";
+  if ("long" === f.kind) return "task";
+  const p = (tvFieldCfg().place || {})[f.k];
+  return "column" === p || "task" === p ? p : f.place || "column";
+}
+// what a field says, as words (the sheet, the meeting card, the phone's second line, a filter chip)
+function tvSay(I, f) {
+  if (f.say) return f.say(I) || "";
+  const v = f.val(I);
+  if (tvEmpty(v)) return "";
+  return "date" === f.type ? tvD(v) : String(v);
+}
+// the person's table settings for this page (Tasks, a job's Tasks, Sales); version 2 is the team's nine columns
+function tvT() {
+  const P = tvPrefs();
+  let c = "home";
+  try {
+    c = t2Ctx() || "home";
+  } catch (e) {}
+  let T = P.table;
+  if ("home" !== c) {
+    (P.tables && "object" == typeof P.tables) || (P.tables = {});
+    T = P.tables[c] = P.tables[c] && "object" == typeof P.tables[c] ? P.tables[c] : {};
+  }
+  2 !== T.v && (delete T.cols, (T.v = 2));
+  return T;
+}
+// the columns a person sees: Key and Task, then theirs in their order, of the fields that are columns
+function tvTableCols() {
+  const T = tvT(),
+    F = tvFields(),
+    at = Object.fromEntries(F.map((f) => [f.k, f])),
+    on = Array.isArray(T.cols) && T.cols.length ? T.cols : TV_COLS_DEFAULT.concat(F.filter((f) => !f.fixed && "column" === (tvFieldCfg().place || {})[f.k] && !TV_COLS_DEFAULT.includes(f.k)).map((f) => f.k));
+  return F.filter((f) => f.fixed).concat([...new Set(on)].map((k) => at[k]).filter((f) => f && !f.fixed && "column" === tvPlace(f)));
+}
+const tvColW = (c) => Math.max(72, Math.min(720, +((tvT().widths || {})[c.k]) || c.w || 120));
 function tvSorts() {
-  const s = tvPrefs().table.sort;
+  const s = tvT().sort;
   const L = Array.isArray(s) ? s : s && s.k ? [s] : [];
-  return L.filter((y) => y && TV_COLS.some((c) => c.k === y.k));
+  return L.filter((y) => y && tvField(y.k));
+}
+// one field's order: empties after everything (both ways), then the field's own rule
+function tvCmpVal(f, va, vb) {
+  if (f.cmp) return f.cmp(String(va), String(vb));
+  if (f.rank) return (f.rank[va] ?? 9) - (f.rank[vb] ?? 9);
+  if ("number" == typeof va && "number" == typeof vb) return va - vb;
+  if ("date" === f.type) return va < vb ? -1 : va > vb ? 1 : 0;
+  return tvNatCmp(va, vb);
 }
 function tvSortRows(rows) {
   const S = tvSorts();
   if (!S.length) return rows;
-  const C = S.map((s) => [TV_COLS.find((c) => c.k === s.k), "desc" === s.dir ? -1 : 1]);
-  return rows.slice().sort((a, b) => {
-    for (const [c, dir] of C) {
-      const va = c.sort(a),
-        vb = c.sort(b);
-      if (va < vb) return -dir;
-      if (va > vb) return dir;
-    }
-    return 0;
-  });
+  const C = S.map((s) => [tvField(s.k), "desc" === s.dir ? -1 : 1]);
+  // the view's own order breaks ties, so a sort never shuffles rows that read the same
+  return rows
+    .map((I, i) => [I, i, C.map(([f]) => f.val(I))])
+    .sort((a, b) => {
+      for (let j = 0; j < C.length; j++) {
+        const [f, dir] = C[j],
+          va = a[2][j],
+          vb = b[2][j],
+          ea = tvEmpty(va),
+          eb = tvEmpty(vb);
+        if (ea || eb) {
+          if (ea !== eb) return ea ? 1 : -1;
+          continue;
+        }
+        const c = tvCmpVal(f, va, vb);
+        if (c) return c * dir;
+      }
+      return a[1] - b[1];
+    })
+    .map((y) => y[0]);
 }
-// the grid's columns: select, done, ID, title, then the chosen ones; and the same without the panel's two
+// the grid's columns: select, done, Key, Task, then the chosen ones; and the same without the panel's ones
 function tvGridCols(cols, drop, noRef) {
-  // the default columns fit the content width at 1280 (984px) with the title taking the rest: no column is cut off
+  // the nine default columns fit the content width at 1280 (1048px) with the title taking the rest: none is cut off
   // the select box sits in the left gutter (shown on hover), so the row starts with the done circle as in the mockup
-  const L = ["0px", "44px", noRef ? "0px" : "76px", "minmax(200px,1fr)"];
+  const L = ["0px", "44px", noRef ? "0px" : "76px", "minmax(180px,1fr)"];
   cols.forEach((c) => c.fixed || (drop && drop.includes(c.k)) || L.push(tvColW(c) + "px"));
   return L.join(" ");
 }
@@ -858,30 +1034,327 @@ function tvSubLine(I, gb) {
   const n = String(I.x.notes || "").split(/\n|(?<=\.)\s/)[0];
   return n ? esc(n.slice(0, 140)) : "";
 }
+// a field's cell: the views' own controls for owner, dates, status and Waiting On; a quiet button for any other field
+// that edits here; plain text for what is only shown
+function tvFieldCell(I, f) {
+  const v = tvSay(I, f),
+    may = !f.ro && "people" !== f.type && "count" !== f.type;
+  // the team says P1, P2, P3; the word (High, Medium, Low) is the cell's title and the sheet's
+  if ("priority" === f.k && I.pri) return `<button type="button" class="tv-c tv-prc tv-pri${I.pri}" data-tved="priority" aria-label="Priority: ${esc(v)}" title="${esc(v)}"><b>P${I.pri}</b></button>`;
+  if (!may) return `<span class="tv-txt" title="${esc(v)}">${esc(v)}</span>`;
+  return `<button type="button" class="tv-c tv-fc ${v ? "" : "tv-empty"}" data-tved="${esc(f.k)}" aria-label="${esc(f.n)}: ${esc(v || "not set")}" title="${esc(v)}">${v ? `<span>${esc(v)}</span>` : '<span class="tv-dash" aria-hidden="true">—</span>'}</button>`;
+}
 function tvTd(I, c, gb) {
   const x = I.x,
-    cls = `tv-td tv-col-${c.k}`;
+    cls = `tv-td tv-col-${c.k}${TV_PANEL_DROP.includes(c.k) ? " tv-pd" : ""}`;
   switch (c.k) {
     case "title": {
       const sub = tvSubLine(I, gb);
       return `<div class="tv-td tv-col-done" role="cell">${tvCheck(I)}</div><div class="tv-td tv-col-ref" role="cell">${I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : ""}</div><div class="${cls}" role="cell"><button type="button" class="tv-tt" data-tved="title"><span class="tv-ttx">${esc(x.title || "")}</span>${sub ? `<span class="tv-sub2">${sub}</span>` : ""}</button></div>`;
     }
     case "ref":
-      return `<div class="${cls}" role="cell"><span class="tv-txt">${I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : ""}</span></div>`;
-    case "project":
-      return `<div class="${cls}" role="cell"><span class="tv-txt">${esc(I.pname)}</span></div>`;
-    case "section":
-      return `<div class="${cls}" role="cell"><span class="tv-txt">${esc(I.section || "")}</span></div>`;
-    case "priority":
-      return `<div class="${cls}" role="cell"><span class="tv-txt tv-pri-${esc(x.priority || "med")}">${esc({ high: "High", med: "Medium", low: "Low" }[x.priority] || x.priority || "")}</span></div>`;
+      return "";
+    case "owner":
+    case "due":
+    case "follow":
+    case "watch":
+    case "status":
+    case "wait":
+      return `<div class="${cls}" role="cell">${tvCell(I, c.k)}</div>`;
     case "last":
       return `<div class="${cls}" role="cell"><span class="tv-txt">${I.last ? esc(tvRel(I.last, !0)) : ""}</span></div>`;
-    case "area":
-      return `<div class="${cls}" role="cell"><span class="tv-txt">${esc(TK_AREA_LABEL[x.area] || x.area || "")}</span></div>`;
     default:
-      return `<div class="${cls}" role="cell">${tvCell(I, c.k)}</div>`;
+      return `<div class="${cls}" role="cell">${tvFieldCell(I, c)}</div>`;
   }
 }
+// ---- editing a field: its control, then the record, the thread, the audit, the meeting's log and a toast -------------
+const TV_PROP = { start: "start", tags: "tags", blockedBy: "blockedBy", blocking: "blocking", general: "generalNotes", notes: "notes", carried: "carried" };
+function tvSetVal(I, f, v) {
+  const x = I.x,
+    rec = I.rec;
+  if (!rec || !TV_CAN.follow(x)) return tvCant(I, f.n);
+  if ("follow" === f.k) return tvSetField(I, "followUp", v, "Follow-up");
+  if ("watch" === f.k) return tvSetField(I, "watchUntil", v, "Watch until");
+  const was = f.val(I),
+    nv = null == v ? "" : String(v).trim();
+  if (String(tvEmpty(was) ? "" : was) === nv) return !1;
+  let undo;
+  if ("priority" === f.k) {
+    undo = tvKeep(rec, ["priority", "pri3"]);
+    const n = +nv || 0;
+    (rec.priority = n ? TV_PRI_W[n] : ""), (rec.pri3 = n ? "P" + n : "");
+  } else if (f.custom) {
+    undo = tvKeep(rec, ["custom"]);
+    rec.custom = Object.assign({}, rec.custom || {});
+    nv ? (rec.custom[f.col] = nv) : delete rec.custom[f.col];
+  } else if (TV_PROP[f.k]) {
+    const p = TV_PROP[f.k];
+    undo = tvKeep(rec, [p]);
+    rec[p] = "list" === f.type ? tvArr(nv) : nv;
+  } else return tvCant(I, f.n);
+  const say = (s) => ("priority" === f.k ? tvPriSay(+s || 0) : "carried" === f.k ? tvCarSay(s) : "date" === f.type && s ? fmtL(s) : "long" === f.type && s ? "written" : String(s || "")),
+    from = tvEmpty(was) ? "" : String(was);
+  tkLog(rec, { ev: f.k, from: from, to: nv });
+  tvAudit(x, f.k, from, nv);
+  tvMtLog(I, f.k, from, nv);
+  tvDone(nv ? `${f.n}: ${say(nv)} · ${tvTitle(x)}` : `${f.n} cleared · ${tvTitle(x)}`, I.key, undo);
+  return !0;
+}
+// the control for one field: dates, a menu of its values, or words
+function tvFieldEdit(I, f, anchor) {
+  if ("collab" === f.k) return I.rec && TV_CAN.owner(I.x) ? (tvPopClose(), tkCollabDialog(I.key)) : tvCant(I, f.n);
+  if (f.ro || "count" === f.type) return tkSheet(I.key);
+  if (!I.rec || !TV_CAN.follow(I.x)) return tvCant(I, f.n);
+  const cur = f.val(I);
+  if ("date" === f.type) return tvDatePop(anchor, f.n, tvEmpty(cur) ? "" : cur, (d) => tvSetVal(I, f, d), !0);
+  if (f.opts)
+    return tvPop(
+      anchor,
+      f.n,
+      `<div class="tv-menu">${f
+        .opts()
+        .map(([v, n], i) => `<button type="button" class="tv-mi ${String(cur) === String(v) ? "on" : ""}" data-tvopt="${esc(v)}" ${0 === i ? "data-tvfirst" : ""}>${esc(n)}</button>`)
+        .join("")}<button type="button" class="tv-mi ${tvEmpty(cur) ? "on" : ""}" data-tvopt="">None</button></div>`,
+      (d) => d.querySelectorAll("[data-tvopt]").forEach((b) => (b.onclick = () => (tvPopClose(), tvSetVal(I, f, b.dataset.tvopt)))),
+    );
+  const long = "long" === f.type,
+    list = "list" === f.type;
+  return tvPop(
+    anchor,
+    f.n,
+    `${long ? `<textarea class="tv-fin" data-tvfin rows="6" aria-label="${esc(f.n)}">${esc(cur)}</textarea>` : `<input class="tv-fin" data-tvfin value="${esc(cur)}" aria-label="${esc(f.n)}" ${list ? 'placeholder="Separate them with commas"' : ""} autocomplete="off">`}<div class="tv-pop-ft"><button type="button" class="btn tv-go" data-tvfsave>Save</button></div>`,
+    (d) => {
+      const i = d.querySelector("[data-tvfin]"),
+        go = () => (tvPopClose(), tvSetVal(I, f, i.value));
+      d.querySelector("[data-tvfsave]").onclick = go;
+      long || (i.onkeydown = (e) => "Enter" === e.key && (e.preventDefault(), go()));
+      tvPhone() || setTimeout(() => i.focus(), 0);
+    },
+  );
+}
+// ---- the owner's calls: where a field shows, and the board's own fields ---------------------------------------------
+const tvMayPlace = () => {
+  try {
+    return "owner" === role();
+  } catch (e) {
+    return !1;
+  }
+};
+function tvSetPlace(k, place) {
+  if (!tvMayPlace()) return toast("Where a field shows is the owner's call"), !1;
+  const f = tvField(k);
+  if (!f || f.fixed || "long" === f.kind || !/^(column|task)$/.test(place)) return !1;
+  const was = tvPlace(f);
+  if (was === place) return !1;
+  const S = tvFieldStore(),
+    had = Object.prototype.hasOwnProperty.call(S.place, k) ? S.place[k] : undefined;
+  S.place[k] = place;
+  // the owner sees it at once where it was, or at the end of his columns
+  if ("column" === place) {
+    const T = tvT(),
+      L = tvTableCols()
+        .filter((c) => !c.fixed)
+        .map((c) => c.k);
+    L.includes(k) || (T.cols = L.concat(k));
+  }
+  try {
+    audit("company", "taskFields", "place:" + k, was, place, "");
+  } catch (e) {}
+  save();
+  tvKeepScroll(() => renderTkAll());
+  toast(`${f.n}: ${"column" === place ? "shown as a column" : "in the task only"}, for everyone`, [
+    { label: "Open", run: () => tvColsAgain() },
+    { label: "Undo", run: () => (undefined === had ? delete S.place[k] : (S.place[k] = had), save(), renderTkAll(), toast(`${f.n} is back where it was`, [{ label: "Open", run: () => tvColsAgain() }])) },
+  ]);
+  return !0;
+}
+const tvSlug = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32) || "field";
+// A name as a label: the board's ALL CAPS column ("TRADE ") reads "Trade"; anything else as written, trimmed.
+function tvFieldName(s) {
+  const t = String(s || "").trim().replace(/\s+/g, " ");
+  if (!t || t !== t.toUpperCase() || !/[A-Z]/.test(t)) return t;
+  return t
+    .toLowerCase()
+    .split(" ")
+    .map((w, i) => (i && /^(or|and|of|the|to|on|in|for|a|an)$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+// One field of the board's: added by the owner, or found by the import (merged with the one already there by column).
+function tvAddField(o) {
+  const S = tvFieldStore(),
+    col = String(o.col || o.name || "").trim(),
+    name = tvFieldName(o.name || col);
+  if (!col || !name) return null;
+  const type = /^(select|long)$/.test(o.type) ? o.type : "text",
+    vals = [...new Set(tvArr(o.values))];
+  let c = S.custom.find((y) => String(y.col || "").toLowerCase() === col.toLowerCase());
+  if (c) {
+    // the import found more values for a select: they join it; a person's own type stays
+    "select" === c.type && vals.forEach((v) => (c.values || (c.values = [])).includes(v) || c.values.push(v));
+    return c;
+  }
+  const taken = new Set(tvFields().map((f) => f.k));
+  let k = "cf_" + tvSlug(name),
+    i = 2;
+  while (taken.has(k)) k = `cf_${tvSlug(name)}_${i++}`;
+  c = { k: k, name: name, col: col, type: type, values: "select" === type ? vals : [], board: o.board || "", at: appNowIso(), by: (currentUser() || {}).name || "", from: o.from || "owner" };
+  S.custom.push(c);
+  try {
+    audit("company", "taskFields", "field:" + k, "", `${name} (${type})`, o.from || "");
+  } catch (e) {}
+  return c;
+}
+
+// ---- sorting by any field, the phone's second line, and a sort kept with the person's own view -----------------------
+// the fields a list sorts by: the short ones, the meeting's first (a long note never sorts)
+const TV_SORT_FIRST = ["due", "priority", "ref", "project", "owner", "status", "carried", "wait", "start", "follow", "title"];
+function tvSortable() {
+  // the table's columns, the dates people sort a meeting by, and the board's own fields
+  const on = new Set(tvTableCols().map((f) => f.k).concat(["start", "follow", "updated", "created"])),
+    F = tvFields().filter((f) => "long" !== f.kind && "count" !== f.type && (on.has(f.k) || f.custom));
+  return TV_SORT_FIRST.map((k) => F.find((f) => f.k === k))
+    .filter(Boolean)
+    .concat(F.filter((f) => !TV_SORT_FIRST.includes(f.k)));
+}
+// the fields the phone's second line can show; the key always leads the line
+const tvRowFields = () => tvFields().filter((f) => !f.fixed && "long" !== f.kind);
+function tvPhoneRow() {
+  const P = tvPrefs().phoneRow,
+    L = Array.isArray(P) ? P.filter((k) => tvField(k)).slice(0, 2) : [];
+  return 2 === L.length ? L : ["due", "project"];
+}
+// a view the person saved keeps the sort they set while it is on
+function tvSortKeep() {
+  try {
+    const v = (tvPrefs().views || []).find((y) => tvIsOn(y));
+    v && ((v.table = v.table || {}), (v.table.sort = JSON.parse(JSON.stringify(tvT().sort || []))));
+  } catch (e) {}
+}
+// Meeting Mode's card: the same columns as the table the meeting runs on (the key and title head the card and Waiting
+// On has its own box), as [label, value html, class]
+function tvMeetCols(x) {
+  const I = tvInfo(x),
+    td = today(),
+    rel = (d) => (d ? esc(tvRel(d, !0)) : "None");
+  return tvTableCols()
+    .filter((f) => !["ref", "title", "wait"].includes(f.k))
+    .map((f) => {
+      if ("owner" === f.k) {
+        const C = tvArr(tvRV(I, "collaborators"));
+        return [f.n, `${esc(I.owner || "nobody")}${C.length ? `<small> with ${esc(C.join(", "))}</small>` : ""}`, "mm-own"];
+      }
+      if ("due" === f.k) return [f.n, x.due ? esc(tvRel(x.due, x.done)) : "No date", x.due && x.due < td && !x.done ? "bad" : ""];
+      if ("date" === f.type) return [f.n, rel(f.val(I)), ""];
+      const v = tvSay(I, f);
+      return [f.n, v ? esc(v) : "None", v ? "" : "muted"];
+    });
+}
+
+// ---- the view's Filter reads each field --------------------------------------------------------------------------------
+// tvFF: {field key: value} on top of the list's own filters; kept with a saved view; the list, the chips and every
+// layout read the one pool it narrows (t2Narrow), so each count is the rows shown.
+let tvFF = {};
+function tvFFOn() {
+  try {
+    return !!Object.keys(tvFF).length;
+  } catch (e) {
+    return !1;
+  }
+}
+const TV_FF_DATES = [
+  ["late", "Late"],
+  ["week", "Next 7 Days"],
+  ["later", "Later"],
+  ["none", "No Date"],
+];
+// the fields the Filter offers beside Owner, Due, Project and Area
+const tvFFFields = () => tvFields().filter((f) => !f.fixed && "long" !== f.kind && "count" !== f.type && !/^(owner|project|due|area|wait|last|updated|created)$/.test(f.k));
+function tvFFMatch(I, k, v) {
+  const f = tvField(k);
+  if (!f) return !0;
+  const val = f.val(I);
+  if ("date" === f.type) {
+    const td = today(),
+      wk = iso(addDays(parse(td), 7));
+    if ("none" === v) return tvEmpty(val);
+    if (tvEmpty(val)) return !1;
+    return "late" === v ? val < td : "week" === v ? val >= td && val <= wk : "later" === v ? val > wk : !0;
+  }
+  if ("list" === f.type || "people" === f.type) {
+    const L = tvArr(val);
+    return "" === v ? !L.length : L.includes(v);
+  }
+  return "" === v ? tvEmpty(val) : String(val) === String(v);
+}
+function tvFFOpts(f) {
+  if ("date" === f.type) return TV_FF_DATES;
+  if ("status" === f.k) return TV_STATUS.map(([k, n]) => [k, n]);
+  if (f.opts) return f.opts().concat([["", "None"]]);
+  let R = [];
+  try {
+    R = openTasks("all").map(tvInfo);
+  } catch (e) {}
+  const S = new Set();
+  R.forEach((I) => ("list" === f.type || "people" === f.type ? tvArr(f.val(I)) : [f.val(I)]).forEach((v) => tvEmpty(v) || S.add(String(v))));
+  return [...S]
+    .sort(tvNatCmp)
+    .slice(0, 60)
+    .map((v) => [v, v])
+    .concat([["", "None"]]);
+}
+function tvFFSay(k, v) {
+  const f = tvField(k);
+  if (!f) return String(v);
+  const o = tvFFOpts(f).find(([a]) => String(a) === String(v));
+  return o ? o[1] : String(v);
+}
+
+// ---- the person's layout: the desktop opens on the Table (the team's meeting table), the phone on its List ------------
+// Kept on the person's own record (tvPrefs().layout, per device kind), so it follows them to every desktop; the old
+// per-browser choice (sdp:tkmode) no longer hides the table from someone who once picked the List.
+const tvLayoutKey = () => (tvPhoneNow() ? "phone" : "desk");
+function tvLayoutPref() {
+  const L = tvPrefs().layout || {},
+    m = L[tvLayoutKey()];
+  return TV_MODES.some(([k]) => k === m) ? m : tvPhoneNow() ? "cards" : "table";
+}
+function tvLayoutSet(m) {
+  const P = tvPrefs();
+  P.layout = Object.assign({}, P.layout || {}, { [tvLayoutKey()]: m });
+}
+
+// ---- the sheet: a labelled place for every field --------------------------------------------------------------------
+// Owner, Due, Follow-up, Status and Waiting On sit at the top as before; then Priority, New or Carried, Start, Tags,
+// Collaborators, Blocked By, Blocking, General Notes, Notes, the board's own fields, and what is only shown (Comments,
+// Section, Created, Last Updated). Each opens its own control; nothing is typed as a column.
+const TV_SHEET_FIELDS = ["priority", "carried", "start", "tags", "collab", "blockedBy", "blocking", "general", "notes"];
+const TV_SHEET_SHOWN = ["comments", "section", "created", "updated", "area"];
+function tvSheetFieldsHtml(I) {
+  const F = tvFields(),
+    at = Object.fromEntries(F.map((f) => [f.k, f])),
+    L = TV_SHEET_FIELDS.map((k) => at[k])
+      .concat(F.filter((f) => f.custom))
+      .concat(TV_SHEET_SHOWN.map((k) => at[k]))
+      .filter(Boolean),
+    may = !!I.rec && TV_CAN.follow(I.x);
+  return `<div class="tvs-fields tvs-det" role="group" aria-label="Fields">${L.map((f) => {
+    const v = tvSay(I, f),
+      ro = f.ro || "count" === f.type || ("collab" === f.k ? !(I.rec && TV_CAN.owner(I.x)) : !may);
+    if (ro && !v && TV_SHEET_SHOWN.includes(f.k)) return "";
+    const val = v ? `<span class="${"long" === f.kind ? "tvs-long" : ""}">${esc(v)}</span>` : '<span class="tvs-none">Not set</span>';
+    return ro ? `<div class="tvs-f tvs-ro" data-tvsf="${esc(f.k)}" data-tvro="1"><small>${esc(f.n)}</small>${val}</div>` : `<button type="button" class="tvs-f" data-tvsf="${esc(f.k)}"><small>${esc(f.n)}</small>${val}</button>`;
+  }).join("")}</div>`;
+}
+
+// ---- the Table: rows in a rounded card per group, not a spreadsheet ------------------------------------------------
+// A grid of rows rather than a <table>: each group's rows sit in their own white card with a faint line between rows and
+// no cell borders, and the header stays at the top of the frame. Key and Task head every row, then the person's columns
+// (the team's nine by default: Alan, 10-26).
 let tvSel = new Set();
 function tvTableHtml(infos) {
   const cols = tvTableCols(),
@@ -901,23 +1374,28 @@ function tvTableHtml(infos) {
     const gid = `t:${gb}:${g.k}`;
     return `<div class="tv-tg" role="rowgroup">${tvGhd(gid, g.n, g.rows, doneBy[g.k] || 0)}${tvFolded(gid) ? "" : `<div class="tv-gcard">${g.rows.map(tr).join("")}</div>`}</div>`;
   }).join("");
+  // each header sorts its column (a line arrow shows which and which way, aria-sort says it); the header's right end
+  // carries the Columns control, a line icon that is never the page's blue button, there with the panel open too
+  const th = (c, extra, label) => {
+      const i = S.findIndex((s) => s.k === c.k),
+        s = S[i],
+        pd = TV_PANEL_DROP.includes(c.k) ? " tv-pd" : "";
+      return `<div class="tv-th tv-col-${c.k}${pd} ${extra || ""}" role="columnheader" data-tvcol="${c.k}" aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="${c.k}" title="Sort by ${esc(c.n)}; Shift adds a second sort">${esc(label || c.n)}${s ? `${tvSvg("desc" === s.dir ? "down" : "up", 12)}${S.length > 1 ? `<small class="tv-sortn">${i + 1}</small>` : ""}` : ""}</button>${c.fixed ? "" : `<span class="tv-rs" data-tvrs="${c.k}" aria-hidden="true"></span>`}</div>`;
+  };
   const head = `<div class="tv-thead" role="row"><div class="tv-th tv-col-sel" role="columnheader"><label class="tv-cb"><input type="checkbox" data-tvselall ${allOn ? "checked" : ""} aria-label="Select all"></label></div>${cols
     .map((c) => {
-      const i = S.findIndex((s) => s.k === c.k),
-        s = S[i];
-      const idh = "title" === c.k && !noRef ? (() => {
-        const j = S.findIndex((y) => "ref" === y.k), r = S[j];
-        return `<div class="tv-th tv-thdone" role="columnheader" aria-label="Done"></div><div class="tv-th tv-thid" role="columnheader" aria-sort="${r ? ("desc" === r.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="ref" title="Sort by ID">ID${r ? tvSvg("desc" === r.dir ? "chevD" : "chevU", 10) : ""}</button></div>`;
-      })() : "";
-      return `${idh}<div class="tv-th tv-col-${c.k} ${idh ? "tv-th1" : ""}" role="columnheader" data-tvcol="${c.k}" aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="${c.k}" title="Sort; Shift adds a second sort">${esc(c.n)}${s ? `${tvSvg("desc" === s.dir ? "chevD" : "chevU", 10)}${S.length > 1 ? `<small class="tv-sortn">${i + 1}</small>` : ""}` : ""}</button>${c.fixed ? "" : `<span class="tv-rs" data-tvrs="${c.k}" aria-hidden="true"></span>`}</div>`;
+      if ("ref" === c.k) return noRef ? "" : `<div class="tv-th tv-thdone" role="columnheader" aria-label="Done"></div>${th(c, "tv-thid")}`;
+      if ("title" === c.k) return th(c, noRef ? "" : "tv-th1");
+      return th(c);
     })
-    .join("")}</div>`;
-  const W = 44 + (noRef ? 0 : 76) + 200 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
+    .join("")}<button type="button" class="tv-colsb" data-tvcols aria-label="Columns: show, hide and order them" title="Columns">${tvSvg("cols", 16)}</button></div>`;
+  const W = 44 + (noRef ? 0 : 76) + 180 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
   return `<div class="tv-tframe ${tvDense() ? "dense" : ""}" tabindex="-1"><div class="tv-grid" role="table" aria-label="Tasks" style="--tvcols:${tvGridCols(cols, null, noRef)};--tvcols-n:${tvGridCols(cols, TV_PANEL_DROP, noRef)};min-width:${W}px">${head}${body}</div></div>${tvBulkHtml()}`;
 }
-// the phone: the table's rows become the List's cards, in the table's groups and sort
-function tvCardsHtml(infos) {
-  const gb = tvTableGroup(),
+// the phone: the table's rows become the List's cards, in the table's groups and sort (or the List's own groups, with
+// the person's Sort By inside each)
+function tvCardsHtml(infos, by) {
+  const gb = null == by ? tvTableGroup() : by,
     G = tvGroups(tvSortRows(infos), gb, !1),
     doneBy = tvDoneBy(gb),
     o = { hideJob: "project" === gb };
@@ -965,28 +1443,136 @@ function tvBulk(what, anchor) {
       (d) => d.querySelectorAll("[data-tvs]").forEach((b) => (b.onclick = () => (tvPopClose(), run((I) => tvSetStatus(I, b.dataset.tvs, { quiet: !0 }), TV_STATUS_SAY[b.dataset.tvs])))),
     );
 }
+// The Columns control: the person shows, hides and orders their columns; the owner also says, for each short field,
+// Show as a Column or In the Task Only (for everyone), and adds, renames or removes the board's own fields.
+const tvColsAnchor = () => document.querySelector("#tkall-body .tv-thead [data-tvcols]") || document.querySelector("#tkall-body .tv-moremenu");
+function tvColsAgain() {
+  setTimeout(() => {
+    const a = tvColsAnchor();
+    a && tvColsPanel(a);
+  }, 0);
+}
 function tvColsPanel(anchor) {
-  const on = new Set(tvTableCols().map((c) => c.k));
-  tvPop(
-    anchor,
-    "Columns",
-    `<div class="tv-colset">${TV_COLS.map((c) => `<label class="tv-colck ${c.fixed ? "fixed" : ""}"><input type="checkbox" data-tvcolck="${c.k}" ${on.has(c.k) ? "checked" : ""} ${c.fixed ? "disabled" : ""}><span>${esc(c.n)}</span></label>`).join("")}</div><div class="tv-pop-ft"><button type="button" class="btn" data-tvcolreset>Reset Columns</button></div>`,
-    (d) => {
-      d.querySelectorAll("[data-tvcolck]").forEach(
-        (i) =>
-          (i.onchange = () => {
-            tvPrefs().table.cols = [...d.querySelectorAll("[data-tvcolck]")].filter((y) => y.checked).map((y) => y.dataset.tvcolck);
-            save();
-            tvKeepScroll(() => renderTkAll());
-          }),
-      );
-      d.querySelector("[data-tvcolreset]").onclick = () => {
-        const T = tvPrefs().table;
-        delete T.cols, delete T.widths, delete T.sort;
-        save(), tvPopClose(), renderTkAll(), toast("The table is back to its standard columns");
-      };
-    },
-  );
+  const T = tvT(),
+    own = tvMayPlace(),
+    F = tvFields(),
+    shown = tvTableCols()
+      .filter((f) => !f.fixed)
+      .map((f) => f.k),
+    cols = F.filter((f) => !f.fixed && "column" === tvPlace(f)),
+    order = shown.concat(cols.map((f) => f.k).filter((k) => !shown.includes(k))),
+    only = F.filter((f) => !f.fixed && "task" === tvPlace(f)),
+    at = Object.fromEntries(F.map((f) => [f.k, f])),
+    place = (f) =>
+      own && "long" !== f.kind
+        ? `<select class="tv-place" data-tvplace="${esc(f.k)}" aria-label="Where ${esc(f.n)} shows"><option value="column" ${"column" === tvPlace(f) ? "selected" : ""}>Show as a Column</option><option value="task" ${"task" === tvPlace(f) ? "selected" : ""}>In the Task Only</option></select>`
+        : "",
+    mine = (f) =>
+      own && f.custom
+        ? `<button type="button" class="tv-colmv" data-tvcfren="${esc(f.k)}" aria-label="Rename ${esc(f.n)}" title="Rename">${tvSvg("pen", 14)}</button><button type="button" class="tv-colmv" data-tvcfdel="${esc(f.k)}" aria-label="Remove ${esc(f.n)}" title="Remove the field">${tvSvg("bin", 14)}</button>`
+        : "",
+    row = (k, i, n) => {
+      const f = at[k],
+        on = shown.includes(k);
+      return `<div class="tv-colrow ${on ? "on" : ""}"><label class="tv-colck"><input type="checkbox" data-tvcolck="${esc(k)}" ${on ? "checked" : ""}><span>${esc(f.n)}</span></label><span class="grow"></span>${
+        on ? `<button type="button" class="tv-colmv" data-tvcolup="${esc(k)}" aria-label="Move ${esc(f.n)} left" title="Move left" ${0 === i ? "disabled" : ""}>${tvSvg("chevU", 14)}</button><button type="button" class="tv-colmv" data-tvcoldn="${esc(k)}" aria-label="Move ${esc(f.n)} right" title="Move right" ${i === n - 1 ? "disabled" : ""}>${tvSvg("chevD", 14)}</button>` : ""
+      }${mine(f)}${place(f)}</div>`;
+    };
+  const html = `<div class="tv-colset">
+<div class="tv-colrow fixed"><label class="tv-colck"><input type="checkbox" checked disabled><span>Key and Task</span></label><span class="grow"></span><small class="muted">Always first</small></div>
+${order.map((k) => row(k, shown.indexOf(k), shown.length)).join("")}
+<div class="tv-colh">In the Task Only</div>
+${only.length ? only.map((f) => `<div class="tv-colrow" data-tvonly="${esc(f.k)}"><span class="tv-colnm">${esc(f.n)}</span><span class="grow"></span>${mine(f)}${place(f) || `<small class="muted">${"long" === f.kind ? "Long text: in the task" : "In the task"}</small>`}</div>`).join("") : '<p class="small muted">Every field is a column.</p>'}
+${
+  own
+    ? `<div class="tv-colh">New Field</div><div class="tv-newf"><input data-tvnf="name" placeholder="Name, e.g. Trade" aria-label="New field's name" autocomplete="off"><select data-tvnf="type" aria-label="Kind of field"><option value="text">Text</option><option value="select">Choices</option><option value="long">Long Text</option></select><input data-tvnf="values" placeholder="Choices, separated by commas" aria-label="Choices" autocomplete="off"><button type="button" class="btn" data-tvnfadd>Add Field</button></div>`
+    : '<p class="small muted tv-pop-note">Which fields are columns and which stay in the task is the owner\'s call.</p>'
+}
+</div><div class="tv-pop-ft"><button type="button" class="btn" data-tvcolreset>Reset Columns</button></div>`;
+  const redraw = () => (save(), tvKeepScroll(() => renderTkAll()), tvColsAgain());
+  tvPop(anchor, "Columns", html, (d) => {
+    d.classList.add("tv-colpop");
+    d.querySelectorAll("[data-tvcolck]").forEach(
+      (i) =>
+        (i.onchange = () => {
+          const k = i.dataset.tvcolck;
+          T.cols = i.checked ? shown.concat(k) : shown.filter((y) => y !== k);
+          redraw();
+        }),
+    );
+    const move = (k, by) => {
+      const L = shown.slice(),
+        i = L.indexOf(k),
+        j = i + by;
+      if (i < 0 || j < 0 || j >= L.length) return;
+      [L[i], L[j]] = [L[j], L[i]];
+      T.cols = L;
+      redraw();
+    };
+    d.querySelectorAll("[data-tvcolup]").forEach((b) => (b.onclick = () => move(b.dataset.tvcolup, -1)));
+    d.querySelectorAll("[data-tvcoldn]").forEach((b) => (b.onclick = () => move(b.dataset.tvcoldn, 1)));
+    d.querySelectorAll("[data-tvplace]").forEach((s) => (s.onchange = () => tvSetPlace(s.dataset.tvplace, s.value) && tvColsAgain()));
+    d.querySelectorAll("[data-tvcfren]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const S = tvFieldStore(),
+            c = S.custom.find((y) => y.k === b.dataset.tvcfren);
+          c &&
+            tvPop(anchor, "Rename the Field", `<input class="tv-fin" data-tvfin value="${esc(c.name)}" aria-label="Field name" autocomplete="off"><div class="tv-pop-ft"><button type="button" class="btn tv-go" data-tvfsave>Save</button></div>`, (q) => {
+              const i = q.querySelector("[data-tvfin]"),
+                go = () => {
+                  const n = i.value.trim().replace(/\s+/g, " ");
+                  if (!n) return toast("Name the field");
+                  const was = c.name;
+                  c.name = n.slice(0, 40);
+                  try {
+                    audit("company", "taskFields", "name:" + c.k, was, c.name, "");
+                  } catch (e) {}
+                  tvPopClose();
+                  save(), renderTkAll();
+                  toast(`Renamed: ${was} is ${c.name} now`, [{ label: "Open", run: () => tvColsAgain() }, { label: "Undo", run: () => ((c.name = was), save(), renderTkAll()) }]);
+                };
+              q.querySelector("[data-tvfsave]").onclick = go;
+              i.onkeydown = (e) => "Enter" === e.key && (e.preventDefault(), go());
+              setTimeout(() => i.focus(), 0);
+            });
+        }),
+    );
+    d.querySelectorAll("[data-tvcfdel]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const S = tvFieldStore(),
+            i = S.custom.findIndex((y) => y.k === b.dataset.tvcfdel);
+          if (i < 0) return;
+          const gone = S.custom.splice(i, 1)[0];
+          try {
+            audit("company", "taskFields", "field:" + gone.k, gone.name, "", "removed");
+          } catch (e) {}
+          tvPopClose();
+          save(), renderTkAll();
+          // the values stay on the tasks, so Undo (or adding it again) brings the field back whole
+          toast(`Removed the field ${gone.name}; what the tasks hold in it is kept`, [{ label: "Open", run: () => tvColsAgain() }, { label: "Undo", run: () => (S.custom.splice(i, 0, gone), save(), renderTkAll()) }]);
+        }),
+    );
+    const add = d.querySelector("[data-tvnfadd]");
+    add &&
+      (add.onclick = () => {
+        const v = (k) => ((d.querySelector(`[data-tvnf="${k}"]`) || {}).value || "").trim(),
+          name = v("name");
+        if (!name) return toast("Name the field");
+        if (tvFields().some((f) => f.n.toLowerCase() === name.toLowerCase())) return toast(`${name} is already a field`);
+        const c = tvAddField({ name: name, col: name, type: v("type"), values: v("values"), from: "owner" });
+        if (!c) return;
+        T.cols = shown.concat(c.k);
+        tvPopClose();
+        save(), renderTkAll();
+        toast(`New field: ${c.name}, a column you can show and a place in every task`, [{ label: "Open", run: () => tvColsAgain() }]);
+      });
+    d.querySelector("[data-tvcolreset]").onclick = () => {
+      delete T.cols, delete T.widths, delete T.sort;
+      save(), tvPopClose(), renderTkAll(), toast("The table is back to its standard columns", [{ label: "Open", run: () => tvColsAgain() }]);
+    };
+  });
 }
 
 // ---- the Board: by status or by project; drag with Undo; Add a Task at each column's foot; swipe on the phone ----------
@@ -1117,9 +1703,9 @@ function tvCalDrop(key, field, day) {
 // A built-in tab sets whose tasks and which dates; it keeps the layout the person is in. A view the person saves keeps
 // its layout, grouping, columns and sort too. Each tab's number is the list's own count for that tab (tvCountFor runs
 // the list's pool with the tab's filters), so the tab and the rows under it read one number.
-const TV_STATE_KEYS = ["tkWho", "tkProject", "tkArea", "tkPri", "t2View", "t2Group", "t2Q"];
+const TV_STATE_KEYS = ["tkWho", "tkProject", "tkArea", "tkPri", "t2View", "t2Group", "t2Q", "tvFF"];
 function tvBuiltIns() {
-  const S = (o) => Object.assign({ tkWho: "all", tkProject: "", tkArea: "", tkPri: "", t2View: "all", t2Q: "" }, o);
+  const S = (o) => Object.assign({ tkWho: "all", tkProject: "", tkArea: "", tkPri: "", t2View: "all", t2Q: "", tvFF: "{}" }, o);
   return [
     { id: "b:open", name: "All Open", s: S({ tkWho: "me" }) },
     { id: "b:week", name: "My Week", s: S({ tkWho: "me", t2View: "week" }) },
@@ -1128,7 +1714,7 @@ function tvBuiltIns() {
   ];
 }
 const tvViews = () => tvBuiltIns().concat(tvPrefs().views || []);
-const tvStateNow = () => ({ tkWho: tkWho, tkProject: tkProject, tkArea: tkArea, tkPri: tkPri, t2View: t2View, t2Group: t2Group, t2Q: t2Q });
+const tvStateNow = () => ({ tkWho: tkWho, tkProject: tkProject, tkArea: tkArea, tkPri: tkPri, t2View: t2View, t2Group: t2Group, t2Q: t2Q, tvFF: JSON.stringify(tvFF || {}) });
 const tvKeysOf = (v) => TV_STATE_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(v.s, k));
 function tvIsOn(v) {
   const s = tvStateNow();
@@ -1167,12 +1753,18 @@ function tvPut(k, val) {
   else if ("t2View" === k) t2View = val || "week";
   else if ("t2Group" === k) t2Group = null == val ? null : val;
   else if ("t2Q" === k) t2Q = val || "";
+  else if ("tvFF" === k)
+    try {
+      tvFF = val ? JSON.parse(val) || {} : {};
+    } catch (e) {
+      tvFF = {};
+    }
 }
 function tvApply(id) {
   const v = tvViews().find((y) => y.id === id);
   if (!v) return;
   tvKeysOf(v).forEach((k) => tvPut(k, v.s[k]));
-  const T = tvPrefs().table;
+  const T = tvT();
   null != v.group && (T.group = v.group);
   if (v.table) {
     v.table.cols && (T.cols = v.table.cols.slice());
@@ -1196,7 +1788,7 @@ function tvSaveDialog() {
         const name = String(f.name || "").trim();
         if (!name) return toast("Name the view"), !1;
         const P = tvPrefs(),
-          T = P.table,
+          T = tvT(),
           v = { id: uid("tv"), name: name.slice(0, 40), mode: tkMode || "cards", s: tvStateNow(), at: appNowIso() };
         "table" === tkMode && ((v.group = tvTableGroup()), (v.table = { cols: tvTableCols().map((c) => c.k), sort: tvSorts(), density: T.density || "" }));
         "board" === tkMode && (v.boardBy = P.boardBy);
@@ -1252,10 +1844,29 @@ function tvFilterChips() {
   }
   tkArea && L.push(["area", `Area: ${TK_AREA_LABEL[tkArea] || tkArea}`]);
   tkPri && L.push(["pri", "Priority: High"]);
+  Object.entries(tvFF || {}).forEach(([k, v]) => {
+    const f = tvField(k);
+    f && L.push(["ff:" + k, `${f.n}: ${tvFFSay(k, v)}`]);
+  });
   return `<div class="tv-filters" role="group" aria-label="Filters">${L.map(([k, n]) => `<span class="tv-fchip"><button type="button" class="tv-fchip-b" data-tvfedit="${k}">${esc(n)}</button><button type="button" class="tv-fchip-x" data-tvfx="${k}" aria-label="Remove ${esc(n)}" title="Remove this filter">${tvSvg("x", 14)}</button></span>`).join("")}<button type="button" class="tv-fadd" data-tvfadd>${tvSvg("plus", 15)}<span>Filter</span></button></div>`;
 }
 function tvFilterPick(what, anchor) {
   const done = () => (tvSel.clear(), renderTkAll());
+  // one field's values (Priority, New or Carried, Start, Tags, the board's own fields…)
+  if (0 === String(what).indexOf("ff:")) {
+    const k = what.slice(3),
+      f = tvField(k);
+    if (!f) return;
+    const cur = (tvFF || {})[k];
+    return tvPop(
+      anchor,
+      f.n,
+      `<div class="tv-menu">${tvFFOpts(f)
+        .map(([v, n], i) => `<button type="button" class="tv-mi ${null != cur && String(cur) === String(v) ? "on" : ""}" data-tvffv="${esc(v)}" ${0 === i ? "data-tvfirst" : ""}>${esc(n)}</button>`)
+        .join("")}</div>`,
+      (d) => d.querySelectorAll("[data-tvffv]").forEach((b) => (b.onclick = () => (tvPopClose(), (tvFF = Object.assign({}, tvFF, { [k]: b.dataset.tvffv })), done()))),
+    );
+  }
   if ("owner" === what && tvOneRow())
     return tvPop(
       anchor,
@@ -1315,8 +1926,8 @@ function tvFilterPick(what, anchor) {
       tvOneRow() ? ["due", "Due or Status"] : null,
       "home" === t2Ctx() ? ["project", "Project"] : null,
       ["area", "Area"],
-      ["pri", "High Priority"],
     ]
+      .concat(tvFFFields().map((f) => ["ff:" + f.k, f.n]))
       .filter(Boolean)
       .map(([k, n], i) => `<button type="button" class="tv-mi" data-tvfk="${k}" ${0 === i ? "data-tvfirst" : ""}>${n}</button>`)
       .join("")}</div>`,
@@ -1329,6 +1940,11 @@ function tvFilterClear(what) {
   "project" === what && (tkProject = "");
   "area" === what && (tkArea = "");
   "pri" === what && (tkPri = "");
+  if (0 === String(what).indexOf("ff:")) {
+    const F = Object.assign({}, tvFF);
+    delete F[what.slice(3)];
+    tvFF = F;
+  }
   tvSel.clear();
   renderTkAll();
 }
@@ -1453,7 +2069,7 @@ function tvPhoneHead(host) {
   const searching = !!line.querySelector("#t2-q");
   line.insertAdjacentHTML("afterbegin", `<button type="button" class="tv-phmenu" data-tvmenu aria-label="Menu" title="Menu">${tvSvg("lines3", 20)}</button>${searching ? "" : '<h2 class="tv-phtitle">Tasks</h2><span class="grow"></span>'}`);
   [...line.querySelectorAll(":scope > .grow")].slice(1).forEach((g) => g.remove());
-  const own = "home" === t2Ctx() && "me" === tkWho && !tkProject && !tkArea && !tkPri && !t2Q,
+  const own = "home" === t2Ctx() && "me" === tkWho && !tkProject && !tkArea && !tkPri && !t2Q && !tvFFOn(),
     C = own ? tkCountsOf(t2Pool()) : {},
     gb = tvMine() && "table" === tkMode ? tvTableGroup() : tkGroupBy(),
     q = (attr, v, on, label, n) => `<button type="button" class="tv-qc ${on ? "on" : ""}" ${attr}="${esc(v)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}${null != n ? `<span class="n">${n}</span>` : ""}</button>`;
@@ -1485,9 +2101,18 @@ function tvDecorateRows(scope) {
       who = slide && slide.querySelector(".tk2-who");
     if (ph) {
       if (!sub) return;
+      // the key, then the person's two fields (Due and Project unless they chose others: the Filter sheet's Second Line);
+      // the owner only when they chose it (taskfix #16: "· Owner ·" on every row of Mine)
       const w = t2When(x),
-        // on Mine every row is the person's own: the owner is left off (taskfix #16: "· Owner ·" on every row)
-        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : "", `<span>${esc(I.pname)}</span>`, I.owner && "me" !== tkWho ? `<span>${esc(tkFirst(I.owner))}</span>` : "", `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`].filter(Boolean);
+        one = (k) => {
+          if ("due" === k) return `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`;
+          if ("project" === k) return I.pname ? `<span>${esc(I.pname)}</span>` : "";
+          if ("owner" === k) return I.owner ? `<span>${esc(tkFirst(I.owner))}</span>` : "";
+          const f = tvField(k),
+            v = f ? tvSay(I, f) : "";
+          return v ? `<span class="tv-pf tv-pf-${esc(k)}">${esc(v)}</span>` : "";
+        },
+        bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : ""].concat(tvPhoneRow().map(one)).filter(Boolean);
       sub.innerHTML = bits.join('<span class="tk2-dot"> · </span>');
       I.wait && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait">Waiting on ${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(DOW[parse(I.wait.promised).getDay()])}` : ""}</span>`);
       who && who.remove();
@@ -1502,7 +2127,7 @@ function tvDecorateRows(scope) {
       dot && dot.classList.contains("tk2-dot") && dot.remove();
       when.remove();
     }
-    slide.insertAdjacentHTML("beforeend", `<span class="tv-cells">${I.wait ? tvCell(I, "wait") : ""}${tvCell(I, "owner")}${tvCell(I, "due")}${tvCell(I, "status")}</span>`);
+    slide.insertAdjacentHTML("beforeend", `<span class="tv-cells" data-nocase="1">${I.wait ? tvCell(I, "wait") : ""}${tvCell(I, "owner")}${tvCell(I, "due")}${tvCell(I, "status")}</span>`);
   });
   // each section says how many it holds (the rows under it); on the phone its rows sit in one white card
   scope.querySelectorAll(".tk2-ghd").forEach((h) => {
@@ -1854,6 +2479,8 @@ function tvAfter() {
   }
   tvWireBar(host);
   if (!tvMine()) {
+    // the phone's List with a Sort By: its rows in that order inside the List's own groups
+    ph && tvSorts().length && tvPhoneSorted(host);
     tvDecorateRows(host);
     tvWireCells(host);
     return;
@@ -1863,6 +2490,9 @@ function tvAfter() {
   const infos = tvRows().map(tvInfo),
     wrap = document.createElement("div");
   wrap.className = `t2-list tv-host tv-mode-${tkMode}`;
+  // the rows hold values ("3 days late", a tag, a name), never labels: the app's Title Case pass leaves them as written
+  // (it read "3 Days Late" in the Due column once a sheet opened); the headers are written in Title Case already
+  wrap.dataset.nocase = "1";
   wrap.dataset.tvmode = tkMode;
   const quick = list.querySelector(".t2-quick"),
     empty = !infos.length && "table" === tkMode,
@@ -1897,6 +2527,23 @@ function tvAfter() {
     }
   } catch (e) {}
 }
+function tvPhoneSorted(host) {
+  const list = host.querySelector(".t2-list");
+  if (!list || !list.querySelector(".tk2-row")) return;
+  let gb = "";
+  try {
+    gb = tkGroupBy() || "";
+  } catch (e) {}
+  const G = tvGroups(tvSortRows(tvRows().map(tvInfo)), gb, !1),
+    o = { hideJob: "project" === gb },
+    rows = (g) => g.rows.map((I) => tkRowHtml(I.x, o)).join(""),
+    html = G.map((g) => (gb ? `<div class="t2-group tk2-group tv-sorted"><div class="tk2-ghd">${esc(g.n)}</div>${rows(g)}</div>` : rows(g))).join("");
+  [...list.querySelectorAll(":scope > .t2-group, :scope > .tk2-row")].forEach((e) => e.remove());
+  list.insertAdjacentHTML("afterbegin", html);
+  try {
+    tkWireList(list);
+  } catch (e) {}
+}
 function tvWireBar(host) {
   host.querySelectorAll("[data-tvmenu]").forEach((b) => (b.onclick = () => (document.getElementById("menu-btn") || { click() {} }).click()));
   const qa = host.querySelector("[data-tvqa]");
@@ -1919,14 +2566,14 @@ function tvWireBar(host) {
   host.querySelectorAll("[data-tvqg]").forEach(
     (b) =>
       (b.onclick = () => {
-        if (tvMine() && "table" === tkMode) tvPrefs().table.group = "project" === tvTableGroup() ? "" : "project";
+        if (tvMine() && "table" === tkMode) tvT().group = "project" === tvTableGroup() ? "" : "project";
         else t2Group = "project" === tkGroupBy() ? "day" : "project";
         save();
         renderTkAll();
       }),
   );
-  host.querySelectorAll("[data-tvgby]").forEach((b) => (b.onclick = () => ((tvPrefs().table.group = tvTableGroup() === b.dataset.tvgby ? "" : b.dataset.tvgby), save(), tvKeepScroll(() => renderTkAll()))));
-  host.querySelectorAll("[data-tvdens]").forEach((b) => (b.onclick = () => ((tvPrefs().table.density = b.dataset.tvdens), save(), tvKeepScroll(() => renderTkAll()))));
+  host.querySelectorAll("[data-tvgby]").forEach((b) => (b.onclick = () => ((tvT().group = tvTableGroup() === b.dataset.tvgby ? "" : b.dataset.tvgby), save(), tvKeepScroll(() => renderTkAll()))));
+  host.querySelectorAll("[data-tvdens]").forEach((b) => (b.onclick = () => ((tvT().density = b.dataset.tvdens), save(), tvKeepScroll(() => renderTkAll()))));
   host.querySelectorAll("[data-tvcols]").forEach((b) => (b.onclick = () => (b.closest("details") && b.closest("details").removeAttribute("open"), tvColsPanel(b.closest(".tv-moremenu") || b))));
   host.querySelectorAll("[data-tvboardby]").forEach((b) => (b.onclick = () => ((tvPrefs().boardBy = b.dataset.tvboardby), save(), renderTkAll())));
 }
@@ -1964,7 +2611,7 @@ function tvWire(w) {
   w.querySelectorAll("[data-tvfold]").forEach((b) => (b.onclick = () => tvFold(b.dataset.tvfold)));
   w.querySelectorAll("[data-t2view]").forEach((b) => (b.onclick = () => ((t2View = b.dataset.t2view), renderTkAll())));
   const tg = w.querySelector("[data-tvtgroup]");
-  tg && (tg.onchange = () => ((tvPrefs().table.group = tg.value), save(), renderTkAll()));
+  tg && (tg.onchange = () => ((tvT().group = tg.value), save(), renderTkAll()));
   w.querySelectorAll("[data-tvboardby]").forEach((b) => (b.onclick = () => ((tvPrefs().boardBy = b.dataset.tvboardby), save(), renderTkAll())));
   "table" === tkMode && tvWireTable(w);
   "board" === tkMode && tvWireBoard(w);
@@ -1991,11 +2638,12 @@ function tvWireTable(w) {
       tvKeepScroll(() => renderTkAll());
     });
   w.querySelectorAll("[data-tvbulk]").forEach((b) => (b.onclick = () => tvBulk(b.dataset.tvbulk, b)));
+  w.querySelectorAll(".tv-thead [data-tvcols]").forEach((b) => (b.onclick = (e) => (e.stopPropagation(), tvColsPanel(b))));
   // sort: a click sorts up, again down, a third time back to the list's order; Shift adds a second sort
   w.querySelectorAll("[data-tvsort]").forEach(
     (b) =>
       (b.onclick = (e) => {
-        const T = tvPrefs().table,
+        const T = tvT(),
           k = b.dataset.tvsort;
         let S = tvSorts();
         const i = S.findIndex((s) => s.k === k),
@@ -2003,6 +2651,7 @@ function tvWireTable(w) {
         if (e.shiftKey) i < 0 ? S.push({ k: k, dir: "asc" }) : next ? (S[i] = { k: k, dir: next }) : S.splice(i, 1);
         else S = next ? [{ k: k, dir: next }] : [];
         S.length ? (T.sort = S) : delete T.sort;
+        tvSortKeep();
         save();
         tvKeepScroll(() => renderTkAll());
       }),
@@ -2013,14 +2662,14 @@ function tvWireTable(w) {
       e.preventDefault();
       e.stopPropagation();
       const k = h.dataset.tvrs,
-        c = TV_COLS.find((y) => y.k === k),
+        c = tvField(k),
         grid = w.querySelector(".tv-grid"),
         x0 = e.clientX,
         w0 = c ? tvColW(c) : 120;
       let nw = w0;
       const move = (ev) => {
         nw = Math.max(72, Math.min(720, w0 + ev.clientX - x0));
-        const T = tvPrefs().table;
+        const T = tvT();
         T.widths = Object.assign({}, T.widths || {}, { [k]: nw });
         const cols = tvTableCols();
         const noRef = !w.querySelector(".tv-col-ref .tv-ref");
@@ -2246,7 +2895,7 @@ ${
     : TV_CAN.wait(x) && !x.done
       ? `<button type="button" class="tvs-addwait" data-tvsf="wait">${tvSvg("clock", 14)}<span>Add Waiting On</span></button>`
       : ""
-}`,
+}${tvSheetFieldsHtml(I)}`,
   );
   // the sheet's own parts, named as the mockup says them
   m.querySelectorAll(".tks-h").forEach((h) => {
@@ -2267,7 +2916,7 @@ ${
   if (rs) {
     rs.querySelectorAll(":scope > .tks-h").forEach((h) => {
       const t = h.textContent.trim();
-      if (/^(Status|Waiting On|Follow Up)$/.test(t)) {
+      if (/^(Status|Waiting On|Follow Up|Collaborators)$/.test(t)) {
         h.classList.add("tvs-dup");
         h.nextElementSibling && h.nextElementSibling.classList.add("tvs-dup");
       }
@@ -2303,7 +2952,9 @@ ${
   more.className = "tvs-more";
   more.innerHTML = "<summary>More</summary>";
   kids.forEach((e) => placed.has(e) || e.matches(".tks-lines") || more.appendChild(e));
-  const order = ph ? top.concat(dates) : top.concat(dates, [linked], notes, [more]);
+  // the fields sit under the top on a wide screen; on the phone the dates stay first and the fields follow them
+  const det = body.querySelector(".tvs-det"),
+    order = ph ? top.filter((e) => e !== det).concat(dates, det ? [det] : []) : top.concat(dates, [linked], notes, [more]);
   order.forEach((e) => body.appendChild(e));
   if (ph) {
     // the phone: Latest under the dates; Linked and Comments join More
@@ -2333,7 +2984,11 @@ ${
     b.onclick = () => ho.click();
     ok ? ft.insertBefore(b, ok) : ft.appendChild(b);
   }
-  m.querySelectorAll("[data-tvsf]").forEach((b) => (b.onclick = () => tvEdit(key, b.dataset.tvsf, b)));
+  m.querySelectorAll("[data-tvsf]:not([data-tvro])").forEach((b) => (b.onclick = () => tvEdit(key, b.dataset.tvsf, b)));
+  // the modal focuses its first input a moment after it opens (the date picker, below the fields): the sheet opens at
+  // its top, on the title and the fields, not scrolled down to it
+  const bd = m.querySelector(".mbm-bd");
+  bd && [45, 140].forEach((t) => setTimeout(() => (bd.scrollTop = 0), t));
   const ch = m.querySelector("[data-tvschase]");
   ch &&
     (ch.onclick = () => {
@@ -2436,10 +3091,16 @@ function tvSheetPhone(m, I) {
 }
 
 // ---- the hooks ------------------------------------------------------------------------------------------------------
-let tvDrawing = "";
+let tvDrawing = "",
+  tvLayoutFor = "";
 {
   const base = renderTkAll;
   renderTkAll = function () {
+    // the first draw for a person takes their own layout (the Table on a desktop unless they chose another)
+    try {
+      const u = (currentUser() || {}).id || "";
+      u && u !== tvLayoutFor && tvMayUse() && ((tvLayoutFor = u), (tkMode = tvLayoutPref()));
+    } catch (e) {}
     const own = tvMine() && tvMayUse(),
       keep = tkMode;
     tvPopClose();
@@ -2464,6 +3125,9 @@ let tvDrawing = "";
   tkSetMode = function (m) {
     tvSel.clear();
     "board" === m && tvPhoneNow() && (m = "cards");
+    try {
+      tvMayUse() && (tvLayoutSet(m || "cards"), (tvLayoutFor = (currentUser() || {}).id || ""), save());
+    } catch (e) {}
     if (!TV_OWN.includes(m)) return base.apply(this, arguments);
     tkMode = m;
     try {
@@ -2510,20 +3174,31 @@ let tvDrawing = "";
 {
   const base = t2Narrow;
   t2Narrow = function (R) {
-    if (!t2Q) return base.apply(this, arguments);
-    const q = t2Q;
     let out;
-    t2Q = "";
-    try {
-      out = base.apply(this, arguments);
-    } finally {
-      t2Q = q;
+    const q = t2Q;
+    if (!q) out = base.apply(this, arguments);
+    else {
+      t2Q = "";
+      try {
+        out = base.apply(this, arguments);
+      } finally {
+        t2Q = q;
+      }
+      const s = q.toLowerCase();
+      out = out.filter((x) => {
+        const rec = /^(action|firm|hub)$/.test(x.kind) ? tvRec(x) : null;
+        return `${tvRef(x, rec)} ${x.code || ""} ${x.title} ${x.project} ${x.assignee} ${x.owner || ""} ${x.notes || ""}`.toLowerCase().includes(s);
+      });
     }
-    const s = q.toLowerCase();
-    return out.filter((x) => {
-      const rec = /^(action|firm|hub)$/.test(x.kind) ? tvRec(x) : null;
-      return `${tvRef(x, rec)} ${x.code || ""} ${x.title} ${x.project} ${x.assignee} ${x.owner || ""} ${x.notes || ""}`.toLowerCase().includes(s);
-    });
+    // the field filters (Priority: P1, Trade: Tile…), read off the same rows every layout draws
+    if (tvFFOn() && tvMayUse()) {
+      const E = Object.entries(tvFF);
+      out = out.filter((x) => {
+        const I = tvInfo(x);
+        return E.every(([k, v]) => tvFFMatch(I, k, v));
+      });
+    }
+    return out;
   };
 }
 // the phone's one chip opens the sheet where filter, sort, group, layout and saved views live
@@ -2540,9 +3215,15 @@ let tvDrawing = "";
         lay = `<div class="tkf-h">Layout</div><div class="tkf-row">${tvModesHere().map(([k, n]) => btn("data-tkfmode", k, (tkMode || "cards") === k, n)).join("")}</div>`,
         meet = "home" === t2Ctx() && "function" == typeof mmCanRun && mmCanRun() && "function" == typeof mmStartDialog ? `<div class="tkf-h">Meeting</div><div class="tkf-row">${btn("data-tkfmeet", "1", !1, mtCurrent && mtCurrent() ? "Rejoin the Meeting" : "Start Meeting")}</div>` : "",
         S = tvSorts()[0],
-        sort = "table" === tkMode ? `<div class="tkf-h">Sort</div><div class="tkf-row">${btn("data-tkfsort", "", !S, "List Order")}${["due", "follow", "owner", "status", "ref"].map((k) => btn("data-tkfsort", k, S && S.k === k, TV_COLS.find((c) => c.k === k).n)).join("")}</div>` : "";
+        // Sort By: the table's fields, both ways (Alan, 10-26); the phone keeps its one-column list, sorted inside its groups
+        sortF = tvSortable(),
+        sort = `<div class="tkf-h">Sort By</div><div class="tkf-row">${btn("data-tkfsort", "", !S, "List Order")}${sortF.map((f) => btn("data-tkfsort", f.k, S && S.k === f.k, f.n)).join("")}</div><div class="tkf-row tkf-dir">${btn("data-tkfdir", "asc", !!S && "desc" !== S.dir, "Ascending")}${btn("data-tkfdir", "desc", !!S && "desc" === S.dir, "Descending")}</div>`,
+        // the row's second line: the person's two fields (Due and Project unless they pick others)
+        R2 = tvPhoneRow(),
+        rowOpts = (cur) => tvRowFields().map((f) => `<option value="${esc(f.k)}" ${cur === f.k ? "selected" : ""}>${esc(f.n)}</option>`).join(""),
+        line2 = tvPhone() ? `<div class="tkf-h">Second Line</div><div class="tkf-row tkf-line2"><select class="tkf-sel" data-tkfrow="0" aria-label="First field on the second line">${rowOpts(R2[0])}</select><select class="tkf-sel" data-tkfrow="1" aria-label="Second field on the second line">${rowOpts(R2[1])}</select></div>` : "";
       // the meeting first: it is the coordinator's Monday and Thursday ritual (taskfix #4)
-      box.insertAdjacentHTML("afterbegin", meet + views + lay + sort);
+      box.insertAdjacentHTML("afterbegin", meet + views + lay + sort + line2);
       m.querySelectorAll("[data-tkfmeet]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), mmStartDialog())));
       // in the Table the grouping is the table's own: Project, Owner, Status, Due Date, or none
       if ("table" === tkMode) {
@@ -2562,8 +3243,21 @@ let tvDrawing = "";
       m.querySelectorAll("[data-tkfsv]").forEach((b) => (b.onclick = go((el) => tvApply(el.dataset.tkfsv))));
       m.querySelectorAll("[data-tkfsvsave]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), tvSaveDialog())));
       m.querySelectorAll("[data-tkfmode]").forEach((b) => (b.onclick = go((el) => tkSetMode(el.dataset.tkfmode))));
-      m.querySelectorAll("[data-tkfsort]").forEach((b) => (b.onclick = go((el) => (el.dataset.tkfsort ? (tvPrefs().table.sort = [{ k: el.dataset.tkfsort, dir: "asc" }]) : delete tvPrefs().table.sort, save()))));
-      m.querySelectorAll("[data-tkftg]").forEach((b) => (b.onclick = go((el) => ((tvPrefs().table.group = el.dataset.tkftg), save()))));
+      m.querySelectorAll("[data-tkfsort]").forEach((b) => (b.onclick = go((el) => (el.dataset.tkfsort ? (tvT().sort = [{ k: el.dataset.tkfsort, dir: S && "desc" === S.dir ? "desc" : "asc" }]) : delete tvT().sort, tvSortKeep(), save()))));
+      m.querySelectorAll("[data-tkfdir]").forEach((b) => (b.onclick = go((el) => ((tvT().sort = [{ k: S ? S.k : "due", dir: el.dataset.tkfdir }]), tvSortKeep(), save()))));
+      m.querySelectorAll("[data-tkfrow]").forEach(
+        (s) =>
+          (s.onchange = () => {
+            const L = tvPhoneRow().slice();
+            L[+s.dataset.tkfrow] = s.value;
+            tvPrefs().phoneRow = L;
+            save();
+            try {
+              renderTkAll();
+            } catch (e) {}
+          }),
+      );
+      m.querySelectorAll("[data-tkftg]").forEach((b) => (b.onclick = go((el) => ((tvT().group = el.dataset.tkftg), save()))));
     } catch (e) {
       console.warn("task layouts on the phone", e);
     }
@@ -2844,7 +3538,19 @@ function tvWaitSeed() {
 #v-tkall .tv-ic{width:44px;padding:0;display:inline-grid;place-items:center}
 /* while a task is open in the side panel, Waiting On and Follow-Up step aside */
 body:has(#mbm.tks-on) #v-tkall .tv-grid{--tvcols:var(--tvcols-n) !important;min-width:0 !important}
-body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-follow{display:none}
+body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-pd{display:none}
+#v-tkall .tv-th .tv-sortb{white-space:normal;line-height:14px;max-width:100%}
+#v-tkall .tv-sortb svg{flex:0 0 auto}
+#v-tkall .tv-thead>.tv-th:last-of-type{padding-right:34px}
+#v-tkall .tv-colsb{position:absolute;right:2px;top:50%;margin-top:-16px;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--tv-ink2);cursor:pointer;padding:0}
+#v-tkall .tv-colsb:hover,#v-tkall .tv-colsb:focus-visible{background:#ECEEF2;color:var(--tv-ink)}
+#v-tkall .tv-c.tv-prc{gap:6px;font-size:14px}
+#v-tkall .tv-c.tv-prc b{font-weight:700;font-variant-numeric:tabular-nums}
+#v-tkall .tv-c.tv-prc span{color:var(--tv-ink2)}
+#v-tkall .tv-c.tv-prc.tv-pri1 b{color:var(--tv-ink)}
+#v-tkall .tv-c.tv-fc{color:var(--tv-ink2)}
+#v-tkall .tv-tr .tv-c.tv-fc.tv-empty{opacity:0}
+#v-tkall .tv-tr:hover .tv-c.tv-fc.tv-empty,#v-tkall .tv-tr .tv-c.tv-fc.tv-empty:focus-visible{opacity:1}
 /* the Board */
 #v-tkall .tv-board{display:flex;gap:18px;align-items:stretch;overflow-x:auto;padding:22px 0 0;overscroll-behavior-x:contain;flex:1 1 auto;min-height:0}
 #v-tkall .tv-bcol{flex:1 1 0;min-width:232px;background:#EFF1F4;border-radius:14px;padding:12px;box-sizing:border-box;min-height:140px;display:flex;flex-direction:column;gap:10px;overflow:auto}
@@ -2942,7 +3648,25 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 .tv-pop-ft{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .tv-pop-ft .btn{min-height:44px}
 .tv-go{background:var(--tv-accent);color:#fff;border-color:var(--tv-accent)}
-.tv-colset{display:flex;flex-direction:column;max-height:380px;overflow:auto}
+.tv-colset{display:flex;flex-direction:column;max-height:min(520px,70vh);overflow:auto}
+.tv-pop:not(.tv-pop-sheet):has(.tv-colset){width:500px}
+.tkf-line2{flex-wrap:nowrap}
+.tkf-sel{flex:1 1 0;min-width:0;min-height:44px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font:inherit;font-size:15px;padding:0 10px;color:inherit}
+.tv-colrow{display:flex;align-items:center;gap:6px;min-height:44px}
+.tv-colrow .tv-colck{flex:1 1 auto;min-width:0}
+.tv-colrow.fixed .tv-colck{color:var(--tv-ink2)}
+.tv-colnm{font-size:15px}
+.tv-colh{margin:12px 0 2px;font-size:12px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--tv-ink2)}
+.tv-colmv{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--tv-ink2);cursor:pointer;padding:0}
+.tv-colmv:hover:not(:disabled){background:#ECEEF2;color:var(--tv-ink)}
+.tv-colmv:disabled{opacity:.3;cursor:default}
+.tv-place{min-height:36px;border:1px solid #E1E4EA;border-radius:8px;background:#fff;font:inherit;font-size:13px;color:var(--tv-ink);padding:0 6px}
+.tv-newf{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:4px}
+.tv-newf input,.tv-newf select{min-height:40px;border:1px solid #E1E4EA;border-radius:8px;padding:0 10px;font:inherit;font-size:14px;box-sizing:border-box;min-width:0}
+.tv-newf [data-tvnf="values"]{grid-column:1 / -1}
+.tv-newf .btn{grid-column:1 / -1;justify-self:start;min-height:40px}
+.tv-fin{width:100%;min-height:44px;border:1px solid #E1E4EA;border-radius:8px;padding:8px 10px;font:inherit;font-size:15px;box-sizing:border-box}
+textarea.tv-fin{min-height:120px;resize:vertical}
 .tv-colck{display:flex;align-items:center;gap:10px;min-height:44px;font-size:15px;cursor:pointer}
 .tv-colck input{width:18px;height:18px}
 .tv-colck.fixed{color:var(--tv-ink2)}
@@ -2979,6 +3703,12 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 #mbm.tv-sheet .tvs-on{font-weight:400}
 #mbm.tv-sheet .tvs-ic{font-style:normal;color:var(--tv-ink2)}
 #mbm.tv-sheet .tvs-f.late>span{color:var(--tv-late);font-weight:600}
+#mbm.tv-sheet .tvs-det{margin-top:2px}
+#mbm.tv-sheet .tvs-f.tvs-ro{cursor:default}
+#mbm.tv-sheet .tvs-f.tvs-ro:hover>span{text-decoration:none}
+#mbm.tv-sheet .tvs-f>span.tvs-none{color:#8A90A0}
+#mbm.tv-sheet .tvs-f>span.tvs-long{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;white-space:pre-wrap;overflow:hidden;line-height:20px}
+#mbm.tv-sheet .tvs-f:has(.tvs-long){align-items:start}
 #mbm.tv-sheet .tvs-wait{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;padding:14px 16px;border:0;border-radius:12px;background:#FFF6E5;color:#7A4A00;text-align:left;cursor:pointer;margin:0;font-family:inherit}
 #mbm.tv-sheet .tvs-wait small{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#7A4A00}
 #mbm.tv-sheet .tvs-wait b{font-size:15px;font-weight:600;color:#3D2500}

@@ -96,7 +96,8 @@ JS_HELPERS = r"""
         if (g) { const m = txt(g).match(/(\d+) of (\d+)/); if (m) return { n: +m[1], how: `"${txt(g)}" in list ${gridId}` }; } }
       const cands = [];
       const lists = [['.m-appr-list', '.m-appr', 'approval cards'], ['.ib-list', '.ib-item', 'inbox items'],
-                     ['.t2-list', '.t2-row', 'task rows'], ['.fgrid', '.fcard', 'document cards']];
+                     // the task list as the List draws it, or as the Table (the desktop's default since Alan's 10-26 ask)
+                     ['.t2-list', '.t2-row, .tv-tr[data-tvrow]', 'task rows'], ['.fgrid', '.fcard', 'document cards']];
       for (const [c, r, how] of lists) { const box = v.querySelector(c);
         if (box && vis(box)) cands.push({ n: box.querySelectorAll(r).length, how }); }
       // Today's one queue (lane "today"): the cards shown plus what "N more" (in place, or "N more in <page>") holds

@@ -455,11 +455,12 @@ async def record_checks(c, p):
     code = (await pg.evaluate(REC, ids['wait']))['code']
     await pg.evaluate("() => { tkWho = 'all'; t2View = 'all'; tkProject = ''; renderTkAll(); }")
     await pg.wait_for_timeout(200)
-    c.ok(await pg.evaluate("(c) => [...document.querySelectorAll('#tkall-body .tk2-key')].some(e => e.innerText.trim() === c)", code), f'record: the row shows {code}')
-    c.ok(await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tk2-row')].filter(r => /^(action|firm|hub):/.test(r.dataset.tkkey)).every(r => r.querySelector('.tk2-key'))"), 'record: every board row shows its key')
+    # the desktop opens Tasks as the Table since Alan's 10-26 ask (its Key column); the List's rows show the key too
+    c.ok(await pg.evaluate("(c) => [...document.querySelectorAll('#tkall-body .tk2-key, #tkall-body .tv-tr .tv-col-ref .tv-ref')].some(e => e.innerText.trim() === c)", code), f'record: the row shows {code}')
+    c.ok(await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tk2-row, #tkall-body .tv-tr')].filter(r => /^(action|firm|hub):/.test(r.dataset.tkkey || r.dataset.tvrow)).every(r => r.querySelector('.tk2-key, .tv-col-ref .tv-ref'))"), 'record: every board row shows its key')
     await pg.evaluate("(c) => { t2Q = c; renderTkAll(); }", code)
     await pg.wait_for_timeout(200)
-    rows = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tk2-row')].map(r => r.innerText)")
+    rows = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tk2-row, #tkall-body .tv-tr')].map(r => r.innerText)")
     c.ok(len(rows) == 1 and code in rows[0], f'record: Tasks search finds {code}: {len(rows)} rows')
     await pg.evaluate("() => { t2Q = ''; renderTkAll(); }")
     pal = await pg.evaluate("(c) => palIndex().filter(i => i.t.startsWith(c + ' ')).map(i => i.k + ': ' + i.t)", code)
