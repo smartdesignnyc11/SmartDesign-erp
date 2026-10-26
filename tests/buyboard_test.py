@@ -45,7 +45,7 @@ async def desktop(c, p):
         st = await pg.evaluate("""() => { const v = document.querySelector('#v-proc');
           const n = s => { const e = v.querySelector(s); return e ? +((e.innerText.match(/\\d+/) || [0])[0]) : null; };
           const sec = k => v.querySelectorAll(`[data-bbsec="${k}"] [data-bbrow]`).length;
-          return { pill: n('.bb-latepill'), late: sec('late'), week: sec('week'), quotes: sec('quotes'), later: sec('later'),
+          return { pill: n('.bb-latepill'), ack: sec('ack'), late: sec('late'), week: sec('week'), quotes: sec('quotes'), later: sec('later'),
             tabBuy: n('[data-bbtab="buy"] .n'), tabArr: n('[data-bbtab="arriving"] .n'), rows: v.querySelectorAll('.bb-list [data-bbrow]').length,
             chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText]),
             prim: [...v.querySelectorAll('.btn.primary')].filter(b => b.getClientRects().length).map(b => b.innerText.trim()),
@@ -53,7 +53,9 @@ async def desktop(c, p):
             head: [...v.querySelectorAll('.bb-sh span')].map(s => s.innerText) }; }""")
         c.ok(st['h'] == 'Buy Board' and st['tabBuy'] == st['rows'], f"board: opens on To Buy, the tab count is the rows ({st['tabBuy']} vs {st['rows']})")
         c.ok(st['pill'] == L['badge'] and st['late'] == L['pred'], f"board: the pill {st['pill']} is the rail badge {L['badge']}; the Late section is the late set")
-        c.ok(st['head'][:1] == ['LATE'] and st['late'] + st['week'] + st['quotes'] + st['later'] == st['rows'], f"board: sections Late, Order This Week, Waiting on Quotes, Later hold every row {st['head']}")
+        # a field request waiting to be acknowledged has its own first section (10-26), so Late plus Order This Week is the chip
+        hd = [h for h in st['head'] if h != 'TO ACKNOWLEDGE']
+        c.ok(hd[:1] == ['LATE'] and st['ack'] + st['late'] + st['week'] + st['quotes'] + st['later'] == st['rows'], f"board: sections To Acknowledge, Late, Order This Week, Waiting on Quotes, Later hold every row {st['head']}")
         ch = dict(st['chips'])
         c.ok(ch.get('all') == st['rows'] and ch.get('late') == st['late'] and ch.get('week') == st['week'] and ch.get('quotes') == st['quotes'], f"board: each chip is its rows {st['chips']}")
         c.ok(len(st['prim']) == 1 and st['tiles'] == 0 and st['panel'], f"board: one blue button {st['prim']}, no tiles ({st['tiles']}), the need's panel")
