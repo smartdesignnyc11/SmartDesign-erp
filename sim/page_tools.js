@@ -86,6 +86,12 @@ const fieldMarker = (n, el, k) => {
   return `[${n} ${k} "${lab}"${v ? ` ="${v.slice(0, 80)}${v.length > 80 ? '…' : ''}"` : ''}]`;
 };
 let reg;
+// `screen --marks` (tests/cycle_walk.py): what the eye sees about a button beyond its words: the blue primary, and a
+// button that is greyed out. Read only; off for the agents' screens unless they ask.
+const isBlue = el => { if (/(^|\s)primary(\s|$)/.test(String(el.className || ''))) return true;
+  const bg = getComputedStyle(el).backgroundColor.match(/\d+/g); if (!bg || (bg.length > 3 && +bg[3] === 0)) return false;
+  const [r, g, b] = bg.map(Number); return b > 120 && b - r > 60 && b - g > 30; };
+const markOf = el => (isBlue(el) ? '{blue}' : '') + (el.disabled || el.getAttribute('aria-disabled') === 'true' ? '{disabled}' : '');
 const FOLD = '\n-- the first screen ends here (below this, the person scrolls) --\n';
 const walk =(node, out) => {
   if (node.nodeType === 3) { const t = node.nodeValue.replace(/\s+/g, ' '); if (t.trim()) out.push(t); return; }
@@ -105,8 +111,8 @@ const walk =(node, out) => {
     if (k !== 'button' && k !== 'link' && k !== 'tab') out.push(' ' + fieldMarker(n, el, k) + ' ');
     else { const lab = ctlLabel(el);
       const inner = el.querySelector('button, a[href], input, select, textarea, [role=button], [role=tab]');
-      if (inner || lab.length > 70) { out.push(` [${n}${k === 'tab' ? ' tab' : ''}] `); for (const c of el.childNodes) walk(c, out); }
-      else out.push(` [${n}${k === 'tab' ? ' tab' : k === 'link' ? ' link' : ''} ${lab}] `);
+      if (inner || lab.length > 70) { out.push(` [${n}${k === 'tab' ? ' tab' : ''}]${S._marks ? markOf(el) : ''} `); for (const c of el.childNodes) walk(c, out); }
+      else out.push(` [${n}${k === 'tab' ? ' tab' : k === 'link' ? ' link' : ''} ${lab}]${S._marks ? markOf(el) : ''} `);
       if (tg === 'TD' || tg === 'TH') out.push(' | ');
       if (block) out.push('\n');
       return; }
@@ -130,8 +136,8 @@ S.menu = () => {
   return [...new Set(items)];
 };
 S.title = () => { const r = S.viewRoot(); const h = r.querySelector('h1, h2, .ph h2, .f-hero b'); return norm(h ? h.innerText : (r.id || '')).slice(0, 80); };
-S.screen = () => {
-  S.ctl = []; S.sig = [];
+S.screen = (marks) => {
+  S.ctl = []; S.sig = []; S._marks = !!marks;
   document.querySelectorAll('[data-simn]').forEach(e => e.removeAttribute('data-simn'));
   reg = (el, k) => { const n = S.ctl.length + 1; S.ctl.push(el); el.setAttribute('data-simn', String(n));
     const lab = k === 'button' || k === 'link' || k === 'tab' ? ctlLabel(el) : fieldLabel(el);

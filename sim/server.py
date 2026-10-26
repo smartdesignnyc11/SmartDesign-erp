@@ -555,7 +555,7 @@ class Sim:
             if len(self.errs.get('dialogs', [])) > n_dialog: stop = f'step {i}: the app asked a question ({self.errs["dialogs"][-1][:160]})'; break
             if '(the app reported an error' in (out.get('text') or ''): stop = f'step {i}: the app reported an error'; break
         pg, _ = await self.fresh(uid)
-        fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, shot=opts.get('shot'))
+        fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
         head = f"do: {done} of {len(steps)} steps" + (f" · STOPPED: {stop}" if stop else ' · all done')
         txt = '\n'.join([head] + lines + ([f"Toasts: {' / '.join(dict.fromkeys(toasts))}"] if toasts else []) + ['', fin['text']])
         self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300], 'why': (opts.get('why') or '')[:300] or None})
@@ -564,8 +564,8 @@ class Sim:
 
     def has_box(self, uid): return uid in STAFF_MAIL
 
-    async def render_screen(self, uid, pg, full=False, shot=False):
-        S = await pg.evaluate("__SIM.screen()")
+    async def render_screen(self, uid, pg, full=False, shot=False, marks=False):
+        S = await pg.evaluate("m => __SIM.screen(m)", bool(marks))
         role, phone, name = PEOPLE[uid]
         wd = datetime.fromisoformat(self.state['day']).strftime('%a %b %-d')
         head = f"{wd} {self.clock_str()} · {name} ({role}{', phone' if self.device.get(uid) else ''}) · {S['title']}"
@@ -607,7 +607,7 @@ class Sim:
         except Exception: pass
 
     async def v_screen(self, uid, pg, args, opts):
-        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'))
+        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
 
     async def v_find(self, uid, pg, args, opts):
         """Scan the whole screen for a word, the way a person's eye does: the matching lines with the controls near them."""
@@ -649,7 +649,7 @@ class Sim:
     async def _after(self, uid, pg, opts):
         """the screen after an action, unless it is a step inside a batch (the batch shows the screen once, at the end)"""
         if opts.get('quiet'): return {'ok': True, 'text': ''}
-        return await self.render_screen(uid, pg, shot=opts.get('shot'))
+        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
 
     async def v_tap(self, uid, pg, args, opts):
         if not args: return {'ok': False, 'text': 'tap which number?'}
@@ -1309,7 +1309,8 @@ class Sim:
 
 
 HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
-  screen [--full] [--shot]     what is on your screen, controls numbered [n ...]
+  screen [--full] [--shot] [--marks]   what is on your screen, controls numbered [n ...]; --marks adds {blue} on the
+                               blue (primary) button and {disabled} on a greyed-out one
   do "step; step; ..." [--find "text"]   up to 8 steps in one call (tap, type, pick, key, go, find, scroll, back,
                                upload, photo); stops at the first error; one result and the final screen
                                (or only the lines with the text). Steps target a number or a label: tap "Save" .
