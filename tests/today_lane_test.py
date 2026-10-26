@@ -83,7 +83,9 @@ async def union_and_counts(c, pg, uid, tag):
         steps = {'Order': 'order', 'Decide': 'dec', 'Fix': 'fix', 'Ask for Bids': 'bids', 'Open': 'board'}
         c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in steps and steps[v] in ea for v, ea in buy) and any(v == 'Order' for v, ea in buy), f"coord: the Buy Board lines she owes are rows of her Today, each with its next step ({len(m['buyChip'])}: {buy[:3]})")
         if buy:
-            await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].find(x => x.dataset.verb === 'Order'); b && b.querySelector('[data-tdverb]').click(); }"); await pg.wait_for_timeout(400)
+            # on the desktop the selected row's verb is the side panel's blue button (the approved Today, Main), not a
+            # button on the row: the person presses the row's own Order, or the panel's when that row is the one selected
+            await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].find(x => x.dataset.verb === 'Order'); const v = b && (b.querySelector('[data-tdverb]') || (b.classList.contains('sel') && document.querySelector('.view.on [data-td2lead]'))); v && v.click(); }"); await pg.wait_for_timeout(400)
             t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
             c.ok(t.startswith('Order'), f'coord: Order opens the PO sheet on the line ({t!r})')
             await pg.evaluate("() => mbCloseModal()")
@@ -142,7 +144,10 @@ async def five_sources(c, pg):
     await go(pg, 'home'); await pg.wait_for_timeout(200)
     sh = await pg.evaluate("""() => { const t = tkAll({ open: true }).find(x => /Lane src schedule/.test(x.title)); tdyTaskSheet(t);
       const m = document.getElementById('mbm'); const s = m ? m.innerText : ''; mbCloseModal(); return s; }""")
-    c.ok('From' in sh and '121 State Street' in sh and 'Owner' in sh, f'the task sheet names its source and owner: {sh[:160]!r}')
+    # the one task sheet (src/tasks.js, taskfix 2026-10-25) names its source in its head line ("STA-27 · 121 State
+    # Street", the job's code and name) and its owner under Owner; it has no "From" label any more
+    head = ' '.join(sh.split('\n')[:3])
+    c.ok(re.match(r'^[A-Z]{2,4}-\d+ · 121 State Street', head) and 'Owner' in sh, f'the task sheet names its source and owner: {sh[:160]!r}')
 
 
 async def handoffs(c, pg):
