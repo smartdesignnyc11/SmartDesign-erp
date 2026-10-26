@@ -9151,9 +9151,11 @@ function docSnapBoot() {
 // ---- An estimate and its job (cycle walk J1b, 2026-10-26). An estimate started at won ("Close and Start the
 // Proposal") had no job: its Project select offered only "—", once the job existed it showed the job while the record
 // stayed empty, and Convert then opened a second job of the same name with the SOV on neither. One rule now, used by
-// every path: an estimate's job is the client's job at its address. The address is read from the job's name and
-// address, and from the estimate's title, the won lead's address and the client's property address. A job is matched
-// by its street (number and name); a client with one live job and no address to compare gets that job.
+// every path: an estimate's job is the client's job at its address, matched by street (number and name) against the
+// job's name and address. When the estimate's title names an address, only that decides. When it names none, a client
+// with one live job gets it (unless their leads or property address point elsewhere) and a client with more than one
+// is left blank for the person to choose (a repeat client's estimate titled
+// "88 Pierrepont St" went on 214 Lincoln Place: every hint was pooled and the first job matching any of them won).
 const estStreet = (s) => {
   const m = String(s || "")
     .toLowerCase()
@@ -9164,31 +9166,38 @@ const estStreet = (s) => {
 const estLiveJobs = (c) =>
   (DB.projects || []).filter((p) => c && p.clientId === c.id && !p.archived && "closed" !== ((p.project || {}).status || ""));
 function estHints(c, d) {
-  const lead = (DB.leads || []).find((l) => c && l.clientId === c.id && (l.addr || l.property));
-  return [d && d.title, lead && (lead.addr || lead.property), lead && lead.oppName, c && c.propertyAddr].filter(Boolean);
+  const L = (DB.leads || []).filter((l) => c && l.clientId === c.id);
+  return [d && d.title, ...L.map((l) => l.addr || l.property), ...L.map((l) => l.oppName), c && c.propertyAddr].filter(Boolean);
 }
 function estJobFor(c, d) {
   const jobs = estLiveJobs(c);
   if (!jobs.length) return null;
-  const keys = estHints(c, d).map(estStreet).filter(Boolean);
-  const hit = jobs.find((p) => {
-    const k = [estStreet(p.project.name), estStreet(p.project.addr)].filter(Boolean);
-    return k.some((x) => keys.includes(x));
-  });
-  if (hit) return hit;
-  return !keys.length && 1 === jobs.length ? jobs[0] : null;
+  const at = (keys) => jobs.filter((p) => [estStreet(p.project.name), estStreet(p.project.addr)].some((x) => x && keys.includes(x))),
+    own = estStreet(d && d.title);
+  if (own) {
+    const H = at([own]);
+    return 1 === H.length ? H[0] : null;
+  }
+  // no address in the title: a repeat client (more than one live job) is asked, never guessed for; a client with one
+  // job gets it unless their leads or property address point somewhere else
+  if (jobs.length > 1) return null;
+  const keys = estHints(c, null).map(estStreet).filter(Boolean);
+  return !keys.length || at(keys).length ? jobs[0] : null;
 }
-// A job opened for a client takes the client's estimates that have no job yet and are at its address (or all of
-// them, when it is the client's only job and they name no other address). Returns the estimates it took.
+// A job opened for a client takes the client's draft and sent estimates that have no job yet and whose job, by the
+// rule above, is this one; each tie is logged on the estimate's audit trail and the client's activity. An approved or
+// converted estimate is never moved by it (its contract and SOV follow its job). Returns the estimates it took.
 function estTieNewJob(p) {
   const c = p && (DB.clients || []).find((x) => x.id === p.clientId);
   if (!c) return [];
-  const mine = [estStreet(p.project.name), estStreet(p.project.addr)].filter(Boolean),
-    only = 1 === estLiveJobs(c).length;
   return (c.estimates || []).filter((e) => {
-    if (e.projectId || ["void", "rejected", "expired"].includes(e.status)) return !1;
-    const k = estStreet(e.title);
-    return (k ? mine.includes(k) : only) && ((e.projectId = p.id), !0);
+    if (e.projectId || !["draft", "sent"].includes(e.status) || estJobFor(c, e) !== p) return !1;
+    e.projectId = p.id;
+    const note = `${e.number} put on ${p.project.name}, the job just opened at its address`;
+    try {
+      audit("estimate", e.id, "tie job", { projectId: "" }, { projectId: p.id }, note);
+    } catch (x) {}
+    return (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || "", text: note }), !0;
   });
 }
 // The estimate's Project select: the client's jobs, a blank while none is chosen (so what shows is what is saved),
@@ -9544,11 +9553,20 @@ async function docAction(c, d, a) {
     "expire" === a && (d.status = "expired"),
     "convert" === a || "approveconvert" === a)
   ) {
-    const t = docTotal(d);
+    const t = docTotal(d),
+      // the job it goes on is said before it happens (never chosen silently): its own, the client's job at its address
+      // (estJobFor), or a new job, naming the client's other jobs so a wrong address is caught here
+      job = d.projectId ? (DB.projects || []).find((p) => p.id === d.projectId) : estJobFor(c, d),
+      others = job ? [] : estLiveJobs(c),
+      where = job
+        ? ` It goes on ${job.project.name}.`
+        : others.length
+          ? ` It opens a new job: ${c.name}'s jobs (${others.map((p) => p.project.name).join(", ")}) are not at this estimate's address. If it belongs on one of them, choose it in Project first.`
+          : " It opens the job for it.";
     if (
       "convert" === a &&
       !appConfirm(
-        `Convert ${d.number}: set the base contract to ${money(t.total)} and build the schedule of values from its ${d.lines.length} lines?${c.contract ? " This replaces the current contract and SOV base." : ""}`,
+        `Convert ${d.number}: set the base contract to ${money(t.total)} and build the schedule of values from its ${d.lines.length} lines?${c.contract ? " This replaces the current contract and SOV base." : ""}${where}`,
       )
     )
       return;
@@ -9576,14 +9594,14 @@ async function docAction(c, d, a) {
       (d.status = "converted"),
       act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.length} SOV lines`),
       docMark(d),
-      // never a second job: an estimate with no job goes on the client's job at its address (estJobFor)
-      !d.projectId && estJobFor(c, d) && ((d.projectId = estJobFor(c, d).id), docMark(d)),
+      // never a second job: an estimate with no job goes on the job named above (estJobFor), and says so
+      !d.projectId && job && ((d.projectId = job.id), docMark(d), act(`${d.number} put on ${job.project.name}, the client's job at its address`)),
       !d.projectId && appConfirm("Create a project for this contract now?"))
     ) {
       const p = projectFromTemplate(d.title || c.name, c.propertyAddr || "", nextWork(today()), "");
       (p.clientId = c.id), DB.projects.push(p), (d.projectId = p.id);
     }
-    toast("Contract and schedule of values set");
+    toast(`Contract and schedule of values set${(DB.projects || []).find((p) => p.id === d.projectId) ? " on " + DB.projects.find((p) => p.id === d.projectId).project.name : ""}`);
   }
   if ("revise" === a) {
     const n = newDoc(c, "estimate", {
@@ -35865,10 +35883,9 @@ docAction = async function (c, d, a) {
       ("approve" === a && ["construction", "design", "materials"].includes(d.template))) &&
     "estimate" === d.type
   ) {
-    // the job is settled before anything is read from it: the estimate's own, else the client's job at its address
-    // (estJobFor); one opened by the convert below is read again after it (the SOV and the contract went on "" before)
-    !d.projectId && estJobFor(c, d) && (d.projectId = estJobFor(c, d).id);
-    let pid = d.projectId || "";
+    // the job it will go on is read, not set: the root's convert names it in its confirmation and sets it once the
+    // person says yes; the job is read again after (the SOV and the contract went on "" before)
+    let pid = d.projectId || (estJobFor(c, d) || {}).id || "";
     if (
       c.invoices.some(
         (i) => "sov" === i.mode && !["void", "draft"].includes(i.status) && (i.projectId || "") === pid,

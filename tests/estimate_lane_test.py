@@ -82,8 +82,78 @@ async def desktop(c, p):
         d.projectId = ''; d.status = 'approved'; d.template = 'construction'; d.lines = [{id: uid('l'), item: 'Demo', qty: 1, unit: 'ls', rate: 1000, cost: 600}];
         const n0 = DB.projects.length; return Promise.resolve(docAction(c, d, 'approveconvert')).then(() => [n0, DB.projects.length, d.projectId, (c.sov || []).filter(v => String(v.lineRef || '').startsWith('estimate:' + d.id)).map(v => v.projectId)]); }""", j[:2])
     c.ok(n[0] == n[1] and n[2] == t[0] and n[3] and all(x == t[0] for x in n[3]), f'JOB: convert uses the job at the address, no second job, the SOV on it: {n}')
+    await two_jobs(c, pg)
+    await replay(c, pg)
     c.ok(not errs, f'page errors {errs[:2]}')
     await b.close()
+
+
+async def two_jobs(c, pg):
+    """JOB2: a repeat client with live jobs at 214 Lincoln Place and 88 Pierrepont St (chief of staff, 10-26: an estimate
+    titled 88 Pierrepont went on 214 Lincoln, and one naming no address too). The title's address alone decides; no
+    address and two jobs is blank; Convert's confirmation names the job before it is used; a new job never moves an
+    approved estimate, and each tie it makes is on the audit trail."""
+    r = await pg.evaluate("""() => { const c = blankClient('Rhea Castellan'); c.propertyAddr = '214 Lincoln Place, Brooklyn'; DB.clients.push(c);
+        (DB.leads = DB.leads || []).push({id: uid('ld'), name: '214 Lincoln Place — Design-build', addr: '214 Lincoln Place', clientId: c.id, stage: 'won'});
+        const mk = (n, a) => { const p = blankProject(n, a, today(), ''); p.clientId = c.id; DB.projects.push(p); return p; };
+        const L = mk('214 Lincoln Place', '214 Lincoln Place, Brooklyn'), P = mk('88 Pierrepont St', '88 Pierrepont St, Brooklyn Heights');
+        const e1 = newDoc(c, 'estimate', {template: 'construction', fields: {title: '88 Pierrepont St — basement proposal', projectId: ''}});
+        const e2 = newDoc(c, 'estimate', {template: 'construction', fields: {title: 'Kitchen proposal', projectId: ''}});
+        [e1, e2].forEach(e => { e.status = 'approved'; e.lines = [{id: uid('l'), item: 'Demo', qty: 1, unit: 'ls', rate: 1000, cost: 600}]; });
+        return {cid: c.id, L: L.id, P: P.id, e1: e1.id, e2: e2.id, j1: (estJobFor(c, e1) || {}).id || '', j2: (estJobFor(c, e2) || {}).id || ''}; }""")
+    c.ok(r['j1'] == r['P'], f"JOB2: an estimate titled 88 Pierrepont St goes on 88 Pierrepont St, not 214 Lincoln: {r['j1']} (Pierrepont {r['P']}, Lincoln {r['L']})")
+    c.ok(r['j2'] == '', f"JOB2: an estimate naming no address, for a client with two jobs, is left blank: {r['j2']!r}")
+    # Convert through the screen: the confirmation names the job, and the job is set only once the person says yes
+    async def convert(eid):
+        await pg.evaluate("([cid, eid]) => { clientOpen = cid; clientTab = 'fin'; finTab = 'estimates'; docOpen = {kind: 'estimate', id: eid}; view = 'clients'; render(); }", [r['cid'], eid])
+        await pg.wait_for_timeout(300)
+        await pg.locator(f'#doc-{eid} [data-docact="convert"]').first.click(); await pg.wait_for_timeout(300)
+        return await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : ''; }")
+    m1 = await convert(r['e1'])
+    pid0 = await pg.evaluate("([cid, eid]) => DB.clients.find(x => x.id === cid).estimates.find(e => e.id === eid).projectId", [r['cid'], r['e1']])
+    c.ok('It goes on 88 Pierrepont St' in m1 and pid0 == '', f'JOB2: Convert says the job before it is used ({pid0!r} until yes): {m1[:240]!r}')
+    n0 = await pg.evaluate('DB.projects.length')
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(600)
+    a1 = await pg.evaluate("([cid, eid]) => { const d = DB.clients.find(x => x.id === cid).estimates.find(e => e.id === eid); return [d.status, d.projectId, DB.projects.length]; }", [r['cid'], r['e1']])
+    c.ok(a1 == ['converted', r['P'], n0], f'JOB2: yes converts it on 88 Pierrepont St, no new job: {a1}')
+    m2 = await convert(r['e2'])
+    c.ok('opens a new job' in m2 and '214 Lincoln Place' in m2 and '88 Pierrepont St' in m2, f"JOB2: Convert of an estimate with no address names the client's jobs first: {m2[:240]!r}")
+    await pg.evaluate("() => { try { mbCloseModal(); } catch (e) { document.getElementById('mbm')?.remove(); } }")
+    # a new job takes a draft at its address and logs it; an approved estimate is never moved
+    t = await pg.evaluate("""([cid]) => { const c = DB.clients.find(x => x.id === cid);
+        const ed = newDoc(c, 'estimate', {fields: {title: '9 Remsen St — proposal', projectId: ''}});
+        const ea = newDoc(c, 'estimate', {fields: {title: '9 Remsen St — garden proposal', projectId: ''}}); ea.status = 'approved';
+        const p = blankProject('9 Remsen St', '9 Remsen St', today(), ''); p.clientId = cid; DB.projects.push(p);
+        const tied = estTieNewJob(p).map(e => e.id);
+        return [tied.includes(ed.id), ed.projectId === p.id, ea.projectId, (DB.audit || []).some(a => a.refId === ed.id && a.action === 'tie job')]; }""", [r['cid']])
+    c.ok(t == [True, True, '', True], f'JOB2: a new job takes the draft at its address with an audit entry, never the approved one: {t}')
+
+
+async def replay(c, pg):
+    """TAP2: a press replayed after a redraw never presses another record's control, and never twice (chief of staff,
+    10-26: Today's Needs You draws a bare Approve per row, identity on the row, and its click handler stops the click
+    on the window). Two identical Approve rows; a window capture handler like Needs You's counts presses per row."""
+    await pg.evaluate("""() => { view = 'clients'; clientOpen = null; docOpen = null; render();
+        const v = document.querySelector('section.view.on'); const box = document.createElement('div'); box.id = 'tap2'; box.style.cssText = 'position:fixed;top:120px;left:300px;z-index:99999;background:#fff';
+        v.appendChild(box); window.__RC = {A: 0, B: 0};
+        window.__rows = (order, dbl) => { box.innerHTML = order.map(k => `<div class="tap2r" data-row="${k}" style="padding:6px"><button type="button" class="btn sm">Approve</button></div>`).join('');
+          if (dbl) box.querySelectorAll('button').forEach(b => b.addEventListener('mouseup', () => b.click())); };
+        if (!window.__tap2) { window.__tap2 = 1; window.addEventListener('click', e => { const r = e.target.closest && e.target.closest('#tap2 [data-row]'); if (!r) return;
+          e.stopPropagation(); e.stopImmediatePropagation(); __RC[r.dataset.row]++; }, true); }
+        __rows(['A', 'B']); }""")
+    async def press(after_down):
+        await pg.evaluate("() => { __RC.A = 0; __RC.B = 0; __rows(['A', 'B']); }")
+        bb = await pg.locator('#tap2 [data-row="A"] button').bounding_box()
+        await pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+        await pg.mouse.down(); await pg.evaluate(after_down); await pg.mouse.up(); await pg.wait_for_timeout(250)
+        return await pg.evaluate('({...__RC})')
+    s = await press("() => __rows(['B', 'A'])")
+    c.ok(s['B'] == 0 and s['A'] <= 1, f'TAP2: rows re-ordered under the finger: nothing or the same row is pressed, never the other: {s}')
+    s = await press("() => __rows(['A', 'B'])")
+    c.ok(s == {'A': 1, 'B': 0}, f'TAP2: the same row redrawn under the finger is pressed exactly once: {s}')
+    s = await press("() => __rows(['A', 'B'], true)")
+    c.ok(s == {'A': 1, 'B': 0}, f'TAP2: when the browser delivers the click to the redrawn button, it is not pressed a second time: {s}')
+    await pg.evaluate("() => document.getElementById('tap2')?.remove()")
 
 
 async def phone(c, p):
