@@ -192,6 +192,9 @@ async def check_role(pg, R, uid):
     # Home › Brief: the Accounting card and the brief's sentences
     if gate('home', 'Home brief'):
         await nav(pg, 'home', 'home')
+        # the approved Today mockup (2026-10-25): the Pulse and the full brief sit behind the quiet line at the foot
+        if await pg.evaluate("() => { const q = document.querySelector('.view.on .td2-quiet'); return !!q && q.getAttribute('aria-expanded') === 'false'; }"):
+            await pg.click('.view.on .td2-quiet'); await pg.wait_for_timeout(300)
         # Today Home (Owner, PM): the brief is 3 lines with the full brief one tap away, and Safe to Spend is a
         # Pulse number. Read the Pulse as its own surface, then open the full brief and read it as before.
         pulse = await pg.evaluate("() => [...document.querySelectorAll('.view.on button, .view.on a')].map(e => e.innerText).filter(x => /Safe to Spend/i.test(x)).join('\\n')")

@@ -1119,7 +1119,8 @@ document.addEventListener(
     const el = e.target && e.target.closest ? e.target : null;
     if (!el || el.closest("a, button, input, select, textarea, label")) return;
     const card = el.closest(".td-do .td-card");
-    if (!card) return;
+    // on the desktop a tap on a row selects it into the side panel (today2.js); its title still opens the record
+    if (!card || card.hasAttribute("data-td2sel")) return;
     const a = card.querySelector("[data-tdrec]");
     a && (e.preventDefault(), a.click());
   },

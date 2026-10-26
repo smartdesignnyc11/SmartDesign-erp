@@ -443,7 +443,8 @@ async def polish(c, p):
     r = await pg.evaluate("() => { const B = [...document.querySelectorAll('#nav-groups > button')].map(b => b.dataset.grp); return B.indexOf('mytasks') === B.indexOf('home') + 1; }")
     c.ok(r, 'pm 390: Tasks sits under Today in the phone menu')
     bar = await pg.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
-    c.ok(bar == ['home', 'chat', 'ovjobs', 'tkall'], f'pm 390: Tasks is the fourth shortcut ({bar})')
+    # the approved TodayPM board (2026-10-25): Today, Projects, Clients, Tasks, Messages
+    c.ok(bar == ['home', 'ovjobs', 'clients', 'tkall', 'chat'], f'pm 390: Tasks is the fourth shortcut ({bar})')
     await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
     await pg.evaluate("() => { mtStart({}); renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(500)
     m = await pg.evaluate("""() => { const A = [...document.querySelectorAll('.mm-act')].map(e => e.getBoundingClientRect()), nav = document.querySelector('.mm-nav').getBoundingClientRect();
@@ -530,7 +531,9 @@ async def match(c, p):
     await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_list.png'))
     # the bar: Tasks for the coordinator and billing, its badge the one Tasks number (tkTasksN, the person's Due Soon;
     # taskfix #1); billing's bar starts with Today like everyone's (taskfix #14)
-    for uid, at in (('u_chen', 2), ('u_billing', 2), ('u_owner', 3), ('u_alan', 3)):
+    # the approved Today boards (2026-10-25) keep Tasks on the coordinator's and the PM's bars; the owner's and billing's
+    # bars no longer carry it (Tasks stays in their menu with the same number)
+    for uid, at in (('u_chen', 2), ('u_alan', 3)):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
           return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")

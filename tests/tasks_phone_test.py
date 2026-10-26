@@ -140,9 +140,11 @@ async def handoff(c, pg, label):
     r = await pg.evaluate("""k => { tdyTabSet('all'); render(); const id = k; const cards = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(e => e.getClientRects().length);
       const A = tdyModel().all, i = A.findIndex(it => it.kind === 'tdyTask' && it.id === id), shown = cards.some(e => e.dataset.id === id); const all = i >= 0 ? { i, of: A.length, shown } : null;
       const card = all && all.shown ? [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.id === id) : null, verb = card ? card.querySelector('[data-tdverb]').innerText.trim() : (i >= 0 ? tdCard(A[i]).verb : '');
-      tdyTabSet('tasks'); render(); const o = document.querySelector('.view.on .td-do [data-tdyoffer]');
-      return { all, verb, tasks: o ? { line: o.innerText.replace(/\s+/g, ' ').trim(), y: Math.round(o.getBoundingClientRect().top) } : null }; }""", key)
-    c.ok(r['verb'] == 'Accept' and r['tasks'] and 'offered you' in r['tasks']['line'], f'{label}: it is on Chen\'s Today with Accept, and on her Tasks filter as the offer line ({r})')
+      const row = td2Model().rows.find(x => x.it.kind === 'tdyTask' && x.it.id === id);
+      return { all, verb, now: row ? row.sec : null, why: row ? row.meta : '' }; }""", key)
+    # the approved Today mockup (2026-10-25) has no Tasks chip: an offer is owed an answer today, so it is a Now row
+    # with Accept (the Tasks page keeps its offer line, below)
+    c.ok(r['verb'] == 'Accept' and r['now'] == 'now' and 'offered' in r['why'], f'{label}: it is on Chen\'s Today with Accept, in Now ({r})')
     # its place in All is Today's order (the Coming Up lane's); the Tasks filter and the list's offer line always show it
     c.ok(r['all'] is not None, f'{label}: and in her Today, All ({r["all"]})')
     off = await pg.evaluate("() => { view = 'tkall'; render(); const b = document.querySelector('.view.on [data-tkoffer]'); return b ? b.innerText.replace(/\\s+/g, ' ') : ''; }")
@@ -210,11 +212,14 @@ async def places(c, pg, label, phone):
     """the same sheet from Today, the job, Sales, the foreman and a toast; the forwards; the crew"""
     # Today: a tap on a task card's words opens the sheet
     await reset(pg, 'u_alan', 'home')
-    await pg.evaluate("() => { tdyTabSet('tasks'); render(); }")
-    sh = await tap_row(pg, '.view.on .td-do .td-card[data-kind="tdyTask"] .td-l2')
+    # (the approved Today mockup: All opened in full; on the phone a tap on the row's words opens it, on the desktop a
+    # tap selects the row into its panel and its title opens it)
+    await pg.evaluate("() => { tdyTabSet('all'); tdyAllOpen = true; render(); }")
+    sh = await tap_row(pg, '.view.on .td-do .td-card[data-kind="tdyTask"] ' + ('.td2-meta' if phone else '[data-tdrec]'))
     c.ok(sh and sh['key'], f'{label}: a tap on a Today task card opens the task sheet ({(sh or {}).get("title")})')
     await pg.evaluate(CLOSE)
     if phone:
+        await pg.evaluate("() => { tdyAllOpen = false; render(); }")
         t = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-tabs button')].filter(b => b.getClientRects().length).map(b => Math.round(b.getBoundingClientRect().height))")
         c.ok(t and min(t) >= 44, f'{label}: Today\'s filter chips are 44px tall ({t})')
     # the job's list is the same list with the job chip

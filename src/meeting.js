@@ -2026,24 +2026,7 @@ function mtMinutesFor(me) {
     return (m.attendees || []).includes(me.name) || !!(m.minutes.owes || {})[me.name];
   });
 }
-{
-  const base = tdyModel;
-  tdyModel = function () {
-    const M = base.apply(this, arguments);
-    try {
-      const me = tdyMe(),
-        L = mtMinutesFor(me).map((m) => {
-          const owe = ((m.minutes.owes || {})[me.name] || []).length;
-          return { kind: "tdyMinutes", id: m.id, src: "meeting", m: m, title: `Minutes: ${m.title}, ${tkDay(m.date)}`, detail: owe ? `you owe ${owe}` : "nothing on you", due: m.date };
-        });
-      // the minutes are a thing to read, not a task: on All, never in the Tasks chip (one number, taskfix #1)
-      L.length && M && (M.all = (M.all || []).concat(L));
-    } catch (e) {
-      console.warn("minutes on Today", e);
-    }
-    return M;
-  };
-}
+// the minutes join Today in tdyModel itself (src/app.js), folded 2026-10-25
 {
   const base = tdCard;
   tdCard = function (it) {

@@ -216,7 +216,9 @@ async def s_bill(p, c):
             before = await pg.evaluate("() => ({ billed: poBilled(DB.pos.find(x => x.id === 'po4')), n: DB.bills.length })")
             did = await apply_real(pg, pr['cid'], pr['pid'])
             m = await modal(pg)
-            if m: await pg.keyboard.press('Escape')
+            # Apply on a vendor invoice opens the bill, filled in; the person presses Enter the Bill (Pilot 2)
+            if m and m['title'].startswith('Enter the Bill'): await modal_ok(pg, 600)
+            elif m: await pg.keyboard.press('Escape')
             bl = await pg.evaluate("""() => { const b = DB.bills.find(x => x.number === 'CM-0102'); if (!b) return null;
               const po = DB.pos.find(x => x.id === 'po4'); return { poId: b.poId || '', projectId: b.projectId || '', cat: b.cat, code: b.code || '', line: b.line || (b.lines[0] || {}).line || '', poLineId: (b.lines[0] || {}).poLineId || '', amount: billTotal(b), billed: poBilled(po), st: lkPOBillState(po), flags: billFlags(b) }; }""")
             c.ok(bool(bl), f'bill: CM-0102 was created ({did!r})')
@@ -230,7 +232,7 @@ async def s_bill(p, c):
                 # Over the PO: a second bill that takes the total past $76,000 is flagged at landing.
                 ov = await pg.evaluate("""() => { const c = DB.comms.find(x => (x.subject || '').includes('CM-0102')), p = c.proposals.find(x => x.kind === 'bill');
                   const p2 = Object.assign({}, p, { id: uid('cp'), number: 'CM-0199', amount: 60000, applied: '', appliedAt: '' }); c.proposals.push(p2);
-                  cmApply(c, p2); const b = DB.bills.find(x => x.number === 'CM-0199'); const it = mApprovals({ everyone: true }).find(it => it.kind === 'bill' && it.id === b.id) || {}; return b ? { poId: b.poId, flags: billFlags(b), sev: it.sev || '', detail: it.detail || '' } : null; }""")
+                  cmApply(c, p2); const mm = document.getElementById('mbm'); mm && /^Enter the Bill/.test(mm.querySelector('h3').innerText) && mm.querySelector('#mbm-ok').click(); const b = DB.bills.find(x => x.number === 'CM-0199'); const it = mApprovals({ everyone: true }).find(it => it.kind === 'bill' && it.id === b.id) || {}; return b ? { poId: b.poId, flags: billFlags(b), sev: it.sev || '', detail: it.detail || '' } : null; }""")
                 m = await modal(pg)
                 if m: await pg.keyboard.press('Escape')
                 c.ok(ov and any('vs PO' in f for f in ov['flags']), f'bill: a bill over the PO is flagged when it lands ({ov})')

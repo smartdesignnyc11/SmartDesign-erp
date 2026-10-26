@@ -2,12 +2,13 @@
 checked the way the reviewer saw it, at 390x844 with touch and at 1440x900. The team runs its Monday 10am meeting and
 its daily tasks here from 10-26, so each check is a class check, not one screen.
 
-  one       #1  "Tasks" is one number for every office role: the side menu, Today's sub-tab, Today's Tasks chip, the
-                phone bar and the Tasks page (the phone's Due Soon chip, the desktop's marked pill) all read tkTasksN(),
-                the person's Due Soon (late or due in the next 7 days, theirs, not put off). Today's Tasks chip shows
-                those rows. Buy Board orders are not tasks: they are Today's Buy Board chip, the bar's Buy Board badge
-                and the Buy Board's own Late to Order plus Order This Week. The owner's most-late task (an obligation
-                Approvals also holds) is in the set.
+  one       #1  "Tasks" is one number for every office role: the side menu, Today's sub-tab, the phone bar and the
+                Tasks page (the phone's Due Soon chip, the desktop's marked pill) all read tkTasksN(), the person's Due
+                Soon (late or due in the next 7 days, theirs, not put off). The approved Today (2026-10-25) has no Tasks
+                chip: Today's All, opened in full, shows each of those tasks once, as its row or as the approval that
+                stands for it. Buy Board orders are not tasks: they are rows of the coordinator's All, the bar's Buy
+                Board badge and the Buy Board's own Late plus Order This Week. The owner's most-late task (an obligation
+                Approvals also holds) is on Today, marked late.
   hand      #2 #3  Swipe > Hand Off opens straight to the people (on the first screen, nothing folded under More); a
                 tap picks a person (no hand-off yet), a note is optional, one "Hand Off to <Name>" button commits.
   meet      #4  On a meeting day (the team's cadence, by the app clock) the owner and the coordinator see "Start the
@@ -34,12 +35,23 @@ os.makedirs(SHOTS, exist_ok=True)
 CLOSE = "() => { try { mbCloseModal(); } catch (e) {} document.querySelectorAll('#mbm, #tv-pop').forEach(e => e.remove()); }"
 OFFICE = (('u_owner', 'owner'), ('u_alan', 'pm'), ('u_chen', 'coord'), ('u_billing', 'billing'))
 
-# every place the word "Tasks" carries a number for the signed-in person
+# every place the word "Tasks" carries a number for the signed-in person. The approved Today (2026-10-25) has no Tasks
+# chip (its chips are All, Late and Approvals or Waiting; tasks are rows of All), so Today's share of the rule is its
+# rows: All opened in full shows each Due Soon task once, as its row or as the approval that stands for it, and no
+# order is a task. The coordinator's orders are rows of All too, the bar's Buy Board badge and the board's sections.
 NUMS = r"""() => { const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const n = s => { const e = [...document.querySelectorAll(s)].find(vis); return e ? +(e.textContent.replace(/\D+/g, '') || 0) : null; };
   return { want: typeof tkTasksN === 'function' ? tkTasksN() : -1, rail: n('#nav-groups button[data-grp="mytasks"] .n'), sub: n('#subnav [data-sub="tkall"] .n'),
-    chip: n('.view.on .td-tabs [data-tdytabbtn="tasks"] .n'), bar: n('#mtabs [data-mv="tkall"] .n'),
-    buyChip: n('.view.on .td-tabs [data-tdytabbtn="buy"] .n'), buyBar: n('#mtabs [data-mv="proc"] .n') }; }"""
+    bar: n('#mtabs [data-mv="tkall"] .n'), buyBar: n('#mtabs [data-mv="proc"] .n') }; }"""
+# Today's All in full: each Due Soon task, where it stands (its own row, or the approval holding it), from the DOM
+TODAY_TASKS = r"""async () => { tdyTabSet('all'); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 200));
+  const M = tdyModel(), d = document.querySelector('.view.on .td-do[data-tdytab="all"]'); if (!d) return null;
+  const onPage = (it) => !!d.querySelector(`.td-card[data-kind="${CSS.escape(it.kind)}"][data-id="${CSS.escape(String(it.id))}"]`);
+  const holder = (x) => M.all.find(it => it.kind === 'tdyTask' && it.id === x.id) || M.all.find(it => it.kind !== 'tdyTask' && tdyApprRefs(it).some(r => (x.t.refs || []).includes(r)));
+  const placed = M.tasks.map(x => { const h = holder(x); return { code: (x.t.row && x.t.row.code) || x.t.title, as: h ? h.kind : null, on: !!h && onPage(h), late: h ? (td2Cur.T.rows.find(y => y.key === h.kind + ':' + h.id) || {}).late : null }; });
+  const rows = d.querySelectorAll('.td-card[data-kind="tdyTask"]').length, want = M.all.filter(it => it.kind === 'tdyTask').length;
+  const out = { n: M.tasks.length, rows, want, placed, buyAsTask: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyRows: d.querySelectorAll('.td-card[data-kind="tdyBuy"]').length };
+  tdyAllOpen = false; render(); return out; }"""
 
 
 async def one_number(c, pg, phone):
@@ -48,34 +60,31 @@ async def one_number(c, pg, phone):
         await pg.evaluate(CLOSE); await sign_in(pg, uid); await go(pg, 'home'); await pg.wait_for_timeout(200)
         h = await pg.evaluate(NUMS)
         W = h['want']
-        shown = {k: h[k] for k in ('rail', 'sub', 'chip', 'bar') if h[k] is not None}
-        # an empty badge is 0; the Today chip always states its number
-        c.ok(all(v == W for v in shown.values()) and (h['chip'] == W), f'{tag} {r}: one number for Tasks ({W}): {shown}')
-        # the rows behind Today's Tasks chip are that number
-        await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tdytabbtn=\"tasks\"]'); b && b.click(); }"); await pg.wait_for_timeout(250)
-        rows = await pg.evaluate("""() => { const d = document.querySelector('.view.on .td-do[data-tdytab="tasks"]'); if (!d) return null;
-          const k = (d.querySelector('.td-more') || {}).textContent || '', m = k.match(/^(\\d+) more/);
-          return { cards: d.querySelectorAll('.td-card').length + (m ? +m[1] : 0), buy: d.querySelectorAll('.td-card[data-kind="tdyBuy"]').length,
-            ids: tdyModel().tasks.map(it => it.t ? (it.t.row && it.t.row.code) || it.t.title : it.kind) }; }""")
-        c.ok(rows and rows['cards'] == W and rows['buy'] == 0, f'{tag} {r}: Today\'s Tasks chip shows its {W} rows and no orders ({rows})')
+        shown = {k: h[k] for k in ('rail', 'sub', 'bar') if h[k] is not None}
+        # an empty badge is 0
+        c.ok(all(v == W for v in shown.values()), f'{tag} {r}: one number for Tasks ({W}): {shown}')
+        rows = await pg.evaluate(TODAY_TASKS)
+        ok = rows and rows['n'] == W and rows['rows'] == rows['want'] and all(x['on'] for x in rows['placed']) and rows['buyAsTask'] == 0
+        c.ok(ok, f"{tag} {r}: Today's All shows each of the {W} Due Soon tasks once, as its row or the approval holding it, and no orders ({rows})")
         if phone and r in ('owner', 'coord'):
             await pg.evaluate("() => scrollTo(0, 0)")
             await pg.screenshot(path=os.path.join(SHOTS, f'p_{r}_today_tasks.png'))
         if r == 'owner':
             late = await pg.evaluate("() => { const L = tkSoonFor().filter(x => x.due && x.due < today()).sort((a, b) => a.due.localeCompare(b.due)); return L[0] ? { code: L[0].code, due: L[0].due } : null; }")
-            c.ok(late and late['code'] in (rows or {}).get('ids', []), f'{tag} owner: the most-late task ({late}) is on Today\'s Tasks ({(rows or {}).get("ids")})')
+            p = [x for x in (rows or {}).get('placed', []) if late and x['code'] == late['code']]
+            c.ok(late and p and p[0]['on'] and p[0]['late'], f'{tag} owner: the most-late task ({late}) is on Today, marked late ({p})')
             dup = await pg.evaluate("() => { const A = tdyModel().all, ids = A.map(it => it.kind + ':' + it.id); return ids.length - new Set(ids).size; }")
             allob = await pg.evaluate("() => tdyModel().all.filter(it => /biennial/i.test(it.title || '')).length")
             c.ok(dup == 0 and allob == 1, f'{tag} owner: All holds the LLC renewal once, as its approval ({allob}, {dup} repeats)')
         if r == 'coord':
             buy = await pg.evaluate("() => tdyBuyItems().length")
-            c.ok(buy > 0 and h['buyChip'] == buy and (not phone or h['buyBar'] == buy), f'{tag} coord: the orders are the Buy Board\'s {buy}: Today chip {h["buyChip"]}, bar {h["buyBar"]}')
+            c.ok(buy > 0 and (rows or {}).get('buyRows') == buy and (not phone or h['buyBar'] == buy), f'{tag} coord: the orders are the Buy Board\'s {buy}: rows on Today\'s All {(rows or {}).get("buyRows")}, bar {h["buyBar"]}')
             if phone:
-                await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tdytabbtn=\"buy\"]'); b && b.click(); scrollTo(0, 0); }"); await pg.wait_for_timeout(250)
+                await pg.evaluate("() => scrollTo(0, 0)"); await pg.wait_for_timeout(100)
                 await pg.screenshot(path=os.path.join(SHOTS, 'p_coord_today_buyboard.png'))
             await go(pg, 'proc')
             # the P1 Buy Board (10-25) groups To Buy into sections (Late, Order This Week, Waiting on Quotes, Later) instead of
-            # tiles; the chip's count is the board's Late plus Order This Week on To Buy
+            # tiles; its Late plus Order This Week on To Buy are the orders Today shows
             t = await pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.view.on [data-bbsec]')].filter(s => s.getClientRects().length)
               .map(s => [s.dataset.bbsec, +((s.querySelector('.bb-sh i') || {}).textContent || 0)]))""")
             c.ok(t.get('late', 0) + t.get('week', 0) == buy, f'{tag} coord: the Buy Board\'s Late and Order This Week are those {buy} ({t})')
@@ -186,8 +195,11 @@ async def billing(c, pg, b):
     await p2.goto(URL); await p2.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
     await sign_in(p2, 'u_billing'); await p2.wait_for_timeout(300)
     bar = await p2.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
-    c.ok(bar[:1] == ['home'] and 'tkall' in bar, f'#14 billing\'s bar starts with Today ({bar})')
-    await p2.evaluate("() => document.querySelector('#mtabs [data-mv=\"tkall\"]').click()"); await p2.wait_for_timeout(300)
+    # the approved Today mockup (TodayBilling, 2026-10-25) gives billing's bar Today, Billing, Clients and Messages;
+    # Tasks is in the menu, so billing opens it there
+    c.ok(bar == ['home', 'billing', 'clients', 'chat'], f'#14 billing\'s bar starts with Today, as the approved mockup draws it ({bar})')
+    await p2.evaluate("() => document.querySelector('#menu-btn').click()"); await p2.wait_for_timeout(300)
+    await p2.evaluate("() => [...document.querySelectorAll('button[data-v=\"tkall\"], a.mn-kid')].find(e => e.getClientRects().length && /^Tasks/.test(e.innerText.trim())).click()"); await p2.wait_for_timeout(300)
     who = await p2.evaluate("() => ({ who: tkWho, chip: (document.querySelector('.view.on [data-tkfilter]') || {}).title || '' })")
     c.ok(who['who'] == 'me', f'#14 billing\'s Tasks opens on Mine ({who})')
     await p2.screenshot(path=os.path.join(SHOTS, 'p_billing_tasks.png'))

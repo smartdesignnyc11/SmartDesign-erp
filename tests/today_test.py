@@ -20,7 +20,12 @@ the other three, and the Approvals filter is what Do Now was (PRED.waitingOnMe).
 budget (5 filters, 10 words). The coordinator, billing and the controller get Today too (billing: Overdue AR; the
 controller: Safe to Spend and Overdue AR).
 tests/today_lane_test.py proves the rest (no item in two filters, the five sources, hand-offs, recurring duties,
-proof)."""
+proof).
+The approved Today mockups (2026-10-25, tests/today2_test.py checks them) moved four pins: the phone header is the
+menu, Search and Ask (New and Report a Problem leave Today's header); the Pulse, Caught for You and the full brief sit
+behind the quiet line at the foot (opened before they are read); the three brief lines are the AI update (two on the
+phone); the PM's chips are All, Late and Waiting (no Approvals chip), and on the desktop the one blue button is the
+selected row's, in its side panel."""
 import asyncio, re, sys
 from harness import *
 
@@ -55,7 +60,12 @@ MEASURE = r"""() => {
     sections: [...home.querySelectorAll('.td-sec')].filter(vis).length };
 }"""
 
+async def quiet_open(pg):
+    if await pg.evaluate("() => (document.querySelector('.view.on .td2-quiet') || {}).getAttribute && document.querySelector('.view.on .td2-quiet').getAttribute('aria-expanded') === 'false'"):
+        await pg.click('.view.on .td2-quiet'); await pg.wait_for_timeout(250)
+
 async def pulse_checks(c, pg, tag):
+    await quiet_open(pg)
     tiles = await pg.evaluate("() => [...document.querySelectorAll('.view.on [data-tdpulse]')].map(a => ({k: a.dataset.tdpulse, n: +a.dataset.n, label: a.querySelector('span').innerText, shown: a.querySelector('b').innerText}))")
     c.ok(len(tiles) == 3, f'{tag}: {len(tiles)} Pulse numbers, want 3')
     for t in tiles:
@@ -124,7 +134,8 @@ async def main():
                        short: btns.filter(b => b.h < 44).map(b => b.id), gaps: btns.slice(1).map((b, i) => Math.round(b.l - btns[i].r)) }; }""")
             # the menu (2026-10-19): Home is named Today for every office role
             c.ok(not hd['h2'] and hd['crumb'] == 'Today',f"{tag} phone: in-page heading shown {hd['h2']}, header title {hd['crumb']!r}; want the title in the header only")
-            c.ok(len(hd['btns']) == 5 and hd['btns'][0].startswith('menu-btn') and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want the menu first, then four, each 44px tall")
+            # the approved mockup's header (2026-10-25): the menu, then Search and Ask, each 44px tall
+            c.ok(len(hd['btns']) == 3 and hd['btns'][0].startswith('menu-btn') and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want the menu first, then Search and Ask, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
             # (the owner's Today may open on Approvals when something waits on him, Alan 2026-10-25: All is read from its chip)
@@ -134,15 +145,18 @@ async def main():
               const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
               return [+document.querySelector('.view.on [data-tdytabbtn="all"] .n').textContent, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
             c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
-            # the Approvals filter's count = its source = the Approvals page's Everything chip
-            await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
+            # the Approvals filter's count = its source = the Approvals page's Everything chip (the owner's chip; the PM's
+            # board has All, Late and Waiting, so his approvals are read through the same filter by hand)
+            await pg.evaluate("() => { tdyTabSet('appr'); render(); }") if tag == 'pm' else await pg.click('.view.on [data-tdytabbtn="appr"]')
+            await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
             src = await pg.evaluate("() => PRED.waitingOnMe.count()")
             more = 0  # a filter shows its whole list in place; its link opens the full Approvals page (lane "today")
             cards = await pg.evaluate("() => document.querySelectorAll('.view.on .td-do .td-card').length")
             c.ok(n == src, f'{tag} phone: Do Now {n} vs PRED.waitingOnMe {src}')
             c.ok(cards == n and await pg.locator('.view.on [data-tdall]').count() == 1, f'{tag} phone: the Approvals filter lists {cards} cards vs {n}, with a link to the Approvals page')
-            # Caught for You: the count is the rows, once expanded
+            # Caught for You: the count is the rows, once expanded (behind the quiet line)
+            await quiet_open(pg)
             cn = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcaught]').dataset.tdcaught")
             shown = await pg.evaluate("() => document.querySelectorAll('.view.on .td-catch .td-card').length")
             c.ok(shown <= 4, f'{tag} phone: {shown} catches shown before "more" (max 4)')
@@ -164,9 +178,10 @@ async def main():
             c.ok(sum(chips) == ev, f'{tag} phone: Approvals chips {chips} sum to {sum(chips)}, Everything says {ev}')
             # the brief: three short lines, the full brief one tap away
             await go(pg, 'home'); await pg.wait_for_timeout(250)
-            await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
-            bl = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-bl li')].map(l => l.innerText)")
-            c.ok(len(bl) <= 3 and all(len(x.split()) <= 11 for x in bl), f'{tag} phone: brief lines {bl}')
+            await pg.evaluate("() => { tdyTabSet('appr'); render(); }"); await pg.wait_for_timeout(250)
+            bl = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td2-bl')].map(l => l.innerText)")
+            c.ok(len(bl) <= 2, f'{tag} phone: the update has {len(bl)} lines (two on the phone): {bl}')
+            await quiet_open(pg)
             await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(300)
             full = await pg.evaluate("() => document.querySelectorAll('.view.on #jv .jv-body p').length")
             c.ok(full >= 3, f'{tag} phone: Read the Full Brief shows {full} paragraphs')
@@ -209,7 +224,8 @@ async def main():
             m = await pg.evaluate(MEASURE)
             c.ok(bool(m), f'{tag} desktop: Home is not Today')
             if m:
-                c.ok(m['primIsTopVerb'], f"{tag} desktop: blue buttons {m['prim']}")
+                one = await pg.evaluate("() => { const P = [...document.querySelectorAll('.view.on .btn.primary')].filter(b => b.getClientRects().length); return P.length === 1 && !!P[0].closest('.td2-aside'); }")
+                c.ok(one, f"{tag} desktop: blue buttons {m['prim']}; want one, the selected row's in its panel")
                 c.ok(m['ask'], f'{tag} desktop: no Ask in the header')
                 await pulse_checks(c, pg, f'{tag} desktop')
             c.ok(not errs, f'{tag} desktop: errors {errs[:2]}')
@@ -262,7 +278,7 @@ async def main():
         # decision 2); the coordinator, billing and the controller get their own queue and only the Pulse numbers they answer for
         b, pg, errs = await open_app(p, False)
         for uid in ('u_chen', 'u_billing', 'u_controller'):
-            await sign_in(pg, uid); await go(pg, 'home')
+            await sign_in(pg, uid); await go(pg, 'home'); await quiet_open(pg)
             t = await pg.evaluate("() => view === 'home' ? [!!document.querySelector('.view.on .td-home .td-tabs'), document.querySelectorAll('.view.on [data-tdpulse]').length, +document.querySelector('.view.on [data-tdcount]').dataset.tdcount, tdyModel().all.length] : null")
             want = {'u_chen': 0, 'u_billing': 1, 'u_controller': 2}[uid]  # billing: Overdue AR; the controller: Safe to Spend and Overdue AR
             c.ok(t and t[0] and t[1] == want and t[2] == t[3], f'{uid}: Home is their Today, with {want} Pulse numbers and All = their queue ({t})')

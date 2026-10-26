@@ -130,8 +130,13 @@ const its = (els, f) => els.filter(vis).map(f).filter(Boolean);
 const btns = (el, sel) => [...el.querySelectorAll(sel || 'button')].filter(vis).map(b => ({ label: norm(b.innerText || b.getAttribute('aria-label')), el: b })).filter(v => v.label);
 const COLLECT = {
   home: R => {
-    if (R.querySelector('.td-home')) return its([...R.querySelectorAll('.td-do .td-card')], el => ({ sec: 'Do Now', kind: el.dataset.kind, text: norm(el.querySelector('.td-txt').innerText), verbs: btns(el, '[data-tdverb]') }))
-      .concat(its([...R.querySelectorAll('.td-catch .td-card')], el => ({ sec: 'Caught for You', kind: el.dataset.src, text: norm(el.querySelector('.td-txt').innerText), verbs: btns(el, '[data-tdcatch]') })))
+    // the rebuilt Today (today2.js, the approved mockups): on the desktop the selected row carries no button of its
+    // own; its verb is the side panel's blue button ([data-td2lead]), and a lead button reads "Approve, $9,740" (the
+    // verb and the amount): the person reads Approve. Missing either, the actor never pressed the first row.
+    const tdV = el => { const own = btns(el, '[data-tdverb]'), lead = el.classList.contains('sel') ? btns(R, '.td2-aside [data-td2lead]') : [];
+      return own.concat(lead).map(v => Object.assign(v, { label: v.label.replace(/,\s*[−-]?\$[\d,.]+$/, '') })); };
+    if (R.querySelector('.td-home')) return its([...R.querySelectorAll('.td-do .td-card')], el => ({ sec: 'Do Now', kind: el.dataset.kind, text: norm((el.querySelector('.td-txt, .td2-what') || el).innerText), verbs: tdV(el) }))
+      .concat(its([...R.querySelectorAll('.td-catch .td-card')], el => ({ sec: 'Caught for You', kind: el.dataset.src, text: norm((el.querySelector('.td-txt, .td2-what') || el).innerText), verbs: btns(el, '[data-tdcatch]') })))
       .concat(its([...R.querySelectorAll('section, .td-sec')].filter(s => /needs your hand/i.test(norm((s.querySelector('h2,h3') || {}).innerText))).flatMap(s => [...s.querySelectorAll('.td-card, .card, li')]),
         el => ({ sec: 'Needs Your Hand', kind: 'hand', text: norm(el.innerText).slice(0, 240), verbs: btns(el) })));
     return its([...R.querySelectorAll('.h4c')].flatMap(card => [...card.querySelectorAll('.h4r[data-ea]')].map(el => [card, el])).map(x => x[1]), el => {
@@ -169,7 +174,12 @@ M.open = (s, force) => { const v = VIEWOF[s] || s;
   // every catch (tdCatchAll). Reading only five hid the Tino date, the deposits to record and the client credit.
   // M.topFive (month_sim --top5) reads only the five cards Do Now shows before "N more": the second measure, a busy
   // person who reads the top of the list and nothing below it.
-  if (s === 'home') { try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = !M.topFive; } catch (e) {} }
+  // The approved Today (2026-10-25) keeps Caught for You, the Pulse and the brief behind the quiet line at the foot:
+  // the whole-list reader opens it, as it opens "N more"; the busy person (--top5) reads the first screen only.
+  // (a sign-in folds both again, today2.js's signIn: a change redraws, or the reader reads the folded page)
+  if (s === 'home') { let was = ''; try { was = `${tdyAllOpen}|${td2QuietOpen}`; } catch (e) {}
+    try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = !M.topFive; } catch (e) {} try { td2QuietOpen = !M.topFive; } catch (e) {}
+    try { if (was !== `${tdyAllOpen}|${td2QuietOpen}` && view === v) force = true; } catch (e) {} }
   if (s === 'mapprove') window.mApprKind = 'all';
   if (force || view !== v || document.querySelector('#mbm') || document.querySelector('#drawer.on') || s === 'close') M.go(v);
   if (s === 'close') { const t = [...M.root().querySelectorAll('button, [role=tab]')].find(b => norm(b.innerText) === 'Close'); t && t.click(); }

@@ -29,8 +29,11 @@ MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id, held
            pred: PRED.waitingOnMe.count(), me: currentUser().id, n: tkTasksN(),
            taskOwners: M.tasks.filter(it => it.t).map(it => [it.t.ownerUid, it.t.offeredToUid]), buy: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyChip: (M.buy || []).map(k), role: role(),
            soon: tkSoonFor().map(x => 'tdyTask:' + tdyKeyOf(x)),
-           // All: approvals, inbox, offered, the tasks no approval stands for, the orders, the minutes
-           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)) }; }"""
+           // All: approvals, inbox, offered, the tasks no approval stands for, the orders, the minutes, and what a
+           // detector caught that is the person's one tap (today2.js TD2_CATCH_ROWS: billing's past-due chases, the
+           // owner's over-PO decisions and follow-ups), each once
+           catchRows: (M.catch || []).map(k),
+           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k), (M.catch || []).map(k)) }; }"""
 
 # every row of the current filter, opened in full ("N more" expands in place, or names the full page)
 ROWS = """async () => { const v = document.querySelector('.view.on'); const sec = v.querySelector('.td-do');
@@ -51,7 +54,7 @@ async def union_and_counts(c, pg, uid, tag):
     c.ok(on, f'{tag}: Home is Today, with its filters')
     if not on: return
     m = await pg.evaluate(MODEL)
-    parts = m['appr'] + m['inbox'] + m['tasks'] + m['buyChip']
+    parts = m['appr'] + m['inbox'] + m['tasks'] + m['buyChip'] + m['catchRows']
     c.ok(len(parts) == len(set(parts)), f'{tag}: an item sits in two filters: {[k for k in set(parts) if parts.count(k) > 1][:4]}')
     c.ok(len(m['all']) == len(set(m['all'])) and sorted(m['all']) == sorted(set(m['allWant'])), f"{tag}: All ({len(m['all'])}) holds each thing once: Approvals, Inbox, offered, the tasks no approval stands for, the orders ({len(set(m['allWant']))})")
     c.ok(len(m['appr']) == m['pred'], f"{tag}: Approvals {len(m['appr'])} vs PRED.waitingOnMe {m['pred']}")
@@ -72,22 +75,24 @@ async def union_and_counts(c, pg, uid, tag):
         ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
         c.ok(ev is None or ev == len(m['appr']), f"{tag}: the Approvals page's Everything {ev} vs Today's Approvals {len(m['appr'])}")
     if tag == 'coord':
-        # the coordinator owes the orders: the Buy Board lines late or due this week are Today's Buy Board chip, with
-        # Order (they are not tasks: taskfix #1)
+        # the coordinator owes the orders: the Buy Board lines late or due this week are rows of her Today, with Order
+        # (they are not tasks: taskfix #1). The approved Today mockup (2026-10-25) gives her All, Late and Waiting, so the
+        # orders are read from All opened in full, not from a Buy Board chip
         await go(pg, 'home'); await pg.wait_for_timeout(200)
-        await pg.click('.view.on [data-tdytabbtn="buy"]'); await pg.wait_for_timeout(300)
-        buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.querySelector('[data-tdverb]').innerText.trim(), e.dataset.ea || ''])")
-        # procurement P1: the chip is the Buy Board's one reader (late or due to order this week), each with its next
-        # step: Order a line still to buy, Fix a late promise, Decide one held by a decision, Ask for Bids on a sub scope
-        # with no sub, Open the rest (a field request); Order is still the order sheet
+        await pg.evaluate(ROWS); await pg.wait_for_timeout(200)
+        buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.dataset.verb, e.dataset.ea || ''])")
+        # procurement P1: each Buy Board line she owes carries its next step: Order a line still to buy, Fix a late promise,
+        # Decide one held by a decision, Ask for Bids on a sub scope with no sub, Open the rest; Order is still the order sheet
         steps = {'Order': 'order', 'Decide': 'dec', 'Fix': 'fix', 'Ask for Bids': 'bids', 'Open': 'board'}
-        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in steps and steps[v] in ea for v, ea in buy) and any(v == 'Order' for v, ea in buy), f"coord: the Buy Board lines he owes are Today's Buy Board chip, each with its next step ({len(m['buyChip'])}: {buy[:3]})")
+        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in steps and steps[v] in ea for v, ea in buy) and any(v == 'Order' for v, ea in buy), f"coord: the Buy Board lines she owes are rows of her Today, each with its next step ({len(m['buyChip'])}: {buy[:3]})")
         if buy:
-            await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"] [data-tdverb]')].find(x => x.innerText.trim() === 'Order'); b && b.click(); }"); await pg.wait_for_timeout(400)
+            # on the desktop the selected row's verb is the side panel's blue button (the approved Today, Main), not a
+            # button on the row: the person presses the row's own Order, or the panel's when that row is the one selected
+            await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].find(x => x.dataset.verb === 'Order'); const v = b && (b.querySelector('[data-tdverb]') || (b.classList.contains('sel') && document.querySelector('.view.on [data-td2lead]'))); v && v.click(); }"); await pg.wait_for_timeout(400)
             t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
             c.ok(t.startswith('Order'), f'coord: Order opens the PO sheet on the line ({t!r})')
             await pg.evaluate("() => mbCloseModal()")
-        await pg.click('.view.on [data-tdytabbtn="all"]'); await pg.wait_for_timeout(200)
+        await pg.evaluate("() => { tdyAllOpen = false; render(); }"); await pg.wait_for_timeout(200)
     if tag in ('owner', 'pm'):
         c.ok(m['team'] is not None, f'{tag}: a manager has Team')
     else:
@@ -142,7 +147,10 @@ async def five_sources(c, pg):
     await go(pg, 'home'); await pg.wait_for_timeout(200)
     sh = await pg.evaluate("""() => { const t = tkAll({ open: true }).find(x => /Lane src schedule/.test(x.title)); tdyTaskSheet(t);
       const m = document.getElementById('mbm'); const s = m ? m.innerText : ''; mbCloseModal(); return s; }""")
-    c.ok('From' in sh and '121 State Street' in sh and 'Owner' in sh, f'the task sheet names its source and owner: {sh[:160]!r}')
+    # the one task sheet (src/tasks.js, taskfix 2026-10-25) names its source in its head line ("STA-27 · 121 State
+    # Street", the job's code and name) and its owner under Owner; it has no "From" label any more
+    head = ' '.join(sh.split('\n')[:3])
+    c.ok(re.match(r'^[A-Z]{2,4}-\d+ · 121 State Street', head) and 'Owner' in sh, f'the task sheet names its source and owner: {sh[:160]!r}')
 
 
 async def handoffs(c, pg):

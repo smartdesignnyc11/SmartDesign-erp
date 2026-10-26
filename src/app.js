@@ -3724,7 +3724,7 @@ function grid(opts) {
         rs.map((r) => trow(r)).join("");
   } else body = rows.map((r) => trow(r)).join("");
   function trow(r) {
-    return `<tr class="${r.sev >= 2 ? "sev" + r.sev : ""}" ${r.edit ? `data-edit="${r.edit}"` : ""} title="${esc(r.title || "")}">${cols.map((c) => `<td class="${c.type || ""} ${c.cls || ""}" ${"status" !== c.type && "date" !== c.type && "money" !== c.type ? `title="${esc(String(r._v[c.key]?.text ?? r._v[c.key] ?? ""))}"` : ""}>${((c, v) => (v && "object" == typeof v && "html" in v ? v.html : "date" === c.type ? (v ? fmt(v) : '<span class="muted">—</span>') : v && "object" == typeof v && "text" in v && "status" !== c.type ? esc(v.text) : "money" === c.type ? ("" === v || null == v ? "" : money("object" == typeof v ? (v.sort ?? v.text) : v)) : "status" === c.type ? (v ? `<span class="pill ${pillClass(v.cls || v)}">${esc(v.text || v)}</span>` : "") : esc(v ?? "")))(c, r._v[c.key])}</td>`).join("")}</tr>`;
+    return `<tr class="${r.sev >= 2 ? "sev" + r.sev : ""}" ${r.edit ? `data-edit="${r.edit}"` : ""} title="${esc(r.title || "")}">${cols.map((c) => `<td class="${c.type || ""} ${c.cls || ""}" ${"status" !== c.type && "date" !== c.type && "money" !== c.type ? `title="${esc(String(r._v[c.key]?.text ?? r._v[c.key] ?? ""))}"` : ""}>${((c, v) => (v && "object" == typeof v && "html" in v ? ("function" == typeof dgSubSep ? dgSubSep(v.html) : v.html) : "date" === c.type ? (v ? fmt(v) : '<span class="muted">—</span>') : v && "object" == typeof v && "text" in v && "status" !== c.type ? esc(v.text) : "money" === c.type ? ("" === v || null == v ? "" : money("object" == typeof v ? (v.sort ?? v.text) : v)) : "status" === c.type ? (v ? `<span class="pill ${pillClass(v.cls || v)}">${esc(v.text || v)}</span>` : "") : esc(v ?? "")))(c, r._v[c.key])}</td>`).join("")}</tr>`;
   }
   return `<div class="dg" data-grid="${opts.id}"><div class="dg-tb no-print"><input class="q" placeholder="Search…" value="${esc(st.q)}" data-gq="${opts.id}">${opts.toolbar || ""}<span class="cnt">${rows.length} of ${opts.rows.length}</span></div><div class="dg-scroll">${rows.length ? `<table class="dg-t ${cols.length > 4 && vw() <= 760 ? "wide" : ""}"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>` : `<div class="empty" style="border:0;border-radius:0">${opts.empty || "Nothing matches. Clear the search or a filter above."}</div>`}</div></div>`;
 }
@@ -13542,8 +13542,9 @@ function saveBill() {
         },
         o,
       );
-      DB.bills.push(b),
-        audit("bill", b.id, "created", null, b),
+      const kept = vbAdd(b, { src: "the bill form" });
+      if (kept !== b) return closeEditor(), toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`), void flowGo.bill(kept)();
+      audit("bill", b.id, "created", null, b),
         log(`Bill entered: ${b.vendor} ${b.number || ""} ${money(billTotal(b))}`);
     }
     closeEditor(), save(), render();
@@ -33282,8 +33283,8 @@ function releaseRetainage(v, projectId, ok2) {
     ],
     notes: "Retainage release — requires final unconditional lien waiver.",
   };
-  DB.bills.push(b),
-    audit("bill", b.id, "retainage-release", "", String(amt), `${v.name} ${money(amt)}`),
+  if (vbAdd(b, { src: "the retainage release" }) !== b) return void toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`);
+  audit("bill", b.id, "retainage-release", "", String(amt), `${v.name} ${money(amt)}`),
     save(),
     render(),
     toast(`${b.number} submitted for approval`);
@@ -37126,7 +37127,7 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind);
+const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId));
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -37140,7 +37141,7 @@ function proposalsHtml(list, title) {
                 ? `${target?.number || "PO"} · ${esc(target?.vendor || "")} · ordered ${money(target ? poTotal(target).total : 0)}`
                 : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · billed ${money(target ? billTotal(target) : 0)} · ${esc(payCheckWord(target))}`,
             chk = "bill" === P.kind && target ? payCheck(t, target) : null;
-          return `<div class="prop-row${chk && chk.over > 0.005 ? " pay-over" : ""}"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div>${chk ? `<div class="small ${chk.over > 0.005 ? "bad-t" : "muted"}">Paid ${money(chk.paid)} · approved ${money(chk.approved)}${chk.prior ? ` · ${money(chk.prior)} paid before` : ""}${chk.over > 0.005 ? ` · ${money(chk.over)} over what was approved` : ""}</div>` : ""}<div class="small muted">${P.why}</div></div><div class="prop-acts">${chk && chk.over > 0.005 ? `<button class="btn sm primary" data-mreview="${target.id}">Review the ${money(chk.over)} Over</button>` : `<button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button>`}<button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
+          return `<div class="prop-row${chk && chk.over > 0.005 ? " pay-over" : ""}"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${"function" == typeof vbMatchWords ? vbMatchWords(t) : money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div>${chk ? `<div class="small ${chk.over > 0.005 ? "bad-t" : "muted"}">Paid ${money(chk.paid)} · approved ${money(chk.approved)}${chk.prior ? ` · ${money(chk.prior)} paid before` : ""}${chk.over > 0.005 ? ` · ${money(chk.over)} over what was approved` : ""}</div>` : ""}<div class="small muted">${P.why}</div></div><div class="prop-acts">${chk && chk.over > 0.005 ? `<button class="btn sm primary" data-mreview="${target.id}">Review the ${money(chk.over)} Over</button>` : `<button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button>`}<button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
         })
         .join("")}</div>`
     : "";
@@ -37200,7 +37201,7 @@ function wireProposals(root) {
               confirmMatch(t, w), render(), toast("Match confirmed", txnOpen(t));
             },
           );
-        confirmMatch(t), render(), toast("Match confirmed", txnOpen(t));
+        (window.vbMatchSaid = ""), confirmMatch(t), render(), toast(window.vbMatchSaid || "Match confirmed", txnOpen(t)), (window.vbMatchSaid = "");
       }),
   ),
     (root || document).querySelectorAll("[data-mreject]").forEach(
@@ -38570,13 +38571,12 @@ function billFromPO(po) {
         amount: +po.shipping,
         code: po.lines[0]?.code || "",
       }),
-    DB.bills.push(b),
-    audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
+    vbAdd(b, { src: "Bill This PO" }) !== b ? void (toast(`${(vbAdd.last && vbAdd.last.why) || "It is on file"}: nothing entered`), flowGo.bill(vbAdd.last.bill)()) : (audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
     log(`Bill drafted from ${po.number} — ${money(billTotal(b))}`),
     save(),
     "object" == typeof ROLE_VIEWS && (ROLE_VIEWS[role()] || []).includes("ap") && (view = "ap"),
     render(),
-    setTimeout(() => openBill(b.id), 60);
+    setTimeout(() => openBill(b.id), 60));
 }
 poAction = function (po, a) {
   const by = S.project.userName || role(),
@@ -61650,6 +61650,9 @@ function biToBill(inv, po, findings) {
         findings: (findings || []).map((f) => ({ sev: f.sev, kind: f.kind, msg: f.msg })),
       },
     };
+  // the same invoice already on file is that bill (vbFind, the one duplicate check for every bill path)
+  const vbHit = vbFind({ vendor: b.vendor, number: b.number, amount: inv.total, date: b.date });
+  if (vbHit && vbHit.exact) return vbHit.bill;
   return (
     inv.tax && b.lines.push({ id: uid("bl"), desc: "Sales tax", amount: inv.tax, code: "", line: "" }),
     inv.freight &&
@@ -61660,7 +61663,7 @@ function biToBill(inv, po, findings) {
         code: codes[0] || "",
         line: lineKeys[0] || "",
       }),
-    DB.bills.push(b),
+    vbAdd(b, { src: "the invoice inbox" }),
     audit("bill", b.id, "ingested", null, {
       vendor: b.vendor,
       number: b.number,
@@ -73734,6 +73737,13 @@ function cmApply(c, p) {
     cmTask(`Enter ${p.vendor || "the vendor"}'s invoice${p.number ? " " + p.number : ""} from the PDF — the amount was not read`, R.projectId, "Billing"),
       (did = "task to enter it from the PDF — the amount was not read, so no bill was written");
   } else if ("bill" === p.kind) {
+    // A person's Apply opens the bill, filled in from the invoice, and enters nothing until they say so (vbReviewMail,
+    // Pilot 2: one tap had posted SE-0922 as paid with no one seeing its code, line or bank match). A bulk apply
+    // never enters bills (cmApplyAll skips them); this path stays for any caller that applies without a screen.
+    if (!window.__cmBulk && "function" == typeof vbReviewMail) {
+      const said = vbReviewMail(c, p);
+      if (said) return said;
+    }
     DB.bills = DB.bills || [];
     const b = {
       id: uid("b"),
@@ -73757,12 +73767,15 @@ function cmApply(c, p) {
     // the PO line, so Bill Remaining and the over-PO flag count it (purchasing section).
     const poFor = cmBillPO(c, p);
     poFor && poLinkBill(b, poFor);
+    const kept = vbAdd(b, { src: "the mail reader", txnId: p.txnId || "" });
+    if (kept !== b) return (p.applied = `already on file as ${kept.number || "a bill"}: nothing entered`), (p.appliedAt = appNowIso()), (p.by = by), p.applied;
     if (p.txnId) {
+      // the payment the invoice names is linked the one way every bank line is (truthSetMatch): the line's proposal
+      // goes, and the bill reads paid before approval until someone approves it
       const t = (DB.txns || []).find((x) => x.id === p.txnId);
-      t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
+      t && !t.billId && truthSetMatch(t, { billId: b.id }, { why: "the payment the vendor's invoice names", earlyWhy: "the vendor's invoice names this payment" });
     }
-    DB.bills.push(b),
-      DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
+    DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
       (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
   } else if ("money" === p.kind || "bankline" === p.kind) {
@@ -73789,6 +73802,10 @@ function cmApply(c, p) {
           "Controller",
         ),
       (did = p.clientId ? "logged on the client" : "watching for the money");
+  else if ("deposit" === p.kind && "function" == typeof vbDepositApply)
+    // a client's "the money is sent" is linked to its bank line when the bank has it, else it is expected money:
+    // never a payment and never a task to record one (vbDepositApply, Pilot 2)
+    p.clientId && cmActivity(p.clientId, p.summary), (did = vbDepositApply(c, p));
   else if ("deposit" === p.kind)
     p.task && cmTask(p.task, "", "Controller"),
       p.clientId && cmActivity(p.clientId, p.summary),
@@ -122386,8 +122403,9 @@ if (
               retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
               taxStatus: po.taxStatus || "none",
             };
+            if (!vbGate(b, document.getElementById("mbm"))) return !1;
             billLinesNorm(b),
-              DB.bills.push(b),
+              vbAdd(b, { src: "Bill It", allowDup: !0 }),
               audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
               log(`Bill ${b.number} from ${po.number} — ${money(billTotal(b))}`),
               save(),
@@ -124891,18 +124909,8 @@ function finControllerHome() {
     ) || (views.includes("gl") ? "gl" : "bank")
   );
 }
-if ("function" == typeof signIn && "object" == typeof IA_HOME) {
-  const signInBase_fin = signIn;
-  signIn = function (userId) {
-    const u = (DB.users || []).find((x) => x.id === userId);
-    return (
-      u &&
-        "controller" === u.role &&
-        ((IA_HOME.controller = finControllerHome()), "gl" === IA_HOME.controller && (glTab = "overview")),
-      signInBase_fin.apply(this, arguments)
-    );
-  };
-}
+// (the controller's first page is MENU.controller.home, read into IA_HOME below; the sign-in wrapper that reset it to
+// the ledger or Banking was folded away 2026-10-25, when the Today mockups made Today every office role's first screen)
 const OPS_KINDS = {
   dec: "Decision",
   iss: "Field item",
@@ -131073,6 +131081,7 @@ function lkBillDialog(po, o) {
           retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
           taxStatus: po.taxStatus || "none",
         };
+        if (!vbGate(b, document.getElementById("mbm"))) return !1;
         o.over &&
           ((b.overPO = {
             reason: o.over.reason,
@@ -131089,7 +131098,7 @@ function lkBillDialog(po, o) {
             note: o.over.reason,
           })),
           billLinesNorm(b),
-          DB.bills.push(b),
+          vbAdd(b, { src: "Bill It", allowDup: !0 }),
           audit(
             "bill",
             b.id,
@@ -139508,13 +139517,24 @@ function pay3HeldCost(b) {
   return s && "accepted" !== s.state ? r2(+s.held || 0) : 0;
 }
 const pay3Short = (b) => !!(b && b.short && +b.short.held > 0);
+// What is left on the bill's PO for this bill. The other bills count when they are committed (approved, paid, held,
+// or paid before approval) or come before this one (by bill date, then entry order); a later bill still waiting does
+// not. Counting every other bill flagged each of two waiting bills "$340 over" for one $340 overage (two Caught for
+// You rows, the overage twice in the leak sum), and the dispute landed on whichever the owner opened first, the
+// earlier CM-0102, not CM-0109 that took PO-2026-048 over its $76,000 (month walk E216).
 function pay3PO(b) {
   const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
   if (!po) return null;
-  const total = poTotal(po).total,
+  const B = DB.bills || [],
+    waiting = (x) => ["submitted", "pm-approved"].includes(x.status) && !("function" == typeof billPaidUnapproved && billPaidUnapproved(x)),
+    before = (x) => {
+      const a = String(x.date || ""),
+        c = String(b.date || "");
+      return a < c || (a === c && B.indexOf(x) < B.indexOf(b));
+    },
+    total = poTotal(po).total,
     other = r2(
-      (DB.bills || [])
-        .filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status))
+      B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)))
         .reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0),
     ),
     received =
@@ -173927,165 +173947,8 @@ function tdBriefLines() {
   return out;
 }
 
-// ---- the page
-function tdRender() {
-  const root = homeRoot();
-  if (!root) return;
-  tdCtx = null;
-  // Today (lane "today", 2026-10-19): one queue per person. The list is the person's Approvals, Inbox and Tasks,
-  // each item in exactly one of them; All is their union in the Standard's order; Team is a manager's who-owes-what.
-  const r = role(),
-    pulse = (TD_PULSE[r] || []).filter((t) => !(t.money && tdNoMoney())).map((t) => {
-      let v = 0;
-      try {
-        v = tdPulseValue(t);
-      } catch (e) {
-        console.warn("pulse", t.k, e);
-      }
-      return { t: t, v: v };
-    }),
-    M = tdyModel(),
-    tabs = TDY_TABS.filter(([k]) => ("team" !== k || M.team) && ("buy" !== k || M.buy)),
-    tab = tabs.some(([k]) => k === tdyTabOf()) ? tdyTabOf() : "all",
-    Q = M[tab] || [],
-    MORE = { appr: ["Open the Approvals Page", "mapprove"], inbox: ["Open the Inbox", "comms"], tasks: ["Open All Tasks", "tkall"], buy: ["Open the Buy Board", "proc"] },
-    // tasks offered to me wait on my yes: one line above the Tasks rows, as on the Tasks list (not counted as tasks)
-    offerL = "tasks" === tab ? M.offered || [] : [],
-    offerHtml = offerL.length
-      ? `<button type="button" class="tk2-offer td-offer" data-tdyoffer><span class="tk2-offer-n">${offerL.length}</span><span class="grow">${1 === offerL.length ? `${esc(tkFirst(offerL[0].t.owner) || "Someone")} offered you “${esc(tdWords(offerL[0].title, 7))}”` : `${offerL.length} tasks offered to you`}</span><b>Review</b></button>`
-      : "",
-    more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
-    // a filter is its whole list, in place; All shows the first five and "N more" opens the rest in place
-    // All shows its first five; so does the filter Today opened on by itself (the owner's Approvals when something
-    // waits on him, p2nav): the phone's first screen stays within its budget, and "N more" opens the rest in place
-    fold = "all" === tab || tdyLanding === tab,
-    top = (!fold || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
-    caught = tdCaught(M.appr),
-    // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
-    shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
-    brief = tdBriefLines(),
-    ic = (d) =>
-      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  root.innerHTML = `<div class="td-home" data-tdrole="${r}">
-  <div class="ph td-ph"><div><h2>Home</h2></div></div>
-  ${pulse.length ? `<div class="td-pulse">${pulse
-    .map(
-      ({ t: t, v: v }) =>
-        `<a href="#" class="td-pl ${t.tone ? t.tone(v) : ""}" data-tdpulse="${t.k}" data-n="${v}"><b>${t.money ? esc(tdMoney(v)) : v}</b><span>${esc(t.label)}</span></a>`,
-    )
-    .join("")}</div>` : ""}
-  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now" data-tdytab="${tab}"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div><div class="td-tabs" role="tablist">${tabs
-    .map(([k, n]) => `<button type="button" role="tab" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}" data-tdytabbtn="${k}">${n}${"team" === k ? "" : `<span class="n">${(M[k] || []).length}</span>`}</button>`)
-    .join("")}</div>${offerHtml}${
-    top.length
-      ? top
-          .map(
-            (c, i) =>
-              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"${c.ea ? ` data-ea='${esc(JSON.stringify(c.ea))}'` : ""}><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
-          )
-          .join("")
-      : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "Nothing of yours is late or due in the next 7 days.", buy: "Nothing is late to order or due to order this week.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
-  }${
-    fold && Q.length > top.length
-      ? `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
-      : more && Q.length
-        ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
-        : "all" === tab && tdyAllOpen && Q.length > 5
-          ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
-          : ""
-  }</section>
-  <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
-    shownC.length
-      ? shownC
-          .map(
-            (x, i) =>
-              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(tdWords(x.what, 7))}</div><div class="td-l2">${esc(tdWords(x.sub, 8))}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
-          )
-          .join("")
-      : '<div class="td-empty">Nothing caught today.</div>'
-  }${(tdCatchAll ? caught.length > 4 : caught.length > shownC.length) ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - shownC.length} more`}</a>` : ""}</section>
-  <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
-    tdBriefFull
-      ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
-          .map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`)
-          .join("")}</div></div><a href="#" class="td-more" data-tdbrief>Shorter</a>`
-      : `${brief.length ? `<ul class="td-bl">${brief.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}<a href="#" class="td-more" data-tdbrief>Read the Full Brief</a>`
-  }</section></div></div></div>`;
-  const P = TD_PULSE[r] || TD_PULSE.owner;
-  root.querySelectorAll("[data-tdpulse]").forEach(
-    (a) =>
-      (a.onclick = (e) => {
-        e.preventDefault();
-        const t = P.find((x) => x.k === a.dataset.tdpulse);
-        t && tdPulseOpen(t);
-      }),
-  );
-  root.querySelectorAll(".td-do .td-card").forEach((el, i) => {
-    const c = top[i];
-    if (!c) return;
-    const a = el.querySelector("[data-tdrec]");
-    a &&
-      (a.onclick = (e) => {
-        e.preventDefault(), c.go();
-      });
-    el.querySelector("[data-tdverb]").onclick = (e) => {
-      e.preventDefault(), c.run();
-    };
-  });
-  root.querySelectorAll("[data-tdcatch]").forEach(
-    (b) =>
-      (b.onclick = (e) => {
-        e.preventDefault();
-        const x = shownC[+b.dataset.tdcatch];
-        x && x.run();
-      }),
-  );
-  const all = root.querySelector("[data-tdall]");
-  all &&
-    (all.onclick = (e) => {
-      e.preventDefault(), (window.mApprKind = "all"), setView("mapprove");
-    });
-  root.querySelectorAll("[data-tdytabbtn]").forEach(
-    (b) =>
-      (b.onclick = (e) => {
-        e.preventDefault(), tdyTabSet(b.dataset.tdytabbtn), render();
-      }),
-  );
-  const tmore = root.querySelector("[data-tdymore]");
-  tmore &&
-    (tmore.onclick = (e) => {
-      e.preventDefault();
-      const v = tmore.dataset.tdymore;
-      "tkall" === v && ((tkWho = "me"), (tkShow = "open"));
-      setView(v);
-    });
-  const toff = root.querySelector("[data-tdyoffer]");
-  toff &&
-    (toff.onclick = (e) => {
-      e.preventDefault();
-      1 === offerL.length ? tkSheet(offerL[0].t.key) : ((tkWho = "me"), (t2View = "week"), setView("tkall"));
-    });
-  const topen = root.querySelector("[data-tdyopen]");
-  topen &&
-    (topen.onclick = (e) => {
-      e.preventDefault(), (tdyAllOpen = !tdyAllOpen), render();
-    });
-  // the Standard's "because" line under each card reads the rows shown, in the order shown
-  try {
-    stdLastQueue = "team" === tab ? [] : top.map((c) => c.it);
-  } catch (e) {}
-  const ca = root.querySelector("[data-tdcatchall]");
-  ca &&
-    (ca.onclick = (e) => {
-      e.preventDefault(), (tdCatchAll = !tdCatchAll), render();
-    });
-  const br = root.querySelector("[data-tdbrief]");
-  br &&
-    (br.onclick = (e) => {
-      e.preventDefault(), (tdBriefFull = !tdBriefFull), render();
-    });
-  tdCtx = null;
-}
+// ---- the page: tdRender is src/today2.js (the approved Today mockups, 2026-10-25). The Pulse, Caught for You and the
+// brief above are its parts; the "because" line (once a wrapper here) is the lead row's note there.
 // The Pulse prints to the cent below $100k (the Statements cash card's safe-to-spend, −$4,150.74), in $k above.
 const tdMoneyC = (v) => ((+v || 0) < -0.004 ? "−" : "") + money2(Math.abs(+v || 0)),
   tdMoney = (v) => {
@@ -175407,20 +175270,6 @@ const stdWhyHtml = (it) => {
     return "";
   }
 };
-{
-  const base = tdRender;
-  tdRender = function () {
-    const r = base.apply(this, arguments);
-    try {
-      const root = homeRoot(),
-        put = (el, it) => it && !el.querySelector(".ch-why") && el.querySelector(".td-txt") && el.querySelector(".td-txt").insertAdjacentHTML("beforeend", stdWhyHtml(it));
-      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, (tdShownC.length ? tdShownC : stdLastCaught)[i])));
-    } catch (e) {
-      console.warn("standard home", e);
-    }
-    return r;
-  };
-}
 {
   const base = renderMApprove;
   renderMApprove = function () {
@@ -186988,6 +186837,8 @@ function nyhMarkCopies(c, pr, did) {
   });
 }
 function nyhApplyMail(c, pr) {
+  // a vendor invoice opens the bill review; it is marked applied only when the bill is entered (vbPost)
+  if (pr && "bill" === pr.kind && !pr.applied && "function" == typeof vbReviewable && vbReviewable(c, pr)) return void vbReviewMail(c, pr);
   let did = "";
   try {
     did = cmApply(c, pr) || "";
@@ -187607,7 +187458,6 @@ window.addEventListener(
           (d.innerHTML = nyhCardHtml(nyhRows())), first.parentNode.insertBefore(d.firstElementChild, first);
         }
       }
-      v && "function" == typeof tdOn && tdOn() && lnCalTd(v);
     } catch (e) {
       console.warn("needs your hand home", e);
     }
@@ -188395,7 +188245,8 @@ function lkBillFromTxn(t, nb) {
       txnId: t.id,
       paidBeforeApproval: !0,
     };
-  (DB.bills = DB.bills || []).push(b);
+  const kept = vbAdd(b, { src: "the bank line's Confirm", txnId: t.id });
+  if (kept !== b) return kept;
   try {
     audit("bill", b.id, "created", "", `${b.vendor} ${money(billTotal(b))}`, `entered from the bank line ${t.desc}`);
   } catch (e) {}
@@ -191197,6 +191048,8 @@ function trkBillFromDoc(id) {
   if (!d || !po) return toast("That invoice is not filed on an order"), null;
   const had = d.links.billId && trkBill(d.links.billId);
   if (had) return flowGo.bill(had)(), had;
+  const vbHit = vbFind({ vendor: po.vendor, number: (d.fields || {}).number, amount: (d.fields || {}).total, date: (d.fields || {}).date || today() });
+  if (vbHit && vbHit.exact) return (d.links.billId = vbHit.bill.id), save(), rcToast(`${vbHit.why}: the invoice is filed on it, nothing entered`, [{ label: "Open", run: flowGo.bill(vbHit.bill) }]), flowGo.bill(vbHit.bill)(), vbHit.bill;
   const F = d.fields || {},
     low = new Set(trkUnconfirmed(d)),
     v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
@@ -191233,7 +191086,7 @@ function trkBillFromDoc(id) {
     unconfirmed: [...low],
     readTotal: null != F.total ? +F.total : null,
   };
-  DB.bills.push(b), (d.links.billId = b.id);
+  vbAdd(b, { src: "Enter the Bill on a filed invoice" }), (d.links.billId = b.id);
   try {
     audit("bill", b.id, "entered-from-invoice", "", `${F.number || ""} on ${po.number}`, trkWho());
   } catch (e) {}
@@ -196902,7 +196755,7 @@ function fndEach(fn) {
   (DB.outbox || []).forEach((r) => r && fn("outbox", r, null));
   (DB.bankImports || []).forEach((r) => r && fn("bankImports", r, null));
   ((DB.calendar || {}).external || []).forEach((r) => r && fn("calendar.external", r, null));
-  ((DB.gl || {}).journals || []).forEach((r) => r && fn("gl.journals", r, null));
+  ((DB.gl || {}).journals || []).forEach((r) => r && "txn" !== r.sourceType && fn("gl.journals", r, null));
 }
 const fndKey = (coll, r) => coll + ":" + (r.id || r.number || "");
 function fndKeys() {
@@ -198186,8 +198039,15 @@ function tdyModel() {
   try {
     mail = may("comms") && "function" == typeof cmListFor ? cmListFor("open") : [];
   } catch (e) {}
-  const inbox = mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem);
-  inbox.forEach((it) => held.add("comm:" + it.id));
+  // the team lines addressed to the person (a direct line, an @mention; p2nav N3) are read first, then the mail
+  let chat = [];
+  try {
+    chat = "function" == typeof p2nChatItems ? p2nChatItems() : [];
+  } catch (e) {
+    console.warn("today chat", e);
+  }
+  const inbox = chat.concat(mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem));
+  inbox.forEach((it) => "tdyMail" === it.kind && held.add("comm:" + it.id));
   // Today's Tasks are the person's Due Soon, the Tasks list's own first view: theirs, late or due in the next 7 days,
   // not put off (taskfix #1, 2026-10-25). It is the one "Tasks" number: the side menu, the sub-tab, this chip, the phone
   // bar and the Tasks page read tkTasksN(), these rows. It used to be a 14-day horizon less what Approvals held, so the
@@ -198219,7 +198079,20 @@ function tdyModel() {
   // All holds each thing once: a task an approval already stands for (an obligation's renewal) is its approval there
   const keys = new Set(offered.map((it) => it.id)),
     allTasks = offered.concat(tasks.filter((it) => !keys.has(it.id) && !it.t.refs.some((k) => held.has(k))));
-  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+  // the minutes of a team meeting the person was in, unread: a thing to read, not a task (on All, never in Tasks)
+  let minutes = [];
+  try {
+    minutes =
+      me.id && "function" == typeof mtMinutesFor
+        ? mtMinutesFor(me).map((m) => {
+            const owe = ((m.minutes.owes || {})[me.name] || []).length;
+            return { kind: "tdyMinutes", id: m.id, src: "meeting", m: m, title: `Minutes: ${m.title}, ${tkDay(m.date)}`, detail: owe ? `you owe ${owe}` : "nothing on you", due: m.date };
+          })
+        : [];
+  } catch (e) {
+    console.warn("minutes on Today", e);
+  }
+  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])).concat(minutes), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
 }
 // The Buy Board lines the coordinator owes today: late (the one late, procurement P1), or due to order this week, read
 // from the Buy Board's one reader (bbTodayItems, src/buyboard.js); the PM gets the late ones on his own jobs.
