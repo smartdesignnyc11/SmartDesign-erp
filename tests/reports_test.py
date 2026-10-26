@@ -60,6 +60,7 @@ DUMP = """() => JSON.stringify({
   DB: {clients: DB.clients, projects: DB.projects.map(p => ({id: p.id, name: p.project.name, clientId: p.clientId, entityId: p.entityId})),
        txns: DB.txns, bills: DB.bills, payroll: DB.payroll, accounts: DB.accounts, pos: DB.pos, time: DB.time,
        employees: DB.employees, entities: DB.entities, gl: DB.gl, stock: DB.stock},
+  bankEvidence: DB.txns.filter(t => typeof bfBacked !== 'function' || bfBacked(t)).map(t => t.id),
   CAT: CATEGORIES.map(c => ({id: c.id, type: c.type})), today: today()})"""
 
 # ---------------------------------------------------------------------------------------------------------------- the books
@@ -68,6 +69,7 @@ class Books:
     def __init__(self, dump):
         d = json.loads(dump)
         self.D, self.today = d['DB'], d['today']
+        self.ev = d.get('bankEvidence') or []
         self.cat = {c['id']: c['type'] for c in d['CAT']}
         self.clients = self.D['clients']
         self.P = {p['id']: p for p in self.D['projects']}
@@ -109,8 +111,65 @@ class Books:
                 if i.get('status') not in ('void', 'draft'): yield c, i
     def invoiced(self, R, pid=None):
         return r2(sum(self.doc_net(i) for c, i in self.live_invoices() if not i.get('retainageRelease') and R[0] <= i['date'] <= R[1] and (pid is None or i.get('projectId') == pid)))
+    def backing(self):
+        """Financial truth (lane 1, 2026-10-26), recomputed here: what of each payment a bank or card line backs.
+        Which lines are the bank's own record is the bank module's reading (bfBacked, in the dump as bankEvidence); the
+        matching is this suite's own: a payment linked to a line is backed by it, a line backing at most its own amount
+        across every payment linked to it; an unlinked payment takes one unused deposit of the same amount (within $1)
+        within 10 days, the nearest first, in date order: one line, one payment."""
+        if getattr(self, '_back', None) is not None: return self._back
+        from datetime import date as _d
+        days = lambda a, b: abs((_d.fromisoformat(a[:10]) - _d.fromisoformat(b[:10])).days)
+        ev = set(self.ev)
+        lines = {t['id']: t for t in self.D['txns'] if float(t.get('amt') or 0) > 0 and t.get('status') != 'void' and t['id'] in ev}
+        room = {k: round(float(t['amt']), 2) for k, t in lines.items()}
+        pays = sorted([q for c in self.clients for q in c['payments'] if float(q.get('amount') or 0) > 0 and not q.get('reverses')], key=lambda q: (q.get('date') or '', q.get('id') or ''))
+        by_pay = {t['paymentId']: t for t in lines.values() if t.get('paymentId')}
+        back, used, linked = {}, set(), set()
+        for q in pays:
+            t = lines.get(q['txnId']) if q.get('txnId') else by_pay.get(q['id'])
+            if not q.get('txnId') and not t: continue
+            linked.add(q['id'])
+            if not t: continue
+            amt = round(min(float(q['amount']), room[t['id']]), 2)
+            room[t['id']] = round(room[t['id']] - amt, 2); used.add(t['id'])
+            if amt > 0.005: back[q['id']] = amt
+        import re as _re
+        owner = {q['id']: c for c in self.clients for q in c['payments']}
+        names = lambda c: [w for w in _re.split(r'[^A-Z]+', (c.get('name') or '').upper()) if len(w) >= 4 and w not in ('FAMILY', 'GROUP', 'HOLDINGS', 'THE')]
+        cand = {}
+        for q in pays:
+            if q['id'] in linked: continue
+            nm, L = names(owner.get(q['id'], {})), []
+            for t in lines.values():
+                if t['id'] in used or (t.get('paymentId') and t['paymentId'] != q['id']) or abs(float(t['amt']) - float(q['amount'])) > 1: continue
+                d = days(q['date'], t['date'])
+                if d <= 10: L.append((0 if any(w in (t.get('desc') or '').upper() for w in nm) else 1, d, t['id'], t))
+            if L: cand[q['id']] = sorted(L, key=lambda x: x[:3])
+        take, holder = {}, {}
+        for pas in (0, 1):   # named lines first, the oldest payment choosing first
+            for q in pays:
+                if q['id'] not in cand or q['id'] in take: continue
+                x = next((y for y in cand[q['id']] if y[0] <= pas and y[2] not in holder), None)
+                if x: take[q['id']] = x[3]; holder[x[2]] = q['id']
+        for q in pays:   # a leftover takes a line from a later payment that has another free line
+            if q['id'] not in cand or q['id'] in take: continue
+            for x in cand[q['id']]:
+                o = holder.get(x[2])
+                alt = o and next((y for y in cand[o] if y[2] != x[2] and y[2] not in holder), None)
+                if alt:
+                    take[o] = alt[3]; holder[alt[2]] = o; take[q['id']] = x[3]; holder[x[2]] = q['id']; break
+        pay_by = {q['id']: q for q in pays}
+        for qid, t in take.items(): back[qid] = round(min(float(pay_by[qid]['amount']), float(t['amt'])), 2)
+        self._back = back
+        return back
+    def banked_amt(self, p):
+        if p.get('reverses'):
+            o = next((q for c in self.clients for q in c['payments'] if q.get('id') == p['reverses']), None)
+            return -self.banked_amt(o) if o else 0
+        return self.backing().get(p.get('id'), 0)
     def collected(self, R):
-        return r2(sum(float(p.get('amount') or 0) for c in self.clients for p in c['payments'] if not p.get('unapplied') and R[0] <= p['date'] <= R[1]))
+        return r2(sum(self.banked_amt(p) for c in self.clients for p in c['payments'] if not p.get('unapplied') and R[0] <= p['date'] <= R[1]))
     def ar(self):
         """Open invoices (balance over $0.50, as the client record keeps them) and the cents short-paid below it."""
         open_, short = [], []
@@ -459,7 +518,9 @@ async def part_cash(p, c):
     c.ok('Unallocated Labor' not in (A['oh'] or {}) and not any('Labor' in k for k in (A['cogs'] or {})), f'cash basis still counts the unpaid payroll run: {A["oh"]} {A["cogs"]}')
     c.ok(A['S']['ok'], 'cash basis: P&L by project does not tie')
     inc = next(t for t in A['T'] if t['id'] == 'income')
-    c.ok(inc['ok'] and abs(inc['parts'][0]['amt'] - 169750) < EPS and abs(inc['parts'][1]['amt'] - 21350) < EPS, f'cash income tie: {inc}')
+    # lane 1 (Financial truth): cash income is what the bank has; Rivera's $21,350, recorded and never seen at the bank,
+    # is outside it, so the income is $169,750 and every dollar of it is a bank line
+    c.ok(inc['ok'] and abs(inc['parts'][0]['amt'] - 169750) < EPS and abs(inc['parts'][1]['amt']) < EPS, f'cash income tie: {inc}')
     t = await pg.evaluate("() => document.getElementById('rep-print-area').innerText")
     c.ok('Cash basis' in t, 'the P&L by project does not say it is cash basis')
     # the payroll run, once paid, is in the cash basis exactly once
@@ -574,7 +635,8 @@ async def part_cash13(p, c):
     b, pg, errs = await page(p)
     F = await pg.evaluate("() => { const F = cashForecast(), B = companyBalance(); return {cash: F.cash, low: F.low, bank: B.cash, und: B.undeposited, weeks: F.weeks.map(w => ({net: w.net, balance: w.balance, items: w.items}))} }")
     items = [i[0] for w in F['weeks'] for i in w['items']]
-    c.ok(abs(F['cash'] - r2(F['bank'] + F['und'])) <= EPS, f'cash today {F["cash"]} = bank + undeposited')
+    # lane 1 (Financial truth): the forecast starts from the bank; a payment recorded, not yet in the bank, is not cash
+    c.ok(abs(F['cash'] - F['bank']) <= EPS, f'in the bank today {F["cash"]} = the bank {F["bank"]} (not + undeposited {F["und"]})')
     c.ok(abs(r2(F['cash'] + sum(w['net'] for w in F['weeks'])) - F['weeks'][-1]['balance']) <= 0.01, 'cash today + the weeks\' net ≠ the last balance')
     c.ok(abs(F['low'] - min(w['balance'] for w in F['weeks'])) <= EPS, '13-week low')
     c.ok(not any(x.startswith('Bill Window Works') or x.startswith('Bill Alberto') for x in items), f'the forecast pays a bill the bank already paid: {[x for x in items if x.startswith("Bill")]}')

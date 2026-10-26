@@ -36,7 +36,11 @@ async def main():
         # rounded to two places (51.67% of $37,800 overstated the windows line's billing by $1.25): the floated windows
         # row is $13,969.99, not $13,968.74, so 47599.99 -> 47601.24. Less the seed's 6.5 designer hours dated 9/4
         # (a day not yet worked, read as ready to bill), removed by pilotfix2: 46301.24.
-        c.ok(r['rtb'] == 46301.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
+        # lane 1, round one (TRIAGE class 2's accept, 2026-10-26): the queue proposes nothing on a job billed ahead of
+        # the work. 121 State is billed $66,470 ahead line by line, so its application ($12,651.25) and the windows'
+        # stored materials (now $10,169.99, delivered less billed: the disputed $3,800 never bills) are held rows with
+        # the reason: 46301.24 / 4 rows / 0 held -> 19680 / 2 rows / 2 held.
+        c.ok(r['rtb'] == 19680 and r['rtbN'] == 2 and r['held'] == 2, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         # Purchasing 10 -> 17 (procurement P1, 2026-10-25): the badge is the Buy Board's one reader, late or due to order
         # this week (PRED.buyNeeds, the coordinator's Buy Board chip on Today), no longer "late to order, held, due this
         # week or waiting on a decision". 16 late: 12 not ordered by their order-by date (the 6 it counted before, plus 2
@@ -44,7 +48,9 @@ async def main():
         # and 4 ordered with a promise after the site needs them (appliances, insulation, white oak flooring, Carlos's
         # millwork); and 1 due this week (the acknowledged tape-and-plastic request; the unacknowledged studs are an
         # Approvals card). The 4 waiting on a decision and not yet late left it.
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
+        # Billing 4 -> 2 (lane 1, 2026-10-26, TRIAGE class 2's accept): 121 State is billed ahead, so its application and
+        # the windows' stored materials are held rows with the reason, not items to bill or send
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 2}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
         # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)

@@ -1231,8 +1231,9 @@ function invoiceStatus(c, x) {
         : "sent";
 }
 function sovBilled(c, sovId, exceptId) {
+  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit)
   return c.invoices
-    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId)
+    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
     .flatMap((i) => i.lines)
     .filter((l) => l.sovId === sovId)
     .reduce((a, l) => a + (+l.pct || 0), 0);
@@ -2544,6 +2545,10 @@ function saveStatus() {
 let lastSaved = "",
   bridgeBackoffUntil = 0;
 function save() {
+  // what the bank backs is decided again after any saved change (payBacking)
+  try {
+    payBackReset();
+  } catch (e) {}
   clearTimeout(saveTimer), (saveTimer = setTimeout(() => persist(0), 1500));
 }
 function saveNow() {
@@ -8924,12 +8929,17 @@ function newDoc(c, kind, opts = {}) {
       (base.title = "Proposal"),
       opts.template &&
         "simple" !== opts.template &&
-        ((base.template = opts.template), (base.terms = "Deposit due at signing; progress invoices net 7"))),
+        ((base.template = opts.template),
+        (base.terms = "Deposit due at signing; progress invoices net 7"),
+        // the contract carries its deposit % (decision 5: 25% by default); the deposit invoice reads it
+        "construction" === opts.template && (base.depositPct = 25))),
     "co" === kind && ((base.scheduleDays = 0), (base.title = "Change order")),
     "invoice" === kind &&
       ((base.mode = opts.mode || "items"),
       (base.due = iso(addDays(today(), 15))),
       (base.retainagePct = ("sov" === opts.mode && +DB.company.ret) || 0),
+      // an application is never a deposit (invIsDeposit); the deposit is its own invoice, stamped true
+      "sov" === base.mode && (base.isDeposit = !1),
       (base.title =
         "sov" === opts.mode
           ? `Progress billing #${c.invoices.filter((i) => "sov" === i.mode).length + 1}`
@@ -9008,8 +9018,11 @@ function renderFinTab(c, f, projs) {
           type: "status",
           w: "100px",
           get: (x) => {
-            const st = "invoice" === kind ? invoiceStatus(c, x) : x.status;
-            return { text: st, cls: st };
+            if ("invoice" === kind) {
+              const s = invoiceStatusShown(c, x);
+              return { text: s.text, cls: s.cls };
+            }
+            return { text: x.status, cls: x.status };
           },
         },
       ],
@@ -9066,7 +9079,8 @@ function renderDocEditor(c, d) {
     editable = "draft" === d.status,
     st = "invoice" === kind ? invoiceStatus(c, d) : d.status,
     flow = DOC_FLOW[kind],
-    fi = flow.indexOf("overdue" === st ? "sent" : st),
+    // Paid is reached when the bank has the money; a payment only recorded leaves it at Sent, with the pill below
+    fi = flow.indexOf("overdue" === st || ("invoice" === kind && "paid" === st && invoiceUnbanked(c, d) > 0.005) ? "sent" : st),
     projOpts = estProjOpts(c, d, editable),
     label = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" }[kind],
     paidOn =
@@ -9100,7 +9114,7 @@ function renderDocEditor(c, d) {
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
             : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
-  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
+  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}${"invoice" === kind && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005 ? `<span class="pill warn" style="margin-left:6px" data-unbanked="${r2(invoiceUnbanked(c, d))}">${money(invoiceUnbanked(c, d))} recorded, not yet in the bank</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
           CT_TEMPLATES,
@@ -9111,7 +9125,7 @@ function renderDocEditor(c, d) {
           )
           .join("")}</select></div>`
       : ""
-  }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
+  }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}${"estimate" === kind && "construction" === d.template ? `<span class="k">Deposit at signing ${editable ? `<input type="number" step="1" min="0" max="100" data-d="depositPct" value="${"function" == typeof ctDepositPct ? ctDepositPct(c, d) : d.depositPct || 0}">%` : `(${"function" == typeof ctDepositPct ? ctDepositPct(c, d) : d.depositPct || 0}%)`}</span><span class="v">${money(r2(((t.sub - t.disc) * ("function" == typeof ctDepositPct ? ctDepositPct(c, d) : +d.depositPct || 0)) / 100))}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
 }
 // "Unsaved changes" means what the editor's own inputs changed and nothing else. The snapshot a document is
 // compared against holds only the fields the editor writes (DOC_EDIT_KEYS): what the app writes on its own
@@ -9380,11 +9394,12 @@ function docActions(c, d, st) {
     // record of something done elsewhere, so it is never the blue button nor the first (cycle walk, dangerous buttons)
     ("draft" === d.status &&
       (h += "estimate" === k ? B("email", "Review and send", "primary") : B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
-    "estimate" === k && "construction" === d.template && "converted" === d.status)
+    "estimate" === k && "converted" === d.status)
   ) {
-    h += c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status)
-      ? B("progress", "New progress invoice", "primary")
-      : B("deposit", "Create deposit invoice", "primary") + B("progress", "New progress invoice");
+    // the signed contract's deposit is its own invoice (decision 5): while it is owed it is the blue next step
+    "function" == typeof ctDepositDue && ctDepositDue(c, d)
+      ? (h += B("deposit", "Create Deposit Invoice", "primary") + B("progress", "New Progress Invoice"))
+      : "construction" === d.template && (h += B("progress", "New Progress Invoice", "primary"));
   }
   return (
     "estimate" === k &&
@@ -9417,8 +9432,11 @@ function docActions(c, d, st) {
         (h += '<span class="small muted">In SOV — bill it on the next progress invoice.</span>')),
     "invoice" === k &&
       (["sent", "partial", "overdue"].includes(st) &&
+        // the safe next step is to find the client's money in the bank's own lines; a payment typed here is
+        // "recorded, not yet in the bank" until a bank line stands behind it, so it is never the blue button
         (h +=
-          B("pay", "Record payment", "primary") +
+          B("findbank", "Find in Bank", "primary") +
+          B("pay", "Record Payment") +
           B("email", "overdue" === st ? "Draft reminder" : "Draft cover email")),
       "void" !== d.status && "paid" !== st && (h += B("void", "Void"))),
     (h += B("print", "Print / PDF") + B("dup", "Duplicate")),
@@ -9802,6 +9820,7 @@ async function docAction(c, d, a) {
     ),
       (docOpen = null);
   }
+  if ("findbank" === a) return void invFindInBank(c, d);
   if ("pay" === a)
     return (
       save(),
@@ -16011,13 +16030,23 @@ function cashForecast() {
           );
       });
   } catch (e) {}
-  const cash = companyBalance().cash + (companyBalance().undeposited || 0);
+  // Cash Today is what the bank holds. A payment recorded but never seen at the bank is not cash: it was added here
+  // (Rivera's $21,350 made Cash Today $205,581 against $184,231 in the bank), and it is now carried apart, by name.
+  const B0 = companyBalance(),
+    cash = B0.cash;
+  // A check received and recorded, not yet in the bank, is week one's "to deposit": shown in that week by name, outside
+  // the balances, the 13-week low and Safe to Spend until the bank's line arrives (it was dropped from all 13 weeks).
+  let toDeposit = [];
+  try {
+    toDeposit = undepositedReceipts().map((x) => [`To deposit: ${x.c.name.split(" ")[0]} ${fmt(x.py.date)}${x.py.ref ? " " + x.py.ref : ""}`, undepAmt(x)]);
+  } catch (e) {}
+  weeks.length && ((weeks[0].toDeposit = toDeposit), (weeks[0].toDepositAmt = r2(toDeposit.reduce((a, x) => a + x[1], 0))));
   let bal = cash;
   return (
     weeks.forEach((w) => {
       (w.net = w.inflow - w.outflow), (bal += w.net), (w.balance = bal);
     }),
-    { cash: cash, weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
+    { cash: cash, unbanked: r2(B0.undeposited || 0), toDeposit: toDeposit, weeks: weeks, low: Math.min(...weeks.map((w) => w.balance)) }
   );
 }
 function renderCash() {
@@ -24986,8 +25015,182 @@ const CT_SEED = [
     DB.clients.find(
       (c) => c.estimates.includes(doc) || c.changeOrders.includes(doc) || c.invoices.includes(doc),
     );
+// Is it a deposit? One answer, from the stamp made when the invoice is made: ctDepositInvoice and the two-payer
+// deposits stamp isDeposit true, every application (newDoc, mode sov) stamps it false. An unstamped record made before
+// the stamp is a deposit only when it is not an application (a non-SOV invoice with depositOf). Nothing else guesses:
+// a title or a zero retainage never re-books money (a paid application retitled "(less deposit)" moved $80,833 from
+// 4100 to 2400). An old application that looks like a deposit goes to the Controller as a finding (invLegacyDeposit).
+// Every reader asks this: the ledger (glInvoiceLines) and its bridges, depositBalance, depositPctOf, sovBilled,
+// lineFin, ctDepositDue and ctDepositInvoice, the invoices list and the printout (cxKind).
+function invIsDeposit(i) {
+  if (!i || "invoice" !== (i.type || "invoice")) return !1;
+  if (!0 === i.isDeposit) return !0;
+  if (!1 === i.isDeposit) return !1;
+  return !!i.depositOf && "sov" !== i.mode;
+}
+// an application sent before deposits were stamped that reads as the deposit (titled so, no retainage): it was booked
+// as work; the Controller confirms it or re-classes it by reversal and re-post with a reason
+function docKindFreeze() {
+  "function" == typeof cxKindAtSend &&
+    (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => !i.printKind && !["draft", "void"].includes(i.status) && (i.printKind = cxKindAtSend(i))));
+}
+function invLegacyDeposit(i) {
+  return !!(i && "invoice" === (i.type || "invoice") && "sov" === i.mode && !invIsDeposit(i) && !["draft", "void"].includes(i.status) && !(+i.retainagePct > 0) && (/\bdeposit\b/i.test(i.title || "") || "deposit" === i.printKind));
+}
+// the payer a deposit or an application belongs to on a two-payer contract (src/livejobs.js); "" on one payer
+function depPayer(c, i) {
+  try {
+    return "function" == typeof ljInvPayer && (c.payers || []).length > 1 ? ljInvPayer(c, i) : "";
+  } catch (e) {
+    return "";
+  }
+}
 function invoicePaid(c, inv) {
   return c.payments.filter((p) => p.invoiceId === inv.id).reduce((a, p) => a + (+p.amount || 0), 0);
+}
+// ---- No bank line, not collected (Financial truth; TRIAGE class 1). A recorded payment counts as collected cash,
+// cash-basis revenue, Cash Today or Paid only when a bank or card line stands behind it (payBankLine: the line it is
+// matched to, or one from the bank's own record, never a line typed by hand). Until then it is "recorded, not yet in
+// the bank": it still settles the client's balance (it sits in Undeposited Funds, 1050), but no figure calls it cash.
+// A reversal counts when the payment it reverses counted.
+// What the bank backs is decided once for every payment (payBacking), never per call:
+// - a payment linked to a bank line (txnId, or the line's paymentId) is backed by that line, and a line backs at most
+//   its own amount across every payment linked to it (a $500 line never backs a $50,000 payment);
+// - an unlinked payment is matched to one deposit of the same amount (within $1) within 10 days, the nearest first,
+//   that no other payment stands on: one line, one payment (two $97,000 payments both read the seed's one $97,000
+//   wire before, because only formally linked lines were taken);
+// - matching takes the oldest payment first, each to its nearest free line (a line that names the payer before any
+//   other), then gives a payment left over a line a later payment could do without (payments 9/1 and 9/8, lines 9/7
+//   and 9/12: nearest-date-first gave 9/7 to 9/8 and left 9/1 with nothing within 10 days);
+// - the decision is made once per draw and once per save: it is kept until save(), a bank import (bfIngest) or the
+//   next draw, or until a payment or a bank line is added in between. It was a signature rebuilt over every payment
+//   and line on every call (about 460 ms for 1,200 calls at 600 payments and 1,000 deposits), and it missed the
+//   fields bfBacked reads (a statement confirming a typed deposit), so the payment stayed "not in the bank".
+let payBackMemo = null,
+  payBackEpoch = 0;
+function payBackReset() {
+  (payBackEpoch += 1), (payBackMemo = null);
+}
+function payBackKey() {
+  let n = 0;
+  (DB.clients || []).forEach((c) => (n += (c.payments || []).length));
+  return `${payBackEpoch}|${("function" == typeof render && render.__tick) || 0}|${(DB.txns || []).length}|${n}`;
+}
+function payBacking() {
+  const key = payBackKey();
+  if (payBackMemo && payBackMemo.key === key) return payBackMemo.map;
+  const map = new Map(),
+    lines = new Map(),
+    room = new Map(),
+    used = new Set(),
+    all = [];
+  (DB.txns || []).forEach((t) => +t.amt > 0 && "void" !== t.status && txnFromBank(t) && (lines.set(t.id, t), room.set(t.id, r2(+t.amt))));
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => +p.amount > 0 && !p.reverses && all.push(p)));
+  all.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.id || "").localeCompare(String(b.id || "")));
+  const byPay = new Map();
+  lines.forEach((t) => t.paymentId && byPay.set(t.paymentId, t));
+  const linked = new Set();
+  all.forEach((p) => {
+    const t = p.txnId ? lines.get(p.txnId) : byPay.get(p.id);
+    if (!p.txnId && !t) return;
+    linked.add(p);
+    if (!t) return;
+    const amt = r2(Math.min(+p.amount, room.get(t.id)));
+    room.set(t.id, r2(room.get(t.id) - amt)), used.add(t.id), amt > 0.005 && map.set(p, { t: t, amt: amt });
+  });
+  const owner = new Map();
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => owner.set(p, c)));
+  const names = (c) =>
+      String((c && c.name) || "")
+        .toUpperCase()
+        .split(/[^A-Z]+/)
+        .filter((w) => w.length >= 4 && !/^(FAMILY|GROUP|HOLDINGS|THE)$/.test(w)),
+    // each unlinked payment's candidate lines: the same amount within $1, within 10 days, the line naming the payer
+    // first, then the nearest date
+    cand = new Map();
+  all.forEach((p) => {
+    if (linked.has(p)) return;
+    const nm = names(owner.get(p)),
+      L = [];
+    lines.forEach((t) => {
+      if (used.has(t.id) || (t.paymentId && t.paymentId !== p.id) || Math.abs(+t.amt - +p.amount) > 1) return;
+      const d = Math.abs(dayDiff(p.date, t.date));
+      d <= 10 && L.push({ t: t, d: d, named: nm.some((w) => String(t.desc || "").toUpperCase().includes(w)) ? 0 : 1 });
+    });
+    L.sort((a, b) => a.named - b.named || a.d - b.d || String(a.t.id).localeCompare(String(b.t.id))), L.length && cand.set(p, L);
+  });
+  const take = new Map(),
+    holder = new Map(),
+    give = (p, t) => (take.set(p, t), holder.set(t.id, p)),
+    free = (p) => (cand.get(p) || []).find((x) => !used.has(x.t.id) && !holder.has(x.t.id));
+  // named lines first, then the rest; the oldest payment chooses first
+  [0, 1].forEach((pass) =>
+    all.forEach((p) => {
+      if (!cand.has(p) || take.has(p)) return;
+      const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
+      x && give(p, x.t);
+    }),
+  );
+  // a payment left over takes a line from a later payment that has another free line
+  all.forEach((p) => {
+    if (!cand.has(p) || take.has(p)) return;
+    for (const x of cand.get(p)) {
+      const q = holder.get(x.t.id),
+        alt = q && (cand.get(q) || []).find((y) => y.t.id !== x.t.id && !holder.has(y.t.id));
+      if (alt) {
+        give(q, alt.t), give(p, x.t);
+        break;
+      }
+    }
+  });
+  take.forEach((t, p) => map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) }));
+  return (payBackMemo = { key: key, map: map }), map;
+}
+// what of a payment the bank has: its backed amount; a reversal takes off what the payment it reverses had
+function payBankedAmt(c, py) {
+  if (!py) return 0;
+  if (py.reverses) {
+    const o = ((c && c.payments) || []).find((x) => x.id === py.reverses);
+    return o ? -payBankedAmt(c, o) : 0;
+  }
+  const b = payBacking().get(py);
+  return b ? b.amt : 0;
+}
+function payBanked(c, py) {
+  return Math.abs(payBankedAmt(c, py)) > 0.005;
+}
+function paysBanked(c, P) {
+  return r2((P || []).reduce((a, p) => a + payBankedAmt(c, p), 0));
+}
+function paysUnbanked(c, P) {
+  return r2((P || []).reduce((a, p) => a + (+p.amount || 0) - payBankedAmt(c, p), 0));
+}
+// A bank or card line is the bank's record when bfBacked says so: it came from a feed or an imported statement and is
+// as the bank sent it, or it was typed and the bank has since confirmed it. A line edited here after it arrived
+// (Changed), withdrawn by the bank (Removed by Bank) or only from the Demo Feed is not. One meaning everywhere:
+// payBacking and proposals() read it.
+function txnFromBank(t) {
+  if (!t) return !1;
+  try {
+    return "function" != typeof bfBacked || !!bfBacked(t);
+  } catch (e) {
+    return !1;
+  }
+}
+// money in from clients over a stretch: only what the bank has
+function paysInBank(pred) {
+  return r2((DB.clients || []).reduce((a, c) => a + paysBanked(c, (c.payments || []).filter((p) => pred(p, c))), 0));
+}
+function invoiceUnbanked(c, inv) {
+  return paysUnbanked(c, (c.payments || []).filter((p) => p.invoiceId === inv.id));
+}
+const PAY_NOT_IN_BANK = "recorded, not yet in the bank";
+// the status a person reads: Paid only when the bank has the money
+function invoiceStatusShown(c, x) {
+  const st = invoiceStatus(c, x);
+  return ["paid", "partial", "overdue", "sent"].includes(st) && invoiceUnbanked(c, x) > 0.005
+    ? { text: "paid" === st ? PAY_NOT_IN_BANK : `${st}; part ${PAY_NOT_IN_BANK}`, cls: "warn", st: st }
+    : { text: st, cls: st, st: st };
 }
 function lineLabor(doc, line) {
   try {
@@ -25079,7 +25282,7 @@ function lineFin(key) {
       : 0,
     depositPct = sv
       ? live
-          .filter((i) => i.depositOf)
+          .filter((i) => invIsDeposit(i))
           .flatMap((i) => i.lines)
           .filter((l) => l.sovId === sv.id)
           .reduce((a, l) => a + (+l.pct || 0), 0)
@@ -25583,7 +25786,7 @@ function repProfit() {
     range = repFrom || repTo ? ` · ${repFrom || "start"} → ${repTo || "today"}` : " · to date",
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
+  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r2(r.actual - r.labor.cost))} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
     r.byCode
       .map((b) => {
         const act = b.actual + b.labor,
@@ -25591,7 +25794,19 @@ function repProfit() {
         return `<tr><td><b>${b.code}</b> ${esc(b.name)}</td>${[b.contract, b.budget, b.committed, b.actual, b.labor, act, b.budget - act].map((v) => `<td class="money ${v < 0 ? "bad" : ""}">${repMoney(v)}</td>`).join("")}<td><div class="rep-bar-wrap"><i style="width:${Math.min(100, pct)}%;background:${pct > 100 ? "var(--bad)" : pct > 85 ? "var(--warn)" : "var(--ok)"}"></i></div><span class="small muted">${pct}%</span></td></tr>`;
       })
       .join("") || '<tr><td colspan="9" class="muted">No approved estimate lines for this project.</td></tr>'
-  }${r.unlinked ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
+  }${(() => {
+      // The total row is its columns' sum, and the job's own figures: what the job carries on no cost code is a row of
+      // its own, so nothing is in the total that is not on a row (121 State's Bills & Bank column added to $101,694
+      // under a total of $75,750, and Committed to $38,010 under $38,721).
+      const S = (k) => r2(r.byCode.reduce((a, b) => a + (+b[k] || 0), 0)),
+        cAct = S("actual"),
+        cLab = S("labor"),
+        cCom = S("committed"),
+        xCom = r2(r.committed - cCom),
+        xAct = r2(r.actual - cAct - cLab),
+        no = Math.abs(xCom) >= 0.005 || Math.abs(xAct) >= 0.005;
+      return `${no ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td class="money">${xCom ? money(xCom) : ""}</td><td class="money">${xAct ? money(xAct) : ""}</td><td></td><td class="money">${xAct ? money(xAct) : ""}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r2(cCom + xCom))}</td><td class="money">${money(r2(cAct + xAct))}</td><td class="money">${money(cLab)}</td><td class="money">${money(r2(cAct + xAct + cLab))}</td><td class="money">${money(r2(r.budget - (cAct + xAct + cLab)))}</td><td></td></tr>`;
+    })()}</tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
 }
 function repPortfolio() {
   const rows = DB.projects.map((p) => ({ p: p, r: projectProfit(p) })),
@@ -25982,12 +26197,9 @@ function companyPL(range) {
     ),
     wipAdj = wipAdjustment(range),
     income = r2(invoiced + wipAdj),
-    collected = r2(
-      DB.clients
-        .flatMap((c) => c.payments)
-        .filter((p) => !p.unapplied && within(p.date, range))
-        .reduce((a, p) => a + (+p.amount || 0), 0),
-    ),
+    // collected is money the bank has (payBanked); a payment only recorded is counted apart, never as collected
+    collected = r2(DB.clients.reduce((a, c) => a + paysBanked(c, c.payments.filter((p) => !p.unapplied && within(p.date, range))), 0)),
+    unbanked = r2(DB.clients.reduce((a, c) => a + paysUnbanked(c, c.payments.filter((p) => !p.unapplied && within(p.date, range))), 0)),
     accrued = r2(
       DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billCost(b), 0),
     ),
@@ -26024,6 +26236,7 @@ function companyPL(range) {
     wipAdj: wipAdj,
     accrued: accrued,
     collected: collected,
+    unbanked: unbanked,
     cogs: cogs,
     cogsT: cogsT,
     oh: oh,
@@ -26074,10 +26287,7 @@ function companyBalance() {
         out = ledger([m[0] + "-01", today()])
           .filter((r) => !r.income)
           .reduce((a, r) => a + r.amt, 0),
-        inn = DB.clients
-          .flatMap((c) => c.payments)
-          .filter((p) => within(p.date, [m[0] + "-01", today()]))
-          .reduce((a, p) => a + (+p.amount || 0), 0);
+        inn = paysInBank((p) => within(p.date, [m[0] + "-01", today()]));
       return r2(Math.max(0, out - inn) / 3);
     })();
   return {
@@ -26148,7 +26358,7 @@ function repCompany() {
             `<tr><td>${esc(k)}</td><td class="money">${money(v)}</td><td class="dim">${P.income ? Math.round((v / P.income) * 100) : 0}% of income</td><td style="width:120px"><div class="rep-bar-wrap"><i style="width:${tot ? Math.round((v / tot) * 100) : 0}%;background:var(--ink-4)"></i></div></td></tr>`,
         )
         .join("") || '<tr><td colspan="4" class="muted">Nothing in this period.</td></tr>';
-  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `available ${money(B.available)} · client funds held ${money(B.clientFunds)}`, B.available < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
+  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected${P.unbanked ? ` · ${money(P.unbanked)} recorded, not yet in the bank` : ""}`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `available ${money(B.available)} · client funds held ${money(B.clientFunds)}`, B.available < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
     P.nonT
       ? `<p class="small muted">Excluded from P&L: ${Object.entries(P.non)
           .map(([k, v]) => `${esc(k)} ${money(v)}`)
@@ -26168,6 +26378,56 @@ function analystFindings() {
     t0 = today(),
     days = (a, b) => Math.round((parse(b) - parse(a)) / 864e5),
     spend = DB.txns.filter((t) => t.amt < 0 && "transfer" !== t.cat);
+  // An application sent as the deposit before deposits were stamped was booked as the first draw: the Controller
+  // confirms it, or re-classes it by reversal and re-post with a reason (never silently). A sent invoice edited so it
+  // would now post differently keeps its sent postings; the edit is named here.
+  try {
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((i) => {
+        invLegacyDeposit(i) &&
+          add(
+            "med",
+            "Controller",
+            `${c.name}: ${i.number} "${i.title || ""}" was booked as the first draw`,
+            `It went out as the deposit but is posted as work (revenue), so the job shows over-billed on WIP until the work catches up. Confirm it as the first draw, or re-class it as the deposit by reversal and re-post with a reason.`,
+            docTotal(i).total,
+            { view: "clients", client: c.id },
+          );
+        const dr = "function" == typeof glInvoiceDrift ? glInvoiceDrift(c, i) : 0;
+        dr > 0.5 &&
+          add(
+            "high",
+            "Controller",
+            `${c.name}: ${i.number} was changed after it was sent`,
+            `The books keep what it posted when it was sent; the change would move ${money(dr / 2)}. Correct it with a credit or a reversal and re-post, with a reason.`,
+            r2(dr / 2),
+            { view: "clients", client: c.id },
+          );
+      }),
+    );
+  } catch (e) {}
+  // The two billed-ahead measures (adopted 2026-10-26 as a reversible default): "Over-Billed (WIP)" is cost to cost,
+  // "Billed Ahead of the Work" is each line against the work on site. Far apart on one job (121 State: $131,058 against
+  // $66,470), they are the Controller's to reconcile, as a finding of their own.
+  try {
+    "function" == typeof pbAhead &&
+      (DB.projects || []).forEach((p) => {
+        const A = pbAhead(p.id),
+          w = r2(+jobFin(p).over || 0),
+          l = r2(+A.total || 0),
+          gap = r2(Math.abs(w - l));
+        (w > 0.005 || l > 0.005) &&
+          gap >= Math.max(1e3, 0.1 * Math.max(w, l)) &&
+          add(
+            "med",
+            "Controller",
+            `${shortName(p)}: Over-Billed (WIP) ${money(w)} against Billed Ahead of the Work ${money(l)}, ${money(gap)} apart`,
+            `The WIP schedule measures cost to cost; billing measures each line against the work on site${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}. Reconcile them before the month closes: a deposit billed as work, costs not yet in, or a line measured behind its cost.`,
+            gap,
+            { view: "reports", tab: "wip" },
+          );
+      });
+  } catch (e) {}
   spend.forEach((a, i) =>
     spend.slice(i + 1).forEach((b) => {
       Math.abs(a.amt - b.amt) < 0.01 &&
@@ -26419,20 +26679,18 @@ function analystFindings() {
                 { view: "clients", client: c.id },
               );
           }),
+        // a signed contract's deposit not invoiced inside the Standard's 2 business days (the Billing Queue holds it
+        // from the hour it is signed; this is the finding once it is late)
         c.estimates
-          .filter(
-            (e) =>
-              "construction" === e.template &&
-              "converted" === e.status &&
-              !c.invoices.some((i) => i.depositOf === e.id && "void" !== i.status),
-          )
-          .forEach((e) =>
+          .map((e) => ({ e: e, D: "function" == typeof ctDepositDue ? ctDepositDue(c, e) : null }))
+          .filter((x) => x.D && x.D.late)
+          .forEach(({ e, D }) =>
             add(
               "high",
               "Billing",
               `${c.name}: no deposit invoiced on ${e.number}`,
-              `contract ${money(docTotal(e).total)} converted, deposit never billed`,
-              docTotal(e).total,
+              `signed ${fmt(D.signed)}; the ${D.pct}% deposit (${money(D.amount)}) was due on an invoice by ${fmt(D.by)}`,
+              D.amount,
               { view: "clients", client: c.id },
             ),
           ),
@@ -26929,10 +27187,7 @@ function dashData() {
     bal = companyBalance(),
     per = B.map((b) => {
       const pl = companyPL([b.from, b.to]),
-        paid = DB.clients
-          .flatMap((c) => c.payments)
-          .filter((p) => within(p.date, [b.from, b.to]))
-          .reduce((a, p) => a + (+p.amount || 0), 0),
+        paid = paysInBank((p) => within(p.date, [b.from, b.to])),
         out = pl.L.filter((r) => !r.income).reduce((a, r) => a + r.amt, 0);
       return {
         k: b.k,
@@ -27297,10 +27552,7 @@ const inR = (d, R) => within(d, R),
       good: "up",
       go: { view: "bank" },
       fn: (R) => {
-        const inn = DB.clients
-            .flatMap((c) => c.payments)
-            .filter((p) => inR(p.date, R))
-            .reduce((a, p) => a + (+p.amount || 0), 0),
+        const inn = paysInBank((p) => inR(p.date, R)),
           out = ledger(R)
             .filter((r) => !r.income)
             .reduce((a, r) => a + r.amt, 0);
@@ -28598,12 +28850,7 @@ function repFinancials() {
                 })),
               ),
           ];
-        rows["Collected from clients"].push(
-          DB.clients
-            .flatMap((c) => c.payments)
-            .filter((p) => within(p.date, R))
-            .reduce((a, p) => a + (+p.amount || 0), 0),
-        ),
+        rows["Collected from clients"].push(paysInBank((p) => within(p.date, R))),
           rows["Paid: job costs"].push(
             L.filter((r) => "cogs" === catType(r.cat) && "payroll" !== r.kind).reduce((a, r) => a + r.amt, 0),
           ),
@@ -28770,10 +29017,7 @@ function repFlash() {
   const B = companyBalance(),
     wk = kpiRange("l30"),
     wk7 = [iso(addDays(today(), -6)), today()],
-    coll = DB.clients
-      .flatMap((c) => c.payments)
-      .filter((p) => within(p.date, wk7))
-      .reduce((a, p) => a + (+p.amount || 0), 0),
+    coll = paysInBank((p) => within(p.date, wk7)),
     billed = DB.clients
       .flatMap((c) => c.invoices)
       .filter((i) => !["void", "draft"].includes(i.status) && within(i.date, wk7))
@@ -28819,9 +29063,9 @@ companyPL = function (range) {
     (P.income = r2(P.invoiced + P.wipAdj)),
     (P.collected = r2(
       DB.clients
-        .flatMap((c) => c.payments.map((p) => ({ p: p, i: c.invoices.find((x) => x.id === p.invoiceId) })))
+        .flatMap((c) => c.payments.map((p) => ({ c: c, p: p, i: c.invoices.find((x) => x.id === p.invoiceId) })))
         .filter((x) => !x.p.unapplied && within(x.p.date, range) && x.i && projs.includes(x.i.projectId))
-        .reduce((a, x) => a + (+x.p.amount || 0), 0),
+        .reduce((a, x) => a + payBankedAmt(x.c, x.p), 0),
     )),
     (P.gross = r2(P.income - P.cogsT)),
     (P.net = r2(P.gross - P.ohT)),
@@ -29741,7 +29985,8 @@ function jobFin(p, range) {
     pays = c
       ? c.payments.filter((py) => !py.unapplied && invs.some((i) => i.id === py.invoiceId) && inRng(py.date))
       : [],
-    collected = r2(pays.reduce((a, py) => a + (+py.amount || 0), 0)),
+    collected = c ? paysBanked(c, pays) : 0,
+    unbanked = c ? paysUnbanked(c, pays) : 0,
     credits = c ? r2(c.payments.filter((py) => py.unapplied).reduce((a, py) => a + (+py.amount || 0), 0)) : 0,
     est = c
       ? c.estimates.find(
@@ -29916,8 +30161,10 @@ function jobFin(p, range) {
       retWithheld: retWithheld,
       retReleased: retReleased,
       collected: collected,
+      // recorded but not seen at the bank: it settles the client's balance, it is not collected cash
+      unbanked: unbanked,
       credits: credits,
-      outstanding: r2(billed + taxBilled - collected - retHeld),
+      outstanding: r2(billed + taxBilled - collected - unbanked - retHeld),
       contract: contract,
       base: r2(contract - coAmt),
       coAmt: coAmt,
@@ -33081,6 +33328,20 @@ function billingSuggestions() {
         .forEach((d) => {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (!p) return;
+          // the signed contract's deposit, from the hour it is signed (decision 5; ctDepositDue)
+          const D = "function" == typeof ctDepositDue ? ctDepositDue(c, d) : null;
+          D &&
+            out.push({
+              kind: "deposit",
+              c: c,
+              d: d,
+              p: p,
+              amount: D.amount,
+              title: `${p.project.name}: signed ${fmt(D.signed)}, the ${D.pct}% deposit (${money(D.amount)}), no retainage, to invoice by ${fmt(D.by)}`,
+              act: "deposit",
+              due: D.by,
+              late: D.late,
+            });
           const J = jobFin(p);
           if (!c.invoices.some((i) => "draft" === i.status && ("sov" === i.mode || i.fromDoc === d.id))) {
             if ("construction" === d.template || !d.template) {
@@ -34450,16 +34711,20 @@ function acctBook(a) {
     r2(a.opening + acctRegister(a))
   );
 }
+// what of an unbanked payment the bank has not shown (all of it, or the part a smaller bank line does not cover)
+function undepAmt(x) {
+  return r2(x && null != x.amt ? x.amt : +((x && x.py) || {}).amount || 0);
+}
 function undepositedReceipts() {
   const out = [];
   return (
     DB.clients.forEach((c) =>
       c.payments
-        .filter((py) => !py.unapplied && (+py.amount || 0) > 0)
+        // one reading with payBankLine (the line behind a payment), so this list and every "collected" agree
+        .filter((py) => !py.unapplied && (+py.amount || 0) > 0 && !py.reversalId)
         .forEach((py) => {
-          DB.txns.find(
-            (t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10,
-          ) || out.push({ c: c, py: py });
+          const left = r2((+py.amount || 0) - payBankedAmt(c, py));
+          left > 0.005 && out.push({ c: c, py: py, amt: left });
         }),
     ),
     out
@@ -34496,7 +34761,7 @@ companyBalance = function () {
     )),
     (B.apRet = r2(DB.vendors.reduce((a, v) => a + apRetainage(v.name), 0))),
     (B.payrollAccrued = accruedPayroll()),
-    (B.undeposited = r2(undepositedReceipts().reduce((a, x) => a + (+x.py.amount || 0), 0))),
+    (B.undeposited = r2(undepositedReceipts().reduce((a, x) => a + undepAmt(x), 0))),
     (B.credits = r2(DB.clients.reduce((a, c) => a + clientFin(c).credits, 0)));
   const W = DB.projects.map(wipRow);
   return (
@@ -35411,10 +35676,31 @@ repBarV2 = function (projs) {
     );
 };
 const renderReportsBase7 = renderReports;
+// Safe to Spend is one figure, read by every screen that names it (Today reads PRED.safeToSpend, which reads this):
+// the lower of truly ours and the 13-week low. Screens that printed truly ours under the label read stsSafe().
 function safeToSpend() {
   const B = companyBalance(),
     F = cashForecast();
   return { B: B, F: F, safe: r2(Math.min(B.trulyOurs, F.low)), low: F.low };
+}
+function stsSafe() {
+  let v = null;
+  try {
+    v = ocMemo("stsSafe", () => safeToSpend().safe);
+  } catch (e) {}
+  return null == v ? safeToSpend().safe : v;
+}
+// the one line under it: what is set aside, and what is not counted
+function stsWhy(X) {
+  X = X || safeToSpend();
+  const B = X.B,
+    parts = [
+      B.cards ? `${money(-B.cards)} owed on cards` : "",
+      B.ap ? `${money(B.ap)} of unpaid bills` : "",
+      B.payrollAccrued ? `${money(B.payrollAccrued)} of payroll due` : "",
+      B.over ? `${money(B.over)} over-billed (WIP, cost-to-cost: client money for work not done)` : "",
+    ].filter(Boolean);
+  return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low (${money(X.low)}) is lower, so it is the figure` : ""}${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
 }
 function biggestReceivable() {
   let best = null;
@@ -35580,7 +35866,7 @@ const ptJobsBase3 = ptJobs;
   (ptCash = function () {
     const { B: B, F: F, safe: safe } = safeToSpend(),
       lowWk = F.weeks.reduce((a, w) => (w.balance < a.balance ? w : a), F.weeks[0]);
-    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>+ receipts not yet deposited</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− billed ahead of work (client money for work not done)</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
+    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− over-billed (WIP): client money for work not done</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
   }),
   Object.assign(PORTLETS, { today: "Today strip" });
 const renderPortletBase3 = renderPortlet;
@@ -35671,27 +35957,38 @@ render = function () {
   } else st && st.querySelector(".stat-proj")?.remove();
 };
 const remindersBase7 = reminders;
-function depositBalance(c, estId) {
-  const paid = c.invoices
-      .filter((i) => i.depositOf === estId && "sov" !== i.mode && "void" !== i.status)
+// What of the deposit is on account: paid deposits (invIsDeposit) less what applications took off. On a two-payer
+// contract each payer's deposit is its own (payer), credited only on that payer's applications.
+function depositBalance(c, estId, payer) {
+  const mine = (i) => !payer || depPayer(c, i) === payer,
+    paid = c.invoices
+      .filter((i) => i.depositOf === estId && invIsDeposit(i) && "void" !== i.status && mine(i))
       .reduce((a, i) => a + invoicePaid(c, i), 0),
     applied = c.invoices
       .filter(
         (i) =>
           "void" !== i.status &&
           "sov" === i.mode &&
+          !invIsDeposit(i) &&
           (+i.depositApplied || 0) &&
-          (!estId || i.depositOf === estId || !i.depositOf),
+          (!estId || i.depositOf === estId || !i.depositOf) &&
+          mine(i),
       )
       .reduce((a, i) => a + (+i.depositApplied || 0), 0);
   return r2(paid - applied);
 }
-function depositPctOf(c, estId) {
+// the deposit's share of the contract (of the payer's part of it, on a two-payer contract)
+function depositPctOf(c, estId, payer) {
   const d = estId && findDoc(c, "estimate", estId),
     dep = c.invoices
-      .filter((i) => i.depositOf === estId && "sov" !== i.mode && "void" !== i.status)
-      .reduce((a, i) => a + docTotal(i).total, 0),
-    base = d ? docNet(d) : 0;
+      .filter((i) => i.depositOf === estId && invIsDeposit(i) && "void" !== i.status && (!payer || depPayer(c, i) === payer))
+      .reduce((a, i) => a + docTotal(i).total, 0);
+  let base = d ? docNet(d) : 0;
+  if (payer && "function" == typeof ljSvPayer && d) {
+    const pre = `estimate:${d.id}:`,
+      s = r2((c.sov || []).filter((v) => String(v.lineRef || "").startsWith(pre) && ljSvPayer(c, v) === payer).reduce((a, v) => a + (+v.scheduled || 0), 0));
+    s > 0 && (base = s);
+  }
   return base ? Math.min(100, r2((dep / base) * 100)) : 0;
 }
 reminders = function () {
@@ -35724,62 +36021,34 @@ function applyDepositTo(c, inv) {
     pct = depositPctOf(c, est.id);
   inv.depositApplied = r2(Math.min(bal, (gross * pct) / 100));
 }
+// A draft application credits the deposit pro rata as its lines change (the deposit's share of the contract, times
+// this period's work, never past what is on account); once sent the credit is fixed with the invoice. It was set
+// once, when the draft was made with every line at 0%, so it stayed $0. A person who types the credit keeps it.
+const depositDocClient = new WeakMap();
+function depositRefresh(d, t) {
+  let c = depositDocClient.get(d);
+  (c && (c.invoices || []).includes(d)) || ((c = "function" == typeof finClientOfDoc ? finClientOfDoc(d) : null), c && depositDocClient.set(d, c));
+  if (!c) return;
+  const payer = depPayer(c, d),
+    pct = depositPctOf(c, d.depositOf, payer);
+  if (!(pct > 0)) return void (+d.depositApplied && (d.depositApplied = 0));
+  const room = r2(depositBalance(c, d.depositOf, payer) + (+d.depositApplied || 0)),
+    want = room > 0 ? r2(Math.min(room, (r2(t.sub - t.disc) * pct) / 100)) : 0;
+  d.depositApplied = Math.max(0, want);
+}
 (docTotal = function (d) {
-  const t = docTotalBase(d),
-    dep = "invoice" === d.type && "sov" === d.mode ? r2(+d.depositApplied || 0) : 0;
+  const t = docTotalBase(d);
+  if ("invoice" !== d.type || "sov" !== d.mode) return t;
+  if ("draft" === d.status && d.depositOf && !d.depositByHand && !invIsDeposit(d))
+    try {
+      depositRefresh(d, t);
+    } catch (e) {}
+  const dep = r2(+d.depositApplied || 0);
   return dep && ((t.dep = dep), (t.total = r2(t.total - dep))), t;
 }),
   (docNet = (d) => {
     const t = docTotal(d);
     return r2(t.sub - t.disc - (t.dep || 0));
-  }),
-  (ctDepositInvoice = function (c, d) {
-    const base = docNet(d),
-      pct = +DB.company.depositPct || 30,
-      already = c.invoices
-        .filter((i) => i.depositOf === d.id && "void" !== i.status)
-        .reduce((a, i) => a + docTotal(i).total, 0);
-    mbModal(
-      `Deposit — ${esc(d.number)}`,
-      `<p class="small muted">A deposit is money on account. It is applied against progress invoices as work is billed, so the schedule of values only ever shows work done.${already ? ` Already invoiced: ${money(already)}.` : ""}</p><div class="f2"><label class="f"><span>Deposit %</span><input id="dep-pct" type="number" min="0" max="100" step="1" value="${pct}"></label><label class="f"><span>Amount</span><input id="dep-amt" type="number" step="1" value="${r2((base * pct) / 100)}"></label></div><div class="small muted">Contract ${money(base)} · terms: due at signing.</div>`,
-      {
-        submit: "Create deposit invoice",
-        onSubmit: () => {
-          const amt = r2(+$("#dep-amt").value || 0);
-          if (amt <= 0) return toast("Enter a deposit amount"), !1;
-          const inv = newDoc(c, "invoice", { mode: "items" });
-          (inv.template = "construction"),
-            (inv.depositOf = d.id),
-            (inv.title = `Deposit — ${$("#dep-pct").value}% of contract`),
-            (inv.terms = "Due at signing"),
-            (inv.retainagePct = 0),
-            (inv.lines = [
-              {
-                id: uid("l"),
-                item: "Deposit on contract",
-                desc: `${d.number} · applied against progress invoices`,
-                qty: 1,
-                unit: "ls",
-                rate: amt,
-                taxable: !1,
-              },
-            ]),
-            docMark(inv),
-            c.activity.push({
-              t: nowStamp(),
-              by: S.project.userName || "",
-              text: `${inv.number} deposit — ${money(amt)}`,
-            }),
-            (docOpen = { kind: "invoice", id: inv.id }),
-            (finTab = "invoices"),
-            save(),
-            render();
-        },
-      },
-    ),
-      $("#dep-pct").addEventListener("input", () => {
-        $("#dep-amt").value = r2((base * (+$("#dep-pct").value || 0)) / 100);
-      });
   });
 const ctProgressInvoiceBase2 = ctProgressInvoice;
 ctProgressInvoice = function (c, d) {
@@ -35883,17 +36152,14 @@ function payAppDecorate() {
   (pa.innerHTML = payAppHtml(c, d, editable)),
     totals.after(pa.firstChild),
     $("#pa-dep")?.addEventListener("change", (e) => {
-      (d.depositApplied = Math.max(0, +e.target.value || 0)), save(), render();
+      (d.depositApplied = Math.max(0, +e.target.value || 0)), (d.depositByHand = !0), save(), render();
     });
 }
 (docActions = function (c, d, st) {
   let h = docActionsBase5(c, d, st);
-  if ("estimate" === d.type && "construction" === d.template && "converted" === d.status) {
+  if ("estimate" === d.type && "converted" === d.status) {
     const bal = depositBalance(c, d.id);
-    (h = h.replace(/<button class="btn sm primary" data-docact="deposit">[^<]*<\/button>/, (m) =>
-      c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status) ? "" : m,
-    )),
-      bal && (h += `<span class="pill info">Deposit on account ${money(bal)}</span>`);
+    bal && (h += `<span class="pill info">Deposit on account ${money(bal)}</span>`);
   }
   return h;
 }),
@@ -36462,7 +36728,7 @@ function drillRows(key, range) {
           : "collected" === key &&
             DB.clients.forEach((c) =>
               c.payments
-                .filter((py) => !py.unapplied && within(py.date, R))
+                .filter((py) => !py.unapplied && within(py.date, R) && payBanked(c, py))
                 .forEach((py) => {
                   const i = c.invoices.find((x) => x.id === py.invoiceId);
                   rows.push({
@@ -36470,7 +36736,7 @@ function drillRows(key, range) {
                     kind: "Payment",
                     desc: `${i?.number || ""} · ${py.method || ""} ${py.ref || ""}`,
                     who: c.name,
-                    amt: +py.amount || 0,
+                    amt: payBankedAmt(c, py),
                     open: i ? { type: "invoice", c: c, d: i } : null,
                   });
                 }),
@@ -37117,7 +37383,7 @@ renderBank = function () {
   host &&
     und.length &&
     !host.querySelector(".undep-note") &&
-    (host.innerHTML += ` <span class="bad undep-note">${und.length} client payment${und.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(und.reduce((a, x) => a + (+x.py.amount || 0), 0))}) — deposit them or fix the record.</span>`);
+    (host.innerHTML += ` <span class="bad undep-note">${und.length} client payment${und.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(und.reduce((a, x) => a + undepAmt(x), 0))}) — deposit them or fix the record.</span>`);
 };
 const closeChecklistBase = closeChecklist;
 closeChecklist = function (month) {
@@ -37430,7 +37696,7 @@ renderClients = function () {
   if (!tb) return;
   const hr = tb.querySelector("thead tr");
   if (!hr || hr.querySelector(".cx")) return;
-  ["Unsigned", "Billed ahead", "Next bill"].forEach((l) => {
+  ["Unsigned", "Over-Billed (WIP)", "Next bill"].forEach((l) => {
     const th = document.createElement("th");
     (th.className = "cx money"), (th.textContent = l), hr.appendChild(th);
   });
@@ -37552,7 +37818,11 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId));
+// A line typed by hand is not the bank's record, so it is never offered as a match to confirm (TRIAGE class 1: Satish
+// $7,400 and the Rosario Zelle sat here as if the bank had sent them). It keeps its own flag on the bank row, "No bank
+// line behind it: typed by hand", with Match to a Line; once the bank's line arrives it confirms the typed one.
+const propTyped = (t) => !txnFromBank(t),
+  proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind && !("newbill" === t.proposal.kind && t.billId) && !propTyped(t));
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -40136,7 +40406,7 @@ function progressPicker(c) {
   docs.length
     ? mbModal(
         "New progress invoice — bill off which document?",
-        `<p class="small muted">Only that document's lines appear on the invoice. Each line gets its own % this period; the first invoice on a contract is simply the first progress bill.</p>${docs.map((o, i) => `<label style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start;cursor:pointer"><input type="radio" name="pp-doc" value="${i}" ${0 === i ? "checked" : ""} style="margin-top:3px;width:16px;height:16px;flex:0 0 auto"><span style="flex:1;min-width:0"><b>${esc(o.doc.number)}</b> · ${esc(o.doc.title || "")}<div class="small muted">${"co" === o.kind ? "Change order" : "Estimate"} · ${o.lines} line${1 === o.lines ? "" : "s"} · ${money(o.sched)} scheduled · ${o.pct}% billed to date${o.billed ? ` (${money(o.billed)})` : ""}</div></span></label>`).join("")}`,
+        `<p class="small muted">Only that document's lines appear on the invoice. Each line gets its own % this period. The deposit is its own invoice; each application takes its share of it off what is due.</p>${docs.map((o, i) => `<label style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start;cursor:pointer"><input type="radio" name="pp-doc" value="${i}" ${0 === i ? "checked" : ""} style="margin-top:3px;width:16px;height:16px;flex:0 0 auto"><span style="flex:1;min-width:0"><b>${esc(o.doc.number)}</b> · ${esc(o.doc.title || "")}<div class="small muted">${"co" === o.kind ? "Change order" : "Estimate"} · ${o.lines} line${1 === o.lines ? "" : "s"} · ${money(o.sched)} scheduled · ${o.pct}% billed to date${o.billed ? ` (${money(o.billed)})` : ""}</div></span></label>`).join("")}`,
         {
           submit: "Start progress invoice",
           onSubmit: () => {
@@ -40177,28 +40447,25 @@ function progressPicker(c) {
   );
 const docActionsBase_b3 = docActions;
 docActions = function (c, d, st) {
+  // (2026-10-26) This wrapper used to strip Create Deposit Invoice and refuse the action ("Deposits are billed as the
+  // first progress invoice"), so billing typed the deposit as a % on every SOV line: the deposit read as work done
+  // and 121 State billed ahead. The deposit is its own invoice again (decision 5, ctDepositInvoice).
   let h = docActionsBase_b3(c, d, st);
   return (
-    (h = h.replace(/<button class="btn sm[^"]*" data-docact="deposit">[^<]*<\/button>/g, "")),
     "co" === d.type &&
       ["approved", "billed"].includes(d.status) &&
       sovLinesFor(c, d).length &&
       (h = h.replace(
         /<span class="small muted">In SOV — bill it on the next progress invoice\.<\/span>/,
-        '<button class="btn sm primary" data-docact="progress">New progress invoice</button>',
+        '<button class="btn sm primary" data-docact="progress">New Progress Invoice</button>',
       )),
     "estimate" === d.type &&
       ["converted", "billed"].includes(d.status) &&
       sovLinesFor(c, d).length &&
       !/data-docact="progress"/.test(h) &&
-      (h = '<button class="btn sm primary" data-docact="progress">New progress invoice</button>' + h),
+      (h = `<button class="btn sm${/class="btn sm primary"/.test(h) ? "" : " primary"}" data-docact="progress">New Progress Invoice</button>` + h),
     h
   );
-};
-const docActionBase_b3 = docAction;
-docAction = async function (c, d, a) {
-  if ("deposit" !== a) return docActionBase_b3(c, d, a);
-  toast("Deposits are billed as the first progress invoice — set a % on each line");
 };
 const renderDocEditorBase_b3 = renderDocEditor;
 renderDocEditor = function (c, d) {
@@ -40214,7 +40481,6 @@ renderDocEditor = function (c, d) {
   }
   return h;
 };
-const analystFindingsBase_b3 = analystFindings;
 function billFromMigrate() {
   DB.__b3 ||
     (DB.clients.forEach((c) =>
@@ -40236,9 +40502,6 @@ function billFromMigrate() {
     ),
     (DB.__b3 = 1));
 }
-analystFindings = function () {
-  return analystFindingsBase_b3().filter((f) => !/no deposit invoiced/i.test(f.title || ""));
-};
 const basis = () => DB.company.basis || "accrual";
 function basisToggleHtml() {
   return `<div class="seg sm" id="basis-seg" title="Accrual: earned and incurred · Cash: collected and paid"><button class="${"accrual" === basis() ? "on" : ""}" data-basis="accrual">Accrual</button><button class="${"cash" === basis() ? "on" : ""}" data-basis="cash">Cash</button></div>`;
@@ -41035,11 +41298,12 @@ function briefSentences(F, r) {
     "owner" === r
       ? S_.push(
           (() => {
-            const b = F.B;
+            const b = F.B,
+              sf = stsSafe();
             let s =
-              b.trulyOurs < 0
-                ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we're ${moneyK(-b.trulyOurs)} short — collect before spending`
-                : `Cash is ${moneyK(b.cash)}, ${moneyK(b.trulyOurs)} truly ours after client funds and what we owe`;
+              sf < 0
+                ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we're ${moneyK(-sf)} short — collect before spending`
+                : `Cash is ${moneyK(b.cash)}, ${moneyK(sf)} safe to spend after client funds and what we owe`;
             return (
               F.lowWeek &&
                 F.low < 0.5 * b.cashToday &&
@@ -41162,7 +41426,7 @@ function h4Home(F) {
         ? `<div class="small muted" style="padding:6px 0">+ ${F.needs.length - 6} more</div>`
         : ""),
     b = F.B,
-    moneyHtml = `<div class="h4kv"><span>Safe to spend</span><b class="${b.trulyOurs < 0 ? "bad" : ""}">${money(b.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(b.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(b.ap)}</b><i>${money(F.dueWeek.reduce((a, x) => a + billTotal(x), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+    moneyHtml = `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(b.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(b.ap)}</b><i>${money(F.dueWeek.reduce((a, x) => a + billTotal(x), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
     jobsHtml = F.jobs
       .slice(0, 6)
       .map(
@@ -41383,7 +41647,7 @@ async function jvAsk(F) {
     facts = {
       today: F.td,
       cash: F.B.cash,
-      safeToSpend: F.B.trulyOurs,
+      safeToSpend: stsSafe(),
       cashLow13w: F.low,
       receivables: F.arTotal,
       overdue: F.overdue.map((x) => ({
@@ -46182,9 +46446,10 @@ function ptRunway() {
       (F.weeks.reduce((a, w) => a + w.outflow, 0) - F.weeks.reduce((a, w) => a + (w.inflow || 0), 0)) /
       Math.max(1, F.weeks.length) /
       7,
-    days = B.trulyOurs < 0 ? -1 : net > 0 ? Math.round(B.trulyOurs / net) : null,
-    cls = B.trulyOurs < 0 || F.low < 0 ? "bad" : null != days && days >= 0 && days < 60 ? "warn" : "ok";
-  return `<div class="dx-tiles">${tile(money(B.trulyOurs), "Safe to Spend · Truly Ours", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "Safe to Spend Is Negative" : null == days ? "Collections Cover the Spend" : "Days of Runway on Safe-to-Spend Cash", cls)}${tile(money(F.low), `13-Week Low · Week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
+    sf = stsSafe(),
+    days = sf < 0 ? -1 : net > 0 ? Math.round(sf / net) : null,
+    cls = sf < 0 || F.low < 0 ? "bad" : null != days && days >= 0 && days < 60 ? "warn" : "ok";
+  return `<div class="dx-tiles">${tile(money(sf), "Safe to Spend", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "Safe to Spend Is Negative" : null == days ? "Collections Cover the Spend" : "Days of Runway on Safe-to-Spend Cash", cls)}${tile(money(F.low), `13-Week Low · Week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
     F.weeks.map((w) => w.balance),
     300,
     34,
@@ -46200,7 +46465,7 @@ function ptWIP() {
     worst = rows.filter(
       (r) => r.J.contract && Math.abs(r.ou) > 0.15 * Math.max(1, r.J.contract - r.J.earned),
     );
-  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "Billed Ahead of Work (Liability)" : "Earned Ahead of Billing (Unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
+  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "Over-Billed (WIP) · Liability" : "Earned Ahead of Billing (Unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
 }
 function ptMarginFc() {
   return `<div class="rem">${
@@ -50867,56 +51132,86 @@ function ctItemsModal(c, d, l, editable) {
     };
   wire();
 }
+// ---- The deposit (decision 5, adopted 2026-10-26 as a reversible default while it waits on Alan) --------------------
+// The signed contract's deposit is its own invoice: the % comes from the contract (the estimate's terms, 25% by
+// default), one line, no retainage, due on receipt, and it is in Billing's queue (Ready to Bill) from the hour the
+// contract is signed, to be invoiced inside the Standard's 2 business days. Each progress application credits it pro
+// rata (depositRefresh); it is never billed as a % complete on the schedule of values, which booked it as work done.
+function ctDepositPct(c, d) {
+  const v = d && d.depositPct;
+  return "" === v || null == v || !isFinite(+v) ? 25 : Math.max(0, Math.min(100, +v));
+}
+function ctDepositSigned(c, d) {
+  return String((d && (d.approvedOn || (d.clientAnswer && d.clientAnswer.yes && d.clientAnswer.on) || (d.clientApproval && String(d.clientApproval.ts || "").slice(0, 10)))) || (c && c.contractDate) || (d && d.date) || today()).slice(0, 10);
+}
+// What is owed as the deposit on a converted estimate, or null: none is owed once a deposit invoice exists (not void),
+// once the contract says 0%, or when billing on the job began without one (a progress invoice already sent, or an
+// old invoice titled as the deposit), so a deposit is never proposed after the fact.
+function ctDepositDue(c, d) {
+  if (!c || !d || "estimate" !== d.type || "converted" !== d.status) return null;
+  if (d.template && "construction" !== d.template) return null;
+  const pct = ctDepositPct(c, d);
+  if (!(pct > 0)) return null;
+  const live = (c.invoices || []).filter((i) => "void" !== i.status);
+  if (live.some((i) => i.depositOf === d.id && invIsDeposit(i))) return null;
+  // billing on the job began without one (an application sent, or an old one that reads as the deposit)
+  if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || invLegacyDeposit(i)))) return null;
+  const net = docNet(d),
+    amount = r2((net * pct) / 100);
+  if (!(amount > 0)) return null;
+  const signed = ctDepositSigned(c, d),
+    by = addWork(signed, 2);
+  return { pct: pct, net: net, amount: amount, signed: signed, by: by, late: today() > by };
+}
 function ctDepositInvoice(c, d) {
-  const rows = c.sov
-      .filter((v) => "Contract" === v.source)
-      .map((v) => ({ sv: v, prev: sovBilled(c, v.id), pct: +DB.company.depositPct || 30 })),
-    body = () =>
-      `<div class="row" style="gap:10px;align-items:center;margin-bottom:8px"><label class="small">Deposit <input id="ctd-all" type="number" min="0" max="100" step="1" value="${rows[0]?.pct ?? 30}" style="width:64px;display:inline-block;height:30px"> % of every line</label><span class="small muted">— adjust any line below</span><span class="grow"></span><b>Deposit total ${money(rows.reduce((a, r) => a + ((+r.sv.scheduled || 0) * Math.min(r.pct, 100 - r.prev)) / 100, 0))}</b></div><div class="tw" style="max-height:50vh;overflow:auto"><table class="t"><thead><tr><th>Line</th><th class="money">Value</th><th style="width:70px">Billed</th><th style="width:80px">Deposit %</th><th class="money">Amount</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${esc(r.sv.desc)}</td><td class="money">${money(r.sv.scheduled)}</td><td class="dim">${r.prev ? r2(r.prev) + "%" : "—"}</td><td><input data-ctd="${i}" type="number" min="0" max="${100 - r.prev}" step="1" value="${Math.min(r.pct, 100 - r.prev)}" style="width:100%;height:28px"></td><td class="money">${money(((+r.sv.scheduled || 0) * Math.min(r.pct, 100 - r.prev)) / 100)}</td></tr>`).join("")}</tbody></table></div>`,
-    m = mbModal("Deposit invoice", body(), {
-      submit: "Create deposit invoice",
+  const D = ctDepositDue(c, d);
+  if (!D) {
+    const had = (c.invoices || []).find((i) => i.depositOf === d.id && invIsDeposit(i) && "void" !== i.status);
+    return void toast(had ? `The deposit is on ${had.number} already` : `No deposit is owed on ${d.number}`, had ? () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: had.id }), render()) : void 0);
+  }
+  const amt = (pct) => r2((D.net * (+pct || 0)) / 100);
+  mbModal(
+    `Deposit Invoice — ${esc(d.number)}`,
+    `<p class="small muted" style="margin:0 0 8px">Signed ${esc(fmtL(D.signed))}. The deposit is money on account: one line, no retainage, due on receipt. Each progress application takes its share of it off what is due, so the schedule of values only ever shows work done.</p><div class="f2"><label class="f"><span>Deposit %</span><input id="dep-pct" data-f="pct" type="number" min="0" max="100" step="1" value="${D.pct}" inputmode="decimal"></label><label class="f"><span>Amount</span><input id="dep-amt" type="number" step="0.01" value="${D.amount}" readonly></label></div><div class="small muted">${D.pct}% from the contract (${esc(d.number)}, ${money(D.net)}) · invoice by ${esc(fmtL(D.by))}, 2 business days after signing.</div>`,
+    {
+      submit: "Create Deposit Invoice",
       onSubmit: () => {
-        const inv = newDoc(c, "invoice", { mode: "sov" });
+        const pct = Math.max(0, Math.min(100, +$("#dep-pct").value || 0)),
+          a = amt(pct);
+        if (!(a > 0)) return toast("Enter the deposit %"), !1;
+        const inv = newDoc(c, "invoice", { mode: "items" });
         (inv.template = "construction"),
+          (inv.projectId = d.projectId || inv.projectId || ""),
           (inv.depositOf = d.id),
-          (inv.title = "Construction deposit"),
-          (inv.terms = "Due at signing"),
+          (inv.isDeposit = !0),
+          (inv.title = `Deposit — ${pct}% of the contract`),
+          (inv.terms = "Due on receipt"),
+          (inv.due = inv.date),
           (inv.retainagePct = 0),
-          (inv.lines = inv.lines
-            .map((li) => {
-              const r = rows.find((x) => x.sv.id === li.sovId),
-                pct = r ? Math.min(r.pct, 100 - (+li.prevPct || 0)) : 0;
-              return Object.assign(li, { pct: pct, desc: pct ? `Deposit — ${pct}% of line` : "" });
-            })
-            .filter((li) => li.pct > 0)),
+          (inv.lines = [
+            {
+              id: uid("l"),
+              item: "Deposit on the contract",
+              desc: `${pct}% of ${d.number} (${money(D.net)}), held on account and taken off each progress application`,
+              qty: 1,
+              unit: "ls",
+              rate: a,
+              taxable: !1,
+            },
+          ]),
           docMark(inv),
-          c.activity.push({
-            t: nowStamp(),
-            by: S.project.userName || "",
-            text: `${inv.number} deposit invoice created from ${d.number} — ${money(docTotal(inv).total)}`,
-          }),
-          (docOpen = { kind: "invoice", id: inv.id }),
-          (finTab = "invoices"),
-          save(),
-          render(),
-          toast(`${inv.number} — deposit ${money(docTotal(inv).total)}`);
+          (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || role(), text: `${inv.number} deposit — ${money(a)} (${pct}% of ${d.number})` });
+        try {
+          audit("invoice", inv.id, "deposit-drafted", "", String(a), `${pct}% of ${d.number}`);
+        } catch (e) {}
+        (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), (finTab = "invoices"), save(), render();
+        const go = () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render());
+        "function" == typeof rcToast ? rcToast(`${inv.number} drafted: the ${pct}% deposit, ${money(a)}. Review it, then Send to Client`, [{ label: "Open", run: go }]) : toast(`${inv.number} drafted — deposit ${money(a)}`, go);
       },
-    }),
-    wire = () => {
-      m.querySelector("#ctd-all").addEventListener("change", (e) => {
-        const v = Math.max(0, Math.min(100, +e.target.value || 0));
-        rows.forEach((r) => (r.pct = v)), refresh();
-      }),
-        m.querySelectorAll("[data-ctd]").forEach((i) =>
-          i.addEventListener("change", () => {
-            (rows[+i.dataset.ctd].pct = Math.max(0, +i.value || 0)), refresh();
-          }),
-        );
     },
-    refresh = () => {
-      (m.querySelector(".mbm-bd").innerHTML = body()), wire();
-    };
-  return wire(), (m.querySelector(".mbm-box").style.maxWidth = "760px"), null;
+  );
+  const p = $("#dep-pct");
+  p && p.addEventListener("input", () => ($("#dep-amt").value = amt(p.value)));
 }
 function ctProgressInvoice(c, d) {
   const inv = newDoc(c, "invoice", { mode: "sov" });
@@ -51274,10 +51569,20 @@ function finishBoot() {
     } catch (e) {
       console.error("returns init", e);
     }
+    // a sent invoice reprints as it was sent: its print kind is kept from the first boot of this build (cxKind)
+    try {
+      docKindFreeze();
+    } catch (e) {
+      console.error("print kinds", e);
+    }
   } catch (e) {
     console.error("phase 6 migrate", e);
   }
   (document.body.dataset.booted = "1"), wire();
+  // a shell that boots without bootRun: sent invoices' postings are kept from the turn after the boot (glInvoiceLines)
+  setTimeout(() => {
+    glFreezeReady = !0;
+  }, 0);
   // the memo of derived numbers (speed.js) for a boot that did not come through bootRun (a shell calling finishBoot
   // directly): every render layer exists by now, so its layer is the outermost; a first boot keeps the old path
   try {
@@ -66115,7 +66420,7 @@ function iaDocGrid(kind) {
               get: (r) => {
                 return "sov" === (x = r.x).mode
                   ? "Progress"
-                  : x.depositOf
+                  : invIsDeposit(x)
                     ? "Deposit"
                     : x.retainerOf
                       ? "Retainer"
@@ -66147,7 +66452,14 @@ function iaDocGrid(kind) {
       ...("invoice" === kind
         ? [{ key: "open", label: "Open", type: "money", w: "100px", get: (r) => r.open || "" }]
         : []),
-      { key: "status", label: "Status", type: "status", w: "110px", get: (r) => r.st },
+      {
+        key: "status",
+        label: "Status",
+        type: "status",
+        w: "110px",
+        // an invoice paid by money the bank never saw reads "recorded, not yet in the bank", never Paid
+        get: (r) => ("invoice" === kind ? ((x) => ({ text: x.text, cls: x.cls }))(invoiceStatusShown(r.c, r.x)) : r.st),
+      },
     ];
   return grid({
     id: "bill-" + kind,
@@ -66158,22 +66470,44 @@ function iaDocGrid(kind) {
     empty: `No ${"co" === kind ? "change orders" : kind + "s"} yet.`,
   });
 }
+// Billing > Schedule of Values, as the continuation sheet (AIA G703): each line by its name (the Line column read
+// v.item, which an SOV line never has, so every row was blank), its scheduled value, what earlier applications billed,
+// this period (the draft), materials stored, completed and stored to date with its %, the balance to finish and the
+// retainage held, with totals. The deposit is never on these lines: it is its own invoice, credited on each application.
 function iaSovHtml() {
   const cs = DB.clients.filter((c) => (!billClient || c.id === billClient) && c.sov.length);
-  return cs.length
-    ? cs
-        .map(
-          (c) =>
-            `<div class="card" style="margin-bottom:16px"><div class="hd"><h3>${esc(c.name)}</h3><span class="grow"></span><button class="btn sm" data-billclient="${c.id}">Open client</button></div>\n    <div class="tw"><table class="t"><thead><tr><th>Line</th><th>Source</th><th class="money">Scheduled</th><th class="money">Billed</th><th class="num">Billed %</th></tr></thead><tbody>${c.sov
-              .map((v) => {
-                const f = v.lineRef ? lineFin(v.lineRef) : null,
-                  billed = f ? f.billed : 0;
-                return `<tr><td><b>${esc(v.item || v.name || "")}</b></td><td class="dim">${esc(v.source || "")}</td><td class="money">${money(+v.scheduled || 0)}</td><td class="money">${billed ? money(billed) : "—"}</td><td class="num">${f ? f.billedPct + "%" : "—"}</td></tr>`;
-              })
-              .join("")}</tbody></table></div></div>`,
-        )
-        .join("")
-    : '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
+  if (!cs.length) return '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
+  const cell = (v, cls) => `<td class="money ${cls || ""}">${Math.abs(v) >= 0.005 ? money(v) : "—"}</td>`;
+  return cs
+    .map((c) => {
+      const live = (c.invoices || []).filter((i) => "sov" === i.mode && "void" !== i.status),
+        rows = c.sov.map((v, n) => {
+          let prev = 0,
+            now = 0,
+            stored = 0,
+            ret = 0;
+          live.forEach((i) =>
+            (i.lines || [])
+              .filter((l) => l.sovId === v.id)
+              .forEach((l) => {
+                const amt = lineAmount(l, i);
+                "draft" === i.status ? (now += amt) : (prev += amt);
+                stored += +l.stored || 0;
+                "draft" !== i.status && (ret += (amt * (+i.retainagePct || 0)) / 100);
+              }),
+          );
+          const sched = +v.scheduled || 0,
+            done = r2(prev + now);
+          return { v: v, n: n + 1, sched: sched, prev: r2(prev), now: r2(now), stored: r2(stored), done: done, pct: sched ? Math.round((done / sched) * 1000) / 10 : 0, bal: r2(sched - done), ret: r2(ret) };
+        }),
+        T = (k) => r2(rows.reduce((a, r) => a + r[k], 0)),
+        sch = T("sched");
+      return `<div class="card" style="margin-bottom:16px"><div class="hd"><h3>${esc(c.name)}</h3><span class="grow"></span><button class="btn sm" data-billclient="${c.id}">Open Client</button></div>
+    <div class="tw"><table class="t sov-g703"><thead><tr><th>#</th><th>Line</th><th class="money">Scheduled Value</th><th class="money">Previous Applications</th><th class="money">This Period</th><th class="money">Materials Stored</th><th class="money">Completed and Stored</th><th class="num">%</th><th class="money">Balance to Finish</th><th class="money">Retainage</th></tr></thead><tbody>${rows
+      .map((r) => `<tr><td class="dim">${r.n}</td><td><b data-nocase>${esc(r.v.desc || r.v.item || r.v.name || "")}</b>${r.v.source && "Contract" !== r.v.source ? `<span class="sub">${esc(r.v.source)}</span>` : ""}</td>${cell(r.sched)}${cell(r.prev)}${cell(r.now)}${cell(r.stored)}${cell(r.done)}<td class="num">${r.pct ? r.pct + "%" : "—"}</td>${cell(r.bal)}${cell(r.ret)}</tr>`)
+      .join("")}<tr style="font-weight:600"><td></td><td>Totals</td>${cell(sch)}${cell(T("prev"))}${cell(T("now"))}${cell(T("stored"))}${cell(T("done"))}<td class="num">${sch ? Math.round((T("done") / sch) * 1000) / 10 + "%" : "—"}</td>${cell(T("bal"))}${cell(T("ret"))}</tr></tbody></table></div><div class="small muted">This period is the draft application; previous applications are those sent. The deposit is its own invoice and is taken off each application's amount due, never put on these lines.</div></div>`;
+    })
+    .join("");
 }
 // ---- A client payment carries its trace (pilot day 2: a payment held only date, amount and invoice, so one that
 // was not in the bank could not be traced): how it came (method), the check number or wire reference, the account it
@@ -66235,7 +66569,9 @@ function payReverse(c, py, why) {
   (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Payment ${money(+py.amount || 0)} of ${fmtL(py.date)} reversed — ${w}` });
   return save(), { ok: !0, rv: rv, inv: inv };
 }
-function paySheet(c, py) {
+// A payment opens read only: its one blue is never Reverse Payment (round one: a blue Reverse Payment on a read-only
+// payment sheet). Reverse Payment… (not blue) opens the reversal on its own sheet, which asks why before it commits.
+function paySheet(c, py, rev) {
   if (!c || !py) return;
   const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId),
     t = payBankLine(py),
@@ -66245,9 +66581,9 @@ function paySheet(c, py) {
     can = payCanReverse() && !py.reversalId && !py.reverses && +py.amount > 0,
     m = mbModal(
       `Payment · ${esc(c.name)} · ${money(+py.amount || 0)}`,
-      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "not in the bank")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
-      ${can ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
-      can
+      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "recorded, not yet in the bank: no bank or card line behind it, so it is not counted as collected")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
+      ${can && !rev ? `<div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-payrev="1">Reverse Payment…</button></div>` : ""}${can && rev ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
+      can && rev
         ? {
             submit: "Reverse Payment",
             onSubmit: (f) => {
@@ -66260,15 +66596,20 @@ function paySheet(c, py) {
           }
         : { submit: null },
     );
+  const rb = m && m.querySelector && m.querySelector("[data-payrev]");
+  rb && (rb.onclick = () => (mbCloseModal(), paySheet(c, py, !0)));
   return m;
 }
 // ---- In the Bank, Not Applied (pilot day 3): money that reached a bank account and is on no invoice. Each deposit
 // from an import or a feed with the invoice the matcher proposes for it (payer name and amount); Record It applies it.
 // the bank line behind a recorded payment: the one it is linked to, else the one undepositedReceipts reads as its
 // deposit (same amount within $1, within 10 days), so this list and "Recorded, Not Yet in the Bank" never disagree
+// Only the bank's own record counts (a feed or an imported statement, bfBacked): a line typed by hand is not the bank
+// seeing the money. A line already standing behind another payment never stands behind this one too.
 function payBankLine(py) {
   if (!py || !(+py.amount > 0)) return null;
-  return (py.txnId && (DB.txns || []).find((t) => t.id === py.txnId)) || (DB.txns || []).find((t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10) || null;
+  const b = payBacking().get(py);
+  return b ? b.t : null;
 }
 function payInBankRows() {
   const banks = new Set(payBankAccts().map((a) => a.id)),
@@ -66290,6 +66631,19 @@ function payInBankRows() {
       return { t: t, best: best };
     })
     .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
+}
+// Find in Bank (a sent invoice's blue): the bank's own deposit the matcher reads as this invoice's money opens, to be
+// recorded from the line; with none, Banking opens and says what the bank has not shown yet. Nothing is recorded here.
+function invFindInBank(c, d) {
+  const bal = r2(docTotal(d).total - invoicePaid(c, d)),
+    R = payInBankRows(),
+    hit =
+      R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
+      R.find((x) => Math.abs(+x.t.amt - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
+  if (hit && "function" == typeof openVerifyTxn) return void openVerifyTxn(hit.t.id);
+  const last = (DB.txns || []).filter((t) => +t.amt > 0 && txnFromBank(t)).map((t) => t.date).sort().pop();
+  (ROLE_VIEWS[role()] || []).includes("bank") && setView("bank");
+  toast(`No deposit of ${money(bal)} for ${d.number} is in the bank's lines yet${last ? ` (the last deposit seen is ${fmtL(last)})` : ""}. When it arrives it is proposed against ${d.number} on Banking.`);
 }
 function payInBankHtml() {
   const R = payInBankRows();
@@ -66781,7 +67135,7 @@ function iaBillQueueHtml() {
       )
       .join(""),
     "Everything sent has been paid.",
-  )}\n    ${card("Recorded, not yet in the bank", undep.map((x) => row(money(x.py.amount), `${esc(x.c.name)} · ${fmt(x.py.date)}`, esc(x.py.method || ""), { view: "bank" }, "Banking")).join(""), "Every recorded payment has been seen in the bank.")}\n  </div>`;
+  )}\n    ${card("Recorded, not yet in the bank", undep.map((x) => row(money(undepAmt(x)), `${esc(x.c.name)} · ${fmt(x.py.date)}`, esc(x.py.method || ""), { view: "bank" }, "Banking")).join(""), "Every recorded payment has been seen in the bank.")}\n  </div>`;
 }
 const renderBillingBase_p2 = renderBilling;
 renderBilling = function () {
@@ -69236,9 +69590,9 @@ briefSentences = function (F, r) {
     ],
     b = F.B,
     cash = () =>
-      b.trulyOurs < 0
-        ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we are ${moneyK(-b.trulyOurs)} short — collect before spending.`
-        : `Cash is ${moneyK(b.cash)}, ${moneyK(b.trulyOurs)} truly ours; the 13-week low is ${moneyK(F.low)}${F.lowWeek ? ` (week of ${fmt(F.lowWeek.start)})` : ""}.`;
+      stsSafe() < 0
+        ? `Cash is ${moneyK(b.cash)}, but after client funds and what we owe we are ${moneyK(-stsSafe())} short — collect before spending.`
+        : `Cash is ${moneyK(b.cash)}, ${moneyK(stsSafe())} safe to spend; the 13-week low is ${moneyK(F.low)}${F.lowWeek ? ` (week of ${fmt(F.lowWeek.start)})` : ""}.`;
   if ("owner" === r) {
     const n = X.billsOwner.length + X.posPending.length + X.excOwner.length;
     out.push(
@@ -69376,7 +69730,7 @@ const h4HomeBase_b2 = h4Home;
   const X = b2Facts(F),
     cards = [],
     moneyCard = () =>
-      `<div class="h4kv"><span>Safe to spend</span><b class="${F.B.trulyOurs < 0 ? "bad" : ""}">${money(F.B.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+      `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
     jobsCard = (list) =>
       list
         .map(
@@ -69717,7 +70071,7 @@ const h4HomeBase_b2 = h4Home;
     const rest = [
       ...X.undep.map((x) =>
         b2Row(
-          money(x.py.amount),
+          money(undepAmt(x)),
           `${esc(x.c.name)} · recorded ${fmt(x.py.date)}`,
           "not yet in the bank",
           { view: "bank" },
@@ -69888,7 +70242,7 @@ function b2Plate(r, F) {
           `POs over your threshold: ${X.posPending.map((po) => `${po.number} ${po.vendor} ${money(poTotal(po).total)}`).join(", ")}`,
         ),
       X.excOwner.length && L.push(`Bank exceptions for you: ${X.excOwner.length}`),
-      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(F.B.trulyOurs)}, 13-week low ${money(F.low)}`),
+      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(stsSafe())}, 13-week low ${money(F.low)}`),
       X.risk.length &&
         L.push(
           `Jobs at risk: ${X.risk.map((j) => `${j.name} (${j.late > 0 ? j.late + "d behind" : "health " + j.score})`).join(", ")}`,
@@ -69943,7 +70297,7 @@ function b2Plate(r, F) {
     ),
       X.undep.length &&
         L.push(
-          `Recorded, not in bank: ${X.undep.map((x) => `${x.c.name} ${money(x.py.amount)}`).join(", ")}`,
+          `Recorded, not in bank: ${X.undep.map((x) => `${x.c.name} ${money(undepAmt(x))}`).join(", ")}`,
         ),
       X.cosToSign.length &&
         L.push(`Unsigned change orders: ${X.cosToSign.map((x) => `${x.x.number} ${x.c.name}`).join(", ")}`);
@@ -69970,7 +70324,7 @@ function b2Plate(r, F) {
         L.push(
           `Payroll to pay: ${X.payrollDue.map((rn) => `${rn.from}–${rn.to} ${money(rn.total || 0)}`).join(", ")}`,
         ),
-      L.push(`Cash ${money(F.B.cash)}, truly ours ${money(F.B.trulyOurs)}`)),
+      L.push(`Cash ${money(F.B.cash)}, safe to spend ${money(stsSafe())}`)),
     L.join("\n")
   );
 }
@@ -70405,9 +70759,9 @@ function eaToday(r, F, X) {
             data: { view: "verify" },
           }),
         ),
-      F.B.trulyOurs < 0 &&
+      stsSafe() < 0 &&
         out.push({
-          n: "!" + money(-F.B.trulyOurs),
+          n: "!" + money(-stsSafe()),
           t: "We are short after client funds and payables",
           sub: F.arOver
             ? `${money(F.arOver)} is overdue from clients — I'd collect that first.`
@@ -70569,7 +70923,7 @@ function eaToday(r, F, X) {
         ),
       X.undep.forEach((x) =>
         out.push({
-          n: money(x.py.amount),
+          n: money(undepAmt(x)),
           t: `${esc(x.c.name)} — recorded ${fmt(x.py.date)}, not in the bank`,
           sub: "either it has not been deposited or it bounced; worth a look.",
           act: "Banking",
@@ -70787,9 +71141,9 @@ briefSentences = function (F, r) {
       ),
     ("owner" !== r && "controller" !== r) ||
       out.push(
-        F.B.trulyOurs < 0
-          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-F.B.trulyOurs)} short once client funds and payables are set aside.`
-          : `Cash: ${moneyK(F.B.cash)} in the bank, ${moneyK(F.B.trulyOurs)} truly ours.`,
+        stsSafe() < 0
+          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-stsSafe())} short once client funds and payables are set aside.`
+          : `Cash: ${moneyK(F.B.cash)} in the bank, ${moneyK(stsSafe())} safe to spend.`,
       ),
     out
   );
@@ -70890,7 +71244,7 @@ const h4HomeBase_ea = h4Home;
       cards.push(
         h4Card(
           "Accounting",
-          `<div class="h4kv"><span>Safe to spend</span><b class="${F.B.trulyOurs < 0 ? "bad" : ""}">${money(F.B.trulyOurs)}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
+          `<div class="h4kv"><span>Safe to spend</span><b class="${stsSafe() < 0 ? "bad" : ""}">${money(stsSafe())}</b></div><div class="h4kv"><span>Cash on the books</span><b>${money(F.B.cash)}</b></div><div class="h4kv"><span>Receivables</span><b>${money(F.arTotal)}</b><i class="${F.arOver ? "bad" : ""}">${F.arOver ? money(F.arOver) + " overdue" : "none overdue"}</i></div><div class="h4kv"><span>Payables</span><b>${money(F.B.ap)}</b><i>${money(X.dueWeek.reduce((a, b) => a + billTotal(b), 0))} due in 7 days</i></div><div class="h4kv"><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>${F.lowWeek ? "week of " + fmt(F.lowWeek.start) : ""}</i></div>`,
           { view: "dashboard" },
         ),
       ),
@@ -71216,14 +71570,41 @@ function glUnreconciled(entityId, ym) {
   ).length;
 }
 const glL = (acct, dr, cr, d) => Object.assign({ acct: acct, dr: r2(dr || 0), cr: r2(cr || 0) }, d || {});
+// A sent or paid invoice's postings are what they were when it left draft: an edit to its title, retainage or lines
+// never re-books money (glSync reversed and re-posted on any change, so a retitle moved a paid application's revenue
+// to deposits held). The first posting is kept on the invoice (glLines), with the print kind it went out as; a later
+// edit that would post differently is a Controller finding (glInvoiceDrift), corrected by a credit or a reversal.
+// Nothing is kept while the app boots: the seed and the migrations finish across the boot chain's layers, and a
+// posting kept half-way (121 State's INV-2026-035 at $80,833.50, settled a layer later at $80,833.51) left 1100 a
+// cent off the receivables (glFreezeReady, set when bootRun has finished).
+let glFreezeReady = !1;
 function glInvoiceLines(c, d) {
+  if (!d || ["draft", "void"].includes(d.status)) return glInvoiceLinesLive(c, d);
+  if (Array.isArray(d.glLines)) return d.glLines.map((l) => Object.assign({}, l));
+  const L = glInvoiceLinesLive(c, d);
+  if (!glFreezeReady) return L;
+  d.glLines = L.map((l) => Object.assign({}, l));
+  try {
+    !d.printKind && "function" == typeof cxKindAtSend && (d.printKind = cxKindAtSend(d));
+  } catch (e) {}
+  return L;
+}
+function glInvoiceDrift(c, d) {
+  if (!d || !Array.isArray(d.glLines) || ["draft", "void"].includes(d.status)) return 0;
+  const sum = (L, a) => r2(L.filter((l) => l.acct === a).reduce((s, l) => s + (+l.dr || 0) - (+l.cr || 0), 0)),
+    now = glInvoiceLinesLive(c, d);
+  return r2(["1100", "1150", "2400", "4000", "4100", "4200", "4300", "2300"].reduce((a, k) => a + Math.abs(sum(now, k) - sum(d.glLines, k)), 0));
+}
+function glInvoiceLinesLive(c, d) {
   const T = docTotal(d),
     L = [],
     dims = { projectId: d.projectId, partyType: "client", partyId: c.id },
     net = r2(T.sub - T.disc);
   if (d.retainageRelease)
     return L.push(glL("1100", T.total, 0, dims)), L.push(glL("1150", 0, T.total, dims)), L;
-  const isDeposit = !(!d.depositOf && !d.retainerOf),
+  // a deposit (or retainer) invoice: depositOf on a progress application only names the deposit it draws on, so an
+  // SOV invoice is never a deposit; it posted its revenue to 2400 (Cr deposits held) instead of 4100
+  const isDeposit = !!(invIsDeposit(d) || d.retainerOf),
     // docTotal already takes an applied deposit off a progress (SOV) invoice's total (T.dep); taking it off again
     // left the journal $1 short per $1 of deposit (Dr 1100 + 2400 under Cr revenue) and AR under the client record
     depOff = r2(r2(d.depositApplied || 0) - r2(T.dep || 0));
@@ -72016,7 +72397,7 @@ function glOverviewHtml(sync) {
             .flatMap((c) => c.invoices || [])
             .filter(
               (i) =>
-                (i.depositOf || i.retainerOf) &&
+                (invIsDeposit(i) || i.retainerOf) &&
                 !["void", "draft"].includes(i.status) &&
                 i.date >= from &&
                 i.date <= to &&
@@ -89105,7 +89486,7 @@ function glnProject(cpm, projEnd) {
         k: "Costs",
         go: "costs",
         tone: drift > 3 || aheadPct > 10 ? "bad" : aheadPct > 5 ? "warn" : "",
-        v: aheadPct > 5 ? `+${money(J.over)} billed ahead` : `${Math.round(J.estGPPct)}% margin`,
+        v: aheadPct > 5 ? `+${money(J.over)} over-billed (WIP)` : `${Math.round(J.estGPPct)}% margin`,
         s:
           aheadPct > 5
             ? `${Math.round(aheadPct)}% of the contract invoiced past earned work · margin ${Math.round(J.estGPPct)}% vs ${Math.round(J.plannedGPPct)}% planned`
@@ -91017,7 +91398,7 @@ const TL_SETS = {},
     return [
       {
         key: "ahead",
-        k: J.over ? "Billed Ahead" : "Earned, Not Billed",
+        k: J.over ? "Over-Billed (WIP)" : "Earned, Not Billed",
         v: J.over ? "+" + tlK(J.over) : tlK(J.under || 0),
         tone: J.over && aheadPct > 10 ? "bad" : (J.over && aheadPct > 5) || J.under > 25e3 ? "warn" : "",
         s: J.over
@@ -91325,7 +91706,7 @@ const TL_SETS = {},
       },
       {
         key: "ahead",
-        k: "Billed Ahead",
+        k: "Over-Billed (WIP)",
         v: "+" + tlK(ahead),
         tone: ahead > 1e5 ? "warn" : "",
         s: ahead
@@ -107350,7 +107731,10 @@ function bootRun() {
   };
   // A first boot on this device seeds the demo company, and the seed is finished by work the render layers do
   // between the chain's layers (lnLoop("boot") reads what a render seeded): it runs exactly as it always did.
-  if (bootSeeded) return void (finishBoot(), install());
+  const settled = () => {
+    glFreezeReady = !0;
+  };
+  if (bootSeeded) return void (finishBoot(), install(), settled());
   install();
   const draw = render;
   // window.__sdBootDrawFirst (tests/speed_test.py) boots as before this change, drawing first, to compare
@@ -107374,6 +107758,7 @@ function bootRun() {
     holding = !1;
     const t = render.__tick || 0;
     render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, t)), wanted && render();
+    settled();
   }
 }
 /*<<speed.js>>*/
@@ -120968,11 +121353,12 @@ function rxReadView(c, d, html) {
   const w = box.querySelector(".docwrap");
   if (!w) return html;
   w.classList.add("rx-read");
-  const st = "invoice" === d.type ? invoiceStatus(c, d) : d.status,
+  // an invoice paid by money the bank never saw reads "recorded, not yet in the bank", never Paid
+  const st = "invoice" === d.type ? invoiceStatusShown(c, d).text : d.status,
     bar = w.querySelector(".docbar");
   if (bar) {
     bar
-      .querySelectorAll('[data-docact="save"], [data-docact="discard"], .pill.warn')
+      .querySelectorAll('[data-docact="save"], [data-docact="discard"], .pill.warn:not([data-unbanked])')
       .forEach((x) => x.remove());
     const saved = bar.querySelector(".small.muted"),
       eb = `<button type="button" class="btn sm" data-rxedit="${d.id}">Edit</button><span class="small muted">${esc("function" == typeof tcase ? tcase(st) : st)} · read only</span>`;
@@ -123897,7 +124283,7 @@ if ("function" == typeof glOverviewHtml) {
             .flatMap((c) => c.invoices || [])
             .filter(
               (i) =>
-                (i.depositOf || i.retainerOf) &&
+                (invIsDeposit(i) || i.retainerOf) &&
                 !["void", "draft"].includes(i.status) &&
                 i.date >= from &&
                 i.date <= to &&
@@ -124159,7 +124545,7 @@ if ("function" == typeof renderBank) {
       U = finUndeposited();
     note &&
       U.length &&
-      (note.innerHTML = `${U.length} client payment${U.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(U.reduce((a, x) => a + (+x.py.amount || 0), 0))}) — ${U.map((x) => `${esc(x.c.name)} ${money(x.py.amount)} recorded ${fmt(x.py.date)}, ${x.days} days ago${x.late ? " — past the five-day mark" : ""}`).join("; ")}. Deposit them or fix the record.`);
+      (note.innerHTML = `${U.length} client payment${U.length > 1 ? "s" : ""} recorded but not seen in the bank (${money(U.reduce((a, x) => a + undepAmt(x), 0))}) — ${U.map((x) => `${esc(x.c.name)} ${money(undepAmt(x))} recorded ${fmt(x.py.date)}, ${x.days} days ago${x.late ? " — past the five-day mark" : ""}`).join("; ")}. Deposit them or fix the record.`);
   };
 }
 if ("function" == typeof eaToday) {
@@ -124171,8 +124557,8 @@ if ("function" == typeof eaToday) {
           .filter((x) => x.late)
           .forEach((x) =>
             out.push({
-              n: "!" + money(x.py.amount),
-              t: `${esc(x.c.name)} — ${money(x.py.amount)} recorded ${fmt(x.py.date)}, not in the bank after ${x.days} days`,
+              n: "!" + money(undepAmt(x)),
+              t: `${esc(x.c.name)} — ${money(undepAmt(x))} recorded ${fmt(x.py.date)}, not in the bank after ${x.days} days`,
               sub: "either it was never deposited or the record is wrong; the month will not close with it open.",
               act: "Banking",
               data: { view: "bank" },
@@ -124685,7 +125071,7 @@ function finAnswer(raw) {
       over = r2(rows.reduce((a, x) => a + x.J.over, 0)),
       under = r2(rows.reduce((a, x) => a + x.J.under, 0));
     return out(
-      `${money(over)} billed ahead of the work (over-billed, a liability) across ${rows.filter((x) => x.J.over).length} job${1 === rows.filter((x) => x.J.over).length ? "" : "s"}; ${money(under)} under-billed${rows.filter((x) => x.J.under).length ? ` on ${rows.filter((x) => x.J.under).length}` : ""}.`,
+      `${money(over)} over-billed (WIP, cost-to-cost; a liability) across ${rows.filter((x) => x.J.over).length} job${1 === rows.filter((x) => x.J.over).length ? "" : "s"}; ${money(under)} under-billed${rows.filter((x) => x.J.under).length ? ` on ${rows.filter((x) => x.J.under).length}` : ""}.`,
       "Over/under = billed (gross) − earned, where earned = contract × % complete, cost-to-cost. The same rows as Reports › WIP schedule.",
       rows
         .sort((a, b) => Math.abs(b.J.overUnder) - Math.abs(a.J.overUnder))
@@ -124764,7 +125150,7 @@ function finAnswer(raw) {
       );
     return out(
       `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}; the 13-week low is ${money(F.low)} in the week of ${fmtL(low.start)}.`,
-      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
+      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
@@ -124905,10 +125291,10 @@ function finAnswer(raw) {
     if (!finFirmOk() && !finCan("billing")) return finBlocked();
     const rows = (DB.clients || []).flatMap((c) =>
         (c.payments || [])
-          .filter((p) => !p.unapplied && within(p.date, P.range))
+          .filter((p) => !p.unapplied && within(p.date, P.range) && payBanked(c, p))
           .map((p) => ({ c: c, p: p })),
       ),
-      amt = r2(rows.reduce((a, r) => a + (+r.p.amount || 0), 0)),
+      amt = r2(rows.reduce((a, r) => a + payBankedAmt(r.c, r.p), 0)),
       prev = (() => {
         if (!/month/.test(P.label)) return null;
         const d = parse(td),
@@ -124916,17 +125302,12 @@ function finAnswer(raw) {
           e = iso(new Date(d.getFullYear(), d.getMonth(), 0));
         return {
           s: s,
-          amt: r2(
-            (DB.clients || [])
-              .flatMap((c) => c.payments || [])
-              .filter((p) => !p.unapplied && within(p.date, [s, e]))
-              .reduce((a, p) => a + (+p.amount || 0), 0),
-          ),
+          amt: paysInBank((p) => !p.unapplied && within(p.date, [s, e])),
         };
       })();
     return out(
       `${rows.length ? `${money(amt)} collected ${P.label} across ${rows.length} payment${1 === rows.length ? "" : "s"}` : `Nothing collected ${P.label}`}${prev ? `; last month brought in ${money(prev.amt)}` : ""}.`,
-      `Client payments by the date they were recorded, ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${finUndeposited().length ? `${finUndeposited().length} recorded payment${1 === finUndeposited().length ? "" : "s"} (${money(finUndeposited().reduce((a, x) => a + (+x.py.amount || 0), 0))}) ${1 === finUndeposited().length ? "has" : "have"} not been seen in the bank yet.` : ""}`,
+      `Client payments by the date they were recorded, ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${finUndeposited().length ? `${finUndeposited().length} recorded payment${1 === finUndeposited().length ? "" : "s"} (${money(finUndeposited().reduce((a, x) => a + undepAmt(x), 0))}) ${1 === finUndeposited().length ? "has" : "have"} not been seen in the bank yet.` : ""}`,
       rows.map(
         (r) =>
           `${fmtL(r.p.date)} · ${r.c.name} · ${money(r.p.amount)}${r.p.method ? " · " + r.p.method : ""}`,
@@ -130801,7 +131182,7 @@ const LK_DOC_OPEN = ["memo", "internal"],
   LK_LABEL = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" },
   lkPast = (d) => !(!d || !d.status || "draft" === d.status),
   lkStatusWord = (c, d) => {
-    const st = "invoice" === d.type && "function" == typeof invoiceStatus ? invoiceStatus(c, d) : d.status;
+    const st = "invoice" === d.type && "function" == typeof invoiceStatusShown ? invoiceStatusShown(c, d).text : d.status;
     return "function" == typeof tcase ? tcase(st) : st;
   };
 function lkDocKey(el) {
@@ -133763,7 +134144,7 @@ if ("function" == typeof pgPaneHtml) {
       );
       if (!w.contract) return h;
       const pos = w.over
-          ? `<b class="bad">${money(w.over)}</b><span>over-billed — billed ahead of the work</span>`
+          ? `<b class="bad">${money(w.over)}</b><span>over-billed (WIP, cost-to-cost)</span>`
           : w.under
             ? `<b class="ok">${money(w.under)}</b><span>under-billed — the work is ahead of billing</span>`
             : `<b>${money(0)}</b><span>billed in step with the work</span>`,
@@ -141861,7 +142242,7 @@ if (
         },
         {
           key: "ahead",
-          k: "Billed Ahead",
+          k: "Over-Billed (WIP)",
           v: aheadAmt ? "+" + tlK(aheadAmt) : "$0",
           tone: aheadAmt > 1e5 ? "warn" : "",
           s: ahead.length
@@ -142639,6 +143020,8 @@ function readyToBill() {
           amount: +s.amount || 0,
           title: s.title,
           act: s.act,
+          due: s.due || "",
+          late: !!s.late,
         }));
       } catch (e) {
         rows = [];
@@ -142707,7 +143090,7 @@ if (
         (t.s = R.n
           ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
           : R.held.length
-            ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
+            ? `nothing ready · ${tlN(R.held.length, "line")} held, each with its reason`
             : "nothing earned is waiting on an invoice");
     }
     return T;
@@ -146535,13 +146918,15 @@ function billingRows() {
           why:
             "application" === r.kind
               ? "every line billed on its own evidence"
-              : "earned or at a milestone, not yet on an invoice",
+              : "deposit" === r.kind
+                ? `the signed contract's deposit, due on receipt: ${r.late ? `past the 2 business days (by ${fmt(r.due)})` : `inside the 2 business days`}`
+                : "earned or at a milestone, not yet on an invoice",
           needs: !0,
         });
       }),
         R.held.forEach((h) =>
           rows.push({
-            id: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
+            id: "held:" + (h.hid || h.p.id + (h.sv ? ":" + h.sv.id : "")),
             kind: "held",
             held: h,
             key: h.sv ? `line:${h.p.id}:${h.sv.id}` : "app:" + h.p.id,
@@ -146549,7 +146934,7 @@ function billingRows() {
             job: h.p,
             amount: r2(h.amount),
             date: "",
-            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
+            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : h.ahead ? `Held, billed ahead — ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
             why: `held — ${h.why}`,
             needs: !1,
           }),
@@ -146728,9 +147113,7 @@ function blRowAct(row) {
       ? blCreditAct(row)
       : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
         ? rtbAct(row.key)
-        : "draft" === row.kind && row.inv && row.client
-          ? blSendSheet(row.client, row.inv)
-          : blOpenRow(row);
+        : blOpenRow(row);
 }
 // A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
 // draft opens for review. Nothing is sent from here.
@@ -146743,8 +147126,9 @@ function blBillHeldLine(key) {
   (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
   rcToast(`${out.n ? "The held line is" : "Nothing new"} on ${out.inv.number} (${money(docTotal(out.inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
 }
-// "Send" on a drafted invoice in the Billing Queue: the one Send to Client sheet (crSendToClient: to whom, the
-// subject and message, then Send), so a draft never waits behind a second screen.
+// The one Send to Client sheet (crSendToClient: to whom, the subject and message, then Send). The Billing Queue's
+// draft row no longer opens it: its next step is Review, which opens the draft (round one: Send on a half-filled
+// draft's row went out at $9,702 of $22,780). Send is pressed from the invoice, after the person has read it.
 function blSendSheet(c, inv) {
   c && inv && ("function" == typeof crSendToClient ? crSendToClient(c, inv) : docAction(c, inv, "sendclient"));
 }
@@ -146764,7 +147148,7 @@ function blTiles() {
       s: R.n
         ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
         : R.held.length
-          ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
+          ? `nothing ready · ${tlN(R.held.length, "line")} held, each with its reason`
           : "nothing earned is waiting on an invoice",
       grid: "billing",
       pred: (r) => "ready" === r.kind,
@@ -146857,7 +147241,7 @@ const blStage = (r) =>
           ? "Bill"
           : "Open WIP"
         : "draft" === r.kind
-          ? "Send"
+          ? "Review"
           : "Open";
 function blListHtml() {
   return grid({
@@ -146956,7 +147340,7 @@ function blUndepHtml() {
       ? undepositedReceipts().filter((x) => !billClient || x.c.id === billClient)
       : [];
   return undep.length
-    ? `<div class="card bl-undep"><div class="hd"><h3>Recorded, Not Yet in the Bank</h3><span class="small muted">${tlN(undep.length, "payment")} · ${money(undep.reduce((a, x) => a + (+x.py.amount || 0), 0))}</span><span class="grow"></span>${(ROLE_VIEWS[role()] || []).includes("bank") ? '<button class="btn sm" id="bl-gobank">Open Banking</button>' : ""}</div>${undep.map((x) => `<div class="oc-row"><b>${money(x.py.amount)}</b><span>${esc(x.c.name)} · ${fmt(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}</span></div>`).join("")}<div class="small muted">Either it has not been deposited or it bounced — match it on Banking.</div></div>`
+    ? `<div class="card bl-undep"><div class="hd"><h3>Recorded, Not Yet in the Bank</h3><span class="small muted">${tlN(undep.length, "payment")} · ${money(undep.reduce((a, x) => a + undepAmt(x), 0))}</span><span class="grow"></span>${(ROLE_VIEWS[role()] || []).includes("bank") ? '<button class="btn sm" id="bl-gobank">Open Banking</button>' : ""}</div>${undep.map((x) => `<div class="oc-row"><b>${money(undepAmt(x))}</b><span>${esc(x.c.name)} · ${fmt(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}</span></div>`).join("")}<div class="small muted">Either it has not been deposited or it bounced — match it on Banking.</div></div>`
     : "";
 }
 if ("function" == typeof renderBilling) {
@@ -157300,6 +157684,10 @@ const bfRecWords = (r) =>
     : `statement ${r.fileName || ""} lists it on ${fmt(r.date)}`;
 function bfIngest(src, added, removed) {
   bfInit();
+  // a statement or feed can confirm a typed deposit: what the bank backs is decided again (payBacking)
+  try {
+    payBackReset();
+  } catch (e) {}
   const out = {
       added: 0,
       confirmed: 0,
@@ -157372,6 +157760,7 @@ function bfIngest(src, added, removed) {
         }
         return "manual" !== p.kind || p.confirmedBy
           ? ((t.prov = Object.assign({}, p, "feed" === src.kind ? { feedSeen: rec } : { stmtSeen: rec })),
+            payBackReset(),
             void out.dup++)
           : ((rec.sig = txnSig({
               feedId: "confirm",
@@ -157381,6 +157770,7 @@ function bfIngest(src, added, removed) {
               desc: t.desc,
             })),
             (t.prov = Object.assign({}, p, { confirmedBy: rec })),
+            payBackReset(),
             (t.bankDesc = x.desc || ""),
             audit(
               "txn",
@@ -170913,7 +171303,7 @@ const AG_FIN = [
       const B = agBF().B,
         jobs = (DB.projects || []).filter((p) => jobFin(p).over > 0.5);
       return {
-        headline: `${money(B.wip)} billed ahead of the work (over-billed, a liability) across ${agN(jobs.length, "job")}.`,
+        headline: `${money(B.wip)} over-billed (WIP, cost-to-cost; a liability) across ${agN(jobs.length, "job")}.`,
         work: jobs.map((p) => `${agShort(p)} — ${money(jobFin(p).over)} invoiced ahead of the work`),
         go: agGo("wip") || agGo("reports"),
         ran: agRan("projects", ["billed is more than earned"], "", jobs.length),
@@ -171022,7 +171412,7 @@ const AG_FIN = [
     run(P) {
       const B = agBF().B;
       return {
-        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(B.trulyOurs)} once client funds and payables are set aside.`,
+        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(stsSafe())} once client funds and payables are set aside.`,
         go: agGo("bank"),
         ran: agRan("bank accounts", ["balance as of " + fmtL(today())], "", (DB.accounts || []).length),
       };
@@ -172265,9 +172655,9 @@ AG_FIN.push(
     run(P) {
       const B = agBF().B;
       return {
-        headline: B.trulyOurs < 0
-          ? `Short by ${money(-B.trulyOurs)} today: safe to spend is ${money(B.trulyOurs)} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
-          : `${money(B.trulyOurs)} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
+        headline: stsSafe() < 0
+          ? `Short by ${money(-stsSafe())} today: safe to spend is ${money(stsSafe())} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
+          : `${money(stsSafe())} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
         work: [`Cash ${money(B.cash)}`, `Cards owed ${money(-B.cards)}`, `Client funds held ${money(B.clientFunds)}`, `Payables accrued ${money(B.apAccrued)}`, `Payroll accrued ${money(B.payrollAccrued)}`],
         go: agGo("bank"),
         ran: agRan("bank accounts, client funds and payables", ["as of " + fmtL(today())], "", (DB.accounts || []).length),
@@ -172335,7 +172725,7 @@ AG_FIN.push(
         };
       return {
         headline: rev
-          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} billed ahead of the work).`
+          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} over-billed (WIP)).`
           : `${money(pl.net)} net profit ${per}: ${pl.income ? Math.round((100 * pl.net) / pl.income) : 0}% of ${money(pl.income)} revenue.`,
         work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
         go: agGo("reports", { tab: "pl" }),
@@ -173734,7 +174124,9 @@ function tdMyJobs() {
 // ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
 predDef("safeToSpend", {
   label: "Safe to Spend",
-  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low",
+  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and what is over-billed on the WIP schedule) and the 13-week low; a payment recorded but not yet in the bank is not counted",
+  // what is set aside, one line (named setAside: other predicates use why for their own rows)
+  setAside: () => stsWhy(),
   figure: () => safeToSpend().safe,
   // the build-up behind the figure, line for line as companyBalance computes it: cash today is the bank
   // plus the card balances (negative) less unpaid bills and payroll due; truly ours takes off what was billed ahead
@@ -173746,7 +174138,7 @@ predDef("safeToSpend", {
       ["Credit cards", B.cards],
       ["Unpaid bills", -B.ap],
       ["Payroll due", -(B.payrollAccrued || 0)],
-      ["Billed ahead of work", -(B.over || 0)],
+      ["Over-billed (WIP)", -(B.over || 0)],
       ["Truly ours", B.trulyOurs, "total"],
       ["13-week low", X.low, "total"],
       ["Safe to spend", X.safe, "figure"],
@@ -174025,7 +174417,7 @@ function tdPulseOpen(t) {
       `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
     m = mbModal(
       esc(t.label),
-      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
+      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p>${"function" == typeof PRED[t.pred].setAside ? `<p class="small td-sh-why">${esc(PRED[t.pred].setAside())}</p>` : ""}<div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
         lines.length
           ? `<div class="td-sh-list">${lines
               .map(
@@ -187154,9 +187546,9 @@ function nyhRowsAll() {
         key: "undep:" + x.py.id,
         route: "billing",
         kind: "undeposited",
-        title: `Resolve: ${x.c.name} ${lnMoney(x.py.amount)} recorded ${fmtL(x.py.date)}, not in the bank`,
+        title: `Resolve: ${x.c.name} ${lnMoney(undepAmt(x))} recorded ${fmtL(x.py.date)}, not in the bank`,
         why: `${x.days} days on the books with no bank line behind it · match it to the deposit, or reverse it with a reason`,
-        amount: +x.py.amount,
+        amount: undepAmt(x),
         verb: "Resolve",
         no: "",
         run: () => nyhResolveUndeposited(x),
@@ -188371,14 +188763,22 @@ function rbRows(pid) {
       if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
       // what was bought for the line and is the client's to pay as contract work, billed in dollars; a purchase billed
       // back on its own invoice line is already out of the line's cost (lineFin, txnRebilled)
+      // The client pays for what was delivered, never for a vendor's overage in dispute: the windows read $13,970
+      // (cost $33,500 less $19,530 billed) while $3,800 of the cost is Window Works' charge over its PO, held and
+      // disputed. The figure is delivered less billed ($29,700 − $19,530 = $10,170), and the rest is named.
       const cost = r2(+r.ev.cost || 0),
+        got = r2(+r.ev.del.received || 0),
+        over = r2(Math.max(0, cost - got)),
         sched = +r.ev.scheduled || 0,
         // on an application already (a draft counts, as sovBilled counts it: the draft is where the person put it)
         billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && "void" !== i.status).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
-        amt = r2(Math.min(Math.min(cost, sched) - billed - per, +r.pr.stored || 0));
+        amt = r2(Math.min(Math.min(cost, got, sched) - billed - per, +r.pr.stored || 0)),
+        key = r.sv.lineRef || "",
+        onLine = (b) => b.line === key || (b.lines || []).some((l) => l.line === key) || (b.poId && (DB.pos || []).some((po) => po.id === b.poId && (po.lines || []).some((l) => l.line === key))),
+        disputed = !!key && (DB.bills || []).some((b) => b.projectId === p.id && onLine(b) && (b.dispute || b.hold || ["hold", "on-hold", "held", "disputed"].includes(b.status) || (b.onHold && "open" === b.onHold.state) || (b.short && b.short.held)));
       amt >= 100 &&
-        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: cost, billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, disputed: over, markupPct: 0, date: "", label: r.sv.desc, why: `${money(got)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for${over >= 1 ? (disputed ? `; the other ${money(over)} of cost is over what was delivered, in dispute with the vendor, and is never billed to the client` : `; the other ${money(over)} of cost is paid ahead of delivery and bills once it is delivered`) : ""}` });
     });
   });
   return out;
@@ -188482,10 +188882,27 @@ function rbDraftFloated(pid, svId) {
     const R = base.apply(this, arguments);
     try {
       const X = ocMemo("rbReady", () => rbReady()) || [];
-      if (X.length) {
-        const rows = R.rows.concat(X).sort((a, b) => b.amount - a.amount);
-        return Object.assign({}, R, { rows: rows, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
-      }
+      let rows = R.rows.concat(X);
+      const held = R.held.slice();
+      // A job billed ahead of the work (line by line, pbAhead) is offered no more progress billing: its application
+      // and its stored materials wait as held rows that say why, so the queue never proposes billing further ahead
+      // (121 State: billed $66,470 ahead while the queue offered $12,651 and $13,970 more). What was bought for the
+      // client and is owed back is not progress, so it stays ready.
+      "function" == typeof pbAhead &&
+        (rows = rows.filter((r) => {
+          if (!r.p || !["application", "floated", "progress"].includes(r.kind)) return !0;
+          const A = pbAhead(r.p.id);
+          // ahead on the whole: lines behind are netted against lines ahead (a job one line ahead and the rest
+          // behind still bills what is behind)
+          if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
+          // the held row keeps what the ready row said (the change orders on the application, the line's materials)
+          const co = "application" === r.kind ? (String(r.title || "").match(/ · with (.+)$/) || [])[1] : "",
+            what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)}${co ? ", with " + co : ""})`;
+          held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: on what was sent, the job is billed ${money(A.net)} ahead of the work${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}; billing more needs a reason` });
+          return !1;
+        }));
+      rows.sort((a, b) => b.amount - a.amount);
+      return Object.assign({}, R, { rows: rows, held: held, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
     } catch (e) {
       console.warn("reimbursables", e);
     }

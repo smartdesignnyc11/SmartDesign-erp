@@ -193,7 +193,7 @@ async def t_jessop(c, p, phone):
     b, pg, errs = await fresh(p, 'u_billing', phone)
     r = await js(pg, JESSOP + """
       await gcDemoConnect(); try { clearInterval(gsTimerId); } catch (e) {}
-      DB.txns.push({ id: 'tjw1', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 12000, cat: 'uncat', status: 'new', source: 'import' });
+      DB.txns.push(txnStamp({ id: 'tjw1', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 12000, cat: 'uncat', status: 'new', source: 'ofx' }, 'stmt:jessop', 'tjw1'));
       save(); const cash0 = """ + CASH + """, uncat0 = bankUnmatched().uncat.some(x => x.id === 'tjw1');
       const J0 = new Set(DB.gl.journals.map(j => j.id));
       nyhInvalidate();
@@ -232,7 +232,7 @@ async def t_jessop(c, p, phone):
     c.ok('matched to the' in r['t2'] and '$12,000 still open' in r['t2'] and 'Open' in r['t2'], f"{dev} jessop: the toast says it was matched and what is left ({r['t2']!r})")
     # a wire is never recorded without its bank line; Banking's card shows a deposit as money in
     r = await js(pg, JESSOP + """
-      DB.txns.push({ id: 'tjw2', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 5000, cat: 'uncat', status: 'new', source: 'import' });
+      DB.txns.push(txnStamp({ id: 'tjw2', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 5000, cat: 'uncat', status: 'new', source: 'ofx' }, 'stmt:jessop', 'tjw2'));
       const n0 = cl.payments.length;
       paymentAllocate(cl, inv.id); await sleep(200);
       const m = document.getElementById('mbm');
@@ -390,7 +390,7 @@ async def t_shots(c, p):
         await b.close()
         b, pg, errs = await fresh(p, 'u_billing', phone)
         await js(pg, """await gcDemoConnect(); try { clearInterval(gsTimerId); } catch (e) {}
-          DB.txns.push({ id: 'tjw1', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 12000, cat: 'uncat', status: 'new', source: 'import' });
+          DB.txns.push(txnStamp({ id: 'tjw1', date: today(), acct: 'ac1', desc: 'WIRE IN JESSOP J', amt: 12000, cat: 'uncat', status: 'new', source: 'ofx' }, 'stmt:jessop', 'tjw1'));
           const cl = DB.clients.find(c => /Jessop/.test(c.name)); paymentAllocate(cl, cl.invoices.find(i => i.number === 'INV-2026-D140-R').id); await sleep(300); return 1;""")
         await pg.screenshot(path=os.path.join(out, f'record_payment_{dev}.png'))
         await js(pg, """mbCloseModal(); const cl = DB.clients.find(c => c.id === DB.projects.find(x => x.id === 'p121').clientId);
