@@ -10,6 +10,11 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Overnight 10-26 (Alan asleep: "check on all the runs so they aren't stalled")
+- A check-in every 40 minutes: every run's log growth, slot holders past their timeout, the lanes; anything hung is restarted and logged here.
+- On green: deploy the import fix, the boot fix and the loop's eyes (one build, one net, the month and the screen walk); then tell Alan it is safe to import.
+- Then round one of the improvement loop (docs/IMPROVEMENT_LOOP.md): the screen walk, the four experts with pictures and one live turn each, triage by class, then one or two fix lanes. Nobody is invited and nothing is imported overnight.
+
 ## Pilot 3: the business cycle (Alan, 10-25: "I don't know how much I trust the pilots")
 Pilot 2 created about 77 records in three days, no delivery, no report, no check of spend against an estimate line. Pilot 3 is rebuilt so that cannot happen again:
 - **Required work per role, verified by the referee in the data:** one new job from lead to estimate (8+ real lines) to contract and SOV; RFQs from estimate lines to three vendors; POs from the lines; delivery short and damaged; bills matched three-way; bank and card lines matched; deposit, progress invoice with retainage, a billed CO, payment matched; payroll; the PM's weekly job review in Projects.
