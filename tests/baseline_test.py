@@ -36,7 +36,11 @@ async def main():
         # rounded to two places (51.67% of $37,800 overstated the windows line's billing by $1.25): the floated windows
         # row is $13,969.99, not $13,968.74, so 47599.99 -> 47601.24. Less the seed's 6.5 designer hours dated 9/4
         # (a day not yet worked, read as ready to bill), removed by pilotfix2: 46301.24.
-        c.ok(r['rtb'] == 46301.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
+        # lane 1, round one (TRIAGE class 2's accept, 2026-10-26): the queue proposes nothing on a job billed ahead of
+        # the work. 121 State is billed $66,470 ahead line by line, so its application ($12,651.25) and the windows'
+        # stored materials (now $10,169.99, delivered less billed: the disputed $3,800 never bills) are held rows with
+        # the reason: 46301.24 / 4 rows / 0 held -> 19680 / 2 rows / 2 held.
+        c.ok(r['rtb'] == 19680 and r['rtbN'] == 2 and r['held'] == 2, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         # Purchasing 10 -> 17 (procurement P1, 2026-10-25): the badge is the Buy Board's one reader, late or due to order
         # this week (PRED.buyNeeds, the coordinator's Buy Board chip on Today), no longer "late to order, held, due this
         # week or waiting on a decision". 16 late: 12 not ordered by their order-by date (the 6 it counted before, plus 2

@@ -45,8 +45,9 @@ PINNED = {
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
     'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
     'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
-    'rtb':             46301,    # ready to bill ($47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
-    'rtb_n':           4,
+    'rtb':             19680,    # ready to bill (lane 1, round one, 2026-10-26: TRIAGE class 2's accept, nothing proposed on a job billed ahead: 121 State's application $12,651 and the windows' stored materials, now $10,170, are held with the reason; $46,301 / 4 rows before)
+                                 # (before that: $47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
+    'rtb_n':           2,
     'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,
     'wip_job:140 Prospect Place': 22512,
