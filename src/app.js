@@ -146917,7 +146917,7 @@ function billingRows() {
           what: String(r.title || "").replace(pn + ": ", "") || "Earned, not yet invoiced",
           why:
             "application" === r.kind
-              ? "every line billed on its own evidence"
+              ? r.why || "every line billed on its own evidence"
               : "deposit" === r.kind
                 ? `the signed contract's deposit, due on receipt: ${r.late ? `past the 2 business days (by ${fmt(r.due)})` : `inside the 2 business days`}`
                 : "earned or at a milestone, not yet on an invoice",
@@ -188884,9 +188884,12 @@ function rbDraftFloated(pid, svId) {
       const X = ocMemo("rbReady", () => rbReady()) || [];
       let rows = R.rows.concat(X);
       const held = R.held.slice();
-      // A job billed ahead of the work (line by line, pbAhead) is offered no more progress billing: its application
-      // and its stored materials wait as held rows that say why, so the queue never proposes billing further ahead
-      // (121 State: billed $66,470 ahead while the queue offered $12,651 and $13,970 more). What was bought for the
+      // A job billed ahead of the work (line by line, pbAhead) is never billed further ahead, and its measured work is
+      // never left unbilled. Its application still bills every line behind its measure (this period = measured less
+      // billed, never more: pgProposal) and holds the lines billed ahead at 0, and the row says both. Holding the whole
+      // application (lane 1, round two) left 121 State's rough electrical measured at 100% and billed at 85% at month
+      // end (the month walk's E248): work done, not billed. Stored materials wait only on a line that is itself
+      // ahead; a job-level progress suggestion (no lines to tell apart) waits with the reason. What was bought for the
       // client and is owed back is not progress, so it stays ready.
       "function" == typeof pbAhead &&
         (rows = rows.filter((r) => {
@@ -188895,6 +188898,16 @@ function rbDraftFloated(pid, svId) {
           // ahead on the whole: lines behind are netted against lines ahead (a job one line ahead and the rest
           // behind still bills what is behind)
           if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
+          const depWords = A.depPct ? `, not counting the ${A.depPct}% deposit` : "";
+          if ("application" === r.kind) {
+            let n = 0;
+            try {
+              n = pgRows(r.p.id).filter((x) => !pgLineHold(x) && pgPeriodAmt(x) > 0.005).length;
+            } catch (e) {}
+            const k = A.lines.length;
+            return (r.ahead = A), (r.why = `bills ${money(r.amount)} of measured work on ${n} line${1 === n ? "" : "s"}; holds ${k} line${1 === k ? "" : "s"} billed ahead, net ${money(A.net)}${depWords}`), !0;
+          }
+          if ("floated" === r.kind && r.sv && !A.lines.some((l) => l.svId === r.sv.id)) return !0;
           // the held row keeps what the ready row said (the change orders on the application, the line's materials)
           const co = "application" === r.kind ? (String(r.title || "").match(/ · with (.+)$/) || [])[1] : "",
             what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)}${co ? ", with " + co : ""})`;

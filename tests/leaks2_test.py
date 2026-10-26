@@ -50,21 +50,24 @@ async def s1_earned(p, S):
     try:
         st = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'), w = wipRow(p), R = readyToBill();
             return {over: Math.round(w.over), app: R.rows.filter(r => r.p && r.p.id === 'p121' && r.kind === 'application').map(r => r.amount),
+                    why: R.rows.filter(r => r.p && r.p.id === 'p121' && r.kind === 'application').map(r => r.why || ''), ahead: pbAhead('p121').lines.length,
                     jobHeld: R.held.filter(h => !h.sv).map(h => [h.p.id, h.why]), held: R.held.map(h => [h.p.id, h.line, h.amount])}; }""")
         S.fact(f"seed: 121 State billed ${st['over']:,} ahead on the WIP schedule; application {st['app']}; held {st['held']}")
-        # The hold design (lane 1, round one, 2026-10-26; TRIAGE class 2's accept, kept by the chief of staff): a job billed
-        # ahead on the whole, on what was sent, proposes no more progress billing; its application waits as a held row with
-        # the reason, and billing drafts it on purpose. This replaces "a job billed ahead overall is never held whole".
-        S.check(not st['app'] and st['jobHeld'] and all('ahead of the work' in w for _, w in st['jobHeld']), 'a job billed ahead on the whole holds its application, with the reason',
-                f"job-level holds {st['jobHeld']}; application {st['app']}")
+        # The hold design (lane 1, round three, 2026-10-26, the month walk's E248): a job billed ahead on the whole is
+        # never billed further ahead and never leaves measured work unbilled. Its application bills the lines behind their
+        # measure and holds the lines ahead at 0, and the row says both. Round one held the whole application, which left
+        # rough electrical measured 100% and billed 85% at month end; this replaces it.
+        want = r'^bills \$12,651 of measured work on 2 lines; holds %d lines billed ahead, net \$[\d,]+, not counting the 20%% deposit$' % st['ahead']
+        S.check(st['app'] == [12651.25] and st['why'] and re.search(want, st['why'][0]) and all('ahead of the work' in w for _, w in st['jobHeld']),
+                'a job billed ahead on the whole bills its measured lines and holds only the lines ahead, with the reason', f"application {st['app']} {st['why']}; job-level holds {st['jobHeld']}")
         # the foreman measures rough electrical at 100%; the client approves CO-2026-002 and the treads are done
         await pg.evaluate("""async () => { const p = DB.projects.find(x => x.id === 'p121');
             prgSet(p, p.tasks.find(t => t.id === 'relec'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Rough electrical complete'});
             const c = DB.clients.find(x => x.id === 'cl121'); await docAction(c, c.changeOrders.find(x => x.number === 'CO-2026-002'), 'approve');
             prgSet(p, p.tasks.find(t => t.id === 'sand'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Treads sanded and stained'}); save(); }""")
         row = await billing_row(pg, '121 State')
-        S.check(row and 'held' in row['text'].lower() and 'CO-2026-002' in row['text'], 'Billing Queue: the 121 State application waits held, with CO-2026-002 on it and the reason',
-                str(row))
+        S.check(row and row['verb'] == 'Draft' and 'CO-2026-002' in row['text'] and 'of measured work' in row['text'] and 'billed ahead' in row['text'],
+                'Billing Queue: the 121 State application is ready to draft, with CO-2026-002 on it and what it holds', str(row))
         # Draft: the application fills a draft with every approved change order's line beside the contract's
         # Draft on the queue's row fills the job's draft from every line and opens it, with Send to Client next
         # drafted on purpose (the held application's Draft is Progress Billing's, blDraftApplication)
