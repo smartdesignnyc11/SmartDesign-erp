@@ -325,7 +325,12 @@ async def s1_client(C):
     C.rec('estimate', 'lines', {x['item']: x['id'] for x in est['lines']})
     C.t(f"Client > New Estimate > Construction > Start Estimate; title; 7 lines typed (item, rate, cost, vendor) → `{est['number']}` "
         f"{fmtm(est['total'])}, codes {', '.join(codes)}")
-    await C.click('section.view.on [data-docact=send]', 600)
+    # Mark Sent asks how it went and the day before it records the estimate sent (the estimate lane, 2026-10-26:
+    # it was the blue button on every draft and recorded with one tap)
+    await C.click('section.view.on [data-docact=marksent]', 400)
+    await C.pg.locator('#mbm [data-f=how]').select_option('Email from my own mailbox')
+    await C.fill('#mbm [data-f=on]', '2026-09-03')
+    await C.modal_ok(600)
     st = await C.js("([c, e]) => DB.clients.find(x => x.id === c).estimates.find(x => x.id === e).status", [cl['id'], est['id']])
     C.ok(st == 'sent', 'Mark Sent sends the estimate', st)
     C.t(f"Mark Sent → {st} ({await C.toast()})")
