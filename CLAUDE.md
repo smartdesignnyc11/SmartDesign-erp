@@ -121,9 +121,19 @@ The target is **9/10 or higher in every lens**: a seasoned professional would pi
 
 docs/ARCHITECTURE.md has the module map and the line numbers of the key functions.
 
+## How we work: the process rules (Alan, 10-26)
+`docs/PROCESS.md` holds the rules and why each exists. Read it before planning any lane, test or pilot, and add to its retro log after every iteration. In short:
+- evidence is a person doing the work through the screens, from a blank start, on both devices;
+- no lane without a failing journey step (`docs/JOURNEYS.md`, `tests/cycle_walk.py`);
+- finish the core before adding;
+- test the instrument with one turn before paying for the run;
+- never run the same thing twice on the same build;
+- one or two lanes that never share files, each running the screen walk, the net and the month walk before handing back;
+- progress is N of 10 journeys per device.
+
 ## How to work
 1. **Reproduce first.** Write a Playwright check that fails the way the reviewer saw it, then fix it, then prove the fix on the neighbouring screens with the same pattern. A fix is a class fix.
-2. **Run the tests.** `python3 build.py && cd tests && python3 smoke_test.py && python3 baseline_test.py`, plus the suites you add. Suites open `../dist/smartdesigns_projects.html` through `tests/harness.py`; never hardcode paths. The machine running tests may be slow, so run suites one at a time.
+2. **Run the tests.** `python3 build.py && cd tests && python3 smoke_test.py && python3 baseline_test.py`, plus the suites you add, and `tests/slot.sh python3 cycle_walk.py` (the ten journeys through the screens) before any merge that touches sales, estimates, purchasing, billing or Today. Suites open `../dist/smartdesigns_projects.html` through `tests/harness.py`; never hardcode paths. The machine running tests may be slow, so run suites one at a time.
 3. **Keep the guard rails, and rebuild the lost ones early (see BACKLOG.md "Rebuild the test net"):**
    - the screen-standard lint;
    - the counts lint, where every label shows one number and a tile equals its rows;
