@@ -27,7 +27,9 @@ RAIL = {
     # procurement P1: Requests and Route leave Purchasing for More, so the owner's More holds three pages again;
     # Vendors is a page of Purchasing for the coordinator (Buy Board, Quotes, Orders, Deliveries, Vendors, Stock)
     'u_owner': ['Today', 'Tasks', 'Messages', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'More', 'Settings'],
-    'u_alan': ['Today', 'Tasks', 'Messages', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
+    # the PM prices the job (J2), so he gets Sales by open question 4 ("only if they estimate"): it holds Estimates
+    # alone, drawn as Estimates (2026-10-26, the estimate lane; cycle walk J2 "Estimates in the PM's menu")
+    'u_alan': ['Today', 'Tasks', 'Messages', 'Projects', 'Estimates', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
     'u_chen': ['Today', 'Tasks', 'Messages', 'Purchasing', 'Projects', 'Company', 'More', 'Settings'],
     'u_billing': ['Billing', 'Today', 'Tasks', 'Messages', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
     'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Tasks', 'Messages', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],

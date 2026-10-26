@@ -3909,6 +3909,53 @@ function toast(msg, go, ms) {
 // A sheet that opens while a toast is still up (Convert's toast, then Closed Won's sheet a second later) had the
 // toast over its buttons on the phone for the toast's last seconds: the tap on Close and Start the Proposal waited
 // four seconds for it to go (cycle walk J1b). The toast is placed again whenever a sheet opens under it.
+// A tap is never lost to a redraw. Pressing a button while a field still has focus commits the field first (its
+// change event fires on the press); when that change redraws the screen, the button under the finger is replaced
+// before the press ends and the browser drops the click. Save on an estimate line needed a second tap (101 taps for 12
+// lines on the desktop) and Done on the phone's line editor stayed open (cycle walk J2). When the pressed control is
+// gone at the end of the press and the same control (same tag, data attributes, id and words) is under the finger,
+// it is pressed once, unless the browser's own click reached it.
+{
+  const sel = 'button, a, [role="button"], [data-docact], [data-cts]',
+    keyOf = (el) =>
+      [
+        el.tagName,
+        el.id || "",
+        [...el.attributes]
+          .filter((a) => a.name.startsWith("data-") && !/^data-sim/.test(a.name))
+          .map((a) => a.name + "=" + a.value)
+          .sort()
+          .join("&"),
+        String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80),
+      ].join("|");
+  let press = null;
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      const el = e.target && e.target.closest ? e.target.closest(sel) : null;
+      press = el ? { el: el, key: keyOf(el), t: Date.now() } : null;
+    },
+    !0,
+  );
+  document.addEventListener(
+    "mouseup",
+    (e) => {
+      const p = press;
+      if (((press = null), !p || p.el.isConnected || Date.now() - p.t > 2e3)) return;
+      const now = e.target && e.target.closest ? e.target.closest(sel) : null;
+      if (!now || now === p.el || now.disabled || keyOf(now) !== p.key) return;
+      let landed = !1;
+      const mark = (ev) => {
+        (ev.target === now || now.contains(ev.target)) && (landed = !0);
+      };
+      document.addEventListener("click", mark, !0),
+        setTimeout(() => {
+          document.removeEventListener("click", mark, !0), landed || !now.isConnected || now.click();
+        }, 0);
+    },
+    !0,
+  );
+}
 function toastWatch(t) {
   clearInterval(t._w);
   t._w = setInterval(() => {
@@ -23719,11 +23766,20 @@ function ctLineSheet(c, d, l, editable) {
     (s.id = "ct-sheet"),
     (s.className = "ct-sheet"),
     document.body.appendChild(s));
+  const figures = () => {
+    const amt = lineAmount(l, d),
+      cost = +l.cost || 0,
+      m = amt && cost ? Math.round(((amt - cost) / amt) * 100) : null,
+      tb = s.querySelector(".ct-sheet-total b"),
+      mi = s.querySelector('[aria-label="Margin"]');
+    tb && (tb.textContent = money(amt));
+    mi && ((mi.value = null != m ? m + "%" : "—"), mi.classList.toggle("bad", null != m && m < (DB.company.minMargin || 20)));
+  };
   const paint = () => {
     const amt = lineAmount(l, d),
       cost = +l.cost || 0,
       m = amt && cost ? Math.round(((amt - cost) / amt) * 100) : null;
-    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" ${ro}></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""}</b></button>\n        <details class="ct-sheet-int" ${l.cost || l.vendor ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <div class="ct-f3"><label class="ct-f"><span>Budget cost</span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="0"></label><label class="ct-f"><span>Margin</span><input value="${null != m ? m + "%" : "—"}" readonly class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label><label class="ct-f"><span>Code</span><select data-csf="code"><option value="">—</option>${codes}</select></label></div>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it"></label>${(() => {
+    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" aria-label="Item" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" aria-label="Scope of work" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" aria-label="Quantity" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" aria-label="Unit" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" aria-label="Rate" ${ro}></label></div>\n        <div class="ct-f2c"><label class="ct-f"><span>Budget cost <i>internal</i></span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="what it costs us" aria-label="Budget cost" ${ro}></label><label class="ct-f"><span>Margin <i>internal</i></span><input value="${null != m ? m + "%" : "—"}" readonly tabindex="-1" aria-label="Margin" class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""}</b></button>\n        <details class="ct-sheet-int" ${l.vendor || l.code ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <label class="ct-f"><span>Cost code</span><select data-csf="code" aria-label="Cost code" ${dis}><option value="">—</option>${codes}</select></label>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it" aria-label="Vendor / sub" ${ro}></label>${(() => {
       const f = "draft" !== d.status ? lineFin(ctKey(d, l)) : null;
       return f
         ? `<div class="ct-fin-m"><div><span>Billed</span><b>${f.billedPct}%</b></div><div><span>Committed</span><b>${money(f.committed)}</b></div><div><span>Actual</span><b>${money(f.actual)}</b></div><div><span>Margin</span><b>${f.marginPct}%</b></div></div><button class="ct-sheet-btn" data-cts="fin"><span>Financial thread <i>invoices, POs, bills on this line</i></span><b>›</b></button>`
@@ -23737,10 +23793,17 @@ function ctLineSheet(c, d, l, editable) {
             : ["qty", "rate", "cost"].includes(f)
               ? (l[f] = +inp.value || 0)
               : (l[f] = inp.value),
+            "cost" === f && (l.costSet = "" !== String(inp.value).trim()),
             "item" !== f || l.code || (l.code = ctCode(l)),
             save(),
-            "desc" !== f && "item" !== f && "vendor" !== f && paint();
+            // the figures that follow from the field are updated in place: redrawing the sheet replaced the field the
+            // person was tapping next, so every field took two taps on the phone (cycle walk J2)
+            ["qty", "rate", "cost", "unit", "taxable"].includes(f) && figures();
         }),
+      ),
+      s.querySelectorAll("[data-csf]").forEach((inp) =>
+        // with the keyboard up the field being typed stays in sight
+        inp.addEventListener("focus", () => setTimeout(() => inp.isConnected && inp.scrollIntoView({ block: "center" }), 280)),
       );
     const ta = s.querySelector("textarea"),
       grow = () => {
@@ -65746,11 +65809,16 @@ const BILL_TABS = [
   ["funds", "Client Funds"],
 ];
 function iaDocRows(kind) {
-  const out = [];
+  const out = [],
+    // the PM's Estimates is this list on his jobs only (and the estimates not on a job yet, so a new proposal is
+    // never out of his sight); every other role and list reads every job
+    mine =
+      "estimate" === kind && "pm" === role() && "function" == typeof tdMyJobs ? new Set(tdMyJobs().map((p) => p.id)) : null;
   return (
     DB.clients.forEach((c) => {
       (billClient && c.id !== billClient) ||
         ("invoice" === kind ? c.invoices : "co" === kind ? c.changeOrders : c.estimates).forEach((x) => {
+          if (mine && x.projectId && !mine.has(x.projectId)) return;
           const t = docTotal(x),
             st = "invoice" === kind ? invoiceStatus(c, x) : x.status,
             paid = "invoice" === kind ? invoicePaid(c, x) : 0;
@@ -120596,6 +120664,40 @@ function rxReadLines(c, d) {
       .join("") || '<tr><td colspan="8" class="muted">No lines.</td></tr>'
   }</tbody></table>${int && budget ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal — never printed. Total budget ${money(budget)} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - budget) / docTotal(d).sub) * 100) : 0}%</div>` : ""}`;
 }
+// A construction estimate past draft keeps its line cards (the item lists and the orders on each line live there),
+// but read only means read only: its 48 line fields could still be typed into on a converted estimate (cycle walk
+// J4). Each field is drawn as its value, the internal ones too (a budget changes on Budget, never on the signed
+// estimate), and the bar says why.
+function rxLineText(w, d) {
+  if (!w || !w.querySelector(".ct, .ct-m") || "sov" === d.mode) return;
+  const span = (cls, txt, tag) => Object.assign(document.createElement(tag || "span"), { className: "rx-ro-f " + cls, textContent: txt });
+  w.querySelectorAll(".ct input[data-ctf], .ct textarea[data-ctf], .ct select[data-ctf]").forEach((el) => {
+    const f = el.dataset.ctf,
+      v = "SELECT" === el.tagName ? (el.value ? (el.selectedOptions[0] || {}).textContent || "" : "") : String(el.value || "");
+    if ("checkbox" === el.type) {
+      const lab = el.closest("label");
+      return void (lab || el).replaceWith(span("ct-tax", el.checked ? "taxable" : ""));
+    }
+    el.replaceWith(
+      "desc" === f
+        ? span("ct-scope", v, "div")
+        : span(
+            "ct-" + f,
+            ["rate", "cost"].includes(f) ? (v === "" ? "—" : money(+v)) : "item" === f ? v || "Untitled line" : v || ("qty" === f ? "1" : ""),
+            "item" === f ? "b" : "span",
+          ),
+    );
+  });
+  const bar = w.querySelector(".docbar");
+  bar &&
+    !bar.querySelector(".rx-why") &&
+    "estimate" === d.type &&
+    ["approved", "converted"].includes(d.status) &&
+    bar.insertAdjacentHTML(
+      "beforeend",
+      `<span class="small muted rx-why">${"converted" === d.status ? "It is the contract: its lines are the schedule of values." : "The client approved it."} Scope changes go on a change order; the budget changes on Budget.</span>`,
+    );
+}
 function rxReadView(c, d, html) {
   const box = document.createElement("div");
   box.innerHTML = html;
@@ -120665,7 +120767,7 @@ function rxReadView(c, d, html) {
           out.join("") || '<span class="small muted">No memo or terms on this document.</span>');
     }
   }
-  return box.innerHTML;
+  return rxLineText(w, d), box.innerHTML;
 }
 if ("function" == typeof renderDocEditor) {
   const renderDocEditorBase_rx = renderDocEditor;
@@ -195625,9 +195727,14 @@ window.addEventListener(
     }
     let h = base.apply(this, arguments);
     try {
-      if (d && "estimate" === d.type && "string" == typeof h && !h.includes('data-d="scope"')) {
+      if (d && "estimate" === d.type && "string" == typeof h && !h.includes('data-d="scope"') && !h.includes("est-scope-ro")) {
         const ro = "draft" !== d.status ? "readonly" : "",
-          box = `<div class="card est-scope" style="margin:10px 0"><div class="grid2"><div class="f"><label>Scope</label><textarea data-d="scope" rows="3" ${ro} placeholder="What the work is, in the client's words">${esc(d.scope || "")}</textarea></div><div class="f"><label>Inclusions</label><textarea data-d="inclusions" rows="3" ${ro} placeholder="What the price includes">${esc(d.inclusions || "")}</textarea></div><div class="f"><label>Exclusions</label><textarea data-d="exclusions" rows="3" ${ro} placeholder="What it does not include">${esc(d.exclusions || "")}</textarea></div></div></div>`,
+          // past draft the three read as what they say (read only means read only, cycle walk J4)
+          fld = (k, lab, ph) =>
+            ro
+              ? `<div class="f"><label>${lab}</label><div class="rx-ro-f est-scope-ro" style="white-space:pre-wrap">${esc(d[k] || "") || '<span class="muted">—</span>'}</div></div>`
+              : `<div class="f"><label>${lab}</label><textarea data-d="${k}" rows="3" placeholder="${ph}">${esc(d[k] || "")}</textarea></div>`,
+          box = `<div class="card est-scope" style="margin:10px 0"><div class="grid2">${fld("scope", "Scope", "What the work is, in the client's words")}${fld("inclusions", "Inclusions", "What the price includes")}${fld("exclusions", "Exclusions", "What it does not include")}</div></div>`,
           at = h.indexOf('<div class="totals">');
         h = at > 0 ? h.slice(0, at) + box + h.slice(at) : h + box;
       }
@@ -198683,8 +198790,12 @@ const MN_JOBS = (o) =>
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
-        // change orders and extra estimates in each job (disagreement 1); no Sales, Design or Accounting (question 4)
+        // change orders and extra estimates in each job (disagreement 1); no Design or Accounting (question 4)
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
+        // the PM prices the job (journey J2), so he gets Sales as open question 4 decided ("only if they estimate"):
+        // Sales holds Estimates alone for him, so the rail draws it as Estimates (a group of one is its page). The
+        // same list as Billing's Estimates, his jobs only (iaDocRows); the job's own Estimates stays in Projects.
+        MN_G("sales", "Sales", "sales", [["billing", "Estimates", "estimates"]]),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1, vendors: 1 })),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
