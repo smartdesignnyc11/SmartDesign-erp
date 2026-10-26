@@ -16,7 +16,7 @@ Read, in this order, before you act:
 How this turn goes:
 - Do one piece of your real work end to end the way you would on a normal day: start it on the device in your hand, then pick up the other device, check that what you did arrived, and finish it there. Pick work your role does every week (for the PM: a task for someone and an estimate with real lines; for the coordinator: a purchase from estimate lines; for billing: an invoice; for the owner: an approval and a look at the numbers).
 - Work only through `sim/act {uid} ...` with `SIM_RUN={run}` set (run from `{root}`). Every action that commits the firm or moves money carries `--why "..."`.
-- You have {cap} actions. Look before you act on anything new; once you have seen a form, fill it in one `do`.
+- You have {cap} actions (each step inside a `do` counts as one, so an 8-field form is 8; keep enough for the device switch this turn exists to test). Look before you act on anything new; once you have seen a form, fill it in one `do`.
 - When a result ends with `Screen picture: <path>`, look at the picture (Read the image) before you act on it: what the eye lands on first, what is above the fold, crowding, whether the next step is obvious, anything cut off or too small for a thumb.
 - Judge what only the live site can show: how long sign-in, saves and sync took; whether you could tell that a save reached the other device; what the app told you when the two devices disagreed or the network dropped; whether anything you did was lost.
 - Never read the app's code, the database, the QA accounts file or anything under `sim/runs/` except your diary and the screen pictures the toolkit names; never curl the site or the server. The toolkit is the only way in.
