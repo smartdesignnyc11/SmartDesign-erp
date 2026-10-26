@@ -1160,6 +1160,9 @@ class Sim:
                                            'scripted': [u for u in ((self.world.cycle or {}).get('scripted') or {}) if self.world.scripted(u)], 'play': self.state['world'].get('cycle_play') or []}
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
+            if cmd == 'world_voice':   # the voicer (sim/voicer.py): outside replies in the party's own words, the rule's facts kept
+                self.state['world']['voice'] = bool(a.get('on')); self.save_state()
+                return {'world_voice': self.state['world']['voice'], 'token': bool(os.environ.get('SIM_AI_TOKEN_FILE') or os.environ.get('SIM_AI_TOKEN'))}
             if cmd == 'shutdown':
                 if self.last_active in self.pages:
                     try: await self.commit(self.last_active)

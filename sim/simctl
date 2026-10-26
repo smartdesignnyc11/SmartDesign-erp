@@ -20,6 +20,8 @@
     sim/simctl party "<name>" '<json patch>'      change an outside party's rules, e.g. '{"reply_p": 1, "delay": [0, 0]}'
     sim/simctl world-client on|off              the client's portal side (approve, ask, pay) played by world rules (lean plan)
     sim/simctl world-agent on|off               write each scheduled outside reply to world/pending/ for an LLM to voice
+    sim/simctl world-voice on|off               the voicer: each outside reply written in the party's own words by the live model when it
+                                                falls due (sim/voicer.py; needs SIM_AI_TOKEN_FILE on the server), facts kept, template on failure
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
     sim/simctl cycle on|off [--play u_controller]   Pilot 3: the business-cycle book (sim/cycle_book.json) and its scripted roles (--play: those that play after all)
@@ -241,6 +243,7 @@ def main(a):
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
     elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
+    elif c == 'world-voice': r = admin('world_voice', on=a[1] == 'on')
     elif c == 'cycle': r = admin('cycle', on=a[1] == 'on', play=a[a.index('--play') + 1].split(',') if '--play' in a else [])
     elif c == 'script': r = admin('script', payload=json.loads(a[1]))
     elif c == 'judge':
