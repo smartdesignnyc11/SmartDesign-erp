@@ -373,6 +373,9 @@ function cxKind(d) {
   if ("estimate" === d.type) return "estimate";
   if ("co" === d.type) return "co";
   // depositOf names the estimate whose deposit an application draws on; a deposit invoice is one that bills the deposit
+  // the contract's deposit invoice (one line, no retainage; ctDepositInvoice) prints as a Deposit Invoice with its own
+  // footer, never the construction or plain invoice footer
+  if ("invoice" === d.type && d.depositOf && "sov" !== d.mode) return "deposit";
   if ("sov" === d.mode) return !(+d.retainagePct > 0) && (/\bdeposit\b/i.test(d.title || "") || (d.lines || []).some((l) => +l.pct && /^deposit\b/i.test(l.desc || ""))) ? "deposit" : "progress";
   if ("design" === d.template || d.retainerOf) return "design";
   const est = d.fromDoc && (DB.clients || []).flatMap((c) => c.estimates || []).find((e) => e.id === d.fromDoc);

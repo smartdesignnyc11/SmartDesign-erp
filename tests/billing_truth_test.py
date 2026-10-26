@@ -113,7 +113,10 @@ async def t_deposit(C, p, phone):
                due: dep.due, date: dep.date, terms: dep.terms, status: dep.status, project: dep.projectId, number: dep.number },
                open: !!(docOpen && dep && docOpen.id === dep.id), toast: t ? t.innerText : '',
                sovPct: (c.sov || []).map(v => sovBilled(c, v.id)).reduce((a, x) => a + x, 0),
-               queue: billingRows().filter(r => r.kind === 'ready' && r.rtb && r.rtb.kind === 'deposit').length };""", S)
+               queue: billingRows().filter(r => r.kind === 'ready' && r.rtb && r.rtb.kind === 'deposit').length,
+               print: dep && typeof docPrintHtml === 'function' ? docPrintHtml(c, dep).replace(/<[^>]+>/g, ' ') : '' };""", S)
+    C.ok('Deposit Invoice' in r['print'] and 'deposit is credited against the progress applications' in r['print'] and 'Retainage is held' not in r['print'],
+         f'DEP {dev}: it prints as a Deposit Invoice with its own footer, not the construction one: {r["print"][-300:]!r}')
     d = r['dep'] or {}
     C.ok(bool(d) and d['lines'] == 1 and abs(d['total'] - DEPOSIT) < 0.01 and d['ret'] == 0 and d['due'] == d['date'] and d['project'] == S['pid'] and d['status'] == 'draft',
          f'DEP {dev}: one line of ${DEPOSIT:,.2f}, no retainage, due on receipt, on 214 Lincoln, a draft for review: {r}')
