@@ -3903,7 +3903,19 @@ function toast(msg, go, ms) {
     // placed again once the step that raised it has finished: a sheet's submit toasts before the sheet closes, and
     // the toast stayed at the top of the screen, over the header, for the next six seconds
     requestAnimationFrame(() => t.classList.contains("on") && toastPlace(t)),
-    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
+    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400))),
+    toastWatch(t);
+}
+// A sheet that opens while a toast is still up (Convert's toast, then Closed Won's sheet a second later) had the
+// toast over its buttons on the phone for the toast's last seconds: the tap on Close and Start the Proposal waited
+// four seconds for it to go (cycle walk J1b). The toast is placed again whenever a sheet opens under it.
+function toastWatch(t) {
+  clearInterval(t._w);
+  t._w = setInterval(() => {
+    if (!t.classList.contains("on")) return clearInterval(t._w);
+    const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
+    box && box.getClientRects().length && !t.classList.contains("toast-up") && toastPlace(t);
+  }, 120);
 }
 // A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the
 // editor and leave the editor on top (the side drawer) or drop what was typed in it (a sheet). Now the editor
@@ -5639,6 +5651,8 @@ function openEditor(kind, id) {
   setTimeout(() => $("#e-name")?.focus(), 50);
 }
 function closeEditor() {
+  // a New Project opened from an estimate and closed unsaved no longer waits to take that estimate
+  "undefined" != typeof estNewJobFor && (estNewJobFor = null),
   (editing = null),
     delete $("#drawer").dataset.dirty,
     $("#drawer").classList.remove("on"),
@@ -8995,13 +9009,7 @@ function renderDocEditor(c, d) {
     st = "invoice" === kind ? invoiceStatus(c, d) : d.status,
     flow = DOC_FLOW[kind],
     fi = flow.indexOf("overdue" === st ? "sent" : st),
-    projOpts = DB.projects
-      .filter((p) => p.clientId === c.id || p.id === d.projectId)
-      .map(
-        (p) =>
-          `<option value="${p.id}" ${d.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`,
-      )
-      .join(""),
+    projOpts = estProjOpts(c, d, editable),
     label = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" }[kind],
     paidOn =
       "invoice" === kind
@@ -9082,6 +9090,72 @@ function docSnapBoot() {
     }),
   );
 }
+// ---- An estimate and its job (cycle walk J1b, 2026-10-26). An estimate started at won ("Close and Start the
+// Proposal") had no job: its Project select offered only "—", once the job existed it showed the job while the record
+// stayed empty, and Convert then opened a second job of the same name with the SOV on neither. One rule now, used by
+// every path: an estimate's job is the client's job at its address. The address is read from the job's name and
+// address, and from the estimate's title, the won lead's address and the client's property address. A job is matched
+// by its street (number and name); a client with one live job and no address to compare gets that job.
+const estStreet = (s) => {
+  const m = String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .match(/\b(\d+[a-z]?(?:-\d+)?)\s+((?:[a-z0-9][a-z0-9.'-]*\s?){1,4}?)(?:\s*(?:—|-|,|:|\(|$)|\s(?:design|renovation|proposal|kitchen|bath|apt|unit|#))/);
+  return m ? (m[1] + " " + m[2].trim().replace(/\b(street|st\.?)$/, "st").replace(/\b(place|pl\.?)$/, "pl").replace(/\b(avenue|ave\.?)$/, "ave")).trim() : "";
+};
+const estLiveJobs = (c) =>
+  (DB.projects || []).filter((p) => c && p.clientId === c.id && !p.archived && "closed" !== ((p.project || {}).status || ""));
+function estHints(c, d) {
+  const lead = (DB.leads || []).find((l) => c && l.clientId === c.id && (l.addr || l.property));
+  return [d && d.title, lead && (lead.addr || lead.property), lead && lead.oppName, c && c.propertyAddr].filter(Boolean);
+}
+function estJobFor(c, d) {
+  const jobs = estLiveJobs(c);
+  if (!jobs.length) return null;
+  const keys = estHints(c, d).map(estStreet).filter(Boolean);
+  const hit = jobs.find((p) => {
+    const k = [estStreet(p.project.name), estStreet(p.project.addr)].filter(Boolean);
+    return k.some((x) => keys.includes(x));
+  });
+  if (hit) return hit;
+  return !keys.length && 1 === jobs.length ? jobs[0] : null;
+}
+// A job opened for a client takes the client's estimates that have no job yet and are at its address (or all of
+// them, when it is the client's only job and they name no other address). Returns the estimates it took.
+function estTieNewJob(p) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!c) return [];
+  const mine = [estStreet(p.project.name), estStreet(p.project.addr)].filter(Boolean),
+    only = 1 === estLiveJobs(c).length;
+  return (c.estimates || []).filter((e) => {
+    if (e.projectId || ["void", "rejected", "expired"].includes(e.status)) return !1;
+    const k = estStreet(e.title);
+    return (k ? mine.includes(k) : only) && ((e.projectId = p.id), !0);
+  });
+}
+// The estimate's Project select: the client's jobs, a blank while none is chosen (so what shows is what is saved),
+// and New Project, which opens the job in place and puts the estimate on it.
+var estNewJobFor = null;
+function estProjOpts(c, d, editable) {
+  const jobs = (DB.projects || []).filter((p) => p.clientId === c.id || p.id === d.projectId);
+  return (
+    (d.projectId ? "" : `<option value="" selected>${jobs.length ? "— Choose the job —" : "No job yet"}</option>`) +
+    jobs.map((p) => `<option value="${p.id}" ${d.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("") +
+    (editable && "estimate" === d.type ? '<option value="__newjob">New Project…</option>' : "")
+  );
+}
+function estNewJob(c, d) {
+  estNewJobFor = { cid: c.id, did: d.id, kind: d.type, view: view, clientOpen: clientOpen, docOpen: docOpen };
+  newProjectDialog(c.id);
+  const hint = estHints(c, d).find((s) => estStreet(s)) || "",
+    name = document.getElementById("e-name"),
+    addr = document.getElementById("e-addr");
+  if (name && !name.value && hint) {
+    const k = String(hint).split(/\s+[—–-]\s+|,|:/)[0].trim();
+    (name.value = k), name.dispatchEvent(new Event("input", { bubbles: !0 }));
+  }
+  addr && !addr.value && (addr.value = (c.propertyAddr || hint.split(/\s+[—–-]\s+/)[0] || "").trim());
+}
 // Leaving a document keeps what was typed (a quantity commits on blur, Send saves first: the edits are live
 // already); nothing is reverted on the way out and nothing is asked. Discard is the docbar's own button.
 function docLeave(c, d) {
@@ -9154,6 +9228,8 @@ function wireDocEditor(c) {
   root.querySelectorAll("[data-d]").forEach((el) =>
     el.addEventListener("change", (e) => {
       const k = e.target.dataset.d;
+      // New Project in the Project select opens the job in place; the estimate goes on it once it is made
+      if ("projectId" === k && "__newjob" === e.target.value) return (e.target.value = d.projectId || ""), void estNewJob(c, d);
       "discType" === k
         ? (d.discount.type = e.target.value)
         : "discValue" === k
@@ -9409,6 +9485,8 @@ async function docAction(c, d, a) {
       (d.status = "converted"),
       act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.length} SOV lines`),
       docMark(d),
+      // never a second job: an estimate with no job goes on the client's job at its address (estJobFor)
+      !d.projectId && estJobFor(c, d) && ((d.projectId = estJobFor(c, d).id), docMark(d)),
       !d.projectId && appConfirm("Create a project for this contract now?"))
     ) {
       const p = projectFromTemplate(d.title || c.name, c.propertyAddr || "", nextWork(today()), "");
@@ -19875,13 +19953,33 @@ function newProjectDialog(forClientId) {
             text: `Project ${p.project.name} created`,
           }));
       }
-      DB.projects.push(p),
-        setCurrent(p.id),
+      DB.projects.push(p);
+      // the estimate that asked for this job (its Project select's New Project) goes on it and is shown again; any
+      // other estimate of the client's with no job yet, at this address, goes on it too (estTieNewJob)
+      const ask = estNewJobFor;
+      estNewJobFor = null;
+      const askC = ask && ask.cid === p.clientId && DB.clients.find((x) => x.id === ask.cid),
+        askD = askC && findDoc(askC, ask.kind, ask.did);
+      askD && !askD.projectId && (askD.projectId = p.id);
+      const tied = estTieNewJob(p).concat(askD && askD.projectId === p.id ? [askD] : []).filter((e, i, a) => a.indexOf(e) === i),
+        on = tied.length ? ` · ${tied.map((e) => e.number).join(", ")} ${1 === tied.length ? "is" : "are"} on it` : "";
+      if (askD)
+        return (
+          setCurrent(p.id),
+          closeEditor(),
+          save(),
+          ($("#d-save").onclick = saveEditor),
+          (clientOpen = ask.clientOpen || askC.id),
+          (docOpen = ask.docOpen || { kind: askD.type, id: askD.id }),
+          setView(ask.view || "clients"),
+          void toast(`Created ${p.project.name}${on}`, () => setView("dash"))
+        );
+      setCurrent(p.id),
         closeEditor(),
         save(),
         ($("#d-save").onclick = saveEditor),
         setView("tpl" === o.tpl ? "sched" : "dash"),
-        toast(`Created ${p.project.name}`);
+        toast(`Created ${p.project.name}${on}`);
     }),
     setTimeout(() => $("#e-name").focus(), 50);
 }
@@ -35660,7 +35758,10 @@ docAction = async function (c, d, a) {
       ("approve" === a && ["construction", "design", "materials"].includes(d.template))) &&
     "estimate" === d.type
   ) {
-    const pid = d.projectId || "";
+    // the job is settled before anything is read from it: the estimate's own, else the client's job at its address
+    // (estJobFor); one opened by the convert below is read again after it (the SOV and the contract went on "" before)
+    !d.projectId && estJobFor(c, d) && (d.projectId = estJobFor(c, d).id);
+    let pid = d.projectId || "";
     if (
       c.invoices.some(
         (i) => "sov" === i.mode && !["void", "draft"].includes(i.status) && (i.projectId || "") === pid,
@@ -35674,8 +35775,9 @@ docAction = async function (c, d, a) {
     const keepSov = c.sov.filter((v) => "Contract" === v.source && (v.projectId || "") !== pid),
       r = (c.contract, await docActionBase6(c, d, a));
     if ("converted" === d.status) {
+      pid = d.projectId || pid;
       c.sov.forEach((v) => {
-        "Contract" === v.source && null == v.projectId && (v.projectId = pid);
+        "Contract" === v.source && (null == v.projectId || ("" === v.projectId && pid && String(v.lineRef || "").startsWith(`estimate:${d.id}:`))) && (v.projectId = pid);
       }),
         keepSov.forEach((v) => {
           c.sov.includes(v) || c.sov.push(v);
@@ -40131,6 +40233,8 @@ const docActionBase_wf1 = docAction;
 docAction = async function (c, d, a) {
   d.status;
   const before = d.projectId,
+    // a job the convert found (the client's job at the estimate's address) is not a job it created
+    had = new Set((DB.projects || []).map((p) => p.id)),
     _ck = askKey("Create a project for this contract now?"),
     _auto = ("approve" === a || "approveconvert" === a || "convert" === a) && !d.projectId;
   let r;
@@ -40140,7 +40244,7 @@ docAction = async function (c, d, a) {
   } finally {
     _auto && askMem.delete(_ck);
   }
-  if (!before && d.projectId) {
+  if (!before && d.projectId && !had.has(d.projectId)) {
     const p = DB.projects.find((x) => x.id === d.projectId);
     p &&
       (c.propertyAddr && !p.project.addr && (p.project.addr = c.propertyAddr),
@@ -76363,7 +76467,14 @@ function slMove(id, stage, extra) {
       (view = "clients"),
       save(),
       render(),
-      void toast(`${l.name} is a client — approve the proposal on the record and it becomes the agreement`)
+      // the toast names the client that was made, never the opportunity ("214 Lincoln Place — Design-build is a
+      // client", cycle walk J1), and opens it
+      void toast(`${c.name} is a client`, {
+        label: "Open the Client",
+        run: () => {
+          (clientOpen = c.id), (clientTab = "overview"), (view = "clients"), render();
+        },
+      })
     );
   }
   if (
@@ -101934,9 +102045,11 @@ if ("function" == typeof slEnsureClient) {
                   try {
                     const c = DB.clients.find((x) => x.id === l.clientId);
                     if (c) {
-                      const d = newDoc(c, "estimate", {
-                        fields: { title: `${l.name} — proposal`, projectId: "" },
-                      });
+                      // the proposal goes on the lead's job when the client has it (estJobFor, by address); else its
+                      // Project select offers New Project, and the job opened later at this address takes it
+                      const title = `${l.name} — proposal`,
+                        job = estJobFor(c, { title: title }),
+                        d = newDoc(c, "estimate", { fields: { title: title, projectId: job ? job.id : "" } });
                       return (
                         (clientOpen = c.id),
                         (clientTab = "fin"),
@@ -101963,26 +102076,8 @@ if ("function" == typeof slEnsureClient) {
                   window.confirm = oc;
                 }
                 return (
+                  // slMove's own toast names the client and opens it (it was overwritten here with a second one)
                   /^hb|^scleads/.test(view) || ((view = "hbdeals"), (hbOpenId.deal = ""), render()),
-                  setTimeout(() => {
-                    const t = document.getElementById("toast");
-                    t &&
-                      ((t.innerHTML = `${esc(l.leadName || l.name)} is a client <a href="#" data-scclient="${l.clientId || ""}" style="margin-left:8px;color:inherit;text-decoration:underline">Open the Client</a>`),
-                      t.classList.add("on"),
-                      clearTimeout(t._t),
-                      (t._t = setTimeout(() => t.classList.remove("on"), 6e3)),
-                      t.querySelectorAll("[data-scclient]").forEach(
-                        (a) =>
-                          (a.onclick = (ev) => {
-                            ev.preventDefault(),
-                              t.classList.remove("on"),
-                              (clientOpen = a.dataset.scclient),
-                              (clientTab = "overview"),
-                              (view = "clients"),
-                              render();
-                          }),
-                      ));
-                  }, 60),
                   r
                 );
               },
