@@ -3912,28 +3912,41 @@ function toast(msg, go, ms) {
 // A tap is never lost to a redraw. Pressing a button while a field still has focus commits the field first (its
 // change event fires on the press); when that change redraws the screen, the button under the finger is replaced
 // before the press ends and the browser drops the click. Save on an estimate line needed a second tap (101 taps for 12
-// lines on the desktop) and Done on the phone's line editor stayed open (cycle walk J2). When the pressed control is
-// gone at the end of the press and the same control (same tag, data attributes, id and words) is under the finger,
-// it is pressed once, unless the browser's own click reached it.
+// lines on the desktop) and Done on the phone's line editor stayed open (cycle walk J2).
+// The pressed control is pressed again on its replacement only when it is surely the same control for the same record:
+//  - the same tag, id, data attributes and words, AND the same record around it: the ids and data attributes of every
+//    ancestor up to the view, sheet or drawer it sits in (a list of identical Approve buttons carries its identity on
+//    the row, data-nyhrow; if the list re-ranked under the finger, the Approve now there is another record's);
+//  - the replacement covers the point where the press began;
+//  - no click of any kind reached the page after the press ended. One recorder, registered here on the window in the
+//    capture phase before every other click handler (Needs You's window handler stops the click's propagation), sees
+//    every click; a click that reached anything means the browser delivered the press, and nothing is pressed again.
 {
   const sel = 'button, a, [role="button"], [data-docact], [data-cts]',
-    keyOf = (el) =>
-      [
-        el.tagName,
-        el.id || "",
-        [...el.attributes]
-          .filter((a) => a.name.startsWith("data-") && !/^data-sim/.test(a.name))
-          .map((a) => a.name + "=" + a.value)
-          .sort()
-          .join("&"),
-        String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80),
-      ].join("|");
-  let press = null;
+    edge = "section.view, #mbm, .modal, #drawer, #ct-sheet, .ct-sheet, body",
+    own = (el) =>
+      (el.id || "") +
+      "{" +
+      [...el.attributes]
+        .filter((a) => a.name.startsWith("data-") && !/^data-sim/.test(a.name))
+        .map((a) => a.name + "=" + a.value)
+        .sort()
+        .join("&") +
+      "}",
+    keyOf = (el) => {
+      const up = [];
+      for (let x = el.parentElement; x && !x.matches(edge); x = x.parentElement) up.push(own(x));
+      const top = el.closest(edge);
+      return [el.tagName, own(el), String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80), up.join("<"), top ? top.tagName + "#" + (top.id || "") : ""].join("|");
+    };
+  let press = null,
+    clicks = 0;
+  window.addEventListener("click", () => clicks++, !0);
   document.addEventListener(
     "mousedown",
     (e) => {
       const el = e.target && e.target.closest ? e.target.closest(sel) : null;
-      press = el ? { el: el, key: keyOf(el), t: Date.now() } : null;
+      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null;
     },
     !0,
   );
@@ -3944,14 +3957,12 @@ function toast(msg, go, ms) {
       if (((press = null), !p || p.el.isConnected || Date.now() - p.t > 2e3)) return;
       const now = e.target && e.target.closest ? e.target.closest(sel) : null;
       if (!now || now === p.el || now.disabled || keyOf(now) !== p.key) return;
-      let landed = !1;
-      const mark = (ev) => {
-        (ev.target === now || now.contains(ev.target)) && (landed = !0);
-      };
-      document.addEventListener("click", mark, !0),
-        setTimeout(() => {
-          document.removeEventListener("click", mark, !0), landed || !now.isConnected || now.click();
-        }, 0);
+      const r = now.getBoundingClientRect();
+      if (!(p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom)) return;
+      const n = clicks;
+      setTimeout(() => {
+        clicks > n || !now.isConnected || now.click();
+      }, 0);
     },
     !0,
   );
