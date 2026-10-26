@@ -341,6 +341,8 @@ class Person:
         self.last_control = c.label
         r, txt = self._act('tap', c.n)
         self.trail[-1] += f'  ({c.label[:60]})'
+        if 'the tap took over 4 seconds to land' in txt[:300]:   # sim/server.py: the control was covered, then tapped
+            self.expect(False, f'"{c.label[:60]}" can be tapped at once (it took over 4 seconds to land: something covered it)', txt.split(chr(10))[0][:200])
         if not r.get('ok') and self.landed_slow(txt, c.label): r = {'ok': True}; txt = self.look().text
         if not r.get('ok'): raise Stuck(f'tap "{label}"', 'the tap to land', screen_of(txt), c.label + ': ' + txt.split(chr(10))[0][:160])
         self.scr = screen_of(txt)
