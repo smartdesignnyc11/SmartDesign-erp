@@ -102,7 +102,7 @@ function td2Icon(it) {
   if ("dec" === k || "raise" === k) return "question";
   if ("lesson" === k || "learn" === k || "change" === k) return "book";
   if ("prepay" === k) return "wallet";
-  if ("tdyCatch" === k) return "overPO" === it.src ? "alert" : "mail";
+  if ("tdyCatch" === k) return "overPO" === it.det ? "alert" : "mail";
   if ("coi" === k || /^std:|^oblig:/.test(String(it.id || ""))) return "alert";
   return "doc";
 }
@@ -158,12 +158,16 @@ function td2WaitOf(it) {
 // Design gate: no store, no list; the rows are the detectors' own (CATCH), read by key. One owner each: the past-due
 // chase is billing's (the owner keeps it in Caught for You); the over-PO decision and the follow-ups on what the
 // owner asked for are the owner's.
+// [detector, its rows' keys, the Standard's key the row ranks by (STD_MAP; the detector's own when omitted)]: a
+// past-due client invoice is the Standard's collections chase ("chase:invoice", cost: Cash is oxygen), not a quiet
+// lead; under the detector's blank principle the Kleins' $68,265 chase ranked under six overdue "Answer the vendor"
+// tasks, off billing's first screen.
 const TD2_CATCH_ROWS = {
   owner: [
     ["overPO", /^bill:/],
     ["notBack", /^notback:/],
   ],
-  billing: [["chasePeople", /^chase:inv:/]],
+  billing: [["chasePeople", /^chase:inv:/, "chase:invoice"]],
 };
 function td2CatchDue(nm, x) {
   try {
@@ -185,7 +189,7 @@ function td2CatchItems(apprIds) {
   const S = TD2_CATCH_ROWS[role()];
   if (!S || "undefined" == typeof CATCH) return [];
   const out = [];
-  S.forEach(([nm, re]) => {
+  S.forEach(([nm, re, key]) => {
     const C = CATCH.find((c) => c.name === nm);
     if (!C) return;
     let R = [];
@@ -197,7 +201,7 @@ function td2CatchItems(apprIds) {
     R.filter((x) => re.test(String(x.key || "")))
       // a bill over its PO that is already the person's approval is that row (its verb is the dispute, below)
       .filter((x) => !(apprIds && apprIds.has(String(x.key))))
-      .forEach((x) => out.push({ kind: "tdyCatch", id: String(x.key), src: nm, x: x, title: x.what, detail: x.sub, amount: +x.amount || 0, due: td2CatchDue(nm, x), sev: "warn" }));
+      .forEach((x) => out.push({ kind: "tdyCatch", id: String(x.key), det: nm, src: key || nm, x: x, title: x.what, detail: x.sub, amount: +x.amount || 0, due: td2CatchDue(nm, x), sev: "warn" }));
   });
   return out;
 }
@@ -210,7 +214,7 @@ function td2CatchKeySet() {
   if (td2CatchIn) return new Set();
   td2CatchIn++;
   try {
-    return (td2CatchKeys = { t: td2Tick, u: u, k: new Set(td2CatchItems(new Set((tdyModel().appr || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id))).map((it) => it.src + "|" + it.id)) }).k;
+    return (td2CatchKeys = { t: td2Tick, u: u, k: new Set(td2CatchItems(new Set((tdyModel().appr || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id))).map((it) => it.det + "|" + it.id)) }).k;
   } finally {
     td2CatchIn--;
   }
@@ -282,7 +286,7 @@ if ("function" == typeof standardMoneyNow) {
         const b = (DB.bills || []).find((y) => y.id === it.id);
         if (b && billOverPO(b)) return !0;
       }
-      if (it && "object" == typeof it && "tdyCatch" === it.kind && "overPO" === it.src) return !0;
+      if (it && "object" == typeof it && "tdyCatch" === it.kind && "overPO" === it.det) return !0;
     } catch (e) {}
     return base.apply(this, arguments);
   };
@@ -560,8 +564,15 @@ function td2Facts(T) {
       .sort((a, b) => b.A.total - a.A.total);
     if (!R.length) return;
     const x = R[0],
-      n = x.A.lines.length;
+      n = x.A.lines.length,
+      was = (td2Look().ahead || {})[x.p.id];
+    // the PM's is news, not his standing to-do (billing holds the row): once he has looked at it, it comes back when
+    // the amount moves. It held a slot of his three every day of the month and pushed out the cost line that landed
+    // over budget (month walk E232).
+    if ("pm" === r && null != was && was === Math.round(x.A.total)) return;
     add({
+      pid: x.p.id,
+      amt: Math.round(x.A.total),
       k: `ahead:${x.p.id}:${Math.round(x.A.total)}:${n}:${R.length}`,
       cat: "ahead",
       tier: standardTier({ src: "portalBilledAhead" }),
@@ -1014,6 +1025,8 @@ function td2LeaveToday() {
     const L = td2Look();
     L.open && (L.seen = L.open);
     td2Cur && td2Cur.B && (L.seenKey = td2Cur.B.key);
+    // the billed-ahead amounts the update showed the PM (the ahead fact comes back when one moves)
+    td2Cur && td2Cur.B && "pm" === role() && td2Cur.B.facts.filter((f) => "ahead" === f.cat && f.pid).forEach((f) => ((L.ahead = L.ahead || {})[f.pid] = f.amt));
     save();
   } catch (e) {}
 }
