@@ -111,6 +111,14 @@ overspent a line. Pilot 3 adds required work the referee verifies in the data:
   are scripted world actions (`script_p3.js`): receiving against the PO with one delivery short and one damaged, hours on
   cost codes, the daily log and the measured %, the statement import through Banking's own import, the app's own proposed
   matches confirmed, and the payroll build. The referee checks each one so the cycle closes, and grades none of them.
+  - A scripted role can play after all (`simctl cycle on --play u_controller`), or play one kind of its steps
+    (`--play u_angel:receive`: each truck becomes a delivery told to the coordinator, with the slip and a photo, and nothing
+    is received for her). `--feed` lands the bank's lines through the app's import, unmatched, as a bank feed would, instead
+    of mailing the controller a CSV. The screen walk (`tests/cycle_walk.py`) runs with both, so JOURNEYS.md's J7 and J10 are
+    walked by the coordinator and the controller themselves. A record the world scripted is marked (`scripted`) and reads
+    "scripted" in the referee; one made through the screens reads right.
+  - The book also holds the foreman's field issue (Y-45: the rotted joists, raised from his phone with a photo), the client's
+    approval of its change order (Y-46), and the tile house's credit memo once the damaged boxes are claimed (Y-47).
 - **The required-work book** (`cycle_book.py` writes `cycle_book.json`). One invented job carried end to end by the people
   who do each step: the Ashbys at 214 Lincoln Place.
   - The steps run: inquiry, lead, client, project, a 12-line estimate from the walk-through notes, a question back, sent,
