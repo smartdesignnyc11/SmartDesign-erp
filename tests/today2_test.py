@@ -160,7 +160,9 @@ FACTS = r"""() => {
   for (let i = 1; i < B.all.length; i++) if (B.all[i].tier < B.all[i - 1].tier) out.bad.push('order ' + i);
   B.all.forEach(f => {
     const t = td2Plain(f);
-    if (f.cat === 'decide') { const n = T.rows.filter(x => x.appr && x.due && x.due < td).length; if (!t.startsWith(n + ' decision')) out.bad.push('decide ' + n + ': ' + t); }
+    // the rule's two branches: the approvals past their date, or, when none is late, the ones due today
+    if (f.cat === 'decide') { const late = T.rows.filter(x => x.appr && x.due && x.due < td).length, n = late || T.rows.filter(x => x.appr && x.due === td).length;
+      if (!t.startsWith(n + ' decision') || (late ? !/past its date|past their date/.test(t) : !/due today/.test(t))) out.bad.push('decide ' + n + ': ' + t); }
     if (f.cat === 'cash') { const s = td2Money(PRED.safeToSpend.figure()); if (!t.includes(s)) out.bad.push('cash ' + s + ': ' + t); }
     if (f.cat === 'leak') { let sum = 0; (TD2_LEAK_ROLE[r] || []).forEach(nm => { const C = CATCH.find(x => x.name === nm); C && (C.rows() || []).forEach(x => (sum += +x.amount > 0 ? +x.amount : 0)); });
       if (!t.includes(td2Money(sum))) out.bad.push('leak ' + td2Money(sum) + ': ' + t); if (!td2MoneyWhy().why || !f.why.includes('raises')) out.bad.push('leak why ' + f.why); }

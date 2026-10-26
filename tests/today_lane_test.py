@@ -29,8 +29,11 @@ MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id, held
            pred: PRED.waitingOnMe.count(), me: currentUser().id, n: tkTasksN(),
            taskOwners: M.tasks.filter(it => it.t).map(it => [it.t.ownerUid, it.t.offeredToUid]), buy: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyChip: (M.buy || []).map(k), role: role(),
            soon: tkSoonFor().map(x => 'tdyTask:' + tdyKeyOf(x)),
-           // All: approvals, inbox, offered, the tasks no approval stands for, the orders, the minutes
-           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)) }; }"""
+           // All: approvals, inbox, offered, the tasks no approval stands for, the orders, the minutes, and what a
+           // detector caught that is the person's one tap (today2.js TD2_CATCH_ROWS: billing's past-due chases, the
+           // owner's over-PO decisions and follow-ups), each once
+           catchRows: (M.catch || []).map(k),
+           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k), (M.catch || []).map(k)) }; }"""
 
 # every row of the current filter, opened in full ("N more" expands in place, or names the full page)
 ROWS = """async () => { const v = document.querySelector('.view.on'); const sec = v.querySelector('.td-do');
@@ -51,7 +54,7 @@ async def union_and_counts(c, pg, uid, tag):
     c.ok(on, f'{tag}: Home is Today, with its filters')
     if not on: return
     m = await pg.evaluate(MODEL)
-    parts = m['appr'] + m['inbox'] + m['tasks'] + m['buyChip']
+    parts = m['appr'] + m['inbox'] + m['tasks'] + m['buyChip'] + m['catchRows']
     c.ok(len(parts) == len(set(parts)), f'{tag}: an item sits in two filters: {[k for k in set(parts) if parts.count(k) > 1][:4]}')
     c.ok(len(m['all']) == len(set(m['all'])) and sorted(m['all']) == sorted(set(m['allWant'])), f"{tag}: All ({len(m['all'])}) holds each thing once: Approvals, Inbox, offered, the tasks no approval stands for, the orders ({len(set(m['allWant']))})")
     c.ok(len(m['appr']) == m['pred'], f"{tag}: Approvals {len(m['appr'])} vs PRED.waitingOnMe {m['pred']}")
