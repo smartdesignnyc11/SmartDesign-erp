@@ -198828,8 +198828,9 @@ const MN_JOBS = (o) =>
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
         // the PM prices the job (journey J2), so he gets Sales as open question 4 decided ("only if they estimate"):
         // Sales holds Estimates alone for him, so the rail draws it as Estimates (a group of one is its page). The
-        // same list as Billing's Estimates, his jobs only (iaDocRows); the job's own Estimates stays in Projects.
-        MN_G("sales", "Sales", "sales", [["billing", "Estimates", "estimates"]]),
+        // same list as Billing's Estimates, his jobs only (iaDocRows); the job's own Estimates stays in Projects. Its
+        // own group id: as "sales" the entry was read as the Sales overview and owed its badge (counts_lint, rule c)
+        MN_G("estimates", "Estimates", "sales", [["billing", "Estimates", "estimates"]]),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1, vendors: 1 })),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
