@@ -86,3 +86,4 @@ All five of these must hold:
 - "Recommended by PM" and "approved by Owner" stamps have no audit entry behind them.
 
 **Mail is not sent from the app.** RFQs, POs and estimate cover mails each stop at a mailbox draft or a mail-app link, so nothing is recorded as sent.
+| 1 (round one; build 180af0b, live d13b78b2) | 10-26 | 0 of 10 | 0 of 10 | 5 / 4 | 5 / 6 | 4 / 5 | 4 / 5 | 9 S1 classes / 10 S2 classes | about 3.3M (expert turns) |
