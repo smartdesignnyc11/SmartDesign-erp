@@ -9189,12 +9189,38 @@ function estHints(c, d) {
 // and "A new job" left a flag that let a later portal signature open a job without asking). why: own (the estimate's
 // own job), address (the client's job at its address), only (their only job), picked, new.
 const estPicks = new Map();
-function estPickWatch(d) {
-  let quiet = 0;
-  const iv = setInterval(() => {
-    if ("converted" === d.status || !estPicks.has(d.id)) return clearInterval(iv);
-    document.getElementById("mbm") ? (quiet = 0) : ++quiet >= 4 && (estPicks.delete(d.id), clearInterval(iv));
-  }, 150);
+// When the action that was to use a choice ends without converting, the choice goes, unless a sheet is open asking the
+// person (Convert's confirmation, a closed month's reason): it then goes when that sheet closes without its Yes. A timer
+// that dropped it once no sheet had been open for 600ms lost it while a slow step ran between Which Job and the
+// confirmation (fourth review).
+function estPickHold(d) {
+  if (!d || !estPicks.has(d.id)) return;
+  const m = document.getElementById("mbm");
+  if ("converted" === d.status || !m) return void estPicks.delete(d.id);
+  if (m._estHold) return;
+  m._estHold = 1;
+  let yes = !1;
+  m.addEventListener("click", (e) => e.target && e.target.closest && e.target.closest("#mbm-ok") && (yes = !0), !0);
+  const mo = new MutationObserver(() => {
+    if (m.isConnected) return;
+    mo.disconnect(), yes || "converted" === d.status || estPicks.delete(d.id);
+  });
+  mo.observe(document.body, { childList: !0, subtree: !0 });
+}
+// The PM's choose-the-job task closes with its estimate: rejected, void, expired or superseded, or gone (deleted, or
+// its client removed) before it converted; it stayed open (fourth review). Swept at the end of every action on an
+// estimate and on every app day (APP_DAY_HOOKS), so an estimate removed by any path closes its task.
+function estChooseSweep() {
+  const T = asFirmTasks().filter((t) => t.estKey && /^choose:/.test(t.estKey) && "done" !== t.status);
+  if (!T.length) return 0;
+  const byId = {};
+  (DB.clients || []).forEach((c) => (c.estimates || []).forEach((e) => (byId[e.id] = e)));
+  return T.filter((t) => {
+    const e = byId[t.estKey.slice(7)],
+      st = e ? e.status : "deleted";
+    if (e && !["rejected", "void", "expired", "superseded", "converted"].includes(st)) return !1;
+    return (t.status = "done"), (t.completedAt = today()), (t.notes = `${t.notes ? t.notes + "\n" : ""}Closed: ${(e && e.number) || "the estimate"} was ${st}${"converted" === st ? "" : " before it converted"}.`), !0;
+  }).length;
 }
 function estJobChoice(c, d) {
   const name = (p) => p.project.name,
@@ -9300,7 +9326,7 @@ const estJobOpen = (p) => (p ? () => (setCurrent(p.id), setView("dash")) : null)
 function estPickJob(c, d, ch, then) {
   mbModal(`Which Job — ${esc(d.number)}`, estJobField(ch), {
     submit: "Use This Job",
-    onSubmit: (f) => (estJobApply(c, d, ch, f) ? void setTimeout(() => (then(), estPickWatch(d)), 0) : !1),
+    onSubmit: (f) => (estJobApply(c, d, ch, f) ? void setTimeout(then, 0) : !1),
   });
 }
 // A job opened for a client takes the client's draft and sent estimates that have no job yet and whose job, by the
@@ -36048,7 +36074,16 @@ migrateClientDocs = function (c) {
   }
 };
 const docActionBase6 = docAction;
+// every action on an estimate ends by settling what its job choice and the PM's task are left as (estPickHold,
+// estChooseSweep): a "new job" choice never outlives an approval that did not convert
 docAction = async function (c, d, a) {
+  try {
+    return await estDocAction6(c, d, a);
+  } finally {
+    d && "estimate" === d.type && ("converted" !== d.status && estPickHold(d), estChooseSweep());
+  }
+};
+async function estDocAction6(c, d, a) {
   if (
     ("convert" === a ||
       "approveconvert" === a ||
@@ -36082,7 +36117,7 @@ docAction = async function (c, d, a) {
     }
     // one possible answer and it is a new job (the client has none): it opens, named and addressed from the estimate;
     // when nobody was asked (the portal) the PM gets a task to review it (decided 10-26, a recommendation to Alan)
-    ch && !ch.job && "new" === ch.why && !estPicks.has(d.id) && (estPicks.set(d.id, "__new"), "convert" === a ? estPickWatch(d) : (review = !0));
+    ch && !ch.job && "new" === ch.why && !estPicks.has(d.id) && (estPicks.set(d.id, "__new"), "convert" !== a && (review = !0));
     let pid = d.projectId || (ch && ch.job ? ch.job.id : "");
     if (
       c.invoices.some(
@@ -36134,7 +36169,7 @@ docAction = async function (c, d, a) {
     return r;
   }
   return docActionBase6(c, d, a);
-};
+}
 const newDocBase3 = newDoc;
 newDoc = function (c, kind, opts = {}) {
   const d = newDocBase3(c, kind, opts);
@@ -67663,6 +67698,8 @@ const APP_DAY_HOOKS = [
   ["hbSeqTick", () => "function" == typeof hbSeqTick && DB.hub && (hbSeqTick(), !0)],
   ["bnTick", () => "function" == typeof bnTick && (bnTick(), !0)],
 ];
+// the PM's choose-the-job tasks whose estimate is gone or closed (estChooseSweep)
+APP_DAY_HOOKS.push(["estChooseSweep", () => (estChooseSweep(), !0)]);
 function appSetDay(day) {
   const d = String(null == day ? "" : day);
   if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error("appSetDay(day): the day is YYYY-MM-DD, or empty for today");
