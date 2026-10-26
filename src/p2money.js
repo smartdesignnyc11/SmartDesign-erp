@@ -916,18 +916,63 @@ if ("function" == typeof billingRows) {
     };
   }
 }
-// It leads billing's and the PM's Caught for You: it is theirs to hold before the next application goes out, and the
-// four shown above the fold were other detectors' turns (tdCaught takes each detector's biggest in turn).
+// It leads the PM's Caught for You: it is his to see before the client asks, and the four shown above the fold were
+// other detectors' turns (tdCaught takes each detector's biggest in turn). The approved Today (2026-10-25) keeps
+// Caught for You behind the quiet line, so it reaches him as the update's "Billed ahead" fact (src/today2.js).
+// Billing holds it as a row of her own Today (Needs Your Hand, below), so her Caught for You does not say it twice.
 if ("function" == typeof tdCaught) {
   const base = tdCaught;
   tdCaught = function () {
     const out = base.apply(this, arguments) || [];
     try {
-      if (["billing", "pm"].includes(role())) {
-        const lead = out.filter((x) => "portalBilledAhead" === x.src && /^Billed ahead: /.test(x.what || ""));
-        return lead.concat(out.filter((x) => !lead.includes(x)));
-      }
+      const lead = out.filter((x) => "portalBilledAhead" === x.src && /^Billed ahead: /.test(x.what || ""));
+      if ("billing" === role()) return out.filter((x) => !lead.includes(x));
+      if ("pm" === role()) return lead.concat(out.filter((x) => !lead.includes(x)));
     } catch (e) {}
     return out;
   };
 }
+// Billing's Today: one row per job billed ahead of the work, with the dollar amount, her Review before the next
+// application goes out. It was a Caught for You row only, and the approved Today keeps Caught for You behind the
+// quiet line, so billing's first screen never said it (p2money_test 7). Billing ahead is an integrity question (an
+// invoice says what was done; the client sees both numbers), so it ranks with the Standard's integrity items.
+if ("function" == typeof nyhRowsAll) {
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      (DB.projects || [])
+        .filter((p) => !p.archived && "closed" !== (p.project || {}).status && p.clientId)
+        .forEach((p) => {
+          const A = pbAhead(p.id),
+            key = "ahead:" + p.id;
+          if (!A.lines.length || !(A.total > 0) || out.some((x) => x.key === key)) return;
+          const n = A.lines.length;
+          out.push({
+            key: key,
+            route: "billing",
+            kind: "ahead",
+            projectId: p.id,
+            title: `Billed ahead: ${tdJob(p)}, ${money(A.total)} on ${n} line${1 === n ? "" : "s"}`,
+            why: `${pbWords(A)} · billing these lines further needs a reason`,
+            amount: A.total,
+            verb: "Review",
+            no: "",
+            run: () => (setCurrent(p.id), setView("billing")),
+            open: () => (setCurrent(p.id), setView("billing")),
+          });
+        });
+    } catch (e) {
+      console.warn("billed ahead row", e);
+    }
+    return out;
+  };
+}
+if ("undefined" != typeof STD_MAP)
+  Object.assign(STD_MAP, {
+    portalBilledAhead: { p: "integrity", c: ["std", "money", /Invoices are accurate/i] },
+    "nyh:ahead": { p: "integrity", c: ["std", "money", /Invoices are accurate/i] },
+  });
+// the client's own money ahead of the work is "money or a client waiting now" (standardMoneyNow), as a credit owed to
+// them is: their portal shows the lines billed past what is done until billing holds or explains them
+"undefined" != typeof STD_NOW_CLIENT && !STD_NOW_CLIENT.includes("ahead") && STD_NOW_CLIENT.push("ahead");

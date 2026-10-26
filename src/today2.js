@@ -242,10 +242,10 @@ let td2Tick = 0;
 // What it may say, by role (the categories in Alan's order; ranked below by the Standard's decision principles).
 const TD2_FACTS = {
   owner: ["decide", "cash", "leak", "slip", "promise", "mail", "pipeline", "people", "did"],
-  pm: ["decide", "leak", "slip", "promise", "mail", "did"],
+  pm: ["decide", "ahead", "leak", "slip", "promise", "mail", "did"],
   coord: ["decide", "leak", "slip", "promise", "people", "did"],
-  billing: ["decide", "cash", "leak", "mail", "did"],
-  controller: ["decide", "cash", "leak", "did"],
+  billing: ["decide", "ahead", "cash", "leak", "mail", "did"],
+  controller: ["decide", "prepay", "cash", "leak", "did"],
 };
 // the money leaks each role answers for (CATCH detector -> the words for it)
 const TD2_LEAK = {
@@ -254,10 +254,13 @@ const TD2_LEAK = {
   overPO: "billed over its PO",
   unmatchedCredit: "in credits not matched to a return",
   pwStoreCheaper: "paid above a cheaper store",
+  budgetOverrun: "over budget",
 };
 const TD2_LEAK_ROLE = {
   owner: ["earnedNotBilled", "costNotBilled", "overPO", "unmatchedCredit"],
-  pm: ["costNotBilled", "overPO"],
+  // a cost line over its budget is the PM's to see the day it lands (the month's E232: it sat in Caught for You,
+  // behind the quiet line)
+  pm: ["costNotBilled", "overPO", "budgetOverrun"],
   coord: ["overPO", "pwStoreCheaper"],
   billing: ["earnedNotBilled", "costNotBilled"],
   controller: ["overPO", "unmatchedCredit"],
@@ -310,7 +313,11 @@ function td2Facts(T) {
     const L = T.rows.filter((x) => x.appr && x.due && x.due <= td);
     if (!L.length) return;
     const late = L.filter((x) => x.due < td),
-      o = (late.length ? late : L).slice().sort((a, b) => a.due.localeCompare(b.due))[0],
+      C = late.length ? late : L;
+    // the update says what the first screen does not: when every decision it would count is a row shown below (the
+    // coordinator's one route to approve today, the controller's one late item), the line only repeats them
+    if (C.every((x) => vis.has(x.key))) return;
+    const o = C.slice().sort((a, b) => a.due.localeCompare(b.due))[0],
       n = late.length ? late.length : L.length,
       days = late.length ? dayDiff(o.due, td) : 0;
     add({
@@ -383,6 +390,47 @@ function td2Facts(T) {
         .join(", ")}).`,
       go: big && big.run ? () => big.run() : () => ((td2QuietOpen = !0), render()),
       why: W.why,
+    });
+  });
+  // billed ahead of the work (p2money's pbAhead, line by line): the PM hears it before the client asks, since the
+  // client's portal shows both numbers. Billing holds it as a row of her own (Needs Your Hand, src/p2money.js), so
+  // hers says it only when that row is not on her first screen (the phone's fold); for the PM it is a fact. Ranked
+  // by the Standard (integrity: an invoice says what was done).
+  run("ahead", () => {
+    if ("function" != typeof pbAhead) return;
+    const R = ("pm" === r ? tdMyJobs() : (DB.projects || []).filter((p) => !p.archived && "closed" !== (p.project || {}).status && p.clientId))
+      .map((p) => ({ p: p, A: pbAhead(p.id) }))
+      .filter((x) => x.A.lines.length && x.A.total > 0)
+      .filter((x) => !T.shown.some((y) => y.it.nyh && "ahead" === y.it.nyh.kind && y.it.nyh.projectId === x.p.id))
+      .sort((a, b) => b.A.total - a.A.total);
+    if (!R.length) return;
+    const x = R[0],
+      n = x.A.lines.length;
+    add({
+      k: `ahead:${x.p.id}:${Math.round(x.A.total)}:${n}:${R.length}`,
+      cat: "ahead",
+      tier: standardTier({ src: "portalBilledAhead" }),
+      pre: "Billed ahead: ",
+      link: tdJob(x.p),
+      post: ` has ${td2Money(x.A.total)} billed ahead of the work on ${n} line${s(n, "", "s")}${R.length > 1 ? `, and ${R.length - 1} more job${s(R.length - 1, "", "s")} too` : ""}; the client sees both on the portal.`,
+      go: () => (setCurrent(x.p.id), setView("billing")),
+    });
+  });
+  // money paid to a vendor ahead of any bill (p0money's prepaidAhead): the coordinator confirms it on the order (one
+  // item, one owner); the controller hears it here, with the vendor's papers, ranked by the Standard (integrity)
+  run("prepay", () => {
+    const C = CATCH.find((c) => "prepaidAhead" === c.name),
+      R = C ? (C.rows() || []).slice().sort((a, b) => (+b.amount || 0) - (+a.amount || 0)) : [];
+    if (!R.length) return;
+    const x = R[0];
+    add({
+      k: `prepay:${R.map((y) => y.key).join(",")}`,
+      cat: "prepay",
+      tier: standardTier({ src: "prepaidAhead" }),
+      pre: "",
+      link: String(x.what || ""),
+      post: `, ${String(x.sub || "")}${R.length > 1 ? `; ${R.length - 1} more paid ahead` : ""}. The coordinator confirms it on the order.`,
+      go: () => x.run && x.run(),
     });
   });
   // a job slipping: the first job at risk (the schedule, a late decision or order, the margin)
