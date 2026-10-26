@@ -276,6 +276,152 @@ var MEETDOC_CORE = (function () {
   }
   // the transcript as text, one line each, for the model and for the meeting's private record
   const transcriptText = (doc) => (doc.lines || []).map((l) => `${l.ts} ${l.speaker}: ${l.text}`).join("\n");
+  // ---- any timed transcript (the feedback session's Add Transcript, src/fbsession.js; Alan, 10-26) ----------
+  // A person records their own screen and voice (Google Meet, the phone's recorder, Loom) and brings back the
+  // transcript in whatever shape the tool gives it. readTimed(text, {name}) reads:
+  //   WebVTT and SRT cues ("00:01:23.450 --> ..." with <v Speaker> or "Speaker: text");
+  //   a Google Meet or Gemini transcript doc (a Transcript heading, hh:mm:ss lines, "Speaker: text"), through
+  //   parseDoc, so the doc's name ("... 2026/10/26 09:58 EDT ...") still gives the recording's start;
+  //   Otter's export ("Alan Mishali  0:03", the words under it);
+  //   Loom's and the plain shapes: "00:01:23 text", "[1:23] text", "(01:23) Speaker: text", "Speaker [1:23]: text",
+  //   and a time alone on a line, which times the lines under it.
+  // Every line: {i, sec, ts, speaker, text}; sec is seconds from the recording's start (milliseconds kept), or the
+  // time of day when the transcript writes clock times ("10:14:02 AM"): then clock is true. start is the
+  // recording's start as New York wall time when the doc's name gives it (nameInfo), else "".
+  const T_PART = "(\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?)";
+  const AMPM = "(\\s*[AP]\\.?M\\.?(?![A-Za-z]))?";
+  function tsec(s, ampm) {
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:[.,](\d{1,3}))?$/.exec(String(s || "").trim());
+    if (!m) return null;
+    const frac = m[4] ? +m[4].padEnd(3, "0") / 1000 : 0;
+    let h = 0,
+      mi,
+      s2;
+    if (null != m[3]) (h = +m[1]), (mi = +m[2]), (s2 = +m[3]);
+    else if (ampm) (h = +m[1]), (mi = +m[2]), (s2 = 0);
+    else (mi = +m[1]), (s2 = +m[2]);
+    if (s2 > 59 || (null != m[3] && mi > 59)) return null;
+    if (ampm) (h %= 12), /p/i.test(ampm) && (h += 12);
+    return 3600 * h + 60 * mi + s2 + frac;
+  }
+  const fmtTs = (sec) => {
+    const ms = Math.round(((sec || 0) % 1) * 1000);
+    return fmtHms(Math.floor(sec || 0)) + (ms ? "." + String(ms).padStart(3, "0") : "");
+  };
+  const SPK = /^([A-Z][\w.'’-]*(?:\s+[A-Z0-9][\w.'’-]*){0,3})\s*:\s+(.+)$/;
+  const untag = (t) =>
+    String(t || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  function readCues(src) {
+    const out = [];
+    src.split(/\n\s*\n/).forEach((b) => {
+      const L = b.split("\n").map((x) => x.trim()).filter(Boolean),
+        k = L.findIndex((x) => /-->/.test(x));
+      if (k < 0 || /^(NOTE|STYLE|REGION)\b/.test(L[0])) return;
+      const m = /^(\S+)\s*-->/.exec(L[k]),
+        sec = m ? tsec(m[1]) : null;
+      if (null == sec) return;
+      const raw = L.slice(k + 1).join(" "),
+        v = /<v(?:\.[\w.-]+)?\s+([^>]+)>/.exec(raw);
+      let speaker = v ? clean(v[1], 60) : "",
+        text = untag(raw).replace(/^-\s+/, "");
+      if (!speaker) {
+        const sp = SPK.exec(text);
+        sp && ((speaker = clean(sp[1], 60)), (text = sp[2]));
+      }
+      text && out.push({ sec: sec, speaker: speaker, text: clean(text, 2000) });
+    });
+    return out;
+  }
+  function readLines(src) {
+    const out = [],
+      LEAD = new RegExp("^[\\[(]?" + T_PART + AMPM + "[\\])]?\\s*(?:[-–—|>]\\s*|:\\s+)?(.*)$"),
+      SPKT = new RegExp("^(.{1,60}?)\\s*[\\[(]" + T_PART + AMPM + "[\\])]\\s*:?\\s*(.*)$"),
+      OTTER = new RegExp("^(.{1,60}?)\\s+" + T_PART + AMPM + "\\s*$");
+    let cur = null,
+      at = null,
+      clock = !1,
+      otter = 0;
+    const push = (sec, speaker, text) => ((cur = { sec: sec, speaker: clean(speaker || "", 60), text: clean(text || "", 2000) }), out.push(cur));
+    String(src)
+      .split("\n")
+      .forEach((raw) => {
+        const r = raw.trim().replace(/^\*\*|\*\*$/g, "").replace(/^#{1,6}\s*/, "");
+        if (!r) return;
+        let m = LEAD.exec(r);
+        if (m) {
+          const sec = tsec(m[1], m[2]);
+          if (null != sec) {
+            m[2] && (clock = !0);
+            let text = (m[3] || "").trim(),
+              speaker = "";
+            if (!text) return void ((at = sec), (cur = null));
+            const sp = SPK.exec(text);
+            sp && ((speaker = sp[1]), (text = sp[2]));
+            return void (push(sec, speaker, text), (at = sec));
+          }
+        }
+        m = SPKT.exec(r);
+        if (m && !/[.!?]$/.test(m[1]) && m[1].split(/\s+/).length <= 5) {
+          const sec = tsec(m[2], m[3]);
+          if (null != sec) {
+            m[3] && (clock = !0);
+            if (!m[4]) return void ((at = sec), push(sec, m[1], ""), (cur.open = !0));
+            return void (push(sec, m[1], m[4]), (at = sec));
+          }
+        }
+        m = OTTER.exec(r);
+        if (m && !/[.!?,;:]$/.test(m[1]) && m[1].split(/\s+/).length <= 5 && (/\S\s{2,}\d/.test(r) || m[1].split(/\s+/).every((w) => /^[A-Z0-9(]/.test(w)))) {
+          const sec = tsec(m[2], m[3]);
+          if (null != sec) return m[3] && (clock = !0), otter++, (at = sec), push(sec, m[1], ""), void (cur.open = !0);
+        }
+        // the words under a heading line (Otter, "Speaker [1:23]:"), or the lines under a time on its own (Meet)
+        if (cur && cur.open) return void ((cur.text = clean(`${cur.text} ${untag(r)}`, 2000)), cur.text && (cur.open = !0));
+        if (null != at) {
+          const sp = SPK.exec(r);
+          if (sp || !cur) return void push(at, sp ? sp[1] : "", sp ? sp[2] : untag(r));
+        }
+        cur && (cur.text = clean(`${cur.text} ${untag(r)}`, 2000));
+      });
+    return { lines: out.filter((l) => l.text), clock: clock, otter: otter > 0 };
+  }
+  function readTimed(text, opts) {
+    const o = opts || {},
+      src = String(text || "").replace(/^\uFEFF/, "").replace(/\r/g, "").replace(/\u00a0/g, " "),
+      info = nameInfo(o.name || "");
+    let lines = [],
+      format = "",
+      clock = !1,
+      start = info.start || "",
+      zone = info.zone || "";
+    if (/-->/.test(src) && /\d:\d{2}[.,]\d{3}\s*-->/.test(src)) {
+      lines = readCues(src);
+      format = /^\s*WEBVTT/.test(src) ? "WebVTT" : "SRT";
+    }
+    if (!lines.length && /(^|\n)\s*#*\s*\**\s*(?:.{0,80}\s[-–—]\s*)?transcript\s*\**\s*:?\s*(\n|$)/i.test(src)) {
+      const doc = parseDoc(src, { name: o.name || "" });
+      if (doc.lines.length && doc.lines.some((l) => l.sec > 0 || doc.lines.length === 1)) {
+        lines = doc.lines.map((l) => ({ sec: l.sec, speaker: l.speaker, text: l.text }));
+        format = "Google Meet doc";
+        start = doc.start || start;
+        zone = doc.zone || zone;
+      }
+    }
+    if (!lines.length) {
+      const r = readLines(src);
+      lines = r.lines;
+      clock = r.clock;
+      format = r.otter ? "Otter" : "timed lines";
+    }
+    lines.forEach((l, i) => ((l.i = i), (l.ts = fmtTs(l.sec)), delete l.open));
+    return { format: format, lines: lines, clock: clock, start: start, zone: zone, title: info.title || "" };
+  }
   // ---- dates said aloud --------------------------------------------------------------------------------------
   const DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const addDays = (day, n) => wallIso(wall(day) + 86400 * n).slice(0, 10);
@@ -568,6 +714,6 @@ ${part}`;
     });
     return best;
   }
-  return { KINDS, clean, norm, words, sim, hms, fmtHms, wall, wallIso, nameInfo, usDst, parseDoc, sharedDevices, transcriptText, dateSaid, rules, fromNotes, parts, prompt, parseAnswer, merge, onScreen, bestShift, amountOf, REF };
+  return { KINDS, clean, norm, words, sim, hms, fmtHms, wall, wallIso, nameInfo, usDst, parseDoc, sharedDevices, transcriptText, dateSaid, rules, fromNotes, parts, prompt, parseAnswer, merge, onScreen, bestShift, amountOf, REF, readTimed, tsec };
 })();
 if ("undefined" != typeof module && module && module.exports) module.exports = MEETDOC_CORE;
