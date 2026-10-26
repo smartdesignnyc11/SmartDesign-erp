@@ -100,7 +100,8 @@ function rpPL(range) {
   if (cash)
     (DB.clients || []).forEach((c) =>
       (c.payments || []).forEach((pay) => {
-        if (pay.unapplied || !within(pay.date, R)) return;
+        // cash income is money the bank has: a payment only recorded is not income yet (payBanked, Financial truth)
+        if (pay.unapplied || !within(pay.date, R) || ("function" == typeof payBanked && !payBanked(c, pay))) return;
         const inv = (c.invoices || []).find((i) => i.id === pay.invoiceId),
           pid = (inv && inv.projectId) || "";
         if (repEntity && !(pid && rpInEnt(rpProj(pid)))) return;
@@ -369,7 +370,9 @@ function rpTies(range, only) {
               const bank = rpSum((DB.txns || []).filter((t) => within(t.date, R) && t.amt > 0 && "income" === t.cat && (!repEntity || "function" != typeof entityOfTxn || entityOfTxn(t) === repEntity)), (t) => t.amt);
               return [
                 { label: "Received at the bank", amt: bank, drill: "inc:bank" },
-                { label: "Recorded, not yet at the bank (undeposited)", amt: r2(P.income - bank), drill: "inc:undeposited" },
+                // a payment recorded but not seen at the bank is not cash income (payBanked), so it is not a part here;
+                // this part is bank-backed payments on deposits not coded as income
+                { label: "Bank-backed payments on deposits not coded income", amt: r2(P.income - bank), drill: "inc:undeposited" },
               ];
             })()
           : [
@@ -686,7 +689,7 @@ function rpDrillRows(key) {
     else if ("undeposited" === a)
       (DB.clients || []).forEach((c) =>
         (c.payments || []).forEach((pay) => {
-          if (pay.unapplied || !within(pay.date, R)) return;
+          if (pay.unapplied || !within(pay.date, R) || ("function" == typeof payBanked && !payBanked(c, pay))) return;
           const x = { kind: "payment", c: c, pay: pay, d: (c.invoices || []).find((i) => i.id === pay.invoiceId) };
           "bank" !== rpBackingOf(x).kind && out.push(Object.assign(x, { date: pay.date, desc: `Payment${x.d ? " on " + x.d.number : ""} · ${c.name}`, amt: +pay.amount || 0, open: x.d ? { type: "invoice", c: c, d: x.d } : null }));
         }),
