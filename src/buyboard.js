@@ -242,7 +242,9 @@ function bbFinish(r) {
   if (r.received) (r.section = "received"), (r.tab = "done");
   else if (!r.ordered)
     (r.tab = "buy"),
-      (r.section = r.late ? "late" : rfqs.length ? "quotes" : r.orderBy && r.orderBy >= td && wd(td, r.orderBy) <= 5 ? "week" : "later");
+      // a field request not yet acknowledged is the coordinator's approval (PRED.buyNeeds leaves it out): its own section,
+      // so Late plus Order This Week is the Buy Board's one number everywhere
+      (r.section = "request" === r.kind && r.q && "new" === r.q.status ? "ack" : r.late ? "late" : rfqs.length ? "quotes" : r.orderBy && r.orderBy >= td && wd(td, r.orderBy) <= 5 ? "week" : "later");
   else if ("promise" === r.lateKind) (r.tab = "buy"), (r.section = "late");
   else (r.tab = "arriving"), (r.section = "arriving");
   r.arr =
@@ -361,6 +363,7 @@ let bbTab = "buy",
   bbFilterOn = !1,
   bbLastView = "";
 const BB_SECTIONS = [
+    ["ack", "To Acknowledge"],
     ["late", "Late"],
     ["week", "Order This Week"],
     ["quotes", "Waiting on Quotes"],
