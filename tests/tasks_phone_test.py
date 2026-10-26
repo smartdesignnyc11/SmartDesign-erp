@@ -51,6 +51,10 @@ async def tap_row(pg, sel='.view.on .tk2-row .tk2-title', i=0):
 async def reset(pg, uid, v='tkall'):
     await pg.evaluate(CLOSE)
     await sign_in(pg, uid)
+    # This suite checks the List (rows, the day groups, the sheet from a row). Since Alan's 10-26 ask the desktop opens
+    # Tasks on the Table, its columns (task_views_test checks those), so on a wide screen each person picks the List
+    # here first, as a person would with the layout switch; the phone opens on the List as before.
+    await pg.evaluate("() => { if (!isMobile() && tvMayUse()) { tvLayoutSet('cards'); tvLayoutFor = (currentUser() || {}).id || ''; tkMode = 'cards'; } }")
     await go(pg, v)
     await pg.wait_for_timeout(250)
 
@@ -301,6 +305,58 @@ async def proof_dupes_scale(c, pg, label):
     c.ok(bool(pr) and all(x.split(' ')[0] in ('High', 'Medium', 'Low') for x in pr), f'{label}: one priority scale, High, Medium, Low ({pr})')
 
 
+PROWS = r"""() => [...document.querySelectorAll('.view.on .tk2-row[data-tkkey]')].filter(r => r.getClientRects().length).map(r => { const R = tkResolve(r.dataset.tkkey), a = (R && R.rec) || {}, x = R ? R.x : {};
+  const p = String(a.pri3 || x.pri3 || '').toUpperCase(), pri = /^P[123]$/.test(p) ? +p[1] : ({ high: 1, med: 2, low: 3 }[a.priority || x.priority] || 0);
+  const I = tvInfo(x), g = r.closest('.tk2-group, .tv-grp');
+  return { key: r.dataset.tkkey, pri, due: x.due || '', sub: ((r.querySelector('.tk2-sub') || {}).innerText || '').replace(/\s+/g, ' ').trim(), when: t2When(x).label, pname: I.pname, owner: tkFirst(I.owner),
+    g: g ? ((g.querySelector('.tk2-ghd, .tv-gn') || {}).textContent || '').trim() : '' }; })"""
+
+
+async def phone_sort(c, pg, label):
+    """Alan, 10-26: the phone keeps its one-column list; its Filter sheet sorts by the table's fields, and each row's
+    second line shows the person's two chosen fields (Due and Project unless they pick others)"""
+    os.makedirs(os.path.join(ROOT, 'review', 'taskviews'), exist_ok=True)
+    await reset(pg, 'u_chen')
+    await pg.evaluate("() => { tkWho = 'all'; t2View = 'all'; renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(300)
+    R = await pg.evaluate(PROWS)
+    two = [r for r in R if r['sub'] and r['pname'] and r['when']]
+    c.ok(two and all(r['sub'].find(r['when']) >= 0 and r['sub'].find(r['when']) < r['sub'].rfind(r['pname']) for r in two[:10]), f'{label}: each row\'s second line reads its Due, then its Project ({[r["sub"] for r in two[:3]]})')
+    await pg.evaluate("() => tkFilterSheet()"); await pg.wait_for_timeout(300)
+    sh = await pg.evaluate("""() => { const m = document.getElementById('mbm'); return m ? { h: [...m.querySelectorAll('.tkf-h')].map(h => h.textContent.trim()), sort: [...m.querySelectorAll('[data-tkfsort]')].map(b => b.dataset.tkfsort),
+      dir: [...m.querySelectorAll('[data-tkfdir]')].map(b => b.dataset.tkfdir), row: [...m.querySelectorAll('select[data-tkfrow]')].map(s => s.value), sw: document.documentElement.scrollWidth } : null; }""")
+    c.ok(sh and 'Sort By' in sh['h'] and {'due', 'priority', 'ref', 'project', 'owner', 'status'} <= set(sh['sort']) and sh['dir'] == ['asc', 'desc'], f'{label}: the Filter sheet has Sort By, with the table\'s fields and both directions ({sh})')
+    c.ok(sh and sh['row'] == ['due', 'project'], f'{label}: the second line\'s two fields default to Due and Project ({sh and sh["row"]})')
+    await pg.screenshot(path=os.path.join(ROOT, 'review', 'taskviews', 'ph_sortby.png'))
+    await pg.evaluate("() => document.querySelector('#mbm [data-tkfsort=\"priority\"]').click()"); await pg.wait_for_timeout(350)
+    R = await pg.evaluate(PROWS)
+    G = {}
+    for r in R: G.setdefault(r['g'], []).append(r['pri'])
+    asc = lambda v: [x for x in v if x] == sorted(x for x in v if x) and v[len([x for x in v if x]):] == [0] * v.count(0)
+    c.ok(R and all(asc(v) for v in G.values()), f'{label}: Sort By Priority lists P1 to P3 then none, inside each group ({[(g, v[:6]) for g, v in list(G.items())[:3]]})')
+    await pg.evaluate("() => tkFilterSheet()"); await pg.wait_for_timeout(250)
+    await pg.evaluate("() => document.querySelector('#mbm [data-tkfdir=\"desc\"]').click()"); await pg.wait_for_timeout(350)
+    R = await pg.evaluate(PROWS)
+    G = {}
+    for r in R: G.setdefault(r['g'], []).append(r['pri'])
+    desc = lambda v: [x for x in v if x] == sorted((x for x in v if x), reverse=True) and v[len([x for x in v if x]):] == [0] * v.count(0)
+    c.ok(R and all(desc(v) for v in G.values()) and await pg.evaluate("() => tvSorts()[0].dir") == 'desc', f'{label}: Descending turns it round, none still last ({[(g, v[:6]) for g, v in list(G.items())[:3]]})')
+    sw = await pg.evaluate("() => document.documentElement.scrollWidth")
+    c.ok(sw <= 390, f'{label}: the sorted list never scrolls sideways ({sw})')
+    await pg.screenshot(path=os.path.join(ROOT, 'review', 'taskviews', 'ph_sorted_priority.png'))
+    # the second line's fields: Priority and Owner instead
+    await pg.evaluate("() => tkFilterSheet()"); await pg.wait_for_timeout(250)
+    await pg.select_option('#mbm select[data-tkfrow="0"]', 'priority'); await pg.wait_for_timeout(200)
+    await pg.select_option('#mbm select[data-tkfrow="1"]', 'owner'); await pg.wait_for_timeout(300)
+    await pg.evaluate(CLOSE); await pg.evaluate("() => renderTkAll()"); await pg.wait_for_timeout(250)
+    R = await pg.evaluate(PROWS)
+    pr = [r for r in R if r['pri'] and r['owner']]
+    c.ok(pr and all(f"P{r['pri']}" in r['sub'] and r['owner'] in r['sub'] and r['pname'] not in r['sub'] for r in pr[:8]), f'{label}: the second line now reads Priority and Owner ({[r["sub"] for r in pr[:3]]})')
+    c.ok(await pg.evaluate("() => JSON.stringify(tvPrefs().phoneRow)") == '["priority","owner"]', f'{label}: the choice is the person\'s own setting')
+    # back to the list's own order and the standard line
+    await pg.evaluate("() => { delete tvT().sort; delete tvPrefs().phoneRow; save(); renderTkAll(); }")
+    await pg.evaluate(CLOSE)
+
+
 async def shots(pg, label):
     """review/tasks/: the list, a sheet, Today and the job's list as the PM, the foreman's Today (never git-added)"""
     d = os.path.join(ROOT, 'review', 'tasks')
@@ -326,6 +382,7 @@ async def main():
                 await handoff(c, pg, label)
                 await proof_dupes_scale(c, pg, label)
                 await find_again(c, pg, label)
+                await phone_sort(c, pg, label)
             await shots(pg, label)
             c.ok(not errs, f'{label}: no page errors {errs[:3]}')
             await b.close()

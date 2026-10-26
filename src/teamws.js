@@ -359,9 +359,13 @@ function aimReadFile(file) {
     for (const [k, re] of Object.entries(AIM_EXTRA)) re.test(h) && !ex[k] && (ex[k] = h);
   });
   if (!col.id || !col.name) return { error: `${file.name || "That file"} is not an Asana export: it has no Task ID and Name columns`, rows: [] };
-  const known = new Set(Object.entries(col).filter(([k]) => "key" !== k).map(([, h]) => h));
+  const known = new Set(Object.entries(col).filter(([k]) => "key" !== k).map(([, h]) => h)),
+    // the columns the import maps to no built-in field: each becomes one of the board's own fields (Alan, 10-26)
+    mapped = new Set([...known, ...Object.values(ex), col.key].filter(Boolean)),
+    customCols = P.header.filter((h) => h && !mapped.has(h));
   return {
     board: !!col.projectName,
+    customCols: customCols,
     rows: P.rows.map((r, i) => {
       const g = (k) => (col[k] ? String(r[col[k]] || "").trim() : ""),
         x = (k) => (ex[k] ? String(r[ex[k]] || "").trim() : ""),
@@ -399,6 +403,7 @@ function aimReadFile(file) {
         priority: pr.priority,
         carried: /carried/i.test(cv) ? "CARRIED" : /new/i.test(cv) ? "NEW" : "",
         custom: custom,
+        customCols: customCols,
       };
     }),
   };
@@ -905,15 +910,44 @@ function aimBoard(P, now) {
   p.project.asanaName || (p.project.asanaName = P.name);
   return { list: (p.actions = p.actions || []), p: p, section: "", board: "p:" + p.id };
 }
-// the comments a row's notes make: Asana's Notes first, then the team's General Notes
+// the comment a row's notes make: Asana's Notes. The team's GENERAL NOTES is the task's General Notes field
+// (generalNotes), its own place in the sheet, never a comment and never a column (Alan, 10-26).
 function aimNotesOf(t) {
   const r = t.row,
     at = (r.created || today()) + "T09:00:00",
     id = "asn_" + (t.asanaId || uid("n")),
     out = [];
   r.notes && out.push({ id: id, at: at, by: "Asana", text: r.notes, ev: "notes", source: "asana" });
-  r.general && out.push({ id: id + "_g", at: at, by: "Asana", text: "General notes: " + r.general, ev: "notes", source: "asana" });
   return out;
+}
+// An older import wrote GENERAL NOTES as a comment ("General notes: …"): it moves to the General Notes field once,
+// the field keeping what it already holds, and the comment leaves the thread (it was the import's, not a person's).
+const AIM_GEN_RE = /^(?:Notes in Asana now read: )?General notes: /;
+function aimGeneralMove(a) {
+  const T = a.thread || [],
+    G = T.filter((c) => c && "asana" === c.source && AIM_GEN_RE.test(String(c.text || "")));
+  if (!G.length) return !1;
+  const last = String(G[G.length - 1].text).replace(AIM_GEN_RE, "").trim();
+  a.generalNotes || (a.generalNotes = last);
+  a.thread = T.filter((c) => !G.includes(c));
+  return !0;
+}
+// The board's own fields: each column the import maps to nothing, with what it holds. A select when its values repeat
+// (a handful of short choices), long text when a value runs long, else text. Registered once, by column name.
+function aimCustomFields(plan) {
+  if ("function" != typeof tvAddField) return [];
+  const rows = plan.tasks.concat(plan.review).map((t) => t.row),
+    cols = [...new Set(rows.flatMap((r) => r.customCols || []))],
+    board = [...new Set(rows.flatMap((r) => r.projects || []))][0] || "";
+  return cols
+    .map((col) => {
+      const V = rows.map((r) => String((r.custom || {})[col] || "").trim()).filter(Boolean),
+        D = [...new Set(V)];
+      if (!V.length) return null;
+      const type = V.some((v) => v.length > 80 || /\n/.test(v)) ? "long" : D.length <= 12 && D.length < V.length && D.every((v) => v.length <= 32) ? "select" : "text";
+      return tvAddField({ name: col, col: col, type: type, values: "select" === type ? D.sort() : [], board: board, from: "the Asana import" });
+    })
+    .filter(Boolean);
 }
 // Write one planned task (new, or an update that keeps the app's own edits). Returns {a, p, created} or
 // {refused: why} when its key is now another task's.
@@ -960,10 +994,13 @@ function aimWrite(t, plan, now, ownerName) {
       a.code = t.keyFound;
     }
     s.done !== snap.done && ("done" === a.status) === !!s.done && ((a.status = snap.done ? "done" : aimStatus(t)), (a.completedAt = snap.done ? t.completedAt || today() : ""));
+    aimGeneralMove(a);
+    // the board's own fields: a value the export holds and the task does not yet
+    Object.keys(r.custom || {}).length && (a.custom = Object.assign({}, r.custom, a.custom || {}));
     notes.forEach((note) => {
       if ((a.thread || []).some((c) => c && c.text && c.text.endsWith(note.text))) return;
-      const was = note.ev === "notes" && /_g$/.test(note.id) ? s.general : s.notes;
-      if (a.asana && was === (/_g$/.test(note.id) ? r.general : r.notes)) return;
+      const was = s.notes;
+      if (a.asana && was === r.notes) return;
       (a.thread = a.thread || []).push(Object.assign({}, note, { id: note.id + "_" + (r.modified || today()), text: a.asana && was ? "Notes in Asana now read: " + note.text : note.text }));
     });
     (t.checklist || []).forEach((c) => {
@@ -1033,6 +1070,11 @@ const aimPendingOf = (t, plan, why) => ({ asanaId: t.asanaId, project: t.project
 // Write the plan. owners: {asana id: a team member's id or name} for rows on the review list. Rows still without a
 // board or an owner, and refused rows, wait on the review list.
 function aimApply(plan, owners) {
+  try {
+    aimCustomFields(plan);
+  } catch (e) {
+    console.warn("the board's own fields", e);
+  }
   const W = owners || {},
     now = appNowIso(),
     S = aimStore(),
