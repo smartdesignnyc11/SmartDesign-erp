@@ -270,7 +270,15 @@ async def main():
         c.ok(e2.get('priority') == 'high' and e2.get('pri3') == 'P1' and e2.get('carried') == 'CARRIED' and e2.get('start') == '2026-10-20' and e2.get('due') == '2026-10-27' and e2.get('tags') == ['client'],
              f"priority, NEW or CARRIED, dates and tags kept: {[e2.get(k) for k in ('priority', 'pri3', 'carried', 'start', 'due', 'tags')]}")
         th = [x.get('text') for x in e2.get('thread') or []]
-        c.ok(th == ['Asked the client twice for the sample.', 'General notes: Client prefers wool.'] and e2.get('generalNotes') == 'Client prefers wool.', f'both notes are comments, the general notes kept: {th}')
+        # Alan, 10-26: GENERAL NOTES is its own field in the task (General Notes), never a comment and never a column
+        c.ok(th == ['Asked the client twice for the sample.'] and e2.get('generalNotes') == 'Client prefers wool.', f'Asana\'s Notes are the first comment; GENERAL NOTES is the General Notes field, not a comment: {th}')
+        # a column the import does not map is a custom field of the board, a select with the values it found
+        cf = await pg.evaluate("() => tvFields().filter(f => f.custom).map(f => ({ n: f.n, col: f.col, type: f.type, values: f.values, place: tvPlace(f), board: f.board }))")
+        trade = next((f for f in cf if f['n'] == 'Trade'), None)
+        c.ok(trade and trade['col'] == 'TRADE' and trade['type'] == 'select' and sorted(trade['values']) == ['Carpentry', 'Office', 'Permits', 'Tile'] and trade['place'] == 'column' and trade['board'] == 'Invented Weekly Check Ins',
+             f'the TRADE column is the board\'s custom field Trade, a select with its four values: {cf}')
+        c.ok(not any(f['col'].upper().strip() in ('GENERAL NOTES', 'PROJECT NAME', 'TASK ID (2)', 'NEW?CARRIED', 'PRIORITY') for f in cf), f'the columns the import maps are built-in fields, never custom ones: {[f["col"] for f in cf]}')
+        c.ok((e2.get('custom') or {}).get('TRADE') == 'Carpentry', f"the task carries its Trade: {e2.get('custom')}")
         c.ok((e2.get('asana') or {}).get('id') == '5001' and e2.get('blocking') == ['ELM-03'] and W.get('ELM-03', {}).get('blockedBy') == ['ELM-02'] and len(e2.get('checklist') or []) == 1, 'the Asana id, the dependencies and the step are on the tasks')
         c.ok(W.get('FIN-13', {}).get('status') == 'done' and W['FIN-13'].get('completedAt') == '2026-10-20' and W['FIN-13'].get('board') == 's:Office', f"a finished row is done with its date, on the Office list: {W.get('FIN-13', {}).get('status')} {W.get('FIN-13', {}).get('board')}")
         c.ok(W.get('FIN-12', {}).get('prefix') == 'ELM' and W.get('301-01', {}).get('prefix') == '301', f"the jobs' prefixes are their own series: {W.get('FIN-12', {}).get('prefix')} {W.get('301-01', {}).get('prefix')}")
@@ -283,6 +291,13 @@ async def main():
         R2 = await pg.evaluate("text => { const P = aimPlan([{name: 'weekly_checkins.csv', text}]); const r = aimApply(P, {}); return {T: P.totals, r, pend: DB.asanaImport.pending.length}; }", BOARD)
         snap1 = await pg.evaluate("() => JSON.stringify(tkKeyedRecs().filter(r => r.rec.asana).map(r => [r.rec.code, r.rec.assignee, r.rec.due, r.rec.title, r.rec.priority, (r.rec.thread || []).length]))")
         c.ok(R2['T']['same'] == 7 and R2['T']['create'] == 0 and R2['T']['update'] == 0 and R2['pend'] == 4 and snap0 == snap1, f'the same export again changes nothing: {R2}')
+        # a task an older import gave a "General notes:" comment: the re-import moves it to the General Notes field,
+        # with no second comment
+        mvd = await pg.evaluate("""text => { const a = tkByCode('ELM-02').rec; a.generalNotes = '';
+          a.thread.push({ id: 'asn_5001_g', at: '2026-09-01T09:00:00', by: 'Asana', text: 'General notes: Client prefers wool.', ev: 'notes', source: 'asana' }); save();
+          aimApply(aimPlan([{name: 'weekly_checkins.csv', text}]), {}); aimApply(aimPlan([{name: 'weekly_checkins.csv', text}]), {});
+          return { g: a.generalNotes, th: a.thread.filter(e => e.text).map(e => e.text) }; }""", BOARD)
+        c.ok(mvd['g'] == 'Client prefers wool.' and mvd['th'] == ['Asked the client twice for the sample.'], f'a re-import moves an old General notes comment into the field, never twice: {mvd}')
         await pg.evaluate("() => { tkByCode('OPS-07').rec.due = '2026-10-30'; save(); }")
         newer = BOARD.replace('2026-10-20,2026-10-27,client,Asked', '2026-10-20,2026-11-02,client,Asked').replace(',General ,OPS-07,CARRIED,P2', ',General ,OPS-07,CARRIED,P1').replace('2026-10-22,OPS-07 Renew the van lease', '2026-10-24,OPS-07 Renew the van lease')
         R3 = await pg.evaluate("text => { const P = aimPlan([{name: 'weekly_checkins.csv', text}]); aimApply(P, {}); const e = tkByCode('ELM-02').rec, o = tkByCode('OPS-07').rec; return {T: P.totals, elm: e.due, ops: [o.due, o.pri3, o.priority]}; }", newer)
