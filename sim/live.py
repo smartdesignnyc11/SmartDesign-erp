@@ -212,6 +212,31 @@ class LiveSim(SV.Sim):
         out['control'] = 'device ' + want; out['kind'] = 'device'
         return out
 
+    async def _reloads(self, fn, uid, pg, args, opts):
+        """a tap that reloads the page (Switch User, Reload, Reset local data) ends on the page it reloaded into"""
+        try: return await fn(uid, pg, args, opts)
+        except Exception as e:
+            if not re.search(r'context was destroyed|navigat|__SIM|Target closed|detached', str(e)): raise
+            out = await self.render_screen(uid, pg)
+            out['text'] = '(the page reloaded)\n' + out['text']
+            return out
+
+    async def _one(self, uid, cmd, args, opts, t):
+        """the same action as on the local world; when the page reloads under the harness's own reads after it (the reload
+        lands a moment late), the person simply sees the page it reloaded into"""
+        try: return await super()._one(uid, cmd, args, opts, t)
+        except Exception as e:
+            if not re.search(r'context was destroyed|navigat|__SIM|Target closed|detached', str(e)): raise
+            out = await self.render_screen(uid, self.pages[self.uid])
+            out['text'] = '(the page reloaded)\n' + out['text']
+            self.log({'uid': uid, 'cmd': cmd, 'args': args, 'result': 'the page reloaded under the action', 'ok': True})
+            return out
+
+    async def v_go(self, uid, pg, args, opts): return await self._reloads(super().v_go, uid, pg, args, opts)
+    async def v_tap(self, uid, pg, args, opts): return await self._reloads(super().v_tap, uid, pg, args, opts)
+    async def v_back(self, uid, pg, args, opts): return await self._reloads(super().v_back, uid, pg, args, opts)
+    async def v_key(self, uid, pg, args, opts): return await self._reloads(super().v_key, uid, pg, args, opts)
+
     async def act(self, uid, cmd, args, opts):
         if uid != self.uid: return {'ok': False, 'text': f'this live run is {SV.PEOPLE[self.uid][2]} ({self.uid}, the QA {self.role} account); {uid} is not signed in here'}
         return await super().act(uid, cmd, args, opts)
