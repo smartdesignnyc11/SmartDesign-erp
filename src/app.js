@@ -8924,7 +8924,10 @@ function newDoc(c, kind, opts = {}) {
       (base.title = "Proposal"),
       opts.template &&
         "simple" !== opts.template &&
-        ((base.template = opts.template), (base.terms = "Deposit due at signing; progress invoices net 7"))),
+        ((base.template = opts.template),
+        (base.terms = "Deposit due at signing; progress invoices net 7"),
+        // the contract carries its deposit % (decision 5: 25% by default); the deposit invoice reads it
+        "construction" === opts.template && (base.depositPct = 25))),
     "co" === kind && ((base.scheduleDays = 0), (base.title = "Change order")),
     "invoice" === kind &&
       ((base.mode = opts.mode || "items"),
@@ -9111,7 +9114,7 @@ function renderDocEditor(c, d) {
           )
           .join("")}</select></div>`
       : ""
-  }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
+  }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}${"estimate" === kind && "construction" === d.template ? `<span class="k">Deposit at signing ${editable ? `<input type="number" step="1" min="0" max="100" data-d="depositPct" value="${"function" == typeof ctDepositPct ? ctDepositPct(c, d) : d.depositPct || 0}">%` : `(${"function" == typeof ctDepositPct ? ctDepositPct(c, d) : d.depositPct || 0}%)`}</span><span class="v">${money(r2(((t.sub - t.disc) * ("function" == typeof ctDepositPct ? ctDepositPct(c, d) : +d.depositPct || 0)) / 100))}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
 }
 // "Unsaved changes" means what the editor's own inputs changed and nothing else. The snapshot a document is
 // compared against holds only the fields the editor writes (DOC_EDIT_KEYS): what the app writes on its own
@@ -9354,11 +9357,12 @@ function docActions(c, d, st) {
     // record of something done elsewhere, so it is never the blue button nor the first (cycle walk, dangerous buttons)
     ("draft" === d.status &&
       (h += "estimate" === k ? B("email", "Review and send", "primary") : B("send", "Mark sent", "primary") + B("email", "Draft cover email")),
-    "estimate" === k && "construction" === d.template && "converted" === d.status)
+    "estimate" === k && "converted" === d.status)
   ) {
-    h += c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status)
-      ? B("progress", "New progress invoice", "primary")
-      : B("deposit", "Create deposit invoice", "primary") + B("progress", "New progress invoice");
+    // the signed contract's deposit is its own invoice (decision 5): while it is owed it is the blue next step
+    "function" == typeof ctDepositDue && ctDepositDue(c, d)
+      ? (h += B("deposit", "Create Deposit Invoice", "primary") + B("progress", "New Progress Invoice"))
+      : "construction" === d.template && (h += B("progress", "New Progress Invoice", "primary"));
   }
   return (
     "estimate" === k &&
@@ -26393,20 +26397,18 @@ function analystFindings() {
                 { view: "clients", client: c.id },
               );
           }),
+        // a signed contract's deposit not invoiced inside the Standard's 2 business days (the Billing Queue holds it
+        // from the hour it is signed; this is the finding once it is late)
         c.estimates
-          .filter(
-            (e) =>
-              "construction" === e.template &&
-              "converted" === e.status &&
-              !c.invoices.some((i) => i.depositOf === e.id && "void" !== i.status),
-          )
-          .forEach((e) =>
+          .map((e) => ({ e: e, D: "function" == typeof ctDepositDue ? ctDepositDue(c, e) : null }))
+          .filter((x) => x.D && x.D.late)
+          .forEach(({ e, D }) =>
             add(
               "high",
               "Billing",
               `${c.name}: no deposit invoiced on ${e.number}`,
-              `contract ${money(docTotal(e).total)} converted, deposit never billed`,
-              docTotal(e).total,
+              `signed ${fmt(D.signed)}; the ${D.pct}% deposit (${money(D.amount)}) was due on an invoice by ${fmt(D.by)}`,
+              D.amount,
               { view: "clients", client: c.id },
             ),
           ),
@@ -33055,6 +33057,20 @@ function billingSuggestions() {
         .forEach((d) => {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (!p) return;
+          // the signed contract's deposit, from the hour it is signed (decision 5; ctDepositDue)
+          const D = "function" == typeof ctDepositDue ? ctDepositDue(c, d) : null;
+          D &&
+            out.push({
+              kind: "deposit",
+              c: c,
+              d: d,
+              p: p,
+              amount: D.amount,
+              title: `${p.project.name}: signed ${fmt(D.signed)}, the ${D.pct}% deposit (${money(D.amount)}), no retainage, to invoice by ${fmt(D.by)}`,
+              act: "deposit",
+              due: D.by,
+              late: D.late,
+            });
           const J = jobFin(p);
           if (!c.invoices.some((i) => "draft" === i.status && ("sov" === i.mode || i.fromDoc === d.id))) {
             if ("construction" === d.template || !d.template) {
@@ -35698,62 +35714,33 @@ function applyDepositTo(c, inv) {
     pct = depositPctOf(c, est.id);
   inv.depositApplied = r2(Math.min(bal, (gross * pct) / 100));
 }
+// A draft application credits the deposit pro rata as its lines change (the deposit's share of the contract, times
+// this period's work, never past what is on account); once sent the credit is fixed with the invoice. It was set
+// once, when the draft was made with every line at 0%, so it stayed $0. A person who types the credit keeps it.
+const depositDocClient = new WeakMap();
+function depositRefresh(d, t) {
+  let c = depositDocClient.get(d);
+  (c && (c.invoices || []).includes(d)) || ((c = "function" == typeof finClientOfDoc ? finClientOfDoc(d) : null), c && depositDocClient.set(d, c));
+  if (!c) return;
+  const pct = depositPctOf(c, d.depositOf);
+  if (!(pct > 0)) return void (+d.depositApplied && (d.depositApplied = 0));
+  const room = r2(depositBalance(c, d.depositOf) + (+d.depositApplied || 0)),
+    want = room > 0 ? r2(Math.min(room, (r2(t.sub - t.disc) * pct) / 100)) : 0;
+  d.depositApplied = Math.max(0, want);
+}
 (docTotal = function (d) {
-  const t = docTotalBase(d),
-    dep = "invoice" === d.type && "sov" === d.mode ? r2(+d.depositApplied || 0) : 0;
+  const t = docTotalBase(d);
+  if ("invoice" !== d.type || "sov" !== d.mode) return t;
+  if ("draft" === d.status && d.depositOf && !d.depositByHand)
+    try {
+      depositRefresh(d, t);
+    } catch (e) {}
+  const dep = r2(+d.depositApplied || 0);
   return dep && ((t.dep = dep), (t.total = r2(t.total - dep))), t;
 }),
   (docNet = (d) => {
     const t = docTotal(d);
     return r2(t.sub - t.disc - (t.dep || 0));
-  }),
-  (ctDepositInvoice = function (c, d) {
-    const base = docNet(d),
-      pct = +DB.company.depositPct || 30,
-      already = c.invoices
-        .filter((i) => i.depositOf === d.id && "void" !== i.status)
-        .reduce((a, i) => a + docTotal(i).total, 0);
-    mbModal(
-      `Deposit — ${esc(d.number)}`,
-      `<p class="small muted">A deposit is money on account. It is applied against progress invoices as work is billed, so the schedule of values only ever shows work done.${already ? ` Already invoiced: ${money(already)}.` : ""}</p><div class="f2"><label class="f"><span>Deposit %</span><input id="dep-pct" type="number" min="0" max="100" step="1" value="${pct}"></label><label class="f"><span>Amount</span><input id="dep-amt" type="number" step="1" value="${r2((base * pct) / 100)}"></label></div><div class="small muted">Contract ${money(base)} · terms: due at signing.</div>`,
-      {
-        submit: "Create deposit invoice",
-        onSubmit: () => {
-          const amt = r2(+$("#dep-amt").value || 0);
-          if (amt <= 0) return toast("Enter a deposit amount"), !1;
-          const inv = newDoc(c, "invoice", { mode: "items" });
-          (inv.template = "construction"),
-            (inv.depositOf = d.id),
-            (inv.title = `Deposit — ${$("#dep-pct").value}% of contract`),
-            (inv.terms = "Due at signing"),
-            (inv.retainagePct = 0),
-            (inv.lines = [
-              {
-                id: uid("l"),
-                item: "Deposit on contract",
-                desc: `${d.number} · applied against progress invoices`,
-                qty: 1,
-                unit: "ls",
-                rate: amt,
-                taxable: !1,
-              },
-            ]),
-            docMark(inv),
-            c.activity.push({
-              t: nowStamp(),
-              by: S.project.userName || "",
-              text: `${inv.number} deposit — ${money(amt)}`,
-            }),
-            (docOpen = { kind: "invoice", id: inv.id }),
-            (finTab = "invoices"),
-            save(),
-            render();
-        },
-      },
-    ),
-      $("#dep-pct").addEventListener("input", () => {
-        $("#dep-amt").value = r2((base * (+$("#dep-pct").value || 0)) / 100);
-      });
   });
 const ctProgressInvoiceBase2 = ctProgressInvoice;
 ctProgressInvoice = function (c, d) {
@@ -35857,17 +35844,14 @@ function payAppDecorate() {
   (pa.innerHTML = payAppHtml(c, d, editable)),
     totals.after(pa.firstChild),
     $("#pa-dep")?.addEventListener("change", (e) => {
-      (d.depositApplied = Math.max(0, +e.target.value || 0)), save(), render();
+      (d.depositApplied = Math.max(0, +e.target.value || 0)), (d.depositByHand = !0), save(), render();
     });
 }
 (docActions = function (c, d, st) {
   let h = docActionsBase5(c, d, st);
-  if ("estimate" === d.type && "construction" === d.template && "converted" === d.status) {
+  if ("estimate" === d.type && "converted" === d.status) {
     const bal = depositBalance(c, d.id);
-    (h = h.replace(/<button class="btn sm primary" data-docact="deposit">[^<]*<\/button>/, (m) =>
-      c.invoices.some((i) => i.depositOf === d.id && "void" !== i.status) ? "" : m,
-    )),
-      bal && (h += `<span class="pill info">Deposit on account ${money(bal)}</span>`);
+    bal && (h += `<span class="pill info">Deposit on account ${money(bal)}</span>`);
   }
   return h;
 }),
@@ -40101,7 +40085,7 @@ function progressPicker(c) {
   docs.length
     ? mbModal(
         "New progress invoice — bill off which document?",
-        `<p class="small muted">Only that document's lines appear on the invoice. Each line gets its own % this period; the first invoice on a contract is simply the first progress bill.</p>${docs.map((o, i) => `<label style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start;cursor:pointer"><input type="radio" name="pp-doc" value="${i}" ${0 === i ? "checked" : ""} style="margin-top:3px;width:16px;height:16px;flex:0 0 auto"><span style="flex:1;min-width:0"><b>${esc(o.doc.number)}</b> · ${esc(o.doc.title || "")}<div class="small muted">${"co" === o.kind ? "Change order" : "Estimate"} · ${o.lines} line${1 === o.lines ? "" : "s"} · ${money(o.sched)} scheduled · ${o.pct}% billed to date${o.billed ? ` (${money(o.billed)})` : ""}</div></span></label>`).join("")}`,
+        `<p class="small muted">Only that document's lines appear on the invoice. Each line gets its own % this period. The deposit is its own invoice; each application takes its share of it off what is due.</p>${docs.map((o, i) => `<label style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start;cursor:pointer"><input type="radio" name="pp-doc" value="${i}" ${0 === i ? "checked" : ""} style="margin-top:3px;width:16px;height:16px;flex:0 0 auto"><span style="flex:1;min-width:0"><b>${esc(o.doc.number)}</b> · ${esc(o.doc.title || "")}<div class="small muted">${"co" === o.kind ? "Change order" : "Estimate"} · ${o.lines} line${1 === o.lines ? "" : "s"} · ${money(o.sched)} scheduled · ${o.pct}% billed to date${o.billed ? ` (${money(o.billed)})` : ""}</div></span></label>`).join("")}`,
         {
           submit: "Start progress invoice",
           onSubmit: () => {
@@ -40142,28 +40126,25 @@ function progressPicker(c) {
   );
 const docActionsBase_b3 = docActions;
 docActions = function (c, d, st) {
+  // (2026-10-26) This wrapper used to strip Create Deposit Invoice and refuse the action ("Deposits are billed as the
+  // first progress invoice"), so billing typed the deposit as a % on every SOV line: the deposit read as work done
+  // and 121 State billed ahead. The deposit is its own invoice again (decision 5, ctDepositInvoice).
   let h = docActionsBase_b3(c, d, st);
   return (
-    (h = h.replace(/<button class="btn sm[^"]*" data-docact="deposit">[^<]*<\/button>/g, "")),
     "co" === d.type &&
       ["approved", "billed"].includes(d.status) &&
       sovLinesFor(c, d).length &&
       (h = h.replace(
         /<span class="small muted">In SOV — bill it on the next progress invoice\.<\/span>/,
-        '<button class="btn sm primary" data-docact="progress">New progress invoice</button>',
+        '<button class="btn sm primary" data-docact="progress">New Progress Invoice</button>',
       )),
     "estimate" === d.type &&
       ["converted", "billed"].includes(d.status) &&
       sovLinesFor(c, d).length &&
       !/data-docact="progress"/.test(h) &&
-      (h = '<button class="btn sm primary" data-docact="progress">New progress invoice</button>' + h),
+      (h = `<button class="btn sm${/class="btn sm primary"/.test(h) ? "" : " primary"}" data-docact="progress">New Progress Invoice</button>` + h),
     h
   );
-};
-const docActionBase_b3 = docAction;
-docAction = async function (c, d, a) {
-  if ("deposit" !== a) return docActionBase_b3(c, d, a);
-  toast("Deposits are billed as the first progress invoice — set a % on each line");
 };
 const renderDocEditorBase_b3 = renderDocEditor;
 renderDocEditor = function (c, d) {
@@ -40179,7 +40160,6 @@ renderDocEditor = function (c, d) {
   }
   return h;
 };
-const analystFindingsBase_b3 = analystFindings;
 function billFromMigrate() {
   DB.__b3 ||
     (DB.clients.forEach((c) =>
@@ -40201,9 +40181,6 @@ function billFromMigrate() {
     ),
     (DB.__b3 = 1));
 }
-analystFindings = function () {
-  return analystFindingsBase_b3().filter((f) => !/no deposit invoiced/i.test(f.title || ""));
-};
 const basis = () => DB.company.basis || "accrual";
 function basisToggleHtml() {
   return `<div class="seg sm" id="basis-seg" title="Accrual: earned and incurred · Cash: collected and paid"><button class="${"accrual" === basis() ? "on" : ""}" data-basis="accrual">Accrual</button><button class="${"cash" === basis() ? "on" : ""}" data-basis="cash">Cash</button></div>`;
@@ -50832,56 +50809,84 @@ function ctItemsModal(c, d, l, editable) {
     };
   wire();
 }
+// ---- The deposit (decision 5, adopted 2026-10-26 as a reversible default while it waits on Alan) --------------------
+// The signed contract's deposit is its own invoice: the % comes from the contract (the estimate's terms, 25% by
+// default), one line, no retainage, due on receipt, and it is in Billing's queue (Ready to Bill) from the hour the
+// contract is signed, to be invoiced inside the Standard's 2 business days. Each progress application credits it pro
+// rata (depositRefresh); it is never billed as a % complete on the schedule of values, which booked it as work done.
+function ctDepositPct(c, d) {
+  const v = d && d.depositPct;
+  return "" === v || null == v || !isFinite(+v) ? 25 : Math.max(0, Math.min(100, +v));
+}
+function ctDepositSigned(c, d) {
+  return String((d && (d.approvedOn || (d.clientAnswer && d.clientAnswer.yes && d.clientAnswer.on) || (d.clientApproval && String(d.clientApproval.ts || "").slice(0, 10)))) || (c && c.contractDate) || (d && d.date) || today()).slice(0, 10);
+}
+// What is owed as the deposit on a converted estimate, or null: none is owed once a deposit invoice exists (not void),
+// once the contract says 0%, or when billing on the job began without one (a progress invoice already sent, or an
+// old invoice titled as the deposit), so a deposit is never proposed after the fact.
+function ctDepositDue(c, d) {
+  if (!c || !d || "estimate" !== d.type || "converted" !== d.status) return null;
+  if (d.template && "construction" !== d.template) return null;
+  const pct = ctDepositPct(c, d);
+  if (!(pct > 0)) return null;
+  const live = (c.invoices || []).filter((i) => "void" !== i.status);
+  if (live.some((i) => i.depositOf === d.id && "sov" !== i.mode)) return null;
+  if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || /deposit/i.test(i.title || "")))) return null;
+  const net = docNet(d),
+    amount = r2((net * pct) / 100);
+  if (!(amount > 0)) return null;
+  const signed = ctDepositSigned(c, d),
+    by = addWork(signed, 2);
+  return { pct: pct, net: net, amount: amount, signed: signed, by: by, late: today() > by };
+}
 function ctDepositInvoice(c, d) {
-  const rows = c.sov
-      .filter((v) => "Contract" === v.source)
-      .map((v) => ({ sv: v, prev: sovBilled(c, v.id), pct: +DB.company.depositPct || 30 })),
-    body = () =>
-      `<div class="row" style="gap:10px;align-items:center;margin-bottom:8px"><label class="small">Deposit <input id="ctd-all" type="number" min="0" max="100" step="1" value="${rows[0]?.pct ?? 30}" style="width:64px;display:inline-block;height:30px"> % of every line</label><span class="small muted">— adjust any line below</span><span class="grow"></span><b>Deposit total ${money(rows.reduce((a, r) => a + ((+r.sv.scheduled || 0) * Math.min(r.pct, 100 - r.prev)) / 100, 0))}</b></div><div class="tw" style="max-height:50vh;overflow:auto"><table class="t"><thead><tr><th>Line</th><th class="money">Value</th><th style="width:70px">Billed</th><th style="width:80px">Deposit %</th><th class="money">Amount</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${esc(r.sv.desc)}</td><td class="money">${money(r.sv.scheduled)}</td><td class="dim">${r.prev ? r2(r.prev) + "%" : "—"}</td><td><input data-ctd="${i}" type="number" min="0" max="${100 - r.prev}" step="1" value="${Math.min(r.pct, 100 - r.prev)}" style="width:100%;height:28px"></td><td class="money">${money(((+r.sv.scheduled || 0) * Math.min(r.pct, 100 - r.prev)) / 100)}</td></tr>`).join("")}</tbody></table></div>`,
-    m = mbModal("Deposit invoice", body(), {
-      submit: "Create deposit invoice",
+  const D = ctDepositDue(c, d);
+  if (!D) {
+    const had = (c.invoices || []).find((i) => i.depositOf === d.id && "sov" !== i.mode && "void" !== i.status);
+    return void toast(had ? `The deposit is on ${had.number} already` : `No deposit is owed on ${d.number}`, had ? () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: had.id }), render()) : void 0);
+  }
+  const amt = (pct) => r2((D.net * (+pct || 0)) / 100);
+  mbModal(
+    `Deposit Invoice — ${esc(d.number)}`,
+    `<p class="small muted" style="margin:0 0 8px">Signed ${esc(fmtL(D.signed))}. The deposit is money on account: one line, no retainage, due on receipt. Each progress application takes its share of it off what is due, so the schedule of values only ever shows work done.</p><div class="f2"><label class="f"><span>Deposit %</span><input id="dep-pct" data-f="pct" type="number" min="0" max="100" step="1" value="${D.pct}" inputmode="decimal"></label><label class="f"><span>Amount</span><input id="dep-amt" type="number" step="0.01" value="${D.amount}" readonly></label></div><div class="small muted">${D.pct}% from the contract (${esc(d.number)}, ${money(D.net)}) · invoice by ${esc(fmtL(D.by))}, 2 business days after signing.</div>`,
+    {
+      submit: "Create Deposit Invoice",
       onSubmit: () => {
-        const inv = newDoc(c, "invoice", { mode: "sov" });
+        const pct = Math.max(0, Math.min(100, +$("#dep-pct").value || 0)),
+          a = amt(pct);
+        if (!(a > 0)) return toast("Enter the deposit %"), !1;
+        const inv = newDoc(c, "invoice", { mode: "items" });
         (inv.template = "construction"),
+          (inv.projectId = d.projectId || inv.projectId || ""),
           (inv.depositOf = d.id),
-          (inv.title = "Construction deposit"),
-          (inv.terms = "Due at signing"),
+          (inv.title = `Deposit — ${pct}% of the contract`),
+          (inv.terms = "Due on receipt"),
+          (inv.due = inv.date),
           (inv.retainagePct = 0),
-          (inv.lines = inv.lines
-            .map((li) => {
-              const r = rows.find((x) => x.sv.id === li.sovId),
-                pct = r ? Math.min(r.pct, 100 - (+li.prevPct || 0)) : 0;
-              return Object.assign(li, { pct: pct, desc: pct ? `Deposit — ${pct}% of line` : "" });
-            })
-            .filter((li) => li.pct > 0)),
+          (inv.lines = [
+            {
+              id: uid("l"),
+              item: "Deposit on the contract",
+              desc: `${pct}% of ${d.number} (${money(D.net)}), held on account and taken off each progress application`,
+              qty: 1,
+              unit: "ls",
+              rate: a,
+              taxable: !1,
+            },
+          ]),
           docMark(inv),
-          c.activity.push({
-            t: nowStamp(),
-            by: S.project.userName || "",
-            text: `${inv.number} deposit invoice created from ${d.number} — ${money(docTotal(inv).total)}`,
-          }),
-          (docOpen = { kind: "invoice", id: inv.id }),
-          (finTab = "invoices"),
-          save(),
-          render(),
-          toast(`${inv.number} — deposit ${money(docTotal(inv).total)}`);
+          (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || role(), text: `${inv.number} deposit — ${money(a)} (${pct}% of ${d.number})` });
+        try {
+          audit("invoice", inv.id, "deposit-drafted", "", String(a), `${pct}% of ${d.number}`);
+        } catch (e) {}
+        (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), (finTab = "invoices"), save(), render();
+        const go = () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render());
+        "function" == typeof rcToast ? rcToast(`${inv.number} drafted: the ${pct}% deposit, ${money(a)}. Review it, then Send to Client`, [{ label: "Open", run: go }]) : toast(`${inv.number} drafted — deposit ${money(a)}`, go);
       },
-    }),
-    wire = () => {
-      m.querySelector("#ctd-all").addEventListener("change", (e) => {
-        const v = Math.max(0, Math.min(100, +e.target.value || 0));
-        rows.forEach((r) => (r.pct = v)), refresh();
-      }),
-        m.querySelectorAll("[data-ctd]").forEach((i) =>
-          i.addEventListener("change", () => {
-            (rows[+i.dataset.ctd].pct = Math.max(0, +i.value || 0)), refresh();
-          }),
-        );
     },
-    refresh = () => {
-      (m.querySelector(".mbm-bd").innerHTML = body()), wire();
-    };
-  return wire(), (m.querySelector(".mbm-box").style.maxWidth = "760px"), null;
+  );
+  const p = $("#dep-pct");
+  p && p.addEventListener("input", () => ($("#dep-amt").value = amt(p.value)));
 }
 function ctProgressInvoice(c, d) {
   const inv = newDoc(c, "invoice", { mode: "sov" });
@@ -142602,6 +142607,8 @@ function readyToBill() {
           amount: +s.amount || 0,
           title: s.title,
           act: s.act,
+          due: s.due || "",
+          late: !!s.late,
         }));
       } catch (e) {
         rows = [];
@@ -146498,7 +146505,9 @@ function billingRows() {
           why:
             "application" === r.kind
               ? "every line billed on its own evidence"
-              : "earned or at a milestone, not yet on an invoice",
+              : "deposit" === r.kind
+                ? `the signed contract's deposit, due on receipt: ${r.late ? `past the 2 business days (by ${fmt(r.due)})` : `inside the 2 business days`}`
+                : "earned or at a milestone, not yet on an invoice",
           needs: !0,
         });
       }),
