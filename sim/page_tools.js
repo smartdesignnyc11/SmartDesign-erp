@@ -8,8 +8,13 @@
 if (window.__SIM) return 'ok';
 const S = window.__SIM = { ctl: [], sig: [], toasts: [], errs: [], lastScreen: '' };
 const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+// inside a closed <details> a control still has boxes (Chrome lays the hidden part out with content-visibility), but the eye
+// does not see it until the summary is tapped: the phone change order's header (Schedule Impact) and More's menu read as
+// there, and a type into them timed out (cycle walk J3 on the phone, 10-26)
+const folded = el => { const d = el.parentElement && el.parentElement.closest('details:not([open])'); if (!d) return false;
+  const s = d.querySelector(':scope > summary'); return !(s && (s === el || s.contains(el))); };
 const vis = el => { if (!el || !el.isConnected || !el.getClientRects().length) return false;
-  const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity !== 0; };
+  const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity !== 0 && !folded(el); };
 // the app's own timers would run a watcher or the brain at a wall-clock moment; the world runs them instead
 try { clearInterval(bnTimer); bnTimer = 1; } catch (e) {}
 try { clearInterval(gsTimerId); } catch (e) {}
@@ -122,6 +127,7 @@ const walk =(node, out) => {
   if (node.nodeType !== 1) return;
   const el = node, tg = el.tagName;
   if (tg === 'SCRIPT' || tg === 'STYLE' || tg === 'NOSCRIPT' || tg === 'TEMPLATE' || tg === 'svg' || tg === 'SVG') return;
+  if (folded(el)) return;   // the closed part of a <details>: not on the screen until its summary is tapped
   const cs = getComputedStyle(el);
   if (cs.display === 'none') return;
   if (cs.display !== 'contents' && !el.getClientRects().length && tg !== 'OPTION') return;

@@ -776,14 +776,19 @@ class Cycle:
         """J10.1: every bank and card line of the week (9/3 to 9/8) matched to its record or category; none typed in"""
         W = [t for t in self.db.get('txns') or [] if '2026-09-03' <= str(t.get('date') or '') <= '2026-09-08']
         lines = [t for t in W if (t.get('prov') or {}).get('kind') == 'statement']
-        typed = [t for t in W if (t.get('prov') or {}).get('kind') == 'manual' and not t.get('seed') and not (t.get('prov') or {}).get('confirmedBy')]
+        manual = [t for t in W if (t.get('prov') or {}).get('kind') == 'manual' and not t.get('seed') and not (t.get('prov') or {}).get('confirmedBy')]
+        # typed this week by the people at work: when the run knows the company it started from (the screen walk keeps the
+        # seed's line ids), the seed's own typed lines are context, not this week's typing
+        seed = set(self.w.get('seed_txns') or [])
+        typed = [t for t in manual if t.get('id') not in seed]
         linked = lambda t: t.get('billId') or t.get('invoiceId') or t.get('paymentId') or t.get('payrollId') or t.get('poId') or (t.get('match') or {}).get('invoiceId')
         open_ = [t for t in lines if not (linked(t) or (t.get('status') in ('categorized', 'reconciled', 'matched') and t.get('cat') not in (None, '', 'uncat')))]
         if not lines: return 'not done', 'no statement lines this week', {}
         bad = []
         if open_: bad.append(f"{len(open_)} of {len(lines)} lines unmatched: " + ', '.join(f"{t['desc'][:22]} {num(t['amt']):,.2f}" for t in open_[:5]))
-        if typed: bad.append(f"{len(typed)} typed in: " + ', '.join(t['desc'][:22] for t in typed[:3]))
-        return ('wrong' if bad else 'right', '; '.join(bad) or f'{len(lines)} lines matched', {})
+        if typed: bad.append(f"{len(typed)} typed in with no bank line behind them: " + ', '.join(t['desc'][:22] for t in typed[:3]))
+        ctx = f" ({len(manual) - len(typed)} typed lines of the week came with the seed, still with no bank line)" if len(manual) > len(typed) else ''
+        return ('wrong' if bad else 'right', ('; '.join(bad) or f'{len(lines)} lines matched') + ctx, {})
 
     def s_C54(self): return self.answers_step('u_controller')
 

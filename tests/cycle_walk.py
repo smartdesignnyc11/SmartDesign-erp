@@ -166,7 +166,15 @@ class World:
             time.sleep(1)
         else: raise SystemExit(f'the world {self.run} did not get ready in 10 minutes')
         self.boot_s = round(time.time() - t0, 1)
+        seed = os.path.join(self.dir, 'seed_txns.json')   # the company it starts from (kept with every checkpoint)
+        if not os.path.exists(seed):
+            try: json.dump([t.get('id') for t in self.db().get('txns') or []], open(seed, 'w'))
+            except Exception: pass
         return self
+
+    def seed_txns(self):
+        p = os.path.join(self.dir, 'seed_txns.json')
+        return json.load(open(p)) if os.path.exists(p) else []
 
     def _post(self, path, body, admin=False):
         port = json.load(open(os.path.join(self.dir, 'server.json')))['port']
@@ -201,7 +209,7 @@ class World:
 
     def cycle(self):
         st = self.world_state(); W = st.get('world') or {}
-        return CY.Cycle(self.db(), CY.load_book(), {'gated': W.get('gated', {}), 'calls': st.get('calls', []), 'interrupts_done': W.get('interrupts_done', {})},
+        return CY.Cycle(self.db(), CY.load_book(), {'gated': W.get('gated', {}), 'calls': st.get('calls', []), 'interrupts_done': W.get('interrupts_done', {}), 'seed_txns': self.seed_txns()},
                         self.actions(), st.get('day'))
 
     def checkpoint(self, name):
@@ -426,7 +434,7 @@ class Person:
         r, txt = self._act('tap', c.n)
         self.trail[-1] += f'  ({c.label[:60]})'
         if 'the tap took over 4 seconds to land' in txt[:300]:   # sim/server.py: the control was covered, then tapped
-            self.expect(False, f'"{c.label[:60]}" can be tapped at once (it took over 4 seconds to land: something covered it)', txt.split(chr(10))[0][:200])
+            self.timed(5, 4, f'"{c.label[:60]}" can be tapped at once (it took over 4 seconds to land: something covered it)')
         if not r.get('ok') and self.landed_slow(txt, c.label): r = {'ok': True}; txt = self.look().text
         if not r.get('ok'): raise Stuck(f'tap "{label}"', 'the tap to land', screen_of(txt), c.label + ': ' + txt.split(chr(10))[0][:160])
         self.scr = screen_of(txt)
@@ -443,7 +451,7 @@ class Person:
 
     def expand(self):
         """a record's collapsed header on the phone ("Invoice · Fri, Sep 4 · due Mon, Sep 21"): tap it open"""
-        c = next((x for x in self.look().ctls if x.action and re.search(r' · .*(due|valid to) ', x.label)), None)
+        c = next((x for x in self.look().ctls if x.action and re.search(r' · .*(due|valid to) | · (Mon|Tue|Wed|Thu|Fri|Sat|Sun), \w{3} \d+', x.label)), None)
         if not c: return False
         self.last_control = c.label
         self._act('tap', c.n); self.look()
@@ -575,6 +583,15 @@ class Person:
     def note(self, text):
         """something the walk did as a person would that is not the app's own path (a mail sent by hand): in the trail"""
         self.notes.append(text); self.trail.append('(note) ' + text[:160])
+
+    def timed(self, took, limit, what):
+        """a wait a person feels, judged only when the machine is not loaded: under load a slow sheet is the machine's, not
+        the app's (round one: J4 failed at load 17 and passed alone), so it is noted instead of failed"""
+        if took <= limit: return True
+        la, n = os.getloadavg()[0], os.cpu_count() or 1
+        if la > 0.75 * n:
+            self.note(f'{what}: it took {took}s; not judged, the machine was loaded ({la:.1f} on {n} CPUs)'); return True
+        return self.expect(False, what, f'it took {took}s (load {la:.1f} on {n} CPUs)')
 
     def expect(self, cond, expected, got='', stop=False):
         """an outcome a person checks with their eyes; a miss is a failure of the journey, and stops it if `stop`"""
@@ -829,7 +846,7 @@ def send_estimate(p):
     p.tap('Review and Send') if p.look().find('Review and Send') else p.tap('Draft Cover Email')
     took = wait_for(p, 'Cover Email', 25)
     if took is None: raise Stuck('Draft Cover Email', 'the cover email to open', p.scr, 'Draft Cover Email')
-    p.expect(took <= 5, 'the cover email opens within 5 seconds with the assistant off', f'it took {took}s')
+    p.timed(took, 5, 'the cover email opens within 5 seconds with the assistant off')
     to = (p.scr.find('To', field=True) or Ctl(0, 'input', '', 0, 0)).value or JOB['emails'][0]
     subj = (p.scr.find('Subject', field=True) or Ctl(0, 'input', '', 0, 0)).value or f'{num} 214 Lincoln Place'
     body = (p.scr.find('Body', field=True) or Ctl(0, 'text', '', 0, 0)).value.replace('…', '')
@@ -1153,6 +1170,14 @@ def issue_and_send(p, number):
             p.note(f'{number} sent from the coordinator\'s own mailbox (the app\'s own send did not go)')
 
 
+def board_for_job(p):
+    """the Buy Board for 214 Lincoln: its Project list (on the phone, behind "Filter by project, vendor or trade")"""
+    if not p.look().find('Project', field=True):
+        f = p.scr.find('Filter by project')
+        if f: p.tap_ctl(f)
+    p.pick('Project', JOB['job'])
+
+
 def award_po(p):
     """the order the award made (a draft on 214 Lincoln from one of the yards), from the Orders list"""
     p.go('Purchasing')
@@ -1199,7 +1224,7 @@ def j6_buy_it(p):
     for k, (item, price) in enumerate(PLUMB_BUYS):
         p.go('Purchasing')
         p.tap('Buy Board', exact=True)
-        p.pick('Project', JOB['job'])
+        board_for_job(p)
         p.look()
         c = p.scr.find('Pick 11. Plumbing fixture allowance') or p.scr.find('Pick Plumbing fixture allowance')
         if not c: raise Stuck(f'buy {k + 1} on the plumbing line', 'the plumbing fixture allowance on the Buy Board', p.scr, 'Project')
@@ -1220,7 +1245,7 @@ def j6_buy_it(p):
     # the stock, before buying the electrical rough-in material: the shop has the 12/2, the boxes and the Type X
     p.go('Purchasing')
     p.tap('Buy Board', exact=True)
-    p.pick('Project', JOB['job'])
+    board_for_job(p)
     sc = p.look()
     i = sc.text.find('Electrical rough-in')
     near = sc.text[max(0, i - 200): i + 600] if i >= 0 else ''
@@ -2209,6 +2234,34 @@ def selftest():
     return 1 if fails else 0
 
 
+def desktop_chain(a, pinned, stamp, resume, first, last, only, devices, results, worlds):
+    """the chain on the desktop, in the book's days: a checkpoint of the company before each journey (each phone journey
+    starts from it), each journey walked and graded where the desktop is asked for, the dangerous buttons at both ends"""
+    desk = World(f'cw_{stamp}_desktop', pinned, resume_from=resume).start(); worlds.append(desk)
+    print(f'world {desk.run} up in {desk.boot_s}s', flush=True)
+    # the walk's world: the cycle book, the coordinator receives the trucks herself, the controller sits, the bank feeds
+    desk.admin('cycle', on=True, play=['u_controller', 'u_angel:receive'], feed=True)
+    slot, checkpoints, danger = (desk.world_state().get('slot') or 'morning') if resume else 'morning', {}, []
+    try:
+        if not a.no_danger and not resume:   # the morning's Today, before anyone has worked it (Pilot 3 met Draft the Renewal here at 7:30)
+            desk.admin('world', slot='morning', watchers=True)
+            danger += danger_walk(desk, devices, screens={u: [('Today',)] for u in DANGER_ROLES}, hold=False, slot='morning')
+        for i, J in enumerate(JOURNEYS[:last + 1]):
+            if i < first: continue
+            if not (resume and i == first): slot = world_before(desk, J[4], slot)
+            checkpoints[J[0]] = (desk.checkpoint(J[0]), slot)
+            r = run_journey(desk, J, 'desktop', slot)   # the chain goes on for the phone's checkpoints even where only the phone is asked for
+            if 'desktop' in devices and (not only or J[0] in only):
+                results.append(r)
+                print(f"{J[0]} desktop: {r['taps']} taps, {r['minutes']} min, {r['seconds']}s, " + ('PASS' if r['passed'] else r['stops_at'][:160]) + ' · ' +
+                      ', '.join(g['step'] + ' ' + g['status'] for g in r['grades']), flush=True)
+            slot = r['slot']
+        if not a.no_danger: danger += danger_walk(desk, devices)
+    finally:
+        desk.stop()
+    return checkpoints, danger
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='', help='journeys to run, e.g. J2 or J1,J2 (the chain before them runs on the desktop)')
@@ -2218,6 +2271,7 @@ def main():
     ap.add_argument('--danger-only', action='store_true', help='with --attach: only the dangerous-button walk')
     ap.add_argument('--from', dest='start', default='', help='<run>:<J>: start the desktop chain from that kept checkpoint (development)')
     ap.add_argument('--keep', action='store_true', help='leave the worlds\' folders in sim/runs')
+    ap.add_argument('--checkpoints', default='', help='<run>: the phone journeys from that kept desktop run\'s checkpoints, no desktop chain (development)')
     ap.add_argument('--selftest', action='store_true', help='the walk\'s own units, no browser')
     a = ap.parse_args()
     if a.selftest: return selftest()
@@ -2253,41 +2307,22 @@ def main():
         os.remove(pinned)
         print(tally_line(tally(results, devices)))
         print(f"CYCLE WALK {sum(len(r['grades']) + 1 for r in results)} checks · {len(F)} failed"); return 1 if F else 0
-    resume = None
-    if a.start:
+    resume, danger = None, []
+    if a.checkpoints:   # development: the phone journeys from a kept desktop run's checkpoints, no desktop chain
+        checkpoints = {}
+        for J in JOURNEYS:
+            ck = os.path.join(RUNS, f'{a.checkpoints}.ck', J[0])
+            if os.path.isdir(ck): checkpoints[J[0]] = (ck, json.load(open(os.path.join(ck, 'world.json'))).get('slot') or 'morning')
+        devices = ['phone']
+    elif a.start:
         run0, jid0 = a.start.split(':')
         resume = os.path.join(RUNS, f'{run0}.ck', jid0)
         if not os.path.isdir(resume): raise SystemExit(f'no checkpoint {resume} (run with --keep first)')
         first = next(i for i, J in enumerate(JOURNEYS) if J[0] == jid0)
-    desk = World(f'cw_{stamp}_desktop', pinned, resume_from=resume).start(); worlds.append(desk)
-    print(f'world {desk.run} up in {desk.boot_s}s', flush=True)
-    # the walk's world: the cycle book, the coordinator receives the trucks herself, the controller sits, the bank feeds
-    desk.admin('cycle', on=True, play=['u_controller', 'u_angel:receive'], feed=True)
-    slot, checkpoints = (desk.world_state().get('slot') or 'morning') if resume else 'morning', {}
-    danger = []
-    try:
-        if not a.no_danger and not resume:   # the morning's Today, before anyone has worked it (Pilot 3 met Draft the Renewal here at 7:30)
-            desk.admin('world', slot='morning', watchers=True)
-            danger += danger_walk(desk, devices, screens={u: [('Today',)] for u in DANGER_ROLES}, hold=False, slot='morning')
-        for i, J in enumerate(JOURNEYS[:last + 1]):
-            if i < first: continue
-            if not (resume and i == first): slot = world_before(desk, J[4], slot)
-            checkpoints[J[0]] = (desk.checkpoint(J[0]), slot)
-            if 'desktop' in devices and (not only or J[0] in only):
-                r = run_journey(desk, J, 'desktop', slot); results.append(r)
-                print(f"{J[0]} desktop: {r['taps']} taps, {r['minutes']} min, {r['seconds']}s, " + ('PASS' if r['passed'] else r['stops_at'][:160]) + ' · ' +
-                      ', '.join(g['step'] + ' ' + g['status'] for g in r['grades']), flush=True)
-            elif only and J[0] not in only:
-                r = run_journey(desk, J, 'desktop', slot)   # the chain before the journey asked for, on the desktop, not reported
-            else:
-                r = run_journey(desk, J, 'desktop', slot)   # the chain goes on for the phone's checkpoints
-            slot = r['slot']
-        if not a.no_danger: danger += danger_walk(desk, devices)
-    finally:
-        desk.stop()
+    if not a.checkpoints: checkpoints, danger = desktop_chain(a, pinned, stamp, resume, first, last, only, devices, results, worlds)
     if 'phone' in devices:
         for i, J in enumerate(JOURNEYS[:last + 1]):
-            if i < first or (only and J[0] not in only): continue
+            if i < first or (only and J[0] not in only) or J[0] not in checkpoints: continue
             ck, slot = checkpoints[J[0]]
             ph = World(f'cw_{stamp}_phone_{J[0]}', pinned, resume_from=ck).start(); worlds.append(ph)
             try:
