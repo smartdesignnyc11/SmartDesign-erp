@@ -84,6 +84,7 @@ async def desktop(c, p):
     c.ok(n[0] == n[1] and n[2] == t[0] and n[3] and all(x == t[0] for x in n[3]), f'JOB: convert uses the job at the address, no second job, the SOV on it: {n}')
     await two_jobs(c, pg)
     await job_rules(c, pg)
+    await job_tasks(c, pg)
     await replay(c, pg)
     c.ok(not errs, f'page errors {errs[:2]}')
     await b.close()
@@ -223,8 +224,91 @@ async def job_rules(c, pg):
     await pg.evaluate("([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); return Promise.resolve(docAction(c, c.estimates.find(e => e.id === eid), 'approve')); }", [cid, eid])
     await pg.wait_for_timeout(300)
     a = await info(cid, eid)
-    task = await pg.evaluate("([cid, eid]) => (DB.projects || []).some(p => (p.actions || []).some(x => x.source && x.source.chooseJob === eid))", [cid, eid])
+    # the PM's task is an office task on the estimate (third review, 10-26: it was a to-do on another client's job)
+    task = await pg.evaluate("([cid, eid]) => (DB.tasks || []).some(t => t.link && t.link.kind === 'estimate' && t.link.id === eid)", [cid, eid])
     c.ok(a == {'status': 'approved', 'pid': '', 'n': n0} and task, f'JOB3: an approval with no settled job opens no job and asks the PM to choose: {a}, task {task}')
+
+
+async def job_tasks(c, pg):
+    """JOB4 (chief of staff, third review): the PM's "choose the job" task is an office task on the estimate, owned by
+    the client's PM, on his Today, opening the estimate and closed by the convert; a brand-new client's portal signature
+    converts and opens the job named and addressed from the estimate, with a "review the new job" task, even when the
+    firm has no jobs; Cancel leaves nothing behind; the log says "their only job" when that is why."""
+    mk = """([cname, prop, jobs]) => { const c = blankClient(cname); c.propertyAddr = prop; DB.clients.push(c);
+        const J = jobs.map(([n, a]) => { const p = blankProject(n, a, today(), ''); p.clientId = c.id; DB.projects.push(p); return p.id; });
+        return [c.id, J]; }"""
+    est = """([cid, title, st, site]) => { const c = DB.clients.find(x => x.id === cid);
+        const e = newDoc(c, 'estimate', {template: 'construction', fields: {title: title, projectId: '', siteAddr: site || ''}});
+        e.status = st; e.lines = [{id: uid('l'), item: 'Demo', qty: 1, unit: 'ls', rate: 1000, cost: 600}]; return e.id; }"""
+    portal = "([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); return Promise.resolve(docAction(c, c.estimates.find(e => e.id === eid), 'approve')); }"
+    info = """([cid, eid]) => { const c = DB.clients.find(x => x.id === cid); const d = c.estimates.find(e => e.id === eid);
+        const T = (DB.tasks || []).filter(t => t.link && t.link.kind === 'estimate' && t.link.id === eid);
+        const A = (DB.projects || []).flatMap(p => (p.actions || []).filter(a => a.source && a.source.chooseJob === eid));
+        const p = (DB.projects || []).find(x => x.id === d.projectId);
+        return {status: d.status, pid: d.projectId || '', n: DB.projects.length, tasks: T.map(t => [t.title, t.assignee, t.status]), onJobs: A.length,
+          job: p ? [p.project.name, p.project.addr] : null, log: (c.activity || []).map(a => a.text).join(' | ')}; }"""
+    # (1) two jobs, the portal signs an estimate naming no address: an office task for the PM, on the estimate
+    cid, J = await pg.evaluate(mk, ['Wynn Halloran', '', [['214 Lincoln Place', '214 Lincoln Place'], ['88 Pierrepont St', '88 Pierrepont St']]])
+    eid = await pg.evaluate(est, [cid, 'Kitchen proposal', 'sent', ''])
+    await pg.evaluate(portal, [cid, eid]); await pg.wait_for_timeout(200)
+    a = await pg.evaluate(info, [cid, eid])
+    c.ok(a['status'] == 'approved' and a['onJobs'] == 0 and len(a['tasks']) == 1 and a['tasks'][0][1] == 'Alan' and a['tasks'][0][2] != 'done',
+         f"JOB4: the choose-the-job task is the office's, on the estimate, owned by the PM, on no job: {a['tasks']} on jobs {a['onJobs']}")
+    # as the PM: on his Today, and Open lands on the estimate
+    await sign_in(pg, 'u_alan')
+    t = await pg.evaluate("""([eid]) => { const T = (DB.tasks || []).find(t => t.link && t.link.kind === 'estimate' && t.link.id === eid); if (!T) return null;
+        const x = tkItems().find(r => r.kind === 'firm' && r.id === T.id); if (!x) return ['not in tkItems'];
+        view = 'home'; render(); const onToday = (document.querySelector('section.view.on') || {}).innerText.includes(T.title.slice(0, 30));
+        tdyOpenSource(tdyShape(x)); return [x.owner, onToday, view, docOpen && docOpen.id]; }""", [eid])
+    # (the PM's estimate opens where his menu keeps estimates: Billing's list, the same document)
+    c.ok(t and t[0] == 'Alan' and t[1] and t[2] in ('clients', 'billing') and t[3] == eid, f"JOB4: on the PM's Today, Open lands on the estimate: {t}")
+    await sign_in(pg, 'u_owner')
+    # it clears when the estimate converts (the job chosen on Which Job)
+    await pg.evaluate("([cid, eid]) => { clientOpen = cid; clientTab = 'fin'; finTab = 'estimates'; docOpen = {kind: 'estimate', id: eid}; view = 'clients'; render(); }", [cid, eid])
+    await pg.wait_for_timeout(300)
+    await pg.locator(f'#doc-{eid} [data-docact="convert"]').first.click(); await pg.wait_for_timeout(300)
+    await pg.locator('#mbm [data-f="job"]').select_option(J[0]); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(400)
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(800)
+    a = await pg.evaluate(info, [cid, eid])
+    c.ok(a['status'] == 'converted' and a['pid'] == J[0] and a['tasks'] and a['tasks'][0][2] == 'done', f"JOB4: the task closes when the estimate converts: {a['status']} {a['tasks']}")
+
+    # (2) a brand-new client signs in the portal while the firm has no jobs: converts, the job is named and addressed
+    # from the estimate (88 Pierrepont, not the property's 214 Lincoln), a review-the-new-job task for the PM
+    r = await pg.evaluate("""() => { window.__keepP = DB.projects; DB.projects = []; return 1; }""")
+    cid, _ = await pg.evaluate(mk, ['Lena Orsolya', '214 Lincoln Place, Brooklyn', []])
+    eid = await pg.evaluate(est, [cid, 'Basement for the Orsolyas — proposal', 'sent', '88 Pierrepont St'])
+    await pg.evaluate(portal, [cid, eid]); await pg.wait_for_timeout(300)
+    a = await pg.evaluate(info, [cid, eid])
+    rv = await pg.evaluate("([cid]) => (DB.tasks || []).filter(t => t.link && t.link.kind === 'project' && (DB.projects || []).some(p => p.id === t.link.id && p.clientId === cid)).map(t => [t.title, t.assignee])", [cid])
+    await pg.evaluate("() => { DB.projects = window.__keepP.concat(DB.projects); return 1; }")
+    c.ok(a['status'] == 'converted' and a['job'] and a['job'][0] == '88 Pierrepont St', f"JOB4: a new client's portal signature converts on a job named from the estimate: {a['status']} {a['job']}")
+    c.ok(a['job'] and str(a['job'][1]).startswith('88 Pierrepont'), f"JOB4: the new job's address is the estimate's, as its name: {a['job']}")
+    c.ok(len(rv) == 1 and rv[0][1] == 'Alan', f'JOB4: the PM gets a review-the-new-job task, even with no jobs in the firm: {rv}')
+
+    # (3) Cancel leaves nothing: Which Job then Cancel; A New Job then Cancel, then a portal signature still holds
+    cid, J = await pg.evaluate(mk, ['Odo Karr', '', [['214 Lincoln Place', '214 Lincoln Place'], ['88 Pierrepont St', '88 Pierrepont St']]])
+    eid = await pg.evaluate(est, [cid, 'Kitchen proposal', 'approved', ''])
+    async def pick_then_cancel(val):
+        await pg.evaluate("([cid, eid]) => { try { mbCloseModal(); } catch (e) {} clientOpen = cid; clientTab = 'fin'; finTab = 'estimates'; docOpen = {kind: 'estimate', id: eid}; view = 'clients'; render(); }", [cid, eid])
+        await pg.wait_for_timeout(300)
+        await pg.locator(f'#doc-{eid} [data-docact="convert"]').first.click(); await pg.wait_for_timeout(300)
+        await pg.locator('#mbm [data-f="job"]').select_option(val); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(400)
+        await pg.locator('#mbm').get_by_role('button', name='Cancel').first.click(); await pg.wait_for_timeout(900)
+        return await pg.evaluate(info, [cid, eid])
+    a = await pick_then_cancel(J[1])
+    c.ok(a['status'] == 'approved' and a['pid'] == '', f"JOB4: Which Job then Cancel leaves the estimate off the job: {a['status']} {a['pid']!r}")
+    n0 = a['n']
+    a = await pick_then_cancel('__new')
+    await pg.evaluate(portal, [cid, eid]); await pg.wait_for_timeout(300)
+    a = await pg.evaluate(info, [cid, eid])
+    c.ok(a['status'] == 'approved' and a['pid'] == '' and a['n'] == n0, f"JOB4: A New Job then Cancel leaves nothing: a later signature opens no job: {a['status']} {a['n']} (was {n0})")
+
+    # (4) the log says why: a portal signature onto the client's only job says "their only job"
+    cid, J = await pg.evaluate(mk, ['Pia Lund', '', [['214 Lincoln Place', '214 Lincoln Place']]])
+    eid = await pg.evaluate(est, [cid, 'Kitchen proposal', 'sent', ''])
+    await pg.evaluate(portal, [cid, eid]); await pg.wait_for_timeout(300)
+    a = await pg.evaluate(info, [cid, eid])
+    c.ok(a['status'] == 'converted' and a['pid'] == J[0] and 'their only job' in a['log'] and 'at its address' not in a['log'], f"JOB4: the log says it went on their only job: {a['log'][-200:]!r}")
 
 
 async def replay(c, pg):

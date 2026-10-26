@@ -9177,20 +9177,38 @@ function estHints(c, d) {
 // job there is its job; two there (Phase 1 and Phase 2 of one house) are asked about; none there means a new job unless
 // the person picks one. With no address of its own: a client with more than one live job is asked; a client with one
 // gets it, unless an open lead of theirs is at another address (a repeat client's new house is not their old job).
+// A person's choice on Which Job or Record Client Approval is kept in memory (estPicks), never on the record, until the
+// convert that uses it: Cancel leaves the estimate as it was (a pick written to the record stayed on it unconverted,
+// and "A new job" left a flag that let a later portal signature open a job without asking). why: own (the estimate's
+// own job), address (the client's job at its address), only (their only job), picked, new.
+const estPicks = new Map();
+function estPickWatch(d) {
+  let quiet = 0;
+  const iv = setInterval(() => {
+    if ("converted" === d.status || !estPicks.has(d.id)) return clearInterval(iv);
+    document.getElementById("mbm") ? (quiet = 0) : ++quiet >= 4 && (estPicks.delete(d.id), clearInterval(iv));
+  }, 150);
+}
 function estJobChoice(c, d) {
   const name = (p) => p.project.name,
     list = (J) => J.map(name).join(", ");
   if (d && d.projectId) {
     const p = (DB.projects || []).find((x) => x.id === d.projectId);
-    if (p) return { job: p, pick: [], line: `It goes on ${name(p)}.` };
+    if (p) return { job: p, pick: [], why: "own", line: `It goes on ${name(p)}.` };
+  }
+  const pk = d && d.id ? estPicks.get(d.id) : null;
+  if ("__new" === pk) return { job: null, pick: [], why: "new", line: "It opens a new job for it." };
+  if (pk) {
+    const p = (DB.projects || []).find((x) => x.id === pk);
+    if (p) return { job: p, pick: [], why: "picked", line: `It goes on ${name(p)}.` };
   }
   const jobs = estLiveJobs(c),
     at = (keys) => jobs.filter((p) => [estStreet(p.project.name), estStreet(p.project.addr)].some((x) => x && keys.includes(x))),
     own = estStreet(d && d.siteAddr) || estStreet(d && d.title);
-  if (!jobs.length) return { job: null, pick: [], line: "It opens the job for it." };
+  if (!jobs.length) return { job: null, pick: [], why: "new", line: "It opens the job for it." };
   if (own) {
     const H = at([own]);
-    if (1 === H.length) return { job: H[0], pick: [], line: `It goes on ${name(H[0])}.` };
+    if (1 === H.length) return { job: H[0], pick: [], why: "address", line: `It goes on ${name(H[0])}.` };
     if (H.length > 1)
       return { job: null, pick: H, line: `${H.length} of ${c.name}'s jobs are at this estimate's address (${list(H)}): choose the one it goes on.` };
     return { job: null, pick: jobs, line: `None of ${c.name}'s jobs (${list(jobs)}) is at this estimate's address: it opens a new job unless you choose one.` };
@@ -9203,7 +9221,50 @@ function estJobChoice(c, d) {
     .filter((a) => estStreet(a));
   if (open.length && !at(open.map(estStreet)).length)
     return { job: null, pick: jobs, line: `${c.name} has an open lead at ${open[0]}, and this estimate names no address: choose ${name(jobs[0])} or a new job.` };
-  return { job: jobs[0], pick: [], line: `It goes on ${name(jobs[0])}.` };
+  return { job: jobs[0], pick: [], why: "only", line: `It goes on ${name(jobs[0])}, their only job.` };
+}
+// The estimate's own address: the lead's it was started from, else the one its title names
+function estOwnAddr(d) {
+  return (d && (d.siteAddr || (estStreet(d.title) ? String(d.title).split(/\s+[—–-]\s+|,|:/)[0].trim() : ""))) || "";
+}
+// The client's PM: the PM on a job of theirs, else the PM named on their lead, else the firm's PM
+function estPmOf(c) {
+  const U = DB.users || [],
+    pm = (n) => n && U.some((u) => "pm" === u.role && u.name === n) && n,
+    J = (DB.projects || []).filter((p) => p.clientId === c.id);
+  return (
+    J.map((p) => pm(p.project.pm)).find(Boolean) ||
+    (DB.leads || []).filter((l) => l.clientId === c.id).map((l) => pm(l.owner)).find(Boolean) ||
+    (U.find((u) => "pm" === u.role) || {}).name ||
+    ""
+  );
+}
+// A task for the PM in the office's task store (DB.tasks), with the record it is about (link: the estimate or the
+// job), so it is on his Today and its Open lands on that record. A to-do on DB.projects[0] was on another client's job.
+function estPmTask(c, title, link, key) {
+  const T = asFirmTasks();
+  if (T.some((t) => t.estKey === key && "done" !== t.status)) return null;
+  const t = {
+    id: uid("a"),
+    title: title,
+    assignee: estPmOf(c),
+    due: today(),
+    priority: "high",
+    status: "todo",
+    section: c.name,
+    clientId: c.id,
+    area: "billing",
+    code: "",
+    tags: [],
+    blockedBy: [],
+    blocking: [],
+    createdAt: appNowIso(),
+    modifiedAt: today(),
+    link: link,
+    estKey: key,
+    source: { kind: "estimate-job", clientId: c.id },
+  };
+  return T.push(t), t;
 }
 function estJobFor(c, d) {
   return estJobChoice(c, d ? { title: d.title, siteAddr: d.siteAddr } : null).job;
@@ -9220,18 +9281,19 @@ function estJobField(ch) {
 }
 // what the person chose (or what the sheet said) is applied: a job, or leave to open a new one; false when a choice is missing
 function estJobApply(c, d, ch, f) {
-  if (ch.job || !ch.pick.length) return ch.job || (d._jobOk = !0), !0;
+  if (ch.job) return !0;
+  if (!ch.pick.length) return estPicks.set(d.id, "__new"), !0;
   if (!f || !f.job) return toast("Choose the job it goes on"), !1;
-  if ("__new" === f.job) return (d._jobOk = !0), !0;
+  if ("__new" === f.job) return estPicks.set(d.id, "__new"), !0;
   const p = ch.pick.find((x) => x.id === f.job);
-  return p && ((d.projectId = p.id), (d._jobChosen = !0)), !!p;
+  return p && estPicks.set(d.id, p.id), !!p;
 }
 const estJobOpen = (p) => (p ? () => (setCurrent(p.id), setView("dash")) : null);
 // the job chooser as a sheet of its own (Convert, when the estimate's job is not one job)
 function estPickJob(c, d, ch, then) {
   mbModal(`Which Job — ${esc(d.number)}`, estJobField(ch), {
     submit: "Use This Job",
-    onSubmit: (f) => (estJobApply(c, d, ch, f) ? (save(), void setTimeout(then, 0)) : !1),
+    onSubmit: (f) => (estJobApply(c, d, ch, f) ? void setTimeout(() => (then(), estPickWatch(d)), 0) : !1),
   });
 }
 // A job opened for a client takes the client's draft and sent estimates that have no job yet and whose job, by the
@@ -9608,7 +9670,7 @@ async function docAction(c, d, a) {
       // (estJobFor), or a new job, naming the client's other jobs so a wrong address is caught here
       ch = estJobChoice(c, d),
       job = ch.job,
-      where = " " + (job || !d._jobOk ? ch.line : "It opens a new job for it.");
+      where = " " + ch.line;
     if (
       "convert" === a &&
       !appConfirm(
@@ -9641,10 +9703,15 @@ async function docAction(c, d, a) {
       act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.length} SOV lines`),
       docMark(d),
       // never a second job: an estimate with no job goes on the job named above (estJobFor), and says so
-      !d.projectId && job && ((d.projectId = job.id), docMark(d), act(`${d.number} put on ${job.project.name}, the client's job at its address`)),
+      !d.projectId &&
+        job &&
+        ((d.projectId = job.id),
+        docMark(d),
+        act(`${d.number} put on ${job.project.name}, ${{ only: "their only job", picked: "the job chosen for it", address: "the client's job at its address" }[ch.why] || "its job"}`)),
       !d.projectId && appConfirm("Create a project for this contract now?"))
     ) {
-      const p = projectFromTemplate(d.title || c.name, c.propertyAddr || "", nextWork(today()), "");
+      const own = estOwnAddr(d),
+        p = projectFromTemplate(own ? own.split(",")[0].trim() : d.title || c.name, own || c.propertyAddr || "", nextWork(today()), "");
       (p.clientId = c.id), DB.projects.push(p), (d.projectId = p.id);
     }
     {
@@ -35937,41 +36004,29 @@ docAction = async function (c, d, a) {
     // job, nothing converts until a person has chosen: Convert asks first (estPickJob); an approval with no one to ask
     // (the client signing in the portal) approves without converting and asks the PM to choose the job.
     const ch = d.projectId ? null : estJobChoice(c, d);
-    if (ch && !ch.job && !d._jobOk) {
+    let review = !1;
+    if (ch && !ch.job && "new" !== ch.why) {
       if ("convert" === a) {
         // after the choice the Convert button asks its confirmation: the confirmation's Yes replays the button on screen
-        if (ch.pick.length)
-          return void estPickJob(c, d, ch, () => {
-            const b = document.querySelector(`#doc-${d.id} [data-docact="${a}"]`);
-            b && (askEl = b), docAction(c, d, a);
-          });
-        d._jobOk = !0;   // the client has no job: the confirmation says it opens the job
-      } else {
-        d._holdConvert = !0;
-        try {
-          await docActionBase6(c, d, "approve");
-        } finally {
-          delete d._holdConvert;
-        }
-        try {
-          const p0 = (DB.projects || [])[0];
-          p0 &&
-            (p0.actions = p0.actions || []).push({
-              id: uid("a"),
-              title: `${d.number} approved by ${c.name}: choose its job, then Convert to Contract & SOV`,
-              assignee: "Alan",
-              due: today(),
-              priority: "high",
-              status: "todo",
-              area: "billing",
-              createdAt: appNowIso(),
-              source: { client: c.id, chooseJob: d.id },
-            });
-          (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || role(), text: `${d.number} approved; not converted until its job is chosen (${ch.line})` });
-        } catch (x) {}
-        return;
+        return void estPickJob(c, d, ch, () => {
+          const b = document.querySelector(`#doc-${d.id} [data-docact="${a}"]`);
+          b && (askEl = b), docAction(c, d, a);
+        });
       }
+      // an approval with nobody to ask and a real choice to make: approved, not converted; the PM chooses
+      d._holdConvert = !0;
+      try {
+        await docActionBase6(c, d, "approve");
+      } finally {
+        delete d._holdConvert;
+      }
+      estPmTask(c, `${d.number} approved by ${c.name}: choose its job, then Convert to Contract & SOV`, { kind: "estimate", clientId: c.id, id: d.id }, "choose:" + d.id);
+      (c.activity = c.activity || []).push({ t: nowStamp(), by: (S && S.project && S.project.userName) || role(), text: `${d.number} approved; not converted until its job is chosen (${ch.line})` });
+      return;
     }
+    // one possible answer and it is a new job (the client has none): it opens, named and addressed from the estimate;
+    // when nobody was asked (the portal) the PM gets a task to review it (decided 10-26, a recommendation to Alan)
+    ch && !ch.job && "new" === ch.why && !estPicks.has(d.id) && (estPicks.set(d.id, "__new"), "convert" === a ? estPickWatch(d) : (review = !0));
     let pid = d.projectId || (ch && ch.job ? ch.job.id : "");
     if (
       c.invoices.some(
@@ -35984,8 +36039,22 @@ docAction = async function (c, d, a) {
     )
       return;
     const keepSov = c.sov.filter((v) => "Contract" === v.source && (v.projectId || "") !== pid),
-      r = (c.contract, await docActionBase6(c, d, a));
+      // a new job the person was told of (or the only answer, above) is opened without asking again
+      _nk = askKey("Create a project for this contract now?"),
+      _new = !d.projectId && "__new" === estPicks.get(d.id);
+    _new && askMem.set(_nk, { v: !0 });
+    let r;
+    try {
+      r = await docActionBase6(c, d, a);
+    } finally {
+      _new && askMem.delete(_nk);
+    }
     if ("converted" === d.status) {
+      // the choice is used; the PM's choose-the-job task is done; a job opened with nobody asked is his to review
+      estPicks.delete(d.id);
+      asFirmTasks().forEach((t) => t.estKey === "choose:" + d.id && "done" !== t.status && ((t.status = "done"), (t.completedAt = today())));
+      const nj = review && (DB.projects || []).find((p) => p.id === d.projectId);
+      nj && estPmTask(c, `Review the new job ${nj.project.name}: ${c.name} signed ${d.number} in the portal and the job opened from it`, { kind: "project", id: nj.id }, "review:" + nj.id);
       pid = d.projectId || pid;
       c.sov.forEach((v) => {
         "Contract" === v.source && (null == v.projectId || ("" === v.projectId && pid && String(v.lineRef || "").startsWith(`estimate:${d.id}:`))) && (v.projectId = pid);
@@ -40447,23 +40516,25 @@ docAction = async function (c, d, a) {
     // a job the convert found (the client's job at the estimate's address) is not a job it created
     had = new Set((DB.projects || []).map((p) => p.id)),
     _ck = askKey("Create a project for this contract now?"),
-    _auto = ("approve" === a || "approveconvert" === a || "convert" === a) && !d.projectId && !!d._jobOk;
+    _auto = ("approve" === a || "approveconvert" === a || "convert" === a) && !d.projectId && "__new" === estPicks.get(d.id);
   let r;
   _auto && askMem.set(_ck, { v: !0 });
   try {
     r = await docActionBase_wf1(c, d, a);
   } finally {
-    _auto && askMem.delete(_ck), "converted" === d.status && (delete d._jobOk, delete d._jobChosen);
+    _auto && askMem.delete(_ck);
   }
   if (!before && d.projectId && !had.has(d.projectId)) {
     const p = DB.projects.find((x) => x.id === d.projectId);
     if (p) {
       // named for the estimate's own address, else the property's; a name another live job of the client's has gets the
       // estimate's number after it
-      const addr = d.siteAddr || (estStreet(d.title) ? String(d.title).split(/\s+[—–-]\s+|,|:/)[0].trim() : "") || c.propertyAddr || "";
+      // the estimate's own address names the job and is its address; else the property's fills an empty address
+      const own = estOwnAddr(d),
+        addr = own || c.propertyAddr || "";
       let nm = addr ? addr.split(",")[0].trim() : p.project.name;
       estLiveJobs(c).some((x) => x !== p && x.project.name === nm) && (nm += ` — ${d.number}`);
-      addr && !p.project.addr && (p.project.addr = addr),
+      own ? (p.project.addr = own) : addr && !p.project.addr && (p.project.addr = addr),
         (p.project.name = nm),
         (d.title = "Proposal" === d.title ? p.project.name : d.title),
         save(),
@@ -131058,6 +131129,7 @@ function lkRecordAnswer(c, d, yes) {
               by: d.clientAnswer.by,
               text: `${d.number} ${yes ? "approval" : "rejection"} recorded — ${f.why}`,
             }),
+              estPicks.delete(d.id),
               save(),
               render();
             const on = yes && "converted" === d.status ? (DB.projects || []).find((p) => p.id === d.projectId) : null;
@@ -198167,6 +198239,12 @@ function tdyOpenSource(x, co) {
       const r = tdyRec(x),
         po = r && r.link && "po" === r.link.kind && (DB.pos || []).find((k) => k.id === r.link.id);
       if (po) return flowGo.po(po)();
+      // the PM's task about an estimate (choose its job) opens the estimate; about a new job, the job
+      const lk = r && r.link,
+        ec = lk && "estimate" === lk.kind && (DB.clients || []).find((k) => k.id === lk.clientId),
+        est = ec && (ec.estimates || []).find((e) => e.id === lk.id);
+      if (est) return flowGo.doc(ec, "estimate", est)();
+      if (lk && "project" === lk.kind && (DB.projects || []).some((p) => p.id === lk.id)) return setCurrent(lk.id), setView("dash");
     }
     const may = (v) => (ROLE_VIEWS[role()] || []).includes(v);
     if ("ob" === x.kind || (x.row && x.row.obId)) return may("obligations") ? ((view = "obligations"), render()) : tdyGoTask(x);
