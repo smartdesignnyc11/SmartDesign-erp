@@ -92,6 +92,15 @@ async def make_pilot_docs(pg):
       rtbAct('dmilestone:esD45'); await sleep(250);
       const mo = document.querySelector('#mbm #mbm-ok'); mo && mo.click(); await sleep(250);
       const dm = r.invoices.slice(rb)[0] || null;
+      // the contract's deposit invoice, drafted from the Billing Queue's deposit row (lane 1, 2026-10-26). The seed's
+      // INV-2026-031 ("Deposit — 20%") was billed as a % on the SOV and is booked as work, so it prints as an
+      // application now (one deposit predicate for the ledger, lineFin and the printout)
+      const ca = blankClient('Wren & Julian Ashby'); ca.contacts = [{ id: uid('ct'), name: 'Wren Ashby', email: 'wren.ashby@example.com', primary: true }]; DB.clients.push(ca);
+      const pj = blankProject('214 Lincoln Place', '214 Lincoln Place, Brooklyn', today(), ''); pj.clientId = ca.id; DB.projects.push(pj);
+      const ea = newDoc(ca, 'estimate', { template: 'construction', fields: { title: '214 Lincoln Place — renovation', projectId: pj.id } });
+      ea.lines = [{ id: uid('l'), item: 'Demolition and protection', qty: 1, unit: 'ls', rate: 91120, cost: 60000 }]; ea.status = 'converted'; ea.approvedOn = today(); docMark(ea);
+      rtbAct('deposit:' + ea.id); await sleep(250);
+      const dq = document.querySelector('#mbm #mbm-ok'); dq && dq.click(); await sleep(250);
       save();
       return { pa: pa && pa.number, paMemo: pa && pa.memo, paInternal: pa && pa.internal, paDesc: pa ? pa.lines.map(l => l.desc).filter(Boolean) : [],
                paEv: pa ? pa.lines.map(l => l.evidence).filter(Boolean) : [], co: co.number, e0: e0.number, e0terms: e0.terms, dm: dm && dm.number, dmDue: dm && dm.due };""")
