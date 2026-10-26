@@ -173,7 +173,9 @@ class DraftWalk(TapLint):
         if how == 'outside':
             # the sheet's own backdrop, or the page beside a drawer: a tap where the sheet is not
             pt = await pg.evaluate("""() => { const h = [...document.querySelectorAll('#mbm, #drawer.on, #ct-sheet, #msg-sheet, #tv-pop, #rp-panel, #hb-composer')].filter(e => e.getClientRects().length).pop();
-              if (!h) return null; const box = h.querySelector('.mbm-box, .msg-sheet-in, .tv-pop-bd') || h; const r = box.getBoundingClientRect();
+              // the task panel docked beside the table on a wide screen is not modal: the table stays live, so there is no
+              // outside to tap (Asana's pane works the same way); the person leaves it by the menu
+              if (!h || h.classList.contains('tv-under')) return null; const box = h.querySelector('.mbm-box, .msg-sheet-in, .tv-pop-bd') || h; const r = box.getBoundingClientRect();
               const pts = [[6, 6], [innerWidth - 6, 6], [6, innerHeight - 90], [innerWidth / 2, 4]];
               for (const [x, y] of pts) { if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue; const t = document.elementFromPoint(x, y); if (t) return { x, y }; } return null; }""")
             if pt:
