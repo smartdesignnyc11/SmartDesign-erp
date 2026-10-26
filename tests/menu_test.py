@@ -34,7 +34,8 @@ RAIL = {
     'u_sarah': ['Today', 'Tasks', 'Messages', 'Drawings', 'Projects', 'Design', 'Clients', 'More', 'Settings'],
     # field roles: one list, the tab bar first, then the rest, then Connections and the Standard
     # p2nav (Alan, 2026-10-25): the foreman's bar takes Requests, four shortcuts, Site leads the rest; every role reaches Team
-    'u_angel': ['Today', 'Daily Log', 'Requests', 'Messages', 'Site', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Team', 'Connections', 'The SmartDesign Standard'],
+    # the approved TodayForeman board (2026-10-25): Site joins the bar, Crew leads the rest
+    'u_angel': ['Today', 'Daily Log', 'Site', 'Requests', 'Messages', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Team', 'Connections', 'The SmartDesign Standard'],
     'u_alberto': ['Clock', 'Requests', 'Schedule', 'Messages', 'Photos', 'Deliveries', 'Drawings', 'Team', 'Connections', 'The SmartDesign Standard'],
     'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests', 'Team', 'Connections', 'The SmartDesign Standard'],
     # the client portal keeps its own menu (out of scope; Klein took no part in the workshop)
@@ -88,7 +89,8 @@ CUTS = {
     'u_sarah': ['dashboard', 'team'],
     'u_angel': [], 'u_alberto': [], 'u_alex': [],
 }
-HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'billing', 'u_controller': 'bank', 'u_sarah': 'sday',
+# billing and the controller start on Today: their approved boards (2026-10-25) light Today first
+HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'home', 'u_controller': 'home', 'u_sarah': 'sday',
         'u_angel': 'ftoday', 'u_alberto': 'time', 'u_alex': 'route', 'u_klein': 'client'}
 # Phone: the office roles' bottom bar (then More), the field roles' tab bar.
 PHONE_BAR = {
@@ -96,13 +98,14 @@ PHONE_BAR = {
     # need to have a max of 4 shortcuts there"); everyone opens the rest from the hamburger at the top left ("the
     # hamburger menu should be on the top left of the page"), so the office bar has no More
     # Tasks takes one shortcut for the office pilot (Alan, 2026-10-24); what it replaced stays in the menu
-    'u_owner': ['Today', 'Messages', 'Projects', 'Tasks'],
-    'u_alan': ['Today', 'Messages', 'Projects', 'Tasks'],
+    # the approved Today boards (Alan, 2026-10-25) set each office bar; the PM's holds five (TodayPM)
+    'u_owner': ['Today', 'Projects', 'Sales', 'Messages'],
+    'u_alan': ['Today', 'Projects', 'Clients', 'Tasks', 'Messages'],
     'u_chen': ['Today', 'Messages', 'Tasks', 'Buy Board'],
-    'u_billing': ['Today', 'Messages', 'Tasks', 'Clients'],   # Today first, like every office role (taskfix #14)
-    'u_controller': ['Banking', 'Today', 'Messages', 'Bills & Payroll'],
+    'u_billing': ['Today', 'Billing', 'Clients', 'Messages'],
+    'u_controller': ['Today', 'Banking', 'Bills & Payroll', 'Messages'],
     'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],
-    'u_angel': ['Today', 'Daily Log', 'Requests', 'Messages'],
+    'u_angel': ['Today', 'Daily Log', 'Site', 'Requests', 'Messages'],   # TodayForeman holds five
     'u_alberto': ['Clock', 'Requests', 'Schedule', 'Messages'],
     'u_alex': ['Route', 'Messages', 'Clock', 'Receipts'],
 }
@@ -139,6 +142,8 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
 BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups button[data-grp]').forEach(b => { const g = b.dataset.grp, n = +((b.querySelector('.n') || {}).textContent || 0);
   let want = null; const rv = ROLE_VIEWS[role()] || [];
   if (OV_VIEW[g] && rv.includes(OV_VIEW[g]) && b.dataset.v === OV_VIEW[g]) want = needs(g);
+  // Today's badge is its late rows, red (the approved Today mockups, 2026-10-25): the Late chip's number
+  else if (g === 'home' && typeof td2LateN === 'function' && TD2_SPEC[role()]) want = td2LateN();
   else if (g === 'home' && rv.includes('mapprove')) want = mApproveCount();
   else if (g === 'billing') want = billingNeeds();
   if (want !== null && want !== n) out.push(`${g} shows ${n}, its list holds ${want}`); }); return out; }"""
@@ -226,7 +231,9 @@ async def phone(c, p, users):
         sel = '#tabbar button' if u in FIELD else '#mtabs button'
         bar = await pg.evaluate("s => [...document.querySelectorAll(s)].filter(b => b.getClientRects().length).map(b => (b.innerText || '').replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim())", sel)
         c.ok(bar == PHONE_BAR[u], f'{u} phone: bar {bar}\n      want {PHONE_BAR[u]}')
-        c.ok(len([x for x in bar if x != 'More']) <= 4 and 'Messages' in bar, f'{u} phone: at most four shortcuts, Messages one of them {bar}')
+        # at most four shortcuts (Alan, 2026-10-19), five where an approved board draws five (TodayPM, TodayForeman)
+        cap = 5 if u in ('u_alan', 'u_angel') else 4
+        c.ok(len([x for x in bar if x != 'More']) <= cap and 'Messages' in bar, f'{u} phone: at most {cap} shortcuts, Messages one of them {bar}')
         await check_screen(c, pg, f'{u} phone landing', errs, HOME[u], phone=True)
         n = await pg.evaluate("s => document.querySelectorAll(s).length", sel)
         for k in range(n):

@@ -10,7 +10,7 @@
 //      addressed to the person (a direct line, an @mention) on Today.
 //  N4  One Clients directory (Clients, People, Companies as tabs of one page) and a Team page of every staff member
 //      with phone and email, which Messages and every mail To and Cc field use to find a colleague.
-//  N5  The foreman's bar gets Requests; the owner's Today opens on Approvals when anything waits on him; the
+//  N5  The foreman's bar gets Requests; (the owner's Today opening on Approvals is superseded by the Today mockups); the
 //      coordinator's Time & Crew shows the payroll run's status read-only (the run is built in Bills & Payroll).
 //
 // Design gate (BACKLOG §1.16). Nouns, lists and queues extended, nothing duplicated:
@@ -526,22 +526,7 @@ function p2nChatItems() {
   }
   return out;
 }
-if ("function" == typeof tdyModel) {
-  const base = tdyModel;
-  tdyModel = function () {
-    const M = base.apply(this, arguments);
-    try {
-      const C = p2nChatItems();
-      if (C.length && M && Array.isArray(M.inbox)) {
-        M.inbox = C.concat(M.inbox);
-        const i = M.all.findIndex((it) => "tdyMail" === it.kind),
-          j = i < 0 ? M.all.findIndex((it) => !M.appr.includes(it)) : i;
-        M.all.splice(j < 0 ? M.all.length : j, 0, ...C);
-      }
-    } catch (e) {}
-    return M;
-  };
-}
+// (the chat lines join Today's inbox in tdyModel itself, src/app.js: folded 2026-10-25)
 if ("function" == typeof tdCard) {
   const base = tdCard;
   tdCard = function (it) {
@@ -870,19 +855,11 @@ function p2nTeamViews() {
   } catch (e) {}
 })();
 
-// ---- N5 the owner's Today opens on Approvals when anything waits on him ------------------------------------------
+// ---- N5 (superseded 2026-10-25 by the approved Today mockups: the owner's Today opens on All, with an Approvals chip)
 let p2nLastView = "";
 {
   const base = render;
   render = function () {
-    try {
-      if ("home" === view && "home" !== p2nLastView && "owner" === role() && "undefined" != typeof tdyTabs) {
-        const me = tdyMe(),
-          k = me.id || role(),
-          n = (tdyModel().appr || []).length;
-        n && ((tdyTabs[k] = "appr"), (tdyLanding = "appr"), (tdyAllOpen = !1));
-      }
-    } catch (e) {}
     p2nLastView = view;
     const r = base.apply(this, arguments);
     try {

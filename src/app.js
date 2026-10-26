@@ -124909,18 +124909,8 @@ function finControllerHome() {
     ) || (views.includes("gl") ? "gl" : "bank")
   );
 }
-if ("function" == typeof signIn && "object" == typeof IA_HOME) {
-  const signInBase_fin = signIn;
-  signIn = function (userId) {
-    const u = (DB.users || []).find((x) => x.id === userId);
-    return (
-      u &&
-        "controller" === u.role &&
-        ((IA_HOME.controller = finControllerHome()), "gl" === IA_HOME.controller && (glTab = "overview")),
-      signInBase_fin.apply(this, arguments)
-    );
-  };
-}
+// (the controller's first page is MENU.controller.home, read into IA_HOME below; the sign-in wrapper that reset it to
+// the ledger or Banking was folded away 2026-10-25, when the Today mockups made Today every office role's first screen)
 const OPS_KINDS = {
   dec: "Decision",
   iss: "Field item",
@@ -173946,165 +173936,8 @@ function tdBriefLines() {
   return out;
 }
 
-// ---- the page
-function tdRender() {
-  const root = homeRoot();
-  if (!root) return;
-  tdCtx = null;
-  // Today (lane "today", 2026-10-19): one queue per person. The list is the person's Approvals, Inbox and Tasks,
-  // each item in exactly one of them; All is their union in the Standard's order; Team is a manager's who-owes-what.
-  const r = role(),
-    pulse = (TD_PULSE[r] || []).filter((t) => !(t.money && tdNoMoney())).map((t) => {
-      let v = 0;
-      try {
-        v = tdPulseValue(t);
-      } catch (e) {
-        console.warn("pulse", t.k, e);
-      }
-      return { t: t, v: v };
-    }),
-    M = tdyModel(),
-    tabs = TDY_TABS.filter(([k]) => ("team" !== k || M.team) && ("buy" !== k || M.buy)),
-    tab = tabs.some(([k]) => k === tdyTabOf()) ? tdyTabOf() : "all",
-    Q = M[tab] || [],
-    MORE = { appr: ["Open the Approvals Page", "mapprove"], inbox: ["Open the Inbox", "comms"], tasks: ["Open All Tasks", "tkall"], buy: ["Open the Buy Board", "proc"] },
-    // tasks offered to me wait on my yes: one line above the Tasks rows, as on the Tasks list (not counted as tasks)
-    offerL = "tasks" === tab ? M.offered || [] : [],
-    offerHtml = offerL.length
-      ? `<button type="button" class="tk2-offer td-offer" data-tdyoffer><span class="tk2-offer-n">${offerL.length}</span><span class="grow">${1 === offerL.length ? `${esc(tkFirst(offerL[0].t.owner) || "Someone")} offered you “${esc(tdWords(offerL[0].title, 7))}”` : `${offerL.length} tasks offered to you`}</span><b>Review</b></button>`
-      : "",
-    more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
-    // a filter is its whole list, in place; All shows the first five and "N more" opens the rest in place
-    // All shows its first five; so does the filter Today opened on by itself (the owner's Approvals when something
-    // waits on him, p2nav): the phone's first screen stays within its budget, and "N more" opens the rest in place
-    fold = "all" === tab || tdyLanding === tab,
-    top = (!fold || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
-    caught = tdCaught(M.appr),
-    // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
-    shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
-    brief = tdBriefLines(),
-    ic = (d) =>
-      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  root.innerHTML = `<div class="td-home" data-tdrole="${r}">
-  <div class="ph td-ph"><div><h2>Home</h2></div></div>
-  ${pulse.length ? `<div class="td-pulse">${pulse
-    .map(
-      ({ t: t, v: v }) =>
-        `<a href="#" class="td-pl ${t.tone ? t.tone(v) : ""}" data-tdpulse="${t.k}" data-n="${v}"><b>${t.money ? esc(tdMoney(v)) : v}</b><span>${esc(t.label)}</span></a>`,
-    )
-    .join("")}</div>` : ""}
-  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now" data-tdytab="${tab}"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div><div class="td-tabs" role="tablist">${tabs
-    .map(([k, n]) => `<button type="button" role="tab" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}" data-tdytabbtn="${k}">${n}${"team" === k ? "" : `<span class="n">${(M[k] || []).length}</span>`}</button>`)
-    .join("")}</div>${offerHtml}${
-    top.length
-      ? top
-          .map(
-            (c, i) =>
-              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"${c.ea ? ` data-ea='${esc(JSON.stringify(c.ea))}'` : ""}><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
-          )
-          .join("")
-      : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "Nothing of yours is late or due in the next 7 days.", buy: "Nothing is late to order or due to order this week.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
-  }${
-    fold && Q.length > top.length
-      ? `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
-      : more && Q.length
-        ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
-        : "all" === tab && tdyAllOpen && Q.length > 5
-          ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
-          : ""
-  }</section>
-  <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
-    shownC.length
-      ? shownC
-          .map(
-            (x, i) =>
-              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(tdWords(x.what, 7))}</div><div class="td-l2">${esc(tdWords(x.sub, 8))}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
-          )
-          .join("")
-      : '<div class="td-empty">Nothing caught today.</div>'
-  }${(tdCatchAll ? caught.length > 4 : caught.length > shownC.length) ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - shownC.length} more`}</a>` : ""}</section>
-  <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
-    tdBriefFull
-      ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
-          .map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`)
-          .join("")}</div></div><a href="#" class="td-more" data-tdbrief>Shorter</a>`
-      : `${brief.length ? `<ul class="td-bl">${brief.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}<a href="#" class="td-more" data-tdbrief>Read the Full Brief</a>`
-  }</section></div></div></div>`;
-  const P = TD_PULSE[r] || TD_PULSE.owner;
-  root.querySelectorAll("[data-tdpulse]").forEach(
-    (a) =>
-      (a.onclick = (e) => {
-        e.preventDefault();
-        const t = P.find((x) => x.k === a.dataset.tdpulse);
-        t && tdPulseOpen(t);
-      }),
-  );
-  root.querySelectorAll(".td-do .td-card").forEach((el, i) => {
-    const c = top[i];
-    if (!c) return;
-    const a = el.querySelector("[data-tdrec]");
-    a &&
-      (a.onclick = (e) => {
-        e.preventDefault(), c.go();
-      });
-    el.querySelector("[data-tdverb]").onclick = (e) => {
-      e.preventDefault(), c.run();
-    };
-  });
-  root.querySelectorAll("[data-tdcatch]").forEach(
-    (b) =>
-      (b.onclick = (e) => {
-        e.preventDefault();
-        const x = shownC[+b.dataset.tdcatch];
-        x && x.run();
-      }),
-  );
-  const all = root.querySelector("[data-tdall]");
-  all &&
-    (all.onclick = (e) => {
-      e.preventDefault(), (window.mApprKind = "all"), setView("mapprove");
-    });
-  root.querySelectorAll("[data-tdytabbtn]").forEach(
-    (b) =>
-      (b.onclick = (e) => {
-        e.preventDefault(), tdyTabSet(b.dataset.tdytabbtn), render();
-      }),
-  );
-  const tmore = root.querySelector("[data-tdymore]");
-  tmore &&
-    (tmore.onclick = (e) => {
-      e.preventDefault();
-      const v = tmore.dataset.tdymore;
-      "tkall" === v && ((tkWho = "me"), (tkShow = "open"));
-      setView(v);
-    });
-  const toff = root.querySelector("[data-tdyoffer]");
-  toff &&
-    (toff.onclick = (e) => {
-      e.preventDefault();
-      1 === offerL.length ? tkSheet(offerL[0].t.key) : ((tkWho = "me"), (t2View = "week"), setView("tkall"));
-    });
-  const topen = root.querySelector("[data-tdyopen]");
-  topen &&
-    (topen.onclick = (e) => {
-      e.preventDefault(), (tdyAllOpen = !tdyAllOpen), render();
-    });
-  // the Standard's "because" line under each card reads the rows shown, in the order shown
-  try {
-    stdLastQueue = "team" === tab ? [] : top.map((c) => c.it);
-  } catch (e) {}
-  const ca = root.querySelector("[data-tdcatchall]");
-  ca &&
-    (ca.onclick = (e) => {
-      e.preventDefault(), (tdCatchAll = !tdCatchAll), render();
-    });
-  const br = root.querySelector("[data-tdbrief]");
-  br &&
-    (br.onclick = (e) => {
-      e.preventDefault(), (tdBriefFull = !tdBriefFull), render();
-    });
-  tdCtx = null;
-}
+// ---- the page: tdRender is src/today2.js (the approved Today mockups, 2026-10-25). The Pulse, Caught for You and the
+// brief above are its parts; the "because" line (once a wrapper here) is the lead row's note there.
 // The Pulse prints to the cent below $100k (the Statements cash card's safe-to-spend, −$4,150.74), in $k above.
 const tdMoneyC = (v) => ((+v || 0) < -0.004 ? "−" : "") + money2(Math.abs(+v || 0)),
   tdMoney = (v) => {
@@ -175426,20 +175259,6 @@ const stdWhyHtml = (it) => {
     return "";
   }
 };
-{
-  const base = tdRender;
-  tdRender = function () {
-    const r = base.apply(this, arguments);
-    try {
-      const root = homeRoot(),
-        put = (el, it) => it && !el.querySelector(".ch-why") && el.querySelector(".td-txt") && el.querySelector(".td-txt").insertAdjacentHTML("beforeend", stdWhyHtml(it));
-      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, (tdShownC.length ? tdShownC : stdLastCaught)[i])));
-    } catch (e) {
-      console.warn("standard home", e);
-    }
-    return r;
-  };
-}
 {
   const base = renderMApprove;
   renderMApprove = function () {
@@ -187628,7 +187447,6 @@ window.addEventListener(
           (d.innerHTML = nyhCardHtml(nyhRows())), first.parentNode.insertBefore(d.firstElementChild, first);
         }
       }
-      v && "function" == typeof tdOn && tdOn() && lnCalTd(v);
     } catch (e) {
       console.warn("needs your hand home", e);
     }
@@ -198210,8 +198028,15 @@ function tdyModel() {
   try {
     mail = may("comms") && "function" == typeof cmListFor ? cmListFor("open") : [];
   } catch (e) {}
-  const inbox = mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem);
-  inbox.forEach((it) => held.add("comm:" + it.id));
+  // the team lines addressed to the person (a direct line, an @mention; p2nav N3) are read first, then the mail
+  let chat = [];
+  try {
+    chat = "function" == typeof p2nChatItems ? p2nChatItems() : [];
+  } catch (e) {
+    console.warn("today chat", e);
+  }
+  const inbox = chat.concat(mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem));
+  inbox.forEach((it) => "tdyMail" === it.kind && held.add("comm:" + it.id));
   // Today's Tasks are the person's Due Soon, the Tasks list's own first view: theirs, late or due in the next 7 days,
   // not put off (taskfix #1, 2026-10-25). It is the one "Tasks" number: the side menu, the sub-tab, this chip, the phone
   // bar and the Tasks page read tkTasksN(), these rows. It used to be a 14-day horizon less what Approvals held, so the
@@ -198243,7 +198068,20 @@ function tdyModel() {
   // All holds each thing once: a task an approval already stands for (an obligation's renewal) is its approval there
   const keys = new Set(offered.map((it) => it.id)),
     allTasks = offered.concat(tasks.filter((it) => !keys.has(it.id) && !it.t.refs.some((k) => held.has(k))));
-  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+  // the minutes of a team meeting the person was in, unread: a thing to read, not a task (on All, never in Tasks)
+  let minutes = [];
+  try {
+    minutes =
+      me.id && "function" == typeof mtMinutesFor
+        ? mtMinutesFor(me).map((m) => {
+            const owe = ((m.minutes.owes || {})[me.name] || []).length;
+            return { kind: "tdyMinutes", id: m.id, src: "meeting", m: m, title: `Minutes: ${m.title}, ${tkDay(m.date)}`, detail: owe ? `you owe ${owe}` : "nothing on you", due: m.date };
+          })
+        : [];
+  } catch (e) {
+    console.warn("minutes on Today", e);
+  }
+  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])).concat(minutes), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
 }
 // The Buy Board lines the coordinator owes today: late (the one late, procurement P1), or due to order this week, read
 // from the Buy Board's one reader (bbTodayItems, src/buyboard.js); the PM gets the late ones on his own jobs.

@@ -12,8 +12,8 @@ done as each person, on the desktop (1440) and the phone (390), every office rol
   DIRECTORY one Clients entry: Clients, People and Companies are tabs of it (no People or Companies in Sales); Team
             lists every staff member with phone and email; Message starts a chat; a mail To finds a colleague by
             name; New Email saves a draft to the named colleague's address.
-  FIELD     the foreman's bar: Today, Daily Log, Requests, Messages (four, Alan's cap); Site leads the rest, Crew under it.
-  OWNER     the owner's Today opens on Approvals when anything waits on him.
+  FIELD     the foreman's bar: Today, Daily Log, Site, Requests, Messages (the approved TodayForeman board, 2026-10-25).
+  OWNER     the owner's Today opens on All with an Approvals chip (the approved Today mockup supersedes the Approvals landing).
   PAYROLL   the coordinator's Time & Crew shows the run's status read-only and no Build Payroll; the controller's keeps it.
   PHONE     no sideways scroll on any screen visited at 390.
 Run: python3 p2nav_test.py [--desktop|--phone] [--user u_owner,...]   Screenshots: review/p2nav/ (not committed)."""
@@ -174,7 +174,8 @@ async def msg_flow(c, p, phone):
     await go(pg, 'home')
     t = await pg.evaluate("k => { const M = tdyModel(); const it = M.inbox.find(x => x.kind === 'tdyChat' && x.key === k); return { inbox: !!it, all: M.all.some(x => x.kind === 'tdyChat' && x.key === k), title: it && it.title }; }", key)
     c.ok(t['inbox'] and t['all'] and 'Chen' in (t['title'] or ''), f"{tag}: Chen's direct line is on the owner's Today, Inbox and All ({t})")
-    await pg.evaluate("() => { tdyTabSet('inbox'); render(); }"); await pg.wait_for_timeout(200)
+    # (the approved Today mockup has no Inbox chip: the line is a row of All, opened in full)
+    await pg.evaluate("() => { tdyTabSet('all'); tdyAllOpen = true; render(); }"); await pg.wait_for_timeout(200)
     v = await pg.evaluate("k => { const row = [...document.querySelectorAll('.view.on .td-do *')].find(e => /Nemo Tile PO/.test(e.textContent) && e.children.length < 6); return !!row; }", key)
     c.ok(v, f'{tag}: the line is drawn in Do Now')
     await pg.evaluate("k => { const it = tdyModel().inbox.find(x => x.key === k); tdCard(it).run(); }", key); await pg.wait_for_timeout(300)
@@ -261,20 +262,18 @@ async def team_checks(c, pg, uid, tag, phone):
         await pg.evaluate("() => mbCloseModal()")
 
 async def owner_today(c, pg, tag):
+    # Superseded by the approved Today mockups (Alan, 2026-10-25): the owner's Today opens on All, with an Approvals
+    # chip whose count is PRED.waitingOnMe; his own pick holds while he is on Today, and All again when he comes back
     await sign_in(pg, 'u_owner'); await go(pg, 'home')
     n = await pg.evaluate("() => tdyModel().appr.length")
     t = await pg.evaluate("() => tdyTabOf()")
-    c.ok(n > 0 and t == 'appr', f"{tag}: the owner's Today opens on Approvals when {n} wait on him ({t})")
-    on = await pg.evaluate("() => (document.querySelector('.view.on .td-tabs button.on') || {}).dataset ? document.querySelector('.view.on .td-tabs button.on').dataset.tdytabbtn : ''")
-    c.ok(on == 'appr', f'{tag}: the Approvals filter is lit ({on})')
-    # opened by itself, it folds to five with "N more" as All does (the phone's first screen stays in its budget)
-    f = await pg.evaluate("() => ({ cards: document.querySelectorAll('.view.on .td-do .td-card').length, more: (document.querySelector('.view.on .td-do [data-tdyopen]') || {}).textContent || '' })")
-    c.ok(f['cards'] == min(5, n) and (n <= 5 or f['more'] == f'{n - 5} more'), f'{tag}: the landing Approvals shows five and the rest behind N more ({f}, {n})')
-    await pg.evaluate("() => { tdyTabSet('all'); render(); }")
-    c.ok(await pg.evaluate("() => tdyTabOf()") == 'all', f'{tag}: his own pick holds while he is on Today')
-    await go(pg, 'ovjobs'); await go(pg, 'home')
-    c.ok(await pg.evaluate("() => tdyTabOf()") == 'appr', f'{tag}: coming back to Today, it opens on Approvals again')
+    c.ok(n > 0 and t == 'all', f"{tag}: the owner's Today opens on All while {n} wait on him ({t})")
+    chip = await pg.evaluate("() => +((document.querySelector('.view.on .td-tabs [data-tdytabbtn=\"appr\"] .n') || {}).textContent || -1)")
+    c.ok(chip == n == await pg.evaluate("() => PRED.waitingOnMe.count()"), f'{tag}: the Approvals chip {chip} = his approvals {n}')
+    await pg.evaluate("() => { tdyTabSet('appr'); render(); }")
+    c.ok(await pg.evaluate("() => tdyTabOf()") == 'appr', f'{tag}: his own pick holds while he is on Today')
     await shot(pg, f'owner_{tag}_today_approvals')
+    await pg.evaluate("() => { tdyTabSet('all'); render(); }")
 
 async def payroll_checks(c, pg, tag):
     await sign_in(pg, 'u_chen')
@@ -291,8 +290,9 @@ async def foreman_bar(c, pg, tag, phone):
     await sign_in(pg, 'u_angel')
     m = await pg.evaluate("() => mnMap()")
     bar = [x.split('=')[1] for x in m['bar']]
-    c.ok(bar == ['Today', 'Daily Log', 'Requests', 'Messages'], f"{tag}: the foreman's bar ({bar})")
-    c.ok(any(x.startswith('fcrew=') for x in m['rest']) and m['rest'][0].startswith('fsite='), f'{tag}: Site leads the rest, Crew is under it ({m["rest"][:3]})')
+    # the approved TodayForeman board (2026-10-25): Today, Daily Log, Site, Requests, Messages; Crew leads the rest
+    c.ok(bar == ['Today', 'Daily Log', 'Site', 'Requests', 'Messages'], f"{tag}: the foreman's bar ({bar})")
+    c.ok(any(x.startswith('fcrew=') for x in m['rest']), f'{tag}: Crew is in the rest ({m["rest"][:3]})')
     if phone:
         await go(pg, 'ftoday')
         tb = await pg.evaluate("() => [...document.querySelectorAll('#tabbar button, #mtabs button')].filter(b => b.getClientRects().length).map(b => ({ l: (b.querySelector('span') || b).textContent.trim(), w: Math.round(b.getBoundingClientRect().width) }))")
