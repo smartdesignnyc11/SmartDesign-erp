@@ -9271,7 +9271,8 @@ function docActions(c, d, st) {
 }
 function wireDocEditor(c) {
   const d = findDoc(c, docOpen.kind, docOpen.id),
-    root = document.getElementById("doc-" + d.id);
+    // a document left open for another client (won from Sales with an estimate open) is not drawn here
+    root = d && document.getElementById("doc-" + d.id);
   if (!root) return;
   const rerender = () => {
     render();
@@ -76563,6 +76564,7 @@ function slMove(id, stage, extra) {
         p.thanks.push({ at: today(), for: l.name, done: !1 })),
       (clientOpen = c.id),
       (clientTab = "overview"),
+      (docOpen = null),
       (crmTab = "clients"),
       (view = "clients"),
       save(),
@@ -76572,7 +76574,7 @@ function slMove(id, stage, extra) {
       void toast(`${c.name} is a client`, {
         label: "Open the Client",
         run: () => {
-          (clientOpen = c.id), (clientTab = "overview"), (view = "clients"), render();
+          (clientOpen = c.id), (clientTab = "overview"), (docOpen = null), (view = "clients"), render();
         },
       })
     );
