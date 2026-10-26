@@ -635,11 +635,22 @@ def phone_line(p, k, t):
         raise Stuck(f'line {k}: Add Line Item', f'a new line {k} to fill (a sheet, or line {k} on the page): the screen still says {n1} lines',
                     p.scr, 'Add Line Item')
     if p.scr.sheet:
+        # the phone's full-screen line editor (.ct-sheet, read as a sheet since 10-26): the item first (it may pull a price
+        # from the library and redraw the sheet), then each field read again; the budget cost input has no label of its
+        # own, so it is the field under the words "Budget cost", as a person finds it
         F = lambda rx: next((c for c in p.scr.ctls if not c.action and re.search(rx, c.label, re.I)), None)
-        steps = [(F(r'item|descr'), t['item']), (F(r'rate|price'), t['price']), (F(r'qty|quant'), t['qty']), (F(r'unit|^ls$'), t['unit']), (F(r'cost|budget'), t['cost'])]
-        missing = [x for (c, x) in steps if c is None]
-        if missing: raise Stuck(f'line {k}: the line sheet', 'fields for description, price, quantity, unit and cost', p.scr, 'Add Line Item')
-        p.do_ctls([('type', c, v) for c, v in steps])
+        item = F(r'item|descr')
+        if item is None: raise Stuck(f'line {k}: the line sheet', 'an Item field on the line sheet', p.scr, 'Add Line Item')
+        p.do_ctls([('type', item, t['item'])])
+        for rx, key, what in ((r'qty|quant', 'qty', 'quantity'), (r'unit|^ls$', 'unit', 'unit'), (r'rate|price', 'price', 'price'), (None, 'cost', 'budget cost')):
+            p.look()
+            c = F(rx) if rx else (F(r'cost|budget') or p.scr.find('', field=True, after='Budget cost'))
+            if c is None: raise Stuck(f'line {k}: the line sheet', f'a {what} field on the line sheet', p.scr, 'Add Line Item')
+            if not rx: p.expect(bool(re.search(r'cost|budget', c.label, re.I)), 'the line\'s budget cost field has a label of its own on the phone', f'it reads as "{c.label}"')
+            try: p.do_ctls([('type', c, t[key])])
+            except Stuck as e:
+                if rx: raise
+                p.expect(False, f'line {k}: the budget cost can be typed on the phone', (e.control or '')[-160:])
         b = next((c for c in p.scr.actions('sheet') if re.match(r'(save|done|add)', norm(c.label))), None)
         if not b: raise Stuck(f'line {k}: the line sheet', 'a Save or Done on the line sheet', p.scr, p.last_control)
         p.tap(b.label, exact=True)
