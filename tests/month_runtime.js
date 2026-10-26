@@ -130,8 +130,8 @@ const its = (els, f) => els.filter(vis).map(f).filter(Boolean);
 const btns = (el, sel) => [...el.querySelectorAll(sel || 'button')].filter(vis).map(b => ({ label: norm(b.innerText || b.getAttribute('aria-label')), el: b })).filter(v => v.label);
 const COLLECT = {
   home: R => {
-    if (R.querySelector('.td-home')) return its([...R.querySelectorAll('.td-do .td-card')], el => ({ sec: 'Do Now', kind: el.dataset.kind, text: norm(el.querySelector('.td-txt').innerText), verbs: btns(el, '[data-tdverb]') }))
-      .concat(its([...R.querySelectorAll('.td-catch .td-card')], el => ({ sec: 'Caught for You', kind: el.dataset.src, text: norm(el.querySelector('.td-txt').innerText), verbs: btns(el, '[data-tdcatch]') })))
+    if (R.querySelector('.td-home')) return its([...R.querySelectorAll('.td-do .td-card')], el => ({ sec: 'Do Now', kind: el.dataset.kind, text: norm((el.querySelector('.td-txt, .td2-what') || el).innerText), verbs: btns(el, '[data-tdverb]') }))
+      .concat(its([...R.querySelectorAll('.td-catch .td-card')], el => ({ sec: 'Caught for You', kind: el.dataset.src, text: norm((el.querySelector('.td-txt, .td2-what') || el).innerText), verbs: btns(el, '[data-tdcatch]') })))
       .concat(its([...R.querySelectorAll('section, .td-sec')].filter(s => /needs your hand/i.test(norm((s.querySelector('h2,h3') || {}).innerText))).flatMap(s => [...s.querySelectorAll('.td-card, .card, li')]),
         el => ({ sec: 'Needs Your Hand', kind: 'hand', text: norm(el.innerText).slice(0, 240), verbs: btns(el) })));
     return its([...R.querySelectorAll('.h4c')].flatMap(card => [...card.querySelectorAll('.h4r[data-ea]')].map(el => [card, el])).map(x => x[1]), el => {
