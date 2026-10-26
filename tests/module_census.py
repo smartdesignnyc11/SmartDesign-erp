@@ -92,6 +92,18 @@ for _m, _vs in {
 # Settings (setup) holds the company's own switches (basis, entities, rules) in rows of buttons; the job's settings
 # likewise. They are read, never pressed.
 NO_PRESS = {'setup', 'proj', 'hbsettings'}
+# what the walk shows about where a module's pages sit, said once at the top of its census
+NOTES = {
+    'today': "The crew's first page is Clock (Time and Payroll), the driver's Route (Field and Site) and the client's Overview (the Client Portal): those three roles have no Today page. The PM, owner and coordinator open Chief of Staff from More; it is the Ask page (`pa`), the same page the Company menu calls The Brain.",
+    'sales': "Estimates as the owner sees them is the Billing page on its Estimates tab (Sales › Estimates); the Billing census walks the same page from the Billing menu.",
+    'field': "The PM's, owner's and coordinator's field pages (Field, Photos, Deliveries, Drawings, Daily Log) sit in the Projects menu group and are in the Projects census; here those roles reach Requests and Route through More. The foreman, crew and driver reach their field pages from their own menus.",
+    'design': "The PM's Drawings sits in the Projects menu group (the Projects census); the PM reaches Project Board, Filings, Selections and Design through More. The coordinator reaches Selections through More.",
+    'billing': "Billing is one page. Its tabs hold the queue (Ready to Bill), Progress Billing, Estimates, Change Orders, Invoices, Schedule of Values, Payments and Client Funds. The owner reaches it under Accounting, the PM under Projects, billing and the controller from their own Billing entry; the Projects census walks the Change Orders and Estimates strip entries that open the same page on a tab.",
+    'timepay': "Time and Payroll is one page (`time`): Time & Crew for the office, Clock for the crew and the driver. Payroll runs are made and approved on Bills & Payroll (its New Payroll Run button and tabs), which sits in the Accounting menu and is in the Accounting census.",
+    'tasks': "Tasks (`tkall`) has its own rail entry and is also under Today for the office roles; Messages (`chat`) has its own rail entry, and its Mail tab opens the Inbox (`comms`, in the Today census). Meetings sit in the Company menu group and are walked here.",
+    'company': "Settings' Company Settings tile opens the job's settings page in its company mode (users, entities, approval rules, the company block); it is walked here as Company Settings, read as it opens (its rows of buttons are settings and are never pressed). The Brain opens the Ask page (`pa`), the page More calls Chief of Staff.",
+    'client': "The client sees their own job only (121 State Street) and has no menu groups: five entries on the rail and the phone bar.",
+}
 MAX_LINKS = 10
 # a link to another module's page that belongs to this one: Settings' Company Settings tile opens the job's settings
 # page in its company mode (users, entities, approval rules, the company block)
@@ -468,10 +480,35 @@ def disagreements(r):
     return clashes(fig_vals(screens(r), page_of))
 
 
+def link_names(D):
+    """a page reached by a link is named for the page it opens (its heading), not the words of the link; a link this
+    census names itself (EXTRA_LINKS) keeps that name"""
+    for dev, us in (D.get('walk') or {}).items():
+        for u, r in us.items():
+            ss = r.get('screens') or []
+            names = {s['name'] for s in ss if not s.get('tabOf')}
+            for s in ss:
+                if s.get('from') != 'link' or s.get('tabOf') or s.get('linkText') or s['name'] in EXTRA_LINKS.values(): continue
+                old = s['name']
+                new = (s.get('heading') or s.get('view') or old).strip()[:40]
+                if new != old and new in names: new = f"{new} ({s.get('view')})"
+                if new == old: continue
+                names.add(new)
+                s['linkText'] = old
+                s['name'] = new
+                for t in ss:
+                    if t.get('tabOf') and (t['tabOf'] == old or t['tabOf'].startswith(old + '[')):
+                        t['tabOf'] = new + t['tabOf'][len(old):]
+                        t['name'] = new + t['name'][len(old):]
+                for p in r.get('pages') or []:
+                    if p.get('from') == 'link' and p.get('l') == old: p['l'] = new
+
+
 class World:
     """every module's walk, the Projects census's included, for what shows in two modules"""
     def __init__(self):
         self.D = {m: load(m) for m in WALKED}
+        for D in self.D.values(): link_names(D)
         pj = os.path.join(CENSUS, 'projects', 'data.json')
         self.P = json.load(open(pj)) if os.path.exists(pj) else {}
         # (dev, uid) -> record key -> {(module, page)}
@@ -483,21 +520,52 @@ class World:
                 for u, r in ((D.get('walk') or {}).get(dev) or {}).items():
                     for s in screens(r):
                         self.all[(dev, u)].append((m, s))
-                        for f in s.get('found', []): self.where[(dev, u)][f[0]].add((m, page_of(s)))
+                        for f in s.get('found', []): self.where[(dev, u)][f[0]].add((m, page_of(s), s.get('view')))
+        # the Projects census's 121 State Street pages: its field roles' and the client's pages are their own menus'
+        # pages (walked here too), and the designer's and controller's "job page" is the page a row tap opens, so
+        # neither counts as the Projects module here
         for dev in DEVS:
             for u, r in ((self.P.get('walk') or {}).get(dev) or {}).items():
+                if u in FIELD_ROLES or u == 'u_klein': continue
+                ro = (((r.get('jobs') or {}).get(FIRST_JOB) or {}).get('rowOpens'))
                 for s in screens(r):
-                    if s.get('job') != FIRST_JOB: continue
+                    if s.get('job') != FIRST_JOB or s.get('rowTap') or s.get('allProjects'): continue
+                    if ro and PC.page_of(s) == 'Job Page': continue
                     self.all[(dev, u)].append(('projects', s))
-                    for f in s.get('found', []): self.where[(dev, u)][f[0]].add(('projects', PC.page_of(s)))
+                    for f in s.get('found', []): self.where[(dev, u)][f[0]].add(('projects', PC.page_of(s), s.get('view')))
 
     def elsewhere(self, mod, dev, u, keys):
-        """the pages of other modules that list these records, for this role and device"""
+        """the pages of other modules that list these records, for this role and device; a page that is the same
+        page as one of this module's (one view under two menus) is left out here and listed by same_page"""
+        own = self.views(mod, dev, u)
         c = Counter()
         for k in keys:
-            for (m, pg) in self.where[(dev, u)].get(k, ()):
-                if m != mod: c[(m, pg)] += 1
+            for (m, pg, v) in self.where[(dev, u)].get(k, ()):
+                if m != mod and v not in own: c[(m, pg)] += 1
         return c
+
+    def views(self, mod, dev, u):
+        return {s.get('view') for m, s in self.all[(dev, u)] if m == mod}
+
+    def same_pages(self, mod, dev, u):
+        """grouped: [(page here, view, [module › page there])]"""
+        g = defaultdict(list)
+        for a, m, b, v in self.same_page(mod, dev, u): g[(a, v)].append(f"{TITLE.get(m, m)} › {b}")
+        return [(a, v, sorted(x)) for (a, v), x in sorted(g.items())]
+
+    def same_page(self, mod, dev, u):
+        """this module's pages that another module's menu opens too (the same view): [(page here, module, page there, view)]"""
+        here = {}
+        for m, s in self.all[(dev, u)]:
+            if m == mod and not s.get('tabOf'): here.setdefault(s.get('view'), page_of(s))
+        out = set()
+        for m, s in self.all[(dev, u)]:
+            if m == mod or s.get('tabOf') or s.get('allProjects') or s.get('rowTap'): continue
+            v = s.get('view')
+            if v in here:
+                pg = page_of(s) if m != 'projects' else PC.page_of(s)
+                out.add((here[v], m, pg, v))
+        return sorted(out)
 
     def inbound(self, dev, u, v):
         """the pages (any module) whose links lead to view v"""
@@ -525,6 +593,10 @@ class World:
         return out
 
 
+def pl(n, w):
+    return f"{n} {w}" + ('' if n == 1 else 's')
+
+
 def how_txt(s):
     t = s.get('path') or []
     if s.get('from') == 'link': return ' › '.join(t)
@@ -544,21 +616,26 @@ def headline(mod, D, Wd, w):
         if not d or d.get('crash'): continue
         c, cp = counts(d), counts(ph) if ph else None
         tall = sum((s.get('pageH') or 0) for s in pages_of(d)) / 900
-        H.append(f"- **{ROLE_NAME[u]}: {c['pages']} pages with {c['tabs']} more screens behind their tabs on the desktop" + (f" ({cp['pages']} pages and {cp['tabs']} tab screens on the phone)" if cp else '') + f"**, about {round(tall)} desktop screens end to end.")
+        H.append(f"- **{ROLE_NAME[u]}: {pl(c['pages'], 'page')} with {pl(c['tabs'], 'more screen')} behind their tabs on the desktop" + (f" ({pl(cp['pages'], 'page')} and {pl(cp['tabs'], 'tab screen')} on the phone)" if cp else '') + f"**, about {pl(max(1, round(tall)), 'desktop screen')} end to end.")
     rows = []
     for u in roles_of(D):
         d = (W.get('desktop') or {}).get(u)
         if d and not d.get('crash'): rows.append(f"{ROLE_NAME[u].split(' (')[0]} {counts(d)['pages']}")
     if rows: H.append('- **Pages each role reaches in this module, desktop:** ' + ', '.join(rows) + '.')
     # one way in
-    one = []
     for u in prim:
+        one = defaultdict(list)
         for dev in DEVS:
             r = (W.get(dev) or {}).get(u)
             if not r or r.get('crash'): continue
             for pgx in reach_rows(mod, r, dev, u, w):
-                if pgx['ways'] == 1: one.append(f"{pgx['page']} ({dev})")
-    if one: H.append(f"- **Reached only one way** by {', '.join(ROLE_NAME[u].split(' (')[0] for u in prim)}: " + ', '.join(sorted(set(one))[:10]) + (f' and {len(set(one)) - 10} more' if len(set(one)) > 10 else '') + ' (section 1, how each page is reached).')
+                if pgx['ways'] == 1: one[pgx['page']].append(dev)
+        if one:
+            H.append(f"- **Reached only one way** by {ROLE_NAME[u]}: " + ', '.join(f"{p} ({' and '.join(ds)})" for p, ds in sorted(one.items())) + ' (one menu entry, not on the phone bar, and no walked page links to it; section 1).')
+    for u in prim:
+        sp = w.same_pages(mod, 'desktop', u)
+        if sp:
+            H.append(f"- **The same page under another module's menu** ({ROLE_NAME[u].split(' (')[0]}, desktop): " + '; '.join(f"{a} is also {', '.join(x)} (`{v}`)" for a, v, x in sp[:6]) + '.')
     for u in prim[:1]:
         r = (W.get('desktop') or {}).get(u)
         if not r or r.get('crash'): continue
@@ -640,6 +717,9 @@ def report_module(mod, w):
     P('')
     P(f"**What this is.** A machine inventory, not a judgment, in the format of the Projects census (`docs/modules/projects_census.md`). No app code changed. `tests/module_census.py` (its helpers `tests/module_census_js.js` sit on the projects census's reader `tests/census_js.js` and the information map's `tests/ia_js.js`) signs in as each role on a fresh app at 1440 and at 390, reads the role's running menu, and reaches each page of this module the way the person does: the phone bar, or the menu (the hamburger on the phone), the group, then the strip. It presses every tab of every tab group and the tabs those reveal, follows the page's own links to this module's pages the menu did not reach, reads every screen and shoots it. The primary role is {PRIMARY_TXT[mod]}; every role whose menu holds a page of this module is walked. Job-scoped pages show **121 State Street** wherever the role may open it.")
     P('')
+    if NOTES.get(mod):
+        P(f"**Where this module's pages sit.** {NOTES[mod]}")
+        P('')
     P(f"**Build {D.get('build', '?')}** (master {D.get('head', '?')}), the one build every module census of this round ran on. {n_screens} screens in all. Walked {D.get('built', '')} on the demo day (Thu 2026-09-03); the walk of every module took {round((D.get('walkWall') or 0) / 60, 1)} minutes. Raw read: `review/census/{mod}/data.json`. Every screen per role in tables: `review/census/{mod}/tables.md`. Screenshots of every screen, both devices: `review/census/{mod}/shots/` (`desktop_` or `phone_`, the role, the page, then the tab; up to 3 desktop or 5 phone screens tall). The first screen of each page is committed; the tabs stay on the machine that ran it.")
     P('')
     P(f"Run it: `python3 build.py && cd tests && ./slot.sh python3 module_census.py --module {mod}` (then `python3 module_census.py --report` rewrites every module's page from data.json).")
@@ -717,7 +797,7 @@ def report_module(mod, w):
             r = (W.get(dev) or {}).get(u)
             if not r or r.get('crash'): continue
             for x in reach_rows(mod, r, dev, u, w):
-                P(f"| {ROLE_NAME[u]} | {dev} | {esc(x['page'])} | {esc('; '.join(x['places'])) or ('none (reached by a link)' if x['from'] == 'link' else 'none')} | {'yes' if x['bar'] else '-'} | {inb_txt(x)} | {x['ways']}{' (one way)' if x['ways'] == 1 else ''} |")
+                P(f"| {ROLE_NAME[u]} | {dev} | {esc(x['page'])} | {esc('; '.join(x['places'])) or ('none (reached by a link)' if x['from'] == 'link' else 'none')} | {'yes' if x['bar'] and dev == 'phone' else '-'} | {inb_txt(x)} | {x['ways']}{' (one way)' if x['ways'] == 1 else ''} |")
     P('')
     un = [(u, dev, r.get('unplaced')) for u in roles_of(D) for dev in DEVS for r in [(W.get(dev) or {}).get(u)] if r and r.get('unplaced')]
     if un:
@@ -780,7 +860,16 @@ def report_module(mod, w):
         if el: P(f"- **{ROLE_NAME[u]}** ({len(allk)} records here): " + '; '.join(f"{TITLE.get(m, m)} › {esc(p)} {n}" for (m, p), n in el.most_common(8)))
         else: P(f"- **{ROLE_NAME[u]}**: none found.")
     P('')
-    P('Names (clients, vendors, leads, contacts, companies, partners) are left out here: a page that writes a name counts as listing it.')
+    P('Names (clients, vendors, leads, contacts, companies, partners) are left out here: a page that writes a name counts as listing it. A page that is the same page as one of this module\'s (one view under two menus) is left out too and listed next.')
+    P('')
+    P('### The same page under two modules\' menus')
+    P('')
+    rows = [(u, x) for u in roles_of(D) for x in w.same_pages(mod, 'desktop', u)]
+    if rows:
+        for u, (a, v, x) in rows:
+            P(f"- {ROLE_NAME[u]}: {esc(a)} here is also {esc(', '.join(x))} (`{v}`)")
+    else:
+        P('None found.')
     P('')
     # ------------------------------------------------------------------------------------------- 3. numbers
     P('## 3. One Label, Different Numbers')
@@ -904,6 +993,8 @@ def report_module(mod, w):
     P('- **Figures** are read from tiles, two-column tables, definition lists and the bold money that leads a note; a figure inside a sentence is not read. Labels are compared with numbers and small words removed, so two different figures with one label show as a disagreement and need a person to judge.')
     P('- **Tabs** are rows of two or more buttons with exactly one on. A dropdown that switches the view, a row of toggles, the rows of Settings and Project Settings, and a button that commits (New, Send, Approve...) are never pressed. One level of revealed tabs is walked; a tab group seen once on a page is not walked again from another route to the same page.')
     P('- **What opens, not what is two taps away:** a record opened from a row (an invoice, a PO, a bill), "N more" rows, folded cards and sheets are not walked.')
+    P('- **Ways in are a floor:** a link counts when the element names a page in a data attribute or its onclick; a tap that opens a record (a PO number, a bill) and lands on its page, ⌘K search and Ask are not counted. "One way" means one menu entry and no counted link.')
+    P('- **The phone menu** is the hamburger at the top left, which opens the same rail as the desktop; the strip under the header scrolls sideways, and an entry past the edge is recorded as "swipe the strip".')
     P('- **One job:** job-scoped pages are read on 121 State Street where the role may open it. The Projects census reads two jobs.')
     P('- **Each role runs on a fresh app,** as a new device: what a page remembers (a tab, All projects on the phone) starts as a first visit.')
     P('- **Not judged:** whether the content is right, what is missing, and what should merge. That is the experts\' walk with this census in hand.')
@@ -960,11 +1051,13 @@ def module_dups(mod, w):
             ks = unnamed(ks)
             for (m, p), n in w.elsewhere(mod, 'desktop', u, ks).most_common(2):
                 if n >= 3 and n >= 0.5 * len(ks): out.append((n, f"{pg} and {TITLE.get(m, m)} › {p} list {n} of the same records"))
-        pl = Counter(e['v'] for e in (r.get('entries') or []) if e.get('mod') == mod)
-        for v, n in pl.items():
-            if n >= 2:
-                es = [f"{e['gname']} › {e['l']}" for e in r['entries'] if e['v'] == v]
-                out.append((n, f"`{v}` sits in {n} menu places ({', '.join(es)})"))
+        ents = r.get('entries') or []
+        for v in {e['v'] for e in ents if e.get('mod') == mod}:
+            es = [f"{e['gname']} › {e['l']}" for e in ents if e['v'] == v]
+            if len(es) >= 2: out.append((len(es), f"`{v}` sits in {len(es)} menu places ({', '.join(es)})"))
+        for a, v, x in w.same_pages(mod, 'desktop', u):
+            n = len(per.get(a, ())) or 1
+            out.append((max(n, 3), f"{a} is the same page as {', '.join(x)} (`{v}`)"))
     out.sort(key=lambda x: -x[0])
     seen, res = set(), []
     for n, t in out:
@@ -1010,6 +1103,14 @@ def readme(w):
         dd = module_dups(mod, w)[:3]
         P(f"| {title} | {ptxt} | {len(us)} | {pages}{note} | {tabs} | {scr} | {esc('; '.join(t for _, t in dd)) or '-'} | [{mod}_census.md]({mod}_census.md) |")
     P('')
+    firsts = {}
+    for D in w.D.values():
+        for dev in DEVS:
+            for u, r in ((D.get('walk') or {}).get(dev) or {}).items():
+                if r.get('first'): firsts.setdefault(u, r['first'])
+    if firsts:
+        P('**Where each role starts** (the first page after sign-in, and its module): ' + '; '.join(f"{ROLE_NAME[u]} `{v}` ({TITLE.get(MOD_OF_VIEW.get(v, ''), '?') if u not in FIELD_ROLES or v != 'route' else 'Field and Site'})" for u, v in firsts.items()) + '.')
+        P('')
     P('## Pages, Tabs and Screens per Role and Device')
     P('')
     P('Each cell: pages / tab screens / screens, desktop then phone. "-" means the role opens no page of the module.')
