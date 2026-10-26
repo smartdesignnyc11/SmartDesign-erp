@@ -1393,8 +1393,15 @@ def main():
     ap.add_argument('--resume', action='store_true')
     ap.add_argument('--seed', type=int, default=0, help='the held-out events seed (default: from the run name)')
     ap.add_argument('--debug', action='store_true', help='developer only: allow simctl debug-eval (never for a run with agents)')
+    ap.add_argument('--live', metavar='ROLE', help='the same verbs against the live site as that role\'s QA account (owner, pm, coord, billing, '
+                                                   'controller; SD_QA_USERS names the accounts file): sim/live.py')
     a = ap.parse_args()
     if not re.match(r'^[\w.-]+$', a.run): raise SystemExit('run names are letters, digits, dot, dash, underscore')
+    if a.live:
+        import live
+        os.makedirs(RUNS, exist_ok=True)
+        qa = os.environ.get('SD_QA_USERS') or sys.exit('live mode needs SD_QA_USERS (the QA accounts file, outside the repo)')
+        asyncio.run(live.LiveSim(a.run, a.port, a.live, qa).main()); return
     if not os.path.exists(DIST): raise SystemExit('build first: python3 build.py')
     seed = a.seed or int(hashlib.sha1(a.run.encode()).hexdigest()[:6], 16)
     os.makedirs(RUNS, exist_ok=True)

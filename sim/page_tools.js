@@ -22,9 +22,17 @@ try { if (!window.__simGate) { const base = idbSet; window.__simGate = true;
 window.addEventListener('error', e => S.errs.push(String(e.message || e).slice(0, 200)));
 
 // ------------------------------------------------------------------ what is on the screen
+// Anything laid over the page is a sheet to the eye, whatever its class. The named ones first; then, as a class, any
+// fixed element at the top of the body that covers most of the screen (the phone's full-screen line editor, .ct-sheet,
+// was invisible to the text and read as "Add Line Item does nothing" until a screen picture showed it open, 10-26).
+const COVERS = el => { if (!vis(el)) return false; const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false;
+  const r = el.getBoundingClientRect(), a = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+  return a >= 0.6 * innerWidth * innerHeight && !['toast', 'fatal', 'signin'].includes(el.id); };
 S.overlays = () => {
-  const c = [...document.querySelectorAll('#mbm, .mbm, #drawer.on, #viewer.on, [role=dialog], [aria-modal=true], .sheet.on, .msheet.on, .cmdk.on, #cmdk.on')].filter(vis);
-  return c.filter(el => !c.some(o => o !== el && o.contains(el)));
+  const c = [...document.querySelectorAll('#mbm, .mbm, #drawer.on, #viewer.on, [role=dialog], [aria-modal=true], .sheet.on, .msheet.on, .cmdk.on, #cmdk.on, .ct-sheet')].filter(vis)
+    .concat([...document.body.children].filter(e => !e.matches('section, main, nav, header, aside, #app, .app, .shell') && COVERS(e)));
+  const u = [...new Set(c)];
+  return u.filter(el => !u.some(o => o !== el && o.contains(el)));
 };
 S.viewRoot = () => document.querySelector('section.view.on') || document.querySelector('main') || document.body;
 const BLOCKS = /^(block|flex|grid|table|table-row|list-item|table-caption)$/;
@@ -145,6 +153,9 @@ S.screen = (marks) => {
       k === 'check' ? !!el.checked : (k === 'input' || k === 'text' || k === 'date') ? !!String(el.value || (el.isContentEditable ? el.innerText : '')).trim() : null;
     S.sig.push({ k, label: lab.slice(0, 80), tag: el.tagName, filled }); return n; };
   const ov = S.overlays(), out = [];
+  // the app's fatal banner (showFatal: "Could not start: ...") sits outside every view; a person sees it first (live mode found it, 10-26)
+  const fat = document.getElementById('fatal');
+  if (fat && vis(fat)) { const p = []; S._fold = false; walk(fat, p); out.push('== Red banner across the top ==', ...tidy(p)); }
   const t = document.getElementById('toast');
   const toastOn = t && t.classList.contains('on') && vis(t);
   // a file field is usually hidden behind a "Choose File" area: a person can still tap it, so it gets a number
