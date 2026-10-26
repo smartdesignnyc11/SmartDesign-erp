@@ -22,7 +22,7 @@ Desktop 1440 and phone 390, as the coordinator (who runs the meeting) and the ow
             the first screen above Previous and Next, with the toast above them
 Screenshots: review/taskviews/ (desktop and phone; never committed).
 Invented data only."""
-import asyncio, os, sys
+import asyncio, os, re, sys
 from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
 
 SHOTS = os.path.join(ROOT, 'review', 'taskviews')
@@ -549,6 +549,9 @@ async def columns(c, p):
          f'sheet: the imported values in their places ({[(k, S.get(k, {}).get("v")) for k in ("priority", "carried", "start", "tags", "blocking", tk)]})')
     await pg.evaluate("k => { const e = document.querySelector(`#mbm [data-tvsf='${k}']`); e && e.scrollIntoView({ block: 'center' }); }", tk); await pg.wait_for_timeout(150)
     await pg.screenshot(path=os.path.join(SHOTS, 'dt_sheet_fields.png'))
+    # values stay as written beside the open sheet: the app's Title Case pass is for labels ("3 Days Late" was the miss)
+    vals = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tv-tr .tv-due, #tkall-body .tv-tr .tv-fc span')].map(e => e.innerText.trim()).filter(t => / day|late|not set/i.test(t)).slice(0, 8)")
+    c.ok(vals and not any(re.search(r'Days? Late|Not Set', v) for v in vals), f'columns: row values are never Title Cased, with the sheet open too ({vals})')
     await pg.click(f'#mbm [data-tvsf="{tk}"]'); await pg.wait_for_timeout(200)
     await pg.click('#tv-pop [data-tvopt="Tile"]'); await pg.wait_for_timeout(300)
     t = await toast_of(pg)

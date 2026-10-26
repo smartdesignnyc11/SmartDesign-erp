@@ -2127,7 +2127,7 @@ function tvDecorateRows(scope) {
       dot && dot.classList.contains("tk2-dot") && dot.remove();
       when.remove();
     }
-    slide.insertAdjacentHTML("beforeend", `<span class="tv-cells">${I.wait ? tvCell(I, "wait") : ""}${tvCell(I, "owner")}${tvCell(I, "due")}${tvCell(I, "status")}</span>`);
+    slide.insertAdjacentHTML("beforeend", `<span class="tv-cells" data-nocase="1">${I.wait ? tvCell(I, "wait") : ""}${tvCell(I, "owner")}${tvCell(I, "due")}${tvCell(I, "status")}</span>`);
   });
   // each section says how many it holds (the rows under it); on the phone its rows sit in one white card
   scope.querySelectorAll(".tk2-ghd").forEach((h) => {
@@ -2490,6 +2490,9 @@ function tvAfter() {
   const infos = tvRows().map(tvInfo),
     wrap = document.createElement("div");
   wrap.className = `t2-list tv-host tv-mode-${tkMode}`;
+  // the rows hold values ("3 days late", a tag, a name), never labels: the app's Title Case pass leaves them as written
+  // (it read "3 Days Late" in the Due column once a sheet opened); the headers are written in Title Case already
+  wrap.dataset.nocase = "1";
   wrap.dataset.tvmode = tkMode;
   const quick = list.querySelector(".t2-quick"),
     empty = !infos.length && "table" === tkMode,
