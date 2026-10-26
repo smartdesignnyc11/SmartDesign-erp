@@ -555,7 +555,7 @@ class Sim:
             if len(self.errs.get('dialogs', [])) > n_dialog: stop = f'step {i}: the app asked a question ({self.errs["dialogs"][-1][:160]})'; break
             if '(the app reported an error' in (out.get('text') or ''): stop = f'step {i}: the app reported an error'; break
         pg, _ = await self.fresh(uid)
-        fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, shot=opts.get('shot'))
+        fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
         head = f"do: {done} of {len(steps)} steps" + (f" · STOPPED: {stop}" if stop else ' · all done')
         txt = '\n'.join([head] + lines + ([f"Toasts: {' / '.join(dict.fromkeys(toasts))}"] if toasts else []) + ['', fin['text']])
         self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300], 'why': (opts.get('why') or '')[:300] or None})
@@ -649,7 +649,7 @@ class Sim:
     async def _after(self, uid, pg, opts):
         """the screen after an action, unless it is a step inside a batch (the batch shows the screen once, at the end)"""
         if opts.get('quiet'): return {'ok': True, 'text': ''}
-        return await self.render_screen(uid, pg, shot=opts.get('shot'))
+        return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'), marks=opts.get('marks'))
 
     async def v_tap(self, uid, pg, args, opts):
         if not args: return {'ok': False, 'text': 'tap which number?'}
