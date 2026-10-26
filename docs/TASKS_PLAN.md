@@ -89,6 +89,17 @@ No real meeting content is in this file (CLAUDE.md, Privacy). The examples below
      - totals per group.
    - **Board:** by status or by project; drag to move; cards show the ID, owner, due date and a waiting-on chip.
    - **Calendar** by due date and follow-up date.
+   - **Columns and fields (Alan, 10-26):** "Make sure there's a place for field and column", then "Some are column and some are fields within the task."
+     - The desktop opens Tasks (and a job's Tasks) as the Table. Its default columns are Key, Task, Project, Owner, Due, Priority, New or Carried, Status and Waiting On.
+     - Click a header to sort: up, down, then back to the view's own order. Shift adds a second sort. Empty values go last both ways. Priority runs P1 to P3, then none. Keys sort naturally. The sort stays inside each group.
+     - Every field has one place, set by the owner in the Columns control (a line icon in the header): Show as a Column, or In the Task Only. Each person still shows, hides and orders their own columns, saved on their own record, one set per page.
+     - In the task only by default: General Notes, Notes, Start, Tags, Collaborators, Follow Up, Blocked By, Blocking and Comments. Long text is never a column.
+     - Every field has its labelled place in the sheet (panel and phone), and each one filters.
+     - An Asana column the import does not map becomes one of the board's own fields: text, choices, or long text. The owner adds, renames and removes these. GENERAL NOTES now goes into the General Notes field, not a comment, and a re-import moves the old comments into it.
+     - On the phone, the Filter sheet has Sort By and a Second Line setting (Due and Project by default).
+     - Meeting Mode's card shows the table's columns.
+     - Proof: `tests/task_views_test.py` (columns), `tests/tasks_phone_test.py` (phone_sort) and `tests/asana_import_test.py`.
+     - Not built: drag to reorder columns (it is up and down buttons), and a custom field per board (they are the firm's, with the board they came from noted).
    - **Saved views per person** (My Week, Waiting on Others, By Project), and the one task sheet from the tasks lane behind every row.
 
 ### Phase 2: the transcript updates the board, people approve (target: Thursday 10-29, Asana retired)
