@@ -9434,7 +9434,35 @@ function docAudit(c, d, action, note) {
     audit(d.type, d.id, action, d.status, "void" === action ? "void" : action, `${d.number} · ${note || ""}`);
   } catch (e) {}
 }
+// Mark Sent on a draft estimate records a sending done outside the app: it asks how it went, to whom and on what
+// day (nothing is filled in for the day; it is the person's to say), then sends it through docAction with that record.
+function docMarkSentSheet(c, d) {
+  const pc = "function" == typeof crBillTo ? crBillTo(c) : {},
+    HOW = ["Email from my own mailbox", "Printed and handed over", "Through the client portal", "Another way"];
+  mbModal(
+    `Mark Sent — ${esc(d.number)}`,
+    `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
+      ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+    {
+      submit: "Record It Sent",
+      onSubmit: (f) => {
+        if (!f.how) return toast("Say how it went to the client"), !1;
+        if (!f.on) return toast("Say the day it was sent"), !1;
+        if (f.on > today()) return toast("A sending cannot be in the future"), !1;
+        (async () => {
+          const was = d.status;
+          if ((await docAction(c, d, "send"), d.status === was)) return;
+          (d.sentAt = f.on), (d.sentTo = f.to || ""), (d.sentVia = f.how), (d.sentBy = S.project.userName || role());
+          c.activity.push({ t: nowStamp(), by: d.sentBy, text: `${d.number} recorded as sent ${fmtL(f.on)} (${f.how}${f.to ? " to " + f.to : ""})` });
+          save(), render(), toast(`${d.number} recorded as sent ${fmtL(f.on)}`, flowGo.doc(c, d.type, d));
+        })();
+      },
+    },
+  );
+}
 async function docAction(c, d, a) {
+  if ("marksent" === a) return "draft" === d.status ? docMarkSentSheet(c, d) : void 0;
   const k = d.type,
     by = S.project.userName || "",
     act = (txt) => c.activity.push({ t: nowStamp(), by: by, text: txt });
@@ -122389,37 +122417,6 @@ if ("function" == typeof renderBilling) {
     } catch (e) {
       console.warn("billing new co", e);
     }
-  };
-}
-// Mark Sent on a draft estimate records a sending done outside the app: it asks how it went, to whom and on what
-// day (nothing is filled in for the person; the day is theirs to say), then marks it sent with that record.
-if ("function" == typeof docAction) {
-  const base = docAction;
-  docAction = async function (c, d, a) {
-    if ("marksent" !== a || !d || "draft" !== d.status) return base.apply(this, arguments);
-    const pc = "function" == typeof crBillTo ? crBillTo(c) : {},
-      HOW = ["Email from my own mailbox", "Printed and handed over", "Through the client portal", "Another way"];
-    mbModal(
-      `Mark Sent — ${esc(d.number)}`,
-      `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
-      ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
-      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
-      {
-        submit: "Record It Sent",
-        onSubmit: (f) => {
-          if (!f.how) return toast("Say how it went to the client"), !1;
-          if (!f.on) return toast("Say the day it was sent"), !1;
-          if (f.on > today()) return toast("A sending cannot be in the future"), !1;
-          (async () => {
-            const was = d.status;
-            if ((await base.call(this, c, d, "send"), d.status === was)) return;
-            (d.sentAt = f.on), (d.sentTo = f.to || ""), (d.sentVia = f.how), (d.sentBy = S.project.userName || role());
-            c.activity.push({ t: nowStamp(), by: d.sentBy, text: `${d.number} recorded as sent ${fmtL(f.on)} (${f.how}${f.to ? " to " + f.to : ""})` });
-            save(), render(), toast(`${d.number} recorded as sent ${fmtL(f.on)}`, flowGo.doc(c, d.type, d));
-          })();
-        },
-      },
-    );
   };
 }
 // who a document's mail goes to: the client's billing contact when one is named, else the primary contact
