@@ -391,6 +391,13 @@ class World:
         if p.get('short'): notes.append(f"{p['short']['qty']} cement boards short ({p['short']['why']})")
         if p.get('damaged'): notes.append(f"{p['damaged']['qty']} {p['damaged']['unit']} of the tile damaged ({p['damaged']['why']}): photo of the boxes attached")
         who = p.get('notify') or 'u_chen'
+        told = self.st.setdefault('trucks', {})   # one truck per order: the lumber and the drywall come on one PO when one yard won both
+        if p['number'] in told:
+            if not notes: return f"the truck for {p['number']} was already told to {who}"
+            self.sim.state['news'].setdefault(who, []).append(f"{self.sim.state['day']} {self.sim.clock_str()}: Angel texted you again about {p['number']}: " + '; '.join(notes))
+            told[p['number']] += notes
+            return f"the truck for {p['number']}: also {'; '.join(notes)}"
+        told[p['number']] = list(notes)
         txt = (f"{p['number']} from {po['vendor']} came to 214 Lincoln this morning. " + ('; '.join(notes) if notes else 'Everything on the slip arrived') +
                '. It is on the sidewalk; the slip is attached. Please receive it in the app. - Angel')
         slip = '\n'.join(f"{l['item']}: {l['qty']:g} {l['unit']} shipped" for l in po['lines'])

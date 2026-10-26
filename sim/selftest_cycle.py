@@ -126,7 +126,8 @@ def fixture(kind, B):
                      mail('Wren Ashby <wren.ashby@example.com>', 'Your estimate EST-2026-020', 'Attached is EST-2026-020.', '2026-09-03')] if right else [],
          'u_alan': [mail('Wren Ashby <wren.ashby@example.com>', 'Weekly update, 214 Lincoln', 'This week and next week. Over budget: Drywall & cement board, $369 over (the yards).', '2026-09-04'),
                     mail('Sarah Klein <sarah.klein@example.com>', 'Weekly update, 121 State', 'This week', '2026-09-04'),
-                    mail('Wren Ashby <wren.ashby@example.com>', 'CO-2026-010 vanity', 'The change order', '2026-09-04')] if right else [],
+                    mail('Wren Ashby <wren.ashby@example.com>', 'CO-2026-010 vanity', 'The change order', '2026-09-04'),
+                    mail('Wren Ashby <wren.ashby@example.com>', 'CO-2026-011 the joists', 'The change order for the joists, with the photo', '2026-09-08')] if right else [],
          'u_billing': [mail('David Klein <david.klein@example.com>', 'Re: INV-2026-040', 'Retainage held so far: $9,000', '2026-09-08')] if right else []}
     db['demoWs'] = {u: {'messages': M, 'labels': {}} for u, M in W.items()}
     if right:

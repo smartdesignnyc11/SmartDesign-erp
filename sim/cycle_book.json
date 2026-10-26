@@ -2321,7 +2321,6 @@
     "t": "cy",
     "step": "C30"
    },
-   "delay": 1,
    "payload": {
     "acct": "ac1",
     "date": "{today}",

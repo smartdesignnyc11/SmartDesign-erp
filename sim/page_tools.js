@@ -16,8 +16,11 @@ try { clearInterval(gsTimerId); } catch (e) {}
 // only the person whose turn it is may write the shared database (an idle page's stale timer must not)
 try { if (!window.__simGate) { const base = idbSet; window.__simGate = true;
   idbSet = async function (k, v) { if (window.__simActive === false) { window.__simDropped = (window.__simDropped || 0) + 1; return false; } return base(k, v); }; } } catch (e) {}
+// every toast, in order; the same words again a moment later are a second toast (two delivery problems reported one after
+// the other both say "Reported to purchasing": the second one was dropped and read as no confirmation, 10-26)
 (() => { const t = document.getElementById('toast'); if (!t) return;
-  new MutationObserver(() => { const x = norm(t.innerText); if (x && S.toasts[S.toasts.length - 1] !== x) S.toasts.push(x.slice(0, 240)); })
+  new MutationObserver(() => { const x = norm(t.innerText), now = Date.now();
+    if (x && (S.toasts[S.toasts.length - 1] !== x || now - (S._toastAt || 0) > 1500)) { S.toasts.push(x.slice(0, 240)); S._toastAt = now; } })
     .observe(t, { childList: true, subtree: true, characterData: true }); })();
 window.addEventListener('error', e => S.errs.push(String(e.message || e).slice(0, 200)));
 

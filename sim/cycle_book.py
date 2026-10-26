@@ -335,7 +335,9 @@ EVENTS = [
     {'id': 'Y-35', 'day': D3, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'reimbursable'],
      'payload': {'acct': 'ac2', 'date': D2, 'desc': 'LIGHTOLOGY CHICAGO IL', 'amt': -612.40, 'ref': 'AC2-20260904-LIGHT'},
      'expect': X('u_billing', 'The pendants on the Amex billed back to the Ashbys', 3, 'C34', ['LIGHTOLOGY'], money=612.40)},
-    {'id': 'Y-36', 'day': D1, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'deposit'], 'gate': G('C30'), 'delay': 1,
+    # the Ashbys' transfer clears at the first statement after the deposit invoice went (the next morning in the screen walk's
+    # J8; a delay counts from the day the gate opens, so 'delay': 1 had it land the Tuesday after)
+    {'id': 'Y-36', 'day': D1, 'time': '07:40', 'kind': 'bank', 'tags': ['cycle', 'deposit'], 'gate': G('C30'),
      'payload': {'acct': 'ac1', 'date': '{today}', 'desc': JOB['bank_desc'], 'amt': '{total}', 'ref': 'AC1-{today}-ASHBY'},
      'expect': X('u_billing', 'Record the Ashbys\' deposit ({total$}) against {number}', 1, 'C31', ['ASHBY'], money='{total}')},
     {'id': 'Y-38', 'day': D3, 'time': '10:30', 'kind': 'seed', 'tags': ['cycle', 'payroll'], 'payload': {},

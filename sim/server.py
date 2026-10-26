@@ -710,6 +710,14 @@ class Sim:
         if not r['ok']: return None, {'ok': False, 'text': r['why']}, None, None
         return r['sig'], None, '[data-simlab="1"]', '[data-simlab="1"]'
 
+    @staticmethod
+    async def reach(loc):
+        """bring a control into view the way a thumb does: scroll the page, and swipe a sideways row (the phone's change-order
+        header keeps Schedule Impact in an overflow-x row 600 px right of the screen; Playwright's own scroll did not reach
+        it and the type timed out, so a field a person can swipe to read as broken)"""
+        try: await loc.evaluate("e => e.scrollIntoView({ block: 'center', inline: 'center' })", timeout=2000)
+        except Exception: pass
+
     async def _after(self, uid, pg, opts):
         """the screen after an action, unless it is a step inside a batch (the batch shows the screen once, at the end)"""
         if opts.get('quiet'): return {'ok': True, 'text': ''}
@@ -721,6 +729,7 @@ class Sim:
         if err: return err
         loc = pg.locator(sel).first
         forced = ''
+        await self.reach(loc)
         try: await loc.click(timeout=4000)
         except Exception:
             # a click that landed late (the control was covered for a few seconds, then tapped) has already run and its
@@ -742,6 +751,7 @@ class Sim:
         loc = pg.locator(sel).first
         info = await pg.evaluate("n => __SIM.fieldInfo(n)", key)
         if info and info['kind'] in ('select', 'check', 'file'): return {'ok': False, 'text': f"{args[0]} is a {info['kind']}: use {'pick' if info['kind'] == 'select' else 'tap' if info['kind'] == 'check' else 'upload'}"}
+        await self.reach(loc)
         try: await loc.fill(text, timeout=4000)
         except Exception:
             await loc.click(timeout=3000); await pg.keyboard.type(text)
@@ -769,6 +779,7 @@ class Sim:
         if err: return err
         r = await pg.evaluate("([n, o]) => __SIM.pick(n, o)", [key, args[1]])
         if not r['ok']: return {'ok': False, 'text': r['why']}
+        await self.reach(pg.locator(sel).first)
         await pg.locator(sel).first.select_option(r['value'], timeout=4000)
         await self.settle(pg, 250)
         return {'ok': True, 'text': f"picked \"{r['text']}\" in {args[0]} \"{sig['label'][:50]}\"", 'control': sig['label'], 'kind': 'select'}
@@ -1003,6 +1014,9 @@ class Sim:
             rec = self.state['sent_seen'].setdefault(m['id'], {'by': m['uid'], 'how': 'system' if not self.state['turn'] else ('person' if self.state['turn']['uid'] == m['uid'] else 'system')})
             if rec.get('done'): continue
             rec.update({'done': True, 'to': m['to'], 'subject': m['subject'], 'day': self.state['day'], 'slot': self.state['slot']})
+            # what the app's own Send put in its outbox carries no From: it left from the person who pressed Send, so the
+            # answer goes back to them (the Ashbys' answer to a change order the app sent was lost: "no mailbox", 10-26)
+            if not m.get('from') and m.get('uid'): m['from'] = self.addr_of(m['uid'])
             for addr in re.split(r',\s*(?=[^,]*@)', (m['to'] or '') + (',' + m['cc'] if m.get('cc') else '')):
                 addr = addr.strip()
                 if not addr: continue

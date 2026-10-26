@@ -59,8 +59,10 @@ def doc_total(d):
 
 
 def po_total(po):
-    return r2(sum(num(l.get('qty')) * num(l.get('price') if l.get('price') not in (None, '') else l.get('cost')) for l in po.get('lines') or [])
-              + num(po.get('tax')) + num(po.get('shipping')))
+    """the order's total as the app's poTotal has it: lines, the tax RATE (po.tax is a percent) on them, shipping. It added
+    the rate as dollars, so the world's vendors billed $3,049.68 for a $3,307 order (10-26)"""
+    sub = sum(num(l.get('qty')) * num(l.get('price') if l.get('price') not in (None, '') else l.get('cost')) for l in po.get('lines') or [])
+    return r2(sub + sub * num(po.get('tax')) / 100 + num(po.get('shipping')))
 
 
 def po_line_total(l):
@@ -77,6 +79,7 @@ def held_on(b):
     sh = b.get('short') or {}
     if num(sh.get('held')) > 0: return r2(sh['held'])
     if str(b.get('status') or '') in ('hold', 'on-hold', 'held', 'disputed', 'rejected', 'void'): return bill_total(b)
+    if (b.get('onHold') or {}).get('state') == 'open': return bill_total(b)   # the bill's own Hold (the owner's): none of it is paid
     return 0.0
 
 
@@ -239,7 +242,7 @@ class Cycle:
         sid = c.get('step')
         if c.get('line'): st, det, bind = self.po_gate(c['line'])
         elif sid == 'C40' and c.get('state') == 'sent': st, det, bind = self.co_gate()
-        elif sid == 'C43' and c.get('state') == 'sent': st, det, bind = self.co_gate(self.joist_co())
+        elif sid == 'C43' and c.get('state') == 'sent': st, det, bind = self.co_gate(self.joist_co(), about='joist')
         else: st, det, bind = self.step(sid)
         if c.get('need') == 'right': return st == 'right', det, bind   # e.g. the client signs only an estimate that reached them
         return st in ('right', 'wrong', 'scripted'), det, bind
@@ -448,7 +451,10 @@ class Cycle:
         return 'scripted', f'{len(T)} lines imported; ' + ', '.join(f"{t['desc'][:20]} {t.get('status')}" for t in T), {}
 
     def payroll_run(self):
-        return next((r for r in self.db.get('payroll') or [] if r.get('from') == '2026-08-31' and r.get('to') == '2026-09-04' and r.get('status') not in ('void', 'rejected')), None)
+        """the run that pays the week of 8/31: the book's 8/31-9/4, or the firm's own two-week period from 8/31 (the app
+        builds 8/31-9/11 from approved time; the seed's last run was 8/17-8/28)"""
+        return next((r for r in self.db.get('payroll') or [] if r.get('from') == '2026-08-31' and str(r.get('to') or '') >= '2026-09-04'
+                     and r.get('status') not in ('void', 'rejected')), None)
 
     def s_C23(self):
         r = self.payroll_run()
@@ -521,10 +527,12 @@ class Cycle:
         C = [d for d in (c or {}).get('changeOrders') or [] if (not p or d.get('projectId') == p['id']) and re.search(r'vanity|rhea|36', text_of(d.get('title'), d.get('memo'), d.get('lines')), re.I)]
         return max(C, key=lambda d: ({'approved': 3, 'sent': 2}.get(d.get('status'), 1), doc_total(d))) if C else None
 
-    def co_gate(self, d=False):
+    def co_gate(self, d=False, about='vanity|change order'):
+        """a change order the Ashbys can answer: sent, and its mail reached them (the number, or what it is about); the
+        portal alone does not count, the Ashbys have no portal seat in the world"""
         d = self.vanity_co() if d is False else d
         if not d or d.get('status') not in ('sent', 'viewed', 'approved'): return 'not done', 'no change order sent', {}
-        if not self.to_ashby(re.escape(d.get('number') or '#') + '|vanity|change order') and d.get('status') != 'approved': return 'not done', f"{d['number']} never reached the Ashbys", {}
+        if not self.to_ashby(re.escape(d.get('number') or '#') + '|' + about) and d.get('status') != 'approved': return 'not done', f"{d['number']} never reached the Ashbys", {}
         return 'right', d['number'], {'number': d['number'], 'total': doc_total(d)}
 
     def s_C40(self):
@@ -542,10 +550,14 @@ class Cycle:
         return ('wrong' if bad else 'right', f"{d.get('number')} ${T:,.2f} approved" + (': ' + '; '.join(bad) if bad else ''), bind)
 
     def billed_lines(self, rx=None, co=None, txn=None):
+        """the sent invoice lines that bill it: a line at 0% or $0 names it without billing it (a change order's SOV line on a
+        progress invoice is there at 0% until someone bills it)"""
         out = []
         for i in self.invoices():
             if i.get('status') not in SENT: continue
             for l in i.get('lines') or []:
+                amt = num(l.get('scheduled')) * num(l.get('pct')) / 100 if i.get('mode') == 'sov' else num(l.get('qty') if l.get('qty') not in (None, '') else 1) * num(l.get('rate'))
+                if amt <= 0: continue
                 t = text_of(l.get('item'), l.get('desc'), l.get('source'))
                 if (rx and re.search(rx, t, re.I)) or (co and (l.get('coId') == co['id'] or l.get('srcCo') == co['id'] or re.search(re.escape(co.get('number') or '#'), t))) or \
                         (txn and (l.get('txnId') == txn['id'] or l.get('srcTxn') == txn['id'])):
@@ -737,6 +749,10 @@ class Cycle:
         credit = r2(held) if dmg - 1 <= held <= dmg + 141 else dmg
         b = {'number': (po or {}).get('number', ''), 'vendor': (po or {}).get('vendor', ''), 'inv': (bl or {}).get('number') or bind.get('inv', ''), 'credit': credit, 'damaged': dmg}
         if sh.get('state') in ('open', 'credited') and held > 0: return 'right', f"{b['inv']} holds ${held:,.2f} in dispute ({sh.get('state')})", b
+        oh = (bl or {}).get('onHold') or {}
+        if oh.get('state') in ('open', 'released') and re.search(r'damag|crack|broke|credit|claim|return', str(oh.get('why')), re.I):
+            b['credit'] = dmg   # the whole bill held for the damage: the vendor credits the damaged tile
+            return 'right', f"{b['inv']} on hold for the damage: {str(oh.get('why'))[:80]}", b
         if rets or claim_issue: return 'right', f"a {'return' if rets else 'claim'} on {b['number']}", b
         mail = [m for m in self.sent_mail() if m['by'] == 'u_chen' and re.search(re.escape(str(b['number']) or '#'), m['text']) and re.search(r'damag|crack|credit|claim', m['text'], re.I)]
         if mail: return 'wrong', f"claimed by mail only ({len(mail)}): nothing open on the bill or the PO", b
