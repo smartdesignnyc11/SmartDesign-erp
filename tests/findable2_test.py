@@ -145,7 +145,7 @@ async def setup_coi(pg):
 
 
 async def scenario_coi(pg):
-    await pg.evaluate("() => { const b = [...document.querySelectorAll('section.view.on button')].find(b => b.innerText.trim() === 'Apply' && /certificate of insurance/i.test((b.closest('[data-fdrow], .card, .nyh, div') || {}).innerText || '')); b.click(); }")
+    await pg.evaluate("() => { const b = [...document.querySelectorAll('section.view.on button')].find(b => /^(Apply|File on the Vendor|Make It a Task)$/.test(b.innerText.trim()) && /certificate of insurance/i.test((b.closest('[data-fdrow], .card, .nyh, div') || {}).innerText || '')); b.click(); }")
     await pg.wait_for_timeout(300)
     await settle_modal(pg, 1)
 

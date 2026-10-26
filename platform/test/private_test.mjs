@@ -64,4 +64,9 @@ const ms = J(C.shards({users: DB.users, projects: [{id: 'p1', chat: []}], msgSee
 ok(JSON.stringify(ms.msgSeen) === '{}' && ms['own:auth-A:msgSeen'].uA['job:p1'].n === 9 && !JSON.stringify(ms).includes('dm:t1'), "my read markers go to my own row; another person's are never sent");
 const mb = {users: DB.users, projects: []}; C._test.setPart(mb, 'msgSeen', {}); C._test.setPart(mb, 'own:auth-A:msgSeen', {uA: {'job:p1': {id: 'c9', n: 9}}});
 ok(mb.msgSeen.uA['job:p1'].id === 'c9', 'and rejoin DB.msgSeen');
+// a recorded feedback session is its person's own, like their mail: never a shared row, and back into DB.rpSessions
+const fs1 = J(C.shards({users: DB.users, projects: [], rpSessions: [{id: 'R-AAAAA', owner: 'uA', title: 'A session', events: [{k: 'tap'}]}, {id: 'R-BBBBB', owner: 'uB', title: 'B session'}]}));
+ok(JSON.stringify(fs1.rpSessions) === '[]' && fs1['own:auth-A:rpSessions'].map(x => x.id).join() === 'R-AAAAA' && !JSON.stringify(fs1).includes('B session'), 'my feedback sessions go to my own row; another person\'s are never sent');
+const fb = {users: DB.users, projects: []}; C._test.setPart(fb, 'rpSessions', []); C._test.setPart(fb, 'own:auth-A:rpSessions', fs1['own:auth-A:rpSessions']);
+ok(fb.rpSessions.length === 1 && fb.rpSessions[0].events.length === 1, 'and rejoin DB.rpSessions');
 console.log('ALL PASS', `(${n} checks)`);
