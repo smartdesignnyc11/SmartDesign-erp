@@ -67,6 +67,8 @@ OVERHEAD = 10000   # tokens of fixed subagent overhead per model call (system pr
 # 70) and the result ends with `Screen picture: <path>`; the expert looks at it before acting. One picture per new screen
 # per turn. SIM_PICTURES=0 turns it off (the screen walk, which reads no pictures).
 PICTURES = os.environ.get('SIM_PICTURES', '1') != '0'
+PICTURE_CAP = int(os.environ.get('SIM_PICTURE_CAP', '8'))   # pictures per turn: each costs a model call to read (docs/IMPROVEMENT_LOOP.md, cost)
+PICTURE_TOKENS = {'phone': 437, 'desktop': 1719}   # measured on claude-opus-5-5 through /api/ai (sim/picture_cost.py), 10-26
 PICTURE_CMDS = {'tap', 'go', 'back', 'key', 'screen', 'upload', 'photo', 'device', 'ask'}
 FINGERPRINT_JS = """() => { const l = __SIM.landing(), w = __SIM.where(); return [l.view, l.title, l.sheet, w.cur, w.tab].join(' | '); }"""
 
@@ -259,6 +261,9 @@ class Sim:
         except Exception: return
         seen = self.pictured.setdefault(uid, [])
         if fp in seen: return
+        if t is not None and t.get('pictures', 0) >= PICTURE_CAP:
+            out['text'] = (out.get('text') or '').rstrip('\n') + f'\n(No picture of this new screen: this turn\'s {PICTURE_CAP} are used. `screen --shot` takes one if you need it.)'
+            return
         seen.append(fp)
         d = os.path.join(self.dir, 'shots', uid); os.makedirs(d, exist_ok=True)
         p = os.path.join(d, f"{(self.state.get('day') or 'live')}_{self.clock_str().replace(':', '')}_{self.state['actions']}_{'phone' if self.device.get(uid) else 'desktop'}.jpg")
@@ -375,7 +380,7 @@ class Sim:
         for q, r in steps:
             processed += OVERHEAD + ctx; ctx += (q + r) / 4 + 150   # 150: the model's own words around each call (assumed)
         rec = {'day': t.get('day') or self.state['day'], 'slot': t['slot'], 'uid': t['uid'], 'device': t.get('device'), 'cap': t['cap'], 'actions': t['used'],
-               'calls': m['calls'], 'pictures': t.get('pictures', 0), 'prompt_chars': pr['chars'], 'read_chars': pr['reads'], 'sent_chars': m['req'], 'result_chars': m['resp'], 'diary_chars': diary,
+               'calls': m['calls'], 'pictures': t.get('pictures', 0), 'picture_tokens': m.get('picture_tokens', 0), 'prompt_chars': pr['chars'], 'read_chars': pr['reads'], 'sent_chars': m['req'], 'result_chars': m['resp'], 'diary_chars': diary,
                'est_new_context': round(ctx), 'est_processed': round(processed), 'est_output': round((m['req'] + diary) / 4 + 150 * len(steps)),
                'measured': None, 'started': t.get('started'), 'ended': now_iso()}
         with open(os.path.join(self.dir, 'cost.jsonl'), 'a') as f: f.write(json.dumps(rec) + '\n')
@@ -471,6 +476,9 @@ class Sim:
         m = t.setdefault('meter', {'calls': 0, 'req': 0, 'resp': 0, 'sizes': []})
         q, r = len(json.dumps(args)), len((out or {}).get('text') or '')
         m['calls'] += 1; m['req'] += q; m['resp'] += r; m['sizes'].append([q, r])
+        pic = re.search(r'Screen picture: \S+_(phone|desktop)\.jpg', (out or {}).get('text') or '')
+        if pic:   # the expert reads the picture: one more model call, and the picture's tokens stay in the context after it
+            m['sizes'].append([0, PICTURE_TOKENS[pic.group(1)] * 4]); m['picture_tokens'] = m.get('picture_tokens', 0) + PICTURE_TOKENS[pic.group(1)]
 
     async def _one(self, uid, cmd, args, opts, t):
         '''one action, start to finish: fresh page, act, find-it-again, save, log (the lock is held by the caller)'''
@@ -1376,7 +1384,8 @@ HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
   photo <n>                    take a photo with control n (an invented picture)
   key Enter|Escape|Tab         press a key
   back                         close the open sheet, or go back a screen
-  go "<menu label>"            open a menu entry by its label ("Purchasing" or "Purchasing > Deliveries")
+  go "<menu label>"            open a menu entry by its label ("Purchasing" or "Purchasing > Deliveries"); also a button you
+                               see outside the page by its exact words (the menu's footer: "Switch User")
   ask "question"               ask your assistant
   mail | mail sent | mail drafts | mail read <n> | mail reply <n> "text" [--all] | mail send "to, to" "subject" "body" [--cc "a, b"]
   mail senddraft <n>           send a draft the app saved to your mailbox (after `mail drafts`)

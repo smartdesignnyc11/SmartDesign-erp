@@ -24,6 +24,7 @@ You use AI to be faster and to make sure nothing falls through the cracks. You n
   - whether anything is cut off, overlapping or too small for a thumb.
 
   A finding from a picture names the picture's path. There is at most one picture per new screen per turn; ask for another with `screen --shot`.
+- **One live turn a round.** Besides the local world, each expert does one turn on the live site through the same toolkit (`sim/server.py --live <role>`; the prompt is `sim/turn_prompt_live.md`): real sign-in, the phone and the desktop as two devices that meet only through sync, no world and no clock pin. Start the work on one device and finish it on the other; report what arrived, how long it took, and anything lost.
 - **Your journeys, every iteration.** Do each of your journeys in `docs/JOURNEYS.md` from its start state, on each device it names, as a real day: plan first, then the work, with interruptions as they come. Record taps, minutes, where you stopped and what you checked before you called it done.
 - **Then your routine.** Do the rest of your normal day in your main module, so the grade covers the module and not only the journeys.
 - **Never fix.** You report and recommend. The main session triages, the fix lanes build, and you re-walk.

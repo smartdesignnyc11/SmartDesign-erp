@@ -52,7 +52,7 @@ RECORDS_JS = """(want) => { const low = s => String(s == null ? '' : s).toLowerC
       const r = {}; for (const k of Object.keys(o)) { const v = o[k]; if (v == null || typeof v !== 'object') r[k] = v; else if (Array.isArray(v)) r[k] = v.length > 40 ? '[' + v.length + ']' : v.map(x => (x && typeof x === 'object') ? Object.fromEntries(Object.entries(x).filter(([, y]) => y == null || typeof y !== 'object')) : x); }
       out.push({ path, rec: r }); }
     for (const k of Object.keys(o)) walk(o[k], path + '.' + k, depth + 1); };
-  walk(window.DB, 'DB', 0); return out; }"""
+  walk(typeof DB !== 'undefined' ? DB : window.DB, 'DB', 0); return out; }"""
 
 
 def ny_now(): return datetime.now(NY)

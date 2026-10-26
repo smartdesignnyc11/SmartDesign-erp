@@ -130,6 +130,9 @@ def main():
     import selftest_cycle   # Pilot 3 without a browser: the book, the referee on fixture companies, coverage, the judge
     F0 = len(selftest_cycle.FAILS); selftest_cycle.unit()
     N[0] += selftest_cycle.N[0]; FAILS.extend(selftest_cycle.FAILS[F0:])
+    import selftest_gaps   # the gaps between an expert and an employee (10-26): picture, memory, voicer, live mode, the run ledger
+    F1 = len(selftest_gaps.FAILS); selftest_gaps.unit()
+    N[0] += selftest_gaps.N[0]; FAILS.extend(selftest_gaps.FAILS[F1:])
     if '--unit' in sys.argv:
         print(f"\n{N[0] - len(FAILS)}/{N[0]} checks passed (units only)"); return 1 if FAILS else 0
     secs = start()

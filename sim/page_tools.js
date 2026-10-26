@@ -238,7 +238,11 @@ S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav butt
 S.go = label => {
   const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
   const C = S.navCandidates().map(el => ({ el, t: norm(el.innerText || el.getAttribute('aria-label') || el.title || '').toLowerCase().replace(/\s+\d+$/, ''), v: vis(el) }));
-  const hit = C.find(c => c.v && c.t === want) || C.find(c => c.t === want) || C.find(c => c.v && c.t.startsWith(want)) || C.find(c => c.t.startsWith(want)) || C.find(c => c.v && c.t.includes(want));
+  let hit = C.find(c => c.v && c.t === want) || C.find(c => c.t === want) || C.find(c => c.v && c.t.startsWith(want)) || C.find(c => c.t.startsWith(want)) || C.find(c => c.v && c.t.includes(want));
+  // a button a person can see outside the page and the menu (the menu's footer: Switch User; the header's own buttons)
+  // is reached by its exact words too (the live journeys check could not sign out, 10-26)
+  if (!hit) { const B = [...document.querySelectorAll('button, a')].filter(el => vis(el) && !el.closest('section.view') && norm(el.innerText || el.getAttribute('aria-label') || '').toLowerCase() === want);
+    if (B.length) hit = { el: B[0], t: want }; }
   if (!hit) return { ok: false, why: `no "${label}" in your menu; it has: ${S.menu().join(' · ')}` };
   hit.el.click(); return { ok: true, label: hit.t };
 };
