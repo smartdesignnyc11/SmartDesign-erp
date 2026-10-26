@@ -822,10 +822,14 @@ function cxPreviewApplication(pid) {
     const r = base.apply(this, arguments);
     try {
       "billing" === view &&
-        document.querySelectorAll('[data-blact^="rtb:app:"]').forEach((b) => {
+        // a ready application, and one held because the job is billed ahead (lane 1): Preview shows what it would bill
+        // before anyone decides, with no number and no draft
+        document.querySelectorAll('[data-blact^="rtb:app:"], [data-blact^="held:ahead:"][data-blact$=":application"]').forEach((b) => {
           if (b.parentNode.querySelector("[data-cxprev]")) return;
+          const a = b.dataset.blact,
+            pid = /^rtb:app:/.test(a) ? a.slice(8) : a.split(":")[2];
           const x = document.createElement("button");
-          (x.className = "btn sm"), (x.textContent = "Preview"), (x.dataset.cxprev = b.dataset.blact.slice(8)), (x.style.marginRight = "8px"), b.parentNode.insertBefore(x, b);
+          (x.className = "btn sm"), (x.textContent = "Preview"), (x.dataset.cxprev = pid), (x.style.marginRight = "8px"), b.parentNode.insertBefore(x, b);
         });
     } catch (e) {}
     return r;

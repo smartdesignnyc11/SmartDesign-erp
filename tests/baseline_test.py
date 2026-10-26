@@ -48,7 +48,9 @@ async def main():
         # and 4 ordered with a promise after the site needs them (appliances, insulation, white oak flooring, Carlos's
         # millwork); and 1 due this week (the acknowledged tape-and-plastic request; the unacknowledged studs are an
         # Approvals card). The 4 waiting on a decision and not yet late left it.
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
+        # Billing 4 -> 2 (lane 1, 2026-10-26, TRIAGE class 2's accept): 121 State is billed ahead, so its application and
+        # the windows' stored materials are held rows with the reason, not items to bill or send
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 2}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
         # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)

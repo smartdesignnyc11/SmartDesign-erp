@@ -173840,7 +173840,8 @@ function tdMyJobs() {
 predDef("safeToSpend", {
   label: "Safe to Spend",
   rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low; a payment recorded but not yet in the bank is not counted",
-  why: () => stsWhy(),
+  // what is set aside, one line (named setAside: other predicates use why for their own rows)
+  setAside: () => stsWhy(),
   figure: () => safeToSpend().safe,
   // the build-up behind the figure, line for line as companyBalance computes it: cash today is the bank
   // plus the card balances (negative) less unpaid bills and payroll due; truly ours takes off what was billed ahead
@@ -174131,7 +174132,7 @@ function tdPulseOpen(t) {
       `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
     m = mbModal(
       esc(t.label),
-      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p>${"function" == typeof PRED[t.pred].why ? `<p class="small td-sh-why">${esc(PRED[t.pred].why())}</p>` : ""}<div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
+      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p>${"function" == typeof PRED[t.pred].setAside ? `<p class="small td-sh-why">${esc(PRED[t.pred].setAside())}</p>` : ""}<div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
         lines.length
           ? `<div class="td-sh-list">${lines
               .map(

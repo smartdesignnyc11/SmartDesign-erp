@@ -254,7 +254,7 @@ async def t_safe(C, p, phone):
     m and seen.append(('Dashboard tile', (-1 if m.group(1) else 1) * float(m.group(2).replace(',', ''))))
     C.ok(abs(want - truly) > 1000, f'SAFE {dev}: the setup puts the 13-week low under truly ours ({want} against {truly})')
     C.ok(len(seen) >= 2 and all(abs(v - want) < 1 for _, v in seen), f'SAFE {dev}: every screen that names Safe to Spend reads {want}: {seen}')
-    why = await js(pg, "return typeof PRED.safeToSpend.why === 'function' ? PRED.safeToSpend.why() : '';")
+    why = await js(pg, "return typeof PRED.safeToSpend.setAside === 'function' ? PRED.safeToSpend.setAside() : '';")
     C.ok('in the bank' in why and 'billed ahead' in why and 'not counted' in why, f'SAFE {dev}: one line says what is set aside and what is not counted: {why!r}')
     C.ok(not errs, f'SAFE {dev}: no page errors: {errs[:3]}')
     await b.close()
