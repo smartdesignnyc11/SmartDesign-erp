@@ -102,6 +102,7 @@ function td2Icon(it) {
   if ("dec" === k || "raise" === k) return "question";
   if ("lesson" === k || "learn" === k || "change" === k) return "book";
   if ("prepay" === k) return "wallet";
+  if ("tdyCatch" === k) return "overPO" === it.src ? "alert" : "mail";
   if ("coi" === k || /^std:|^oblig:/.test(String(it.id || ""))) return "alert";
   return "doc";
 }
@@ -124,6 +125,7 @@ function td2DueOf(it) {
   if ("tdyMail" === it.kind) return String((it.c && it.c.date) || "").slice(0, 10) || today();
   if ("tdyChat" === it.kind) return today();
   if ("tdyMinutes" === it.kind) return "";
+  if ("tdyCatch" === it.kind) return String(it.due || "").slice(0, 10);
   try {
     return String(stdDueOf(it) || "").slice(0, 10);
   } catch (e) {
@@ -145,6 +147,147 @@ function td2WaitOf(it) {
   } catch (e) {}
   return "";
 }
+// ---- what was Caught for You and is the person's one tap: rows of Today ------------------------------------------
+// The approved mockups draw some of what the detectors catch as rows, not behind the quiet line: billing's Now has
+// "Rivera, $21,350 past due · 7 days late · 7-day reminder" (the Standard's collections at due/7/15/30), and the
+// owner's Approvals have "Window Works billed over the PO · Decide". In the month walk (month_sim --top5) the owner,
+// billing and the PM reached those only through Caught for You on the old Today; behind the quiet line the Kleins'
+// and the Jessops' past-due chases went out two days late and CM-0109 was approved over its PO ($4,600). A detector
+// row named here is a row of the person's Today, with its own verb (a draft or a sheet; nothing is sent), and leaves
+// Caught for You, so it is in one place. The rest stay behind the quiet line.
+// Design gate: no store, no list; the rows are the detectors' own (CATCH), read by key. One owner each: the past-due
+// chase is billing's (the owner keeps it in Caught for You); the over-PO decision and the follow-ups on what the
+// owner asked for are the owner's.
+const TD2_CATCH_ROWS = {
+  owner: [
+    ["overPO", /^bill:/],
+    ["notBack", /^notback:/],
+  ],
+  billing: [["chasePeople", /^chase:inv:/]],
+};
+function td2CatchDue(nm, x) {
+  try {
+    if ("chasePeople" === nm) {
+      const id = String(x.key).replace(/^chase:inv:/, "");
+      for (const c of DB.clients || []) {
+        const d = (c.invoices || []).find((i) => i.id === id);
+        if (d) return String(d.due || "").slice(0, 10);
+      }
+    }
+    if ("notBack" === nm) {
+      const e = paExpectLedger().find((y) => "notback:" + y.id === x.key);
+      return e ? String(e.by || "").slice(0, 10) : "";
+    }
+  } catch (e) {}
+  return "";
+}
+function td2CatchItems(apprIds) {
+  const S = TD2_CATCH_ROWS[role()];
+  if (!S || "undefined" == typeof CATCH) return [];
+  const out = [];
+  S.forEach(([nm, re]) => {
+    const C = CATCH.find((c) => c.name === nm);
+    if (!C) return;
+    let R = [];
+    try {
+      R = C.rows() || [];
+    } catch (e) {
+      console.warn("today catch rows", nm, e);
+    }
+    R.filter((x) => re.test(String(x.key || "")))
+      // a bill over its PO that is already the person's approval is that row (its verb is the dispute, below)
+      .filter((x) => !(apprIds && apprIds.has(String(x.key))))
+      .forEach((x) => out.push({ kind: "tdyCatch", id: String(x.key), src: nm, x: x, title: x.what, detail: x.sub, amount: +x.amount || 0, due: td2CatchDue(nm, x), sev: "warn" }));
+  });
+  return out;
+}
+let td2CatchKeys = { t: -1, u: "", k: new Set() },
+  td2CatchIn = 0;
+function td2CatchKeySet() {
+  const u = (tdyMe() || {}).id || role();
+  if (td2CatchKeys.t === td2Tick && td2CatchKeys.u === u) return td2CatchKeys.k;
+  // the model reads the detectors directly, never Caught for You, so this cannot loop; the guard keeps it so
+  if (td2CatchIn) return new Set();
+  td2CatchIn++;
+  try {
+    return (td2CatchKeys = { t: td2Tick, u: u, k: new Set(td2CatchItems(new Set((tdyModel().appr || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id))).map((it) => it.src + "|" + it.id)) }).k;
+  } finally {
+    td2CatchIn--;
+  }
+}
+if ("function" == typeof tdyModel) {
+  const base = tdyModel;
+  tdyModel = function () {
+    const M = base.apply(this, arguments);
+    try {
+      const inQ = new Set((M.appr || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id)),
+        C = td2CatchItems(inQ);
+      M.catch = C;
+      if (C.length) {
+        const mins = (M.all || []).filter((it) => "tdyMinutes" === it.kind),
+          rest = (M.all || []).filter((it) => "tdyMinutes" !== it.kind);
+        let all = rest.concat(C);
+        try {
+          all = standardOrder(all, stdQueueTie);
+        } catch (e) {}
+        M.all = all.concat(mins);
+      }
+    } catch (e) {
+      console.warn("today catch rows", e);
+    }
+    return M;
+  };
+}
+// Caught for You keeps what is not a row
+if ("function" == typeof tdCaught) {
+  const base = tdCaught;
+  tdCaught = function () {
+    const R = base.apply(this, arguments) || [];
+    try {
+      if (!TD2_CATCH_ROWS[role()]) return R;
+      const K = td2CatchKeySet();
+      return R.filter((x) => !K.has(x.src + "|" + x.key));
+    } catch (e) {
+      return R;
+    }
+  };
+}
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    if (it && "tdyCatch" === it.kind) {
+      const x = it.x || {};
+      return { line1: esc(tdPlain(x.what || it.title)), why: esc(tdPlain(x.sub || it.detail || "")), verb: x.verb || "Open", run: () => x.run && x.run(), go: () => x.run && x.run() };
+    }
+    const c = base.apply(this, arguments);
+    // a bill billed over its PO, at the owner: the row's one verb is the dispute (approve the PO amount, hold the
+    // difference as money the vendor owes back), as Caught for You's row had it. Its Approve went to the pay
+    // application's review and paid what was claimed past the PO (the month's CM-0109).
+    try {
+      if (it && "bill" === it.kind && "function" == typeof billOverPO) {
+        const b = (DB.bills || []).find((y) => y.id === it.id);
+        b && billOverPO(b) && Object.assign(c, { verb: "Dispute Difference", run: () => billAction(b, "short") });
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+// money about to leave over its PO is "money waiting now" (standardMoneyNow): the Office playbook never pays a bill
+// that doesn't match a PO, and the owner's call holds the payment
+if ("function" == typeof standardMoneyNow) {
+  const base = standardMoneyNow;
+  standardMoneyNow = function (it) {
+    try {
+      if (it && "object" == typeof it && "bill" === it.kind && "function" == typeof billOverPO) {
+        const b = (DB.bills || []).find((y) => y.id === it.id);
+        if (b && billOverPO(b)) return !0;
+      }
+      if (it && "object" == typeof it && "tdyCatch" === it.kind && "overPO" === it.src) return !0;
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+
 // The rows of the person's Today: the one queue (tdyModel), each with its card (tdCard), section, due and chips.
 function td2Rows(M) {
   const r = role(),
@@ -166,7 +309,19 @@ function td2Rows(M) {
       wait = td2WaitOf(it),
       promise = td2IsPromise(it),
       isAppr = appr.has(it),
-      now = late || (due && due <= td) || ["raise", "clientq", "tdyMail", "tdyChat"].includes(it.kind),
+      // the Standard's first buckets are Now by their own words (standardRankWhy): safety and the law, someone in the
+      // field waiting on it today, money or a client waiting now. Angel's "need 25 boards by Thursday" (a staff
+      // mail, so on no mail clock and undated) sat in For You under four late mails on the coordinator's first
+      // screen, and the boards went out a day late (month walk E010). Money waiting that is an approval stays in
+      // the person's Approvals (the owner's bill over its PO, the mockup's "billed over the PO").
+      rk = (() => {
+        try {
+          return standardRank(it);
+        } catch (e) {
+          return { imm: 1, blk: 1, now: 1 };
+        }
+      })(),
+      now = late || (due && due <= td) || ["raise", "clientq", "tdyMail", "tdyChat"].includes(it.kind) || !rk.imm || !rk.blk || (!rk.now && !(isAppr && has("appr"))),
       sec = now ? "now" : promise && has("promised") ? "promised" : isAppr && has("appr") ? "appr" : wait && has("waiting") ? "waiting" : last;
     return {
       it: it,
@@ -751,8 +906,15 @@ function tdRender() {
     cal = (() => {
       if (!desk || "function" != typeof lnCalFor) return "";
       try {
-        const C = lnCalFor(lnUid()).filter((x) => x.day === today()).slice(0, 3);
-        return C.length ? `<section class="td2-day" aria-label="Your Day"><h2>Your Day</h2><div class="td2-dayg">${C.map((x) => `<div class="td2-ev"><b>${esc(td2Clock(x.e.start) || "All day")}</b><span>${esc(tdWords(x.title, 7))}</span></div>`).join("")}</div></section>` : "";
+        // today's events; a slot left over shows what was booked onto the calendar in the last three days (lnCalFor's
+        // own rule), with its day: a hearing booked for the 29th is seen the day it lands, not the morning of (E086)
+        const td = today(),
+          A = lnCalFor(lnUid()),
+          seen = (lnInit().cal || {}),
+          C = A.filter((x) => x.day === td)
+            .concat(A.filter((x) => x.day > td && seen[x.e.id] && dayDiff(seen[x.e.id], td) <= 3))
+            .slice(0, 3);
+        return C.length ? `<section class="td2-day" aria-label="Your Day"><h2>Your Day</h2><div class="td2-dayg">${C.map((x) => `<div class="td2-ev"><b>${esc(x.day === td ? td2Clock(x.e.start) || "All day" : `${TD2_DOW[parse(x.day).getDay()]} ${fmt(x.day)}${td2Clock(x.e.start) ? " " + td2Clock(x.e.start) : ""}`)}</b><span>${esc(tdWords(x.title, 7))}</span></div>`).join("")}</div></section>` : "";
       } catch (e) {
         return "";
       }
