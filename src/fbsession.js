@@ -909,9 +909,11 @@ if ("function" == typeof renderRpBox) {
 }
 
 // ---- the transcript: read it, line it up three ways ---------------------------------------------------------------------
-const FBS_NUM = Object.fromEntries(FBS_WORDS.map((w, i) => [w, i]));
+// "mark one", "mark 2", "marker three"; and in Spanish, "marca uno" (the field speaks Spanish on its recordings)
+const FBS_NUM = Object.assign(Object.fromEntries(FBS_WORDS.map((w, i) => [w, i])), { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 });
+const FBS_MARK_RE = new RegExp(`\\b(?:mark(?:er)?|marca|marco)[\\s,.-]*(?:number|n[u\u00fa]mero)?\\s*#?\\s*(${Object.keys(FBS_NUM).join("|")}|\\d{1,2})\\b`, "i");
 function fbsMarkSaid(text) {
-  const m = /\bmark(?:er)?[\s,.-]*(?:number\s*)?#?\s*(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d{1,2})\b/i.exec(String(text || ""));
+  const m = FBS_MARK_RE.exec(String(text || ""));
   if (!m) return 0;
   const w = m[1].toLowerCase();
   return /^\d+$/.test(w) ? +w : FBS_NUM[w] || 0;

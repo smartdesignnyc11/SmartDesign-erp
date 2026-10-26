@@ -52,7 +52,8 @@ async def tap(pg, sel, phone):
     except Exception as e:
         await pg.screenshot(path=os.path.join(SHOTS, f'{"phone" if phone else "desktop"}_FAILED_tap.png'))
         raise SystemExit(f'could not tap {sel}: {str(e).splitlines()[0]}')
-    await wait(pg, 250)
+    # a person talking it through is more than a second between taps (a transcript writes whole seconds)
+    await wait(pg, 1100)
 
 async def nav_to(pg, grp, phone):
     """By the menu, as a person: the rail on the desktop; the menu button, then the group, on the phone."""
@@ -61,7 +62,7 @@ async def nav_to(pg, grp, phone):
         await tap(pg, '#menu-btn:visible, .tv-phmenu:visible', phone)
         await wait(pg, 300)
     await tap(pg, f'#nav-groups button[data-grp="{grp}"]', phone)
-    await wait(pg, 900)
+    await wait(pg, 1400)
     # a group that opens to its pages on the phone: its first page
     if phone and await pg.evaluate("() => document.querySelector('.rail.open, .rail.on') !== null"):
         await pg.evaluate("() => { document.querySelector('.rail')?.classList.remove('open'); document.getElementById('railscrim')?.classList.remove('on'); }")
