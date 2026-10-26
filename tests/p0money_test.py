@@ -140,8 +140,19 @@ async def run(p, c, phone):
         c.ok(len(cards['u_chen']) == 1 and 'Tino' in x and '$8,000' in x and 'PO-2026-047' in x and 'No COI on file' in x and 'No W-9 on file' in x, f"{tag}: the coordinator's Approvals carry the prepayment with the order and Tino's papers ({cards['u_chen']})")
         c.ok(not cards['u_controller'] and not cards['u_owner'] and not cards['u_billing'], f"{tag}: one item, one owner: nobody else is asked ({cards})")
         await sign_in(pg, 'u_controller'); await go(pg, 'home'); await pg.wait_for_timeout(300)
-        r = await pg.evaluate("() => ({ rows: tdCaught([]).filter(x => x.src === 'prepaidAhead').map(x => x.what + ' | ' + x.sub), home: ((typeof homeRoot === 'function' && homeRoot()) || document.querySelector('.view.on')).innerText })")
-        c.ok(len(r['rows']) == 1 and 'Tino' in r['rows'][0] and '$8,000' in r['rows'][0] and 'no COI, no W-9' in r['rows'][0] and 'Paid ahead: Tino' in r['home'], f"{tag}: the controller's Today shows it in Caught for You with the papers ({r['rows']})")
+        # the approved Today (2026-10-25) keeps Caught for You behind the quiet line at the foot. The prepayment is the
+        # coordinator's to confirm (one item, one owner), so it is not a row of the controller's; it reaches her in the
+        # update at the top, with the papers, ranked by the Standard (integrity), and Caught for You keeps its row
+        r = await pg.evaluate("""() => { const R = (typeof homeRoot === 'function' && homeRoot()) || document.querySelector('.view.on');
+          const upd = [...R.querySelectorAll('.td2-brief .td2-bl')].map(p => p.innerText).find(t => /Paid ahead: Tino/.test(t)) || '';
+          td2QuietOpen = true; render();
+          const R2 = (typeof homeRoot === 'function' && homeRoot()) || document.querySelector('.view.on');
+          const cf = [...R2.querySelectorAll('.td-catch .td-card')].map(e => e.innerText.replace(/\\s+/g, ' ')).find(t => /Paid ahead: Tino/.test(t)) || '';
+          td2QuietOpen = false; render();
+          return { rows: tdCaught([]).filter(x => x.src === 'prepaidAhead').map(x => x.what + ' | ' + x.sub), upd, cf, first: !!R.querySelector('.td2-brief .td2-bl') && /Paid ahead: Tino/.test(R.querySelector('.td2-brief .td2-bl').innerText) }; }""")
+        c.ok(len(r['rows']) == 1 and 'Tino' in r['rows'][0] and '$8,000' in r['rows'][0] and 'no COI, no W-9' in r['rows'][0], f"{tag}: Caught for You holds it with the papers ({r['rows']})")
+        c.ok('$8,000' in r['upd'] and 'no COI, no W-9' in r['upd'] and r['first'], f"{tag}: the controller's Today says it first in the update, with the papers ({r['upd']!r})")
+        c.ok('Paid ahead: Tino' in r['cf'], f"{tag}: and the quiet line opens to it in Caught for You ({r['cf']!r})")
         await shot(pg, tag, 'controller_today')
         c.ok(await pg.evaluate(SW) <= (390 if phone else 1440), f"{tag}: the controller's Today does not scroll sideways")
         await sign_in(pg, 'u_chen'); await go(pg, 'home'); await pg.wait_for_timeout(300)
