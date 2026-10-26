@@ -124871,7 +124871,7 @@ function finAnswer(raw) {
       );
     return out(
       `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}; the 13-week low is ${money(F.low)} in the week of ${fmtL(low.start)}.`,
-      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
+      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
