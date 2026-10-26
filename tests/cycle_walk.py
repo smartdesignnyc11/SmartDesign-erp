@@ -115,7 +115,7 @@ class World:
             shutil.copytree(self.resume_from, self.dir, ignore=shutil.ignore_patterns('server.json', 'shots', 'files'))
             args.append('--resume')
         os.makedirs(self.dir, exist_ok=True)
-        env = dict(os.environ, SIM_DIST=self.dist, SIM_RUN=self.run)
+        env = dict(os.environ, SIM_DIST=self.dist, SIM_RUN=self.run, SIM_PICTURES='0')   # the walk reads text; no screen pictures
         env.pop('SIM_AI_TOKEN', None); env.pop('SIM_AI_TOKEN_FILE', None)   # no AI: the assistant answers from its rules
         self.log = open(os.path.join(RUNS, f'{self.run}.server.log'), 'w')
         self.proc = subprocess.Popen(args, cwd=ROOT, env=env, stdout=self.log, stderr=subprocess.STDOUT)

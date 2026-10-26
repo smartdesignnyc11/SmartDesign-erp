@@ -146,7 +146,8 @@ def prompt_p3(uid, b):
     vals['eod_text'] = eod
     for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
     reads = 0
-    for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, vals['diary'], vals['standard']):
+    for f in (os.path.join(HERE, 'roles', '_common.md'), briefing, vals['diary'], vals['standard'],
+              os.path.join(d, 'files', uid, 'news.md'), os.path.join(d, 'files', uid, 'said.md')):
         try: reads += os.path.getsize(f)
         except Exception: pass
     try: admin('note_prompt', uid=uid, chars=len(tpl), reads=reads)

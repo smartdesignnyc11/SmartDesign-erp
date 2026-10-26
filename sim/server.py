@@ -62,6 +62,13 @@ PAGE_CHARS = 3600
 MUTATING = {'tap', 'type', 'pick', 'upload', 'photo', 'back', 'go', 'ask', 'key'}
 CLICKS = {'tap', 'key', 'go', 'back'}   # the click check: where each of these landed against what its label promised
 OVERHEAD = 10000   # tokens of fixed subagent overhead per model call (system prompt and tools): an assumption, see day_plan.md
+# The page as a picture (Alan 10-26, "we only see 50% of the puzzle"): when an action lands on a screen the person has not
+# seen this turn (a new view, record, tab or sheet), the server saves what the eye sees at the device's size (JPEG, quality
+# 70) and the result ends with `Screen picture: <path>`; the expert looks at it before acting. One picture per new screen
+# per turn. SIM_PICTURES=0 turns it off (the screen walk, which reads no pictures).
+PICTURES = os.environ.get('SIM_PICTURES', '1') != '0'
+PICTURE_CMDS = {'tap', 'go', 'back', 'key', 'screen', 'upload', 'photo', 'device', 'ask'}
+FINGERPRINT_JS = """() => { const l = __SIM.landing(), w = __SIM.where(); return [l.view, l.title, l.sheet, w.cur, w.tab].join(' | '); }"""
 
 INIT_JS = r"""
 (() => { try { const pos = { coords: { latitude: 40.6893, longitude: -73.9908, accuracy: 12 }, timestamp: 0 };
@@ -130,6 +137,7 @@ class Sim:
         self.pages, self.page_ver, self.errs, self.cdp, self.device = {}, {}, {}, {}, {}
         self.last_active = None
         self.screens = {}   # uid -> {'pages': [...], 'i': n, 'header': str}
+        self.pictured = {}  # uid -> the screens pictured this turn (one picture per new fingerprint per turn)
         self.mail_map = {}  # uid -> [message ids] from the last `mail` list
         self.stop = asyncio.Event()
         if resume:
@@ -227,14 +235,39 @@ class Sim:
             await c.send('Emulation.setTouchEmulationEnabled', {'enabled': False})
         self.device[uid] = bool(phone)
 
-    async def shot(self, uid, path):
+    async def shot(self, uid, path, jpeg=False):
         """A screenshot that keeps a phone a phone: Playwright's own screenshot puts the context's desktop viewport back,
-        so phone pages are captured through CDP as they are laid out."""
+        so phone pages are captured through CDP as they are laid out. jpeg: the picture an expert reads, at the device's
+        own size in CSS pixels (390x844 on the phone, 1440x900 on the desktop), quality 70."""
         if self.device.get(uid):
-            r = await self.cdp[uid].send('Page.captureScreenshot', {'format': 'png'})
+            q = {'format': 'png'}
+            if jpeg:
+                vp = await self.pages[uid].evaluate("() => { const v = window.visualViewport; return [v ? v.pageLeft : scrollX, v ? v.pageTop : scrollY, innerWidth, innerHeight]; }")
+                q = {'format': 'jpeg', 'quality': 70, 'clip': {'x': vp[0], 'y': vp[1], 'width': vp[2], 'height': vp[3], 'scale': 0.5}}   # the phone runs at 2x: half is its CSS size
+            r = await self.cdp[uid].send('Page.captureScreenshot', q)
             open(path, 'wb').write(base64.b64decode(r['data']))
+        elif jpeg:
+            await self.pages[uid].screenshot(path=path, full_page=False, type='jpeg', quality=70)
         else:
             await self.pages[uid].screenshot(path=path, full_page=False)
+
+    async def picture(self, uid, pg, t, out):
+        """The page as a picture: a screen this person has not seen this turn is saved as the eye sees it and named at the
+        end of the result. Never more than one picture per fingerprint (view, page heading, sheet, record, tab) per turn."""
+        if not PICTURES or not out or not out.get('text'): return
+        try: fp = await pg.evaluate(FINGERPRINT_JS) + (' | phone' if self.device.get(uid) else ' | desktop')   # the same page on the other device is a new screen to the eye
+        except Exception: return
+        seen = self.pictured.setdefault(uid, [])
+        if fp in seen: return
+        seen.append(fp)
+        d = os.path.join(self.dir, 'shots', uid); os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, f"{(self.state.get('day') or 'live')}_{self.clock_str().replace(':', '')}_{self.state['actions']}_{'phone' if self.device.get(uid) else 'desktop'}.jpg")
+        try: await self.shot(uid, p, jpeg=True)
+        except Exception as e:
+            self.log({'uid': uid, 'cmd': 'picture', 'error': str(e)[:200]}); return
+        out['text'] = (out.get('text') or '').rstrip('\n') + f'\nScreen picture: {p}'
+        if t is not None: t['pictures'] = t.get('pictures', 0) + 1
+        self.log({'uid': uid, 'cmd': 'picture', 'args': [fp[:160]], 'result': p, 'bytes': os.path.getsize(p)})
 
     async def _dialog(self, uid, d):
         self.errs.setdefault('dialogs', []).append(f'{uid}: {d.type}: {d.message[:160]}')
@@ -342,7 +375,7 @@ class Sim:
         for q, r in steps:
             processed += OVERHEAD + ctx; ctx += (q + r) / 4 + 150   # 150: the model's own words around each call (assumed)
         rec = {'day': t.get('day') or self.state['day'], 'slot': t['slot'], 'uid': t['uid'], 'device': t.get('device'), 'cap': t['cap'], 'actions': t['used'],
-               'calls': m['calls'], 'prompt_chars': pr['chars'], 'read_chars': pr['reads'], 'sent_chars': m['req'], 'result_chars': m['resp'], 'diary_chars': diary,
+               'calls': m['calls'], 'pictures': t.get('pictures', 0), 'prompt_chars': pr['chars'], 'read_chars': pr['reads'], 'sent_chars': m['req'], 'result_chars': m['resp'], 'diary_chars': diary,
                'est_new_context': round(ctx), 'est_processed': round(processed), 'est_output': round((m['req'] + diary) / 4 + 150 * len(steps)),
                'measured': None, 'started': t.get('started'), 'ended': now_iso()}
         with open(os.path.join(self.dir, 'cost.jsonl'), 'a') as f: f.write(json.dumps(rec) + '\n')
@@ -396,6 +429,15 @@ class Sim:
         p = os.path.join(self.dir, 'diary', f'{uid}.md')
         if not os.path.exists(p):
             open(p, 'w').write(f"# {PEOPLE[uid][2]}: work diary ({PEOPLE[uid][0]})\n\nKept by {PEOPLE[uid][2]}. Read it each morning; write it at the end of each day.\n\n")
+
+    def said_line(self, uid, text):
+        """Memory between turns (Alan 10-26): what a person said and promised to whom (mail they sent, calls both ways) is
+        kept in their notes, files/<uid>/said.md, beside news.md (what they were told), so the next turn (a fresh agent)
+        knows what it owes. One line each, with the day and the time."""
+        if uid not in PEOPLE: return
+        fd = os.path.join(self.dir, 'files', uid); os.makedirs(fd, exist_ok=True)
+        with open(os.path.join(fd, 'said.md'), 'a', encoding='utf-8') as f:
+            f.write(f"- {self.state.get('day') or ''} {self.clock_str()}: " + re.sub(r'\s+', ' ', text).strip()[:600] + '\n')
 
     def diary_line(self, uid, text):
         if uid not in PEOPLE: return
@@ -489,6 +531,7 @@ class Sim:
                   'minutes': mins, 'turn_minutes': round((t or {}).get('minutes', 0), 1)})
         for c in creates:
             if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
+        if not opts.get('quiet') and (cmd in PICTURE_CMDS or (cmd == 'type' and opts.get('enter'))): await self.picture(uid, pg, t, out)
         await self.interrupt_check(uid, t, out, pg)
         self.save_state()
         return out
@@ -559,8 +602,10 @@ class Sim:
         head = f"do: {done} of {len(steps)} steps" + (f" · STOPPED: {stop}" if stop else ' · all done')
         txt = '\n'.join([head] + lines + ([f"Toasts: {' / '.join(dict.fromkeys(toasts))}"] if toasts else []) + ['', fin['text']])
         self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300], 'why': (opts.get('why') or '')[:300] or None})
+        res = {'ok': not stop, 'text': txt}
+        await self.picture(uid, pg, t, res)
         self.save_state()
-        return {'ok': not stop, 'text': txt}
+        return res
 
     def has_box(self, uid): return uid in STAFF_MAIL
 
@@ -835,6 +880,7 @@ class Sim:
             r = await pg.evaluate("([u, i]) => __SIM.mbSendDraft(u, i)", [uid, mid])
             if not r: return {'ok': False, 'text': 'no such draft'}
             self.state['sent_seen'].setdefault(r['id'], {'by': uid, 'how': 'person'})
+            self.said_line(uid, f"you sent the app's draft to {r['to'] or '(nobody)'}: \"{r['subject']}\"")
             notes = await self.post_office(pg)
             return {'ok': True, 'text': f"sent to {r['to'] or '(nobody: the draft has no To)'}: {r['subject']}" + (f'\n{notes}' if notes else ''), 'control': 'mail senddraft', 'kind': 'send'}
         if sub in ('list', 'inbox', 'sent', 'drafts'):
@@ -918,6 +964,7 @@ class Sim:
         msg = {'id': mid, 'threadId': thread or f'simt_{mid}', 'labelIds': ['SENT'], 'internalDate': at,
                'headers': {'From': frm, 'To': to, 'Cc': cc, 'Subject': subject, 'Date': datetime.fromtimestamp(at / 1000).strftime('%a, %d %b %Y %H:%M:%S')},
                'body': body, 'attachments': []}
+        self.said_line(uid, f'you mailed {to}' + (f' (cc {cc})' if cc else '') + f': "{subject}": {body}')
         if self.has_box(uid):
             await pg.evaluate("([u, m]) => __SIM.mbPut(u, m)", [uid, msg])
             self.state['sent_seen'].setdefault(mid, {'by': uid, 'how': 'person'})
@@ -962,11 +1009,13 @@ class Sim:
         reply = ''
         if who in PEOPLE:
             self.diary_line(who, f"- call {when}, {PEOPLE[uid][2]} called you: \"{said}\"")
+            self.said_line(who, f'{PEOPLE[uid][2]} called you and said: "{said}"')
             self.state['news'].setdefault(who, []).append(f"{when} call from {PEOPLE[uid][2]}: \"{said}\"")
             reply = f'{PEOPLE[who][2]} heard it. It is in both diaries; it is a promise only if someone logs it in the app.'
         else:
             reply = self.world.on_call(uid, who, said)
             self.diary_line(uid, f"  they said: \"{reply}\"")
+        self.said_line(uid, f'you called {PEOPLE[who][2] if who in PEOPLE else who} and said: "{said}"; they said: "{reply}"')
         self.log({'uid': uid, 'cmd': 'call', 'args': args, 'result': reply[:200]})
         return {'ok': True, 'text': reply, 'kind': 'call', 'control': 'call'}
 
@@ -1020,6 +1069,7 @@ class Sim:
                                       'device': 'phone' if phone else 'desktop', 'switch': bool(a.get('switch')), 'day': self.state['day'],
                                       'diary0': self.diary_size(uid)}
                 await self.page(uid); await self.set_device(uid, phone)
+                self.pictured[uid] = []
                 self.log({'uid': uid, 'cmd': 'begin_turn', 'args': [self.state['slot']], 'device': self.state['turn']['device'],
                           'result': f"cap {self.state['turn']['cap']}" + (' · may switch device' if a.get('switch') else '')})
                 self.save_state(); return {'turn': self.state['turn'], 'clock': self.clock_str()}
