@@ -320,6 +320,7 @@ class Person:
         """the menu entry a person reads in their menu (the rail, or the tab bar and More on the phone)"""
         if expect_menu and self.scr.text and self.scr.menu and not any(norm(re.sub(r'\s+\d+$', '', m)) == norm(label) for m in self.scr.menu):
             self.expect(False, f'"{label}" in the menu', f'the menu has: {" · ".join(self.scr.menu)}')
+        if self.scr.sheet: self._act('back')   # a sheet left open is closed first, as a person does
         self.last_control = f'menu: {label}'
         r, txt = self._act('go', label)
         if not r.get('ok'): raise Stuck(f'go to {label}', f'"{label}" in the menu', screen_of(txt) if CHROME.search(txt) else self.scr, self.last_control + ': ' + txt[:200])
@@ -761,7 +762,7 @@ def j5_coord_rfq(p):
         p.go('Purchasing')
         p.tap('Quotes', exact=True)
     p.look()
-    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
+    open_rfq(p, rfq)
     want = [y[0] for y in YARDS]
     picks = [c for c in p.scr.ctls if c.kind == 'check' and c.label]
     steps = [('tap', c) for c in picks if (c.state == 'on') != any(norm(c.label).startswith(norm(w)) for w in want)]
@@ -772,6 +773,12 @@ def j5_coord_rfq(p):
     sent = bool(re.search(r'\bsent\b', p.scr.toast, re.I)) and not re.search(r'drafted', p.scr.toast, re.I)
     p.expect(sent, f'Send RFQ sends {rfq} to the vendors (its own note: "Send RFQ is the approval: one email per vendor")', p.scr.toast)
     if not sent: send_drafts(p, rfq)
+
+
+def open_rfq(p, rfq):
+    """the RFQ's own page: from its card on Quotes, unless Quotes still has it open"""
+    if p.look().has('RFQs — ' + rfq): return
+    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
 
 
 def send_drafts(p, rx):
@@ -789,7 +796,7 @@ def j6_coord_quotes(p):
     p.go('Purchasing')
     p.tap('Quotes', exact=True)
     rfq = (re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
-    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
+    open_rfq(p, rfq)
     if p.scr.find('Check Replies', exact=True): p.tap('Check Replies', exact=True)
     p.look()
     while p.scr.find('Enter Prices', exact=True):
@@ -822,7 +829,7 @@ def j7_coord_pos(p):
     p.go('Purchasing')
     p.tap('Quotes', exact=True)
     rfq = (re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
-    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
+    open_rfq(p, rfq)
     if p.scr.find('Award Without Negotiating'): p.tap('Award Without Negotiating', exact=True)
     p.tap('Award and Create POs', exact=True)
     po = (re.findall(r'PO-\d{4}-\d+', p.scr.toast) or [''])[0]
@@ -869,8 +876,8 @@ def j7_coord_pos(p):
                      f'Unit Price = {left.value if left else "?"}')
         p.do([('pick', 'Supplier', 'Ferguson'), ('type', 'Item', item), ('type', 'Unit Price', str(price)), ('type', 'Needed on Site', '2026-09-14'),
               ('pick', 'Sourcing', 'Distributor or middleman'), ('type', 'Reason', 'Wren chose the pieces at the Ferguson showroom'), ('tap', 'Issue PO')])
-        n = (re.findall(r'PO-\d{4}-\d+', p.scr.toast) or [''])[0]
-        p.expect(bool(n) and 'issued' in norm(p.scr.toast), f'plumbing buy {k + 1} issued as a PO on the same line', p.scr.toast)
+        n = (re.findall(r'PO-\d{4}-\d+', p.scr.toast) or [''])[0] if 'issued' in norm(p.scr.toast) else ''
+        p.expect(bool(n), f'plumbing buy {k + 1} issued as a PO on the same line', p.scr.toast)
         if n:
             open_po(p, n)
             draft_po_mail(p, n)
@@ -891,19 +898,45 @@ def open_po(p, number):
     p.tap_row(number, after='Search', expect=number)
 
 
+VENDOR_MAIL = {'nemo tile': 'sales@nemotile.example', 'ferguson': 'orders@ferguson.example'}   # from the huddle's list and the vendor's card
+
+
 def draft_po_mail(p, number):
     p.look()
     if not p.scr.find('Draft Email to Vendor', exact=True): return False
     p.tap('Draft Email to Vendor', exact=True, expect='Email to Vendor')
+    to = p.look().find('To', field=True)
+    if to is not None and not to.value:
+        vend = next((v for v in VENDOR_MAIL if v in norm(p.scr.text)), '')
+        p.expect(False, f'{number}\'s vendor email is on file, so its mail is addressed', 'To is empty: "' + (p.scr.toast or 'no email on file') + '"')
+        if vend: p.do_ctls([('type', to, f'{vend.title()} <{VENDOR_MAIL[vend]}>')])
     p.tap('Save to Mailbox Drafts', exact=True)
+    if p.look().sheet and 'email to vendor' in norm(p.scr.sheet_title):   # the tap after typing was lost (as on the estimate's Save)
+        p.expect(False, 'Save to Mailbox Drafts saves on the first tap after typing the To', 'the sheet stayed open')
+        p.tap('Save to Mailbox Drafts', exact=True)
     return True
 
 
 def issue_and_send(p, number):
     p.look()
-    for lab in ('Issue PO', 'Submit for Approval'):
-        if p.scr.find(lab, exact=True):
-            p.tap(lab, exact=True); break
+    lab = next((l for l in ('Issue PO', 'Submit for Approval') if p.scr.find(l, exact=True)), None)
+    if lab: p.tap(lab, exact=True)
+    if lab == 'Submit for Approval' or 'approv' in norm(p.scr.toast) and 'issued' not in norm(p.scr.toast):
+        # over a house threshold: the owner approves it (on the same device), then the coordinator issues it
+        why = (re.findall(r'Submit for Approval\]\s*\n([^\n]*)', p.scr.text) or [''])[0][:200]
+        me, dev = p.uid, p.device
+        switch(p, 'u_owner', dev)
+        try:
+            p.go('Purchasing', expect_menu=False)
+            p.tap('Orders', exact=True)
+            p.tap_row(number, after='Search', expect=number)
+            c = next((x for x in p.look().ctls if x.action and re.match(r'^approve', norm(x.label))), None)
+            if c is None: raise Stuck(f'the owner approves {number}', f'an Approve on {number}', p.scr, 'Orders')
+            p.tap_ctl(c)
+        finally:
+            switch(p, me, dev)
+        open_po(p, number)
+        if p.look().find('Issue PO', exact=True): p.tap('Issue PO', exact=True)
     p.expect('issued' in norm(p.scr.toast) or p.look().has('Issued'), f'{number} issued', p.scr.toast)
     if draft_po_mail(p, number):
         p.expect(False, f'Issue PO sends {number} to the vendor (it waits for Draft Email to Vendor, a mailbox draft, then Gmail)', 'issued, nothing sent')
