@@ -18957,7 +18957,7 @@ function renderComposer() {
         return `<div class="lineedit"><input type="number" step="any" data-cq="${i}" value="${l.qty}"><input data-cu="${i}" value="${esc(l.unit)}"><input data-cw="${i}" value="${esc(l.what)}" style="${l.invId ? "border-left:3px solid var(--accent)" : ""}"><span class="rm" data-cx="${i}"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>${inv ? `<div class="status-line ok">${"tool" === inv.type ? `${esc(inv.name)} is at ${esc(locName(inv.loc))} — pickup, no purchase` : av >= l.qty ? `${av} ${esc(inv.unit)} in ${esc(locName(inv.loc))} — pickup, no purchase` : `${av} ${esc(inv.unit)} in ${esc(locName(inv.loc))} — pick up those, buy ${l.qty - av}`}</div>` : ""}${c && "ok" !== c.level ? `<div class="status-line wait">${esc(c.text)}</div>` : ""}`;
       })
       .join("");
-  box.innerHTML = `${run ? `<div class="nudge" style="background:#1F2A44;color:#fff"><div><b>${esc(run.driver)} is at ${esc(run.store)}</b>Add what you need now — he leaves at ${new Date(run.closesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</div></div>` : ""}\n    <div class="composer"><textarea id="cp-text" placeholder="${tk ? `What do you need for ${esc(tk.name)}?` : 'What do you need? e.g. 40 2x4x8, a box of 3" screws, bring the table saw'}">${esc(comp.text)}</textarea>${speech ? '<button class="mic" id="cp-mic" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>' : ""}</div>\n    <div class="chips">${kitNow && !comp.kit ? `<button class="chip" data-ckit="${kitNow.code}">${esc(kitNow.n)} kit</button>` : ""}<button class="chip" id="cp-morekits">Kits ▾</button><label class="chip" style="cursor:pointer">Photo of a list<input type="file" id="cp-photo" accept="image/*" capture="environment" hidden></label>${freq
+  box.innerHTML = `${run ? `<div class="nudge" style="background:#1F2A44;color:#fff"><div><b>${esc(run.driver)} is at ${esc(run.store)}</b>Add what you need now — he leaves at ${new Date(run.closesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</div></div>` : ""}\n    <div class="composer"><textarea id="cp-text" placeholder="${tk ? `What do you need for ${esc(tk.name)}?` : 'What do you need? e.g. 40 2x4x8, a box of 3 inch screws, bring the table saw'}">${esc(comp.text)}</textarea>${speech ? '<button class="mic" id="cp-mic" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>' : ""}</div>\n    <div class="chips">${kitNow && !comp.kit ? `<button class="chip" data-ckit="${kitNow.code}">${esc(kitNow.n)} kit</button>` : ""}<button class="chip" id="cp-morekits">Kits ▾</button><label class="chip" style="cursor:pointer">Photo of a list<input type="file" id="cp-photo" accept="image/*" capture="environment" hidden></label>${freq
     .slice(0, 4)
     .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} ${esc(w)}</button>`)
     .join(
@@ -20593,7 +20593,7 @@ function wire() {
         log(`Baseline set (${S.tasks.length} tasks)`),
         save(),
         render(),
-        toast("Baseline set — slip against it now shows on every task"));
+        toast("Baseline set — slip against it now shows on every task", { label: "Open", run: () => ((view = "sched"), render(), (document.querySelector(".view.on table, .view.on .gantt-wrap, .view.on .card") || { scrollIntoView() {} }).scrollIntoView({ block: "start" })) }));
     }),
     ($("#btn-delproj").onclick = () => {
       1 !== DB.projects.length
@@ -140950,7 +140950,7 @@ function pay3Accept(id, quiet) {
     try {
       toastDone(
         `${t.desc} coded to ${pay3SugText(s)} — ${money(Math.abs(t.amt))} out of Needs Category`,
-        void 0 !== flowGo && flowCan("bank") ? flowGo.view("bank") : null,
+        "function" == typeof txnDialog ? () => txnDialog(t.id) : void 0 !== flowGo && flowCan("bank") ? flowGo.view("bank") : null,
       );
     } catch (e) {
       toast("Coded");
@@ -162858,7 +162858,7 @@ function prgSheet(id, pid) {
     cur = prgPct(t),
     body = `<p class="small muted prg-sum">${prgSummary(t)}</p>\n    ${unit ? `<div class="f"><label>Installed So Far (${esc(t.unit)})</label><div class="prg-qty"><input data-f="qty" type="number" inputmode="decimal" min="0" max="${+t.qtyTotal}" value="${null != t.qtyDone ? +t.qtyDone : ""}" placeholder="0"><span class="small muted">of ${+t.qtyTotal} ${esc(t.unit)}</span></div><span class="hint">Or tap a step below.</span></div>` : ""}\n    <div class="prg-steps" role="group" aria-label="Percent complete">${PRG_STEPS.map((s) => `<button type="button" class="prg-step ${cur === s ? "on" : ""}" data-prgstep="${s}">${s}%</button>`).join("")}</div>\n    <div class="f"><label>Note (Optional)</label><input data-f="note" placeholder="e.g. 3rd floor done, hall left"></div>\n    <div class="f prg-photo"><label>Photo (Optional)</label><label class="btn sm prg-cam">${FX_ICON.camera}<span>Take Photo</span><input type="file" accept="image/*" capture="environment" hidden data-prgshot></label><span class="small muted" data-prgshotn></span></div>\n    <details class="prg-hd"><summary class="small">History (${prgLog(t).length})</summary>${prgHistHtml(t)}</details>`,
     m = mbModal(
-      `Progress — <span data-nocase>${esc(t.name)}</span>`,
+      `Update Progress — <span data-nocase>${esc(t.name)}</span>`,
       body,
       unit
         ? {
@@ -189456,10 +189456,10 @@ function flHoldDialog(c, p) {
   const who = p.who || (c.from && c.from.name) || "them",
     addr = (c.from && c.from.email) || "";
   mbModal(
-    `Hold the Time — Meeting with ${esc(who)}`,
+    `Book the Meeting with ${esc(who)}`,
     `<p class="small muted" style="margin:0 0 10px">${esc(who)} wrote: “${esc(String(p.sentence || "").slice(0, 160))}”. The hold goes on your calendar; the reply goes to your Drafts for you to send.</p>${mbF("Title", `<input data-f="title" value="${esc(`Meeting — ${who}${p.where ? " · " + p.where : ""}`)}">`)}<div class="grid2">${mbF("Date", `<input type="date" data-f="date" value="${esc(p.date)}">`)}${mbF("From", `<input type="time" data-f="from" value="${esc(p.from || "10:00")}">`)}</div><div class="grid2">${mbF("To", `<input type="time" data-f="to" value="${esc(p.to || "11:00")}">`)}${mbF("Where", `<input data-f="where" value="${esc(p.where || "")}">`)}</div><label class="chk"><input type="checkbox" data-f="reply" checked> <span class="chk-t">Draft a reply confirming the time</span></label>`,
     {
-      submit: "Hold It",
+      submit: "Book It",
       onSubmit: (f) => {
         if (!f.date) return toast("Say the day"), !1;
         DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
@@ -193288,7 +193288,7 @@ function plPinnedHtml(p, max) {
     n = max || 8,
     pend = plPendingAcks(p.id),
     holds = plHolds(p.id);
-  return `<div class="card pl-pinned" id="pl-pinned"><div class="hd"><h3>Pinned Plans</h3><span class="small muted">${cur.length} current</span></div>${holds.length ? `<div class="small" style="color:var(--warn)"><b>In revision:</b> ${esc(holds.map((h) => (plRoom(h.roomId) || {}).name).filter(Boolean).join(", "))}</div>` : ""}${pend.length ? `<div class="small" style="color:var(--warn)"><b>Waiting for acknowledgment:</b> ${esc(pend.map((x) => plRev(x.s)).join(", "))}</div>` : ""}${cur.slice(0, n).map((s) => `<div class="pl-pin"><button type="button" class="btn sm" data-plopen="${s.id}">${esc(plRev(s))}</button><span class="small">${esc(s.title)}</span></div>`).join("")}${cur.length > n ? `<div class="small muted">${cur.length - n} more on the Plans page</div>` : ""}<div style="margin-top:8px"><button type="button" class="btn sm" data-plgo="${p.id}">All Plans</button></div></div>`;
+  return `<div class="card pl-pinned" id="pl-pinned"><div class="hd"><h3>Pinned Plans</h3><span class="small muted">${cur.length} current</span></div>${holds.length ? `<div class="small" style="color:var(--warn)"><b>In revision:</b> ${esc(holds.map((h) => (plRoom(h.roomId) || {}).name).filter(Boolean).join(", "))}</div>` : ""}${pend.length ? `<div class="small" style="color:var(--warn)"><b>Waiting for acknowledgment:</b> ${esc(pend.map((x) => plRev(x.s)).join(", "))}</div>` : ""}${cur.slice(0, n).map((s) => `<div class="pl-pin"><button type="button" class="btn sm" data-plopen="${s.id}">${esc(plRev(s))}</button><span class="small">${esc(s.title)}</span></div>`).join("")}${cur.length > n ? `<div class="small muted">${cur.length - n} more on the Drawings page</div>` : ""}<div style="margin-top:8px"><button type="button" class="btn sm" data-plgo="${p.id}">All Drawings</button></div></div>`;
 }
 // ---- the field: Today's For You, the Started warning, the look-ahead
 function plForYouHtml() {
