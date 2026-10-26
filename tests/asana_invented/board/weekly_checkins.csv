@@ -1,0 +1,13 @@
+Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),GENERAL NOTES ,PROJECT NAME ,Task ID ,NEW?CARRIED,PRIORITY
+5001,2026-09-01,,2026-10-22,ELM-02 Confirm the stair runner sample,Untitled section,Priya Natarajan,priya@example.com,2026-10-20,2026-10-27,client,Asked the client twice for the sample.,Invented Weekly Check Ins,,,5002,Client prefers wool.,12 Elm St ,ELM-02,CARRIED,P1
+5002,2026-09-02,,2026-10-22,ELM-03 Order the vestibule tile,Untitled section,Priya N.,priya@example.com,,2026-10-29,,,Invented Weekly Check Ins,,5001,,,12 elm  st,ELM-03,NEW,P2
+5003,2026-09-03,,2026-10-22,Elm Notes - punch list from the walk,Untitled section,Priya Natarajan,priya@example.com,,2026-10-30,,,Invented Weekly Check Ins,,,,,12 ELM St,,NEW,P2
+5004,2026-09-04,,2026-10-22,301-01 Zoning filing for the Oak job,Untitled section,Dana Whitfield,dana@example.com,2026-10-15,2026-11-03,,,Invented Weekly Check Ins,,,,,301 Oak Ave ,301-01,CARRIED,P3
+5005,2026-09-05,,2026-10-22,301-02 Survey for the Oak job,Untitled section,Marisol Vega,marisol@example.com,,2026-11-04,,,Invented Weekly Check Ins,,,,,301 Oak Ave,301-02,CARRIED,P2
+5006,2026-09-06,,2026-10-22,OPS-07 Renew the van lease,Untitled section,Leo Marchetti,leo@example.com,,2026-10-28,,,Invented Weekly Check Ins,,,,,General ,OPS-07,CARRIED,P2
+5007,2026-09-07,,2026-10-22,Reconcile the supplier credit,Untitled section,Marisol Vega,marisol@example.com,,2026-10-31,,"RENUMBERED from OPS-05, now FIN-11. Waits on OPS-07.",Invented Weekly Check Ins,,,,OPS-05,General,FIN-11,NEW,P2
+5008,2026-09-08,,2026-10-22,FIN-12 Pay the permit expediter,Untitled section,Dana Whitfield,dana@example.com,,2026-10-26,,,Invented Weekly Check Ins,,,,,12 Elm St,FIN-12,CARRIED,P1
+5009,2026-09-09,,2026-10-22,OPS-08 Weekly meeting notes,Meeting Notes - Invented Team,Leo Fontaine,leo.f@example.com,,,,,Invented Weekly Check Ins,,,,,,OPS-08,,
+5010,2026-09-10,,2026-10-22,ELM-03 Second card for the tile order,Untitled section,Priya Natarajan,priya@example.com,,2026-10-29,,,Invented Weekly Check Ins,,,,,12 Elm St,ELM-03,NEW,P2
+5011,2026-09-11,2026-10-20,2026-10-20,FIN-13 Close the September books,Untitled section,Leo Marchetti,leo@example.com,,2026-10-10,,,Invented Weekly Check Ins,,,,,General,FIN-13,CARRIED,P2
+5012,2026-09-12,,2026-10-22,Pick the binding color,,Priya Natarajan,priya@example.com,,,,,,ELM-02 Confirm the stair runner sample,,,,,,,

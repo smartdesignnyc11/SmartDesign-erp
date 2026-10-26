@@ -246,7 +246,20 @@ function twsInviteWire() {
 // ---- the Asana import ---------------------------------------------------------------------------------------------
 // Asana's CSV export (each project's menu › Export › CSV): Task ID, Created At, Completed At, Last Modified, Name,
 // Section/Column, Assignee, Assignee Email, Start Date, Due Date, Tags, Notes, Projects, Parent task, Blocked By
-// (Dependencies), Blocking (Dependencies), then one column per custom field.
+// (Dependencies), Blocking (Dependencies), then one column per custom field. The team board adds its own: GENERAL
+// NOTES, PROJECT NAME, a second Task ID (the team's key), NEW?CARRIED and PRIORITY.
+// The rules (Alan, 10-26, after the first dry run of the real board scrambled it):
+//   - a task keeps its key exactly as the team wrote it: the team's Task ID column first, else the key the name starts
+//     with; case and zero padding kept, numeric series ("144-01") too. A key mentioned in the notes is never the
+//     task's key. Only a row with no key gets one, in its project's series, padded like its neighbours.
+//   - a series is firm-wide (a finance and an ops series sit on the Office list and on jobs): a project can hold keys
+//     of several series. A key is unique firm-wide; a true duplicate is refused to the review list.
+//   - the owner is the assignee: by Assignee Email, else by the exact full name; never by a first name alone, never
+//     someone else. An assignee who is not on the team waits for an owner on this screen; nobody is given the task
+//     silently.
+//   - PROJECT NAME is the project, trimmed, its case and spacing evened out ("141St st" and "141st St" are one).
+//     "General" and the meeting-notes section are the firm's own Office list. A project that is a job here joins it.
+//   - every field is kept: dates, both notes, priority, NEW or CARRIED, parent, dependencies, tags, the Asana id.
 const AIM_COLS = {
   id: /^task id$/i,
   created: /^created at$/i,
@@ -264,10 +277,24 @@ const AIM_COLS = {
   parent: /^parent task$/i,
   blockedBy: /^blocked by/i,
   blocking: /^blocking/i,
-  // the team board's own custom field: the job a row is about (rows without one are the firm's own lists)
+  // the team board's own custom fields: the job a row is about (rows without one are the firm's own lists), and the
+  // team's key (a second "Task ID" column beside Asana's own)
   projectName: /^project name$/i,
+  key: /^task id \(\d+\)$|^task key$|^key$/i,
 };
-const AIM_KEY = /^\s*\[?([A-Z][A-Z0-9]{0,7})-(\d{1,5})\]?(?:[\s:.\u2013\u2014-]+|$)/;
+// the team board's other custom fields, read by name and kept in custom as well
+const AIM_EXTRA = { general: /^general notes$/i, carried: /^new\s*[?\/]\s*carried$|^new or carried$/i, pri: /^priority$/i };
+// A key in its own cell: letters ("PAT-02", "ops-3") or a numeric series ("144-01").
+const AIM_KEY_CELL = /^\s*\[?([A-Za-z][A-Za-z0-9]{0,7}|\d{1,6})-(\d{1,5})\]?\s*$/;
+// A key the name starts with ("PAT-02 Close out selections"); never a date ("2026-10-22 notes").
+const AIM_KEY = /^\s*\[?([A-Z][A-Z0-9]{0,7}|\d{2,6})-(\d{1,5})\]?(?!\d|[-\/]\d)(?:[\s:.\u2013\u2014-]+|$)/;
+// a custom column that holds words, never a key (a key mentioned in the notes is not the task's key)
+const AIM_WORDS_COL = /note|comment|description|summary|update|status|tag|carried|priority|project/i;
+const aimNorm = (s) => String(s || "").trim().replace(/\s+/g, " ");
+const aimPjKey = (s) => aimNorm(s).toLowerCase();
+const aimKeyNorm = (k) => ("function" == typeof tkKeyNorm ? tkKeyNorm(k) : String(k || "").trim().toUpperCase());
+// "General" (and "Office") on the team board is the firm's own work, not a job
+const AIM_FIRM = /^(general|office)$/i;
 // RFC 4180: quoted fields, doubled quotes, line breaks inside quotes, a byte-order mark, CRLF or LF. A column name used
 // twice (the team board's custom "Task ID" beside Asana's own) is kept as "Task ID (2)", so neither is lost.
 function aimParseCsv(text) {
@@ -313,23 +340,37 @@ const aimSplit = (v) =>
     .split(/\s*,\s*/)
     .map((x) => x.trim())
     .filter(Boolean);
+// P1 to P3 (the team board), or High, Medium, Low: the task's one scale (priority) and the board's word (pri3)
+function aimPriority(v) {
+  const t = String(v || "").trim().toUpperCase();
+  if (/^P[123]$/.test(t)) return { pri3: t, priority: { P1: "high", P2: "med", P3: "low" }[t] };
+  const w = /^(HIGH|URGENT)$/.test(t) ? "high" : /^(MED|MEDIUM|NORMAL)$/.test(t) ? "med" : /^LOW$/.test(t) ? "low" : "";
+  return w ? { pri3: { high: "P1", med: "P2", low: "P3" }[w], priority: w } : { pri3: "", priority: "" };
+}
 // One file's rows in the import's own shape, with the custom fields kept by their column names.
 function aimReadFile(file) {
   const P = aimParseCsv(file.text),
-    col = {};
+    col = {},
+    ex = {};
   P.header.forEach((h) => {
     for (const [k, re] of Object.entries(AIM_COLS)) if (re.test(h) && !col[k]) return void (col[k] = h);
   });
+  P.header.forEach((h) => {
+    for (const [k, re] of Object.entries(AIM_EXTRA)) re.test(h) && !ex[k] && (ex[k] = h);
+  });
   if (!col.id || !col.name) return { error: `${file.name || "That file"} is not an Asana export: it has no Task ID and Name columns`, rows: [] };
-  const known = new Set(Object.values(col));
+  const known = new Set(Object.entries(col).filter(([k]) => "key" !== k).map(([, h]) => h));
   return {
     board: !!col.projectName,
     rows: P.rows.map((r, i) => {
       const g = (k) => (col[k] ? String(r[col[k]] || "").trim() : ""),
+        x = (k) => (ex[k] ? String(r[ex[k]] || "").trim() : ""),
         custom = {};
       P.header.forEach((h) => {
         !known.has(h) && String(r[h] || "").trim() && (custom[h] = String(r[h]).trim());
       });
+      const pr = aimPriority(x("pri")),
+        cv = x("carried");
       return {
         file: file.name || "",
         line: i + 2,
@@ -339,18 +380,24 @@ function aimReadFile(file) {
         modified: aimDate(g("modified")),
         name: g("name"),
         section: g("section"),
-        assignee: g("assignee"),
+        assignee: aimNorm(g("assignee")),
         email: g("email").toLowerCase(),
         start: aimDate(g("start")),
         due: aimDate(g("due")),
         tags: aimSplit(g("tags")),
         notes: col.notes ? String(r[col.notes] || "").trim() : "",
+        general: ex.general ? String(r[ex.general] || "").trim() : "",
         projects: aimSplit(g("projects")),
         parent: g("parent"),
         blockedBy: aimSplit(g("blockedBy")),
         blocking: aimSplit(g("blocking")),
         boardFile: !!col.projectName,
-        projectName: g("projectName"),
+        projectName: aimNorm(g("projectName")),
+        keyCell: g("key"),
+        keyCol: col.key || "",
+        pri3: pr.pri3,
+        priority: pr.priority,
+        carried: /carried/i.test(cv) ? "CARRIED" : /new/i.test(cv) ? "NEW" : "",
         custom: custom,
       };
     }),
@@ -360,62 +407,75 @@ function aimReadFile(file) {
 function aimPeople() {
   return (DB.users || []).filter((u) => u && u.id && "client" !== u.role && !/^mb_/.test(u.role || ""));
 }
-// A team member by their Asana email, else the way the task record reads a name (tkInternal: a full name, a first name
-// only one person carries, a role word); only a person who signs in owns a task.
-function aimPersonOf(name, email) {
+// The team member an Asana assignee is: by their Asana email, else by the exact full name, and only when one person
+// carries it. Never by a first name alone, never a role word, never the board's lead: a person who is not on the team
+// here is nobody's to guess (the row waits for an owner).
+function aimMatch(name, email) {
   const U = aimPeople(),
-    e = String(email || "").toLowerCase();
+    e = String(email || "").trim().toLowerCase();
   if (e) {
-    const u = U.find((x) => String(x.contact || x.email || "").toLowerCase() === e);
-    if (u) return u;
+    const u = U.find((x) => String(x.contact || x.email || "").trim().toLowerCase() === e);
+    if (u) return { u: u, how: "email" };
   }
-  const n = String(name || "").trim();
-  if (!n) return null;
-  let hit = null;
-  try {
-    const t = "function" == typeof tkInternal ? tkInternal(n) : null;
-    hit = t && t.id ? U.find((u) => u.id === t.id) || null : null;
-  } catch (e2) {}
-  if (hit) return hit;
-  const low = n.toLowerCase(),
-    full = U.filter((x) => String(x.name || "").trim().toLowerCase() === low);
-  if (1 === full.length) return full[0];
-  const f = low.split(/\s+/)[0],
-    first = U.filter((x) => String(x.name || "").trim().toLowerCase().split(/\s+/)[0] === f);
-  return !full.length && 1 === first.length && low === f ? first[0] : null;
+  const low = aimNorm(name).toLowerCase();
+  if (!low) return null;
+  const full = U.filter((x) => aimNorm(x.name).toLowerCase() === low);
+  return 1 === full.length ? { u: full[0], how: "name" } : null;
 }
-// Someone outside the team, found among the contacts the app already holds (by email first, then as the task record
-// finds them: tkContactRef).
+function aimPersonOf(name, email) {
+  const m = aimMatch(name, email);
+  return m ? m.u : null;
+}
+// Someone outside the team, on file here: a vendor, a client's contact or a consultant, by email, else by the exact
+// name (never a first name: a staff member Asana names is not a vendor because a vendor shares her first name).
 function aimContactOf(name, email) {
-  const e = String(email || "").toLowerCase();
-  if (e) {
-    const v = (DB.vendors || []).find((x) => x && String(x.email || "").toLowerCase() === e);
-    if (v) return { kind: "vendor", id: v.id, name: name || v.name };
-  }
-  let ref = null;
-  try {
-    ref = "function" == typeof tkContactRef ? tkContactRef(name) : null;
-  } catch (e2) {}
-  return ref ? Object.assign({ name: name }, ref) : null;
+  const e = String(email || "").trim().toLowerCase(),
+    n = aimNorm(name).toLowerCase(),
+    em = (v) => !!e && String(v || "").trim().toLowerCase() === e,
+    eq = (v) => !!n && aimNorm(v).toLowerCase() === n,
+    out = (kind, id, nm) => ({ kind: kind, id: id, name: name || nm || "" });
+  const V = DB.vendors || [],
+    C = DB.clients || [],
+    H = (DB.hub && DB.hub.contacts) || [],
+    hn = (x) => `${x.first || ""} ${x.last || ""}`.trim() || x.name;
+  let v = V.find((x) => x && em(x.email)),
+    c = !v && C.find((x) => x && (em(x.email) || (x.contacts || []).some((k) => k && em(k.email)))),
+    h = !v && !c && H.find((x) => x && em(x.email));
+  if (v) return out("vendor", v.id, v.name);
+  if (c) return out("client", c.id, c.name);
+  if (h) return out("consultant", h.id, hn(h));
+  v = V.find((x) => x && (eq(x.name) || eq(x.contact)));
+  if (v) return out("vendor", v.id, v.name);
+  c = C.find((x) => x && (eq(x.name) || (x.contacts || []).some((k) => k && eq(k.name))));
+  if (c) return out("client", c.id, c.name);
+  h = H.find((x) => x && (eq(hn(x)) || eq(x.company)));
+  return h ? out("consultant", h.id, hn(h)) : null;
 }
+// A prefix for a project whose rows carry no key of its own: the street number the team names its series by
+// ("144th St" 144), else the app's guess from the words (Hollis Kitchen Renovation HKR); never one already taken.
 function aimPrefixFromName(name, taken) {
-  const t = String(name || "").trim(),
-    lead = /^\[?([A-Z][A-Z0-9]{1,5})\]?(?:\s*[-:\u2013\u2014]\s*|\s+)/.exec(t);
-  let p = lead ? lead[1] : "";
-  if (!p) {
-    const words = t
-      .replace(/[^A-Za-z0-9 ]+/g, " ")
-      .split(/\s+/)
-      .filter((w) => w && !/^(the|and|of|at|on|for|a|an)$/i.test(w));
-    p = (words.length > 1 ? words.map((w) => w[0]).join("") : (words[0] || "PRJ").slice(0, 3)).toUpperCase().slice(0, 4);
-    /^[A-Z]/.test(p) || (p = "P" + p);
-  }
-  let out = p,
+  const t = aimNorm(name),
+    tries = [],
+    num = /^(\d{2,6})(?:st|nd|rd|th)?\b/i.exec(t);
+  num && tries.push(num[1]);
+  try {
+    "function" == typeof tkPrefixGuess && tries.push(tkPrefixGuess(t));
+  } catch (e) {}
+  const words = t
+    .replace(/[^A-Za-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !/^(the|and|of|at|on|for|a|an)$/i.test(w));
+  let p = (words.length > 1 ? words.map((w) => w[0]).join("") : (words[0] || "PRJ").slice(0, 3)).toUpperCase().slice(0, 4);
+  /^[A-Z0-9]/.test(p) || (p = "P" + p);
+  tries.push(p);
+  const up = (x) => String(x || "").toUpperCase();
+  for (const x of tries) if (x && !taken.has(up(x))) return up(x);
+  let out = up(tries[tries.length - 1]),
     i = 2;
-  for (; taken.has(out); ) out = p + i++;
-  return out;
+  for (; taken.has(out + i); ) i++;
+  return out + i;
 }
-// Every task on every board (a job's to-dos, the firm's own lists, Sales), by Asana id and by code.
+// Every task on every board (a job's to-dos, the firm's own lists, Sales), by Asana id and by key.
 function aimRecs() {
   if ("function" == typeof tkKeyedRecs) return tkKeyedRecs();
   const out = [];
@@ -428,21 +488,22 @@ function aimIndex() {
   aimRecs().forEach((r) => {
     const a = r.rec;
     a && a.asana && a.asana.id && byAsana.set(String(a.asana.id), { a: a, p: r.p, board: r.board });
-    a && a.code && codes.set(String(a.code).toUpperCase(), { a: a, p: r.p, board: r.board });
+    a && a.code && codes.set(aimKeyNorm(a.code), { a: a, p: r.p, board: r.board });
   });
   return { byAsana: byAsana, codes: codes };
 }
-// The task a row already is: by its Asana id; else by its code, when that task came from an Asana import (the older
-// one-step board import marked source.asana) or carries the same title. A hand-made task that happens to hold the code
-// is someone else's: the row gets a new number instead.
+// The task a row already is: by its Asana id; else by its key, when that task came from an Asana import (the older
+// one-step board import marked source.asana) or carries the same title. A hand-made task that holds the key is
+// someone else's: the row is a duplicate.
 function aimFind(idx, id, code, title) {
   const a = id && idx.byAsana.get(String(id));
   if (a) return a;
-  const c = code && idx.codes.get(String(code).toUpperCase());
-  if (!c) return null;
-  const low = (x) => String(x || "").trim().toLowerCase();
+  const c = code && idx.codes.get(aimKeyNorm(code));
+  if (!c || (c.a.asana && c.a.asana.id && id && String(c.a.asana.id) !== String(id))) return null;
+  const low = (x) => aimNorm(x).toLowerCase();
   return (c.a.source && (c.a.source.asana || "asana" === c.a.source.kind)) || low(c.a.title) === low(title) ? c : null;
 }
+const aimHolder = (a) => (a.asana && a.asana.id ? "asana:" + a.asana.id : "app:" + a.id);
 // A board's meta (its prefix and next number): a job's own project record, or the firm's map for its own lists.
 function aimMeta(board) {
   if ("function" == typeof tkBoardMeta) return tkBoardMeta(board);
@@ -451,29 +512,38 @@ function aimMeta(board) {
 }
 function aimPrefixesTaken() {
   const S = new Set();
-  (DB.projects || []).forEach((p) => p.project && p.project.prefix && S.add(p.project.prefix));
-  Object.values((DB.company && DB.company.tkBoards) || {}).forEach((m) => m && m.prefix && S.add(m.prefix));
+  (DB.projects || []).forEach((p) => p.project && p.project.prefix && S.add(String(p.project.prefix).toUpperCase()));
+  Object.values((DB.company && DB.company.tkBoards) || {}).forEach((m) => m && m.prefix && S.add(String(m.prefix).toUpperCase()));
   return S;
 }
-// The job a project name means: the one an earlier import made for it, the same name or address (one job known by
-// two names is matched by the same rule the board import used: asProjectFor), or the board's prefix.
-function aimJobFor(name, prefix) {
-  const low = String(name || "").toLowerCase();
+// The job a project name means: the one an earlier import made for it, the same name or address with case and
+// spacing evened out, or one job known by two names (asProjectFor, the rule the board import used).
+function aimJobFor(name) {
+  const low = aimPjKey(name);
   let p =
-    (DB.projects || []).find((q) => q.project && String(q.project.asanaName || "").toLowerCase() === low) ||
-    (DB.projects || []).find((q) => q.project && String(q.project.name || "").trim().toLowerCase() === low) ||
+    (DB.projects || []).find((q) => q.project && aimPjKey(q.project.asanaName) === low) ||
+    (DB.projects || []).find((q) => q.project && (aimPjKey(q.project.name) === low || aimPjKey(q.project.address) === low)) ||
     null;
   if (!p)
     try {
       const h = "function" == typeof asProjectFor ? asProjectFor({ projectName: name }) : null;
       h && !h.__property && (p = h);
     } catch (e) {}
-  return p || (prefix && (DB.projects || []).find((q) => q.project && q.project.prefix === prefix)) || null;
+  return p || null;
+}
+// the spelling a project is shown by, of the ones the rows use: the most rows, then the most Title-like
+// ("141st St" over "141St st")
+function aimBestSpelling(names) {
+  const n = {};
+  names.forEach((x) => (n[x] = (n[x] || 0) + 1));
+  const score = (x) => x.split(" ").reduce((a, w) => a + (/^[A-Z0-9]/.test(w) ? 1 : 0) - (w.slice(1).match(/(?<=[a-z0-9])[A-Z]/g) || []).length, 0);
+  return Object.keys(n).sort((a, b) => n[b] - n[a] || score(b) - score(a))[0] || "";
 }
 // The dry run: what the files would do, and nothing written. files: [{name, text}]. opts.prefix: {project name: prefix}
 // the person typed over the suggested ones.
 // Where a row goes: a per-project export's rows go to that project (a job here); the team board's export names the job
-// in PROJECT NAME, and a row without one is on one of the firm's own lists (its section: Operations, Finance & Admin).
+// in PROJECT NAME, and a row without one (or "General") is on the firm's own lists: the Office list, or the list its
+// section names (Finance & Admin).
 function aimPlan(files, opts) {
   const O = opts || {},
     errors = [],
@@ -502,133 +572,247 @@ function aimPlan(files, opts) {
     dup.push(r);
   });
   const idx = aimIndex(),
-    top = rows.filter((r) => !r.parent),
-    subs = rows.filter((r) => r.parent);
-  const fileProj = {};
-  top.forEach((r) => !r.boardFile && r.projects[0] && ((fileProj[r.file] = fileProj[r.file] || new Set()).add(r.projects[0])));
-  top.forEach((r) => {
-    if (r.boardFile) (r.project = r.projectName || r.section || "Office"), (r.firm = !r.projectName);
-    else (r.project = r.projects[0] || (fileProj[r.file] && 1 === fileProj[r.file].size ? [...fileProj[r.file]][0] : "")), (r.firm = !1);
-    // the ID the row already carries: in its name ("PAD-23 Order tile"), or a custom field that holds only an ID
-    const m = AIM_KEY.exec(r.name);
-    (r.keyFound = ""), (r.title = r.name);
-    if (m) (r.keyFound = `${m[1]}-${+m[2]}`), (r.title = r.name.slice(m[0].length).trim() || r.name);
-    else
-      for (const v of Object.values(r.custom)) {
-        const c = /^\s*\[?([A-Z][A-Z0-9]{0,7})-(\d{1,5})\]?\s*$/.exec(v);
+    S0 = "function" == typeof tkSeriesScan ? tkSeriesScan() : {},
+    pend = new Map((((DB.asanaImport || {}).pending) || []).filter((x) => x && x.asanaId).map((x) => [x.asanaId, x]));
+  // ---- the key each row carries: the team's Task ID column, else the name's leading key, else a custom field that
+  // holds only a key (never a column of words: a key mentioned in the notes is not the task's key)
+  const cellKey = (v) => {
+    const m = AIM_KEY_CELL.exec(String(v || ""));
+    return m ? `${m[1]}-${m[2]}` : "";
+  };
+  const knownSeries = new Set(Object.keys(S0));
+  rows.forEach((r) => {
+    const k = cellKey(r.keyCell);
+    k && knownSeries.add(k.split("-")[0].toUpperCase());
+  });
+  rows.forEach((r) => {
+    let k = cellKey(r.keyCell),
+      from = k ? "column" : "";
+    const m = AIM_KEY.exec(r.name),
+      nk = m && (/^[A-Z]/.test(m[1]) || /^0\d/.test(m[2]) || knownSeries.has(m[1])) ? `${m[1]}-${m[2]}` : "";
+    if (!k && nk) (k = nk), (from = "name");
+    if (!k)
+      for (const [h, v] of Object.entries(r.custom)) {
+        if (h === r.keyCol || AIM_WORDS_COL.test(h)) continue;
+        const c = cellKey(v);
         if (c) {
-          r.keyFound = `${c[1]}-${+c[2]}`;
+          (k = c), (from = "field");
           break;
         }
       }
+    r.keyFound = k;
+    r.keyFrom = from;
+    // the title without the key it starts with (only when that key is the row's own)
+    r.title = nk && aimKeyNorm(nk) === aimKeyNorm(k) ? r.name.slice(m[0].length).trim() || r.name : r.name;
   });
-  // the boards: a job matched here or new, or one of the firm's own lists
+  // a subtask with a key of its own is a task the team names in the meeting; one without is a checklist step
+  const top = rows.filter((r) => !r.parent || r.keyFound),
+    subs = rows.filter((r) => r.parent && !r.keyFound);
+  // ---- the project each row is on
+  const fileProj = {};
+  top.forEach((r) => !r.boardFile && r.projects[0] && ((fileProj[r.file] = fileProj[r.file] || new Set()).add(r.projects[0])));
+  const spell = {};
+  top.forEach((r) => {
+    if (r.boardFile) {
+      const notes = /meeting notes/i.test(r.section) || /^untitled section$/i.test(r.section) || !r.section;
+      if (!r.projectName || AIM_FIRM.test(r.projectName)) (r.project = !r.projectName && !notes ? aimNorm(r.section) : "Office"), (r.firm = !0);
+      else (r.project = r.projectName), (r.firm = !1);
+    } else {
+      r.project = aimNorm(r.projects[0] || (fileProj[r.file] && 1 === fileProj[r.file].size ? [...fileProj[r.file]][0] : ""));
+      r.firm = AIM_FIRM.test(r.project);
+      r.firm && (r.project = "Office");
+    }
+    r.project && ((spell[aimPjKey(r.project)] = spell[aimPjKey(r.project)] || []).push(r.project));
+  });
+  // a keyed subtask with no project of its own is on its parent's
+  top.forEach((r) => {
+    if (r.project || !r.parent) return;
+    const par = top.find((x) => x !== r && x.project && (x.name === r.parent || (x.keyFound && aimKeyNorm(x.keyFound) === aimKeyNorm(r.parent))));
+    par && ((r.project = par.project), (r.firm = par.firm));
+  });
+  // one project, however its rows spell it
+  const best = {};
+  Object.entries(spell).forEach(([k, L]) => (best[k] = aimBestSpelling(L)));
+  top.forEach((r) => r.project && (r.project = best[aimPjKey(r.project)]));
+  // ---- the series: a series whose keys sit in one project only is that project's own; one that sits in several (or
+  // on a board here other than the project's) is firm-wide, and never a project's prefix
+  const serIn = {};
+  top.forEach((r) => r.keyFound && r.project && (serIn[r.keyFound.split("-")[0].toUpperCase()] = serIn[r.keyFound.split("-")[0].toUpperCase()] || new Set()).add(r.project));
   const taken = aimPrefixesTaken(),
     projects = new Map();
   top.forEach((r) => {
     if (!r.project || projects.has(r.project)) return;
     const name = r.project,
-      keysIn = top.filter((x) => x.project === name && x.keyFound).map((x) => x.keyFound.split("-")[0]),
-      common = keysIn.length ? Object.entries(keysIn.reduce((m, k) => ((m[k] = (m[k] || 0) + 1), m), {})).sort((a, b) => b[1] - a[1])[0][0] : "",
       typed = O.prefix && O.prefix[name] ? String(O.prefix[name]).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) : "";
     let p = null,
       board = "";
     if (r.firm) board = "s:" + name;
-    else (p = aimJobFor(name, typed || common)), (board = p ? "p:" + p.id : "");
+    else (p = aimJobFor(name)), (board = p ? "p:" + p.id : "");
     const meta = board ? aimMeta(board) : null,
-      had = (r.firm && (((DB.company || {}).tkBoards || {})[board] || {}).prefix) || (p && p.project && p.project.prefix) || "";
-    const prefix = typed || (meta && meta.prefixSet && had) || common || had || aimPrefixFromName(name, taken);
-    taken.add(prefix);
-    projects.set(name, { name: name, prefix: prefix, typed: !!typed, firm: !!r.firm, board: board, projectId: p ? p.id : "", existing: !!(p || had), create: 0, update: 0, same: 0, done: 0, review: 0, flag: 0, sub: 0 });
+      had = String((r.firm && (((DB.company || {}).tkBoards || {})[board] || {}).prefix) || (p && p.project && p.project.prefix) || "");
+    const cnt = {};
+    top.forEach((x) => {
+      if (x.project !== name || !x.keyFound) return;
+      const s = x.keyFound.split("-")[0],
+        u = s.toUpperCase(),
+        z = S0[u];
+      serIn[u].size > 1 || (z && [...z.boards].some((b) => b !== board)) || (taken.has(u) && u !== had.toUpperCase()) || (cnt[s] = (cnt[s] || 0) + 1);
+    });
+    const own = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || "",
+      prefix = typed || (meta && meta.prefixSet && had) || own || had || aimPrefixFromName(name, new Set([...taken, ...Object.keys(serIn)]));
+    taken.add(prefix.toUpperCase());
+    projects.set(name, { name: name, prefix: prefix, typed: !!typed, firm: !!r.firm, board: board, projectId: p ? p.id : "", existing: !!(p || had), create: 0, update: 0, same: 0, done: 0, review: 0, flag: 0, sub: 0, kept: 0, made: 0, waiting: 0, refused: 0 });
   });
-  // codes: the one the row carries, else the next number on its board in the export's order; never one already used
-  const used = new Map([...idx.codes].map(([k, x]) => [k, x.a.asana && x.a.asana.id ? String(x.a.asana.id) : "app:" + x.a.id])),
-    next = {},
-    num = (P) => {
-      const prefix = P.prefix;
-      if (!(prefix in next)) {
-        let m = 0;
-        used.forEach((v, k) => {
-          const x = /^([A-Z0-9]+)-(\d+)$/.exec(k);
-          x && x[1] === prefix && (m = Math.max(m, +x[2]));
-        });
-        top.forEach((r) => {
-          const x = /^([A-Z0-9]+)-(\d+)$/.exec(r.keyFound || "");
-          x && x[1] === prefix && (m = Math.max(m, +x[2]));
-        });
-        const meta = P.board ? aimMeta(P.board) : null;
-        next[prefix] = Math.max(m + 1, (meta && meta.prefix === prefix && +meta.keyNext) || 1);
-      }
-      return `${prefix}-${next[prefix]++}`;
-    };
+  // ---- keys: never one already used (as it reads aloud: PAT-2 is PAT-02); a new one in its project's series
+  const used = new Map([...idx.codes].map(([k, x]) => [k, aimHolder(x.a)])),
+    Z = {};
+  Object.entries(S0).forEach(([k, x]) => (Z[k] = { max: x.max, width: x.width }));
+  top.forEach((r) => {
+    const m = /^(.+)-(\d+)$/.exec(r.keyFound || "");
+    if (!m) return;
+    const k = m[1].toUpperCase(),
+      x = (Z[k] = Z[k] || { max: 0, width: 0 });
+    x.max = Math.max(x.max, +m[2]);
+    /^0\d/.test(m[2]) && (x.width = Math.max(x.width, m[2].length));
+  });
+  const num = (P) => {
+    const k = P.prefix.toUpperCase(),
+      meta = P.board ? aimMeta(P.board) : null,
+      x = (Z[k] = Z[k] || { max: 0, width: 0 });
+    // a new series is padded like the project's other keys
+    if (!x.width && !x.max) {
+      const pad = top.filter((r) => r.project === P.name && /-0\d/.test(r.keyFound || ""));
+      pad.length && pad.length * 2 >= top.filter((r) => r.project === P.name && r.keyFound).length && (x.width = 2);
+    }
+    const n = Math.max(x.max + 1, (meta && String(meta.prefix || "").toUpperCase() === k && +meta.keyNext) || 1);
+    x.max = n;
+    return `${P.prefix}-${String(n).padStart(x.width, "0")}`;
+  };
   const tasks = [],
     review = [],
     people = {},
-    tell = (nm) => (people[nm] = people[nm] || { name: nm, owner: 0, waitingOn: 0, flag: 0 }),
+    // one line per person: a team member however Asana spells them, else the Asana email or name
+    tell = (nm, em) => {
+      const m = aimMatch(nm, em),
+        k = m ? "u:" + m.u.id : (em || aimNorm(nm).toLowerCase() || "nobody").toLowerCase();
+      return (people[k] = people[k] || { name: nm || "Nobody", email: em || "", here: "", how: "", owner: 0, waiting: 0, waitingOn: 0, flag: 0 });
+    },
     order = {};
   top.forEach((r) => {
     const P = projects.get(r.project),
-      ex = aimFind(idx, r.id, r.keyFound, r.title);
-    const owner = aimPersonOf(r.assignee, r.email),
-      outside = !owner && r.assignee && !/^(the (group|team|crew)|crew|all|tbd)$/i.test(r.assignee) ? aimContactOf(r.assignee, r.email) || { kind: "", id: "", name: r.assignee } : null;
+      ex = aimFind(idx, r.id, r.keyFound, r.title),
+      M = aimMatch(r.assignee, r.email),
+      outside = !M && r.assignee ? aimContactOf(r.assignee, r.email) : null;
     const t = {
       asanaId: r.id,
       row: r,
       project: r.project,
       firm: !!(P && P.firm),
-      code: (ex && ex.a.code) || r.keyFound,
+      code: "",
+      keyFound: r.keyFound,
       title: r.title,
       section: r.section,
       order: 0,
-      ownerName: owner ? owner.name : "",
+      ownerName: "",
+      ownerHow: "",
       flag: null,
       waitingOn: outside,
+      unmatched: null,
       done: !!r.completed,
       completedAt: r.completed,
       checklist: [],
       exists: !!ex,
     };
-    if (!P) return (t.why = "The row names no project: add it to its project in Asana and export again"), review.push(t), void (tell(r.assignee || "Nobody").flag += 0);
+    if (!P) return (t.why = "The row names no project: add it to its project in Asana and export again"), (t.code = r.keyFound), review.push(t), void tell(r.assignee, r.email).waiting++;
     t.order = order[r.project] = (order[r.project] || 0) + 1;
-    if (t.code) {
-      const holder = used.get(t.code.toUpperCase());
-      holder && holder !== (r.id || "") && !(ex && ex.a.code === t.code) && ((t.keyWas = t.code), (t.code = ""));
+    // the key: the team's, exactly; a true duplicate is refused; a row with none takes the next in its series
+    if (r.keyFound) {
+      const holder = used.get(aimKeyNorm(r.keyFound)),
+        mine = ex ? aimHolder(ex.a) : "asana:" + (r.id || r.file + ":" + r.line);
+      if (holder && holder !== mine) {
+        const other = idx.codes.get(aimKeyNorm(r.keyFound)),
+          what = other ? `the task “${other.a.title}”` : "another row of this export";
+        t.code = r.keyFound;
+        t.refused = "duplicate";
+        t.why = `${r.keyFound} is already the key of ${what}: a key names one task. Fix the key in Asana and export again`;
+        P.refused++, P.review++, review.push(t), tell(r.assignee, r.email).waiting++;
+        return;
+      }
+      t.code = r.keyFound;
+      P.kept++;
+    } else {
+      // a row with no key: the key it already has here, or the one it was given while it waits for an owner (so a
+      // second import of the same file gives the same key), else the next in its project's series
+      const w = pend.get(r.id);
+      (t.code = (ex && ex.a.code) || (w && w.code && !w.t.keyFound ? w.code : "") || num(P)), (t.made = !ex), ex || P.made++;
     }
-    t.code || (t.code = num(P));
-    used.set(t.code.toUpperCase(), r.id || t.code);
-    // Every task has one team member who makes sure it gets done (Alan, 10-23). Someone outside the team, or nobody,
-    // gives the board's lead the task, flagged for the meeting to confirm (the task record's ownerFlag); the outsider
-    // is Waiting On. A task already here keeps the owner it has.
-    if (!t.ownerName && ex && ex.a.assignee) t.ownerName = ex.a.assignee;
+    used.set(aimKeyNorm(t.code), ex ? aimHolder(ex.a) : "asana:" + (r.id || r.file + ":" + r.line));
+    // the owner: the assignee on the team, or nobody yet. A task already here keeps the owner it has, unless the
+    // older import gave it to someone else (flagged, the assignee now on the team): then it is the assignee's.
+    const pe = tell(r.assignee, r.email);
+    if (ex && ex.a.assignee) {
+      const f = ex.a.ownerFlag;
+      if (M && f && f.was && aimNorm(f.was).toLowerCase() === aimNorm(r.assignee).toLowerCase() && f.to === ex.a.assignee) (t.ownerName = M.u.name), (t.ownerHow = M.how), (t.ownerFix = !0);
+      else (t.ownerName = ex.a.assignee), (t.ownerHow = "kept");
+    } else if (M) (t.ownerName = M.u.name), (t.ownerHow = M.how);
+    if (M) (pe.here = M.u.name), (pe.how = M.how);
     if (!t.ownerName) {
-      let lead = { name: "" };
-      try {
-        lead = tdyLeadOf({ kind: P.firm ? "firm" : "action", projectId: P.projectId || "", area: "" }) || lead;
-      } catch (e) {}
-      if (!lead.name) return (t.why = "No team member to own it: pick one"), review.push(t), void P.review++;
-      (t.ownerName = lead.name), (t.flag = { was: r.assignee || "", why: outside ? "outside" : "none", to: lead.name, at: today() }), P.flag++, tell(r.assignee || "Nobody").flag++;
+      // Every task has one team member who makes sure it gets done (Alan, 10-23), and it is the person Asana names
+      // (10-26): the row waits here for the owner to pick one, or to add the person to the team.
+      t.unmatched = r.assignee ? { name: r.assignee, email: r.email } : null;
+      t.why = r.assignee
+        ? outside
+          ? `Assigned in Asana to ${r.assignee}, who is outside the team: pick the team member who owns it (${r.assignee} stays Waiting On)`
+          : `Assigned in Asana to ${r.assignee}${r.email ? ` (${r.email})` : ""}, who is not on the team here: pick the owner, or add them to the team`
+        : "No one is assigned in Asana: pick the owner";
+      P.review++, P.waiting++, pe.waiting++, outside && pe.waitingOn++;
+      review.push(t);
+      return;
     }
-    tell(t.ownerName).owner++;
-    outside && tell(outside.name).waitingOn++;
-    tasks.push(t), t.exists ? (aimChanged(ex.a, t) ? P.update++ : P.same++) : P.create++, t.done && P.done++;
+    pe.owner++;
+    t.ex = ex;
+    tasks.push(t);
   });
-  // subtasks: checklist steps on their parent (by the parent's name, in the same export first)
+  // subtasks: checklist steps on their parent (by the parent's name, in the same export first); a keyed subtask is a
+  // task of its own, linked to its parent by the parent's key
   const all = tasks.concat(review),
-    orphans = [];
+    orphans = [],
+    parentOf = (r) => all.find((t) => t.row.name === r.parent && t.row.file === r.file) || all.find((t) => t.row.name === r.parent) || all.find((t) => t.code && aimKeyNorm(t.code) === aimKeyNorm(r.parent));
   subs.forEach((r) => {
-    const par = all.find((t) => t.row.name === r.parent && t.row.file === r.file) || all.find((t) => t.row.name === r.parent);
+    const par = parentOf(r);
     if (!par) return void orphans.push(r);
     const who = r.assignee ? ` (${r.assignee}${r.due ? ", " + r.due : ""})` : r.due ? ` (${r.due})` : "";
     par.checklist.push({ t: r.name + who, done: !!r.completed, by: "Asana", at: r.completed || r.created || "", asanaId: r.id });
     projects.get(par.project) && projects.get(par.project).sub++;
   });
-  const P = [...projects.values()];
+  // parent and dependencies as links: each named by the key it has here (Asana names them by its id or the name)
+  const codeOf = (v) => {
+    const s = String(v || "").trim(),
+      t = all.find((x) => x.asanaId && x.asanaId === s) || all.find((x) => x.row.name === s) || all.find((x) => x.code && aimKeyNorm(x.code) === aimKeyNorm(s));
+    if (t && t.code) return t.code;
+    const e = idx.byAsana.get(s);
+    return (e && e.a.code) || s;
+  };
+  all.forEach((t) => {
+    t.parentCode = t.row.parent ? codeOf(t.row.parent) : "";
+    t.blockedBy = t.row.blockedBy.map(codeOf);
+    t.blocking = t.row.blocking.map(codeOf);
+  });
+  // new, updated or unchanged: told once every field is known (the links above included)
+  tasks.forEach((t) => {
+    const P = projects.get(t.project);
+    t.exists ? (aimChanged(t.ex.a, t) ? P.update++ : P.same++) : P.create++, t.done && P.done++;
+    delete t.ex;
+  });
+  const P = [...projects.values()],
+    peopleL = Object.values(people).filter((x) => x.owner || x.waiting || x.waitingOn),
+    allRows = tasks.concat(review);
   return {
     errors: errors,
     rows: raw.length,
     duplicates: dup.length,
     projects: P,
-    people: Object.values(people).filter((x) => x.owner || x.waitingOn || x.flag).sort((a, b) => b.owner + b.waitingOn - (a.owner + a.waitingOn)),
+    people: peopleL.sort((a, b) => b.owner + b.waiting - (a.owner + a.waiting)),
     tasks: tasks,
     review: review,
     orphans: orphans,
@@ -639,9 +823,18 @@ function aimPlan(files, opts) {
       update: P.reduce((a, x) => a + x.update, 0),
       same: P.reduce((a, x) => a + x.same, 0),
       done: tasks.filter((t) => t.done).length,
-      flagged: tasks.filter((t) => t.flag).length,
+      flagged: tasks.filter((t) => t.ownerFix).length,
       steps: subs.length - orphans.length,
       review: review.length,
+      waitingOwner: review.filter((t) => !t.refused && t.project).length,
+      refused: review.filter((t) => t.refused).length,
+      noProject: review.filter((t) => !t.project).length,
+      keysKept: allRows.filter((t) => t.keyFound && t.code === t.keyFound && !t.refused).length,
+      keysMade: allRows.filter((t) => t.made).length,
+      byEmail: tasks.filter((t) => "email" === t.ownerHow).length,
+      byName: tasks.filter((t) => "name" === t.ownerHow).length,
+      due: allRows.filter((t) => t.row.due).length,
+      noDue: allRows.filter((t) => !t.row.due).length,
       orphans: orphans.length,
       duplicates: dup.length,
       newProjects: P.filter((x) => !x.existing && !x.firm).length,
@@ -650,14 +843,42 @@ function aimPlan(files, opts) {
 }
 // What one import writes on the task, kept so a later import can tell the app's own edits from Asana's.
 function aimSnap(t) {
-  return { title: t.title, due: t.row.due, start: t.row.start, section: t.section, done: t.done, owner: t.ownerName, notes: t.row.notes };
+  const r = t.row;
+  return {
+    title: t.title,
+    code: t.code,
+    due: r.due,
+    start: r.start,
+    section: t.section,
+    done: t.done,
+    owner: t.ownerName,
+    notes: r.notes,
+    general: r.general || "",
+    pri3: r.pri3 || "",
+    carried: r.carried || "",
+    tags: (r.tags || []).join(", "),
+    parentCode: t.parentCode || "",
+    blockedBy: (t.blockedBy || []).join(", "),
+    blocking: (t.blocking || []).join(", "),
+  };
 }
 function aimChanged(a, t) {
   const s = (a.asana && a.asana.snap) || {},
     n = aimSnap(t);
   if (!a.asana) return !0; // a task an earlier import made without Asana's id: brought under this import once
-  return Object.keys(n).some((k) => "owner" !== k && String(s[k] == null ? "" : s[k]) !== String(n[k] == null ? "" : n[k])) || (t.checklist || []).some((c) => !(a.checklist || []).some((x) => x.asanaId && x.asanaId === c.asanaId));
+  // a field an older import did not keep counts as changed only when the export now says something
+  return (
+    Object.keys(n).some((k) => "owner" !== k && (k in s ? String(s[k] == null ? "" : s[k]) !== String(n[k] == null ? "" : n[k]) : "" !== String(n[k] == null ? "" : n[k]) && String(n[k]) !== String(aimField(a, k)))) ||
+    !!t.ownerFix ||
+    (t.checklist || []).some((c) => !(a.checklist || []).some((x) => x.asanaId && x.asanaId === c.asanaId))
+  );
 }
+// the task's own field a snap key stands for (arrays read as "a, b")
+const AIM_FIELD = { due: "due", start: "start", title: "title", section: "section", general: "generalNotes", pri3: "pri3", carried: "carried", tags: "tags", parentCode: "parentCode", blockedBy: "blockedBy", blocking: "blocking", code: "code" };
+const aimField = (a, k) => {
+  const v = a[AIM_FIELD[k] || k];
+  return Array.isArray(v) ? v.join(", ") : null == v ? "" : v;
+};
 function aimStatus(t) {
   if (t.done) return "done";
   if (t.waitingOn) return "waiting";
@@ -672,7 +893,7 @@ function aimBoard(P, now) {
     meta && (meta.prefix || (meta.prefix = P.prefix), P.typed && ((meta.prefix = P.prefix), (meta.prefixSet = 1)));
     return { list: asFirmTasks(), p: null, section: P.name, board: id };
   }
-  let p = (P.projectId && (DB.projects || []).find((q) => q.id === P.projectId)) || aimJobFor(P.name, P.prefix);
+  let p = (P.projectId && (DB.projects || []).find((q) => q.id === P.projectId)) || aimJobFor(P.name);
   if (!p) {
     (p = blankProject(P.name, "", today(), "")), (p.project.today = ""), (p.project.asanaName = P.name), (p.project.prefix = P.prefix);
     p.log = [{ t: nowStamp(), ts: now, msg: `Project created by the Asana import, prefix ${P.prefix}.`, by: (currentUser() || {}).name || "", src: "import" }];
@@ -684,110 +905,165 @@ function aimBoard(P, now) {
   p.project.asanaName || (p.project.asanaName = P.name);
   return { list: (p.actions = p.actions || []), p: p, section: "", board: "p:" + p.id };
 }
-// Write one planned task (new, or an update that keeps the app's own edits).
+// the comments a row's notes make: Asana's Notes first, then the team's General Notes
+function aimNotesOf(t) {
+  const r = t.row,
+    at = (r.created || today()) + "T09:00:00",
+    id = "asn_" + (t.asanaId || uid("n")),
+    out = [];
+  r.notes && out.push({ id: id, at: at, by: "Asana", text: r.notes, ev: "notes", source: "asana" });
+  r.general && out.push({ id: id + "_g", at: at, by: "Asana", text: "General notes: " + r.general, ev: "notes", source: "asana" });
+  return out;
+}
+// Write one planned task (new, or an update that keeps the app's own edits). Returns {a, p, created} or
+// {refused: why} when its key is now another task's.
 function aimWrite(t, plan, now, ownerName) {
   const P = plan.projects.find((x) => x.name === t.project);
-  if (!P) return null;
+  if (!P || t.refused) return null;
   const who = ownerName || t.ownerName;
   if (!who) return null;
+  const idx = aimIndex(),
+    ex = aimFind(idx, t.asanaId, t.code, t.title);
+  // a key is one task's: a row picked from the waiting list after the board moved on is checked again
+  if (!ex && t.code) {
+    const h = idx.codes.get(aimKeyNorm(t.code));
+    if (h) {
+      if (t.keyFound) return { refused: `${t.code} is already the key of the task “${h.a.title}”: a key names one task. Fix the key in Asana and export again` };
+      t.code = "";
+    }
+  }
   const B = aimBoard(P, now),
-    me = currentUser() || {},
-    idx = aimIndex(),
-    ex = aimFind(idx, t.asanaId, t.code, t.title),
-    note = t.row.notes ? { id: "asn_" + (t.asanaId || uid("n")), at: (t.row.created || today()) + "T09:00:00", by: "Asana", text: t.row.notes, ev: "notes", source: "asana" } : null,
+    me = currentUser() || {};
+  t.code || (t.code = ("function" == typeof tkNextKey && tkNextKey(B.board)) || "");
+  const notes = aimNotesOf(t),
     wo = t.waitingOn ? { name: t.waitingOn.name, contactRef: t.waitingOn.id ? { kind: t.waitingOn.kind, id: t.waitingOn.id } : null, what: t.title, promised: t.row.due || "", evidence: "Assigned to them in Asana" } : null,
-    snap = aimSnap(Object.assign({}, t, { ownerName: who }));
+    snap = aimSnap(Object.assign({}, t, { ownerName: who })),
+    r = t.row,
+    asanaOf = (a) => Object.assign({}, a.asana, { id: t.asanaId || "", project: t.project, lastModified: r.modified, importedAt: now, snap: snap, blockedBy: r.blockedBy || [], blocking: r.blocking || [], parent: r.parent || "" });
   if (ex) {
     const a = ex.a,
       s = (a.asana && a.asana.snap) || {},
-      put = (k, field, v) => {
-        !a.asana || String(a[field] == null ? "" : a[field]) === String(s[k] == null ? "" : s[k]) || (null == s[k] && !a[field]) ? (a[field] = v) : 0;
+      // a field takes Asana's value unless the app changed it since the last import
+      put = (k, v) => {
+        const f = AIM_FIELD[k] || k,
+          cur = aimField(a, k);
+        if (a.asana && k in s && String(cur) !== String(s[k] == null ? "" : s[k]) && !(null == s[k] && !cur)) return;
+        a[f] = Array.isArray(a[f]) || /^(tags|blockedBy|blocking)$/.test(k) ? aimSplit(v) : v;
       };
-    put("title", "title", snap.title), put("due", "due", snap.due), put("start", "start", snap.start), B.p && put("section", "section", snap.section);
-    s.done !== snap.done && ("done" === a.status) === !!s.done && ((a.status = snap.done ? "done" : aimStatus(t)), (a.completedAt = snap.done ? t.completedAt || today() : ""));
-    if (note && snap.notes !== s.notes && !(a.thread || []).some((c) => c && c.text && c.text.endsWith(note.text))) {
-      const c = Object.assign({}, note, { id: note.id + "_" + (t.row.modified || today()), text: a.asana ? "Notes in Asana now read: " + note.text : note.text });
-      (a.thread = a.thread || []).push(c);
+    put("title", snap.title), put("due", snap.due), put("start", snap.start), B.p && put("section", snap.section);
+    ["general", "pri3", "carried", "tags", "parentCode", "blockedBy", "blocking"].forEach((k) => put(k, snap[k]));
+    snap.pri3 && a.pri3 === snap.pri3 && (a.priority = { P1: "high", P2: "med", P3: "low" }[snap.pri3]);
+    // the team's key, exactly: an older import that changed it (PAT-2 for PAT-02, a made-up prefix) is put right,
+    // and the old one still finds the task; a key a person renamed here (keyWas holds the team's) stays
+    if (t.keyFound && a.code !== t.keyFound && !(a.keyWas || []).some((k) => aimKeyNorm(k) === aimKeyNorm(t.keyFound) && aimKeyNorm(a.code) !== aimKeyNorm(k))) {
+      a.code && aimKeyNorm(a.code) !== aimKeyNorm(t.keyFound) && (a.keyWas = a.keyWas || []).push(a.code);
+      a.code = t.keyFound;
     }
+    s.done !== snap.done && ("done" === a.status) === !!s.done && ((a.status = snap.done ? "done" : aimStatus(t)), (a.completedAt = snap.done ? t.completedAt || today() : ""));
+    notes.forEach((note) => {
+      if ((a.thread || []).some((c) => c && c.text && c.text.endsWith(note.text))) return;
+      const was = note.ev === "notes" && /_g$/.test(note.id) ? s.general : s.notes;
+      if (a.asana && was === (/_g$/.test(note.id) ? r.general : r.notes)) return;
+      (a.thread = a.thread || []).push(Object.assign({}, note, { id: note.id + "_" + (r.modified || today()), text: a.asana && was ? "Notes in Asana now read: " + note.text : note.text }));
+    });
     (t.checklist || []).forEach((c) => {
       const was = (a.checklist = a.checklist || []).find((x) => x.asanaId && x.asanaId === c.asanaId);
       was ? (was.done = was.done || c.done) : a.checklist.push(c);
     });
+    if (t.ownerFix) {
+      a.assignee = who;
+      delete a.ownerFlag;
+    }
     a.assignee || (a.assignee = who);
     a.code || (a.code = t.code);
-    a.asana = Object.assign({}, a.asana, { id: t.asanaId || "", lastModified: t.row.modified, importedAt: now, snap: snap });
+    a.assigneeEmail || (a.assigneeEmail = r.email || "");
+    a.asana = asanaOf(a);
     return { a: a, p: ex.p, created: !1 };
   }
+  const pr = r.pri3 ? { P1: "high", P2: "med", P3: "low" }[r.pri3] : r.priority;
   const a = {
     id: uid("a"),
     code: t.code,
     title: t.title,
     assignee: who,
+    assigneeEmail: r.email || "",
     collaborators: [],
     waitingOn: wo,
     waitsOn: wo ? wo.name : "",
     status: aimStatus(t),
-    due: t.row.due || "",
-    start: t.row.start || "",
+    due: r.due || "",
+    start: r.start || "",
     followUp: "",
     watchUntil: "",
     order: t.order,
     section: B.section || t.section || "",
-    priority: "med",
+    priority: pr || "med",
+    pri3: r.pri3 || "",
+    carried: r.carried || "",
     notes: "",
-    thread: note ? [note] : [],
+    generalNotes: r.general || "",
+    thread: notes,
     checklist: t.checklist || [],
-    tags: t.row.tags || [],
+    tags: r.tags || [],
     links: [],
-    blockedBy: t.row.blockedBy || [],
-    blocking: t.row.blocking || [],
-    custom: Object.keys(t.row.custom || {}).length ? t.row.custom : null,
-    createdAt: t.row.created || today(),
+    parentCode: t.parentCode || "",
+    blockedBy: t.blockedBy || [],
+    blocking: t.blocking || [],
+    board: (r.projects || []).join(", "),
+    custom: Object.keys(r.custom || {}).length ? r.custom : null,
+    createdAt: r.created || today(),
     createdBy: "Asana import",
     importedBy: me.name || "",
     completedAt: t.done ? t.completedAt || today() : "",
-    modifiedAt: t.row.modified || "",
+    modifiedAt: r.modified || "",
     source: { kind: "asana", asana: !0, id: t.asanaId || "" },
-    asana: { id: t.asanaId || "", project: t.project, keyWas: t.keyWas || "", lastModified: t.row.modified, importedAt: now, snap: snap },
   };
-  t.keyWas && (a.keyWas = [t.keyWas]);
-  t.flag && !ownerName && (a.ownerFlag = Object.assign({}, t.flag));
+  // an owner picked here over the person Asana names: said on the task, so the Asana assignee is never lost
+  ownerName &&
+    r.assignee &&
+    aimNorm(r.assignee).toLowerCase() !== aimNorm(who).toLowerCase() &&
+    a.thread.push({ id: "asn_" + (t.asanaId || a.id) + "_o", at: now, by: me.name || "", text: `Asana named ${r.assignee} as the assignee; ${who} was picked as the owner at the import.`, ev: "owner", source: "asana" });
+  a.asana = asanaOf(a);
   return B.list.push(a), { a: a, p: B.p, created: !0 };
 }
 function aimStore() {
   return (DB.asanaImport = DB.asanaImport || { runs: [], pending: [] }), (DB.asanaImport.runs = DB.asanaImport.runs || []), (DB.asanaImport.pending = DB.asanaImport.pending || []), DB.asanaImport;
 }
-// Write the plan. owners: {asana id: a team member's name} for rows on the review list. Rows still without a board or
-// an owner wait on the review list.
+const aimPendingOf = (t, plan, why) => ({ asanaId: t.asanaId, project: t.project, code: t.code, title: t.title, why: why || t.why, done: t.done, refused: t.refused || "", assignee: t.row.assignee || "", email: t.row.email || "", t: JSON.parse(JSON.stringify(t)), projects: JSON.parse(JSON.stringify(plan.projects.filter((x) => x.name === t.project))) });
+// Write the plan. owners: {asana id: a team member's id or name} for rows on the review list. Rows still without a
+// board or an owner, and refused rows, wait on the review list.
 function aimApply(plan, owners) {
   const W = owners || {},
     now = appNowIso(),
     S = aimStore(),
-    out = { created: 0, updated: 0, same: 0, flagged: 0, waiting: 0, projects: 0, steps: 0 },
-    before = (DB.projects || []).length;
+    out = { created: 0, updated: 0, same: 0, flagged: 0, waiting: 0, refused: 0, projects: 0, steps: 0 },
+    before = (DB.projects || []).length,
+    left = [];
   plan.tasks.forEach((t) => {
     const I = aimIndex(),
       was = aimFind(I, t.asanaId, t.code, t.title),
       changed = was ? aimChanged(was.a, t) : !0,
       r = aimWrite(t, plan, now);
-    r && (r.created ? (out.created++, t.flag && out.flagged++) : changed ? out.updated++ : out.same++), r && (out.steps += (t.checklist || []).length);
+    if (r && r.refused) return void left.push([t, r.refused]);
+    r && (r.created ? out.created++ : changed ? out.updated++ : out.same++), r && (out.steps += (t.checklist || []).length), r && t.ownerFix && out.flagged++;
   });
-  const left = [];
   plan.review.forEach((t) => {
     const o = W[t.asanaId];
-    if (o && t.project) {
+    if (o && t.project && !t.refused) {
       const r = aimWrite(t, plan, now, aimOwnerName(o));
+      if (r && r.refused) return void left.push([t, r.refused]);
       if (r) return r.created ? out.created++ : out.updated++, void (out.steps += (t.checklist || []).length);
     }
-    left.push(t);
+    left.push([t, t.why]);
   });
   // what still waits: kept by Asana id, so a second import replaces it instead of adding it twice
   const I2 = aimIndex(),
-    keep = S.pending.filter((x) => !left.some((t) => t.asanaId && t.asanaId === x.asanaId) && !I2.byAsana.has(x.asanaId));
-  S.pending = keep.concat(left.map((t) => ({ asanaId: t.asanaId, project: t.project, code: t.code, title: t.title, why: t.why, done: t.done, t: JSON.parse(JSON.stringify(t)), projects: JSON.parse(JSON.stringify(plan.projects.filter((x) => x.name === t.project))) })));
+    keep = S.pending.filter((x) => !left.some(([t]) => t.asanaId && t.asanaId === x.asanaId) && !I2.byAsana.has(x.asanaId));
+  S.pending = keep.concat(left.map(([t, why]) => aimPendingOf(t, plan, why)));
   out.waiting = S.pending.length;
+  out.refused = S.pending.filter((x) => x.refused).length;
   out.projects = (DB.projects || []).length - before;
-  S.runs.push({ at: now, by: (currentUser() || {}).name || "", files: [...new Set(plan.tasks.concat(plan.review).map((t) => t.row.file))], rows: plan.totals.rows, created: out.created, updated: out.updated, same: out.same, flagged: out.flagged, waiting: out.waiting, steps: out.steps, projects: out.projects });
+  S.runs.push({ at: now, by: (currentUser() || {}).name || "", files: [...new Set(plan.tasks.concat(plan.review).map((t) => t.row.file))], rows: plan.totals.rows, created: out.created, updated: out.updated, same: out.same, flagged: out.flagged, waiting: out.waiting, refused: out.refused, steps: out.steps, projects: out.projects });
   try {
     "function" == typeof tkRecSweep && tkRecSweep();
   } catch (e) {}
@@ -800,9 +1076,29 @@ function aimResolve(asanaId, owner) {
   const S = aimStore(),
     x = S.pending.find((y) => y.asanaId === asanaId),
     who = aimOwnerName(owner);
-  if (!x || !who || !x.projects.length) return null;
+  if (!x || !who || !x.projects.length || x.refused) return null;
   const r = aimWrite(x.t, { projects: x.projects }, appNowIso(), who);
+  if (r && r.refused) return (x.why = r.refused), (x.refused = "duplicate"), save(), null;
   return r && ((S.pending = S.pending.filter((y) => y !== x)), save()), r;
+}
+// The person Asana names joins the team here (the owner's call on the review screen): their rows become their tasks.
+// The sign-in invitation is sent from Settings › Team Accounts, where they now appear.
+const aimMayAdd = () => ["owner", "coord"].includes(role());
+function aimAddPerson(name, email, rl) {
+  if (!aimMayAdd()) return toast("Only the owner or the coordinator adds a person"), null;
+  const nm = aimNorm(name),
+    em = String(email || "").trim().toLowerCase();
+  if (!nm) return null;
+  let u = aimMatch(nm, em);
+  u = u ? u.u : null;
+  if (!u) {
+    u = { id: uid("u"), name: nm, role: rl || "pm", contact: em };
+    (DB.users = DB.users || []).push(u);
+    try {
+      audit("user", u.id, "added", "", `${nm} (${ROLE_NAMES[u.role] || u.role})`, "from the Asana import");
+    } catch (e) {}
+  }
+  return u;
 }
 
 // ---- the screen: on Your Own Data (owner) ----------------------------------------------------------------------------
@@ -810,60 +1106,117 @@ let aimFiles = [],
   aimPlanNow = null,
   aimPrefix = {},
   aimOwners = {};
+const AIM_ROLES = ["pm", "coord", "billing", "controller", "designer"];
 function aimPersonSelect(attr, val) {
   return `<select ${attr}><option value="">Pick the owner</option>${aimPeople()
     .map((u) => `<option value="${esc(u.id)}" ${u.id === val ? "selected" : ""}>${esc(u.name)}</option>`)
     .join("")}</select>`;
 }
+const aimS = (n, one, many) => `${n} ${1 === n ? one : many || one + "s"}`;
+// The plan before anything is written, checkable in a minute: the projects and their counts, the keys kept, the owners
+// matched and not, the due dates, and anything refused; then every row with its key, owner and due date.
 function aimHtml() {
   const S = aimStore(),
     L = aimPlanNow,
     T = L && L.totals;
   const head = `<div class="card" id="aim-card"><h3>Import from Asana</h3>
-    <p class="small muted">In Asana, open each project's menu, choose Export, then CSV. Pick the files here: nothing is written until you have looked at the summary. The team board's export works too: each row goes to the job in its PROJECT NAME, and the rest to the firm's own lists. Each project here keeps its prefix and each task its ID (PAD-23 stays PAD-23). A task assigned in Asana to someone outside the team, or to nobody, goes to the project's lead, flagged for the meeting to confirm, and waits on that person.</p>
+    <p class="small muted">In Asana, open each project's menu, choose Export, then CSV. Pick the files here: nothing is written until you have looked at the summary. The team board's export works too: each row goes to the project in its PROJECT NAME ("General" is the Office list). Every task keeps its key exactly as the team wrote it (PAT-02 stays PAT-02), and its owner is the person Asana names. Someone who is not on the team here waits on this screen for you to pick the owner or add them.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn">Choose CSV Files<input type="file" id="aim-file" accept=".csv,text/csv" multiple hidden></label>${aimFiles.length ? `<span class="small muted">${aimFiles.length} file${1 === aimFiles.length ? "" : "s"}: ${aimFiles.map((f) => esc(f.name)).join(", ")}</span>` : ""}</div>`;
   if (!L) return head + aimPendingHtml(S) + "</div>";
-  const tie = T.tasks + T.steps + T.review + T.orphans + T.duplicates;
+  const tie = T.tasks + T.steps + T.review + T.orphans + T.duplicates,
+    un = L.people.filter((x) => x.waiting && !x.here),
+    made = L.tasks.concat(L.review).filter((t) => t.made);
   const body = `${L.errors.length ? `<div class="note warn">${L.errors.map(esc).join("<br>")}</div>` : ""}
-    <div class="note" id="aim-tie">${T.rows} row${1 === T.rows ? "" : "s"} read: ${T.tasks} task${1 === T.tasks ? "" : "s"} (${T.create} new, ${T.update} updated, ${T.same} unchanged; ${T.done} done), ${T.flagged} with the owner to confirm, ${T.steps} checklist step${1 === T.steps ? "" : "s"}, ${T.review} waiting on this screen${T.orphans ? `, ${T.orphans} subtask${1 === T.orphans ? "" : "s"} whose parent is not in these files` : ""}${T.duplicates ? `, ${T.duplicates} repeated in a second file` : ""}. ${tie === T.rows ? "Nothing is lost." : `<b>${T.rows - tie} unaccounted for.</b>`}</div>
-    <div class="tw"><table class="t" id="aim-projects"><thead><tr><th>Project</th><th>Prefix</th><th>Here</th><th class="r">New</th><th class="r">Updated</th><th class="r">Done</th><th class="r">Steps</th><th class="r">To Confirm</th></tr></thead><tbody>${L.projects
+    <div class="note" id="aim-tie">${aimS(T.rows, "row")} read: ${aimS(T.tasks, "task")} (${T.create} new, ${T.update} updated, ${T.same} unchanged; ${T.done} done), ${aimS(T.steps, "checklist step")}, ${T.review} waiting on this screen (${T.waitingOwner} for an owner${T.refused ? `, ${T.refused} refused` : ""}${T.noProject ? `, ${T.noProject} with no project` : ""})${T.orphans ? `, ${aimS(T.orphans, "subtask")} whose parent is not in these files` : ""}${T.duplicates ? `, ${T.duplicates} repeated in a second file` : ""}. ${tie === T.rows ? "Nothing is lost." : `<b>${T.rows - tie} unaccounted for.</b>`}</div>
+    <ul class="small" id="aim-check" style="margin:8px 0 0;padding-left:18px">
+      <li id="aim-keys">Keys: ${T.keysKept} kept exactly as written${T.keysMade ? `; ${T.keysMade} new for rows with none (${made.map((t) => esc(t.code)).join(", ")})` : ""}.</li>
+      <li id="aim-owners">Owners: ${T.byEmail} matched by email, ${T.byName} by full name${T.tasks - T.byEmail - T.byName ? `, ${T.tasks - T.byEmail - T.byName} kept from the task already here` : ""}${un.length ? `; <b>not on the team here:</b> ${un.map((x) => `${esc(x.name)}${x.email ? ` (${esc(x.email)})` : ""}, ${x.waiting}`).join("; ")}` : "; everyone Asana names is on the team"}.</li>
+      <li id="aim-due">Due dates: ${T.due} kept${T.noDue ? `, ${T.noDue} with none in Asana` : ""}.</li>
+      ${T.refused ? `<li id="aim-refused"><b>Refused:</b> ${L.review.filter((t) => t.refused).map((t) => esc(t.why)).join("; ")}.</li>` : ""}
+    </ul>
+    <div class="tw" style="margin-top:10px"><table class="t" id="aim-projects"><thead><tr><th>Project</th><th>Prefix</th><th>Here</th><th class="r">New</th><th class="r">Updated</th><th class="r">Done</th><th class="r">Keys Kept</th><th class="r">Need an Owner</th></tr></thead><tbody>${L.projects
       .map(
         (P) =>
-          `<tr><td>${esc(P.name)}</td><td><input class="aim-pfx" data-aimpfx="${esc(P.name)}" value="${esc(P.prefix)}" size="5" aria-label="Prefix for ${esc(P.name)}"></td><td class="small">${P.firm ? "The firm's list" : P.projectId ? "Matched" : "New project"}</td><td class="r">${P.create}</td><td class="r">${P.update}</td><td class="r">${P.done}</td><td class="r">${P.sub}</td><td class="r">${P.flag}</td></tr>`,
+          `<tr><td>${esc(P.name)}</td><td><input class="aim-pfx" data-aimpfx="${esc(P.name)}" value="${esc(P.prefix)}" size="5" aria-label="Prefix for ${esc(P.name)}"></td><td class="small">${P.firm ? "The firm's list" : P.projectId ? "Matched" : "New project"}</td><td class="r">${P.create}</td><td class="r">${P.update}</td><td class="r">${P.done}</td><td class="r">${P.kept}</td><td class="r">${P.waiting}</td></tr>`,
       )
       .join("")}</tbody></table></div>
-    <div class="tw" style="margin-top:10px"><table class="t" id="aim-people"><thead><tr><th>Person</th><th class="r">Owns</th><th class="r">Waited On</th><th class="r">To Confirm</th></tr></thead><tbody>${L.people
-      .map((x) => `<tr><td>${esc(x.name)}</td><td class="r">${x.owner}</td><td class="r">${x.waitingOn}</td><td class="r">${x.flag}</td></tr>`)
+    <div class="tw" style="margin-top:10px"><table class="t" id="aim-people"><thead><tr><th>In Asana</th><th>Here</th><th class="r">Owns</th><th class="r">Need an Owner</th></tr></thead><tbody>${L.people
+      .map((x) => `<tr><td>${esc(x.name)}${x.email ? `<div class="small muted">${esc(x.email)}</div>` : ""}</td><td class="small">${x.here ? `${esc(x.here)} <span class="muted">(by ${x.how === "email" ? "email" : "full name"})</span>` : '<span class="muted">Not on the team</span>'}</td><td class="r">${x.owner}</td><td class="r">${x.waiting}</td></tr>`)
       .join("")}</tbody></table></div>
+    ${aimRowsHtml(L)}
     ${L.review.length ? aimReviewHtml(L.review, "plan") : ""}
-    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ${rdRows && rdRows.length ? "" : "primary"}" id="aim-go">Import ${T.tasks + Object.values(aimOwners).filter(Boolean).length} Task${1 === T.tasks ? "" : "s"}</button><button class="btn" id="aim-clear">Start Over</button></div>
-    <p class="small muted" style="margin:6px 0 0">Running it again with a newer export updates what changed in Asana and keeps what was changed here.</p>`;
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ${rdRows && rdRows.length ? "" : "primary"}" id="aim-go">Import ${T.tasks + L.review.filter((t) => aimOwners[t.asanaId] && !t.refused).length} Task${1 === T.tasks ? "" : "s"}</button><button class="btn" id="aim-clear">Start Over</button></div>
+    <p class="small muted" style="margin:6px 0 0">Running it again with the same export changes nothing; a newer export updates what changed in Asana and keeps what was changed here.</p>`;
   return head + body + "</div>";
 }
-function aimReviewHtml(rows, mode) {
-  const by = {};
-  rows.forEach((t) => ((by[t.project || "No project"] = by[t.project || "No project"] || []).push(t)));
-  return `<div id="aim-review" style="margin-top:12px"><h4 style="margin:0 0 6px">Waiting for You</h4><p class="small muted" style="margin:0 0 8px">Every task has one team member who makes sure it gets done. Someone outside the team stays on the task as Waiting On.</p>${Object.entries(by)
-    .map(([pj, L]) => {
-      const open = L.filter((t) => !t.done),
-        fin = L.filter((t) => t.done);
-      return `<div class="aim-grp"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(pj)}</b><span class="small muted">${L.length} row${1 === L.length ? "" : "s"}</span><span class="grow"></span>${pj !== "No project" ? `<label class="small">All in ${esc(pj)} ${aimPersonSelect(`data-aimall="${esc(pj)}" data-aimmode="${mode}"`, "")}</label>` : ""}</div>
-      ${open
-        .map(
+// every row, by project: key, title, owner (or who it waits on), due date
+function aimRowsHtml(L) {
+  const by = new Map();
+  L.tasks.concat(L.review).forEach((t) => {
+    const k = t.project || "No project";
+    by.has(k) || by.set(k, []);
+    by.get(k).push(t);
+  });
+  return `<details id="aim-rows" open style="margin-top:10px"><summary class="small"><b>Every Row</b> <span class="muted">key, owner and due date</span></summary>${[...by]
+    .map(
+      ([pj, R]) =>
+        `<div class="aim-grp" style="margin-top:6px"><div class="small"><b>${esc(pj)}</b> <span class="muted">${R.length}</span></div>${R.map(
           (t) =>
-            `<div class="aim-row" data-aimrow="${esc(t.asanaId)}"><div class="aim-t"><span class="small muted">${esc(t.code || "")}</span> ${esc(t.title)}<div class="small muted">${esc(t.why || "")}${t.row && t.row.due ? ` · due ${esc(fmt(t.row.due))}` : ""}</div></div>${t.project ? aimPersonSelect(`data-aimown="${esc(t.asanaId)}" data-aimmode="${mode}"`, aimOwners[t.asanaId] || "") : '<span class="small muted">Add it to its project in Asana and export again</span>'}</div>`,
-        )
-        .join("")}
-      ${fin.length ? `<div class="aim-row"><div class="aim-t">${fin.length} finished task${1 === fin.length ? "" : "s"} with no team owner</div>${aimPersonSelect(`data-aimfin="${esc(pj)}" data-aimmode="${mode}"`, "")}</div>` : ""}</div>`;
+            `<div class="aim-line small" data-aimline="${esc(t.asanaId)}" style="padding:4px 0;border-top:1px solid var(--line,#e5e5e5)"><b class="aim-key">${esc(t.code || "No key")}</b> ${esc(t.title)}<div class="muted">${t.refused ? "Refused: duplicate key" : t.ownerName ? `${esc(t.ownerName)}${t.ownerHow === "kept" ? " (as here)" : ""}` : `Needs an owner${t.row.assignee ? `: ${esc(t.row.assignee)} in Asana` : ""}`} · ${t.row.due ? `due ${esc(fmt(t.row.due))}` : "no due date"}${t.done ? " · done" : ""}${t.row.pri3 ? ` · ${esc(t.row.pri3)}` : ""}${t.row.carried ? ` · ${esc(t.row.carried === "CARRIED" ? "Carried" : "New")}` : ""}</div></div>`,
+        ).join("")}</div>`,
+    )
+    .join("")}</details>`;
+}
+// The rows waiting for an owner, by the person Asana names: pick the owner for all of theirs at once, or add them to
+// the team; a refused row says why and how to fix it.
+function aimReviewHtml(rows, mode) {
+  const by = new Map();
+  rows.forEach((t) => {
+    const a = (t.row && t.row.assignee) || t.assignee || "",
+      e = (t.row && t.row.email) || t.email || "",
+      k = t.refused ? "refused" : !t.project ? "noproject" : a ? (e || a).toLowerCase() : "nobody";
+    by.has(k) || by.set(k, { name: a, email: e, kind: k, L: [] });
+    by.get(k).L.push(t);
+  });
+  const contact = (g) => {
+    try {
+      return aimContactOf(g.name, g.email);
+    } catch (e) {
+      return null;
+    }
+  };
+  return `<div id="aim-review" style="margin-top:12px"><h4 style="margin:0 0 6px">Waiting for You</h4><p class="small muted" style="margin:0 0 8px">Every task has one team member who makes sure it gets done, and Asana names who. Someone outside the team stays on the task as Waiting On.</p>${[...by.values()]
+    .map((g) => {
+      const head =
+        "refused" === g.kind
+          ? `<b>Refused</b><span class="small muted">${aimS(g.L.length, "row")}: a key names one task</span>`
+          : "noproject" === g.kind
+            ? `<b>No project</b><span class="small muted">${aimS(g.L.length, "row")}</span>`
+            : "nobody" === g.kind
+              ? `<b>No one assigned in Asana</b><span class="small muted">${aimS(g.L.length, "row")}</span>`
+              : `<b>${esc(g.name)}</b><span class="small muted">${g.email ? esc(g.email) + " · " : ""}${aimS(g.L.length, "row")}, not on the team here</span>`;
+      const pick = /^(refused|noproject)$/.test(g.kind) ? "" : `<label class="small">All of these ${aimPersonSelect(`data-aimall="${esc(g.kind)}" data-aimmode="${mode}"`, "")}</label>`;
+      const add = /^(refused|noproject|nobody)$/.test(g.kind) || contact(g) || !aimMayAdd() ? "" : `<div class="row aim-add" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px"><select data-aimrole="${esc(g.kind)}" aria-label="Role for ${esc(g.name)}">${AIM_ROLES.map((r) => `<option value="${r}">${esc(ROLE_NAMES[r] || r)}</option>`).join("")}</select><button class="btn" data-aimadd="${esc(g.kind)}" data-aimname="${esc(g.name)}" data-aimemail="${esc(g.email)}" data-aimmode="${mode}">Add ${esc(g.name)} to the Team</button></div>`;
+      return `<div class="aim-grp" data-aimgrp="${esc(g.kind)}" style="margin-top:8px"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">${head}<span class="grow"></span>${pick}</div>${add}
+      ${g.L.map(
+        (t) =>
+          `<div class="aim-row" data-aimrow="${esc(t.asanaId)}"><div class="aim-t"><span class="small muted">${esc(t.code || "")}</span> ${esc(t.title)}<div class="small muted">${esc(t.project || "")}${t.project ? " · " : ""}${esc(t.why || "")}${t.row && t.row.due ? ` · due ${esc(fmt(t.row.due))}` : ""}${t.done ? " · done in Asana" : ""}</div></div>${t.project && !t.refused ? aimPersonSelect(`data-aimown="${esc(t.asanaId)}" data-aimmode="${mode}"`, aimOwners[t.asanaId] || "") : ""}</div>`,
+      ).join("")}</div>`;
     })
     .join("")}</div>`;
 }
 function aimPendingHtml(S) {
   if (!S.pending.length) {
     const last = S.runs[S.runs.length - 1];
-    return last ? `<p class="small muted" style="margin:10px 0 0">Last import ${esc(stampText(last.at))}${last.by ? " by " + esc(last.by) : ""}: ${last.created} new, ${last.updated} updated, ${last.flagged || 0} with the owner to confirm, ${last.waiting} waiting here.</p>` : "";
+    return last ? `<p class="small muted" style="margin:10px 0 0">Last import ${esc(stampText(last.at))}${last.by ? " by " + esc(last.by) : ""}: ${last.created} new, ${last.updated} updated, ${last.waiting} waiting here.</p>` : "";
   }
-  return aimReviewHtml(S.pending.map((x) => Object.assign({}, x.t, { why: x.why })), "pending") + `<div class="row" style="margin-top:10px"><button class="btn primary" id="aim-resolve">Create the Tasks with an Owner</button></div>`;
+  // a person added to the team since: their rows are offered to them, one tap to create
+  S.pending.forEach((x) => {
+    if (aimOwners[x.asanaId] || x.refused) return;
+    const m = aimMatch(x.assignee || (x.t.row || {}).assignee, x.email || (x.t.row || {}).email);
+    m && (aimOwners[x.asanaId] = m.u.id);
+  });
+  return aimReviewHtml(S.pending.map((x) => Object.assign({}, x.t, { why: x.why, refused: x.refused })), "pending") + `<div class="row" style="margin-top:10px"><button class="btn primary" id="aim-resolve">Create the Tasks with an Owner</button></div>`;
 }
 function aimRead(fileList) {
   const L = [...(fileList || [])];
@@ -881,23 +1234,40 @@ function aimWire(host) {
         (aimPrefix[i.dataset.aimpfx] = i.value), (aimPlanNow = aimPlan(aimFiles, { prefix: aimPrefix })), renderRealData();
       }),
   );
-  const rowsOf = (mode) => ("pending" === mode ? aimStore().pending.map((x) => x.t) : (aimPlanNow && aimPlanNow.review) || []);
+  const rowsOf = (mode) => ("pending" === mode ? aimStore().pending.map((x) => Object.assign({}, x.t, { refused: x.refused })) : (aimPlanNow && aimPlanNow.review) || []),
+    grpOf = (t) => {
+      const a = (t.row && t.row.assignee) || "",
+        e = (t.row && t.row.email) || "";
+      return t.refused ? "refused" : !t.project ? "noproject" : a ? (e || a).toLowerCase() : "nobody";
+    };
   host.querySelectorAll("[data-aimown]").forEach((s) => (s.onchange = () => ((aimOwners[s.dataset.aimown] = s.value), "plan" === s.dataset.aimmode && renderRealData())));
   host.querySelectorAll("[data-aimall]").forEach(
     (s) =>
       (s.onchange = () => {
         rowsOf(s.dataset.aimmode)
-          .filter((t) => t.project === s.dataset.aimall && !t.done)
+          .filter((t) => grpOf(t) === s.dataset.aimall)
           .forEach((t) => (aimOwners[t.asanaId] = s.value));
         renderRealData();
       }),
   );
-  host.querySelectorAll("[data-aimfin]").forEach(
-    (s) =>
-      (s.onchange = () => {
-        rowsOf(s.dataset.aimmode)
-          .filter((t) => t.project === s.dataset.aimfin && t.done)
-          .forEach((t) => (aimOwners[t.asanaId] = s.value));
+  host.querySelectorAll("[data-aimadd]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const g = b.dataset.aimadd,
+          rs = host.querySelector(`[data-aimrole="${CSS.escape(g)}"]`),
+          u = aimAddPerson(b.dataset.aimname, b.dataset.aimemail, rs ? rs.value : "pm");
+        if (!u) return;
+        let n = 0;
+        if ("pending" === b.dataset.aimmode) {
+          rowsOf("pending")
+            .filter((t) => grpOf(t) === g)
+            .forEach((t) => aimResolve(t.asanaId, u.id) && n++);
+        } else {
+          aimPlanNow = aimPlan(aimFiles, { prefix: aimPrefix });
+          n = aimPlanNow.tasks.filter((t) => t.ownerName === u.name).length;
+        }
+        save();
+        toast(`${u.name} added to the team as ${ROLE_NAMES[u.role] || u.role}: ${aimS(n, "task")} ${"pending" === b.dataset.aimmode ? "created" : "will be"} theirs. Send the sign-in invitation from Settings, Team Accounts`, () => ((view = "proj"), render()));
         renderRealData();
       }),
   );
@@ -907,7 +1277,7 @@ function aimWire(host) {
       const r = aimApply(aimPlanNow, aimOwners);
       (aimPlanNow = null), (aimFiles = []), (aimOwners = {}), render();
       toast(
-        `Imported: ${r.created} new task${1 === r.created ? "" : "s"}${r.updated ? `, ${r.updated} updated` : ""}${r.projects ? `, ${r.projects} new project${1 === r.projects ? "" : "s"}` : ""}${r.flagged ? `; ${r.flagged} with the owner to confirm in the meeting` : ""}${r.waiting ? `; ${r.waiting} wait on Your Own Data` : ""}`,
+        `Imported: ${r.created} new task${1 === r.created ? "" : "s"}${r.updated ? `, ${r.updated} updated` : ""}${r.projects ? `, ${r.projects} new project${1 === r.projects ? "" : "s"}` : ""}${r.waiting ? `; ${r.waiting} wait on Your Own Data for an owner${r.refused ? ` (${r.refused} refused)` : ""}` : ""}`,
         () => ((view = "tkall"), render()),
       );
     });
