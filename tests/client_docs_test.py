@@ -73,10 +73,12 @@ async def make_pilot_docs(pg):
     return await js(pg, """
       appConfirm = () => true;
       const c = DB.clients.find(x => x.id === 'cl121'); setCurrent('p121');
-      // the billing queue's pay application: Draft on the ready application (the app writes its evidence notes)
+      // the pay application drafted on purpose (the app writes its evidence notes). Since lane 1 (TRIAGE class 2's
+      // accept: the queue proposes nothing on a job billed ahead) 121 State's application is a held row, so billing
+      // drafts it from Progress Billing (blDraftApplication), not from a ready row
       view = 'billing'; billTab = 'billable'; render(); await sleep(100);
       const before = c.invoices.length;
-      rtbAct('app:p121'); await sleep(250);
+      blDraftApplication('p121'); await sleep(250);
       const pa = c.invoices.find(i => i.mode === 'sov' && i.status === 'draft');
       // a change order typed the way the PM typed CO-2026-004 (a staff name and the day in the description)
       clientOpen = c.id; finProj = 'p121';
@@ -90,6 +92,15 @@ async def make_pilot_docs(pg):
       rtbAct('dmilestone:esD45'); await sleep(250);
       const mo = document.querySelector('#mbm #mbm-ok'); mo && mo.click(); await sleep(250);
       const dm = r.invoices.slice(rb)[0] || null;
+      // the contract's deposit invoice, drafted from the Billing Queue's deposit row (lane 1, 2026-10-26). The seed's
+      // INV-2026-031 ("Deposit — 20%") was billed as a % on the SOV and is booked as work, so it prints as an
+      // application now (one deposit predicate for the ledger, lineFin and the printout)
+      const ca = blankClient('Wren & Julian Ashby'); ca.contacts = [{ id: uid('ct'), name: 'Wren Ashby', email: 'wren.ashby@example.com', primary: true }]; DB.clients.push(ca);
+      const pj = blankProject('214 Lincoln Place', '214 Lincoln Place, Brooklyn', today(), ''); pj.clientId = ca.id; DB.projects.push(pj);
+      const ea = newDoc(ca, 'estimate', { template: 'construction', fields: { title: '214 Lincoln Place — renovation', projectId: pj.id } });
+      ea.lines = [{ id: uid('l'), item: 'Demolition and protection', qty: 1, unit: 'ls', rate: 91120, cost: 60000 }]; ea.status = 'converted'; ea.approvedOn = today(); docMark(ea);
+      rtbAct('deposit:' + ea.id); await sleep(250);
+      const dq = document.querySelector('#mbm #mbm-ok'); dq && dq.click(); await sleep(250);
       save();
       return { pa: pa && pa.number, paMemo: pa && pa.memo, paInternal: pa && pa.internal, paDesc: pa ? pa.lines.map(l => l.desc).filter(Boolean) : [],
                paEv: pa ? pa.lines.map(l => l.evidence).filter(Boolean) : [], co: co.number, e0: e0.number, e0terms: e0.terms, dm: dm && dm.number, dmDue: dm && dm.due };""")
@@ -110,7 +121,7 @@ async def t_documents(c, p):
     made = await make_pilot_docs(pg)
     print('made', json.dumps({k: v for k, v in made.items() if k not in ('paMemo', 'paInternal')}))
     # [1] the app's own notes go to Internal Notes and the line's evidence, never to the client's memo or a line
-    c.ok(made['pa'], '[1] the billing queue drafted the pay application')
+    c.ok(made['pa'], '[1] billing drafted the pay application')
     c.ok(not re.search(r'fell back|check them|Percentages proposed|below what was already billed', made['paMemo'] or ''),
          f"[1] the pay application's client memo holds no working note: {made['paMemo']!r}")
     c.ok(not any(re.search(r'measured by|elapsed time', x) for x in made['paDesc']), f"[1] no line description carries the evidence: {made['paDesc'][:3]}")
@@ -261,7 +272,7 @@ async def t_payapp(c, p):
       await docAction(c, co2, 'approve'); await sleep(50);
       const after = payAppData(c, sent).coAmt;
       view = 'billing'; billTab = 'billable'; render(); await sleep(80);
-      rtbAct('app:p121'); await sleep(250);
+      blDraftApplication('p121'); await sleep(250);   // held on a job billed ahead: drafted on purpose (lane 1)
       const pa = c.invoices.find(i => i.mode === 'sov' && i.status === 'draft');
       const lines = pa.lines.map(l => l.item), A = payAppData(c, pa), t = docPrintHtml(c, pa);
       return { before, after, lines: lines.filter(x => /CO-/.test(x)), coAmt: A.coAmt, onPrint: /CO-2026-002/.test(t), approvedCos: c.changeOrders.filter(x => ['approved', 'billed'].includes(x.status)).map(x => x.number) };""")

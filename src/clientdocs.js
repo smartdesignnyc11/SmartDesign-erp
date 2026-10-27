@@ -369,14 +369,27 @@ function cxEnsureCoLines(c, d) {
 }
 
 // ---- one renderer for every client document --------------------------------------------------------------------------
+// What a document prints as. A sent document reprints as it was sent (printKind, frozen at Send, or at the first
+// posting for one sent before this was kept): the Kleins' INV-2026-031 went out as their Deposit Invoice and reprints so.
+// A draft prints by the one deposit predicate (invIsDeposit), the ledger's own answer.
 function cxKind(d) {
+  if ("invoice" === d.type && d.printKind && "draft" !== d.status) return d.printKind;
+  return cxKindLive(d);
+}
+function cxKindLive(d) {
   if ("estimate" === d.type) return "estimate";
   if ("co" === d.type) return "co";
-  // depositOf names the estimate whose deposit an application draws on; a deposit invoice is one that bills the deposit
-  if ("sov" === d.mode) return !(+d.retainagePct > 0) && (/\bdeposit\b/i.test(d.title || "") || (d.lines || []).some((l) => +l.pct && /^deposit\b/i.test(l.desc || ""))) ? "deposit" : "progress";
+  if ("invoice" === d.type && "function" == typeof invIsDeposit && invIsDeposit(d)) return "deposit";
+  if ("sov" === d.mode) return "progress";
   if ("design" === d.template || d.retainerOf) return "design";
   const est = d.fromDoc && (DB.clients || []).flatMap((c) => c.estimates || []).find((e) => e.id === d.fromDoc);
   return est && "design" === est.template ? "design" : "invoice";
+}
+// the kind a document went out as. One made before deposits were stamped (no isDeposit) went out by the rule of its
+// day: an application with no retainage titled or lined as the deposit printed as the Deposit Invoice
+function cxKindAtSend(d) {
+  if ("invoice" === d.type && "boolean" != typeof d.isDeposit && "sov" === d.mode && !(+d.retainagePct > 0) && (/\bdeposit\b/i.test(d.title || "") || (d.lines || []).some((l) => +l.pct && /^deposit\b/i.test(l.desc || "")))) return "deposit";
+  return cxKindLive(d);
 }
 const CX_LABEL = { estimate: "Proposal", co: "Change Order", progress: "Application for Payment", deposit: "Deposit Invoice", design: "Design Fee Invoice", invoice: "Invoice" };
 const CX_MARK =
@@ -620,9 +633,12 @@ if ("function" == typeof repStatement) {
         "draft" !== d.status && (R = R.filter((r) => "note" !== r.k));
         if (R.length) return void cxGateModal(c, d, R, "print" === a ? "print" : "send");
         if (out && "draft" === d.status) {
+          // the kind it goes out as is kept: a sent document reprints as it was sent (cxKind)
+          "invoice" === d.type && (d.printKind = cxKindLive(d));
           CX_GENERIC_TITLE.test(d.title || "") && (d.lines || []).find((l) => l.item) && (d.title = cxClean((d.lines || []).find((l) => l.item).item, c));
           "co" === d.type && !d.reasonType && (d.reasonType = cxInferReason(d));
-          "invoice" === d.type && d.due && d.due !== cxBizDay(d.due) && (d.due = cxBizDay(d.due));
+          // the due date the person saved stands: Send moved a saved 9/19 (a Saturday) to 9/21 without a word (round
+          // one, TRIAGE class 7). Dates the app picks itself land on business days (cxDueFor, at newDoc).
         }
       }
     }
@@ -636,6 +652,7 @@ if ("function" == typeof crSendToClient) {
       "sov" === d.mode && cxEnsureCoLines(c, d);
       const R = cxGate(c, d);
       if (R.length) return void cxGateModal(c, d, R, "send");
+      "invoice" === d.type && (d.printKind = cxKindLive(d));
     }
     return base.apply(this, arguments);
   };
@@ -818,10 +835,14 @@ function cxPreviewApplication(pid) {
     const r = base.apply(this, arguments);
     try {
       "billing" === view &&
-        document.querySelectorAll('[data-blact^="rtb:app:"]').forEach((b) => {
+        // a ready application, and one held because the job is billed ahead (lane 1): Preview shows what it would bill
+        // before anyone decides, with no number and no draft
+        document.querySelectorAll('[data-blact^="rtb:app:"], [data-blact^="held:ahead:"][data-blact$=":application"]').forEach((b) => {
           if (b.parentNode.querySelector("[data-cxprev]")) return;
+          const a = b.dataset.blact,
+            pid = /^rtb:app:/.test(a) ? a.slice(8) : a.split(":")[2];
           const x = document.createElement("button");
-          (x.className = "btn sm"), (x.textContent = "Preview"), (x.dataset.cxprev = b.dataset.blact.slice(8)), (x.style.marginRight = "8px"), b.parentNode.insertBefore(x, b);
+          (x.className = "btn sm"), (x.textContent = "Preview"), (x.dataset.cxprev = pid), (x.style.marginRight = "8px"), b.parentNode.insertBefore(x, b);
         });
     } catch (e) {}
     return r;

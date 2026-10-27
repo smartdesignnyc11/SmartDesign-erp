@@ -298,8 +298,11 @@ async def s2_done_not_billed(p, S):
         S.check(st['elec'] and (st['elec']['measured'] or 0) >= 99, 'measured 100% reaches the pay-app line (pgRows)')
         S.check(st['coRow'] and (st['coRow']['measured'] or 0) >= 99, 'approved CO line knows its work is done', f"{st['coRow']}")
         rtb121 = sum(float(r.split(':')[2]) for r in st['rtb']['rows'] if r and r.startswith('p121:'))
-        S.check(rtb121 >= el_amt + 1850 - 1, 'Ready to Bill includes the measured electrical gap + the approved CO',
-                f'121 State in Ready to Bill: ${rtb121:,.0f} (expected >= ${el_amt + 1850:,.0f}); held: {st["rtb"]["held"]}')
+        # the hold design (lane 1, round one, 2026-10-26; TRIAGE class 2's accept): 121 State is billed ahead on the whole, so
+        # the work done and the approved CO wait in the Billing Queue as a held row with the reason, never dropped
+        held121 = sum(float(h[1]) for h in st['rtb']['held'] if h[0] == 'p121' and 'ahead of the work' in str(h[2]))
+        S.check(rtb121 + held121 >= el_amt + 1850 - 1, 'the Billing Queue carries the measured electrical gap + the approved CO (ready, or held because the job is billed ahead)',
+                f'121 State ready ${rtb121:,.0f} + held ${held121:,.0f} (expected >= ${el_amt + 1850:,.0f}); held: {st["rtb"]["held"]}')
         needles = await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002', 'Sand & stain', 'Electrical', '121 State'])", [1850, el_amt])
         kw = r'ready to bill|not (yet )?billed|unbilled|bill it|draft the|application'
         surf(S, await scan(pg, 'u_billing', 'billing', await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002','Sand & stain'])", [1850]), kw), 'Billing Queue: approved CO-2026-002 done and unbilled')

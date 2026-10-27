@@ -78,7 +78,7 @@ The cloud workspace that built rounds 1–5 was reclaimed. Four things were lost
 | Backlog | $582,941 |
 | Net YTD | −$5,330 (income $142,759) |
 | Safe to spend | −$4,151 |
-| Ready to Bill | $47,601 (4 rows; held per line, never per job: 121 State's measured framing and electrical bill on their own evidence; the windows line's $13,970 of stored materials bought for the Kleins) |
+| Ready to Bill | $32,331 (3 rows: the 45 Cranberry filing milestone, 121 State's line-by-line application of $12,651 and 140 Prospect's design hours). Since lane 1 (2026-10-26) a job billed ahead on the whole is never billed further ahead and never leaves measured work unbilled: 121 State, $66,470 ahead line by line ($53,819 net, not counting the 20% deposit), bills the 2 lines behind their measure and holds its 7 lines billed ahead at 0, and the row says both; the windows' stored materials ($10,170, delivered less billed; the disputed $3,800 never bills) are held, since the windows line is itself ahead |
 | Rail badges | Projects 2, Sales 4, Purchasing 17 (the Buy Board: late or due to order this week, since procurement P1; it was 10), Accounting 6, Billing 2 |
 
 If a change moves one of these, say exactly why.

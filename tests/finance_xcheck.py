@@ -10,8 +10,20 @@ The run ends with `N flags` and exits 1 when N > 0.
   python3 finance_xcheck.py                 all figures, owner and controller
   python3 finance_xcheck.py --figure cash   only one figure family (cash, ar, unmatched, ap, wip, backlog,
                                             net, safe, rtb, job121, ledger, stock); repeatable or comma-separated
+  python3 finance_xcheck.py --figure invariants   only the ledger invariants (below)
   python3 finance_xcheck.py --json          machine-readable result (flags, every reading, not-shown notes)
   python3 finance_xcheck.py -v              also print every reading that agreed
+
+Ledger invariants (lane 1, 2026-10-26). These hold for every record, not for one seed figure, so they guard every
+later lane: each one walks all clients and every invoice and payment, the Live Jobs demo switched on.
+  INV DEPOSIT HELD  every deposit nets to $0 in deposits held (2400) once its job's applications are billed:
+                    the test bills every remaining line to 100% (per payer on a two-payer job) and sums 2400
+  INV BANK BACKS    collected never exceeds what the bank backs: no bank line backs more than its amount, only a
+                    line the bank sent backs a payment, and the total backed is within the bank lines
+  INV SENT FROZEN   no edit to a sent or paid document (title, retainage, a line) changes what was posted
+  INV ONE ANSWER    one record's "is it a deposit" has one answer across the ledger (2400 vs 4xxx), the line
+                    figures (sovBilled, lineFin's deposit share), the printout (cxKind) and invIsDeposit; a sent
+                    document whose print and books differ is allowed only when a Controller finding names it
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -45,8 +57,10 @@ PINNED = {
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
     'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
     'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
-    'rtb':             46301,    # ready to bill ($47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
-    'rtb_n':           4,
+    'rtb':             32331,    # ready to bill (lane 1, round three, 2026-10-26, the month walk's E248: a job billed ahead on the whole still bills every line behind its measure and holds only the lines ahead, so 121 State's application, $12,651 on framing and electrical, is ready again with the reason; the windows' stored materials, on a line itself ahead, stay held; $19,680 / 2 rows before)
+                                 # (lane 1, round one, 2026-10-26: TRIAGE class 2's accept, nothing proposed on a job billed ahead: 121 State's application $12,651 and the windows' stored materials, now $10,170, are held with the reason; $46,301 / 4 rows before)
+                                 # (before that: $47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
+    'rtb_n':           3,
     'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,
     'wip_job:140 Prospect Place': 22512,
@@ -56,13 +70,15 @@ PINNED = {
 }
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
-                    'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip'}.get(
+                    'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
+                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
-         'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200'}
+         'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -450,7 +466,8 @@ async def check_role(pg, R, uid):
     # Projects (overview table)
     if gate('ovjobs', 'Projects'):
         await nav(pg, 'jobs', 'ovjobs'); t = await text_of(pg, 'ovjobs')
-        R.money('wip_over', S('Projects › tile "Billed Ahead"'), t, r'Billed Ahead\s*\n\s*\+?' + MONEY)
+        # the cost-to-cost figure is "Over-Billed (WIP)" (lane 1, 2026-10-26: "Billed Ahead of the Work" is the line-by-line control)
+        R.money('wip_over', S('Projects › tile "Over-Billed (WIP)"'), t, r'Over-Billed \(WIP\)\s*\n\s*\+?' + MONEY)
         if R.want('ar'):
             owed = re.findall(r'\n[^\t\n]+\t[^\t\n]*\t\d+\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t(\$[\d,]+)\t', t)
             tot = sum(parse_money(x)[0] for x in owed)
@@ -583,9 +600,163 @@ async def check_stock(p, R):
     for e in errs[:3]: R.flag('stock', 'page', e[:200], 'no page errors')
     await b.close()
 
+# ---- ledger invariants ------------------------------------------------------------------------------------------
+INV_SUM = "const S = (L) => { const o = {}; (L || []).forEach(l => o[l.acct] = r2((o[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); return o; };"
+# every journal, summed by the record it posts for (a reversal and re-post nets to the change)
+INV_POSTED = INV_SUM + """ const P = () => { glSync(); const o = {}; (DB.gl.journals || []).filter(j => j.sourceId).forEach(j => { const m = o[j.sourceId] = o[j.sourceId] || {};
+  (j.lines || []).forEach(l => m[l.acct] = r2((m[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))); }); Object.values(o).forEach(m => Object.keys(m).forEach(k => Math.abs(m[k]) < 0.005 && delete m[k])); return o; };"""
+
+INV_ONE_JS = INV_SUM + """
+  const ctl = analystFindings().filter(x => x.area === 'Controller').map(x => (x.title || '') + ' ' + (x.detail || '')).join('\\n');
+  const out = [];
+  DB.clients.forEach(c => (c.invoices || []).forEach(i => {
+    if (['draft', 'void'].includes(i.status) || i.retainerOf || i.retainageRelease) return;
+    const L = S(glInvoiceLines(c, i)), rev = -Object.keys(L).filter(a => /^4/.test(a)).reduce((a, k) => a + L[k], 0), held = -(L['2400'] || 0);
+    const A = { ledger: rev > 0.005 ? 'work' : held > 0.005 ? 'deposit' : null,
+      print: typeof cxKind === 'function' ? (cxKind(i) === 'deposit' ? 'deposit' : 'work') : null,
+      invIsDeposit: typeof invIsDeposit === 'function' ? (invIsDeposit(i) ? 'deposit' : 'work') : null, sovBilled: null, lineFin: null };
+    const l = i.mode === 'sov' && (i.lines || []).find(x => x.sovId && +x.pct > 0);
+    if (l) {
+      A.sovBilled = sovBilled(c, l.sovId) - sovBilled(c, l.sovId, i.id) > 0.001 ? 'work' : 'deposit';
+      const sv = (c.sov || []).find(v => v.id === l.sovId);
+      if (sv && sv.lineRef && typeof lineFin === 'function') {
+        const a = lineFin(sv.lineRef), st = i.status; i.status = 'void';
+        let b; try { b = lineFin(sv.lineRef); } finally { i.status = st; }
+        if (a && b && a.billedPct - b.billedPct > 0.001) A.lineFin = a.depositPct - b.depositPct > 0.001 ? 'deposit' : 'work';
+      }
+    }
+    const v = [...new Set(Object.values(A).filter(Boolean))];
+    if (v.length > 1) {
+      // the one disagreement allowed: a sent document reprints as it was sent while its books say otherwise, and a
+      // Controller finding names it (never re-classed silently); the books, line figures and predicate still agree
+      const books = [...new Set([A.ledger, A.sovBilled, A.lineFin, A.invIsDeposit].filter(Boolean))];
+      const named = books.length === 1 && ctl.includes(i.number);
+      out.push({ n: i.number, client: c.name, A: A, named: named });
+    }
+  }));
+  return out;"""
+
+INV_BANK_JS = """
+  // a fixture that has fooled the matcher before: two equal payments a day apart and one bank line between them;
+  // a payment typed against a line smaller than itself; a payment typed against a line edited after it arrived
+  const c = DB.clients.find(x => (x.payments || []).length) || DB.clients[0], acct = ((DB.accounts || []).find(a => a.type === 'bank') || {}).id || 'ac1';
+  const mk = (id, amt, d, desc) => { const t = txnStamp({ id: id, date: d, acct: acct, desc: desc, amt: amt, cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:finx', id); DB.txns.push(t); return t; };
+  mk('fx_one', 4321.09, '2026-09-02', 'MOBILE DEPOSIT');
+  const small = mk('fx_small', 1000, '2026-09-02', 'DEPOSIT ' + String(c.name || '').toUpperCase());
+  const edited = mk('fx_edit', 2500, '2026-09-02', 'DEPOSIT ' + String(c.name || '').toUpperCase()); edited.amt = 2600;
+  c.payments.push({ id: 'fxp1', date: '2026-09-01', amount: 4321.09, method: 'check', ref: 'FX-1' }, { id: 'fxp2', date: '2026-09-03', amount: 4321.09, method: 'check', ref: 'FX-2' },
+    { id: 'fxp3', date: '2026-09-02', amount: 1500, method: 'ach', ref: 'FX-3', txnId: small.id }, { id: 'fxp4', date: '2026-09-02', amount: 2600, method: 'ach', ref: 'FX-4', txnId: edited.id });
+  if (typeof payBackReset === 'function') payBackReset();
+  render(); await sleep(150);
+  const amtOf = (cl, p) => typeof payBankedAmt === 'function' ? payBankedAmt(cl, p) : (typeof payBanked === 'function' && payBanked(cl, p) ? +p.amount : 0);
+  const map = typeof payBacking === 'function' ? payBacking() : null, per = {}, bad = [];
+  let backed = 0;
+  DB.clients.forEach(cl => (cl.payments || []).forEach(p => {
+    if (p.reverses || !(+p.amount > 0)) return;
+    const a = amtOf(cl, p); if (!(a > 0.005)) return;
+    backed = r2(backed + a);
+    const t = map && map.get(p) ? map.get(p).t : (p.txnId ? (DB.txns || []).find(x => x.id === p.txnId) : null);
+    if (!t) { bad.push(`${cl.name} ${p.ref || p.id} ${a}: counted in the bank with no bank line`); return; }
+    if (typeof bfBacked === 'function' && !bfBacked(t)) bad.push(`${cl.name} ${p.ref || p.id} ${a}: backed by ${t.id}, a line the bank did not send as it stands`);
+    per[t.id] = per[t.id] || { amt: +t.amt, by: [], sum: 0 };
+    per[t.id].by.push((p.ref || p.id) + ' ' + a); per[t.id].sum = r2(per[t.id].sum + a);
+  }));
+  Object.entries(per).forEach(([id, x]) => x.sum > x.amt + 0.005 && bad.push(`bank line ${id} ($${x.amt}) backs $${x.sum}: ${x.by.join(', ')}`));
+  const lines = r2((DB.txns || []).filter(t => +t.amt > 0 && t.status !== 'void' && (typeof bfBacked !== 'function' || bfBacked(t))).reduce((a, t) => a + +t.amt, 0));
+  const fx = ['fxp1', 'fxp2', 'fxp3', 'fxp4'].map(id => r2(amtOf(c, c.payments.find(x => x.id === id))));
+  return { bad: bad, backed: backed, lines: lines, fx: fx };"""
+
+INV_EDIT_JS = INV_POSTED + """
+  const before = P(), docs = [];
+  DB.clients.forEach(c => (c.invoices || []).forEach(i => {
+    if (['draft', 'void'].includes(i.status) || !(i.lines || []).length) return;
+    docs.push([i.id, i.number, c.name, i.status]);
+    i.title = String(i.title || '') + ' (less deposit)';
+    i.retainagePct = +i.retainagePct > 0 ? 0 : 10;
+    const l = i.lines[0];
+    if ('pct' in l) l.pct = r2((+l.pct || 0) + 5); else l.qty = (+l.qty || 1) + 1;
+    l.desc = 'Deposit ' + String(l.desc || '');
+  }));
+  save(); render(); await sleep(200);
+  const after = P(), moved = [];
+  docs.forEach(([id, n, cn, st]) => { const a = JSON.stringify(before[id] || {}), b = JSON.stringify(after[id] || {}); a !== b && moved.push(`${cn} ${n} (${st}): ${a} -> ${b}`); });
+  // and nothing else moved because of them
+  Object.keys(Object.assign({}, before, after)).forEach(k => !docs.some(d => d[0] === k) && JSON.stringify(before[k] || {}) !== JSON.stringify(after[k] || {}) && moved.push(`${k}: ${JSON.stringify(before[k] || {})} -> ${JSON.stringify(after[k] || {})}`));
+  return { n: docs.length, moved: moved };"""
+
+INV_DEP_JS = INV_SUM + """
+  const out = [];
+  DB.clients.forEach(c => {
+    const deps = (c.invoices || []).filter(i => typeof invIsDeposit === 'function' && invIsDeposit(i) && i.depositOf && !['draft', 'void'].includes(i.status));
+    [...new Set(deps.map(i => i.depositOf))].forEach(eid => {
+      const est = (c.estimates || []).find(e => e.id === eid);
+      const payers = (c.payers || []).length > 1 ? c.payers.map(p => p.id) : [''];
+      payers.forEach(pid => {
+        const lj = pid && typeof LJ !== 'undefined';
+        let inv; if (lj) LJ.pick = pid;
+        try { inv = newDoc(c, 'invoice', pid ? { mode: 'sov', payer: pid } : { mode: 'sov' }); } finally { if (lj) LJ.pick = ''; }
+        if (!c.invoices.includes(inv)) c.invoices.push(inv);
+        inv.depositOf = eid;
+        inv.lines.forEach(l => { l.prevPct = r2(sovBilled(c, l.sovId, inv.id)); l.pct = r2(Math.max(0, 100 - l.prevPct)); });
+        inv.lines = inv.lines.filter(l => l.pct > 0);
+        if (!inv.lines.length) { c.invoices = c.invoices.filter(x => x !== inv); return; }
+        docTotal(inv); inv.status = 'sent'; docMark(inv);
+      });
+      const all = c.invoices.filter(i => !['void', 'draft'].includes(i.status) && (i.depositOf === eid));
+      const held = r2(all.reduce((a, i) => a + (S(glInvoiceLines(c, i))['2400'] || 0), 0));
+      const open = (c.sov || []).filter(v => !v.coId && String(v.lineRef || '').startsWith('estimate:' + eid)).map(v => r2(sovBilled(c, v.id))).filter(x => x < 99.99).length;
+      out.push({ client: c.name, est: est ? est.number : eid, deposits: deps.filter(i => i.depositOf === eid).map(i => i.number), held: held, open: open });
+    });
+  });
+  return out;"""
+
+async def check_invariants(p, R):
+    if not R.want('inv_dep'): return
+    def read(key, surface, ok, seen, expected):
+        R.readings.append({'figure': key, 'surface': surface, 'raw': str(seen)[:300], 'value': None, 'expected': expected, 'ok': ok})
+        if not ok: R.flag(key, surface, str(seen)[:600], expected)
+        elif R.verbose: print('  ok', label(key), '|', surface)
+    async def page():
+        b, pg, errs = await open_app(p)
+        await sign_in(pg, 'u_owner')
+        await pg.evaluate("async () => { if (typeof ljDemoSwitch === 'function') { await ljDemoSwitch(true); await new Promise(r => setTimeout(r, 200)); } }")
+        return b, pg, errs
+    js = lambda body: "async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); " + body + " }"
+
+    # one answer, on the books as they stand
+    b, pg, errs = await page()
+    one = await pg.evaluate(js(INV_ONE_JS))
+    bad = [x for x in one if not x['named']]
+    read('inv_one', 'every sent invoice, as seeded', not bad, bad, 'ledger, sovBilled, lineFin, cxKind and invIsDeposit give one answer')
+    # collected never exceeds what the bank backs
+    bank = await pg.evaluate(js(INV_BANK_JS))
+    read('inv_bank', 'each payment counted in the bank has a bank line, within its amount', not bank['bad'], bank['bad'], 'no line backs more than its amount; only lines the bank sent')
+    # the instrument: the fixture's bank-sent lines back $4,321.09 once and $1,000 of the $1,500; the edited line nothing
+    read('inv_bank', 'the fixture is read (one of the two equal payments, $1,000 of $1,500, nothing on the edited line)', bank['fx'][0] + bank['fx'][1] > 0 and bank['fx'][3] == 0, bank['fx'], 'some backing seen, none on the edited line')
+    read('inv_bank', 'total counted in the bank', bank['backed'] <= bank['lines'] + 0.005, f"backed {bank['backed']:,.2f} of bank lines {bank['lines']:,.2f}", 'backed <= bank lines')
+    # no edit to a sent or paid document changes what was posted; and after the edits, still one answer
+    ed = await pg.evaluate(js(INV_EDIT_JS))
+    read('inv_edit', f"retitle, retainage and a line on each of {ed['n']} sent or paid invoices", ed['n'] > 0 and not ed['moved'], ed['moved'] or ed['n'], 'posted amounts unchanged')
+    one2 = await pg.evaluate(js(INV_ONE_JS))
+    bad2 = [x for x in one2 if not x['named']]
+    read('inv_one', 'every sent invoice, after those edits', not bad2, bad2, 'one answer, unchanged by the edits')
+    for e in errs[:3]: R.flag('inv_one', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # every deposit nets to zero in 2400 once its job's applications are billed (a fresh page: the edits above are not on it)
+    b, pg, errs = await page()
+    dep = await pg.evaluate(js(INV_DEP_JS))
+    read('inv_dep', 'deposits found', len(dep) > 0, dep, 'at least one stamped deposit (the Live Jobs demo has two)')
+    for x in dep:
+        ok = abs(x['held']) < 0.01 and x['open'] == 0
+        read('inv_dep', f"{x['client']} {x['est']} ({', '.join(x['deposits'])}), every line billed", ok, f"2400 {x['held']:+,.2f}, {x['open']} lines open", '2400 nets to $0.00')
+    for e in errs[:3]: R.flag('inv_dep', 'page', e[:200], 'no page errors')
+    await b.close()
+
+
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -600,6 +771,7 @@ async def main():
             await check_role(pg, R, uid)
         await b.close()
         await check_stock(p, R)
+        await check_invariants(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

@@ -50,33 +50,42 @@ async def s1_earned(p, S):
     try:
         st = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'), w = wipRow(p), R = readyToBill();
             return {over: Math.round(w.over), app: R.rows.filter(r => r.p && r.p.id === 'p121' && r.kind === 'application').map(r => r.amount),
+                    why: R.rows.filter(r => r.p && r.p.id === 'p121' && r.kind === 'application').map(r => r.why || ''), ahead: pbAhead('p121').lines.length,
                     jobHeld: R.held.filter(h => !h.sv).map(h => [h.p.id, h.why]), held: R.held.map(h => [h.p.id, h.line, h.amount])}; }""")
         S.fact(f"seed: 121 State billed ${st['over']:,} ahead on the WIP schedule; application {st['app']}; held {st['held']}")
-        S.check(st['app'] and not st['jobHeld'], 'a job billed ahead overall is never held whole: its measured lines still propose an application',
-                f"job-level holds {st['jobHeld']}")
+        # The hold design (lane 1, round three, 2026-10-26, the month walk's E248): a job billed ahead on the whole is
+        # never billed further ahead and never leaves measured work unbilled. Its application bills the lines behind their
+        # measure and holds the lines ahead at 0, and the row says both. Round one held the whole application, which left
+        # rough electrical measured 100% and billed 85% at month end; this replaces it.
+        want = r'^bills \$12,651 of measured work on 2 lines; holds %d lines billed ahead, net \$[\d,]+, not counting the 20%% deposit$' % st['ahead']
+        S.check(st['app'] == [12651.25] and st['why'] and re.search(want, st['why'][0]) and all('ahead of the work' in w for _, w in st['jobHeld']),
+                'a job billed ahead on the whole bills its measured lines and holds only the lines ahead, with the reason', f"application {st['app']} {st['why']}; job-level holds {st['jobHeld']}")
         # the foreman measures rough electrical at 100%; the client approves CO-2026-002 and the treads are done
         await pg.evaluate("""async () => { const p = DB.projects.find(x => x.id === 'p121');
             prgSet(p, p.tasks.find(t => t.id === 'relec'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Rough electrical complete'});
             const c = DB.clients.find(x => x.id === 'cl121'); await docAction(c, c.changeOrders.find(x => x.number === 'CO-2026-002'), 'approve');
             prgSet(p, p.tasks.find(t => t.id === 'sand'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Treads sanded and stained'}); save(); }""")
         row = await billing_row(pg, '121 State')
-        S.check(row and row['verb'] == 'Draft' and 'CO-2026-002' in row['text'], 'Billing Queue: the 121 State application is ready, with CO-2026-002 on it',
-                str(row))
+        S.check(row and row['verb'] == 'Draft' and 'CO-2026-002' in row['text'] and 'of measured work' in row['text'] and 'billed ahead' in row['text'],
+                'Billing Queue: the 121 State application is ready to draft, with CO-2026-002 on it and what it holds', str(row))
         # Draft: the application fills a draft with every approved change order's line beside the contract's
         # Draft on the queue's row fills the job's draft from every line and opens it, with Send to Client next
-        d = await pg.evaluate("""async () => { const tr = [...document.querySelectorAll('#v-billing tr')].find(tr => tr.querySelector('[data-blact]') && /line-by-line application/.test(tr.innerText));
-              tr.querySelector('[data-blact]').click(); await new Promise(r => setTimeout(r, 80));
+        # drafted on purpose (the held application's Draft is Progress Billing's, blDraftApplication)
+        d = await pg.evaluate("""async () => { blDraftApplication('p121'); await new Promise(r => setTimeout(r, 80));
               const c = DB.clients.find(x => x.id === 'cl121'), inv = c.invoices.find(i => i.id === (docOpen || {}).id);
               return inv && {num: inv.number, co: inv.lines.filter(l => /CO-2026-002/.test(l.item)).map(l => l.pct),
                              send: [...document.querySelectorAll('section.view.on button')].some(b => b.innerText.trim() === 'Send to Client')}; }""")
         S.check(d and d['co'] == [100] and d['send'], 'Draft fills the application (CO-2026-002 billed from 0 to 100%) and opens it with Send to Client', str(d))
         again = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'); prgSet(p, p.tasks.find(t => t.id === 'frame'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Framing complete'}); save(); render();
-              const r = readyToBill().rows.find(x => x.kind === 'application' && x.p.id === 'p121'); if (!r) return 'no row'; rtbAct(blRtbKey(r));
+              blDraftApplication('p121');
               const c = DB.clients.find(x => x.id === 'cl121'); return {open: (docOpen || {}).id, drafts: c.invoices.filter(i => i.status === 'draft' && i.mode === 'sov').map(i => i.number)}; }""")
         S.check(isinstance(again, dict) and len(again['drafts']) == 1, 'measured later, Draft refreshes the same open draft (never a second)', str(again))
+        # lane 1 (TRIAGE class 8): a draft row's next step is Review, which opens it; Send is pressed from the invoice
         row = await billing_row(pg, d['num'] if d else 'INV-')
-        S.check(row and row['verb'] == 'Send', 'Billing Queue: the drafted application says Send', str(row))
-        did = await press_row(pg, d['num'] if d else 'INV-', 'Send')
+        S.check(row and row['verb'] == 'Review', 'Billing Queue: the drafted application says Review (never a one-tap Send)', str(row))
+        did = await press_row(pg, d['num'] if d else 'INV-', 'Review')
+        did += ' > ' + await pg.evaluate("""async () => { const b = [...document.querySelectorAll('section.view.on button')].find(b => b.innerText.trim() === 'Send to Client'); if (!b) return 'no Send to Client';
+            b.click(); await new Promise(r => setTimeout(r, 80)); const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await new Promise(r => setTimeout(r, 150)); return 'Send to Client'; }""")
         sent = await pg.evaluate("n => { const c = DB.clients.find(x => x.id === 'cl121'); const i = c.invoices.find(x => x.number === n); return i ? i.status : 'none'; }", d['num'] if d else '')
         S.check(sent == 'sent', 'Send opens one sheet; Send to Client sends the application', f"{did}; status {sent}")
         held = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'); const r = pgRows('p121').find(r => /Insulation/.test(r.sv.desc));
@@ -116,7 +125,9 @@ async def s2_reimb(p, S):
         amts = {x[1][:22]: x[2] for x in R['rows']}
         S.check(any(abs(a - 2090) < 0.01 for a in amts.values()), 'the Waterworks faucet (a client selection) is a reimbursable row at cost plus the job markup ($1,900 -> $2,090)', str(amts))
         S.check(any(abs(a - 1395.24) < 0.01 for a in amts.values()), 'the pendants are billed at cost plus 10% ($1,268.40 -> $1,395.24)', str(amts))
-        S.check(any(x[0] == 'floated' and 'Windows' in x[1] and 13900 < x[2] < 14000 for x in R['rows']), 'the $13,970 floated on the windows line is a row to bill (stored materials)', str(R['rows']))
+        # lane 1 (TRIAGE class 3): the windows float is what was delivered less what was billed ($29,700 - $19,530 = $10,170); the
+        # $3,800 over what was delivered never bills to the client
+        S.check(any(x[0] == 'floated' and 'Windows' in x[1] and abs(x[2] - 10170) < 1 for x in R['rows']), 'the $10,170 floated on the windows line is a row (stored materials, delivered less billed)', str(R['rows']))
         S.check(abs(R['sp'] - R['rb']) < 0.01 and R['rb'] > 0, 'spUnbilled reads the same rows: one number', f"spUnbilled {R['sp']} vs rows {R['rb']}")
         S.check(any(r[0] == 'billing' and r[1] == 'Draft' for r in R['nyh']), "billing's Needs Your Hand: Draft the purchases bought for the client", str(R['nyh']))
         row = await billing_row(pg, 'bought for Sarah')
@@ -144,7 +155,8 @@ async def s2_reimb(p, S):
             return {label, added: !!l, rate: l && l.rate, stamped, back}; }""")
         S.check(pull['added'] and pull['stamped'] and abs((pull['rate'] or 0) - 315.37) < 0.01, 'the invoice editor pulls Billable Expenses and stamps invoiceLineId ($286.70 + 10%)', str(pull))
         S.check(pull['back'], 'a billable line taken off a draft is unbilled again (the stamp follows the invoice line)', str(pull))
-        fl = await pg.evaluate("""async () => { const r = readyToBill().rows.find(x => x.kind === 'floated'); if (!r) return null; rtbAct(r.key); await new Promise(r => setTimeout(r, 60));
+        # 121 State is billed ahead, so its stored materials wait held (lane 1, the hold design); billing bills them on purpose
+        fl = await pg.evaluate("""async () => { const r = rbReady().find(x => x.kind === 'floated'); if (!r) return null; r.run(); await new Promise(r => setTimeout(r, 60));
             const c = DB.clients.find(x => x.id === 'cl121'), inv = c.invoices.find(i => i.id === (docOpen || {}).id);
             return {num: inv && inv.number, win: inv && inv.lines.filter(l => /Windows/.test(l.item)).map(l => [l.pct, l.stored]), left: spUnbilled().filter(r => /Windows/.test(r.label)).length}; }""")
         S.check(fl and fl['win'] and fl['win'][0][1] and fl['left'] == 0, 'Draft on the floated windows row puts the stored materials on the application; spUnbilled no longer lists it', str(fl))

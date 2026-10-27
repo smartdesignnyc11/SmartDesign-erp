@@ -212,7 +212,7 @@ async def sec_nyh(p, c):
     c.ok(z and z['cat'] and z['cat'] != 'uncat' and z['job'] == 'p121', f"Jeanette's Zelle explanation becomes a coding proposal; Apply codes the line to the job: {z}")
     # Billing: a deposit in the bank becomes Record Payment; a payment the bank never saw gets Resolve
     await sign_in(pg, 'u_billing')
-    await pg.evaluate("() => { DB.txns.push({ id: 'tdepk', date: today(), acct: 'ac1', desc: 'MOBILE DEPOSIT CHK 2291 KLEIN', amt: 68265, cat: 'uncat', status: 'new', source: 'import', prov: { kind: 'import' } }); render(); }")
+    await pg.evaluate("() => { DB.txns.push(txnStamp({ id: 'tdepk', date: today(), acct: 'ac1', desc: 'MOBILE DEPOSIT CHK 2291 KLEIN', amt: 68265, cat: 'uncat', status: 'new', source: 'ofx' }, 'stmt:learn', 'tdepk')); render(); }")
     d = await pg.evaluate("() => nyhRows().filter(r => r.kind === 'deposit').map(r => ({ key: r.key, title: r.title, verb: r.verb }))")
     kd = next((x for x in d if '68,265' in x['title']), None)
     c.ok(kd and 'INV-2026-038' in kd['title'] and kd['verb'] == 'Record Payment', f'a deposit in the bank is "Record payment: Kleins $68,265 against INV-2026-038": {d}')

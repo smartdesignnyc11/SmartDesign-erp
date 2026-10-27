@@ -231,7 +231,10 @@ function prCards(list, sel, spec) {
 // would say first: its bold line, its first small line, its status pill, its verb (a blue one, else the first that is
 // not Open, Call, Text or Message: those stay in the card, a tap away). Sections that group records (a week of the
 // look-ahead, a day of photos, a chain of checks, the field's cards) are not records: PR_SECTIONS, read by the lint too.
-const PR_SECTIONS = ["card", "f-card", "portlet", "tw", "msg", "t2-group", "td-card", "nm-band", "hd", "row", "f", "grid2", "kpi", "kpis", "ph", "glance", "acts", "la-week", "pst-day", "cs-chainblock", "tk2-row", "gl", "sec", "section"];
+// A match waiting for confirmation (prop-row) is never folded: folded, its row kept Confirm and dropped what it links
+// ("→ Bill AMP-311") and the "possibly already paid" warning, so one tap confirmed a match the person could not see
+// (round one, TRIAGE class 8). It shows whole, target and warnings above its buttons.
+const PR_SECTIONS = ["card", "f-card", "portlet", "tw", "msg", "t2-group", "td-card", "nm-band", "hd", "row", "f", "grid2", "kpi", "kpis", "ph", "glance", "acts", "la-week", "pst-day", "cs-chainblock", "tk2-row", "gl", "sec", "section", "prop-row"];
 const PR_PASSIVE = /^(open|call|text|message|email|view|show|hide|more|less|why|details?)\b/i;
 function prCardGeneric(c) {
   const t = [...c.querySelectorAll("h3, h4, b, strong, .title, .t")].find((e) => !e.closest("button, a, .pill") && /[A-Za-z]{3}/.test(prTxt(e)));
