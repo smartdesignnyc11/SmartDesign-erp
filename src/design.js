@@ -447,7 +447,7 @@ document.addEventListener("change", (e) => {
     if ("sdraw" === view) view = "plans";
     const r = base.apply(this, arguments);
     try {
-      pdDraw(), pdOvJobs();
+      pdDraw(), pdOvJobs(), puCrumbs();
     } catch (e) {
       console.warn("design", e);
     }

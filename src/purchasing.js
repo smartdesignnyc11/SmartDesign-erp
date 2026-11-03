@@ -729,6 +729,18 @@ function puRecordOpen(v) {
   } catch (e) {}
   return !1;
 }
+// The phone's header names the page from its first heading, read before this page is drawn over the old one (whose
+// heading named a job: "Selections — 121 State Street"). A firm-wide page names itself, never a job.
+function puCrumbs() {
+  if (!puPhone()) return;
+  const h = document.querySelector(".view.on .pu .pu-ph h2, .view.on .pu-page .pu-ph h2"),
+    c = document.getElementById("crumbs");
+  if (!h || !c) return;
+  const t = h.textContent.trim();
+  c.textContent.trim() !== t && (c.innerHTML = `<b>${esc(t)}</b>`);
+  document.querySelectorAll(".view.on h2.td-in-hdr").forEach((x) => x !== h && x.classList.remove("td-in-hdr"));
+  h.classList.add("td-in-hdr");
+}
 // the field roles keep their own pages (the crew's Deliveries is the site's receiving)
 const puOffice = () => !["foreman", "crew", "client"].includes(role());
 function puDraw() {
@@ -1009,7 +1021,7 @@ function puStockGate(R, go) {
     if ("ovbuy" === view) view = (ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po";
     const r = base.apply(this, arguments);
     try {
-      puDraw();
+      puDraw(), puCrumbs();
     } catch (e) {
       console.warn("purchasing", e);
     }

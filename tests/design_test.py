@@ -51,6 +51,10 @@ async def run(c, p, phone):
         await open_entry(pg, phone, 'studio', 'Selections')
         P = await page(pg)
         c.ok(P and P['page'] == 'sel' and P['h2'] == 'Selections', f'{dev} SELECTIONS: the page opens under its own heading ({P and P["h2"]})')
+        # a firm-wide page names no job: the header reads Selections and no job switcher shows (review, 11-03)
+        hd = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0 && !e.closest('[hidden]');
+          const c = document.getElementById('crumbs'); return { crumbs: c && vis(c) ? c.innerText.trim() : '', sw: [...document.querySelectorAll('#pswitch, .projsel')].some(vis) }; }""")
+        c.ok(not hd['sw'] and '—' not in hd['crumbs'] and '121 State' not in hd['crumbs'], f'{dev} SELECTIONS: a firm-wide page shows no job in its header or a job switcher {hd}')
         if P and P['page']:
             c.ok(P['tabs'] == 0, f'{dev} SELECTIONS: no tab rows ({P["tabs"]})')
             c.ok(P['secs'][:1] == ['mine'], f'{dev} SELECTIONS: opens on Needs You {P["secs"]}')

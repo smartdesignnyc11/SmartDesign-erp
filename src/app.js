@@ -199432,7 +199432,7 @@ const MN_JOBS = () => [
     MN_G("studio", "Design", "studio", [
       ["sel", "Selections", null, { not: ["pm", "coord"] }],
       ["plans", "Drawings", null, { not: ["pm", "coord"] }],
-    ], { proj: 1 }),
+    ]),
     MN_G("reports", "Reports", "reports", [
       ["reports", "All Reports", null, { head: 1 }],
       // the Home Dashboard moves into Reports (workshop cut list)
