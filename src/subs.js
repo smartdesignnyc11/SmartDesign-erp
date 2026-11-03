@@ -1748,7 +1748,7 @@ document.addEventListener(
     e.preventDefault(), e.stopPropagation();
     if (x.dataset.scbill) {
       const b = (DB.bills || []).find((y) => y.id === x.dataset.scbill);
-      return b && (flowCan("ap") ? flowGo.bill(b)() : toast(`${b.number || "The bill"} is on Bills & Payroll`));
+      return b && (flowCan("ap") ? flowGo.bill(b)() : toast(`${b.number || "The bill"} is on Bills and Payroll`));
     }
     const k = x.dataset.sc;
     "terms" === k ? scTermsSheet(po) : "change" === k ? scChangeSheet(po) : "payapp" === k ? scPayAppSheet(po) : "approve-change" === k && scApproveChange(po, x.dataset.scc);
@@ -1822,7 +1822,7 @@ function scBillDrawer(id) {
     return r;
   };
 }
-// Bills & Payroll: the payment run. Approved bills, each with its check; only the checked ones are paid.
+// Bills and Payroll: the payment run. Approved bills, each with its check; only the checked ones are paid.
 // What a Payment Run may hold: approved, an open balance after every payment and every bank line matched to it,
 // not held. One rule for the run card, preparing a run and releasing it.
 function pcRunnable(b) {
@@ -1931,7 +1931,7 @@ EQ_TABLES.vendorledger = () =>
 EQ_TABLES.paymentholds = () =>
   pcHeldBills().map((x) => ({
     _id: x.b.id,
-    _module: "Bills & Payroll",
+    _module: "Bills and Payroll",
     _label: `Held · ${x.b.vendor} ${x.b.number || ""}`,
     _go: eqGo("ap", {}),
     vendor: x.b.vendor,

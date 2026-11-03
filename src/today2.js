@@ -1105,14 +1105,7 @@ function td2Chrome() {
     n ? (i || ((i = document.createElement("i")), (i.className = "n"), b.appendChild(i)), (i.textContent = n), i.classList.add("late"), b.setAttribute("aria-label", `Today, ${n} late`)) : i && i.remove();
   });
 }
-// the menu's Today group counts the same late rows (it counted the Approvals queue)
-if ("function" == typeof mnGroupN) {
-  const base = mnGroupN;
-  mnGroupN = function (g, r) {
-    if (g && "home" === g.id && TD2_SPEC[r] && r === role()) return td2LateN();
-    return base.apply(this, arguments);
-  };
-}
+// the menu's Today counts the same late rows (mnItemN reads td2LateN, src/app.js, the menu section)
 // The phone bars and the first screen, as the mockups draw them. Billing and the controller start on Today (their
 // boards light Today first), as every office role does; Banking and Billing keep their place on the bar.
 (function td2Bars() {
@@ -1146,7 +1139,7 @@ if ("function" == typeof mnGroupN) {
   set("controller", [
     ["home", "Today", "today"],
     ["bank", "Banking", "money"],
-    ["ap", "Bills & Payroll", "billing"],
+    ["ap", "Bills and Payroll", "billing"],
     ["chat", "Messages", "chat"],
   ]);
   ["billing", "controller"].forEach((r) => MENU[r] && ((MENU[r].home = "home"), "object" == typeof IA_HOME && (IA_HOME[r] = "home")));
@@ -1163,6 +1156,5 @@ if ("function" == typeof mnGroupN) {
     (F.rest = (F.rest || []).filter((x) => !["fsite", "req", "flog", "ftoday", "chat"].includes(x[0]))));
   try {
     "function" == typeof mnKnowAll && mnKnowAll();
-    "function" == typeof mnHomeGroups && mnHomeGroups();
   } catch (e) {}
 })();

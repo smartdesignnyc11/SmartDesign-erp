@@ -844,6 +844,9 @@ class Sim:
         if not r['ok']: return {'ok': False, 'text': r['why']}
         await self.settle(pg, 400)
         for sub in parts[1:]:
+            # the 11-03 menu: a group's pages are listed under its name in the menu, not as tabs on the page
+            if await pg.evaluate("l => __SIM.goKid ? __SIM.goKid(l) : false", sub):
+                await self.settle(pg, 400); continue
             S = await pg.evaluate("__SIM.screen()")
             want = sub.lower()
             hit = next((i for i, s in enumerate(S['sig']) if s['k'] in ('tab', 'button', 'link') and re.sub(r'\s+\d+$', '', s['label'].lower()) == want), None)

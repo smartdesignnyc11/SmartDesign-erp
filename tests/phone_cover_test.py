@@ -234,7 +234,8 @@ async def main():
         await sign_in(pg, 'u_alan')
         await pg.evaluate("() => { try { mbCloseModal() } catch (e) {} }")
         await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
-        await pg.locator('#nav-groups button[data-grp=jobs]').first.tap(); await pg.wait_for_timeout(400)
+        # the 11-03 menu: Projects opens on its name
+        await pg.locator('#nav-groups [data-mnhead=jobs]').first.tap(); await pg.wait_for_timeout(400)
         job = await pg.evaluate("() => (DB.projects.find(p => p.clientId && /State/.test(p.name || p.address || '')) || DB.projects.find(p => p.clientId)).id")
         await pg.evaluate("j => { setCurrent(j); setView('dash'); }", job); await pg.wait_for_timeout(400)
         await pg.locator('#subnav button[data-subtab=estimates]').first.tap(); await pg.wait_for_timeout(500)
@@ -253,10 +254,11 @@ async def main():
         await pg.evaluate("() => { docOpen = null; setView('home'); }"); await pg.wait_for_timeout(300)
         await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
         taps = 0
-        exp = pg.locator('#nav-groups [data-mnexp=jobs]')
+        # the 11-03 menu: Estimates is a page of Sales and Clients, which opens on its name (no arrow)
+        exp = pg.locator('#nav-groups [data-mnhead=sales]')
         if await exp.count():
             await exp.first.tap(); taps += 1; await pg.wait_for_timeout(250); await pg.screenshot(path=os.path.join(SHOTS, 'pm_menu_projects_open.png'))
-        kid = pg.locator('#nav-groups [data-mnkid]', has_text=re.compile('^Estimates$'))
+        kid = pg.locator('#nav-groups [data-mngr=sales] button', has_text=re.compile('^Estimates$'))
         if await kid.count() and await kid.first.is_visible():
             await kid.first.tap(); taps += 1; await pg.wait_for_timeout(500)
         c.ok(taps == 2 and await pg.evaluate("() => view === 'billing' && billTab === 'estimates'"), f'MENU 4: the open menu reaches Estimates in two taps ({taps})')

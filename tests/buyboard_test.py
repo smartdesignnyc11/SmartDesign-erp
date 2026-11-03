@@ -170,14 +170,19 @@ async def desktop(c, p):
         await pg.evaluate("() => { view = 'recv'; render(); }"); await pg.wait_for_timeout(200)
         c.ok(not await pg.evaluate("() => { const b = document.getElementById('projhdr'); return !!b && !b.hidden && !!b.offsetParent; }"), 'deliveries: no project strip (F20)')
         # ---- MENU
-        sub = await pg.evaluate("() => { view = 'proc'; render(); return [...document.querySelectorAll('#subnav [data-sub]')].map(b => b.innerText.replace(/\\s*\\d+$/, '').trim()); }")
-        c.ok(sub[:6] == ['Buy Board', 'Quotes', 'Orders', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Quotes, Orders, Deliveries, Vendors, Stock {sub}')
+        # the 11-03 menu (docs/mockups/job-structure, Main): Purchasing's pages are listed under it in the menu
+        sub = await pg.evaluate("() => { view = 'proc'; render(); return [...document.querySelectorAll('#nav-groups [data-mngr=\"buy\"] button')].map(b => b.innerText.replace(/\\s*\\d+$/, '').trim()); }")
+        c.ok(sub[:6] == ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Orders, Quotes, Deliveries, Vendors, Stock {sub}')
         # ---- ROLES
         await sign_in(pg, 'u_alan')
-        pm = await pg.evaluate("""() => { setCurrent('p121'); view = 'dash'; render();
-          const card = document.querySelector('#v-dash #bb-job'), rail = document.querySelector('#nav-groups button[data-grp="buy"] .n');
-          return { card: card && card.innerText.slice(0, 120), rows: card ? card.querySelectorAll('[data-bbjob], [data-bbjpo]').length : 0, rail: rail ? +rail.innerText : null, need: needs('buy') }; }""")
-        c.ok(pm['card'] and 'late' in pm['card'] and pm['rows'] > 0 and pm['rail'] == pm['need'], f'PM: Buying on This Job on the job page (late needs, open orders) and the Purchasing badge {pm}')
+        # the job's buying is its Materials tile and its Purchasing tab, the Buy Board filtered to the job (the job structure,
+        # Alan 11-03: Buying on This Job filled the Overview's first screen, round one's PM walk)
+        pm = await pg.evaluate("""() => { jpOpenJob('p121'); const t = document.querySelector('#jp-ov button.gl[data-tl="mat"] .gl-v'), rail = document.querySelector('#nav-groups button[data-grp="buy"] .n');
+          const late = PRED.lateMaterial.rows().filter(r => r.p && r.p.id === 'p121').length; jpGo('proc');
+          const rows = [...document.querySelectorAll('#v-proc [data-bbrow]')].length, other = [...document.querySelectorAll('#v-proc [data-bbrow]')].filter(e => /Lenox|Cranberry|Prospect/.test(e.innerText)).length;
+          return { tile: t && t.innerText, late, rows, other, bbProj, rail: rail ? +rail.innerText : null, need: needs('buy') }; }""")
+        c.ok(pm['tile'] == f"{pm['late']} late" and pm['late'] > 0 and pm['rows'] > 0 and not pm['other'] and pm['bbProj'] == 'p121' and pm['rail'] == pm['need'],
+             f'PM: the job\'s Materials tile counts its late needs, its Purchasing is the Buy Board on the job only, and the Purchasing badge {pm}')
         await sign_in(pg, 'u_owner'); await pg.evaluate("() => { view = 'proc'; render(); }"); await pg.wait_for_timeout(200)
         c.ok(await pg.evaluate("() => !!document.querySelector('#v-proc .bb')"), 'owner: opens the Buy Board')
         await sign_in(pg, 'u_angel')

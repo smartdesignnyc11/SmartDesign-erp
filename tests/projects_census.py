@@ -200,7 +200,7 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
     await reset_lists(pg)
     # each person has their own device: what the overview remembers (All projects or one job) starts as a new
     # device has it (app.js: a phone with nothing stored opens the overview on All projects)
-    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = !!(typeof mOn === 'function' && mOn()); } catch (e) {} }")
+    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = false;   /* retired 11-03: a job's Overview is that job (the job structure) */ } catch (e) {} }")
     await sign_in(pg, uid)
     await settle(pg, 250)
     meta = await pg.evaluate("""() => { window.__cecat = CENSUS.catalog();
@@ -223,6 +223,9 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
         how = await pg.evaluate("""() => {
           const vis = e => !!e && e.getClientRects().length > 0;
           const b = (innerWidth < 760 ? document.querySelector('#mtabs button[data-mv="ovjobs"], #tabbar button[data-v="ovjobs"]') : null)
+                 || (() => { const h = document.querySelector('#nav-groups [data-mnhead="jobs"]');   // the 11-03 menu: Projects, then All Projects
+                      if (h && h.getAttribute('aria-expanded') !== 'true') h.click();
+                      return document.querySelector('#nav-groups [data-mngr="jobs"] button[data-v="ovjobs"]'); })()
                  || [...document.querySelectorAll('#nav-groups button[data-grp="jobs"]')].find(vis);
           if (b) { const l = (b.innerText || '').replace(/\\s+/g, ' ').trim(); b.click(); return (b.closest('#mtabs, #tabbar') ? 'bar: ' : 'rail: ') + l; }
           view = ROLE_VIEWS[role()].includes('ovjobs') ? 'ovjobs' : 'port'; render(); return 'no button: set view'; }""")

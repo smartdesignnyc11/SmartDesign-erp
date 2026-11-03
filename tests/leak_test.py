@@ -42,12 +42,17 @@ PAGE_HELPERS = r"""
     if (!roots.length) roots.push(document.body);
     const CLICK = 'a,button,[role=button],[data-go],[onclick],.click,[data-open],[data-txn],[data-tx],[data-bill],[data-rtb],[data-act],[data-rem],[data-id]';
     const hits = [];
-    // visible words only: drop <select>/<option> lists (a category dropdown in a row is not a flag)
-    const words = (el) => { if (!el.querySelector('select,datalist')) return el.textContent || '';
-      const c = el.cloneNode(true); c.querySelectorAll('select,datalist,script,style').forEach(x => x.remove()); return c.textContent || ''; };
+    // What a person can see, only: an element that is drawn and not hidden, and its rendered text (innerText leaves
+    // out hidden parts; a display:none copy of a figure used to pass this scan), with a <select>'s options taken out (a
+    // category dropdown in a row is not a flag).
+    const vis = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    const words = (el) => { if (!vis(el)) return '';
+      let t = el.innerText || '';
+      el.querySelectorAll('select,datalist').forEach(x => { const o = x.innerText || ''; if (o) t = t.split(o).join(' '); });
+      return t; };
     roots.forEach(root => root.querySelectorAll('li,tr,.card,.note,.row,div,p,span,td').forEach(el => {
       const t0 = el.textContent || '';
-      if (t0.length > 900 || !needles.some(n => t0.includes(n))) return;
+      if (t0.length > 900 || !needles.some(n => t0.includes(n)) || !vis(el)) return;
       const t = words(el);
       if (!needles.some(n => t.includes(n))) return;
       let ok = !kw || kw.test(t), ctx = el;
@@ -65,13 +70,13 @@ PAGE_HELPERS = r"""
       if ((x.textContent || '').length > 1500) break;
       if (x.querySelector(CLICK) || x.matches(CLICK)) { box = x; break; }
     }
-    const cl = [...box.querySelectorAll(CLICK)];
+    const cl = [...box.querySelectorAll(CLICK)].filter(vis);
     if (el.matches(CLICK)) cl.push(el);
     if (box.closest(CLICK)) cl.push(box.closest(CLICK));
     if (box.matches && box.matches('tr') && (box.classList.contains('click') || box.onclick)) cl.push(box);
     return {
       hit: true, text: words(box).replace(/\s+/g, ' ').trim().slice(0, 220), link: cl.length > 0,
-      action: cl.some(c => ACT.test(c.textContent || '') || ACT.test(c.title || '')),
+      action: cl.some(c => ACT.test(c.innerText || '') || ACT.test(c.title || '')),
     };
   };
   // Ask: the same entry point the Ask box calls. Flatten the answer to text (bounded walk; DB objects are cyclic).
@@ -306,7 +311,9 @@ async def s2_done_not_billed(p, S):
         needles = await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002', 'Sand & stain', 'Electrical', '121 State'])", [1850, el_amt])
         kw = r'ready to bill|not (yet )?billed|unbilled|bill it|draft the|application'
         surf(S, await scan(pg, 'u_billing', 'billing', await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002','Sand & stain'])", [1850]), kw), 'Billing Queue: approved CO-2026-002 done and unbilled')
-        surf(S, await scan(pg, 'u_alan', 'dash', needles, kw, setup_js="() => setCurrent('p121')"), 'Job page (PM, 121 State)')
+        # on 121 State's own page its name is in the header and on every row, so the job's name is not a needle there
+        jneedles = [n for n in needles if n != '121 State']
+        surf(S, await scan(pg, 'u_alan', 'dash', jneedles, kw, setup_js="() => setCurrent('p121')"), 'Job page (PM, 121 State)')
         for q in ["what work is done but not billed on 121 State", "has CO-2026-002 been billed"]:
             ask_check(S, await ask(pg, q), q, await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002','Electrical','electrical'])", [1850, el_amt]),
                       r'not (yet )?billed|unbilled|ready|bill')
@@ -538,7 +545,7 @@ async def s6_slip(p, S):
         surf(S, await scan(pg, 'u_owner', 'home', tn, kw, act=r'assign|remind|chase|take'), 'Home (owner)')
         await as_user(pg, 'u_alan', 'tkall')
         for lab in ['Overdue', 'Everyone']:
-            await pg.evaluate("l => { const b = [...document.querySelectorAll('section.view.on button')].find(x => x.textContent.trim().replace(/\\d+$/, '') === l); b && b.click(); }", lab)
+            await pg.evaluate("l => { const b = [...document.querySelectorAll('section.view.on button')].find(x => x.getClientRects().length && x.innerText.trim().replace(/\\d+$/, '') === l); b && b.click(); }", lab)
             await pg.wait_for_timeout(120)
         tk = await pg.evaluate("n => __lkScan(n, null)", tn)
         S.fact(f"Tasks › Overdue › Everyone (PM) lists it: {tk.get('hit')} {tk.get('text', '')[:100]}")
@@ -573,7 +580,7 @@ async def s6_slip(p, S):
         surf(S, await scan(pg, 'u_sarah', 'home', ['Revised kitchen drawings', 'revised drawings'], r'due|fri|9/4|sep 4|today|tomorrow|promise', act=r'done|draft|send|open|remind|snooze|start'),
              'Home (designer Sarah Davis): the meeting task, due Friday')
         await as_user(pg, 'u_sarah', 'tkall')
-        await pg.evaluate("() => { const b = [...document.querySelectorAll('section.view.on button')].find(x => /^Next 7 Days/.test(x.textContent.trim())); b && b.click(); }")
+        await pg.evaluate("() => { const b = [...document.querySelectorAll('section.view.on button')].find(x => x.getClientRects().length && /^Next 7 Days/.test(x.innerText.trim())); b && b.click(); }")
         await pg.wait_for_timeout(120)
         tk = await pg.evaluate("n => __lkScan(n, null)", ['Revised kitchen drawings', 'revised drawings'])
         S.fact(f"Tasks › Next 7 Days (Sarah Davis) lists it: {tk.get('hit')} {tk.get('text', '')[:80]}")
