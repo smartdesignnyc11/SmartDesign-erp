@@ -433,12 +433,29 @@ async def run(c, p, phone):
       prim: [...b.querySelectorAll('.btn.primary')].filter(e => e.getClientRects().length).map(e => e.innerText.trim()),
       contract: [...b.querySelectorAll('#jb-contract [data-label]')].map(e => e.dataset.label), docs: [...b.querySelectorAll('#jb-docs [data-jbdoc]')].map(e => e.dataset.date),
       chips: [...b.querySelectorAll('[data-jbchip]')].map(e => e.innerText.trim()) }; }""")
-    c.ok(bl and bl['contract'] == ['Original contract', 'Approved changes', 'Revised contract', 'Billed to date', 'Paid, in the bank', 'Retainage held', 'Left to bill'], f'{dev} BILLING: The Contract lines {bl and bl["contract"]}')
+    c.ok(bl and bl['contract'] == ['Original contract', 'Approved changes', 'Revised contract', 'Billed to date', 'Paid, in the bank', 'Recorded, not yet in the bank', 'Retainage held', 'Left to bill'], f'{dev} BILLING: The Contract lines {bl and bl["contract"]}')
     c.ok(bl and bl['chips'] == ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'], f'{dev} BILLING: the documents chips {bl and bl["chips"]}')
     c.ok(bl and bl['docs'] == sorted(bl['docs'], reverse=True), f'{dev} BILLING: documents newest first')
     c.ok(bl and len(bl['prim']) == 1 and bl['prim'][0].startswith('Draft the Application'), f'{dev} BILLING: one blue safe next step ({bl and bl["prim"]})')
     money = (await js(pg, "const J = jobFin(S); const g = k => { const e = document.querySelector('#jb-contract [data-label=\"' + k + '\"]'); return e ? e.dataset.amt : null; }; return { base: J.base, co: J.coAmt, rev: J.contract, billed: J.billed, paid: J.collected, ret: J.retHeld, s: [g('Original contract'), g('Approved changes'), g('Revised contract'), g('Billed to date'), g('Paid, in the bank'), g('Retainage held')].map(Number) };")) or {'s': 0}
     c.ok(money.get('s') == [money.get('base'), money.get('co'), money.get('rev'), money.get('billed'), money.get('paid'), money.get('ret')], f'{dev} BILLING: The Contract reads jobFin\'s figures (bank-backed collected) {money}')
+    # TIE: in the bank + recorded, not yet in the bank = every payment recorded on the job's invoices; the recorded line
+    # is the invoices' own "recorded, not yet in the bank" (invoiceUnbanked, the pill Billing and the client page show).
+    # The Riveras (45 Cranberry) paid $21,350 the bank has not shown yet: the page says so, beside $0 in the bank.
+    for nm in ('121 State', '45 Cranberry'):
+        t3 = (await js(pg, """const p = DB.projects.find(x => (x.name || '').includes(arg) || ((x.project || {}).name || '').includes(arg)); if (!p) return null;
+          setCurrent(p.id); mnLastGrp = 'jobs'; view = 'jbill'; render(); await sleep(150); const J = jobFin(S), c = DB.clients.find(x => x.id === S.clientId);
+          const g = k => { const e = document.querySelector('#jb-contract [data-label="' + k + '"]'); return e && e.getClientRects().length ? { amt: +e.dataset.amt, txt: e.innerText.replace(/\\s+/g, ' ') } : null; };
+          const invs = c.invoices.filter(i => !['void', 'draft'].includes(i.status) && (i.projectId === S.id || (!i.projectId && DB.projects.filter(x => x.clientId === c.id).length === 1)));
+          const rec = Math.round(c.payments.filter(py => !py.unapplied && invs.some(i => i.id === py.invoiceId)).reduce((a, py) => a + (+py.amount || 0), 0) * 100) / 100;
+          const pill = Math.round(invs.reduce((a, i) => a + (typeof invoiceUnbanked === 'function' ? invoiceUnbanked(c, i) : 0), 0) * 100) / 100;
+          return { job: S.id, bank: g('Paid, in the bank'), not: g('Recorded, not yet in the bank'), rec, pill, J: [J.collected, J.unbanked] };""", nm)) or {}
+        bk, nt = (t3.get('bank') or {}).get('amt'), (t3.get('not') or {}).get('amt')
+        c.ok(bk is not None and nt is not None and abs(bk + nt - t3.get('rec', -1)) < 0.01, f'{dev} TIES: {nm}: in the bank + recorded, not yet in the bank = the payments recorded on the job ({t3})')
+        c.ok(nt is not None and abs(nt - t3.get('pill', -1)) < 0.01, f'{dev} TIES: {nm}: the recorded, not yet in the bank line is the invoices\' own figure ({nt} vs {t3.get("pill")})')
+        if nm == '45 Cranberry':
+            c.ok(nt == 21350 and '$21,350' in (t3.get('not') or {}).get('txt', ''), f'{dev} TIES: the Riveras\' $21,350 recorded, not yet in the bank is said ({t3.get("not")}, in the bank {t3.get("bank")})')
+    await js(pg, "setCurrent('p121'); view = 'jbill'; render(); await sleep(100);")
 
     # ---- PHONE: tap targets on the job's own controls
     if phone:

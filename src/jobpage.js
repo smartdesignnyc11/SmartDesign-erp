@@ -691,6 +691,8 @@ function jpBill() {
       ["Revised contract", J.contract, 700],
       ["Billed to date", J.billed, 400],
       ["Paid, in the bank", J.collected, 400],
+      // recorded as paid with no bank line yet (jobFin's unbanked: the same reading Billing and the client page use)
+      ["Recorded, not yet in the bank", J.unbanked || 0, 400],
       ["Retainage held", J.retHeld, 400],
       ["Left to bill", r2(J.contract - J.billed), 700],
     ],
