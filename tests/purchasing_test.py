@@ -677,8 +677,214 @@ async def s_selftest(p, c):
         finally:
             await b.close()
 
+# ---------------------------------------------------------------- the 11-03 Purchasing pages (docs/mockups/purchasing/SPEC.md)
+# Six pages, no tab rows; each opens on Needs You (the rows whose next tap is yours, its count equal to its rows), then
+# Waiting on Someone Else (each row names who, no number). The figures are the demo company's on 9/3, as the spec read them.
+from pd_pages import page as pd_page, kids as pd_kids, open_entry as pd_open, groups as pd_groups
+PU_FIVE = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors']
+# what waits on Chen on 9/3 (spec section 2): Buy Board 8, Orders 8, Quotes 0, Deliveries 3, Vendors 4, Stock 1
+PU_CHEN = {'Buy Board': 8, 'Orders': 8, 'Quotes': 0, 'Deliveries': 3, 'Vendors': 4, 'Stock': 1}
+
+async def s_pages(p, c):
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await fresh(p, phone)
+        try:
+            await sign_in(pg, 'u_chen')
+            K = await pd_kids(pg, phone, 'buy')
+            c.ok([k[0] for k in K] == PU_FIVE + ['Stock'], f'pages {dev}: the coordinator\'s Purchasing lists Buy Board, Orders, Quotes, Deliveries, Vendors, Stock {[k[0] for k in K]}')
+            G = await pd_groups(pg, phone)
+            c.ok('Design' not in G, f'pages {dev}: no Design menu for the coordinator {G}')
+            for label, want in PU_CHEN.items():
+                if not await pd_open(pg, phone, 'buy', label):
+                    c.ok(False, f'pages {dev}: {label} cannot be opened from the menu'); continue
+                P = await pd_page(pg)
+                c.ok(P and P['h2'] == label and P['page'], f'pages {dev}: {label} opens its page under its own heading ({P and P["h2"]}, {P and P["page"]})')
+                if not P or not P['page']: continue
+                c.ok(P['tabs'] == 0, f'pages {dev}: {label} has no tab row ({P["tabs"]})')
+                c.ok(P['secs'][:1] == ['mine'], f'pages {dev}: {label} opens on Needs You {P["secs"]}')
+                mine = P['mine'] or []
+                c.ok(P['mineN'] == len(mine) == want, f'pages {dev}: {label} Needs You {P["mineN"]} equals its {len(mine)} rows, {want} on 9/3')
+                n = next((k[2] for k in await pd_kids(pg, phone, 'buy') if k[0] == label), None)
+                c.ok((n or 0) == want, f'pages {dev}: the menu\'s {label} reads {n}, the page\'s Needs You {want}')
+                oth = P['others'] or []
+                c.ok(all(r['who'].startswith('Waiting on ') and r['nums'] == 0 for r in oth), f'pages {dev}: {label} rows waiting on others name who, with no number {[(r["t"][:40], r["who"]) for r in oth if not r["who"].startswith("Waiting on ")][:3]}')
+                c.ok(P['othersN'] is None, f'pages {dev}: {label} Waiting on Someone Else carries no count ({P["othersN"]})')
+                c.ok(len(P['blues']) <= 1, f'pages {dev}: {label} has one blue at most {P["blues"]}')
+                c.ok(P['sw'] <= P['w'], f'pages {dev}: {label} never scrolls sideways ({P["sw"]} > {P["w"]})')
+                if label == 'Buy Board':
+                    t = ' '.join(r['t'] for r in mine)
+                    c.ok(all(x in t for x in ('studs', 'Demolition', 'Exterior', 'Appliances', 'Insulation', 'Paint', 'countertop slab', 'Bath faucet')), f'pages {dev}: Buy Board Needs You holds the eight of the spec ({[r["t"][:30] for r in mine]})')
+                    c.ok(not any('PO-2026-047' in r['t'] or 'PO-2026-048' in r['t'] or 'White oak' in r['t'] for r in mine + oth), f'pages {dev}: an ordered need with a late promise left the Buy Board for Deliveries')
+                    c.ok(bool(P['route']) and any('Blue tape' in r['t'] for r in P['route']) and P['routeN'] is None, f'pages {dev}: the blue tape sits under On Today\'s Route with no count ({P["route"]}, {P["routeN"]})')
+                    # every need names its estimate or change-order line, or says it has none
+                    nol = [r['t'][:40] for r in mine + oth if not re.search(r'EST-\d|CO-\d|No estimate line|FF&E|[Rr]equest from', r['t'])]
+                    c.ok(not nol, f'pages {dev}: every need names its line, or says it has none {nol}')
+                    whos = {r['who'] for r in oth}
+                    c.ok({'Waiting on Alberto M Plumbing', 'Waiting on the PM'} <= whos, f'pages {dev}: the submittal waits on Alberto, the material split on the PM {whos}')
+                if label == 'Orders':
+                    t = P['text']
+                    c.ok('Owed Back' in t and '$2,419' in t and 'Over the Order' in t and '$3,800' in t, f'pages {dev}: Orders shows Owed Back $2,419 and Over the Order $3,800')
+                if label == 'Deliveries':
+                    t = ' '.join(r['t'] for r in mine)
+                    c.ok('PO-2026-048' in t and 'PO-2026-047' in t and 'oute' in t, f'pages {dev}: Deliveries Needs You holds the two late promises and the route ({[r["t"][:40] for r in mine]})')
+                    c.ok('Radiator valves' not in P['text'] and 'Appliances \u2013 parlor' not in P['text'], f'pages {dev}: needs marked ordered with no order are never arriving')
+                if label == 'Vendors':
+                    t = ' '.join(r['t'] for r in mine)
+                    c.ok(all(x in t for x in ('Window Works', 'Alberto M Plumbing', 'Tino', 'Diamond')), f'pages {dev}: Vendors Needs You: Window Works, Alberto, Tino, Diamond ({[r["t"][:40] for r in mine]})')
+                if label == 'Stock':
+                    c.ok(any('PEX fittings' in r['t'] for r in mine), f'pages {dev}: Stock Needs You is PEX fittings at their reorder point')
+                    c.ok('Blue tape' in P['text'] and 'Wanted by a Need' in P['text'], f'pages {dev}: Stock shows what a need could use, with no count')
+            # the owner and the PM see Alan's five; the PM's Buy Board counts his material splits
+            for uid, want_buy in (('u_owner', 0), ('u_alan', 4)):
+                await sign_in(pg, uid)
+                K = await pd_kids(pg, phone, 'buy')
+                c.ok([k[0] for k in K] == PU_FIVE, f'pages {dev}: {uid} sees Alan\'s five in his order {[k[0] for k in K]}')
+                await pd_open(pg, phone, 'buy', 'Buy Board')
+                P = await pd_page(pg)
+                c.ok(P and (P['mineN'] or 0) == len(P['mine'] or []) == want_buy, f'pages {dev}: {uid}\'s Buy Board Needs You is {want_buy} ({P and P["mineN"]}, {P and len(P["mine"] or [])})')
+                G = await pd_groups(pg, phone)
+                if uid == 'u_owner':
+                    c.ok(not any(k[2] for k in K), f'pages {dev}: the owner\'s Purchasing carries no numbers {K}')
+                    c.ok('Design' in G, f'pages {dev}: the owner keeps the Design menu {G}')
+                else:
+                    c.ok('Design' not in G, f'pages {dev}: no Design menu for the PM {G}')
+            # an old page forwards to its new home
+            await sign_in(pg, 'u_controller')
+            await go(pg, 'ovbuy'); v = await pg.evaluate('view')
+            c.ok(v == 'po', f'pages {dev}: the controller\'s Purchasing opens on Orders ({v})')
+            c.ok(not errs, f'pages {dev}: page errors {errs[:2]}')
+        finally:
+            await b.close()
+
+async def s_picks(p, c):
+    """The Buy Board's picks: working check boxes, a bar with the count and the total, one blue by the Standard's rule."""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await fresh(p, phone)
+        try:
+            await sign_in(pg, 'u_chen')
+            await pd_open(pg, phone, 'buy', 'Buy Board')
+            n = await pg.locator('.view.on [data-pusec="mine"] [data-bbpick]').count()
+            c.ok(n >= 8, f'picks {dev}: every Needs You row has a check box ({n})')
+            if n < 2: continue
+            # Paint has no price: a line with no price makes Ask for Quotes the blue
+            for nm in ('Paint', 'Bath faucet'):
+                await pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text=nm).first.locator('[data-bbpick]').click(); await pg.wait_for_timeout(250)
+            BAR = "() => { const b = [...document.querySelectorAll('.view.on .bb-bar')].find(x => x.getClientRects().length); if (!b) return null; return { t: b.innerText.replace(/\\s+/g, ' '), blue: [...b.querySelectorAll('.btn.primary')].map(x => x.innerText.trim()), other: [...b.querySelectorAll('.btn:not(.primary)')].map(x => x.innerText.trim()) }; }"
+            bar = await pg.evaluate(BAR)
+            c.ok(bar and '2 lines picked' in bar['t'] and 'no price' in bar['t'], f'picks {dev}: the bar says 2 lines picked and the lines with no price ({bar})')
+            c.ok(bar and bar['blue'] == ['Ask for Quotes'] and 'Order, With a Reason' in bar['other'], f'picks {dev}: a line with no price: Ask for Quotes is the blue, Order, With a Reason the other ({bar})')
+            blues = await pg.evaluate("() => [...document.querySelectorAll('.btn.primary')].filter(x => x.getClientRects().length).length")
+            c.ok(blues == 1, f'picks {dev}: one blue on the screen while the bar shows ({blues})')
+            await pg.locator('.view.on .bb-bar button').filter(has_text='Clear').first.click(); await pg.wait_for_timeout(250)
+            c.ok(not await pg.evaluate(BAR), f'picks {dev}: Clear empties the picks')
+            # a priced line under $2,500 makes Order the blue: price the slab need, then pick it alone
+            await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); const m = p.materials.find(x => /countertop slab/i.test(x.name) && /parlor/i.test(x.name)); m.cost = 1200; save(); render(); }")
+            await pg.wait_for_timeout(300)
+            await pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text='countertop slab').first.locator('[data-bbpick]').click(); await pg.wait_for_timeout(250)
+            bar = await pg.evaluate(BAR)
+            c.ok(bar and '1 line picked' in bar['t'] and '$1,200' in bar['t'] and bar['blue'][:1] and bar['blue'][0].startswith('Order'), f'picks {dev}: one priced line under $2,500: the total, and Order is the blue ({bar})')
+            c.ok(not errs, f'picks {dev}: page errors {errs[:2]}')
+        finally:
+            await b.close()
+
+async def s_receive(p, c):
+    """Deliveries on the phone: the Receive sheet starts empty; Short or Damaged opens a claim on the order; a photo of the slip."""
+    b, pg, errs = await fresh(p, True)
+    try:
+        await sign_in(pg, 'u_chen')
+        await pd_open(pg, True, 'buy', 'Deliveries')
+        btn = pg.locator('.view.on [data-purecv]').first
+        c.ok(await btn.count() > 0, 'receive: Deliveries has Receive on an order on its way')
+        if await btn.count():
+            po = await btn.get_attribute('data-purecv')
+            await btn.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Receive' in m['title'], f'receive: Receive opens a sheet ({m and m["title"]})')
+            qs = await pg.evaluate("() => [...document.querySelectorAll('#mbm input[data-purq]')].map(i => i.value)")
+            c.ok(qs and all(q == '' for q in qs), f'receive: the count starts empty ({qs})')
+            c.ok(await pg.locator('#mbm input[type=file][data-puslip]').count() == 1, 'receive: the sheet asks for a photo of the slip')
+            conds = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-pucond]')].map(b => b.innerText.trim())")
+            c.ok({'Good', 'Short', 'Damaged', 'Wrong'} <= set(conds), f'receive: Good, Short, Damaged, Wrong ({conds})')
+            await pg.locator('#mbm input[data-purq]').first.fill('1')
+            await pg.locator('#mbm [data-pucond="short"]').first.click(); await pg.wait_for_timeout(200)
+            await modal_ok(pg, 900)
+            r = await pg.evaluate("po => { const o = DB.pos.find(x => x.id === po); return { claims: (o.issues || []).filter(i => i.claim).length, rec: (o.lines || []).map(l => +l.received || 0) }; }", po)
+            t = await toast(pg)
+            c.ok(r['claims'] >= 1, f'receive: Short opens a claim on the order ({r})')
+            c.ok(t['open'] and 'claim' in t['text'].lower(), f'receive: the toast says the claim opened, with Open ({t})')
+        c.ok(not errs, f'receive: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_leaks(p, c):
+    """The money leaks the review found (BACKLOG section 9, items 4, 5 and 7), each caught where the person works."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        # 4. stock before buying: the route buys blue tape with 18 rolls at the warehouse; the GWB need has 12 sheets there
+        await pd_open(pg, False, 'buy', 'Deliveries')
+        P = await pd_page(pg)
+        rt = next((r for r in (P['mine'] or []) if 'oute' in r['t']), None)
+        c.ok(rt and '18' in rt['t'] and 'tape' in rt['t'].lower() and 'warehouse' in rt['t'].lower(), f'leaks: the route approval proposes the 18 rolls of tape at the warehouse ({rt and rt["t"][:160]})')
+        await pd_open(pg, False, 'buy', 'Buy Board')
+        await pg.evaluate("() => { const b = document.querySelector('.view.on [data-pulater]'); b && b.click(); }"); await pg.wait_for_timeout(300)
+        P = await pd_page(pg)
+        gwb = next((r for r in (P['later'] or []) if 'GWB' in r['t']), None)
+        c.ok(gwb and '12' in gwb['t'] and 'warehouse' in gwb['t'].lower(), f'leaks: the GWB need says 12 sheets sit at the warehouse ({gwb and gwb["t"][:160]})')
+        # 5. marked ordered with no order behind it: never counted as arriving; the need stays as Find the Order
+        inv = await pg.evaluate("() => buyList('').filter(r => r.ordered && !r.po && !r.received).map(r => [r.name, r.tab])")
+        c.ok(inv and all(t == 'buy' for _, t in inv), f'leaks: every need marked ordered with no order stays on the Buy Board ({inv})')
+        t = ' '.join(r['t'] for r in (P['mine'] or []) + (P['later'] or []))
+        c.ok(t.count('Find the Order') >= 3, f'leaks: Appliances, Insulation and Radiator valves read Find the Order ({t.count("Find the Order")})')
+        # 7. paid with no W-9: the controller's Vendors
+        await sign_in(pg, 'u_controller')
+        await pd_open(pg, False, 'buy', 'Vendors')
+        P = await pd_page(pg)
+        w9 = next((r for r in (P['mine'] or []) if 'W-9' in r['t']), None)
+        # the mock read $53,150 (Window Works, Tino, Nemo Tile, Satish); the bank also shows AMP-311's $9,800 left by
+        # check 2205, so the figure is what the bank says left for every vendor with no W-9 (spec must-fix 4: re-read)
+        paid = await pg.evaluate("() => Math.round(DB.vendors.filter(v => !v.w9).reduce((a, v) => a + vendorSpend(v), 0))")
+        c.ok(paid >= 53150 and w9 and ('$' + format(paid, ',')) in w9['t'], f'leaks: the controller\'s Vendors holds the ${paid:,} the bank paid to vendors with no W-9 ({w9 and w9["t"][:200]})')
+        c.ok(w9 and re.search(r'raises|bonuses|charity', w9['t']), f'leaks: the flag says why the money matters, in plain words ({w9 and w9["t"][:200]})')
+        ww = await pg.evaluate("""() => { const v = document.querySelector('.view.on'); const m = v.innerText.match(/(\\d+) of (\\d+) have no W-9/);
+          const cells = [...v.querySelectorAll('[data-puw9]')].filter(e => e.getClientRects().length).map(e => e.dataset.puw9);
+          return { m: m ? [+m[1], +m[2]] : null, none: cells.filter(x => x === 'none').length, all: cells.length }; }""")
+        c.ok(ww['m'] and ww['m'][0] == ww['none'] and ww['m'][1] == ww['all'], f'leaks: "N of M have no W-9" equals the W-9 column ({ww})')
+        # 5b. Committed, Not Yet Billed is computed from bills, not payments
+        await pd_open(pg, False, 'buy', 'Orders')
+        cnb = await pg.evaluate("() => { const t = document.querySelector('.view.on [data-putile=\"cnb\"]'); return t ? t.innerText.replace(/\\s+/g, ' ') : ''; }")
+        want = await pg.evaluate("""() => { const amt = b => (b.lines || []).reduce((s, l) => s + (+l.amount || 0), 0) || +b.amount || 0;
+          const billed = po => (DB.bills || []).filter(b => b.poId === po.id && b.status !== 'void').reduce((a, b) => a + amt(b), 0);
+          return Math.round(DB.pos.filter(p => ['issued', 'partial', 'pending'].includes(p.status)).reduce((a, p) => a + Math.max(0, poTotal(p).total - billed(p)), 0)); }""")
+        c.ok(cnb and ('$' + format(want, ',')) in cnb, f'leaks: Committed, Not Yet Billed reads ${want:,} from the bills ({cnb})')
+        c.ok(not errs, f'leaks: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_clock(p, c):
+    """One clock: nothing is stamped later than the app's day (BACKLOG section 9 item 1)."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        late = await pg.evaluate("""() => { const td = today(), out = [], seen = new Set();
+          const KEY = /^(at|ts|raisedAt|createdAt|created|updatedAt|ackAt|sentAt|stampedAt|checkedAt|receivedAt|loggedAt|doneAt|approvedAt|resolvedAt)$/;
+          const walk = (o, path, d) => { if (!o || typeof o !== 'object' || d > 7 || seen.has(o)) return; seen.add(o);
+            for (const k of Object.keys(o)) { const v = o[k];
+              if (typeof v === 'string' && KEY.test(k) && /^\\d{4}-\\d{2}-\\d{2}/.test(v) && v.slice(0, 10) > td) out.push(path + '.' + k + '=' + v.slice(0, 10));
+              else if (v && typeof v === 'object') walk(v, path + '.' + k, d + 1); } };
+          ['sel', 'pos', 'projects', 'claims', 'field', 'bills'].forEach(k => walk(DB[k], k, 0)); return out.slice(0, 12); }""")
+        c.ok(not late, f'clock: no stamp on any record is later than today() ({late})')
+        same = await pg.evaluate("() => DB.sel.items.filter(i => /lavatory faucet, cross|shower set/i.test(i.name) && i.projectId === 'p121').map(i => selLate(i))")
+        c.ok(len(same) == 2 and same[0] == same[1], f'clock: two items with the same order-by are equally late ({same})')
+        c.ok(not errs, f'clock: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
-            ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest)]
+            ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
