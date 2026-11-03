@@ -101,6 +101,14 @@
       const b = barBtn(e.v);
       if (b) { taps.push("bar: " + label(b)); b.click(); return { taps: taps, how: "bar" }; }
     }
+    // the 11-03 menu: a group opens on its name and lists its pages; the page is tapped there
+    const head = document.querySelector('#nav-groups [data-mnhead="' + e.grp + '"]');
+    if (head) {
+      if (phone() && !document.querySelector(".rail.open") && openMenu()) taps.push("menu");
+      if (head.getAttribute("aria-expanded") !== "true") { taps.push(label(head)); head.click(); }
+      const k = [...document.querySelectorAll('#nav-groups [data-mngr="' + e.grp + '"] button')].find((b) => b.dataset.v === e.v && (b.dataset.tab || "") === (e.tab || "") && !b.dataset.pid);
+      if (k) { taps.push(label(k)); k.click(); return { taps: taps, how: phone() && taps[0] === "menu" ? "menu" : "rail" }; }
+    }
     let rb = railBtn(e.grp);
     if (!rb && phone()) { if (openMenu()) { taps.push("menu"); rb = railBtn(e.grp); } }
     if (!rb) {

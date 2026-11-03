@@ -170,8 +170,9 @@ async def desktop(c, p):
         await pg.evaluate("() => { view = 'recv'; render(); }"); await pg.wait_for_timeout(200)
         c.ok(not await pg.evaluate("() => { const b = document.getElementById('projhdr'); return !!b && !b.hidden && !!b.offsetParent; }"), 'deliveries: no project strip (F20)')
         # ---- MENU
-        sub = await pg.evaluate("() => { view = 'proc'; render(); return [...document.querySelectorAll('#subnav [data-sub]')].map(b => b.innerText.replace(/\\s*\\d+$/, '').trim()); }")
-        c.ok(sub[:6] == ['Buy Board', 'Quotes', 'Orders', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Quotes, Orders, Deliveries, Vendors, Stock {sub}')
+        # the 11-03 menu (docs/mockups/job-structure, Main): Purchasing's pages are listed under it in the menu
+        sub = await pg.evaluate("() => { view = 'proc'; render(); return [...document.querySelectorAll('#nav-groups [data-mngr=\"buy\"] button')].map(b => b.innerText.replace(/\\s*\\d+$/, '').trim()); }")
+        c.ok(sub[:6] == ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Orders, Quotes, Deliveries, Vendors, Stock {sub}')
         # ---- ROLES
         await sign_in(pg, 'u_alan')
         pm = await pg.evaluate("""() => { setCurrent('p121'); view = 'dash'; render();

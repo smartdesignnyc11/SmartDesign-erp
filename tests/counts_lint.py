@@ -6,7 +6,8 @@ plus foreman and client on phone 390x844, it walks every view the role may open 
       (rail badge, sub-tab badge, tile, card header "N · ...", "All N" button, chip, header line);
   (b) a tile, chip, tab badge or "All N" button differs from the rows its target shows
       (it is clicked for real, then the list's "N of M" or its rows are counted);
-  (c) a rail badge differs from its overview's count, or from needs(gid);
+  (c) a menu entry for a group's overview shows a number other than that overview's count or needs(gid) (the 11-03
+      menu: a group's name and its overview carry no number, so any number there is flagged); a phone tab likewise;
   (d) Ask's headline count (paAsk(q).headline) differs from the screen that lists the same things.
 
 Each flag prints as `RULE | role | label | numbers seen with where`. The last line is `N flags`; exit 1 if N > 0.
@@ -260,13 +261,16 @@ async def run_role(pg, lint, tag, uid, phone):
       document.querySelectorAll('#nav-groups button[data-grp]').forEach(b => {
         const g = b.dataset.grp; let n = null; try { n = (typeof OV_BUILD !== 'undefined' && OV_BUILD[g]) ? needs(g) : null; } catch (e) {}
         const grp = NAV_GROUPS.find(x => x.id === g);
-        m[g] = { own: !!grp && b.textContent.trim().startsWith(grp.n), needs: n, ov: (typeof OV_VIEW !== 'undefined' && OV_VIEW[g] && (ROLE_VIEWS[role()] || []).includes(OV_VIEW[g])) ? OV_VIEW[g] : null }; });
+        m[g] = { own: !!grp && b.dataset.v === (typeof OV_VIEW !== 'undefined' ? OV_VIEW[g] : ''), needs: n, ov: (typeof OV_VIEW !== 'undefined' && OV_VIEW[g] && (ROLE_VIEWS[role()] || []).includes(OV_VIEW[g])) ? OV_VIEW[g] : null }; });
       document.querySelectorAll('#mtabs button[data-mv]').forEach(b => { const g = (typeof OV_GROUP !== 'undefined' && OV_GROUP[b.dataset.mv]) || null;
         if (g) { let n = null; try { n = needs(g); } catch (e) {} m['mv:' + b.dataset.mv] = { needs: n, ov: b.dataset.mv }; } });
       return m; }""")
     for o in rails:
         g = gids.get(o.get('grp')) or gids.get('mv:' + o.get('target', ''))
         if not g: continue
+        # the 11-03 menu: a group's pages carry their own pages' numbers (rule a and b read them); only an entry that
+        # opens the group's overview answers needs(gid), and it carries none
+        if not o.get('phone') and (o.get('target') != g.get('ov') or o.get('implicit')): continue
         seen = [f"{o['n']} on the {'phone tab' if o.get('phone') else 'rail'}"]
         nums = {o['n']}
         # needs(gid) is the overview's number. When the role cannot open that overview, the rail shows the one

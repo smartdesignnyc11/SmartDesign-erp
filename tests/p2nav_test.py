@@ -215,8 +215,9 @@ async def directory_checks(c, pg, uid, tag, phone):
         c.ok(t == want, f'{tag}: Clients has the tabs {want} ({t})')
         await pg.evaluate("() => document.querySelector('.view.on .p2n-dtabs [data-p2ndir=\"hbcontacts\"]').click()"); await pg.wait_for_timeout(300)
         st = await pg.evaluate("() => ({ view, tabs: [...document.querySelectorAll('.view.on .p2n-dtabs [data-p2ndir]')].length, lit: (document.querySelector('#nav-groups button.on') || {}).dataset ? document.querySelector('#nav-groups button.on').dataset.grp : '' })")
-        home = await pg.evaluate("() => mnMap().groups.some(g => g.items.some(i => i.startsWith('clients=')))")
-        c.ok(st['view'] == 'hbcontacts' and st['tabs'] == len(want) and (phone or st['lit'] == ('clients' if home else 'more')), f'{tag}: People opens as a tab of Clients and lights where Clients sits ({st})')
+        # the 11-03 menu: Clients is a page of Sales and Clients
+        home = await pg.evaluate("() => (mnMap().groups.find(g => g.items.some(i => i.startsWith('clients='))) || {}).id || ''")
+        c.ok(st['view'] == 'hbcontacts' and st['tabs'] == len(want) and (phone or (home and st['lit'] == home)), f'{tag}: People opens as a tab of Clients and lights where Clients sits ({st}, {home})')
         if uid == 'u_owner': await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_clients_people')
         if phone:
             sw = await pg.evaluate(SW)
@@ -226,7 +227,7 @@ async def team_checks(c, pg, uid, tag, phone):
     may = await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('team')")
     c.ok(may, f'{tag}: every staff role may open Team')
     if not may: return
-    reach = await pg.evaluate("() => { const m = mnMap(); const L = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more).map(s => s.split('=')[0]); return L.includes('team'); }")
+    reach = await pg.evaluate("() => { const m = mnMap(); const L = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more, m.foot || []).map(s => s.split('=')[0]); return L.includes('team'); }")
     c.ok(reach, f'{tag}: Team is reachable from the menu')
     await go(pg, 'team')
     r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#v-team .p2n-person')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"

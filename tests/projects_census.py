@@ -223,6 +223,9 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
         how = await pg.evaluate("""() => {
           const vis = e => !!e && e.getClientRects().length > 0;
           const b = (innerWidth < 760 ? document.querySelector('#mtabs button[data-mv="ovjobs"], #tabbar button[data-v="ovjobs"]') : null)
+                 || (() => { const h = document.querySelector('#nav-groups [data-mnhead="jobs"]');   // the 11-03 menu: Projects, then All Projects
+                      if (h && h.getAttribute('aria-expanded') !== 'true') h.click();
+                      return document.querySelector('#nav-groups [data-mngr="jobs"] button[data-v="ovjobs"]'); })()
                  || [...document.querySelectorAll('#nav-groups button[data-grp="jobs"]')].find(vis);
           if (b) { const l = (b.innerText || '').replace(/\\s+/g, ' ').trim(); b.click(); return (b.closest('#mtabs, #tabbar') ? 'bar: ' : 'rail: ') + l; }
           view = ROLE_VIEWS[role()].includes('ovjobs') ? 'ovjobs' : 'port'; render(); return 'no button: set view'; }""")

@@ -221,7 +221,7 @@ async def tap(pg, loc, phone):
         if phone: await loc.tap(timeout=4000)
         else: await loc.click(timeout=4000)
     except Exception as x:
-        print('  (tap fell back to a DOM click:', str(x).splitlines()[0][:90] + ')')
+        print('  (tap fell back to a DOM click:', getattr(loc, '_selector', '')[:120], str(x).splitlines()[0][:60] + ')')
         await loc.evaluate('e => e.click()')
     await pg.wait_for_timeout(220)
 

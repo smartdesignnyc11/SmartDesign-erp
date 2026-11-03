@@ -61,9 +61,15 @@ async def nav_to(pg, grp, phone):
         # the menu button: the header's, or the Tasks page's own header on the phone
         await tap(pg, '#menu-btn:visible, .tv-phmenu:visible', phone)
         await wait(pg, 300)
-    await tap(pg, f'#nav-groups button[data-grp="{grp}"]', phone)
+    # the 11-03 menu: a group opens on its name, then its first page is tapped; Today, Tasks and Messages are entries
+    head = pg.locator(f'#nav-groups [data-mnhead="{grp}"]')
+    if await head.count():
+        if await head.first.get_attribute('aria-expanded') != 'true': await tap(pg, f'#nav-groups [data-mnhead="{grp}"]', phone)
+        await wait(pg, 300)
+        await tap(pg, f'#nav-groups [data-mngr="{grp}"] button', phone)
+    else:
+        await tap(pg, f'#nav-groups button[data-grp="{grp}"]', phone)
     await wait(pg, 1400)
-    # a group that opens to its pages on the phone: its first page
     if phone and await pg.evaluate("() => document.querySelector('.rail.open, .rail.on') !== null"):
         await pg.evaluate("() => { document.querySelector('.rail')?.classList.remove('open'); document.getElementById('railscrim')?.classList.remove('on'); }")
         await wait(pg, 200)

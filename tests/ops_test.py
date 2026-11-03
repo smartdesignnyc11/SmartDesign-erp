@@ -99,7 +99,9 @@ async def sec_sched(p, c):
     c.ok(st['open'] is False and st['end'] == '2026-09-10', f'after Pull In the give-back is closed and Framing ends 9/10: {st}')
     # leaving the approved, read-only record by the rail asks nothing and changes nothing (it used to prompt
     # "Save changes?" and, through the modal's first answer, revert the record to its snapshot, reopening the give-back)
-    await pg.click('#nav-groups button:has-text("Projects")'); await pg.wait_for_timeout(400)
+    # the 11-03 menu: Projects opens on its name, then All Projects
+    await pg.evaluate("() => { const h = document.querySelector('#nav-groups [data-mnhead=jobs]'); if (h && h.getAttribute('aria-expanded') !== 'true') h.click(); }")
+    await pg.click('#nav-groups [data-mngr=jobs] button[data-v=ovjobs]'); await pg.wait_for_timeout(400)
     m = await modal(pg)
     c.ok('save changes' not in m.lower() and 'confirm' not in m.lower(), f'leaving the approved CO asks nothing: {m[:80]!r}')
     st = await pg.evaluate(f"() => {{ const c = {KLEIN}, d = c.changeOrders.find(x => x.czGive); return {{ open: d.czGive.open, pulled: d.czGive.pulled, end: S.tasks.find(t => t.id === 'frame').end, live: typeof czGiveOpen === 'function' ? czGiveOpen(c, d) : null }} }}")
@@ -414,7 +416,9 @@ async def sec_polish(p, c):
     b, pg, errs = await fresh(p)
     # leaving an approved, read-only CO asks nothing
     await pg.evaluate(f"() => {{ const c = {KLEIN}, d = c.changeOrders.find(x => x.status === 'approved'); flowGo.doc(c, 'co', d)() }}"); await pg.wait_for_timeout(400)
-    await pg.click('#nav-groups button:has-text("Projects")'); await pg.wait_for_timeout(300)
+    # the 11-03 menu: Projects opens on its name, then All Projects
+    await pg.evaluate("() => { const h = document.querySelector('#nav-groups [data-mnhead=jobs]'); if (h && h.getAttribute('aria-expanded') !== 'true') h.click(); }")
+    await pg.click('#nav-groups [data-mngr=jobs] button[data-v=ovjobs]'); await pg.wait_for_timeout(300)
     m = await modal(pg)
     c.ok('save changes' not in m.lower(), f'leaving an approved CO asks nothing: {m[:80]!r}')
     # the CO toast cuts on a word
