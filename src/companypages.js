@@ -99,17 +99,17 @@ function ydBrainItems() {
   if (ydBrainMemo.k === k) return ydBrainMemo.L;
   let R = [];
   try {
-    R = isOwner() ? PRED.waitingOnMe.rows().filter((it) => ["change", "lesson", "learn"].includes(it.kind)) : [];
+    // the full queue: the owner's approvals are the exceptions, his lessons and rule changes are here
+    R = isOwner() ? ydQueueBase().filter((it) => ["change", "lesson", "learn"].includes(it.kind)) : [];
   } catch (e) {}
-  // a second path that drafts from the same events attaches to the first (the lesson and the meeting reader's rule)
-  const out = [],
-    at = {};
+  // Two proposals drafted from the same events (a lesson and the meeting reader's rule) are two records, each decided on
+  // its own: both rows show, the second says it is the twin (a folded row left the other open after a decision)
+  const at = {};
   R.forEach((it) => {
     const key = ydBrainKey(it);
-    if (at[key]) return void (at[key].also = (at[key].also || []).concat([it]));
-    (at[key] = it), out.push(it);
+    at[key] ? (it.ydTwin = at[key]) : (at[key] = it);
   });
-  return (ydBrainMemo = { k: k, L: out }).L;
+  return (ydBrainMemo = { k: k, L: R }).L;
 }
 const YD_BRAIN_GROUP = { learn: "Lessons for the Firm", change: "Changes to the ERP", lesson: "Job Checklist Steps" };
 let ydBrainChip = "need";
@@ -127,7 +127,8 @@ function ydBrainRender() {
     c = c || { line1: esc(it.title), why: esc(it.detail || ""), verb: "Open", run: () => mGo(it.open) };
     const id = "b" + i;
     ydAct(id, () => c.run());
-    return { id: id, sec: "need", kind: it.kind, title: String(td2Txt ? td2Txt(c.line1) : it.title).replace(/^Lesson:\s*/, ""), meta: td2Txt ? td2Txt(c.why) : it.detail, act: isOwner() ? c.verb || "Open" : "" };
+    const meta = td2Txt ? td2Txt(c.why) : it.detail;
+    return { id: id, sec: "need", kind: it.kind, title: String(td2Txt ? td2Txt(c.line1) : it.title).replace(/^Lesson:\s*/, ""), meta: it.ydTwin ? `drafted from the same events as the row of the same name above; decide each \u00b7 ${meta}`: meta, act: isOwner() ? c.verb || "Open" : "" };
   });
   const groups = rows.length
     ? `<section class="yd-card">${["learn", "change", "lesson"]

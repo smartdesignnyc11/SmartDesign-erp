@@ -99,6 +99,8 @@ async def today_as(p, uid, phone):
         # the brief: Safe to Spend read through the app's one function
         want = await pg.evaluate("() => String(Math.round(safeToSpend().safe))")
         c.ok(m['cash'] is not None and str(round(float(m['cash']))) == want, f'{who}: the brief\'s Safe to Spend {m["cash"]!r}, the app\'s one function says {want}')
+        shown = await pg.evaluate("() => ydMoney0(safeToSpend().safe)")
+        c.ok(shown in m['brief'] or shown in (await pg.evaluate("() => (document.querySelector('.view.on [data-ydsafe]') || {}).innerText || ''")), f'{who}: the brief prints Safe to Spend as {shown}, it reads {m["brief"][:60]!r}')
         c.ok('slipping' in m['brief'], f'{who}: the brief does not name the job that is slipping: {m["brief"][:200]!r}')
     if phone:
         await phone_fit(c, pg, f'{who} Today')
@@ -208,6 +210,62 @@ async def tasks_as(p, uid, phone):
     await b.close()
 
 
+APPR_N = """() => { const vis = e => !!e && e.getClientRects().length > 0; const b = [...document.querySelectorAll('.view.on [data-tdytabbtn="appr"] .n')].find(vis); return b ? +b.textContent : null; }"""
+
+
+async def approvals(p):
+    """The 10-26 rule end to end (chief of staff review, 11-03): a clean bill the PM approves is Approved, To Pay, its record
+    naming the rule, and a row of the controller's Today; the owner's Approvals count is one number in the queue, on
+    Today and in Ask; every waiting item of the owner's is on his Approvals, his Today or The Brain; The Brain shows every
+    proposal it holds (two drafted from the same events are two rows)."""
+    b, pg, errs = await open_app(p, True)
+    # the demo has no clean bill: Chen enters one on Tino's PO, $120 inside it
+    await sign_in(pg, 'u_chen')
+    await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); DB.bills.push({ id: 'bclean', vendor: po.vendor, number: 'TN-5001', date: today(), due: iso(addDays(parse(today()), 14)),
+      entityId: 'ent1', projectId: po.projectId, poId: po.id, cat: 'subs', code: '', lines: [{ id: 'blc1', desc: 'Electrical rough, first draw', amount: 120 }], payMethod: 'Check', notes: '',
+      status: 'submitted', approvals: [{ t: nowStamp(), by: 'Chen', role: 'coord', action: 'submitted' }], createdBy: 'Chen', terms: 'NET 14' }); save(); }""")
+    c.ok(await pg.evaluate("() => typeof ydBillExc !== 'function' || !ydBillExc(DB.bills.find(x => x.id === 'bclean')).length"), 'the planted bill is no exception (inside its PO)')
+    # the PM approves it from his Today, as he would
+    await sign_in(pg, 'u_alan'); await go(pg, 'home')
+    st = await pg.evaluate("""async () => { tdyTabSet('appr'); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 150));
+      const row = [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.id === 'bclean'); if (!row) return 'no row on the PM\\'s Approvals';
+      const v = row.querySelector('[data-tdverb]'); if (!v) return 'no button'; v.click(); await new Promise(r => setTimeout(r, 200));
+      const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await new Promise(r => setTimeout(r, 200)); return 'clicked'; }""")
+    c.ok(st == 'clicked', f'pm: the clean bill on his Approvals ({st})')
+    r = await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'bclean'); const a = (b.approvals || []).slice(-1)[0] || {}; return { status: b.status, rule: a.rule || '', by: a.by || '', at: a.ts || a.t || '' }; }")
+    c.ok(r['status'] == 'approved', f'a clean bill the PM approves is Approved, To Pay, not waiting on the owner ({r["status"]})')
+    c.ok('10-26' in r['rule'] and r['by'] and r['at'], f'its approval names who, when and the rule ({r})')
+    # the owner is not asked; the controller pays it from his Today
+    await sign_in(pg, 'u_owner')
+    c.ok(not await pg.evaluate("() => mApprovals().some(x => x.id === 'bclean')"), 'the owner is asked to approve a clean bill')
+    await sign_in(pg, 'u_controller'); await go(pg, 'home')
+    pay = await pg.evaluate("""async () => { tdyTabSet('today'); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 150));
+      for (const t of ['today', 'coming']) { tdyTabSet(t); render(); const row = [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.id === 'bclean'); if (row) return row.innerText; } return ''; }""")
+    c.ok('Ready to Pay' in pay and 'Pay' in pay, f'the controller\'s Today has the approved bill to pay ({pay[:80]!r})')
+    c.ok(await pg.evaluate("() => DB.bills.find(x => x.id === 'bclean').status") == 'approved', 'nothing paid it by itself')
+    await go(pg, 'ap')
+    lead = await pg.evaluate("() => (document.querySelector('.view.on') || {}).innerText || ''")
+    c.ok('the Owner approves them' not in lead and 'Alan approves them' not in lead, 'the Bills page still says the owner approves every bill')
+    # the owner's Approvals is one number: the queue, Today's chip, Ask
+    await sign_in(pg, 'u_owner'); await go(pg, 'home')
+    q = await pg.evaluate("() => [mApprovals().length, PRED.waitingOnMe.count()]")
+    chip = await pg.evaluate(APPR_N)
+    a = await pg.evaluate("async () => { let x = paAsk('what is waiting on my approval'); if (x && x.then) x = await x; return (x && x.headline) || ''; }")
+    import re as _re
+    an = int((_re.findall(r'\d+', a) or ['-1'])[0])
+    c.ok(q[0] == q[1] == chip == an, f'owner: approvals {q[0]} in the queue, {q[1]} in PRED, {chip} on Today, {an} in Ask ("{a[:70]}")')
+    # nothing waiting is lost: every item of the owner's full queue is on his Approvals, his Today or in The Brain
+    lost = await pg.evaluate("() => typeof ydOwnerPlaced === 'function' ? ydOwnerPlaced().lost : ['no ydOwnerPlaced']")
+    c.ok(not lost, f'owner: waiting items on no Today and not in The Brain: {lost[:4]}')
+    # The Brain shows every proposal it holds
+    await go(pg, 'brain')
+    br = await pg.evaluate("""() => [document.querySelectorAll('#yd-brain [data-ydrow][data-sec="need"]').length,
+      (typeof ydQueueBase === 'function' ? ydQueueBase() : PRED.waitingOnMe.rows()).filter(x => ['change', 'lesson', 'learn'].includes(x.kind)).length]""")
+    c.ok(br[0] == br[1], f'The Brain shows {br[0]} of the {br[1]} proposals waiting')
+    c.ok(not errs, f'approvals: errors {errs[:2]}')
+    await b.close()
+
+
 async def forwards(p):
     b, pg, errs = await open_app(p, False)
     await sign_in(pg, 'u_owner')
@@ -226,6 +284,7 @@ async def forwards(p):
 async def main():
     only = sys.argv[1:]
     async with async_playwright() as p:
+        if not only or 'approvals' in only: await approvals(p)
         if not only or 'forwards' in only: await forwards(p)
         for uid in ROLES:
             for phone in (False, True):

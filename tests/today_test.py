@@ -255,11 +255,17 @@ async def main():
                 c.ok(any(k.startswith('req|') for k, w in q), 'coord: no material request to acknowledge in the queue')
             if r == 'pm':
                 c.ok(sum(k.startswith('time|') for k, w in q) == 4, f"pm: {sum(k.startswith('time|') for k, w in q)} crew hours to approve, want 4")
+        # the owner's queue is his exceptions (DECISIONS 10-26); what else waits on him (lessons and rule changes, a
+        # renewal to file, a draft to send) is in The Brain or a row of his Today, and each must be somewhere
+        await sign_in(pg, 'u_owner')
+        outside = await pg.evaluate(f"() => {{ const A = mApprovals(), K = {KEY}, a = new Set(A.map(K)); return ydQueueBase().map(K).filter(k => !a.has(k)); }}")
+        lost = await pg.evaluate("() => ydOwnerPlaced().lost")
+        c.ok(not lost, f'owner: {len(lost)} waiting item(s) on no Today and not in The Brain: {lost[:4]}')
         dup = {k: v for k, v in seen.items() if len(v) > 1}
-        orphan = [k for k in every if k not in seen]
+        orphan = [k for k in every if k not in seen and k not in outside]
         c.ok(not dup, f'{len(dup)} item(s) in two queues: {list(dup.items())[:3]}')
         c.ok(not orphan, f'{len(orphan)} item(s) in nobody\'s queue: {orphan[:4]}')
-        c.ok(sum(counts.values()) == len(every), f'queues {counts} add to {sum(counts.values())}, everyone\'s holds {len(every)}')
+        c.ok(sum(counts.values()) + len(outside) == len(every), f'queues {counts} and {len(outside)} on the owner\'s Today or in The Brain add to {sum(counts.values()) + len(outside)}, everyone\'s holds {len(every)}')
         print('delegation:', counts)
         # the owner's Approvals is exceptions only (DECISIONS 10-26, the Your Day mock-up): what waits on the others is
         # on their own Today, not on his (the old Approvals page and its "wait on the others" line forward to the chip)

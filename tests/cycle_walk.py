@@ -733,9 +733,8 @@ def x1_owner_proposal_first(p):
     num = (re.findall(r'EST-\d{4}-\d+', p.scr.text) or [''])[0]
     new_project(p, PROBE['job'], PROBE['addr'], JOB['start'], PROBE['client'])
     # the Sales mock-up (11-03, Estimates off the Sales menu, flagged for Alan): a proposal is found on the Pipeline's
-    # Proposals Out, each estimate with its deal, one fold down under How Sales Is Going
+    # Proposals Out chip, each estimate with its deal
     p.go('Sales and Clients > Pipeline')
-    p.tap('How Sales Is Going', exact=True)
     p.tap('Proposals Out', exact=True)
     p.tap_row(num or PROBE['client'], expect='Estimate EST-')
     f = header_field(p, 'Project')

@@ -64,10 +64,24 @@ function slSyncNext() {
   return ch;
 }
 const slClientOf = (l) => (l.clientId && (DB.clients || []).find((c) => c.id === l.clientId)) || (DB.clients || []).find((c) => String(c.name).toLowerCase() === String(l.name || "").toLowerCase()) || null;
-const slJobOf = (l) => {
+// Each signed deal has its own job (a repeat client's second deal is not set up by the first job): the deal's own link
+// (l.projectId, written by Set Up the Job), else a job that names the deal, else the client's signed deals and jobs
+// paired in order, oldest first. A signed deal with no job of its own still needs one, and its deposit cannot be billed.
+function slJobOf(l) {
+  const P = DB.projects || [],
+    own = (l.projectId && P.find((p) => p.id === l.projectId)) || P.find((p) => p.dealId === l.id);
+  if (own) return own;
   const c = slClientOf(l);
-  return c ? (DB.projects || []).find((p) => p.clientId === c.id) || null : null;
-};
+  if (!c) return null;
+  const L = DB.leads || [],
+    claimed = new Set(L.map((x) => x.projectId).concat(P.map((p) => p.dealId && p.id)).filter(Boolean)),
+    jobs = P.filter((p) => p.clientId === c.id && !claimed.has(p.id) && !p.dealId).sort((a, b) => String((a.project || {}).start || a.createdAt || "").localeCompare(String((b.project || {}).start || b.createdAt || ""))),
+    deals = L.filter((x) => "won" === x.stage && slClientOf(x) === c && !x.projectId && !P.some((p) => p.dealId === x.id)).sort((a, b) => String(a.wonAt || "").localeCompare(String(b.wonAt || "")));
+  const i = deals.indexOf(l);
+  return i >= 0 && i < jobs.length ? jobs[i] : null;
+}
+// Set Up the Job ties the job it makes to the deal
+let slSetUpFor = null;
 const slQuiet = (l) => {
   const la = "function" == typeof slLastTouch ? slLastTouch(l) : l.created;
   return la ? dayDiff(String(la).slice(0, 10), slTd()) : 0;
@@ -107,7 +121,15 @@ function slSetUpJob(l) {
     save();
     toast(`${c.name} is a client now`, () => slOpenClient(c.id));
   }
+  slSetUpFor = { lead: l.id, before: new Set((DB.projects || []).map((p) => p.id)) };
   newProjectDialog(c.id);
+}
+function slTieNewJob() {
+  if (!slSetUpFor) return;
+  const l = (DB.leads || []).find((x) => x.id === slSetUpFor.lead),
+    p = (DB.projects || []).find((x) => !slSetUpFor.before.has(x.id));
+  if (!l || !p) return;
+  (l.projectId = p.id), (p.dealId = l.id), (slSetUpFor = null), save();
 }
 
 // ---- figures ------------------------------------------------------------------------------------------------------
@@ -244,7 +266,9 @@ function slPipelineRender() {
     { k: "need", label: "Need You", n: need.length || "" },
     { k: "open", label: "All Open", n: "" },
     { k: "closed", label: "Won and Lost", n: "" },
-  ].concat("props" === slChip ? [{ k: "props", label: "Proposals Out", n: "" }] : []);
+    // where an estimate is found now Estimates is off the menu (each with its deal): a chip, one tap (review 11-03)
+    { k: "props", label: "Proposals Out", n: "" },
+  ];
   const sec = (k) => rows.filter((r) => r.sec === k);
   const body =
     "need" === slChip
@@ -645,6 +669,7 @@ function slForward() {
     try {
       slForward();
       slRenameStage();
+      slTieNewJob();
     } catch (e) {
       console.warn("sales: forward", e);
     }

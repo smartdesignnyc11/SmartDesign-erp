@@ -159,6 +159,11 @@ async def owner_pages(p, phone):
         c.ok(k in m['text'], f'{who}: Company Settings has no {k}')
     n = await pg.evaluate("() => ydPeople().length")
     c.ok(re.search(rf'\b{n} people\b', m['text']), f'{who}: Your Data does not say {n} people')
+    # Your Own Data itself reads the one headcount
+    await go(pg, 'rdata')
+    rd = await pg.evaluate("() => { const g = [...document.querySelectorAll('.view.on .gl')].find(e => /^People/.test((e.querySelector('.gl-k') || {}).textContent || '')); return g ? +g.querySelector('.gl-v').textContent : null; }")
+    c.ok(rd == n, f'{who}: Your Own Data says People {rd}, Team says {n}')
+    await go(pg, 'cosettings')
     conf = await pg.evaluate("""async () => { const b = document.querySelector('.view.on [data-ydwipe]'); b.click(); await new Promise(r => setTimeout(r, 150));
        const ok = document.querySelector('#mbm-ok'), inp = document.querySelector('#mbm input[name=confirm], #mbm [data-f=confirm]');
        const r = { input: !!inp, disabledOk: ok ? ok.disabled : null }; const x = document.querySelector('#mbm-cancel, .mbm-x'); x && x.click(); return r; }""")

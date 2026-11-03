@@ -39,7 +39,7 @@ async def pipeline_as(p, uid, phone):
     await go(pg, 'ovsales')
     m = await pg.evaluate(PAGE)
     labels = [x['label'] for x in m['chips']]
-    c.ok(labels == ['Need You', 'All Open', 'Won and Lost'], f'{who}: Pipeline chips {labels}')
+    c.ok(labels == ['Need You', 'All Open', 'Won and Lost', 'Proposals Out'], f'{who}: Pipeline chips {labels}')
     c.ok([x['label'] for x in m['chips'] if x['on']] == ['Need You'], f'{who}: Pipeline does not open on Need You')
     need = [x for x in m['rows'] if x['sec'] == 'need']
     n = next((x['n'] for x in m['chips'] if x['k'] == 'need'), '')
@@ -74,6 +74,12 @@ async def pipeline_as(p, uid, phone):
         await pg.wait_for_timeout(150)
         st = await pg.evaluate("() => [view, !!document.querySelector('.view.on [data-ydfold=\"nums\"][aria-expanded=\"true\"]')]")
         c.ok(st == ['ovsales', True], f'{who}: {old} lands on {st}, want Pipeline with How Sales Is Going open')
+    # a repeat client's second signed deal needs its own job (the first job does not set it up, and its deposit waits)
+    if uid == 'u_owner':
+        rep = await pg.evaluate("""() => { DB.leads.push({ id: 'ldrepeat', name: 'Sarah & David Klein', clientId: 'cl121', stage: 'won', wonAt: '2026-08-30', value: 64000,
+          addr: '121 State Street, parlor floor', history: [{ stage: 'won', at: '2026-08-30' }], touches: [], closePlan: [], stakeholders: [], qual: {}, source: 'Repeat client' });
+          const n = slNeedYou().some(x => x.l.id === 'ldrepeat' && x.why === 'signed'); DB.leads = DB.leads.filter(x => x.id !== 'ldrepeat'); return n; }""")
+        c.ok(rep, f'{who}: a repeat client\'s second signed deal does not show as needing its job set up')
     if phone:
         await go(pg, 'ovsales')
         await phone_fit(c, pg, f'{who} Pipeline')
