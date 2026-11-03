@@ -427,8 +427,12 @@ function puPlusItems(v) {
 }
 let puPlusOpen = "";
 function puHeadHtml(v, extra) {
-  const items = puPlusItems(v);
-  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt"><h2>${esc(PU_NAME[v])}</h2><p class="lead" data-nocase>${esc(PU_LEAD[v])}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
+  // inside a job the page is the job's Purchasing tab: its name, the job's words, and the job's one + (src/jobpage.js)
+  const job = "function" == typeof jpOn && jpOn(),
+    items = job ? [] : puPlusItems(v),
+    name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
+    lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
+  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
 }
 // the old page's tools, one tap down, until their records move here (P4, P5)
 function puFullHtml(v, label) {
