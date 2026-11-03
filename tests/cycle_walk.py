@@ -285,7 +285,11 @@ class Screen:
 
     def where(self, anchor):
         if anchor is None: return 0
-        i = self.text.lower().find(anchor.lower())
+        # a place on the page: the person's menu line above it is not the page (the 11-03 menu lists every group's
+        # pages there, "Accounting Overview" among them, which an anchor "Overview" would otherwise land on)
+        m = re.search(r'^Menu: .*$', self.text, re.M)
+        base = m.end() if m and self.text.count('\n', 0, m.start()) < 3 else 0
+        i = self.text.lower().find(anchor.lower(), base)
         return i if i >= 0 else None
 
     def find(self, label, field=False, after=None, nth=1, exact=False, kinds=None):
