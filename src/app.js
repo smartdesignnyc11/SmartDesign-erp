@@ -174637,7 +174637,7 @@ function tdPulseOpen(t) {
           ? `<div class="td-sh-list">${lines
               .map(
                 (l, i) =>
-                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>${(l[5] || []).map((s, j) => item(s, `${i}.${j}`)).join("")}`,
+                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${"figure" === l[4] ? tdMoney(l[2]) : tdMoneyC(l[2])}</span>` : ""}</div>${(l[5] || []).map((s, j) => item(s, `${i}.${j}`)).join("")}`,
               )
               .join("")}</div>`
           : `<div class="empty">Nothing here today.</div>`
@@ -175032,12 +175032,11 @@ function tdBriefLines() {
 
 // ---- the page: tdRender is src/today2.js (the approved Today mockups, 2026-10-25). The Pulse, Caught for You and the
 // brief above are its parts; the "because" line (once a wrapper here) is the lead row's note there.
-// The Pulse prints to the cent below $100k (the Statements cash card's safe-to-spend, −$4,150.74), in $k above.
+// One number, one text (the chief of staff, 11-03): a Pulse figure prints in whole dollars on its tile and on its sheet's
+// figure row ("$104,999"), the same as Ask and the cash card print it; the build-up under it is to the cent. Above $100k
+// the tile read "$105k" while its sheet ended "$104,999.32".
 const tdMoneyC = (v) => ((+v || 0) < -0.004 ? "−" : "") + money2(Math.abs(+v || 0)),
-  tdMoney = (v) => {
-    const a = Math.abs(+v || 0);
-    return a >= 1e5 ? (v < 0 ? "−" : "") + "$" + Math.round(a / 1e3) + "k" : tdMoneyC(v);
-  };
+  tdMoney = (v) => ((+v || 0) < -0.004 ? "−" : "") + money(Math.abs(+v || 0));
 if ("function" == typeof renderHome) {
   const base = renderHome;
   renderHome = function () {

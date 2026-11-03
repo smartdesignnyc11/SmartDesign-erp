@@ -80,8 +80,10 @@ async def pulse_checks(c, pg, tag):
             want = await pg.evaluate("() => safeToSpend().safe")
             c.ok(abs(t['n'] - want) < 0.005, f'{tag}: Safe to Spend {t["n"]} vs safeToSpend() {want}')
             c.ok(sh['figure'] == t['shown'], f'{tag}: Safe to Spend shows {t["shown"]}, its sheet ends {sh["figure"]}')
-            add = await pg.evaluate("() => { const R = PRED.safeToSpend.rows(); const sum = R.filter(r => !r[2]).reduce((a, r) => a + r[1], 0); return [Math.round(sum * 100) / 100, R.find(r => r[0] === 'Truly ours')[1]]; }")
-            c.ok(abs(add[0] - add[1]) < 0.01, f'{tag}: the Safe to Spend lines add to {add[0]}, truly ours is {add[1]}')
+            # the build-up's subtotal is "Ours today" since the approved set-aside (BACKLOG §1.35 item 1, 11-03; it was
+            # "Truly ours"): the lines above it, set-aside rows included, add to it to the cent
+            add = await pg.evaluate("() => { const R = PRED.safeToSpend.rows(); const sum = R.filter(r => !r[2]).reduce((a, r) => a + r[1], 0); const o = R.find(r => r[0] === 'Ours today'); return [Math.round(sum * 100) / 100, o ? o[1] : null]; }")
+            c.ok(add[1] is not None and abs(add[0] - add[1]) < 0.01, f'{tag}: the Safe to Spend lines add to {add[0]}, ours today is {add[1]}')
         elif t['k'] == 'ar':
             want = await pg.evaluate("() => PRED.overdueAR.figure()")
             c.ok(abs(t['n'] - want) < 0.005, f'{tag}: Overdue AR {t["n"]} vs PRED.overdueAR {want}')
