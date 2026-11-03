@@ -4192,3 +4192,10 @@ body.td2-fm #ftoday-body .f-card{border-radius:14px;box-shadow:0 0 0 1px #ECEEF2
 #v-gl.ac-host > .glance,#v-gl.ac-host #gl-body > .ph{display:none !important}
 #v-verify.ac-host > .ph > div:first-child,#v-verify.ac-host #vf-kpis{display:none !important}
 #v-budget.ac-host #budget-body > .ph{display:none !important}
+
+/* Banking on the phone: a To Review row names the line and its amount in full; its one action sits under it */
+@media (max-width:760px){
+  #v-bank.ac-host .pr-row[data-acline]{flex-wrap:wrap}
+  #v-bank.ac-host .pr-row[data-acline] .pr-mid{flex:1 1 100%;min-width:0}
+  #v-bank.ac-host .pr-row[data-acline] .pr-t,#v-bank.ac-host .pr-row[data-acline] .pr-m span{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+}

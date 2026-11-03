@@ -111,6 +111,22 @@ async def run(c, pg, u, phone):
             if phone:
                 c.ok(F['confirm'] == 0, f"PHONE {tag}: {F['confirm']} Confirm buttons on bank list rows (the line's sheet confirms)")
                 if u == 'u_controller':
+                    # To Review's count is its rows, right under the chips; each row names its amount in full; a tap opens
+                    # the line's review sheet, never the edit form (the chief of staff's review, 11-03)
+                    L = await pg.evaluate("""() => { const ch = document.querySelector('.view.on [data-acchip="bank:review"]'); const cy = ch ? ch.getBoundingClientRect().bottom + scrollY : 0;
+                      const rows = [...document.querySelectorAll('.view.on #txn-table tr.pr-tr')].filter(r => r.getClientRects().length);
+                      const first = rows[0] ? rows[0].getBoundingClientRect().top + scrollY : 99999;
+                      const cut = rows.map(r => r.querySelector('.pr-m')).filter(s => s && (s.scrollWidth > s.clientWidth + 1 || /…/.test(s.textContent) || !/[−+-]\\$[\\d,]+/.test(s.textContent))).map(s => s.textContent);
+                      return { n: rows.length, gap: Math.round(first - cy), cut }; }""")
+                    want_n = int((re.search(r'To Review (\d+)', ' '.join(F['chips'])) or [0, 0])[1])
+                    c.ok(L['n'] == want_n and L['gap'] < 600, f"PHONE {tag}: To Review {want_n} shows its {L['n']} rows right under the chips (first row {L['gap']}px below them)")
+                    c.ok(not L['cut'], f"PHONE {tag}: each row shows its amount in full at 390: {L['cut'][:3]}")
+                    row = pg.locator('.view.on #txn-table tr.pr-tr .pr-mid').first
+                    if await row.count():
+                        await row.evaluate('e => e.click()'); await pg.wait_for_timeout(300)
+                        m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : ''; }")
+                        c.ok('Review the Line' in m and 'It would link to' in m and not re.search(r'\bVoid\b', m), f'PHONE {tag}: tapping a row opens its review sheet: {m[:160]!r}')
+                        await pg.evaluate("() => typeof mbCloseModal === 'function' && mbCloseModal()")
                     rv = pg.locator('.view.on [data-acreview]')
                     c.ok(await rv.count() > 0, f'PHONE {tag}: each proposed match has Review, which opens its sheet')
                     if await rv.count():

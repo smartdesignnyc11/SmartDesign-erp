@@ -634,6 +634,33 @@ function acMount() {
 // Confirm gives way to Review, which opens the line's sheet: the warning, what it would link to, the line, then Confirm.
 // Confirm in the sheet presses the row's own Confirm, so the match, its reason sheet and its toast are the existing ones.
 function acSheetOnly(sec) {
+  // To Review's count is its rows: on the phone the list sits right under the chips (it was some 3,500px down, under
+  // the coverage, import and suggestion cards), each row names the line and its amount in full, and a tap opens the
+  // line's review sheet, never the edit form
+  if (["review", "matched"].includes(acChip.bank)) {
+    const F = sec.querySelector(":scope > .ac-front"),
+      T = sec.querySelector("#txn-table");
+    if (F && T && F.nextElementSibling !== T) {
+      F.after(T);
+      [sec.querySelector(":scope > .prop-card"), sec.querySelector("#pay3-needs")].filter(Boolean).reverse().forEach((c) => T.after(c));
+    }
+    // the accounts are where things stand: under the lines on the phone
+    const AC = F && F.querySelector(".ac-accts"),
+      last = sec.querySelector("#pay3-needs") || sec.querySelector(":scope > .prop-card") || T;
+    AC && last && (sec.querySelectorAll(":scope > .ac-accts").forEach((x) => x.remove()), last.after(AC));
+    sec.querySelectorAll("#txn-table tr.pr-tr").forEach((tr) => {
+      const id = (tr.querySelector("[data-tsel]") || {}).dataset?.tsel,
+        t = id && (DB.txns || []).find((x) => x.id === id),
+        row = tr.querySelector(".pr-row");
+      if (!t || !row || row.dataset.acline) return;
+      row.dataset.acline = t.id;
+      const a = (DB.accounts || []).find((x) => x.id === t.acct),
+        tt = row.querySelector(".pr-t"),
+        m = row.querySelector(".pr-m span:last-child");
+      tt && (tt.textContent = t.desc || t.vendor || "Bank line");
+      m && (m.textContent = `${t.amt < 0 ? "−" : "+"}${money(Math.abs(+t.amt || 0))} · ${fmt(t.date)} · ${a ? `${a.name.split(" ")[0]} ${a.last4 || ""}`.trim() : ""}`);
+    });
+  }
   [...sec.querySelectorAll("button")]
     .filter((b) => /^confirm$/i.test((b.textContent || "").trim()) && !b.closest(".ac-front, #mbm") && !b.dataset.acsheet)
     .forEach((b, i) => {
@@ -642,6 +669,29 @@ function acSheetOnly(sec) {
       const r = document.createElement("button");
       (r.type = "button"), (r.className = "btn sm"), (r.textContent = "Review"), (r.dataset.acreview = id), b.parentNode.insertBefore(r, b);
     });
+}
+// The line's review sheet (the phone): what is wrong first, then what it would link to, then the line; Confirm when a
+// match is proposed (it presses the match's own Confirm), else the row's own next step; Edit the Line is the old form.
+function acLineSheet(id, actBtn) {
+  const t = (DB.txns || []).find((x) => x.id === id);
+  if (!t) return;
+  const a = (DB.accounts || []).find((x) => x.id === t.acct),
+    st = "function" == typeof txnState ? txnState(t) : {},
+    typed = "function" == typeof txnFromBank && !txnFromBank(t),
+    P = t.proposal,
+    target = P ? ("po" === P.kind ? (DB.pos || []).find((x) => x.id === P.poId) : "bill" === P.kind ? (DB.bills || []).find((x) => x.id === P.billId) : null) : null,
+    link = P ? (target ? `${"po" === P.kind ? "" : "Bill "}${target.number || ""} · ${target.vendor || ""}` : P.label || "") : "",
+    warn = [typed ? "Typed by hand, not yet at the bank: it is not matched until a bank line backs it." : "", st && st.msg ? st.msg : ""].filter(Boolean),
+    conf = document.querySelector(`[data-mconfirm="${CSS.escape(t.id)}"]`);
+  mbModal(
+    "Review the Line",
+    `${warn.length ? `<div class="note warn small">${warn.map((w) => `<div>${esc(w)}</div>`).join("")}</div>` : ""}<p><b>It would link to</b><br>${link ? esc(link) : "Nothing yet: no bill, order, invoice, receipt or payroll line explains it."}${P && P.why ? `<br><span class="small muted">${P.why}</span>` : ""}</p><p><b>The line</b><br>${esc(t.desc || t.vendor || "")}<br><span class="small muted">${t.amt < 0 ? "−" : "+"}${money(Math.abs(+t.amt || 0))} · ${fmtL(t.date)} · ${esc(a ? a.name : "")}${a && a.last4 ? " ····" + esc(a.last4) : ""}</span></p>`,
+    conf
+      ? { submit: "Confirm", onSubmit: () => void setTimeout(() => conf.click(), 0), alt: { label: "Edit the Line", run: () => txnDialog(t.id) } }
+      : actBtn
+        ? { submit: (actBtn.textContent || "Open").trim().replace(/…$/, ""), onSubmit: () => void setTimeout(() => actBtn.click(), 0), alt: { label: "Edit the Line", run: () => txnDialog(t.id) } }
+        : { submit: "Edit the Line", onSubmit: () => void setTimeout(() => txnDialog(t.id), 0) },
+  );
 }
 function acReviewSheet(id) {
   const b = document.querySelector(`[data-acsheet="${id}"]`);
@@ -704,6 +754,8 @@ function acGoChip(pg, k) {
     try {
       const on = document.querySelector(".view.on");
       (!on || !on.querySelector(":scope > .ac-front") || !acPageOf()) && acMount();
+      // the phone's rows are drawn by later layers (phonerows): Banking's rows are fitted once they are there
+      "bank" === acPageOf() && acPhone() && on && on.querySelector(":scope > .ac-front") && acSheetOnly(on);
     } catch (e) {
       console.warn("accounting front", e);
     }
@@ -901,12 +953,15 @@ document.addEventListener(
   },
   !0,
 );
-// the phone's Review on a bank line (outside the front: the rows are the page's own)
+// the phone's Review on a bank line, and a tap on a To Review row (outside the front: the rows are the page's own)
 document.addEventListener(
   "click",
   (e) => {
     const b = e.target && e.target.closest && e.target.closest("[data-acreview]");
-    b && (e.preventDefault(), e.stopPropagation(), acReviewSheet(b.dataset.acreview));
+    if (b) return e.preventDefault(), e.stopPropagation(), void acReviewSheet(b.dataset.acreview);
+    const r = e.target && e.target.closest && e.target.closest("#v-bank.ac-host .pr-row[data-acline]");
+    if (!r || e.target.closest(".pr-act-slot, input, select, button, a") || !acPhone()) return;
+    e.preventDefault(), e.stopPropagation(), acLineSheet(r.dataset.acline, r.querySelector(".pr-act-slot button"));
   },
   !0,
 );
