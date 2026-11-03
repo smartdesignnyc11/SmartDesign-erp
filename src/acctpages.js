@@ -267,7 +267,7 @@ function acApNeeds() {
   (DB.payroll || [])
     .filter((r) => r.total && ["draft", "submitted", "pm-approved"].includes(r.status))
     .forEach((r) => {
-      const un = r2((r.alloc || []).filter((x) => !x.projectId).reduce((a, x) => a + (+x.pct || 0), 0)),
+      const un = r2((r.alloc || []).filter((x) => x.unallocated && !x.projectId).reduce((a, x) => a + (+x.pct || 0), 0)),
         late = r.payDate && r.payDate < td ? dayDiff(r.payDate, td) : 0,
         jobs = (r.alloc || []).filter((x) => x.projectId).map((x) => `${acJobName(x.projectId)} ${x.pct}%`);
       out.push({
@@ -581,7 +581,7 @@ const AC_HIDE = {
     verify: ["#v-verify > .ph > div:first-child", "#vf-kpis"],
     budget: [],
   },
-  AC_PLAIN = { time: "#v-time > .ph .btn.primary", verify: "#v-verify > .ph .btn.primary", budget: "#v-budget .btn.primary:not(.ac-front .btn)", gl: "#v-gl .btn.primary:not(.ac-front .btn)" };
+  AC_PLAIN = { bank: "#v-bank #txn-props .btn.primary, #v-bank #txn-table .btn.primary", time: "#v-time > .ph .btn.primary", verify: "#v-verify > .ph .btn.primary", budget: "#v-budget .btn.primary:not(.ac-front .btn)", gl: "#v-gl .btn.primary:not(.ac-front .btn)" };
 function acMount() {
   const pg = acPageOf();
   document.querySelectorAll(".view .ac-front").forEach((f) => !f.closest(".view.on") && (f.closest(".view").classList.remove("ac-host"), f.remove()));

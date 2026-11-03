@@ -271,36 +271,40 @@ async def check_role(pg, R, uid):
         R.money('backlog', S('Dashboard › Backlog & Pipeline'), t, MONEY + r'\s*\n\s*(?i:remaining contract on signed work)', required=False)
         R.count('pct121', S('Dashboard › Margin at Completion'), t, r'121 State Street · bid[^\n]*· (\d+)% complete', required=False, unit='%')
 
-    # Accounting overview tiles
-    if gate('ovmoney', 'Accounting overview'):
-        await nav(pg, 'money', 'ovmoney'); t = await text_of(pg, 'ovmoney')
-        R.count('unmatched_n', S('Accounting overview › tile "No Record Behind"'), t, r'No Record Behind\s*\n\s*(\d+)')
-        R.money('unmatched_amt', S('Accounting overview › Today\'s Review'), t, r'bank lines with no receipt, bill or payroll behind them · ' + MONEY)
-        for k in ('cash', 'ar', 'ap_bills', 'safe', 'wip_over', 'net'):
-            R.note(k, S('Accounting overview'), 'not shown on the overview tiles')
-
-    # Banking
+    # The 11-03 Accounting pages (docs/mockups/accounting/): the Accounting overview forwards to Banking, and each page
+    # states its figures once on its front (Needs You, then where things stand); the old tiles are gone.
+    # Banking: To Review is the one money-in-and-out queue; the Accounts card carries each account's balance
     if gate('bank', 'Banking'):
         await nav(pg, 'money', 'bank'); t = await text_of(pg, 'bank')
-        R.money('cash', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n\s*' + MONEY)
-        R.count('unmatched_n', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*(\d+)')
-        R.money('unmatched_amt', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_payroll_due', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n[^\n]*\n[^\n]*?' + MONEY + r' past due', required=False)
+        R.money('cash', S('Banking › Accounts "Chase Business Checking"'), t, r'Chase Business Checking[^\n]*\n[^\n]*?\s*' + MONEY)
+        R.count('unmatched_n', S('Banking › Needs You "lines to match"'), t, r'(\d+) lines? to match')
+        R.count('unmatched_n', S('Banking › chip "To Review"'), t, r'To Review\s*(\d+)')
+        R.money('unmatched_amt', S('Banking › Needs You "at stake"'), t, MONEY + r' at stake')
 
-    # Bills and Payroll
+    # Bills and Payroll: the payroll past pay day on Needs You; the bill the bank paid before approval under With Others
     if gate('ap', 'Bills and Payroll'):
         await nav(pg, 'money', 'ap'); t = await text_of(pg, 'ap')
-        R.money('ap_payroll_due', S('Bills and Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_paid_unappr', S('Bills and Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
-        # owed bills: approved and unpaid. The page counts them as "Due This Week" + overdue bills; nothing else is owed.
+        R.money('ap_payroll_due', S('Bills and Payroll › Needs You "Payroll"'), t, r'Payroll [^\n]*?· ' + MONEY + r' · \d+ days? past pay day')
+        R.money('ap_paid_unappr', S('Bills and Payroll › With Others'), t, r'With Others[\s\S]*?WW-2026-118[^\n]*\n(?:[^\n]*\n)?\s*' + MONEY)
         R.money('ap_bills', S('Bills and Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
 
-    # Billing
+    # Billing: what is ready to bill is Needs You's rows (their sum and count); what is owed is Collections' aging
     if gate('billing', 'Billing'):
         await nav(pg, 'billing', 'billing'); t = await text_of(pg, 'billing')
-        R.money('rtb', S('Billing › tile "Ready to Bill"'), t, r'Ready to Bill\s*\n\s*' + MONEY)
-        R.count('rtb_n', S('Billing › tile "Ready to Bill"'), t, r'Ready to Bill\s*\n[^\n]*\n\s*(\d+) items? earned')
-        R.money('ar', S('Billing › tile "Sent and Unpaid"'), t, r'Sent and Unpaid\s*\n\s*' + MONEY)
+        need = t[t.find('Needs You'):t.find('Collections')] if 'Collections' in t else ''
+        rows = [parse_money(m)[0] for m in re.findall(MONEY + r' ready to bill', need)]
+        if R.want('rtb'):
+            v = round(sum(rows)); ok = abs(v - PINNED['rtb']) <= len(rows)
+            R.readings.append({'figure': 'rtb', 'surface': S('Billing › Needs You (ready rows, summed)'), 'raw': str(rows), 'value': v, 'expected': PINNED['rtb'], 'ok': ok})
+            if not ok: R.flag('rtb', S('Billing › Needs You (ready rows, summed)'), fmt(v), fmt(PINNED['rtb']))
+            ok = len(rows) == PINNED['rtb_n']
+            R.readings.append({'figure': 'rtb_n', 'surface': S('Billing › Needs You (ready rows)'), 'raw': str(len(rows)), 'value': len(rows), 'expected': PINNED['rtb_n'], 'ok': ok})
+            if not ok: R.flag('rtb_n', S('Billing › Needs You (ready rows)'), str(len(rows)), str(PINNED['rtb_n']))
+        aging = [parse_money(m)[0] for m in re.findall(r'(?:Current|1 to 30 Days|31 to 60 Days|Over 60 Days)\s*\n\s*' + MONEY, t)]
+        if R.want('ar'):
+            v = round(sum(aging)); ok = abs(v - PINNED['ar']) <= 2 and len(aging) == 4
+            R.readings.append({'figure': 'ar', 'surface': S('Billing › Collections (the aging, summed)'), 'raw': str(aging), 'value': v, 'expected': PINNED['ar'], 'ok': ok})
+            if not ok: R.flag('ar', S('Billing › Collections (the aging, summed)'), fmt(v), fmt(PINNED['ar']))
 
     # Ledger: Overview, Statements, Accounts, Close
     if gate('gl', 'Ledger'):
@@ -309,7 +313,13 @@ async def check_role(pg, R, uid):
         R.count('unmatched_n', S('Ledger › Overview bridge'), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S('Ledger › Overview bridge'), t, r'bank items? not yet matched — ' + MONEY)
         R.money('net', S('Ledger › Overview bridge "Net income in the management view"'), t, r'Net income in the management view[^\t\n]*\t\s*' + MONEY)
-        R.money('wip_over', S('Ledger › Overview bridge "WIP adjustment not yet posted"'), t, r'WIP over/under-billing adjustment not yet posted[^\t\n]*\t\s*' + MONEY, absval=True)
+        # the WIP not yet on the ledger is split by the close that posts it (BACKLOG §1.35 item 3): the next close posts
+        # the schedule at its month end, the movement after it posts at the close after; together they are Over-Billed
+        if R.want('wip_over'):
+            parts = [abs(parse_money(m)[0]) for m in re.findall(r'(?:WIP adjustment the [^\t\n]*close posts|WIP movement since|WIP over/under-billing adjustment not yet posted)[^\t\n]*\t\s*' + MONEY, t)]
+            v = round(sum(parts)); ok = bool(parts) and abs(v - PINNED['wip_over']) <= len(parts)
+            R.readings.append({'figure': 'wip_over', 'surface': S('Ledger › Overview bridge (WIP rows, summed)'), 'raw': str(parts), 'value': v, 'expected': PINNED['wip_over'], 'ok': ok})
+            if not ok: R.flag('wip_over', S('Ledger › Overview bridge (WIP rows, summed)'), fmt(v) if parts else 'not shown', fmt(PINNED['wip_over']))
         R.money('ap_payroll_due', S('Ledger › Overview bridge'), t, MONEY + r' of payroll await approval', required=False)
         ledger_net = None
         m = re.search(r'Net income on the ledger\t\s*' + MONEY, t)
