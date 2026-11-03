@@ -604,15 +604,21 @@ let w1Reloaded = !1,
   w1Opened = !1;
 function w1ReopenAfterReload() {
   if (w1Reloaded || w1Opened || !w1Uid() || "1" !== document.body.dataset.booted) return;
-  const k = w1ScreenKey(w1Screen());
-  const d = w1Drafts().find((x) => x.open && "sheet" === x.scope && x.screen && w1ScreenKey(x.screen) === k && Date.now() - (x.wall || 0) < 864e5);
+  const k = w1ScreenKey(w1Screen()),
+    L = w1Drafts().filter((x) => x.open && "sheet" === x.scope && x.screen && Date.now() - (x.wall || 0) < 864e5);
+  // the sheet that was open on this screen; else one whose opener is on this page: a control that opens its sheet on
+  // another screen (Today's File Late Log opens the Daily Log's sheet, a bill's Open its drawer on Bills and Payroll),
+  // so the reload lands where that control is and the same press brings the sheet back
+  const d = L.find((x) => w1ScreenKey(x.screen) === k) || L.find((x) => w1FindOpener(x.opener));
   if (!d) return;
   w1Reloaded = !0;
-  const o = w1Get(d.key);
+  const o = w1Get(d.key),
+    here = w1ScreenKey(d.screen) === k;
   o && ((o.open = !1), w1Put(d.key, o));
   setTimeout(() => {
     if (document.querySelector("#mbm, #drawer.on")) return;
-    if (/^drawer\|/.test(d.key)) {
+    // on its own screen a drawer opens again by itself; from its opener's page, the opener takes the person there
+    if (/^drawer\|/.test(d.key) && (here || !w1FindOpener(d.opener))) {
       const [, kind, id] = d.key.split("|");
       try {
         return void openEditor(kind, "new" === id ? void 0 : id);

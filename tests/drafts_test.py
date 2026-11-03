@@ -66,7 +66,9 @@ NAV_AWAY = r"""(cur) => {
   if (!(top && b.contains(top))) return null;
   return { x, y, label: (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 30) };
 }"""
-OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u); const B = mnBuild(role()) || { groups: [], more: [] };
+OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u);
+  if (gid === 'job') { jpOpenJob((S && S.id) || DB.currentId); if (view !== v || tab) jpGo(tab ? v + ':' + tab : v); return view; }
+  const B = mnBuild(role()) || { groups: [], more: [] };
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   if (it) mnGo(g, it); else { view = v; render(); } return view; }"""
@@ -127,10 +129,43 @@ class DraftWalk(TapLint):
                 seen.add(k)
                 out.append({'vp': vp, 'user': u, 'entry': e, 'c': c, 'key': s['key'], 'title': s['title'], 'field': s['field']})
             await self.fresh(dirty, u)
+        # the job's one + (New for this job, the 11-03 job structure): each kind it offers, pressed as a person would
+        job = next((e for e in entries if e['g'] == 'job'), None)
+        if job and not self.a.views:
+            kinds = []
+            try:
+                await self.open_entry(job)
+                kinds = await self.pg.evaluate("() => { const b = document.getElementById('jp-new'); if (!b) return []; b.click(); const K = [...document.querySelectorAll('#jp-newmenu [data-jpnew]')].map(x => [x.dataset.jpnew, x.textContent.trim()]); b.click(); return K; }")
+            except Exception: pass
+            for k, lab in kinds:
+                try:
+                    await self.fresh('full', u)
+                    if not await self.press_plus(job, k, phone): continue
+                except Exception: continue
+                s = await self.pg.evaluate(SHEET_NOW)
+                if not s or not s.get('field'): continue
+                t = re.sub(r'\d', '#', s['title'] or s['key'])[:60]
+                if t in seen: continue
+                seen.add(t)
+                out.append({'vp': vp, 'user': u, 'entry': job, 'plus': k, 'c': {'key': 'plus:' + k, 'n': 0, 'label': 'New for this job > ' + lab}, 'key': s['key'], 'title': s['title'], 'field': s['field']})
+            await self.fresh('full', u)
         return out
+
+    async def press_plus(self, entry, k, phone):
+        """the job's page, its +, then the kind: two taps a person makes"""
+        await self.open_entry(entry)
+        for sel in ('#jp-new', f'#jp-newmenu [data-jpnew="{k}"]'):
+            pt = await self.pg.evaluate("s => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }", sel)
+            if not pt: self.why = 'the job\'s + offers no ' + k; return False
+            if phone: await self.pg.touchscreen.tap(pt['x'], pt['y'])
+            else: await self.pg.mouse.click(pt['x'], pt['y'])
+            await self.settle(150, 1500)
+        await self.pg.wait_for_timeout(120)
+        return True
 
     async def open_sheet(self, f, phone):
         """the page, then the control that opened the sheet, pressed as a person would"""
+        if f.get('plus'): return await self.press_plus(f['entry'], f['plus'], phone)
         # the page exactly as discovery drew it: the menu entry, a second render (some pages finish drawing on the
         # render after the first), the toast cleared. A plain OPEN left half the found sheets with no opener.
         await self.open_entry(f['entry'])
