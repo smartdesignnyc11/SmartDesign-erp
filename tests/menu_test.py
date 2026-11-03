@@ -143,7 +143,8 @@ BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups bu
   const v = b.dataset.v; if (b.dataset.tab || b.dataset.pid || /^ov/.test(v)) { if (n) out.push(`${v} carries ${n}`); return; }
   let want = null;
   if (v === 'home') want = (typeof TD2_SPEC === 'object' && TD2_SPEC[role()]) ? td2LateN() : 0;
-  else if (v === 'tkall') want = tkTasksN();
+  // the Your Day mock-up (11-03): Tasks carries no number in the menu (Today counts what is due)
+  else if (v === 'tkall') want = 0;
   else if (v === 'chat') want = p2nMsgN().n;
   else if (v === 'billing') want = billingNeeds();
   else if (MENU[role()] && MENU[role()].field) want = 0;   // the field's menu: Messages only (its tab bar carries its own)

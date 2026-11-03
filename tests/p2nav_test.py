@@ -236,16 +236,25 @@ async def team_checks(c, pg, uid, tag, phone):
     reach = await pg.evaluate("() => { const m = mnMap(); const L = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more, m.foot || []).map(s => s.split('=')[0]); return L.includes('team'); }")
     c.ok(reach, f'{tag}: Team is reachable from the menu')
     await go(pg, 'team')
-    # the Company mock-up (11-03): Team is the one people list (ydPeople), a row per person; Message is on their page
-    r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#yd-team [data-ydrow][data-sec=\"all\"]')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
-                          " return { n: rows.length, staff: ydPeople().length, chen: chen ? chen.textContent : '', msg: !!chen, heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
+    # the Company mock-up (11-03): the office's Team is the one people list (ydPeople), a row per person, Message on their
+    # page; the field keeps its Team list (p2nTeam), with Message on each row
+    office = uid not in FIELD
+    if office:
+        r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#yd-team [data-ydrow][data-sec=\"all\"]')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
+                              " return { n: rows.length, staff: ydPeople().length, chen: chen ? chen.textContent : '', msg: !!chen, heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
+    else:
+        r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#v-team .p2n-person')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
+                              " return { n: rows.length, staff: p2nTeam().length, chen: chen ? chen.textContent : '', msg: !!(chen && chen.querySelector('[data-p2nmsg]')), heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
     c.ok(r['n'] == r['staff'] and r['n'] >= 8, f"{tag}: Team lists every staff member ({r['n']} of {r['staff']})")
     if uid != 'u_chen':
         c.ok('chen@' in r['chen'] and '555-01' in r['chen'], f"{tag}: Chen's row has his phone and email ({r['chen'][:120]})")
         if await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('chat')"):
             c.ok(r['msg'], f"{tag}: Chen's row has Message")
-            await pg.evaluate("() => ydOpenPerson('u_chen')"); await pg.wait_for_timeout(250)
-            await pg.evaluate("() => document.querySelector('#yd-team [data-p2nmsg]').click()")
+            if office:
+                await pg.evaluate("() => ydOpenPerson('u_chen')"); await pg.wait_for_timeout(250)
+                await pg.evaluate("() => document.querySelector('#yd-team [data-p2nmsg]').click()")
+            else:
+                await pg.evaluate("() => [...document.querySelectorAll('#v-team .p2n-person')].find(x => /Chen Biron/.test(x.textContent)).querySelector('[data-p2nmsg]').click()")
             await pg.wait_for_timeout(300)
             o = await pg.evaluate("() => { const T = msgCur(msgMe()); return { view, direct: !!(T && T.t && T.kind === 'direct' && T.t.members.includes('u_chen')), toast: document.getElementById('toast').textContent }; }")
             c.ok(o['view'] == 'chat' and o['direct'] and 'Chen' in o['toast'], f'{tag}: Message opens a direct chat with Chen and toasts it ({o})')

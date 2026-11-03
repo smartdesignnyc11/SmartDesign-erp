@@ -346,7 +346,8 @@ function ydMsgOpen(c) {
   } catch (e) {}
   (cmOpen = c.id), (ydMsgKeep = !0), setView("comms"), window.scrollTo(0, 0);
 }
-let ydMsg = { chip: "need", sel: "", thread: !1 },
+let ydCalKeep = !1,
+  ydMsg = { chip: "need", sel: "", thread: !1 },
   ydMsgKeep = !1;
 function ydMsgRows(chip) {
   const td = today();
@@ -865,7 +866,15 @@ function ydTasksAfter() {
       q.querySelectorAll("[data-ydchip]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), tvApply(b.dataset.ydchip))));
     }
   }
-  host.querySelectorAll(".yd-teamv").forEach((x) => x.remove());
+  host.querySelectorAll(".yd-teamv, .yd-calall").forEach((x) => x.remove());
+  // the Calendar view shows the tasks; everything else dated (decisions, inspections, milestones, deliveries, expiries)
+  // is one tap away on the calendar of every dated thing, so nothing the old Calendar page held is lost
+  if ("cal" === tkMode && ydMay("calendar")) {
+    const at = host.querySelector(".t2-list") || host.lastElementChild;
+    at && at.insertAdjacentHTML("beforebegin", `<div class="yd-calall yd-ph"><button type="button" class="btn" data-ydcalall>Everything Dated</button><span class="small muted">decisions, inspections, milestones, deliveries and expiries beside the tasks</span></div>`);
+    const b = host.querySelector("[data-ydcalall]");
+    b && (b.onclick = (e) => (e.preventDefault(), (ydCalKeep = !0), setView("calendar")));
+  }
   const list = host.querySelector(".t2-list");
   if (ydTeamOn()) {
     list && (list.hidden = !0);
@@ -883,7 +892,7 @@ function ydForward() {
   if ("cos" === v && ydMay("home")) return (view = "home");
   if ("comms" === v && !ydMsgKeep && !("undefined" != typeof cmOpen && cmOpen)) return (view = "chat"), (ydMsg.chip = "need"), (ydMsg.thread = !1);
   if ("meetings" === v && !ydMsgKeep && !("undefined" != typeof mtOpen && mtOpen) && ydMay("chat")) return (view = "chat"), (ydMsg.chip = "meet"), (ydMsg.thread = !1);
-  if ("calendar" === v && ydMay("tkall")) return (view = "tkall"), (tkMode = "cal");
+  if ("calendar" === v && ydMay("tkall") && !ydCalKeep) return (view = "tkall"), (tkMode = "cal");
 }
 {
   const base = setView;
@@ -896,12 +905,13 @@ function ydForward() {
         "meetings" === v && (mtOpen = "");
       } catch (e) {}
     }
-    if ("calendar" === v && ydOffice() && ydMay("tkall")) {
+    if ("calendar" === v && ydOffice() && ydMay("tkall") && !ydCalKeep) {
       try {
         tkSetMode("cal");
       } catch (e) {}
       v = "tkall";
     }
+    "calendar" !== v && (ydCalKeep = !1);
     const r = base.call(this, v);
     ydMsgKeep = !1;
     return r;

@@ -129,12 +129,14 @@ function ydBrainRender() {
     ydAct(id, () => c.run());
     return { id: id, sec: "need", kind: it.kind, title: String(td2Txt ? td2Txt(c.line1) : it.title).replace(/^Lesson:\s*/, ""), meta: td2Txt ? td2Txt(c.why) : it.detail, act: isOwner() ? c.verb || "Open" : "" };
   });
-  const groups = ["learn", "change", "lesson"]
-    .map((k) => {
-      const R = rows.filter((r) => r.kind === k);
-      return R.length ? ydSectionHtml(YD_BRAIN_GROUP[k], R.length, "", R) : "";
-    })
-    .join("");
+  const groups = rows.length
+    ? `<section class="yd-card">${["learn", "change", "lesson"]
+        .map((k) => {
+          const R = rows.filter((r) => r.kind === k);
+          return R.length ? `<div class="yd-sh"><h3>${esc(YD_BRAIN_GROUP[k])}</h3><span class="n">${R.length}</span></div>${R.map(ydRowHtml).join("")}` : "";
+        })
+        .join("")}</section>`
+    : "";
   let read = "";
   if ("read" === ydBrainChip) {
     const M = (DB.meetings || []).map((m, i) => ({ id: "rm" + i, sec: "read", title: `Notes: ${m.title}`, meta: fmt(m.date), act: "" }));
@@ -572,7 +574,7 @@ function ydCoForward() {
     return r;
   };
 }
-"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cohub", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", playbook: "standard" });
+"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cohub", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", playbook: "standard", cos: "home" });
 // the firm's settings page (the job settings page in company mode) is lit as Company Settings
 if ("function" == typeof mnCur) {
   const base = mnCur;
