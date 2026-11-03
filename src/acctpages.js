@@ -78,11 +78,13 @@ function acBillNeeds(pid) {
       let why = r.what && r.kind !== "draft" ? `${r.what}.` : "";
       if ("draft" === r.kind) why = `${r.what}: written, not sent. The client has not seen it.`;
       else if (p) {
-        const BA = billedAhead(p.id),
-          TB = toBill(p.id);
-        BA.n
-          ? (why += ` ${BA.n} line${1 === BA.n ? "" : "s"} Billed Ahead of the Work, ${money(BA.total)}, ${1 === BA.n ? "is" : "are"} held${TB.held > 0.005 ? `, and ${money(TB.held)} to bill with them (${TB.heldRows.map((h) => String(h.why || "").split(":")[0]).join("; ")})` : ""}.`)
-          : r.why && (why += ` ${r.why.charAt(0).toUpperCase() + r.why.slice(1)}.`);
+        // the row's own reason is the queue's (readyToBill: what the application bills and what it holds, with the one
+        // billed-ahead figure); Needs You never composes a second sentence with its own figures. What else is held on
+        // the job is toBill's held rows, named by their own reasons.
+        const TB = toBill(p.id),
+          extra = TB.heldRows.filter((h) => !(r.rtb && r.rtb.key && h.hid && h.hid.endsWith(r.rtb.key)));
+        r.why && (why += ` ${r.why.charAt(0).toUpperCase() + r.why.slice(1)}.`);
+        extra.length && TB.held > 0.005 && (why += ` Held with it: ${extra.map((h) => String(h.why || "").replace(/\.$/, "")).join("; ")}.`);
       }
       out.push({
         id: r.id,

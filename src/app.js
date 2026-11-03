@@ -34766,7 +34766,9 @@ companyBalance = function () {
     (B.under = r2(W.reduce((a, w) => a + w.under, 0))),
     // what is set aside is cash received for work not yet done (BACKLOG §1.35 item 1), never Over-Billed (WIP)
     (B.setAside = SA.total),
-    (B.setAsideBy = SA.rows),
+    // figures, never the records themselves: the balance is read, sent to the analyst and compared, so it carries
+    // each job by id and name (it embedded whole projects, so a job's own fields moved the balance)
+    (B.setAsideBy = SA.rows.map((x) => ({ pid: x.p.id, name: shortName(x.p), collected: x.collected, earned: x.earned, amt: x.amt }))),
     (B.cashToday = r2(B.cash - -B.cards - B.ap - B.payrollAccrued)),
     (B.trulyOurs = r2(B.cashToday - B.setAside)),
     (B.available = r2(B.cash - B.clientFunds)),
@@ -35818,7 +35820,7 @@ function stsWhy(X) {
       B.cards ? `${money(-B.cards)} owed on cards` : "",
       B.ap ? `${money(B.ap)} of unpaid bills` : "",
       B.payrollAccrued ? `${money(B.payrollAccrued)} of payroll due` : "",
-      B.setAside ? `${money(B.setAside)} set aside (cash received for work not yet done: ${(B.setAsideBy || []).filter((x) => x.amt > 0.005).map((x) => `${shortName(x.p)} ${money(x.amt)}`).join(", ")})` : "",
+      B.setAside ? `${money(B.setAside)} set aside (cash received for work not yet done: ${(B.setAsideBy || []).filter((x) => x.amt > 0.005).map((x) => `${x.name} ${money(x.amt)}`).join(", ")})` : "",
     ].filter(Boolean);
   return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low after the set-aside (${money(X.low)}) is lower, so it is the figure` : ""}; billed and unpaid is never set aside${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
 }
@@ -36910,7 +36912,7 @@ cashForecast = function () {
   try {
     const A = setAsideWeeks(F.weeks);
     F.weeks.forEach((w, i) => {
-      (w.setAside = A[i] ? A[i].total : 0), (w.setAsideBy = A[i] ? A[i].by : []), (w.ours = r2(w.balance - w.setAside));
+      (w.setAside = A[i] ? A[i].total : 0), (w.setAsideBy = A[i] ? A[i].by.map((x) => ({ pid: x.p.id, name: shortName(x.p), amt: x.amt })) : []), (w.ours = r2(w.balance - w.setAside));
     }),
       (F.lowOurs = r2(Math.min(...F.weeks.map((w) => w.ours))));
   } catch (e) {
@@ -174351,7 +174353,7 @@ predDef("safeToSpend", {
       // the set-aside, job by job: what each job received less what it has earned (BACKLOG §1.35 item 1)
       ...(B.setAsideBy || [])
         .filter((x) => x.amt > 0.005)
-        .map((x) => [`Set aside: ${shortName(x.p)}, ${money(x.collected)} received less ${money(x.earned)} earned`, -x.amt]),
+        .map((x) => [`Set aside: ${x.name}, ${money(x.collected)} received less ${money(x.earned)} earned`, -x.amt]),
       ["Ours today", B.trulyOurs, "total"],
       ["13-week low after the set-aside", X.low, "total"],
       ["Safe to spend", X.safe, "figure"],

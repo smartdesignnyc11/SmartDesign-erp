@@ -57,7 +57,9 @@ async def s1_earned(p, S):
         # never billed further ahead and never leaves measured work unbilled. Its application bills the lines behind their
         # measure and holds the lines ahead at 0, and the row says both. Round one held the whole application, which left
         # rough electrical measured 100% and billed 85% at month end; this replaces it.
-        want = r'^bills \$12,651 of measured work on 2 lines; holds %d lines billed ahead, net \$[\d,]+, not counting the 20%% deposit$' % st['ahead']
+        # one billed-ahead figure (BACKLOG §1.35 item 4, the Accounting lane 11-03, an approved definition): the row names
+        # Billed Ahead of the Work on its lines, never a net of the lines ahead and behind
+        want = r'^bills \$12,651 of measured work on 2 lines; holds the lines billed ahead \(Billed Ahead of the Work \$[\d,]+ on %d lines\)$' % st['ahead']
         S.check(st['app'] == [12651.25] and st['why'] and re.search(want, st['why'][0]) and all('ahead of the work' in w for _, w in st['jobHeld']),
                 'a job billed ahead on the whole bills its measured lines and holds only the lines ahead, with the reason', f"application {st['app']} {st['why']}; job-level holds {st['jobHeld']}")
         # the foreman measures rough electrical at 100%; the client approves CO-2026-002 and the treads are done

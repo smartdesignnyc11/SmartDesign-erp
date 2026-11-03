@@ -99,9 +99,16 @@ async def run(c, pg, u, phone):
             c.ok(not short, f'PHONE {tag}: buttons under 44px: {short[:4]}')
         t = F['text']
         if v == 'billing':
-            for s in ('$17,080', '$12,651', '$2,600', '$21,350 recorded, not in the bank', 'Billed Ahead of the Work, $66,470', '$10,170'):
+            for s in ('$17,080', '$12,651', '$2,600', '$21,350 recorded, not in the bank', 'Billed Ahead of the Work $66,470', '$10,170'):
                 c.ok(money_in(t, s), f'FIGURES {tag}: {s!r} on Needs You')
             c.ok('$53,819' not in t, f'FIGURES {tag}: the netted $53,819 is gone')
+            # one question, one number: each Needs You row's figures are the queue's own (readyToBill) and billedAhead()'s
+            Q = await pg.evaluate(r"""() => [...document.querySelectorAll('.view.on .ac-needs tr[data-edit^="bl:rtb:"]')].map(tr => {
+                  const id = tr.dataset.edit.slice(3), r = billingRows().find(x => x.id === id), txt = tr.innerText;
+                  const amt = +((txt.match(/^\$([\d,]+) ready to bill/) || [0, '0'])[1].replace(/,/g, ''));
+                  const ahead = [...txt.matchAll(/Billed Ahead of the Work \$([\d,]+)/g)].map(m => +m[1].replace(/,/g, ''));
+                  return { id, amt, want: r ? Math.round(r.amount) : null, ahead, aheadWant: r && r.job ? Math.round(billedAhead(r.job.id).total) : null }; })""")
+            c.ok(Q and all(q['amt'] == q['want'] and all(abs(a - q['aheadWant']) <= 1 for a in q['ahead']) for q in Q), f"FIGURES {tag}: each Needs You row prints the queue's amount and billedAhead()'s figure: {Q}")
             c.ok(re.search(r'Current\s*\n?\s*\$92,265', t) and '$15,668' in t, f'FIGURES {tag}: Collections current $92,265 and retainage $15,668')
             c.ok(len(re.findall(r'Reminder \d+/\d+', t)) >= 2, f'FIGURES {tag}: each open invoice names its next reminder')
             c.ok(F['cap'] == 4, f"FIGURES {tag}: Needs You 4 (three to bill and the Rivera chase), got {F['cap']}")
