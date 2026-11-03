@@ -7,7 +7,9 @@ Run: python3 po_gates_test.py"""
 import asyncio
 from harness import async_playwright, open_app, sign_in, Checks
 
-ROW = """() => { const p = DB.projects.find(x => x.id === 'p121'); const r = buyList(p.id).find(x => x.kind === 'line' && /Trim, doors/.test(x.name));
+# the Trim, doors, paint & hardware line (estimate:es1:l10), as itself or, since the 11-03 review linked the demo's
+# materials to their lines, through a material bought on it (base molding): the gates read the line either way
+ROW = """() => { const p = DB.projects.find(x => x.id === 'p121'); const r = buyList(p.id).find(x => (x.kind === 'line' && /Trim, doors/.test(x.name)) || (x.lineKey === 'estimate:es1:l10' && !x.ordered && !x.dec));
   return r ? JSON.stringify(flRowKey(r)) : null }"""
 SHEET = """(k) => { const o = JSON.parse(k); buyOrderDialog(o); return true }"""
 
@@ -31,6 +33,8 @@ async def main():
             # 1. the sheet: Tino is stopped as soon as he is chosen, and Issue PO creates nothing
             await pg.evaluate(SHEET, key); await pg.wait_for_timeout(300)
             await pg.select_option('#mbm [data-f="vendor"]', label='Tino'); await pg.wait_for_timeout(200)
+            # a material carries no price of its own until quoted (11-03): the person types the price Tino gave
+            await pg.fill('#mbm [data-f="qty"]', '1'); await pg.fill('#mbm [data-f="price"]', '1000'); await pg.wait_for_timeout(200)
             s = await sheet_state(pg)
             c.ok('no certificate of insurance' in s['paper'] and 'PO-2026-047' in s['paper'] and s['paperBad'], f'{tag}: the sheet says Tino has no COI and an order open ({s})')
             await pg.click('#mbm-ok'); await pg.wait_for_timeout(400)
