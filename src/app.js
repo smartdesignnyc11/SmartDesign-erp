@@ -199637,7 +199637,7 @@ const MN_JOBS = () => [
   // heading is the group's name, as All Projects is Projects); opts.unless: hidden for a role that has that page.
   MN_WORK = [
     // the person's jobs come first (mnJobItems), then All Projects
-    MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1 }]], { proj: 1, jobs: 1 }),
+    MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1, nostrip: 1 }]], { proj: 1, jobs: 1 }),
     // procurement P1 (docs/PROCUREMENT_PLAN.md section 4); Requests and Route (a request is a need on the Buy Board, the
     // store run the driver's) sat under More. The controller cannot open the Buy Board: the Purchasing overview is his.
     MN_G("buy", "Purchasing", "buy", [
