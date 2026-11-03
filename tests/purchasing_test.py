@@ -768,7 +768,7 @@ async def s_picks(p, c):
             # every Needs You row that can be bought has a check box (a need marked ordered with no order is found, not bought)
             n = await pg.evaluate("() => { const R = [...document.querySelectorAll('.view.on [data-pusec=\"mine\"] [data-purow]')]; return [R.filter(r => !/Find the Order/.test(r.innerText)).length, R.filter(r => r.querySelector('[data-bbpick]')).length]; }")
             c.ok(n[0] >= 6 and n[0] == n[1], f'picks {dev}: every Needs You row that can be bought has a check box ({n})')
-            if n < 2: continue
+            if n[0] < 2: continue
             # Paint has no price: a line with no price makes Ask for Quotes the blue
             pick = lambda nm: pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text=nm).first.locator('[data-bbpick]')
             for nm in ('Paint', 'Bath faucet'):
