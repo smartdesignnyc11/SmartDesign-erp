@@ -120,13 +120,13 @@ class Component extends DCLogic {
     ];
     const sets = {
       'To Review': [review, '15 lines no bill, order, invoice, receipt or payroll line explains yet. Tap a line to see what it would link to before you confirm.'],
-      'Money In': [moneyIn, 'Client payments recorded in Billing that the bank has not shown. They are not collected and not cash until a bank line backs them.'],
-      'Receipts': [receipts, 'Captured at the counter, waiting on a yes. Approving makes them payable and billable.'],
+      'Money In': [moneyIn, 'Client payments recorded in Billing that the bank has not shown. They are not collected and not cash until a bank line backs them. Billing chases them from its Needs You; they match here when a statement shows them.'],
+      'Receipts': [receipts, 'Captured at the counter. The job\'s PM approves them on his Approvals, never the person who bought. Approving makes them payable and billable.'],
       'Matched': [matched, 'Every line already tied to the line it pays. Search every line from here.']
     };
     const [list, lead] = sets[T];
     const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: r.tone === Rd ? '600' : '400' }, r));
-    const chips = [['To Review', '15'], ['Money In', '2'], ['Receipts', '2'], ['Matched', '']].map(([l, c]) => ({
+    const chips = [['To Review', '15'], ['Money In', ''], ['Receipts', ''], ['Matched', '']].map(([l, c]) => ({
       label: c ? l + ' ' + c : l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: l })
     }));

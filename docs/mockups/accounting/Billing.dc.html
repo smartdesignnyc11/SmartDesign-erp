@@ -70,7 +70,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         </div>
       </sc-for>
     </div>
-    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">Retainage held by clients <b style="color: #172033">$15,668</b>, in its own bucket until release.</div>
+    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">Retainage held by clients <b style="color: #172033">{{retainage}}</b>, in its own bucket until release.</div>
     <sc-for list="{{chase}}" as="c" hint-placeholder-count="2">
       <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px; border-top: 1px solid #eef1f6; text-decoration: none; color: #172033">
         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
@@ -104,6 +104,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       </a>
     </sc-for>
     <sc-if value="{{empty}}" hint-placeholder-val="{{false}}"><div style="padding: 16px 14px; font-size: 14px; color: #5b6578">Nothing of this kind on this job.</div></sc-if>
+    <a href="#" style="display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-top: 1px solid #eef1f6; font-size: 14px; font-weight: 600">Estimates still being priced or sent are in Sales and Clients, Estimates</a>
   </div>
 </div>
 </x-dc>
@@ -120,7 +121,9 @@ class Component extends DCLogic {
     ];
     const needs = allNeeds.filter((n) => J === 'All Jobs' || n.job === J);
     const primary = { 'All Jobs': 'Draft the Invoice, $17,080', '45 Cranberry St': 'Draft the Invoice, $17,080', '121 State Street': 'Draft the Application, $12,651', '140 Prospect Place': 'Draft the Invoice, $2,600' }[J];
-    const aging = [ { k: 'Current', v: '$92,265' }, { k: '1 to 30 Days', v: '$0' }, { k: '31 to 60 Days', v: '$0' }, { k: 'Over 60 Days', v: '$0' } ];
+    const openBy = { 'All Jobs': '$92,265', '121 State Street': '$68,265', '140 Prospect Place': '$24,000', '45 Cranberry St': '$0' };
+    const aging = [ { k: 'Current', v: openBy[J] }, { k: '1 to 30 Days', v: '$0' }, { k: '31 to 60 Days', v: '$0' }, { k: 'Over 60 Days', v: '$0' } ];
+    const retainage = (J === 'All Jobs' || J === '121 State Street') ? '$15,668' : '$0';
     const chase = [
       { job: '121 State Street', no: 'INV-2026-038', who: 'Sarah & David Klein · last touch [LAST TOUCH]', amt: '$68,265', next: 'Reminder 9/15', tone: '#5b6578' },
       { job: '140 Prospect Place', no: 'INV-2026-D140-R', who: 'Jessop family · last touch [LAST TOUCH]', amt: '$24,000', next: 'Reminder 9/15', tone: '#5b6578' }
@@ -141,8 +144,7 @@ class Component extends DCLogic {
       { kind: 'Invoices', job: '45 Cranberry St', no: 'INV-2026-D45-R', what: 'Design retainer', amt: '$5,000', status: 'Not in the bank', tone: R },
       { kind: 'Estimates', job: '140 Prospect Place', no: 'EST-2026-D140', what: 'Professional services', amt: '$191,800', status: 'Converted', tone: G },
       { kind: 'Estimates', job: '45 Cranberry St', no: 'EST-2026-D45', what: 'Design services', amt: '$42,700', status: 'Converted', tone: G },
-      { kind: 'Estimates', job: '121 State Street', no: 'EST-2026-014', what: 'Garden unit and 3rd floor renovation', amt: '$485,000', status: 'Converted', tone: G },
-      { kind: 'Estimates', job: '121 State Street', no: 'EST-13881', what: 'Full renovation, superseded', amt: '$825,152', status: 'Draft', tone: N }
+      { kind: 'Estimates', job: '121 State Street', no: 'EST-2026-014', what: 'Garden unit and 3rd floor renovation', amt: '$485,000', status: 'Converted', tone: G }
     ];
     const docs = all.filter((d) => (K === 'All' || d.kind === K) && (J === 'All Jobs' || d.job === J)).map((d, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, d));
     const chips = ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'].map((l) => ({
@@ -151,7 +153,7 @@ class Component extends DCLogic {
     }));
     const jobs = ['All Jobs', '121 State Street', '45 Cranberry St', '140 Prospect Place'].map((l) => ({ label: l, on: J === l ? 'true' : 'false', bg: J === l ? '#eef3ff' : 'transparent', pick: () => this.setState({ job: l, jobsOpen: false }) }));
     return {
-      needs, needsCount: String(needs.length), primary, aging, chase, docs, chips, jobs, empty: docs.length === 0,
+      needs, needsCount: String(needs.length), primary, aging, retainage, chase, docs, chips, jobs, empty: docs.length === 0,
       jobLabel: J, jobsOpen: this.state.jobsOpen, jobsExpanded: this.state.jobsOpen ? 'true' : 'false',
       toggleJobs: () => this.setState({ jobsOpen: !this.state.jobsOpen, newOpen: false }),
       newOpen: this.state.newOpen, newExpanded: this.state.newOpen ? 'true' : 'false', newBg: this.state.newOpen ? '#2a3a5e' : 'transparent',

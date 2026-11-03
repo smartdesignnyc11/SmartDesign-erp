@@ -62,6 +62,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
               <span style="color: #5b6578">{{d.kind}}</span><b>{{d.no}}</b><span>{{d.job}}</span><span>{{d.what}}</span><b style="text-align: right">{{d.amt}}</b><span style="padding-left: 24px; font-weight: 700; color: {{d.tone}}">{{d.status}}</span><span style="color: #5b6578">{{d.date}}</span>
             </div>
           </sc-for>
+          <a href="#" style="display: block; padding: 12px 18px; border-top: 1px solid #eef1f6; font-size: 14px; font-weight: 600">Estimates still being priced or sent are in Sales and Clients, Estimates</a>
         </div>
       </section>
       <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
@@ -101,7 +102,6 @@ class Component extends DCLogic {
       R('Accounting', { bg: '#1b2640' }),
       R('Billing', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '4' }),
       R('Banking', { pad: '32px', fs: '14px', color: '#c5cde0' }),
-      R('Bills and Payroll', { pad: '32px', fs: '14px', color: '#c5cde0' }),
       R('Reports')
     ];
     const allNeeds = [
@@ -128,14 +128,15 @@ class Component extends DCLogic {
       { kind: 'Invoice', k: 'Invoices', job: '45 Cranberry St', no: 'INV-2026-D45-R', what: 'Design retainer', amt: '$5,000', status: 'Not in the bank', tone: Rd, date: '7/28' },
       { kind: 'Estimate', k: 'Estimates', job: '140 Prospect Place', no: 'EST-2026-D140', what: 'Professional services, 140 Prospect Place', amt: '$191,800', status: 'Converted', tone: G, date: '8/26' },
       { kind: 'Estimate', k: 'Estimates', job: '45 Cranberry St', no: 'EST-2026-D45', what: 'Design services, 45 Cranberry St', amt: '$42,700', status: 'Converted', tone: G, date: '7/20' },
-      { kind: 'Estimate', k: 'Estimates', job: '121 State Street', no: 'EST-2026-014', what: 'Garden unit and 3rd floor renovation', amt: '$485,000', status: 'Converted', tone: G, date: '7/15' },
-      { kind: 'Estimate', k: 'Estimates', job: '121 State Street', no: 'EST-13881', what: 'Full renovation, superseded', amt: '$825,152', status: 'Draft', tone: N, date: '3/16' }
+      { kind: 'Estimate', k: 'Estimates', job: '121 State Street', no: 'EST-2026-014', what: 'Garden unit and 3rd floor renovation', amt: '$485,000', status: 'Converted', tone: G, date: '7/15' }
     ];
     const docs = ln(all.filter((d) => (K === 'All' || d.k === K) && (J === 'All Jobs' || d.job === J)));
     const pill = (l, on, pick) => ({ label: l, on: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick });
     const chips = ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'].map((l) => pill(l, K === l, () => this.setState({ kind: l })));
     const jobs = ['All Jobs', '121 State Street', '45 Cranberry St', '140 Prospect Place'].map((l) => pill(l, J === l, () => this.setState({ job: l })));
-    const aging = ln([ { k: 'Open, 2 invoices', v: '$92,265' }, { k: 'Current', v: '$92,265' }, { k: '1 to 30 days late', v: '$0' }, { k: '31 to 60 days late', v: '$0' }, { k: 'Over 60 days late', v: '$0' }, { k: 'Retainage held by clients', v: '$15,668' } ]);
+    const openBy = { 'All Jobs': ['Open, 2 invoices', '$92,265'], '121 State Street': ['Open, 1 invoice', '$68,265'], '140 Prospect Place': ['Open, 1 invoice', '$24,000'], '45 Cranberry St': ['Open, none', '$0'] }[J];
+    const retainage = (J === 'All Jobs' || J === '121 State Street') ? '$15,668' : '$0';
+    const aging = ln([ { k: openBy[0], v: openBy[1] }, { k: 'Current', v: openBy[1] }, { k: '1 to 30 days late', v: '$0' }, { k: '31 to 60 days late', v: '$0' }, { k: 'Over 60 days late', v: '$0' }, { k: 'Retainage held by clients', v: retainage } ]);
     const chase = [
       { job: '121 State Street', no: 'INV-2026-038 · Sarah & David Klein', amt: '$68,265', who: 'Due 9/15 · reminder on the due date · last touch [LAST TOUCH]' },
       { job: '140 Prospect Place', no: 'INV-2026-D140-R · Jessop family', amt: '$24,000', who: 'Due 9/15 · reminder on the due date · last touch [LAST TOUCH]' }

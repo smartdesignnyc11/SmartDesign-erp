@@ -42,7 +42,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
         <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
           <div style="padding: 12px 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1f6">
-            <b style="flex: 1; font-size: 17px">Needs You · 5</b>
+            <b style="flex: 1; font-size: 17px">Needs You · 4</b>
             <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 14px; font-weight: 600">Continue the August Close</button>
           </div>
           <sc-for list="{{needs}}" as="n" hint-placeholder-count="5">
@@ -89,23 +89,22 @@ class Component extends DCLogic {
       R('Billing', { pad: '32px', fs: '14px', color: '#c5cde0' }),
       R('Banking', { pad: '32px', fs: '14px', color: '#c5cde0', count: '15' }),
       R('Bills and Payroll', { pad: '32px', fs: '14px', color: '#c5cde0', count: '4' }),
-      R('Books', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '5' }),
+      R('Books', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '4' }),
       R('Reports')
     ];
     const T = this.state.tab, Rd = '#b91c1c', A = '#b45309', G = '#15803d', K = '#172033';
-    const tabs = ['Close', 'Ledger', 'Controls', 'Budget', 'Tax and 1099'].map((l) => ({ label: l, color: l === T ? '#172033' : '#5b6578', fw: l === T ? '700' : '500', line: l === T ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
+    const tabs = ['Close', 'Ledger', 'Controls', 'Operating Budget', 'Tax and 1099'].map((l) => ({ label: l, color: l === T ? '#172033' : '#5b6578', fw: l === T ? '700' : '500', line: l === T ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
     const needs = ln([
       { title: 'Close August: 15 of 24 checks open', why: '7 bank lines not matched ($52,406), Chase reconciled only through June, 2 matches not confirmed. Books by the 10th.' },
       { title: 'INV-2026-031, Deposit 20%, $97,000, booked as the first draw', why: 'Confirm it as the first draw, or reverse and re-post it as the deposit with a reason, dated the first open day.' },
       { title: 'Over-Billed (WIP) against Billed Ahead of the Work', why: '121 State Street $131,058 against $66,470, $64,587 apart; 140 Prospect Place $22,512 against $0.' },
-      { title: 'Amex August is $365.64 apart from its statement', why: 'Our records 13 lines, $41,044.51; the statement 14 lines, $40,678.87.' },
       { title: 'INV-2026-035 short-paid by $0.16', why: 'Ledger 1100 $92,265.16 against $92,265.00 open. Collect it or write it off with a reason.' }
     ]);
     const views = {
       'Close': ['Close August 2026', '24 checks · 9 done · 15 open', [
         { k: 'Bank lines not matched to a line', sub: 'August · 0 with a signed exception', v: '7 · $52,406', tone: Rd },
         { k: 'Chase Business Checking not reconciled through 8/31', sub: 'Last reconciled 6/30', v: '27 lines', tone: Rd },
-        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart from the statement', v: '13 lines', tone: Rd },
+        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart: our 13 lines $41,044.51, the statement\'s 14 $40,678.87', v: '13 lines', tone: Rd },
         { k: 'Home Depot Pro Xtra not reconciled through 8/31', sub: 'Never reconciled', v: '1 line', tone: Rd },
         { k: 'Bank matches not confirmed by a person', sub: 'AMP-311 · WW-2026-118', v: '2', tone: A },
         { k: 'Client payments recorded, not in the bank after 5 business days', sub: 'Rivera family, 7/30 and 8/14', v: '2', tone: A },
@@ -113,7 +112,7 @@ class Component extends DCLogic {
         { k: 'Budget variances over 10% and $2,500 with no commentary', sub: 'Operating budget', v: '5', tone: A },
         { k: 'Jobs without a cost-to-complete review this month', sub: '121 State · 45 Cranberry · 140 Prospect', v: '3', tone: A },
         { k: 'Job-cost lines with no project', sub: 'Zelle to M Rodriguez, 8/29', v: '1', tone: A },
-        { k: 'Posts at the close: WIP adjustment', sub: '121 State $58,011 · 45 Cranberry $5,998, to 2500 and 1200', v: '$64,008', tone: K, fw: '600' },
+        { k: 'Posts at the close: WIP adjustment', sub: 'The WIP schedule\'s Over-Billed (WIP), job by job, to 2500 and 1200: one figure with Job Profitability', v: '[WIP SCHEDULE TOTAL]', tone: K, fw: '600' },
         { k: 'Posts at the close: accrued wages', sub: 'Payroll 8/17 to 8/28 $16,040 · 45 Cranberry timesheets $3,699', v: '$19,739', tone: K, fw: '600' } ]],
       'Ledger': ['The Ledger', 'Journal, accounts and trial balance · append-only', [
         { k: 'Journals to approve', sub: 'Drafted by the controller, posted by Alan', v: '0', tone: G },
@@ -128,7 +127,7 @@ class Component extends DCLogic {
         { k: 'Held by a control', sub: 'Window Works bank details changed [DATE]: confirm on a known number', v: '1', tone: Rd },
         { k: 'Owner sees payments above', sub: 'And first payments, bank-detail changes, over the PO, regardless of size', v: '$5,000', tone: K },
         { k: 'Early-payment discounts available', sub: 'No discount offered on open bills', v: '$0', tone: K } ]],
-      'Budget': ['Operating Budget 2026', 'Reforecast Q3 active · by entity, account and month', [
+      'Operating Budget': ['Operating Budget 2026', 'Reforecast Q3 active · by entity, account and month', [
         { k: 'Revenue, year to date', sub: 'Budget $154,074', v: '$142,759', tone: A },
         { k: 'Operating expenses, year to date', sub: 'Budget $20,120 · includes $14,841 Needs Category', v: '$39,595', tone: Rd },
         { k: 'Net profit, year to date', sub: 'Budget $18,863', v: '−$5,330', tone: Rd } ]],

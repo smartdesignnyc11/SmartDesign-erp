@@ -80,7 +80,7 @@ class Component extends DCLogic {
     const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400', tone: '#172033', sub: '' }, r));
     const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
     const rail = [
-      R('Today', { count: '6' }), R('Tasks', { count: '12' }), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
+      R('Today', { count: '6' }), R('Tasks'), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
       R('Reports', { bg: '#1b2640' }),
       R('Job Profitability', { pad: '32px', fs: '14px', color: '#c5cde0' }),
       R('Cash', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' }),

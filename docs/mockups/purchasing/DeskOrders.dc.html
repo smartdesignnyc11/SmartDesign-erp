@@ -106,7 +106,7 @@ class Component extends DCLogic {
     const P = this.state.panel;
     const sub = (label, n, href, on) => ({ label, n, has: n > 0, href, bg: on ? '#2a3a5e' : 'transparent', color: on ? '#fff' : '#c5cde0', fw: on ? '600' : '400' });
     const rail = { top: [{ label: 'Today', n: 14 }, { label: 'Tasks', n: 3 }, { label: 'Messages', n: 2 }],
-      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html', true), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 3, 'Stock.dc.html')] };
+      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html', true), sub('Quotes', 0, 'Quotes.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html')] };
     const R = '#b91c1c', A = '#b45309', G = '#15803d';
     const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', hasAct: !!r.act }, r));
     const needs = [
@@ -115,7 +115,7 @@ class Component extends DCLogic {
       { kind: 'CLAIM · DAMAGED', tone: A, title: 'Range, 36" dual fuel · Diamond Appliances · 121 State Street', why: 'Dented side panel; waiting on Bertazzoni for a panel or a swap. 4 days open.', amt: '$8,990', act: 'Chase Diamond' },
       { kind: 'RETURN · 11 DAYS LEFT', tone: A, title: 'Lavatory faucet, chrome · Ferguson · 45 Cranberry St', why: 'RMA-44812; box in the office; replacement already bought. Window closes 9/14.', amt: '$1,880', act: 'Put on the Next Run' },
       { kind: 'CREDIT LANDED', tone: G, title: '8 surplus cup pulls · House of Antique Hardware', why: 'Amex credit 8/31; paid $148, $22 kept as restock.', amt: '$126', act: 'Confirm the Match' },
-      { kind: 'RETURN · WINDOW CLOSED', tone: R, title: '38 sq ft zellige · Bedrosians · 45 Cranberry St', why: 'Closed 44 days ago; $413 back after a 25% restock if they bend.', amt: '$551', act: 'Ask for an RMA' },
+      { kind: 'RETURN · WINDOW CLOSED', tone: R, title: '38 sq ft zellige · Bedrosians · 45 Cranberry St', why: 'Paid $551. Closed 44 days ago; $413 back after a 25% restock if they bend.', amt: '$413', act: 'Ask for an RMA' },
       { kind: 'MONEY IN, NOTHING BEHIND IT', tone: A, title: 'Bedrosians tile credit memo, bank line 8/25', why: 'No return or claim matches it yet.', amt: '$215', act: 'Attach to a Return' },
       { kind: 'PAID ABOVE THE BEST PRICE', tone: A, title: '2 store receipts, Home Depot — Flatbush 8/14 and Gowanus 8/27', why: 'Cheaper at Brooklyn Lumber — Red Hook and Quality Building Supply — Park Slope.', amt: '$343', act: 'Open the Receipts' }
     ];
@@ -131,7 +131,7 @@ class Component extends DCLogic {
       { id: 'needs', k: 'Needs You', v: String(needs.length), sub: 'Money to hold or recover', tone: R },
       { id: 'back', k: 'Owed Back to Us', v: '$2,419', sub: '3 returns open', tone: A },
       { id: 'over', k: 'Over the Order', v: '$3,800', sub: 'Window Works, PO-2026-044', tone: R },
-      { id: 'open', k: 'Committed, Not Yet Billed', v: '$39K', sub: '2 open orders', tone: '#172033' }
+      { id: 'open', k: 'Committed, Not Yet Billed', v: '$38,721', sub: '2 open orders', tone: '#172033' }
     ];
     const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
     const orders = [

@@ -32,6 +32,8 @@ are filters, never tabs. Inside a record (a need, an order, a vendor) everything
 - First screen: Needs You (acknowledge 1, order today 1, bids 2, marked ordered with no order 2, no price 3); Waiting on Someone Else (submittal 2, decision 1, the PM's material split 4); Later folded.
 - Numbers: 9 = its rows. Today's badge 17 counted late rows that wait on others; those now name who instead.
 - The +: Buy From an Estimate or Invoice (job, document, lines), Restock the Warehouse, Blank Need (last, and it asks for the line before approval).
+- From the document too: the estimate's, change order's and invoice's own lines carry Buy These Lines (single or multi-select, phone too; PROCUREMENT_PLAN §6), which opens the same order sheet with every line linked. One order path, two doors.
+- Every row names its estimate or change-order line. A need with none says so as its reason ("No estimate line: link one"); `[ESTIMATE LINE]` in the mock marks the five rows where the build showed only "Material".
 - Phone: cards with labelled Quantity, On Site, Order By; stock and last price on the row; pick lines, then one sticky bar with Ask for Quotes or Order.
 
 **Quotes** (Needs You 0 today)
@@ -74,13 +76,13 @@ are filters, never tabs. Inside a record (a need, an order, a vendor) everything
 - The +: New Vendor, filled from a mail or a card photo.
 - Phone: insurance, W-9 and paid on every row (the census found the phone dropped insurance).
 
-**Stock** (Needs You 3)
+**Stock** (Needs You 1)
 - What: what the firm owns and where it is: warehouse, truck or a site.
 - Label: Stock.
 - Holds: consumables and tools; the log is per item, one tap down.
 - Who and why: Chen ("use what we have before buying"); Alex picks from it on the Route; the foreman sees his site's tools on Site.
-- First screen: PEX fittings at their reorder point; 18 rolls of blue tape and 12 sheets of Type X that today's needs could use.
-- Numbers: 3.
+- First screen: PEX fittings at their reorder point. Below, with no count, Wanted by a Need: 18 rolls of blue tape and 12 sheets of Type X that today's needs could use (the pick is decided, and counted, on the need's Buy Board row).
+- Numbers: 1 (review, 11-03: was 3, which counted the tape and the drywall a second time).
 - The +: New Stock Item, Count a Shelf, Move a Tool.
 - Phone: name, quantity and where on every row; filters All, Materials, Tools, At a job.
 
@@ -113,7 +115,8 @@ are filters, never tabs. Inside a record (a need, an order, a vendor) everything
 **Count:** before, 9 pages and 19 tab screens (plus Materials' 6 on the job); after, 6 pages and no tab rows.
 
 ## 4. Who sees what
-- **Coordinator:** all six, with the counts above. Phone bar: Today, Buy Board, Deliveries, Messages.
+- **Coordinator:** all six, in the approved 11-03 order (Buy Board, Orders, Quotes, Deliveries, Vendors) with Stock last, and the counts above. No Design menu. Phone bar: Today, Buy Board, Deliveries, Messages.
+- **Everyone else with the menu (PM, owner, billing, controller):** the five approved items; Stock is the coordinator's and the driver's register, and its signal reaches the rest on the Buy Board row, the Route and the job's Site.
 - **PM:** the menu, opening on his jobs; mostly the job's Purchasing tab. Rows waiting on him (4 material splits) reach his Today.
 - **Owner:** the menu, no counts; Today carries only escalations (Window Works' $3,800, a bank change, a claim past its deadline).
 - **Foreman:** no Purchasing menu. He asks from Raise and receives from Site's "Coming to Site" with the same Receive sheet.
@@ -147,3 +150,40 @@ are filters, never tabs. Inside a record (a need, an order, a vendor) everything
 Revised during review: the desktop Buy Board's Job and Line merged into the Need column (eight columns did not fit beside the panel).
 Phone targets raised to 44px (two segmented switches and three inline links). The Owed Back rows were made to sum to $2,419.
 Checked by rendering each screen at its width: no sideways scroll at 390, one blue at most per screen, every handler runs.
+
+## 8. Chief of staff review (11-03, overnight, under Alan's "keep doing this till it's done")
+**Verdict: build after the must-fix list below.** The six-page shape, Needs You first, filters for tabs and buying from the line all
+follow the approved job pattern. Grades (of the ten questions): Buy Board 8, Quotes 8 (thin evidence: nothing real out today),
+Orders 8, Deliveries 8, Vendors 7, Stock 8.
+
+**The four open calls, decided as Alan would (logged in docs/DECISIONS.md, 11-03):**
+1. Stock stays, as the sixth item, last, for the coordinator and the driver only; every other role sees the approved five. It is
+   another noun (what we own), and "buying what is in stock" is one of his named leaks, so the register needs a home; its signal is
+   on every buying row, so nobody else needs the page.
+2. Issues & Credits folds into Orders. A claim belongs to an order and a vendor; store runs become orders, so a card claim has a home too.
+3. An ordered need leaves the Buy Board, and late promises live on Deliveries, with two conditions: a line with budget left (the
+   fourth rough-plumbing buy) stays on the Buy Board for what is left, and a promise later than the need date reaches the PM's
+   job and Today the day it is known.
+4. Agreed (Design call): no Design menu for the PM; and none for the coordinator either, so it was taken off Chen's menu here.
+
+**Fixed in the mock-up during review:** the menu and rails follow the approved order; Stock counts only its own work (1, not 3);
+Owed Back's rows now show $1,880 + $413 + $126 = $2,419 (the zellige row showed $551); Committed, Not Yet Billed shows $38,721,
+its rows' sum, not $39K; the W-9 column now agrees with "11 of 12" and the footer no longer claims nothing was paid without one;
+Order By shows dates, not weekdays ("Tue, passed"); the five "Material" rows are marked `[ESTIMATE LINE]`; "Move the Task" is now
+"Ask the PM to Move It" (the schedule is the PM's); approving tape from stock adds the warehouse stop.
+
+**Must fix before build:**
+1. Desktop multi-select. The desktop Buy Board's check boxes do nothing and there is no picked-lines bar. Build it as on the phone:
+   pick lines, one bar, Ask for Quotes or Order, one order per vendor and job.
+2. One decision, one count. Today's blue tape is counted on the Buy Board (Pick From Stock) and again in the route approval on
+   Deliveries. Rule: an item already on a route counts once, in the route approval; its Buy Board row reads "On today's route"
+   with no count. Re-count the Buy Board and the menu after.
+3. The estimate line on every need. Five needs show only "Material". The build must carry the line or show "No estimate line" as
+   the row's reason (it is a back-end gap, not a label).
+4. Vendors' Paid column. Window Works, Tino, Nemo Tile and Satish show money paid with no W-9; Alberto M Plumbing shows $9,800
+   paid on a bill that "cannot be paid". Re-read the build: if paid, it is a 1099 and backup-withholding gap for the controller's
+   Needs You; if billed, the column is mislabelled.
+5. Committed, Not Yet Billed is computed from payments in the mock. Use bills, through the one "paid" (PROCUREMENT_PLAN P5).
+6. Orders' Draft filter (the old Not Issued tile's home) is missing from the chips.
+7. Store runs as orders do not exist yet; Orders' "every order and store run" is not true until P5. Say so on the page until then.
+

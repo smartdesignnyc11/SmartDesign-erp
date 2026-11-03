@@ -28,7 +28,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   </div>
 
   <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
-    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 5</div>
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 4</div>
     <sc-for list="{{needs}}" as="n" hint-placeholder-count="5">
       <a href="#" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; min-height: 44px; text-decoration: none; color: #172033">
         <b style="font-size: 15px">{{n.title}}</b>
@@ -68,19 +68,18 @@ class Component extends DCLogic {
       { title: 'Close August: 15 of 24 checks open', why: '7 bank lines not matched ($52,406), Chase reconciled only through June, 2 matches not confirmed. Books by the 10th.' },
       { title: 'INV-2026-031, Deposit 20%, $97,000, booked as the first draw', why: 'Posted as work, so 121 State Street reads over-billed. Confirm it as the first draw, or reverse and re-post it as the deposit with a reason.' },
       { title: 'Over-Billed (WIP) against Billed Ahead of the Work', why: '121 State Street $131,058 against $66,470, $64,587 apart; 140 Prospect Place $22,512 against $0. Reconcile before the close.' },
-      { title: 'Amex August is $365.64 apart from its statement', why: 'Our records hold 13 lines, $41,044.51; the statement 14 lines, $40,678.87. A double import, the wrong account or the wrong month.' },
       { title: 'INV-2026-035 short-paid by $0.16', why: 'Ledger 1100 is $92,265.16 against $92,265.00 open. Collect it or write it off with a reason.' }
     ];
     const sets = {
       'Close': ['Close August 2026. The checklist, then the accrued wages and the WIP adjustment post, the WIP ties to 2500 and 1200 job by job, and the month is frozen. Its Pack is then final.', [
         { k: 'Bank lines not matched to a line', sub: 'August · 0 with a signed exception', v: '7 · $52,406', tone: Rd },
         { k: 'Chase Business Checking not reconciled through 8/31', sub: 'Last reconciled 6/30', v: '27 lines', tone: Rd },
-        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart', v: '13 lines', tone: Rd },
+        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart: our 13 lines $41,044.51, the statement\'s 14 $40,678.87. A double import, the wrong account or the wrong month', v: '13 lines', tone: Rd },
         { k: 'Bank matches not confirmed by a person', sub: 'AMP-311, WW-2026-118', v: '2', tone: A },
         { k: 'Client payments not seen in the bank', sub: 'Rivera family, 7/30 and 8/14', v: '2', tone: A },
         { k: 'Budget variances over 10% and $2,500, no commentary', sub: 'Operating budget, Reforecast Q3', v: '5', tone: A },
         { k: 'Jobs without a cost-to-complete review this month', sub: '121 State, 45 Cranberry, 140 Prospect', v: '3', tone: A },
-        { k: 'Posts at the close: WIP adjustment', sub: '121 State $58,011 · 45 Cranberry $5,998', v: '$64,008', tone: K, fw: '600' },
+        { k: 'Posts at the close: WIP adjustment', sub: 'The WIP schedule\'s Over-Billed (WIP), job by job, to 2500 and 1200: one figure with Job Profitability', v: '[WIP SCHEDULE TOTAL]', tone: K, fw: '600' },
         { k: 'Posts at the close: accrued wages', sub: 'Payroll 8/17 to 8/28 $16,040 · timesheets $3,699', v: '$19,739', tone: K, fw: '600' } ]],
       'Ledger': ['Every entry behind the numbers. Posted money is append-only: a change is a linked reversal and re-post with a reason.', [
         { k: 'Journals to approve', sub: 'Drafted by the controller, posted by Alan', v: '0', tone: G },
@@ -94,7 +93,7 @@ class Component extends DCLogic {
         { k: 'Held by a control', sub: 'Window Works changed its bank details [DATE]: confirm by phone on a known number', v: '1', tone: Rd },
         { k: 'Owner sees payments above', sub: 'Plus first payments to a vendor, bank-detail changes, over the PO', v: '$5,000', tone: K },
         { k: 'Early-payment discounts available', sub: 'No discount offered on open bills', v: '$0', tone: K } ]],
-      'Budget': ['The 2026 operating budget by entity, account and month. One version is active; the Pack and Financial Statements read it.', [
+      'Operating Budget': ['The 2026 operating budget by entity, account and month. One version is active; the Pack and Financial Statements read it.', [
         { k: 'Active version', sub: 'Reforecast Q3', v: 'Active', tone: G },
         { k: 'Net profit, year to date', sub: 'Budget $18,863', v: '−$5,330', tone: Rd },
         { k: 'Operating expenses, year to date', sub: 'Budget $20,120 · includes $14,841 Needs Category', v: '$39,595', tone: Rd } ]],
@@ -106,7 +105,7 @@ class Component extends DCLogic {
     };
     const [lead, list] = sets[T];
     const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400' }, r));
-    const chips = ['Close', 'Ledger', 'Controls', 'Budget', 'Tax and 1099'].map((l) => ({
+    const chips = ['Close', 'Ledger', 'Controls', 'Operating Budget', 'Tax and 1099'].map((l) => ({
       label: l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: l })
     }));

@@ -90,9 +90,9 @@ class Component extends DCLogic {
       { title: 'CM-0091 · Carlos Millwork · $38,000 paid 8/20', why: 'No unconditional lien waiver on file. Record it before the next payment to this sub.', tone: K }
     ];
     const sets = {
-      'To Approve': ['PMs recommend bills and Alan approves them; a payroll run is approved by Alan or the controller. Whoever entered an item cannot approve it.', [
+      'To Approve': ['PMs recommend bills and Alan approves them; the payroll run the controller builds is approved by Alan. Whoever entered an item cannot approve it. Items with Alan are under With Others.', [
         { no: 'Payroll 8/17 to 8/28', what: '6 employees · 88% not on a job', amt: '$16,040', status: 'Split first', tone: Rd },
-        { no: 'WW-2026-118 · Window Works', what: '121 State Street · paid before approval', amt: '$33,500', status: 'With Alan', tone: A },
+        { no: 'Time entries, Thu 9/3', what: '4 entries · 2 flagged', amt: '30.1 h', status: 'To approve', tone: A },
         { no: 'AMP-311 · Alberto M Plumbing', what: '121 State Street · due 9/12', amt: '$9,800', status: 'Held, possibly paid', tone: A } ]],
       'To Pay': ['Approved and unpaid, by due date. The Payment Run is built from here; the bank pays it.', []],
       'Paid': ['Each payment names its bill, its account and the bank line that cleared it.', [

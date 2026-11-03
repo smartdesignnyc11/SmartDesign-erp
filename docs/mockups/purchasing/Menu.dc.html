@@ -87,9 +87,10 @@ class Component extends DCLogic {
     const defs = [
       { label: 'Projects', icon: I.proj, items: [sub('121 State Street', 0, '#'), sub('206 Lenox', 0, '#'), sub('All Projects', 0, '#')] },
       { label: 'Purchasing', icon: I.buy, items: [
-        sub('Buy Board', 9, 'BuyBoard.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'), sub('Orders', 8, 'Orders.dc.html'),
-        sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 3, 'Stock.dc.html') ] },
-      { label: 'Design', icon: I.design, items: [sub('Selections', 0, '../design/Selections.dc.html'), sub('Drawings', 0, '../design/Drawings.dc.html')] },
+        sub('Buy Board', 9, 'BuyBoard.dc.html'), sub('Orders', 8, 'Orders.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'),
+        sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html') ] },
+      // The approved 11-03 order (Buy Board, Orders, Quotes, Deliveries, Vendors), Stock last and only for the coordinator and driver.
+      // No Design group: the coordinator has no Design menu (design/SPEC.md section 4); a Buy Board row opens its selection.
       { label: 'Reports', icon: I.rep, items: [sub('Job Profitability', 0, '#'), sub('Report Builder', 0, '#')] }
     ];
     const groups = defs.map((g) => {

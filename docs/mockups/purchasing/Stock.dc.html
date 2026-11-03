@@ -54,6 +54,17 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
     </sc-for>
   </div>
 
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Wanted by a Need</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{wanted}}" as="w" hint-placeholder-count="2">
+      <a href="BuyBoard.dc.html" style="display: flex; flex-direction: column; gap: 3px; min-height: 44px; padding: 12px 14px; border-top: {{w.line}}; color: #172033; text-decoration: none">
+        <div style="display: flex; justify-content: space-between; gap: 8px"><b style="font-size: 15px">{{w.item}}</b><b style="font-size: 14px; color: #15803d">{{w.onHand}}</b></div>
+        <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{w.why}}</span>
+      </a>
+    </sc-for>
+    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">The pick is decided on the need's Buy Board row, so it is counted once, there.</div>
+  </div>
+
   <div style="display: flex; gap: 8px; padding: 20px 16px 10px; flex-wrap: wrap">
     <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
       <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
@@ -75,11 +86,15 @@ class Component extends DCLogic {
   constructor(p) { super(p); this.state = { filter: 'All', newOpen: false }; }
   renderVals() {
     const S = this.state;
+    // Needs You holds only Stock's own work (reorder, counts, tools to move). Stock that a need could use is shown on the need's
+    // Buy Board row and listed below without a count, so one decision is counted once (review, 11-03).
     const needs = [
-      { kind: 'AT ITS REORDER POINT', tone: '#b45309', border: '#fde68a', item: 'PEX fittings assorted', onHand: '1 bag', where: 'Truck', reorder: '1 bag', why: 'Restock goes on the Buy Board as a need for the shop, not a job.', act: 'Add to the Buy Board' },
-      { kind: 'USE BEFORE BUYING', tone: '#15803d', border: '#bbf7d0', item: 'Blue tape 1.5"', onHand: '18 roll', where: 'Warehouse', reorder: '6 roll', why: 'Angel asked for 1 case for 121 State Street, needed 9/4, and it is on today’s store run.', act: 'Reserve for 121 State Street' },
-      { kind: 'USE BEFORE BUYING', tone: '#15803d', border: '#bbf7d0', item: '5/8" Type X drywall 4x8', onHand: '12 sheet', where: 'Warehouse', reorder: '4 sheet', why: 'GWB boards (~25) and cement board for 121 State Street order by 9/11. 8 sheets of moisture-resistant are here too.', act: 'Reserve for 121 State Street' }
+      { kind: 'AT ITS REORDER POINT', tone: '#b45309', border: '#fde68a', item: 'PEX fittings assorted', onHand: '1 bag', where: 'Truck', reorder: '1 bag', why: 'Restock goes on the Buy Board as a need for the shop, not a job.', act: 'Add to the Buy Board' }
     ];
+    const wanted = [
+      { item: 'Blue tape 1.5"', onHand: '18 roll, Warehouse', why: 'Angel asked for 1 case for 121 State Street, needed 9/4. Today\u2019s store run would buy it; the Buy Board row offers Pick From Stock.' },
+      { item: '5/8" Type X drywall 4x8', onHand: '12 sheet, Warehouse', why: 'GWB boards (~25) and cement board for 121 State Street, order by 9/11; 8 sheets of moisture-resistant are here too. Count before you buy.' }
+    ].map((w, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, w));
     const I = [
       ['PEX fittings assorted', 'Material', '1 bag', 'Truck', '1 bag'], ['1-gang new-work boxes', 'Material', '42 ea', 'Warehouse', '20 ea'], ['12/2 NM-B', 'Material', '3 roll', 'Warehouse', '2 roll'],
       ['1/2" PEX-A red', 'Material', '2 roll', 'Warehouse', '1 roll'], ['Blue tape 1.5"', 'Material', '18 roll', 'Warehouse', '6 roll'], ['Contractor bags 3 mil', 'Material', '4 box', 'Warehouse', '2 box'],
@@ -96,7 +111,7 @@ class Component extends DCLogic {
       return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ filter: label }) };
     });
     const newOpen = !!S.newOpen;
-    return { needs, needCount: needs.length, chips, items, newOpen, newItems: ['New Stock Item', 'Count a Shelf', 'Move a Tool'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+    return { needs, needCount: needs.length, wanted, chips, items, newOpen, newItems: ['New Stock Item', 'Count a Shelf', 'Move a Tool'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
   }
 }
 </script>

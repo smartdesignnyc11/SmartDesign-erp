@@ -67,16 +67,14 @@ class Component extends DCLogic {
   renderVals() {
     const R = '#b91c1c', A = '#b45309', K = '#172033', G = '#15803d';
     const fact = (k, v, tone) => ({ k, v, tone: tone || K });
+    // Only jobs in a design phase. 121 State Street (in construction, no design proposal) lives under Building (review, 11-03).
     const projects = [
       { name: '45 Cranberry St — design', client: 'Rivera family', phase: 'Design development', flag: 'OVER THE PROPOSAL', tone: R, border: '#fecaca',
         facts: [fact('Hours, Against the Proposal', '121 of 244'), fact('Schematic Design', '41.5 of 40, over', R), fact('Drawings', '6 sheets to re-issue', A), fact('At the Agency', 'LPC Certificate of Appropriateness, 6 days')],
         team: 'Maya, architect, 20.5 hrs · Lena, designer, 22 hrs' },
       { name: '140 Prospect Place — design', client: 'Jessop family', phase: 'Schematic', flag: 'SURVEY FIRST', tone: A, border: '#fde68a',
         facts: [fact('Hours, Against the Proposal', '13 of 404'), fact('Retainer', '0 hrs'), fact('Survey', '11 rooms not measured', A), fact('Approvals', '0 of 5 filings approved · 2 gates open')],
-        team: 'Sarah Davis, architect, 13 hrs. Next: kitchen option 3 (9/11), primary bath options (9/12), existing-conditions survey (9/22)' },
-      { name: '121 State Street', client: 'Sarah & David Klein', phase: 'In construction', flag: '', tone: G, border: '#dfe4ee',
-        facts: [fact('Hours, Against the Proposal', '0 of 0: no design proposal'), fact('Survey', 'Measured', G), fact('Drawings', '17 current sheets'), fact('At the Agency', 'nothing in review')],
-        team: 'Design questions from the field go to Drawings; selections to Selections' }
+        team: 'Sarah Davis, architect, 13 hrs. Next: kitchen option 3 (9/11), primary bath options (9/12), existing-conditions survey (9/22)' }
     ];
     const chips = ['All', 'Building', 'In Design'].map((label) => {
       const on = this.state.f === label;

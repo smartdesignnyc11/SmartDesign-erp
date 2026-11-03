@@ -136,8 +136,8 @@ class Component extends DCLogic {
         reasons: [{ t: 'Bought, and on no approved estimate line: the Kleins have not agreed to pay for it.', tone: R }, { t: spec, tone: A }, { t: 'Likely missing: grout, thinset, waterproofing, trim or edge profile.', tone: K }] }
     ];
     const OTHERS = [
-      { name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', room: 'Primary bath', money: '2 each, $1,180', who: 'Alberto M Plumbing', why: 'submittal 22 40 00-001 to resubmit; order by 8/13 has passed and the site date is 11/16.' },
-      { name: 'Solid brass door knob set, privacy', job: '121 State Street', room: 'Whole house', money: '14 each, $268', who: 'the Kleins', why: 'approval, order by 11/20.' }
+      { name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', room: 'Primary bath', money: '2 each at $1,180', who: 'Alberto M Plumbing', why: 'submittal 22 40 00-001 to resubmit; order by 8/13 has passed and the site date is 11/16.' },
+      { name: 'Solid brass door knob set, privacy', job: '121 State Street', room: 'Whole house', money: '14 each at $268', who: 'the Kleins', why: 'approval, order by 11/20.' }
     ];
     const ok = (r) => S.job === 'All Jobs' || r.job === S.job;
     const mineRows = MINE.filter(ok);

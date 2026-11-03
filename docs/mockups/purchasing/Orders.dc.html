@@ -29,7 +29,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 
   <div style="margin: 16px 16px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
     <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 3px">
-      <span style="font-size: 12px; color: #5b6578">Committed, Not Yet Billed</span><b style="font-size: 20px">$39K</b><span style="font-size: 12px; color: #5b6578">2 open orders</span>
+      <span style="font-size: 12px; color: #5b6578">Committed, Not Yet Billed</span><b style="font-size: 20px">$38,721</b><span style="font-size: 12px; color: #5b6578">2 open orders</span>
     </div>
     <div style="background: #fff; border: 1px solid #fde68a; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 3px">
       <span style="font-size: 12px; color: #5b6578">Owed Back to Us</span><b style="font-size: 20px; color: #b45309">$2,419</b><span style="font-size: 12px; color: #5b6578">3 returns open</span>
@@ -104,8 +104,8 @@ class Component extends DCLogic {
         why: 'The box is in the office and the replacement was already bought, so we paid twice. The window closes 9/14.', act: 'Put It on the Next Run', hasAlt: false },
       { kind: 'CREDIT LANDED', tone: '#15803d', border: '#bbf7d0', amt: '$126', title: '8 surplus cup pulls · House of Antique Hardware', job: '45 Cranberry St — design',
         why: 'Credit on the Amex 8/31, 27 days after it shipped back. We paid $148; they kept $22 (15% restock).', act: 'Confirm the Match', alt: 'Not This One', hasAlt: true },
-      { kind: 'RETURN · WINDOW CLOSED', tone: R, border: '#fecaca', amt: '$551', title: '38 sq ft over-ordered zellige · Bedrosians', job: '45 Cranberry St — design',
-        why: 'Window closed 44 days ago; $413 would come back after a 25% restock. Ask anyway, or write it off on purpose so it lands in job cost.', act: 'Ask for an RMA', alt: 'Write It Off', hasAlt: true },
+      { kind: 'RETURN · WINDOW CLOSED', tone: R, border: '#fecaca', amt: '$413', title: '38 sq ft over-ordered zellige · Bedrosians', job: '45 Cranberry St — design',
+        why: 'Paid $551. The window closed 44 days ago; $413 would come back after a 25% restock. Ask anyway, or write it off on purpose so it lands in job cost.', act: 'Ask for an RMA', alt: 'Write It Off', hasAlt: true },
       { kind: 'MONEY IN, NOTHING BEHIND IT', tone: A, border: '#fde68a', amt: '$215', title: 'Bedrosians tile credit memo', job: 'Bank line 8/25',
         why: 'A credit with no return or claim to match. Usually a credit we were owed and forgot.', act: 'Attach to a Return', hasAlt: false },
       { kind: 'PAID ABOVE THE BEST PRICE', tone: A, border: '#fde68a', amt: '$343', title: '2 store receipts in August', job: 'Home Depot — Flatbush 8/14 ($120) · Home Depot — Gowanus 8/27 ($224)',

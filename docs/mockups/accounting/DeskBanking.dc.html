@@ -89,7 +89,7 @@ class Component extends DCLogic {
       R('Billing', { pad: '32px', fs: '14px', color: '#c5cde0' }),
       R('Banking', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '15' }),
       R('Bills and Payroll', { pad: '32px', fs: '14px', color: '#c5cde0', count: '4' }),
-      R('Books', { pad: '32px', fs: '14px', color: '#c5cde0', count: '5' }),
+      R('Books', { pad: '32px', fs: '14px', color: '#c5cde0', count: '4' }),
       R('Reports')
     ];
     const Rd = '#b91c1c', A = '#b45309', G = '#15803d', N = '#5b6578', TY = 'typed by hand, not yet at the bank';
@@ -127,7 +127,7 @@ class Component extends DCLogic {
     const rows = ln(list.map((r, i) => Object.assign({}, r, { on: i === si ? 'true' : 'false', bg: i === si ? '#eef3ff' : '#fff', pick: () => this.setState({ sel: i }) })));
     const s = list[si];
     const sel = { desc: s.desc, date: s.date, acct: s.acct, amt: s.amt, next: s.next, facts: ln(s.facts.map(([k, v]) => ({ k, v }))) };
-    const chips = [['To Review', '15'], ['Money In', '2'], ['Receipts', '2'], ['Matched', '']].map(([l, c]) => ({
+    const chips = [['To Review', '15'], ['Money In', ''], ['Receipts', ''], ['Matched', '']].map(([l, c]) => ({
       label: c ? l + ' ' + c : l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
       pick: () => sets[l] ? this.setState({ tab: l, sel: 0 }) : null
     }));

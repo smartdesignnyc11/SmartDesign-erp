@@ -124,7 +124,7 @@ class Component extends DCLogic {
     const S = this.state;
     // Needs You: the needs whose next tap is the coordinator's. Records as the 9/3 build reads them.
     const MINE = [
-      { id: 'studs', name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto, for Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: 'Fri', tone: '#b45309',
+      { id: 'studs', name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto, for Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: '9/4', tone: '#b45309',
         why: 'Not acknowledged in 26 hours. Angel was told to call the office.', know: 'Price book: $3.98 each at Brooklyn Lumber — Red Hook on 9/2; Home Depot — Gowanus $4.27.', act: 'Acknowledge and Link' },
       { id: 'tape', name: '1 case Blue tape + 4 mil plastic', job: '121 State Street', src: 'Request from Angel', qty: '1 case', site: '9/4', by: 'Today', tone: '#b45309',
         why: 'On Alex’s store run today, Lowe’s — Gowanus.', know: 'At the warehouse: 18 rolls of 1.5" blue tape. Pick the tape from stock; buy only the plastic.', act: 'Pick From Stock' },
@@ -132,15 +132,15 @@ class Component extends DCLogic {
         why: 'No sub contracted. Over $2,500: three bids, or a reason.', know: '', act: 'Ask for Bids' },
       { id: 'ext', name: 'Exterior — scaffold, brick mold, paint', job: '121 State Street', src: 'EST-2026-014 · subcontract · $12,300', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c',
         why: 'No sub contracted. Over $2,500: three bids, or a reason.', know: '', act: 'Ask for Bids' },
-      { id: 'appl', name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c',
+      { id: 'appl', name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c',
         why: 'Marked ordered with no order behind it. Promised 9/25, needed 9/10.', know: '', act: 'Find the Order' },
-      { id: 'ins', name: 'Insulation', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c',
+      { id: 'ins', name: 'Insulation', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c',
         why: 'Marked ordered with no order behind it. Promised 9/16, needed 9/11.', know: '', act: 'Find the Order' },
-      { id: 'paint', name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c',
+      { id: 'paint', name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c',
         why: 'No price yet.', know: '', act: 'Ask for Quotes' },
-      { id: 'slab', name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: 'Tue, passed', tone: '#b91c1c',
+      { id: 'slab', name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/1, passed', tone: '#b91c1c',
         why: 'No price yet.', know: '', act: 'Ask for Quotes' },
-      { id: 'bath', name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material', qty: '[QTY]', site: '9/15', by: 'Tue, passed', tone: '#b91c1c',
+      { id: 'bath', name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/15', by: '9/1, passed', tone: '#b91c1c',
         why: 'No price yet.', know: '', act: 'Ask for Quotes' }
     ];
     const OTHERS = [
@@ -148,9 +148,9 @@ class Component extends DCLogic {
       { name: 'Thermostatic shower set with handshower', job: '121 State Street', amt: 'Ferguson · $2,340', by: '8/13, passed', who: 'Alberto M Plumbing', why: 'the same submittal.' },
       { name: 'Washer / dryer (new sizes)', job: '121 State Street', amt: 'no price yet', by: '8/26, passed', who: 'the architect', why: 'laundry layout decision, 8 days late.' },
       { name: 'Trim, doors, paint & hardware', job: '121 State Street', amt: 'EST-2026-014 · $32,500', by: '8/24, passed', who: 'the PM', why: 'material portion not set; the line includes labour.' },
-      { name: 'Tile — two baths', job: '121 State Street', amt: 'EST-2026-014 · $22,550', by: 'Mon, passed', who: 'the PM', why: 'material portion not set.' },
-      { name: 'Additional tile prep', job: '121 State Street', amt: 'CO-2026-001 · $488', by: 'Mon, passed', who: 'the PM', why: 'material portion not set.' },
-      { name: 'Radiant heat mats & thermostat', job: '121 State Street', amt: 'CO-2026-001 · $2,890', by: 'Wed, passed', who: 'the PM', why: 'material portion not set.' }
+      { name: 'Tile — two baths', job: '121 State Street', amt: 'EST-2026-014 · $22,550', by: '8/31, passed', who: 'the PM', why: 'material portion not set.' },
+      { name: 'Additional tile prep', job: '121 State Street', amt: 'CO-2026-001 · $488', by: '8/31, passed', who: 'the PM', why: 'material portion not set.' },
+      { name: 'Radiant heat mats & thermostat', job: '121 State Street', amt: 'CO-2026-001 · $2,890', by: '9/2, passed', who: 'the PM', why: 'material portion not set.' }
     ];
     const LATER = [
       { name: 'GWB boards (~25) & cement board', job: '121 State Street', site: '9/16', by: '9/11', why: 'At the warehouse: 12 sheets 5/8" Type X and 8 sheets moisture-resistant. Count before you buy.', tone: '#14532d' },

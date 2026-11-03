@@ -80,7 +80,7 @@ class Component extends DCLogic {
     const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400' }, r));
     const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
     const rail = [
-      R('Today', { count: '6' }), R('Tasks', { count: '12' }), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
+      R('Today', { count: '6' }), R('Tasks'), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
       R('Reports', { bg: '#1b2640' }),
       R('Job Profitability', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' }),
       R('Cash', { pad: '32px', fs: '14px', color: '#c5cde0' }),
@@ -118,7 +118,7 @@ class Component extends DCLogic {
           { cells: [c('45 Cranberry St', 'left'), c('$42,700'), c('$7,032'), c('44%'), c('$18,645'), c('$21,350'), c('$2,705'), c('[PLACEHOLDER]'), c('$24,055')] },
           { fw: '700', cells: [c('All jobs', 'left'), c('$725,700'), c('$113,083'), c('21%'), c('$142,759'), c('$299,034'), c('$156,274'), c(''), c('$582,941')] }
         ],
-        foot: 'Ties to the cent: net over-billing $156,274.27 is billed less earned, job by job. It posts to 2500 at the close (August: $64,008 on the month-end schedule). Billed is gross, before retainage.'
+        foot: 'Ties to the cent: net over-billing $156,274.27 is billed less earned, job by job. The same figure posts to 2500 at the close. Billed is gross, before retainage.'
       }
     };
     const v = views[V];

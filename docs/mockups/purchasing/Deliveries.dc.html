@@ -45,7 +45,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <span style="font-size: 13px; line-height: 1.4">{{d.why}}</span>
         <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap">
           <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Expedite</button>
-          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Move the Task</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask the PM to Move It</button>
           <button type="button" onClick="{{d.receive}}" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Receive</button>
         </div>
       </div>
@@ -54,7 +54,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
         <span style="font-size: 12px; font-weight: 700; color: #b45309">ROUTE TO APPROVE · ALEX · THU, SEP 3</span>
         <b style="font-size: 15px">3 stops, about 4.5 miles, 2 items for 121 State Street</b>
-        <span style="font-size: 13px; line-height: 1.4">Blue tape is in stock: 18 rolls at the warehouse. Take the tape from stock and the Lowe's stop buys only the plastic.</span>
+        <span style="font-size: 13px; line-height: 1.4">Blue tape is in stock: 18 rolls at the warehouse. Take the tape from stock (a warehouse stop is added before Lowe's) and the Lowe's stop buys only the plastic.</span>
       </div>
       <sc-for list="{{stops}}" as="s" hint-placeholder-count="3">
         <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 10px">

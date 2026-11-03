@@ -87,16 +87,16 @@ class Component extends DCLogic {
     const roles = {
       'Controller': { who: 'Controller', today: '2', tasks: '1', msgs: '1', groups: [
         ['Projects', I.proj, [it('All Projects')]], ['Purchasing', I.buy, [it('Orders'), it('Vendors')]],
-        ['Accounting', I.acct, [A.billing(), A.banking('15'), A.bills('4'), A.books('5')]],
+        ['Accounting', I.acct, [A.billing(), A.banking('15'), A.bills('4'), A.books('4')]],
         ['Reports', I.rep, [A.jp, A.cash, A.fs, A.rb]] ] },
       'Billing': { who: 'Billing', today: '1', tasks: '', msgs: '1', groups: [
         ['Projects', I.proj, [it('All Projects')]], ['Sales and Clients', I.sales, [it('Estimates'), it('Clients')]],
         ['Accounting', I.acct, [A.billing('4'), A.banking()]],
         ['Reports', I.rep, [A.jp, A.cash, A.rb]] ] },
-      'Owner': { who: 'Alan · Owner', today: '6', tasks: '12', msgs: '1', groups: [
+      'Owner': { who: 'Alan · Owner', today: '6', tasks: '', msgs: '1', groups: [
         ['Projects', I.proj, [it('121 State Street'), it('206 Lenox'), it('All Projects')]], ['Purchasing', I.buy, [it('Buy Board'), it('Orders')]],
         ['Sales and Clients', I.sales, [it('Pipeline'), it('Estimates'), it('Clients')]],
-        ['Accounting', I.acct, [A.billing(), A.banking(), A.bills('1')]],
+        ['Accounting', I.acct, [A.billing(), A.banking(), A.bills()]],
         ['Design', I.design, [it('Selections'), it('Drawings')]],
         ['Reports', I.rep, [A.jp, A.cash, A.fs, A.rb]] ] },
       'PM': { who: 'Alan · Project Manager', today: '4', tasks: '5', msgs: '3', groups: [
