@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Contract and Billing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Job.dc.html" aria-label="Back to 121 State Street" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="font-size: 19px">Contract and Billing</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">121 State Street · with Sarah and David Klein</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU</div>
+    <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
+      <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px">
+        <b style="font-size: 15px">{{n.title}}</b>
+        <span style="font-size: 13px; color: #5b6578">{{n.why}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 12px 14px; border-top: 1px solid #eef1f6">
+      <button type="button" style="width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 16px; font-weight: 600">Draft the Application, $12,651</button>
+    </div>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">THE CONTRACT</div>
+    <sc-for list="{{contract}}" as="c" hint-placeholder-count="7">
+      <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; display: flex; align-items: baseline">
+        <span style="flex: 1; font-size: 14px; font-weight: {{c.fw}}">{{c.k}}</span>
+        <span style="font-size: 15px; font-weight: {{c.fw}}">{{c.v}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 18px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{docs}}" as="d" hint-placeholder-count="6">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px; border-top: {{d.line}}; text-decoration: none; color: #172033">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <b style="font-size: 15px">{{d.no}}</b>
+          <span style="font-size: 13px; color: #5b6578">{{d.what}}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
+          <b style="font-size: 15px">{{d.amt}}</b>
+          <span style="font-size: 12px; font-weight: 700; color: {{d.tone}}">{{d.status}}</span>
+        </div>
+      </a>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { kind: 'All' }; }
+  renderVals() {
+    const needs = [
+      { title: '$12,651 of measured work ready to bill', why: 'Framing and electrical. 7 lines billed ahead are held.' },
+      { title: 'CO-2026-002 waiting on the Kleins', why: 'Stair treads, $1,850. Sent Thu, Sep 3.' },
+      { title: 'Sarah asked about INV-2026-038', why: 'Unanswered since 9/1.' }
+    ];
+    const contract = [
+      { k: 'Original contract', v: '$485,000', fw: '400' },
+      { k: 'Approved changes', v: '[CO TOTAL]', fw: '400' },
+      { k: 'Revised contract', v: '[REVISED]', fw: '700' },
+      { k: 'Billed to date', v: '$253,684', fw: '400' },
+      { k: 'Paid, in the bank', v: '[PAID]', fw: '400' },
+      { k: 'Retainage held', v: '[RETAINAGE]', fw: '400' },
+      { k: 'Left to bill', v: '[LEFT]', fw: '700' }
+    ];
+    const all = [
+      { kind: 'Invoices', no: 'INV-2026-038', what: 'Progress application #2', amt: '$68,265', status: 'Due 9/15', tone: '#b45309' },
+      { kind: 'Change Orders', no: 'CO-2026-002', what: 'Stair treads', amt: '$1,850', status: 'Waiting on client', tone: '#b45309' },
+      { kind: 'Payments', no: 'Check 2214', what: 'Applied to INV-2026-035', amt: '$72,750', status: 'In the bank', tone: '#15803d' },
+      { kind: 'Invoices', no: 'INV-2026-035', what: 'Progress application #1', amt: '$80,834', status: 'Paid', tone: '#15803d' },
+      { kind: 'Change Orders', no: 'CO-2026-001', what: 'Radiant heat, primary bath', amt: '[AMOUNT]', status: 'Approved', tone: '#15803d' },
+      { kind: 'Invoices', no: 'INV-2026-031', what: 'Deposit, 20%', amt: '$97,000', status: 'Paid', tone: '#15803d' },
+      { kind: 'Estimates', no: 'EST-2026-009', what: 'The contract: kitchen, baths, parlor', amt: '$485,000', status: 'Signed', tone: '#15803d' }
+    ];
+    const K = this.state.kind;
+    const chips = ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'].map((l) => ({
+      label: l, on: K === l ? 'true' : 'false', bg: K === l ? '#172033' : '#fff', color: K === l ? '#fff' : '#172033', border: K === l ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ kind: l })
+    }));
+    const docs = all.filter((d) => K === 'All' || d.kind === K).map((d, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, d));
+    return { needs, contract, chips, docs };
+  }
+}
+</script>
+</body>
+</html>

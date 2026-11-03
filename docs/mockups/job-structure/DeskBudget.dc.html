@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Budget</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="10">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}">{{r.label}}</span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 0">
+      <b style="font-size: 26px">121 State Street</b>
+      <div style="font-size: 14px; color: #5b6578; margin-top: 4px">Sarah and David Klein · Brownstone renovation · Day 31 of 64</div>
+      <div style="display: flex; gap: 26px; margin-top: 16px; font-size: 14px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="8">
+          <span style="padding: 10px 0 12px; color: {{t.color}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}">{{t.label}}</span>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding: 24px 32px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 13px; color: #5b6578">{{k.k}}</span>
+            <b style="font-size: 24px; color: {{k.tone}}">{{k.v}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{k.sub}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center"><b style="flex: 1; font-size: 17px">By Estimate Line</b><span style="font-size: 13px; color: #5b6578">Click a line for its POs, bills, labor and card charges</span></div>
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px 110px 110px 100px 90px 90px; padding: 10px 18px; font-size: 12px; color: #5b6578; border-bottom: 1px solid #eef1f6">
+          <span>Line</span><span style="text-align: right">Budget</span><span style="text-align: right">Committed</span><span style="text-align: right">Actual</span><span style="text-align: right">Forecast</span><span style="text-align: right">Variance</span><span style="text-align: right">% Done</span><span style="text-align: right">% Billed</span>
+        </div>
+        <sc-for list="{{lines}}" as="l" hint-placeholder-count="5">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px 110px 110px 100px 90px 90px; padding: 12px 18px; font-size: 14px; border-top: {{l.line}}; background: {{l.bg}}">
+            <b>{{l.name}}</b><span style="text-align: right">{{l.b}}</span><span style="text-align: right">{{l.c}}</span><span style="text-align: right">{{l.a}}</span><span style="text-align: right">{{l.f}}</span><b style="text-align: right; color: {{l.tone}}">{{l.v}}</b><span style="text-align: right">{{l.d}}</span><span style="text-align: right">{{l.bl}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 16px; color: #7c2d12">
+        <b style="font-size: 15px">Bought for the Client, Not Billed Back</b>
+        <span style="flex: 1; font-size: 14px">$10,170 of windows delivered, not on an invoice yet.</span>
+        <a href="#" style="font-size: 14px; color: #9a3412">Add to the Next Application</a>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rail = [
+      { label: 'Today', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Tasks', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Messages', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Projects', pad: '12px', bg: '#1b2640', fs: '15px', color: '#e5e9f2' },
+      { label: '121 State Street', pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' },
+      { label: '206 Lenox', pad: '32px', bg: 'transparent', fs: '14px', color: '#c5cde0' },
+      { label: 'Purchasing', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Sales and Clients', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Accounting', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Reports', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' }
+    ];
+    const tabs = ['Overview', 'Schedule', 'Contract and Billing', 'Budget', 'Purchasing', 'Decisions', 'Site', 'Documents'].map((l) => ({ label: l, color: l === 'Budget' ? '#172033' : '#5b6578', fw: l === 'Budget' ? '700' : '500', line: l === 'Budget' ? '#2563eb' : 'transparent' }));
+    const kpis = [
+      { k: 'Margin at Completion', v: '21%', sub: 'Plan 22%', tone: '#b45309' },
+      { k: 'Cost to Date', v: '$101,694', sub: 'Bills, labor and card, bank-backed', tone: '#172033' },
+      { k: 'Over Budget', v: '1 line', sub: 'Windows, +$3,800', tone: '#b91c1c' },
+      { k: 'Billed Ahead of the Work', v: '$66,470', sub: 'Over-Billed (WIP) $156,274', tone: '#172033' }
+    ];
+    const L = [
+      { name: 'Windows', b: '$29,700', c: '$29,700', a: '$33,500', f: '$33,500', v: '+$3,800', tone: '#b91c1c', d: '[%]', bl: '[%]', bg: '#fef2f2' },
+      { name: 'Framing, blocking and rough carpentry', b: '[BUDGET]', c: '[COMMITTED]', a: '[ACTUAL]', f: '[FORECAST]', v: '[VAR]', tone: '#172033', d: '79%', bl: '52%', bg: '#fff' },
+      { name: 'Electrical, rough and finish', b: '[BUDGET]', c: '[COMMITTED]', a: '[ACTUAL]', f: '[FORECAST]', v: '[VAR]', tone: '#172033', d: '55%', bl: '52%', bg: '#fff' },
+      { name: 'Plumbing, rough and finish', b: '[BUDGET]', c: '[COMMITTED]', a: '[ACTUAL]', f: '[FORECAST]', v: '[VAR]', tone: '#172033', d: '[%]', bl: '[%]', bg: '#fff' },
+      { name: 'Tile, two baths', b: '[BUDGET]', c: '[COMMITTED]', a: '[ACTUAL]', f: '[FORECAST]', v: '[VAR]', tone: '#172033', d: '[%]', bl: '[%]', bg: '#fff' }
+    ];
+    const lines = L.map((l, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, l));
+    return { rail, tabs, kpis, lines };
+  }
+}
+</script>
+</body>
+</html>

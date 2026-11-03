@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decisions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1000px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Job.dc.html" aria-label="Back to 121 State Street" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="font-size: 19px">Decisions</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">121 State Street · everything waiting on an answer</span>
+  </div>
+
+  <div style="padding: 14px 16px 6px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 10px">
+    <sc-for list="{{items}}" as="d" hint-placeholder-count="6">
+      <div style="background: #fff; border: 1px solid {{d.border}}; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 5px">
+        <div style="display: flex; gap: 8px; align-items: baseline">
+          <span style="font-size: 12px; font-weight: 700; color: #5b6578">{{d.kind}}</span>
+          <span style="flex: 1"></span>
+          <span style="font-size: 12px; font-weight: 700; color: {{d.tone}}">{{d.due}}</span>
+        </div>
+        <b style="font-size: 15px; line-height: 1.35">{{d.title}}</b>
+        <span style="font-size: 13px; color: #5b6578">Waiting on <b style="color: #172033">{{d.who}}</b> · blocks {{d.blocks}}</span>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">{{d.act}}</button>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { kind: 'All' }; }
+  renderVals() {
+    const all = [
+      { kind: 'Design', due: 'Overdue since 8/26', tone: '#b91c1c', title: 'Laundry layout with the new washer and dryer sizes', who: 'the architect', blocks: 'the washer and dryer install', act: 'Chase' },
+      { kind: 'Design', due: 'Overdue since 8/31', tone: '#b91c1c', title: 'Garden bedroom framing layout', who: 'the architect', blocks: 'framing', act: 'Chase' },
+      { kind: 'Selections', due: 'Overdue since 9/2', tone: '#b91c1c', title: '2nd floor bathroom finishes', who: 'the Kleins', blocks: 'rough plumbing', act: 'Ask the Kleins' },
+      { kind: 'RFIs', due: 'Due Fri 8:30 am', tone: '#b45309', title: 'SK-3: beam drop at the 3rd floor', who: 'Sarah, design', blocks: 'framing, 3rd floor', act: 'Open the RFI' },
+      { kind: 'Submittals', due: 'Due Mon 9/7', tone: '#b45309', title: 'Shop drawings for the parlor bookcases', who: 'Chen, from Carlos Millwork', blocks: 'millwork order', act: 'Open' },
+      { kind: 'Selections', due: 'Due 9/16', tone: '#5b6578', title: 'Confirm the new 3rd floor tile is in stock', who: 'the Kleins', blocks: 'the tile order', act: 'Open' }
+    ];
+    const K = this.state.kind;
+    const chips = ['All', 'Selections', 'Design', 'RFIs', 'Submittals'].map((l) => ({
+      label: l, on: K === l ? 'true' : 'false', bg: K === l ? '#172033' : '#fff', color: K === l ? '#fff' : '#172033', border: K === l ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ kind: l })
+    }));
+    const items = all.filter((d) => K === 'All' || d.kind === K).map((d) => Object.assign({ border: d.tone === '#b91c1c' ? '#fecaca' : '#dfe4ee' }, d));
+    return { chips, items };
+  }
+}
+</script>
+</body>
+</html>

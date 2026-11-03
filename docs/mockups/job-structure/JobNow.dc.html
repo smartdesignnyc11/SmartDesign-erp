@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tap 121 State Street: Today</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1000px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    <b style="flex: 1; font-size: 17px">All projects</b>
+    <span style="font-size: 12px; background: #b91c1c; border-radius: 6px; padding: 3px 8px">Not the job you tapped</span>
+  </div>
+  <div style="display: flex; gap: 18px; padding: 12px 16px 0; border-bottom: 1px solid #dfe4ee; font-size: 14px; color: #5b6578">
+    <span style="padding-bottom: 10px">Projects</span>
+    <span style="padding-bottom: 10px; color: #172033; font-weight: 700; border-bottom: 2px solid #2563eb">Overview 23</span>
+    <span style="padding-bottom: 10px">Project Settings</span>
+  </div>
+  <div style="padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+      <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; position: relative">
+        <span style="font-size: 12px; color: #5b6578">{{t.k}}</span>
+        <b style="font-size: 20px">{{t.v}}</b>
+        <span style="font-size: 12px; color: #5b6578">{{t.sub}}</span>
+        <span style="margin-top: 6px; font-size: 12px; font-weight: 700; color: #b91c1c">{{t.goes}}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px 16px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px; padding: 14px; font-size: 14px; line-height: 1.5; color: #7c2d12">
+    <b>What happened on 10-27.</b> Tapping 121 State Street in Projects opened the firm's overview. Every tile counts all jobs, and each one opens a firm-wide page, so the job is lost after one tap.
+  </div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <b style="font-size: 15px">Buying on This Job</b>
+    <span style="font-size: 13px; color: #5b6578">14 late · 2 orders open (all jobs)</span>
+    <span style="font-size: 14px">Wall-mount lavatory faucet, cross handles</span>
+    <span style="font-size: 14px">Thermostatic shower set with handshower</span>
+    <span style="font-size: 14px">Demolition and disposal</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { tiles: [
+      { k: 'Projects', v: '2 of 4 at risk', sub: 'All jobs', goes: 'Opens the projects list again' },
+      { k: 'Profitability', v: '27% margin', sub: 'Company, year to date', goes: 'Opens the company P&L' },
+      { k: 'Approvals', v: '15 now', sub: 'Every job and the office', goes: 'Opens every approval' },
+      { k: 'Materials', v: '7 at risk', sub: 'Across 4 projects', goes: 'Opens the firm Buy Board' }
+    ] };
+  }
+}
+</script>
+</body>
+</html>

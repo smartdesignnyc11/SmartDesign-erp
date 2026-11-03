@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Contract and Billing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="10">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}">{{r.label}}</span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 0">
+      <b style="font-size: 26px">121 State Street</b>
+      <div style="font-size: 14px; color: #5b6578; margin-top: 4px">Sarah and David Klein · Brownstone renovation · Day 31 of 64</div>
+      <div style="display: flex; gap: 26px; margin-top: 16px; font-size: 14px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="8">
+          <span style="padding: 10px 0 12px; color: {{t.color}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}">{{t.label}}</span>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding: 24px 32px; display: flex; gap: 20px; align-items: flex-start">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">Needs You</b>
+            <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 14px; font-weight: 600">Draft the Application, $12,651</button>
+          </div>
+          <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
+            <div style="padding: 10px 18px; border-top: {{n.line}}; display: flex; gap: 12px"><b style="font-size: 14px; width: 360px">{{n.title}}</b><span style="font-size: 14px; color: #5b6578">{{n.why}}</span></div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">Documents</b>
+            <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+              <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 13px; font-weight: 600">{{ch.label}}</button>
+            </sc-for>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 160px minmax(0, 1fr) 120px 150px 110px; gap: 0; font-size: 12px; color: #5b6578; padding: 10px 18px; border-bottom: 1px solid #eef1f6">
+            <span>Kind</span><span>Number</span><span>What</span><span style="text-align: right">Amount</span><span style="padding-left: 24px">Status</span><span>Date</span>
+          </div>
+          <sc-for list="{{docs}}" as="d" hint-placeholder-count="7">
+            <div style="display: grid; grid-template-columns: 140px 160px minmax(0, 1fr) 120px 150px 110px; align-items: center; padding: 11px 18px; border-top: {{d.line}}; font-size: 14px">
+              <span style="color: #5b6578">{{d.kind}}</span><b>{{d.no}}</b><span>{{d.what}}</span><b style="text-align: right">{{d.amt}}</b><span style="padding-left: 24px; font-weight: 700; color: {{d.tone}}">{{d.status}}</span><span style="color: #5b6578">{{d.date}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <aside style="width: 340px; flex: none; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">The Contract</b></div>
+        <sc-for list="{{contract}}" as="c" hint-placeholder-count="7">
+          <div style="padding: 9px 16px; border-top: {{c.line}}; display: flex"><span style="flex: 1; font-size: 14px; font-weight: {{c.fw}}">{{c.k}}</span><span style="font-size: 14px; font-weight: {{c.fw}}">{{c.v}}</span></div>
+        </sc-for>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { kind: 'All' }; }
+  renderVals() {
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const rail = [
+      { label: 'Today', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Tasks', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Messages', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Projects', pad: '12px', bg: '#1b2640', fs: '15px', color: '#e5e9f2' },
+      { label: '121 State Street', pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' },
+      { label: '206 Lenox', pad: '32px', bg: 'transparent', fs: '14px', color: '#c5cde0' },
+      { label: 'Purchasing', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Sales and Clients', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Accounting', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' },
+      { label: 'Reports', pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2' }
+    ];
+    const tabs = ['Overview', 'Schedule', 'Contract and Billing', 'Budget', 'Purchasing', 'Decisions', 'Site', 'Documents'].map((l) => ({ label: l, color: l === 'Contract and Billing' ? '#172033' : '#5b6578', fw: l === 'Contract and Billing' ? '700' : '500', line: l === 'Contract and Billing' ? '#2563eb' : 'transparent' }));
+    const needs = ln([
+      { title: '$12,651 of measured work ready to bill', why: 'Framing and electrical. 7 lines billed ahead are held.' },
+      { title: 'CO-2026-002 waiting on the Kleins', why: 'Stair treads, $1,850. Sent Thu, Sep 3.' },
+      { title: 'Sarah asked about INV-2026-038', why: 'Unanswered since 9/1.' }
+    ]);
+    const all = [
+      { kind: 'Invoices', no: 'INV-2026-038', what: 'Progress application #2', amt: '$68,265', status: 'Due 9/15', tone: '#b45309', date: '9/1' },
+      { kind: 'Change Orders', no: 'CO-2026-002', what: 'Stair treads', amt: '$1,850', status: 'Waiting on client', tone: '#b45309', date: '9/3' },
+      { kind: 'Payments', no: 'Check 2214', what: 'Applied to INV-2026-035', amt: '$72,750', status: 'In the bank', tone: '#15803d', date: '8/24' },
+      { kind: 'Invoices', no: 'INV-2026-035', what: 'Progress application #1', amt: '$80,834', status: 'Paid', tone: '#15803d', date: '8/10' },
+      { kind: 'Change Orders', no: 'CO-2026-001', what: 'Radiant heat, primary bath', amt: '[AMOUNT]', status: 'Approved', tone: '#15803d', date: '7/28' },
+      { kind: 'Invoices', no: 'INV-2026-031', what: 'Deposit, 20%', amt: '$97,000', status: 'Paid', tone: '#15803d', date: '7/2' },
+      { kind: 'Estimates', no: 'EST-2026-009', what: 'The contract: kitchen, baths, parlor', amt: '$485,000', status: 'Signed', tone: '#15803d', date: '6/30' }
+    ];
+    const K = this.state.kind;
+    const chips = ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'].map((l) => ({ label: l, on: K === l ? 'true' : 'false', bg: K === l ? '#172033' : '#fff', color: K === l ? '#fff' : '#172033', border: K === l ? '#172033' : '#c9d1e0', pick: () => this.setState({ kind: l }) }));
+    const docs = ln(all.filter((d) => K === 'All' || d.kind === K));
+    const contract = ln([
+      { k: 'Original contract', v: '$485,000', fw: '400' }, { k: 'Approved changes', v: '[CO TOTAL]', fw: '400' }, { k: 'Revised contract', v: '[REVISED]', fw: '700' },
+      { k: 'Billed to date', v: '$253,684', fw: '400' }, { k: 'Paid, in the bank', v: '[PAID]', fw: '400' }, { k: 'Retainage held', v: '[RETAINAGE]', fw: '400' }, { k: 'Left to bill', v: '[LEFT]', fw: '700' }
+    ]);
+    return { rail, tabs, needs, chips, docs, contract };
+  }
+}
+</script>
+</body>
+</html>

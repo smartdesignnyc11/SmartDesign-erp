@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Profitability of 121 State</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1000px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Job.dc.html" aria-label="Back to 121 State Street" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="font-size: 19px">Profitability</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">121 State Street · this job only</span>
+  </div>
+
+  <div style="margin: 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 13px; color: #5b6578">Margin at completion</span>
+    <div style="display: flex; align-items: baseline; gap: 10px"><b style="font-size: 32px">21%</b><span style="font-size: 14px; color: #b45309; font-weight: 600">1 point under the 22% plan</span></div>
+    <span style="font-size: 13px; color: #5b6578; line-height: 1.4">The windows line is the gap: $3,800 over its budget.</span>
+  </div>
+
+  <div style="margin: 0 16px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{money}}" as="m" hint-placeholder-count="6">
+      <div style="display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-top: {{m.line}}">
+        <span style="flex: 1; font-size: 14px">{{m.k}}</span>
+        <b style="font-size: 15px">{{m.v}}</b>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 0 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Estimate Lines Over Budget</div>
+  <div style="margin: 0 16px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: baseline"><b style="flex: 1; font-size: 15px">Windows</b><b style="font-size: 15px; color: #b91c1c">113%</b></div>
+      <div style="height: 8px; border-radius: 4px; background: #eef1f6; overflow: hidden"><div style="width: 100%; height: 8px; background: #dc2626"></div></div>
+      <span style="font-size: 13px; color: #5b6578">$33,500 spent on a $29,700 budget · 10 bought, 9 billed to the client</span>
+    </div>
+  </div>
+
+  <div style="margin: 0 16px 24px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px; padding: 14px; font-size: 13px; line-height: 1.5; color: #7c2d12">
+    Billed ahead of the work by $66,470 on the field measure; over-billed $156,274 cost to cost. The gap between the two usually means cost not entered yet.
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      ['Contract, with approved changes', '[CONTRACT]'],
+      ['Billed to date', '$253,684'],
+      ['Collected (in the bank)', '[COLLECTED]'],
+      ['Cost to date', '$101,694'],
+      ['Committed, not yet billed by vendors', '[COMMITTED]'],
+      ['Forecast cost at completion', '[FORECAST]']
+    ];
+    return { money: rows.map((r, i) => ({ k: r[0], v: r[1], line: i ? '1px solid #eef1f6' : '0' })) };
+  }
+}
+</script>
+</body>
+</html>

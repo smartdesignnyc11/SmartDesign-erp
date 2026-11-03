@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Budget</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Job.dc.html" aria-label="Back to 121 State Street" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="font-size: 19px">Budget</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">121 State Street · what the job costs us</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 13px; color: #5b6578">Margin at completion</span>
+    <div style="display: flex; align-items: baseline; gap: 10px"><b style="font-size: 30px">21%</b><span style="font-size: 14px; font-weight: 600; color: #b45309">Plan 22%</span></div>
+    <span style="font-size: 13px; color: #5b6578">1 line over budget · Windows, $3,800</span>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">By Estimate Line · tap one for what is behind it</div>
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+    <sc-for list="{{lines}}" as="l" hint-placeholder-count="4">
+      <div style="background: #fff; border: 1px solid {{l.border}}; border-radius: 12px; overflow: hidden">
+        <button type="button" onClick="{{l.toggle}}" aria-expanded="{{l.expanded}}" style="width: 100%; border: 0; background: transparent; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font: inherit; color: #172033; text-align: left; cursor: pointer">
+          <div style="display: flex; align-items: baseline; gap: 8px; width: 100%"><b style="flex: 1; font-size: 15px">{{l.name}}</b><b style="font-size: 14px; color: {{l.tone}}">{{l.flag}}</b></div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%">
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Budget</span><b style="font-size: 14px">{{l.budget}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Committed</span><b style="font-size: 14px">{{l.committed}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Actual</span><b style="font-size: 14px">{{l.actual}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Forecast</span><b style="font-size: 14px">{{l.forecast}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Done</span><b style="font-size: 14px">{{l.done}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Billed</span><b style="font-size: 14px">{{l.billed}}</b></span>
+          </div>
+        </button>
+        <sc-if value="{{l.open}}" hint-placeholder-val="{{false}}">
+          <div style="border-top: 1px solid #eef1f6; background: #f8fafc">
+            <sc-for list="{{l.detail}}" as="d" hint-placeholder-count="3">
+              <div style="padding: 9px 14px; display: flex; gap: 8px; border-top: {{d.line}}">
+                <span style="flex: 1; font-size: 13px">{{d.k}}</span>
+                <b style="font-size: 13px">{{d.v}}</b>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="margin: 16px 16px 24px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+    <b style="font-size: 15px; color: #7c2d12">Bought for the Client, Not Billed Back</b>
+    <span style="font-size: 14px; color: #7c2d12">$10,170 of windows delivered, not on an invoice yet.</span>
+    <a href="Billing.dc.html" style="font-size: 14px; color: #9a3412">Add to the Next Application</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: 'Windows' }; }
+  renderVals() {
+    const L = [
+      { name: 'Windows', flag: '113%', tone: '#b91c1c', budget: '$29,700', committed: '$29,700', actual: '$33,500', forecast: '$33,500', done: '[%]', billed: '[%]',
+        detail: [{ k: 'PO-2026-044 · Window Works', v: '$29,700' }, { k: 'WW-2026-118 · paid on the Amex 8/25', v: '$33,500' }, { k: 'Over the order, in dispute', v: '$3,800' }] },
+      { name: 'Framing, blocking and rough carpentry', flag: 'Billed behind', tone: '#b45309', budget: '[BUDGET]', committed: '[COMMITTED]', actual: '[ACTUAL]', forecast: '[FORECAST]', done: '79%', billed: '52%',
+        detail: [{ k: 'Crew hours this month', v: '[HOURS]' }, { k: 'Lumber, Brooklyn Lumber', v: '[AMOUNT]' }, { k: 'Ready to bill', v: '$11,103' }] },
+      { name: 'Electrical, rough and finish', flag: 'On budget', tone: '#15803d', budget: '[BUDGET]', committed: '[COMMITTED]', actual: '[ACTUAL]', forecast: '[FORECAST]', done: '55%', billed: '52%',
+        detail: [{ k: 'SD Electric labor', v: '[AMOUNT]' }, { k: 'From stock: boxes and wire', v: '$330' }, { k: 'Ready to bill', v: '$1,548' }] },
+      { name: 'Plumbing, rough and finish', flag: 'On budget', tone: '#15803d', budget: '[BUDGET]', committed: '[COMMITTED]', actual: '[ACTUAL]', forecast: '[FORECAST]', done: '[%]', billed: '[%]',
+        detail: [{ k: 'SD Plumbing labor', v: '[AMOUNT]' }, { k: 'Ferguson, 3 orders', v: '[AMOUNT]' }] }
+    ];
+    const lines = L.map((l) => {
+      const open = this.state.open === l.name;
+      return Object.assign({}, l, {
+        open, expanded: open ? 'true' : 'false', border: l.tone === '#b91c1c' ? '#fecaca' : '#dfe4ee',
+        detail: l.detail.map((d, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, d)),
+        toggle: () => this.setState({ open: open ? '' : l.name })
+      });
+    });
+    return { lines };
+  }
+}
+</script>
+</body>
+</html>
