@@ -840,7 +840,15 @@ class Sim:
     async def v_go(self, uid, pg, args, opts):
         if not args: return {'ok': False, 'text': 'go where? use a label from your menu'}
         parts = [x.strip() for x in re.split(r'\s*(?:>|›|/)\s*', args[0]) if x.strip()]
-        r = await pg.evaluate("l => __SIM.go(l)", parts[0])
+        if args[0].lstrip().startswith('>'):
+            # "> Page": only a page listed under the open group of the 11-03 menu (where the old sub-tab strip was)
+            if not parts or not await pg.evaluate("l => __SIM.goKid ? __SIM.goKid(l) : false", parts[0]):
+                return {'ok': False, 'text': f'no "{parts[0] if parts else ""}" under the open menu group'}
+            await self.settle(pg, 400)
+            parts = []
+            r = {'ok': True}
+        else:
+            r = await pg.evaluate("l => __SIM.go(l)", parts[0])
         if not r['ok']: return {'ok': False, 'text': r['why']}
         await self.settle(pg, 400)
         for sub in parts[1:]:

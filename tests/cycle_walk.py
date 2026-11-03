@@ -433,6 +433,17 @@ class Person:
 
     def tap(self, label, after=None, nth=1, expect=None, exact=False, kinds=None):
         c = self._target(label, False, after, nth, exact, kinds)
+        if c is None and after is None and kinds is None:
+            # the 11-03 menu: a group's pages are listed under its open name in the menu, where its sub-tab strip was
+            # (Purchasing's Orders, Vendors): the person taps the page there
+            r, txt = self._act('go', '> ' + label)
+            if r.get('ok'):
+                self.last_control = 'menu: ' + label
+                self.scr = screen_of(txt)
+                if expect and not self.scr.has(expect):
+                    self.look()
+                    if not self.scr.has(expect): raise Stuck(f'tap "{label}"', f'"{expect}" on the screen after it', self.scr, label)
+                return self.scr
         if c is None: raise Stuck(f'tap "{label}"' + (f' (after "{after}")' if after else ''), f'a control labelled "{label}"', self.scr, self.last_control)
         if c.disabled: raise Stuck(f'tap "{label}"', f'"{label}" can be tapped (it is greyed out)', self.scr, c.label)
         self.last_control = c.label
