@@ -7,7 +7,8 @@ Each check starts from how the reviews saw it fail:
   REACH      a change-order line, an approved FF&E item, a field request and a sub scope (demolition) reach the board;
              a late promise (insulation 9/16 vs 9/11) reaches the coordinator's Do Now with the fix choices; a backorder
              moved on a PO reaches Do Now the same day (10-21 F9, F13; buying day 4, 16, 22)
-  BOARD      opens on To Buy for the coordinator; sections Late, Order This Week, Waiting on Quotes, Later; Arriving;
+  BOARD      (11-03, docs/mockups/purchasing) opens on Needs You, its count the badge; On Today's Route, Waiting on
+             Someone Else, Later; an ordered need lives on Deliveries; no tab row and no chips;
              tab and chip counts equal their rows; one blue button; no tiles; no board on the Purchase Orders page;
              phone: cards, no table, no sideways scroll, 44px picks, Order N Lines and Ask for Quotes (F4, F22, F26)
   LINKS      a request carries its line (picker, never a guess); an RFQ award copies requestId and materialId into the
@@ -41,29 +42,22 @@ async def desktop(c, p):
         await board(pg)
         L = await pg.evaluate(LATE)
         c.ok(L['pred'] == L['board'] and L['pred'] > 0, f'one late: PRED.lateMaterial and the board agree {L}')
-        c.ok(L['badge'] == L['need'] and L['need'] >= L['pred'], f'the Buy Board badge is late or due this week (PRED.buyNeeds) {L}')
+        # the 11-03 Buy Board (docs/mockups/purchasing/SPEC.md): the number is Needs You, the rows whose next tap is the
+        # coordinator's; every late row is still somewhere (Needs You, Waiting on Someone Else, Later, or Deliveries)
+        c.ok(L['badge'] == L['need'] and 0 < L['need'] <= L['pred'], f'the Buy Board badge is Needs You (PRED.buyNeeds) {L}')
         st = await pg.evaluate("""() => { const v = document.querySelector('#v-proc');
-          const n = s => { const e = v.querySelector(s); return e ? +((e.innerText.match(/\\d+/) || [0])[0]) : null; };
-          const sec = k => v.querySelectorAll(`[data-bbsec="${k}"] [data-bbrow]`).length;
-          return { pill: n('.bb-latepill'), ack: sec('ack'), late: sec('late'), week: sec('week'), quotes: sec('quotes'), later: sec('later'),
-            tabBuy: n('[data-bbtab="buy"] .n'), tabArr: n('[data-bbtab="arriving"] .n'), rows: v.querySelectorAll('.bb-list [data-bbrow]').length,
-            chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText]),
+          const rows = k => [...v.querySelectorAll(`[data-pusec="${k}"] [data-purow]`)].length;
+          const n = v.querySelector('[data-pusec="mine"] .pu-sh .n');
+          const late = buyList('').filter(r => r.late), shown = new Set([...v.querySelectorAll('[data-purow]')].map(e => e.dataset.purow));
+          const lost = late.filter(r => !shown.has(r.id) && !(r.ordered && r.po)).map(r => r.name);
+          return { mineN: n ? +n.innerText : null, mine: rows('mine'), others: rows('others'), route: rows('route'), lost,
+            secs: [...v.querySelectorAll('[data-pusec]')].map(s => s.dataset.pusec), tabs: v.querySelectorAll('[role=tablist], .bb-tabs, [data-bbtab], [data-bbf]').length,
             prim: [...v.querySelectorAll('.btn.primary')].filter(b => b.getClientRects().length).map(b => b.innerText.trim()),
-            tiles: v.querySelectorAll('button.gl, .kpi').length, panel: !!v.querySelector('.bb-panel h3'), h: (v.querySelector('h2') || {}).innerText,
-            head: [...v.querySelectorAll('.bb-sh span')].map(s => s.innerText) }; }""")
-        c.ok(st['h'] == 'Buy Board' and st['tabBuy'] == st['rows'], f"board: opens on To Buy, the tab count is the rows ({st['tabBuy']} vs {st['rows']})")
-        c.ok(st['pill'] == L['badge'] and st['late'] == L['pred'], f"board: the pill {st['pill']} is the rail badge {L['badge']}; the Late section is the late set")
-        # a field request waiting to be acknowledged has its own first section (10-26), so Late plus Order This Week is the chip
-        hd = [h for h in st['head'] if h != 'TO ACKNOWLEDGE']
-        c.ok(hd[:1] == ['LATE'] and st['ack'] + st['late'] + st['week'] + st['quotes'] + st['later'] == st['rows'], f"board: sections To Acknowledge, Late, Order This Week, Waiting on Quotes, Later hold every row {st['head']}")
-        ch = dict(st['chips'])
-        c.ok(ch.get('all') == st['rows'] and ch.get('late') == st['late'] and ch.get('week') == st['week'] and ch.get('quotes') == st['quotes'], f"board: each chip is its rows {st['chips']}")
+            tiles: v.querySelectorAll('button.gl, .kpi').length, panel: !!v.querySelector('.bb-panel h3'), h: (v.querySelector('h2') || {}).innerText }; }""")
+        c.ok(st['h'] == 'Buy Board' and st['secs'][:1] == ['mine'] and st['tabs'] == 0, f"board: opens on Needs You, no tab row or chips {st['secs']} ({st['tabs']})")
+        c.ok(st['mineN'] == st['mine'] == L['need'], f"board: Needs You {st['mineN']} is its {st['mine']} rows and the badge {L['need']}")
+        c.ok(not st['lost'] and st['route'] >= 1, f"board: every late need is on the board or on Deliveries ({st['lost']}); today's route has its own section")
         c.ok(len(st['prim']) == 1 and st['tiles'] == 0 and st['panel'], f"board: one blue button {st['prim']}, no tiles ({st['tiles']}), the need's panel")
-        for k in ['late', 'week']:
-            await pg.evaluate("k => { bbFilter = k; render(); }", k); await pg.wait_for_timeout(200)
-            n = await pg.evaluate("() => document.querySelectorAll('#v-proc .bb-list [data-bbrow]').length")
-            c.ok(n == ch.get(k), f'board: the {k} chip shows its {ch.get(k)} rows ({n})')
-        await pg.evaluate("() => { bbFilter = 'all'; render(); }")
         await shot(pg, 'd1_buyboard.png')
         # Today: the coordinator's Buy Board items are the late set and this week's (none other)
         # Do Now: every one of them once (the today lane's rule); the three the site needs soonest rank as the Standard ranks
@@ -96,8 +90,10 @@ async def desktop(c, p):
           const p = DB.projects.find(x => x.id === po.projectId); const m = p.materials.find(x => x.id === 'm10'); m.eta = '2026-10-23'; save(); view = 'home'; render();
           const B = tdyModel().all.filter(i => i.kind === 'tdyBuy'), r = buyList('').find(x => x.m && x.m.id === 'm10');
           const own = B.find(i => i.x.m && i.x.m.id === 'm10'), more = null;
-          bbSel = r.id; bbTab = 'buy'; view = 'proc'; render();
-          return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: [...document.querySelectorAll('#v-proc .bb-panel [data-bbstep]')].map(b => b.innerText.trim()), ask: paAsk("what's backordered").headline }; }""")
+          // an ordered need lives on Deliveries (the 11-03 Purchasing spec, decision 3): its row there offers Expedite
+          view = 'recv'; render();
+          const row = [...document.querySelectorAll('#v-recv [data-pusec="mine"] [data-purow]')].find(e => /White oak/.test(e.innerText));
+          return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: row ? [...row.querySelectorAll('button.btn')].map(b => b.innerText.trim()) : [], ask: paAsk("what's backordered").headline }; }""")
         c.ok(bo and '10/23' in bo['why'] and bo['today'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Do Now: a backorder to 10/23 on a 10/2 need is late, on Today, with the fix choices, and in Ask {bo}')
         # ---- LINKS: a request gets its line from the picker, ranked by match, never guessed
         lk = await pg.evaluate("""() => { const r = buyList('').find(x => x.kind === 'request' && x.q.id === 'rq2'); const before = r.q.line;
@@ -172,14 +168,14 @@ async def desktop(c, p):
         # ---- MENU
         # the 11-03 menu (docs/mockups/job-structure, Main): Purchasing's pages are listed under it in the menu
         sub = await pg.evaluate("() => { view = 'proc'; render(); return [...document.querySelectorAll('#nav-groups [data-mngr=\"buy\"] button')].map(b => b.innerText.replace(/\\s*\\d+$/, '').trim()); }")
-        c.ok(sub[:6] == ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Orders, Quotes, Deliveries, Vendors, Stock {sub}')
+        c.ok(sub == ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock'], f'menu: Purchasing reads Buy Board, Orders, Quotes, Deliveries, Vendors, Stock {sub}')
         # ---- ROLES
         await sign_in(pg, 'u_alan')
         # the job's buying is its Materials tile and its Purchasing tab, the Buy Board filtered to the job (the job structure,
         # Alan 11-03: Buying on This Job filled the Overview's first screen, round one's PM walk)
         pm = await pg.evaluate("""() => { jpOpenJob('p121'); const t = document.querySelector('#jp-ov button.gl[data-tl="mat"] .gl-v'), rail = document.querySelector('#nav-groups button[data-grp="buy"] .n');
           const late = PRED.lateMaterial.rows().filter(r => r.p && r.p.id === 'p121').length; jpGo('proc');
-          const rows = [...document.querySelectorAll('#v-proc [data-bbrow]')].length, other = [...document.querySelectorAll('#v-proc [data-bbrow]')].filter(e => /Lenox|Cranberry|Prospect/.test(e.innerText)).length;
+          const rows = [...document.querySelectorAll('#v-proc [data-purow]')].length, other = [...document.querySelectorAll('#v-proc [data-purow]')].filter(e => /Lenox|Cranberry|Prospect/.test(e.innerText)).length;
           return { tile: t && t.innerText, late, rows, other, bbProj, rail: rail ? +rail.innerText : null, need: needs('buy') }; }""")
         c.ok(pm['tile'] == f"{pm['late']} late" and pm['late'] > 0 and pm['rows'] > 0 and not pm['other'] and pm['bbProj'] == 'p121' and pm['rail'] == pm['need'],
              f'PM: the job\'s Materials tile counts its late needs, its Purchasing is the Buy Board on the job only, and the Purchasing badge {pm}')
@@ -198,30 +194,32 @@ async def phone(c, p):
     b, pg, errs = await open_app(p, True)
     try:
         await board(pg)
+        # the 11-03 Buy Board on the phone (docs/mockups/purchasing, BuyBoard): cards under Needs You, no tab row
         st = await pg.evaluate("""() => { const v = document.querySelector('#v-proc');
           const picks = [...v.querySelectorAll('.bb-pick')].filter(x => x.getClientRects().length).slice(0, 6).map(x => { const r = x.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
-          return { cards: v.querySelectorAll('.bb-card').length, tables: v.querySelectorAll('table').length, sw: document.documentElement.scrollWidth, w: innerWidth, picks,
-                   tabs: [...v.querySelectorAll('[data-bbtab] ')].filter(x => x.matches('button')).map(x => x.innerText.replace(/\\s+/g, ' ').trim()),
+          return { cards: v.querySelectorAll('[data-purow]').length, tables: v.querySelectorAll('table').length, sw: document.documentElement.scrollWidth, w: innerWidth, picks,
+                   tabs: v.querySelectorAll('[role=tablist], [data-bbtab]').length, first: (v.querySelector('[data-pusec] h3') || {}).innerText,
                    lit: (document.querySelector('#mtabs button.on') || {}).innerText }; }""")
         c.ok(st['cards'] > 5 and st['tables'] == 0 and st['sw'] <= st['w'], f"phone: cards, no table, no sideways scroll {st['cards']} {st['tables']} {st['sw']}")
         c.ok(all(w >= 44 and h >= 44 for w, h in st['picks']), f"phone: picks are 44px targets {st['picks']}")
-        c.ok(st['tabs'][:1] and st['tabs'][0].startswith('To Buy') and 'Buy Board' in (st['lit'] or ''), f"phone: To Buy first, the Buy Board tab lit {st}")
+        c.ok(st['tabs'] == 0 and st['first'] == 'Needs You' and 'Buy Board' in (st['lit'] or ''), f"phone: Needs You first, no tab row, the Buy Board tab lit {st}")
         await shot(pg, 'p1_tobuy.png')
         await pg.locator('#v-proc .bb-pick').nth(2).click(); await pg.wait_for_timeout(200)
         await pg.locator('#v-proc .bb-pick').nth(4).click(); await pg.wait_for_timeout(250)
         bar = await pg.evaluate("() => { const b = document.querySelector('#v-proc .bb-bar'); return b ? { t: b.innerText.replace(/\\s+/g, ' '), prim: [...document.querySelectorAll('#v-proc .btn.primary')].filter(x => x.getClientRects().length).map(x => x.innerText.trim()) } : null; }")
-        c.ok(bar and 'Order 2 Lines' in bar['t'] and 'Ask for Quotes' in bar['t'] and bar['prim'] == ['Order 2 Lines'], f'phone: two picked lines offer Order 2 Lines (the one blue) and Ask for Quotes {bar}')
+        c.ok(bar and '2 lines picked' in bar['t'] and 'Ask for Quotes' in bar['t'] and len(bar['prim']) == 1, f'phone: two picked lines: the count, the total, and one blue {bar}')
         await shot(pg, 'p2_two_picked.png')
         await pg.evaluate("() => { bbPick.clear(); render(); }")
         # a card opens the need as a sheet
-        await pg.locator('#v-proc .bb-cbody').first.click(); await pg.wait_for_timeout(300)
+        await pg.locator('#v-proc [data-pusec="mine"] .pu-rb').first.click(); await pg.wait_for_timeout(300)
         sh = await pg.evaluate("() => { const m = document.querySelector('#mbm'); return m ? { steps: [...m.querySelectorAll('[data-bbstep]')].map(b => b.innerText.trim()), sw: document.documentElement.scrollWidth } : null; }")
         c.ok(sh and sh['steps'] and sh['sw'] <= 390, f'phone: a card opens its need with the next steps {sh}')
         await shot(pg, 'p3_need_sheet.png')
         await pg.evaluate("() => mbCloseModal()")
-        await board(pg, 'u_chen', 'arriving')
-        ar = await pg.evaluate("() => ({ n: document.querySelectorAll('#v-proc .bb-arr').length, tab: +((document.querySelector('button[data-bbtab=\"arriving\"] .n') || {}).innerText || -1), acts: [...document.querySelectorAll('#v-proc .bb-act')].map(b => [b.innerText, Math.round(b.getBoundingClientRect().height)]) })")
-        c.ok(ar['n'] == ar['tab'] and all(h >= 44 for _, h in ar['acts']), f'phone: Arriving lists its tab count, 44px actions {ar}')
+        # Arriving moved to Deliveries (the spec's old-to-new table): its rows, each with Receive at 44px
+        await pg.evaluate("() => { view = 'recv'; render(); }"); await pg.wait_for_timeout(300)
+        ar = await pg.evaluate("() => ({ n: document.querySelectorAll('#v-recv [data-pusec=\"arriving\"] [data-purow]').length, acts: [...document.querySelectorAll('#v-recv [data-purecv]')].map(b => [b.innerText, Math.round(b.getBoundingClientRect().height)]) })")
+        c.ok(ar['n'] >= 1 and ar['n'] == len(ar['acts']) and all(h >= 44 for _, h in ar['acts']), f'phone: Deliveries lists what is arriving, each with a 44px Receive {ar}')
         await shot(pg, 'p4_arriving.png')
         # the bottom tab: Orders and Deliveries light Buy Board (F19)
         for v in ['po', 'recv']:

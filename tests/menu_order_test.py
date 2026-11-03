@@ -41,8 +41,9 @@ W6 = ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Re
 # The approved order, filtered by what each role may open (ROLE_VIEWS on master; this lane adds no page to any role).
 ORDER = {
     'u_owner': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
-    'u_alan': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
-    'u_chen': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
+    # no Design menu for the PM or the coordinator (docs/mockups/design/SPEC.md, 11-03)
+    'u_alan': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
+    'u_chen': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     # billing and the controller open no design page; the designer no purchasing or accounting page
     'u_billing': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     'u_controller': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
@@ -50,7 +51,8 @@ ORDER = {
     # the field: short and field-first, the role's own day page and Messages, then the job's pages in the bar's order
     'u_angel': [DAY, 'Today', 'Messages', WORK, 'Daily Log', 'Site', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise'] + FOOT,
     'u_alberto': [DAY, 'Clock', 'Messages', WORK, 'Requests', 'Schedule', 'Photos', 'Deliveries', 'Drawings'] + FOOT,
-    'u_alex': [DAY, 'Route', 'Messages', WORK, 'Clock', 'Receipts', 'Requests'] + FOOT,
+    # Stock: the driver picks for the route from it (docs/mockups/purchasing/SPEC.md, decision 1)
+    'u_alex': [DAY, 'Route', 'Messages', WORK, 'Clock', 'Receipts', 'Requests', 'Stock'] + FOOT,
 }
 GROUPS = set(W6) | {'Company and Settings'}
 
