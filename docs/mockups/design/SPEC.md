@@ -27,7 +27,7 @@ meetings and the client profile go to the job and the client, where 11-03 put th
 - Label: Selections, the designer's and the client's word.
 - Holds: the selection record, one record from clip to install. It is a need on the Buy Board as it is. The client's approval is a Decision on the job (11-03), and both link to the same record.
 - Who and why: the designer ("what must I fix before it is bought or installed?"); the PM and coordinator reach it from a decision or a Buy Board row.
-- First screen: six items to fix. Five lack the spec sheet the field needs before the wall closes; the picture light moved from $385 to $412; the shower drain was bought on no approved estimate line. Then the faucet (Alberto's resubmittal) and the knob set (the Kleins).
+- First screen: six items to fix. All six lack the spec sheet the field needs before the wall closes; among them, the picture light moved from $385 to $412; the shower drain was bought on no approved estimate line. Then the faucet (Alberto's resubmittal) and the knob set (the Kleins).
 - Numbers: 6, the rows. The tiles go: Red Flags and To Check become reasons on rows; Awaiting Approval 2 is counted once, in the job's Decisions; Still to Buy is the Buy Board.
 - The +: Clip From a Web Page, From a Spec Sheet or Photo, Choose From Past Jobs, already tied to the job in the filter.
 - Phone: card with a line-drawn image, labelled Quantity, Cost Each, On Site, Status, the reasons, one action; "See This Job as the Client Does".
@@ -77,7 +77,7 @@ meetings and the client profile go to the job and the client, where 11-03 put th
 
 ## 4. Who sees what
 - **Designer:** Design › Selections and Drawings, with the counts above. Phone bar: Today, Drawings, Selections, Messages.
-- **PM:** no Design menu (the PM expert asked for it off his menu). He reaches drawings through the job's Documents, and selections through the job's Decisions and Purchasing tabs. The field's question reaches him only if the designer is out.
+- **PM:** no Design menu (the PM expert asked for it off his menu). He reaches drawings through the job's Documents, and selections through the job's Decisions and Purchasing tabs. The field's question is a Decision on the job (11-03: one home for design questions and RFIs), so the PM sees it there with who owes it and what it holds; Drawings' Needs You is that list filtered to the designer. It reaches his Today when it holds crew work inside 24 hours, as Angel's does.
 - **Client:** never sees Design pages. The portal's Decisions holds "We Need Your Choice" and "Approve Before We Order"; Selections' client view shows what they will see.
 - **Owner:** the Design menu, no counts. On Today: hours over the proposal, a filing past its date, an item bought on no estimate line.
 - **Coordinator:** no Design menu (today it hides under More); a Buy Board row opens its selection.
@@ -99,7 +99,7 @@ meetings and the client profile go to the job and the client, where 11-03 put th
   - Selections' To Check reads 4, while 6 cards say "No spec sheet attached".
   - Hours Not Logged reads 4 on the designer's Today and "5 designer-days" on Design.
   - Waiting on Decisions reads 11 on Today, against 8 open on 121 State Street (other jobs may explain it; not checked).
-- **Money.** The shower drain was bought ($95) on no approved estimate line, and Analysis lists 7 such rows. Nobody is asked to bill it back or write a change order.
+- **Money.** The shower drain was bought ($108 on the mock's card; this line said $95, so re-read the build) on no approved estimate line, and Analysis lists 7 such rows. Nobody is asked to bill it back or write a change order.
 
 ## 7. Self-review against QUESTIONS.md
 | Page | 1 What | 2 Label | 3 One home | 4 Who | 5 Record | 6 First screen | 7 Numbers | 8 + | 9 Phone | 10 Few | Still weak |
@@ -110,3 +110,30 @@ meetings and the client profile go to the job and the client, where 11-03 put th
 
 Revised during review: the desktop sheet table went from 8 columns to 5 (it broke beside the side panel). Phone targets were raised to 44px (the By Sheet and By Room switch, two inline links). New Room was added to Drawings' + once Rooms moved there.
 Checked by rendering each screen at its width: no sideways scroll at 390, one blue at most (Answer Angel), every handler runs.
+
+## 8. Chief of staff review (11-03, overnight, under Alan's "keep doing this till it's done")
+**Verdict: build after the must-fix list below.** Two pages and an In Design filter is the right shape: one noun, one list, the
+client's approval counted once in Decisions. Grades (of the ten questions): Selections 8, Drawings 8, In Design 7.
+
+**Calls:** the PM gets no Design menu (agreed; see section 4 for how the field's question still reaches him). The coordinator has none
+either, and the Purchasing menu mock no longer shows one for Chen.
+
+**Fixed in the mock-up during review:** In Design no longer lists 121 State Street (in construction, "0 of 0" hours: it lives under
+Building); the selection prices read "2 each at $1,180", not "2 each, $1,180"; this spec's first-screen line (six lack a spec sheet,
+not five) and the PM's path to field questions.
+
+**Must fix before build:**
+1. The estimate line on every selection. The card shows job and room but not the allowance or estimate line it buys against, or
+   what is left on it. Purchasing starts from the line; a selection with no line is the shower drain's leak. Show the line and
+   what is left; a selection on no line is a Needs You reason before it is bought, not after.
+2. The bill-back is a proposal with a button, not a hand-off. "Send to the PM to Bill" should open a drafted change order (or a
+   Bill Back line on the next invoice) for the PM to approve; absorbing it needs his reason. Neither reaches the Kleins without him.
+3. The picture light's client approval waits on a stale price ($385 vs $412). Block sending the decision to the Kleins until the
+   price is updated, so they never approve a number we will not charge.
+4. Drawings' Needs You 8 is hard-coded and mixes units (6 sheets counted one by one, 11 rooms counted as one). Count rows the
+   page shows, computed, and say the unit on each card.
+5. In Design cards carry figures where nothing waits on you (hours, sheets, filings). Keep the one that waits (over the
+   proposal) red; make the rest plain text. The Projects lane owns the filter.
+6. The phone Selections has no room filter (the desktop has one); the spec promises job and room filters on both.
+7. The 45 Cranberry and 140 Prospect registers are placeholders. Read them before the build is judged.
+

@@ -80,7 +80,7 @@ class Component extends DCLogic {
     };
     const r = (k, v, o) => Object.assign({ k, v, sub: '', fw: '400', tone: D }, o || {});
     const pl = {
-      'This Week': [r('Collected this week', '$72,750', { sub: 'check 2214, Kleins, in the bank 8/29' }), r('Billed this week', '$92,265'), r('Payables past due', '$16,040', { tone: Rd, sub: 'payroll 8/17 to 8/28' }), r('Safe to Spend', '−$4,151', { tone: Rd, fw: '700', sub: '13-week low $135,583' }), r('Hours this week', '111.47')],
+      'This Week': [r('Collected this week', '$72,750', { sub: 'check 2214, Kleins, in the bank 8/29' }), r('Billed this week', '$92,265'), r('Payables past due', '$16,040', { tone: Rd, sub: 'payroll 8/17 to 8/28' }), r('Safe to Spend', '[SAFE TO SPEND]', { fw: '700', sub: 'the same figure as Cash' }), r('Hours this week', '111.47')],
       'August 2026': [r('Revenue, earned', '$135,175'), r('Job cost', '$100,494'), r('Gross profit', '$34,681', { fw: '600' }), r('Overhead', '$9,257'), r('Net profit, 19%', '$25,424', { fw: '700' })],
       'September to Date': [r('Revenue, earned', '$7,584', { sub: 'budget $20,599, pro-rated' }), r('Job cost', '$8,000'), r('Gross profit', '−$416', { fw: '600', tone: Rd }), r('Overhead', '$14,865', { sub: '8 lines not yet coded' }), r('Net profit', '−$15,281', { fw: '700', tone: Rd })],
       'Year to Date': [r('Revenue, earned', '$142,759', { sub: '$169,750 collected with a bank line · $21,350 recorded, not in the bank' }), r('Job cost, 76%', '$108,494'), r('Gross profit, 24%', '$34,265', { fw: '600' }), r('Overhead, incl. $14,841 not yet coded', '$39,595'), r('Payroll approved or paid', '$0', { tone: Rd, sub: '$16,040 submitted, awaiting approval' }), r('Net profit, −4%', '−$5,330', { fw: '700', tone: Rd })]

@@ -56,7 +56,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       </section>
       <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
         <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
-          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Needs You · 3</b></div>
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">At Risk · 3</b></div>
           <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
             <div style="padding: 10px 16px; border-top: {{n.line}}; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{n.title}}</b><span style="font-size: 13px; color: #5b6578">{{n.why}}</span></div>
           </sc-for>
@@ -123,8 +123,8 @@ class Component extends DCLogic {
     };
     const v = views[V];
     const needs = ln([
-      { title: '121 State Street: 20.83% at completion, bid 21.81%', why: 'Windows $3,800 over budget: WW-2026-118 on a $29,700 PO.' },
-      { title: 'Job margins leave out $14,072 of payroll', why: 'Payroll 8/17 to 8/28 is 88% on Unallocated Labor.' },
+      { title: '121 State Street: 20.83% at completion, bid 21.81%', why: 'Windows $3,800 over budget: WW-2026-118 on a $29,700 PO. With Alan, on the bill.' },
+      { title: 'Job margins leave out $14,072 of payroll', why: 'Payroll 8/17 to 8/28 is 88% on Unallocated Labor. With the controller.' },
       { title: 'Over-Billed (WIP) $156,274 on 3 jobs', why: 'The controller reconciles it with Billed Ahead of the Work before the close.' }
     ]);
     const company = ln([

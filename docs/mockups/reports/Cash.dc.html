@@ -27,8 +27,8 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #fecaca; border-radius: 12px; overflow: hidden">
     <div style="padding: 12px 14px 4px; font-size: 13px; font-weight: 700; color: #5b6578">SAFE TO SPEND</div>
     <div style="padding: 0 14px 10px; display: flex; flex-direction: column; gap: 2px">
-      <b style="font-size: 30px; color: #b91c1c">−$4,151</b>
-      <span style="font-size: 13px; color: #5b6578">The lower of what is ours today and the 13-week low, $135,583</span>
+      <b style="font-size: 30px; color: #172033">[SAFE TO SPEND]</b>
+      <span style="font-size: 13px; color: #5b6578">The lower of what is ours today and what is ours at the 13-week low; the set-aside comes off every week of the forecast too</span>
     </div>
     <sc-for list="{{parts}}" as="p" hint-placeholder-count="5">
       <div style="padding: 8px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 12px">
@@ -40,7 +40,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   </div>
 
   <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
-    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 3</div>
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">AT RISK · 3</div>
     <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
       <a href="{{n.href}}" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; min-height: 44px; text-decoration: none; color: #172033">
         <b style="font-size: 15px">{{n.title}}</b>
@@ -95,13 +95,13 @@ class Component extends DCLogic {
       { k: 'In the bank', sub: 'Chase ····4471, statement through 8/31', v: '$184,231', fw: '600' },
       { k: 'Less owed on cards', sub: 'Amex ····1009 $12,648 · Home Depot ····7720 $3,419', v: '−$16,067', fw: '400' },
       { k: 'Less payroll due', sub: '8/17 to 8/28, past due since 9/1', v: '−$16,040', fw: '400' },
-      { k: 'Less Over-Billed (WIP)', sub: 'Client money for work not done yet, 3 jobs', v: '−$156,274', fw: '400' },
-      { k: 'Ours today', sub: 'Lower than the 13-week low, so it is Safe to Spend', v: '−$4,151', fw: '700' }
+      { k: 'Less client money for work not done', sub: 'Job by job: paid to us with a bank line, less earned, never below $0. Billed and unpaid is never set aside. About $47,124 on these figures, all 121 State Street', v: '[SET-ASIDE]', fw: '400' },
+      { k: 'Ours today', sub: 'About $105,000 on these figures, before the 13-week check', v: '[OURS TODAY]', fw: '700' }
     ];
     const needs = [
-      { href: '../accounting/BillsPayroll.dc.html', title: 'Payroll $16,040 is 2 days past pay day', why: 'Blocked until it is split by job; then it reaches you.' },
-      { href: '../accounting/Banking.dc.html', title: '$33,500 left the bank before approval', why: 'WW-2026-118, Window Works, $3,800 over its PO.' },
-      { href: '../accounting/Billing.dc.html', title: '$21,350 of Rivera payments are not in the bank', why: 'Billing asks the client; not cash until the bank shows it.' }
+      { href: '../accounting/BillsPayroll.dc.html', title: 'Payroll $16,040 is 2 days past pay day', why: 'With the controller to split by job; then it reaches you.' },
+      { href: '../accounting/BillsPayroll.dc.html', title: '$33,500 left the bank before approval', why: 'WW-2026-118, Window Works, $3,800 over its PO. With you, on the bill.' },
+      { href: '../accounting/Billing.dc.html', title: '$21,350 of Rivera payments are not in the bank', why: 'With billing, who asks the client; not cash until the bank shows it.' }
     ];
     const W = [
       ['9/3', '—', '$16,915', '$167,316', 'Payroll 8/17 to 8/28 (owed) $16,040 · Autodesk, Enscape, Anthropic, Hartford'],
@@ -124,7 +124,7 @@ class Component extends DCLogic {
     const w = W[wi];
     const wk = { w: w[0], inn: w[1], out: w[2], bal: w[3], what: w[4] };
     const lists = {
-      'Client Funds': ['The client\'s money on hand for purchases still to make, and what we have spent ahead of what the client has paid. Parts of the cash above, never a second "ours" figure; whether they sit inside the Over-Billed (WIP) set-aside: [CONTROLLER TO CONFIRM].', [
+      'Client Funds': ['The client\'s money on hand for purchases still to make, and what we have spent ahead of what the client has paid. Parts of the cash above, never a second "ours" figure; they sit inside the set-aside above, never added to it.', [
         { k: 'Client funds held for materials', sub: '121 State Street · collected on lines with buying left', v: '$25,375', tone: K, fw: '600' },
         { k: 'Trim, doors, paint and hardware', sub: 'Collected $14,700 · nothing bought yet · held 28 days', v: '$14,700', tone: K },
         { k: 'Tile, two baths', sub: 'Collected $12,075 · spent $4,250 · held 28 days', v: '$7,825', tone: K },

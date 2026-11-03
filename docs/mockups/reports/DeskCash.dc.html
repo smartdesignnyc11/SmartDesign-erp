@@ -33,7 +33,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <div style="display: flex; gap: 16px">
           <div style="width: 360px; flex: none; background: #fff; border: 1px solid #fecaca; border-radius: 12px; overflow: hidden">
             <div style="padding: 12px 16px 2px; font-size: 13px; color: #5b6578; font-weight: 700">Safe to Spend</div>
-            <div style="padding: 0 16px 8px"><b style="font-size: 30px; color: #b91c1c">−$4,151</b><div style="font-size: 12px; color: #5b6578">the lower of ours today and the 13-week low</div></div>
+            <div style="padding: 0 16px 8px"><b style="font-size: 30px; color: #172033">[SAFE TO SPEND]</b><div style="font-size: 12px; color: #5b6578">the lower of ours today and ours at the 13-week low</div></div>
             <sc-for list="{{parts}}" as="p" hint-placeholder-count="6">
               <div style="padding: 7px 16px; border-top: 1px solid #eef1f6; display: flex"><span style="flex: 1; font-size: 13px; font-weight: {{p.fw}}">{{p.k}}</span><span style="font-size: 13px; font-weight: {{p.fw}}">{{p.v}}</span></div>
             </sc-for>
@@ -64,7 +64,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         </div>
       </section>
       <aside style="width: 300px; flex: none; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
-        <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Needs You · 3</b></div>
+        <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">At Risk · 3</b></div>
         <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
           <div style="padding: 10px 16px; border-top: {{n.line}}; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{n.title}}</b><span style="font-size: 13px; color: #5b6578">{{n.why}}</span></div>
         </sc-for>
@@ -90,8 +90,8 @@ class Component extends DCLogic {
     const Rd = '#b91c1c', A = '#b45309';
     const parts = [
       { k: 'In the bank, Chase ····4471', v: '$184,231', fw: '600' }, { k: 'Less owed on cards', v: '−$16,067', fw: '400' },
-      { k: 'Less payroll due, past due 9/1', v: '−$16,040', fw: '400' }, { k: 'Less Over-Billed (WIP)', v: '−$156,274', fw: '400' },
-      { k: 'Ours today', v: '−$4,151', fw: '700' }, { k: '13-week low, week of 11/26', v: '$135,583', fw: '400' }
+      { k: 'Less payroll due, past due 9/1', v: '−$16,040', fw: '400' }, { k: 'Less client money for work not done (paid, not earned, job by job; about $47,124)', v: '[SET-ASIDE]', fw: '400' },
+      { k: 'Ours today (about $105,000)', v: '[OURS TODAY]', fw: '700' }, { k: 'Bank at the 13-week low, week of 11/26, before the set-aside', v: '$135,583', fw: '400' }
     ];
     const W = [['9/3', '—', '$16,915', '$167,316', 'payroll owed $16,040'], ['9/10', '$92,265', '$16,240', '$243,341', 'Kleins +$68,265, Jessop +$24,000'], ['9/17', '—', '$16,067', '$227,274', 'card balances'], ['9/24', '$19,680', '$19,862', '$227,091', 'next bills +$19,680, payroll'], ['10/1', '$13,350', '$50,313', '$190,128', 'PO-2026-048 $38,000'], ['10/8', '—', '$16,540', '$173,588', 'payroll'], ['10/15', '—', '$721', '$172,867', 'PO-2026-047 $721'], ['10/22', '—', '$18,662', '$154,205', 'payroll, State Farm'], ['10/29', '$29,018', '$12,938', '$170,285', 'retainage release +$15,668'], ['11/5', '—', '$16,040', '$154,245', 'payroll'], ['11/12', '—', '—', '$154,245', 'nothing scheduled'], ['11/19', '—', '$16,040', '$138,205', 'payroll'], ['11/26', '—', '$2,622', '$135,583', 'the 13-week low']];
     const vals = [167316, 243341, 227274, 227091, 190128, 173588, 172867, 154205, 170285, 154245, 154245, 138205, 135583];
@@ -119,9 +119,9 @@ class Component extends DCLogic {
         { k: 'Held, possibly already paid', sub: 'AMP-311', v: '$9,800', tone: A } ]) }
     ];
     const needs = ln([
-      { title: 'Payroll $16,040 is 2 days past pay day', why: 'Blocked until it is split by job.' },
-      { title: '$33,500 left the bank before approval', why: 'WW-2026-118, $3,800 over its PO.' },
-      { title: '$21,350 of Rivera payments not in the bank', why: 'Billing asks the client.' }
+      { title: 'Payroll $16,040 is 2 days past pay day', why: 'With the controller to split by job.' },
+      { title: '$33,500 left the bank before approval', why: 'WW-2026-118, $3,800 over its PO. With you, on the bill.' },
+      { title: '$21,350 of Rivera payments not in the bank', why: 'With billing, who asks the client.' }
     ]);
     return { rail, parts, bars, wk: { w: w[0], inn: w[1], out: w[2], bal: w[3], what: w[4] }, panels, needs };
   }

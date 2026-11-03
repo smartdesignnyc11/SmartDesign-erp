@@ -25,7 +25,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   </div>
 
   <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
-    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 3</div>
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">AT RISK · 3</div>
     <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
       <a href="#" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; min-height: 44px; text-decoration: none; color: #172033">
         <b style="font-size: 15px">{{n.title}}</b>
@@ -79,9 +79,9 @@ class Component extends DCLogic {
   renderVals() {
     const V = this.state.view, Rd = '#b91c1c', A = '#b45309', K = '#172033';
     const needs = [
-      { title: '121 State Street: margin at completion 20.83%, bid 21.81%', why: 'Windows line $3,800 over its budget: WW-2026-118 billed $33,500 on a $29,700 PO.' },
-      { title: 'Job margins leave out $14,072 of payroll', why: 'Payroll 8/17 to 8/28 is 88% on Unallocated Labor. Split it and the labor lands on the jobs.' },
-      { title: 'Over-Billed (WIP) $156,274 on 3 jobs', why: 'Client money for work not done yet. The controller reconciles it with Billed Ahead of the Work before the close.' }
+      { title: '121 State Street: margin at completion 20.83%, bid 21.81%', why: 'Windows line $3,800 over its budget: WW-2026-118 billed $33,500 on a $29,700 PO. With Alan, on the bill.' },
+      { title: 'Job margins leave out $14,072 of payroll', why: 'Payroll 8/17 to 8/28 is 88% on Unallocated Labor. With the controller: split it and the labor lands on the jobs.' },
+      { title: 'Over-Billed (WIP) $156,274 on 3 jobs', why: 'Billed ahead of the work earned. With the controller, who reconciles it with Billed Ahead of the Work before the close.' }
     ];
     const tiles = [
       { k: 'Contracts', v: '$725,700', sub: '3 jobs with a contract' },
