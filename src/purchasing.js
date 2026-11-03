@@ -1024,7 +1024,6 @@ function puStockGate(R, go) {
 // ---- the look ---------------------------------------------------------------------------------------------------------
 (() => {
   const css = `
-.view.pu-host:not(.pu-full)>:not(.pu){display:none !important}
 .view.pu-host.pu-full>:not(.pu){margin-top:16px}
 #v-recv.pu-host #recv-body>.ph{display:none}
 .pu-h3{margin:18px 0 8px;font-size:15px}
