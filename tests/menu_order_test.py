@@ -220,6 +220,9 @@ def title_case(s):
     return all(w[0].isupper() or w in SMALL or not w[0].isalpha() for w in s.replace('[', '').replace(']', '').split())
 
 async def tap(pg, loc, phone):
+    # hidden by design (the phone's job page hides the desktop's tab strip): pressed as a link would be
+    if not await loc.is_visible():
+        await loc.evaluate('e => e.click()'); await pg.wait_for_timeout(220); return
     try:
         if phone: await loc.tap(timeout=4000)
         else: await loc.click(timeout=4000)
@@ -410,15 +413,22 @@ async def run_role(c, pg, u, phone, errs, reach, table):
                 jobs = [e for e in M if e['grp'] == 'jobs' and e['kind'] == 'kid' and e['pid']]
                 if jobs:
                     await go_entry(pg, jobs[0], phone)
-                    sel = f'#subnav [data-sub="{v}"]' + (f'[data-subtab="{tb}"]' if tb else ':not([data-subtab])')
-                    t = pg.locator(sel).first
-                    if await t.count():
-                        row['new'] = f'Projects > {jobs[0]["label"]} > {label} tab'
-                        await t.scroll_into_view_if_needed()
+                    # the job's own tab for the page, else the tab it now opens under (the job structure, 11-03:
+                    # JP_UNDER and the aliases; Submittals is under Decisions, Photos under Documents)
+                    under = await pg.evaluate("v => { const out = [v]; if (typeof JP_UNDER !== 'undefined' && JP_UNDER[v]) out.push(JP_UNDER[v]);"
+                                              " for (let a = MN_ALIAS[v], k = 0; a && k < 3; a = MN_ALIAS[a], k++) out.push(a); return out; }", v)
+                    for tv in under:
+                        exact = tv == v
+                        sel = f'#subnav [data-sub="{tv}"]' + ((f'[data-subtab="{tb}"]' if tb else ':not([data-subtab])') if exact else '')
+                        t = pg.locator(sel).first
+                        if not await t.count(): continue
+                        tl = (await t.evaluate("e => e.textContent")).strip()
+                        row['new'] = f'Projects > {jobs[0]["label"]} > {tl} tab' + ('' if exact else f' (opens {label} there)')
                         await tap(pg, t, phone)
                         st = await pg.evaluate(STATE_JS)
-                        row['ok'] = (st['view'] == v or st['view'] == alias.get(v)) and (not tb or st['billTab'] == tb)
+                        row['ok'] = st['view'] in (tv, v) and (not tb or not exact or st['billTab'] == tb)
                         row['got'] = st['view'] + (':' + st['billTab'] if tb else '')
+                        break
             c.ok(row['ok'], f"{tag}: old entry {row['old']} -> {row['new'] or 'NOWHERE'} (landed {row.get('got', '-')})")
             if row['ok']:
                 hd = (await pg.evaluate(STATE_JS))['heading']

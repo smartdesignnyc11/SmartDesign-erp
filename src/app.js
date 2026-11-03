@@ -9114,7 +9114,7 @@ function renderDocEditor(c, d) {
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
             : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
-  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}${"invoice" === kind && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005 ? `<span class="pill warn" style="margin-left:6px" data-unbanked="${r2(invoiceUnbanked(c, d))}">${money(invoiceUnbanked(c, d))} recorded, not yet in the bank</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
+  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}${"invoice" === kind && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005 ? `<span class="pill warn" style="margin-left:6px" data-unbanked="${r2(invoiceUnbanked(c, d))}">${money(invoiceUnbanked(c, d))} recorded, not yet in the bank</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}${((p) => (p ? " · " + esc(p.project.name) : ""))((DB.projects || []).find((x) => x.id === d.projectId))}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
           CT_TEMPLATES,
@@ -20270,21 +20270,9 @@ function wire() {
   }),
     $("#pswitch").addEventListener("change", (e) => {
       if ("__new" === e.target.value) return (e.target.value = S.id), void newProjectDialog();
-      if ("__all" !== e.target.value) {
-        if (void 0 !== dashAll && dashAll && "dash" === view) {
-          dashAll = !1;
-          try {
-            localStorage.setItem("dashAll", "0");
-          } catch (_) {}
-        }
-        setCurrent(e.target.value), save(), render();
-      } else {
-        dashAll = !0;
-        try {
-          localStorage.setItem("dashAll", "1");
-        } catch (_) {}
-        render();
-      }
+      // All Projects in the switcher is the list of jobs; any other entry is that job, on the same tab
+      if ("__all" === e.target.value) return (e.target.value = S.id), void setView((ROLE_VIEWS[role()] || []).includes("ovjobs") ? "ovjobs" : "port");
+      setCurrent(e.target.value), save(), render();
     }),
     document.body.addEventListener("click", (e) => {
       const od = e.target.closest("[data-opendoc]");
@@ -20488,7 +20476,7 @@ function wire() {
       if (npf) return void newProjectDialog(npf.dataset.newprojFor);
       const op = e.target.closest("[data-open]");
       if (op && DB.projects.some((x) => x.id === op.dataset.open))
-        return setCurrent(op.dataset.open), save(), void setView("dash");
+        return "function" == typeof jpOpenJob ? void jpOpenJob(op.dataset.open) : (setCurrent(op.dataset.open), save(), void setView("dash"));
       const go = e.target.closest("[data-go]");
       if (go) {
         e.preventDefault();
@@ -45438,13 +45426,10 @@ render = function () {
       setCurrent(e.target.value), (v.dataset.officeOrder = ""), render();
     });
 };
-let dashAll = (() => {
-  try {
-    return "1" === localStorage.getItem("dashAll");
-  } catch (e) {
-    return !1;
-  }
-})();
+// The job's Overview showed every job when this was on (the phone's default), so tapping 121 State Street opened
+// All Projects > Overview (Alan, 10-27). It is off for good: a job's Overview is that job, and the firm's view of
+// every job is Projects (ovjobs). The flag stays a name because older layers read it.
+let dashAll = !1;
 const shortName = (p) =>
   ((p && p.project && p.project.name) || "")
     .replace(/ — design$/, "")
@@ -49576,7 +49561,7 @@ function fOfficeMount() {
       const v = $("#v-field"),
         ph = v?.querySelector(".ph");
       if (!ph) return;
-      const html = fOfficeCard({ always: !0 });
+      const html = fOfficeCard({ always: !0, projectId: S && S.id });
       if (!html) return;
       ph.insertAdjacentHTML("afterend", html), fWireOffice($("#f-office"));
     }
@@ -68372,9 +68357,7 @@ const renderPortfolioBase_p6 = renderPortfolio;
         !e.target.closest("button,a") &&
         (e.stopPropagation(),
         e.preventDefault(),
-        setCurrent(tr.dataset.edit.split(":")[1]),
-        save(),
-        setView("dash"));
+        "function" == typeof jpOpenJob ? jpOpenJob(tr.dataset.edit.split(":")[1]) : (setCurrent(tr.dataset.edit.split(":")[1]), save(), setView("dash")));
     },
     !0,
   );
@@ -89422,11 +89405,8 @@ function glnWire(root) {
           b.dataset.glp && "function" == typeof setCurrent && setCurrent(b.dataset.glp),
           "dash-all" === go)
         ) {
-          dashAll = !0;
-          try {
-            localStorage.setItem("dashAll", "1");
-          } catch (e) {}
-          view = "dash";
+          // every job's day is the list of jobs, not a job's Overview (dashAll is retired)
+          view = (ROLE_VIEWS[role()] || []).includes("ovjobs") ? "ovjobs" : "port";
         } else {
           if (void 0 !== dashAll && "port" !== go && "home" !== go && "mapprove" !== go) {
             dashAll = !1;
@@ -89702,9 +89682,7 @@ function glnProjectRow() {
       !0,
     );
 })();
-try {
-  mOn() && null === localStorage.getItem("dashAll") && void 0 !== dashAll && (dashAll = !0);
-} catch (e) {}
+// (the phone no longer defaults the job's Overview to every job: dashAll is retired, see its declaration)
 if ("function" == typeof render) {
   const renderBase_gl = render;
   render = function () {
@@ -104927,15 +104905,19 @@ function bhHeader(root) {
     }),
     acts && !acts.querySelector(".btn.primary, .hb-btn.primary") && null !== reg.primary)
   ) {
-    const blues = [...root.querySelectorAll(".btn.primary, .hb-btn.primary")].filter(
-      (b) => vis(b) && !b.closest(".ph"),
-    );
+    // a record's own blue stays in the record: lifted into the page header above it (which the record view then hides,
+    // rxRecordRoute), the estimate's Add Line vanished when the estimate was opened straight from a job's +
+    const inRec = (b) => {
+        const r = b.closest(".docwrap, #po-doc");
+        return !r || r.contains(ph);
+      },
+      blues = [...root.querySelectorAll(".btn.primary, .hb-btn.primary")].filter((b) => vis(b) && !b.closest(".ph") && inRec(b));
     let pick = null;
     "string" == typeof reg.primary
       ? (pick =
           blues.find((b) => b.textContent.trim().startsWith(reg.primary)) ||
           [...root.querySelectorAll(".btn, .hb-btn")].find(
-            (b) => vis(b) && b.textContent.trim().startsWith(reg.primary) && !b.closest(".ph"),
+            (b) => vis(b) && b.textContent.trim().startsWith(reg.primary) && !b.closest(".ph") && inRec(b),
           ))
       : "number" == typeof reg.primary && (pick = blues[reg.primary]),
       pick && (pick.classList.add("primary"), acts.appendChild(pick));
@@ -130393,11 +130375,9 @@ function ovOpen(gid, id) {
   if (r) {
     // A job opens on its page; someone without that page gets the first job page they have.
     if ("jobs" === gid)
-      return (
-        setCurrent(r.p.id),
-        save(),
-        void setView(["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
-      );
+      return "function" == typeof jpOpenJob
+        ? void jpOpenJob(r.p.id, ["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
+        : (setCurrent(r.p.id), save(), void setView("dash"));
     if ("buy" !== gid)
       return "sales" === gid
         ? ("function" == typeof hbOpen ? hbOpen("deal", r.l.id) : (view = "hbdeals"),
@@ -143171,11 +143151,14 @@ function ocWriteBadges() {
     });
 }
 function ocPatchSubs() {
-  const sub = document.getElementById("subnav");
+  const sub = document.getElementById("subnav"),
+    // a job's tabs carry no badge (Alan, 11-03): the pages' numbers count every job; the job's tiles count the job
+    job = "function" == typeof jpCur && !!jpCur();
   if (
     sub &&
     (sub.querySelectorAll("[data-sub]").forEach((b) => {
       const v = b.dataset.sub;
+      if (job) return void (b.querySelector(".n") && b.querySelector(".n").remove());
       // a retired page leaves the strip only for a role it retires for (the controller, who cannot open the Buy Board,
       // keeps the Purchasing overview)
       if (OC_RETIRED[v] && ocRetiredTarget(v)) return void b.remove();
@@ -153414,8 +153397,8 @@ function osMerge(v) {
       (p) =>
         p.children.length >= 2 &&
         !p.closest(
-          // [data-os-keep]: a card that lays out its own controls (a review item's picks above its buttons)
-          "table, .dg, .modal, #mbm, .t2-list, .gantt-wrap, .lcard, .os-row, .dg-tb, .card .hd, .hb-filterbar, .hb-head, [data-os-keep]",
+          // [data-os-keep]: a card that lays out its own controls (a review item's picks above its buttons); .jp-keep: the job page lays out its own cards (src/jobpage.js)
+          "table, .dg, .modal, #mbm, .t2-list, .gantt-wrap, .lcard, .os-row, .dg-tb, .card .hd, .hb-filterbar, .hb-head, [data-os-keep], .jp-keep",
         ) &&
         osVis(p),
     )
@@ -196356,7 +196339,7 @@ window.addEventListener(
       const dv = document.getElementById("v-dash");
       // under the page's header, never above it: put first, the header pass moved the header back over it on the next
       // draw and the two traded places on every draw (the reopen and a view switch showed different pages)
-      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts")) {
+      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts") && !("function" == typeof jpOn && jpOn())) {
         const ph = dv.querySelector(":scope > .ph");
         ph ? ph.insertAdjacentHTML("afterend", docJobActs(S.clientId, S.id)) : dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
       }
@@ -199365,38 +199348,22 @@ document.addEventListener(
    label, changed only where the heading is the page's name, never a record's.
    The client portal (FD_CLIENT_NAV) and the Mercer & Bond workspace keep their own menus: neither is in scope.
    --------------------------------------------------------------------------------------------------------- */
-const MN_JOBS = (o) =>
-    [
-      ["ovjobs", "Projects"],
-      ["dash", "Overview"],
-      ["proj", "Project Settings"],
-      "Plan",
-      ["sched", "Schedule"],
-      ["tasks", "Tasks"],
-      ["dec", "Decisions"],
-      ["subm", "Submittals"],
-      ["insp", "Permits"],
-      "Field",
-      ["field", "Field"],
-      ["photos", "Photos"],
-      ["recv", "Deliveries"],
-      ["mat", "Materials"],
-      // the job's money (disagreement 1): change orders and the estimates for extras live here; Billing reads
-      // "approved, not billed" from the same list. "Money" is never a label (CLAUDE.md), so the section is named
-      // for what is in it.
-      "Costs & Billing",
-      ["costs", "Costs"],
-    ]
-      .concat(o.co ? [["billing", "Change Orders", "co"], ["billing", "Estimates", "estimates"]] : [])
-      .concat(o.billing ? [["billing", "Billing"]] : [])
-      .concat(["Files & Mail", ["files", "Documents"]])
-      .concat(!1 === o.plans ? [] : [["plans", "Drawings"]])
-      .concat([
-        ["inbox", "Mail"],
-      ]),
-  // each role's job strip, as the old menu drew it (the owner and the PM price and change the job; the designer's
-  // drawings are under Design)
-  MN_JOB_OPTS = { owner: { co: 1 }, pm: { co: 1, billing: 1 }, designer: { plans: !1 }, design_mgr: { plans: !1 } },
+const MN_JOBS = () => [
+    // The job's eight tabs (Alan, 11-03: docs/mockups/job-structure/, src/jobpage.js). Inside a job everything is that
+    // job: the about eighteen tabs of before fold into these, and each page they reached opens under its tab (JP_UNDER,
+    // MN_ALIAS). Projects stays the group's first entry, the list of jobs, and is not a tab of the job (nostrip).
+    // A tab shows for a role that may open its page (Contract and Billing: billing; Budget: costs; Site: field).
+    ["ovjobs", "Projects", null, { nostrip: 1 }],
+    ["dash", "Overview"],
+    ["sched", "Schedule"],
+    ["jbill", "Contract and Billing"],
+    ["costs", "Budget"],
+    // the one Buy Board, filtered to the job (bbProj): its tab "job" tells it from Purchasing's own Buy Board
+    ["proc", "Purchasing", "job"],
+    ["jdec", "Decisions"],
+    ["jsite", "Site"],
+    ["files", "Documents"],
+  ],
   // Your Day: the designer's Today is My Day (sday); every other office role's is home
   MN_DAY = [
     ["home", "Today"],
@@ -199636,7 +199603,7 @@ function mnKnow(v, l) {
 // an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless, head}
 function mnItem(x, sec) {
   const o = x[3] || {};
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head };
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -199652,7 +199619,7 @@ function mnGroupItems(g) {
 function mnAllItems() {
   const field = Object.keys(MENU).filter((r) => MENU[r].field).flatMap((r) => MENU[r].bar.concat(MENU[r].rest || []).map((x) => mnItem([x[0], x[1]], "")));
   return MN_DAY.map((x) => mnItem(x, ""))
-    .concat(MN_WORK.flatMap(mnGroupItems), mnGroupItems(MN_FOOT), mnGroupItems({ items: MN_JOBS({ co: 1, billing: 1 }) }), field)
+    .concat(MN_WORK.flatMap(mnGroupItems), mnGroupItems(MN_FOOT), mnGroupItems({ items: MN_JOBS() }), field)
     .filter((it) => !it.head);
 }
 function mnKnowAll() {
@@ -199710,8 +199677,9 @@ function mnLabel(v) {
 // The page a job opens on for this role (ovOpen's rule: its page, else the first job page the role has); "" when the
 // role opens no job page (the controller), and then Projects lists no jobs.
 function mnJobLanding(r) {
-  const rv = ROLE_VIEWS[r] || [];
-  return ["dash", "sboard", "sched", "ftoday"].find((v) => rv.includes(v)) || "";
+  const rv = ROLE_VIEWS[r] || [],
+    tabs = "undefined" != typeof JP_TABS ? JP_TABS.map((t) => t[0]) : ["dash", "sched"];
+  return tabs.concat(["dash", "sboard", "sched", "ftoday"]).find((v) => rv.includes(v)) || "";
 }
 // The person's jobs: the jobs their All Projects lists, in its order (the attention they need), the first few; the job
 // on screen is always among them. The office has no per-person job list yet, so a role's jobs are the ones it sees.
@@ -199734,10 +199702,13 @@ function mnJobItems(r) {
 // the job's own pages for this role (the strip shown while a job is open)
 function mnJobStrip(r) {
   const rv = ROLE_VIEWS[r] || [];
-  return mnGroupItems({ items: MN_JOBS(MN_JOB_OPTS[r] || {}) }).filter((it) => rv.includes(it.v));
+  return mnGroupItems({ items: MN_JOBS() }).filter((it) => rv.includes(it.v));
 }
 // a page that belongs to the job on screen: one of its tabs, or the page a job opens on
-const mnJobView = (r, v) => "ovjobs" !== v && (mnJobStrip(r).some((it) => it.v === v) || ["dash", "sboard", "sched", "ftoday"].includes(v));
+// a page that belongs to the job on screen: one of its tabs, a page that opens under a tab (src/jobpage.js, JP_UNDER), or
+// the page a job opens on
+const mnJobView = (r, v) =>
+  "ovjobs" !== v && (mnJobStrip(r).some((it) => it.v === v) || ("undefined" != typeof JP_UNDER && !!JP_UNDER[v]) || ["dash", "sboard", "sched", "ftoday"].includes(v));
 // The role's menu as it draws now: only pages the role may open; quiet items only while open; empty groups dropped.
 //   office  day (Today, Tasks, Messages), work (the groups), bottom (Company and Settings); groups = the day entries
 //           as groups of one, then the work groups, then the foot (one list for readers that walk every page)
@@ -199778,10 +199749,11 @@ function mnBuild(r) {
     .concat(out.work, out.bottom ? [out.bottom] : []);
   return out;
 }
-const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "");
+const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "proc" === v && "undefined" != typeof bbProj && bbProj ? "job" : "");
 // Which entry the page on screen is. Inside a job (the person came through a job, or the page is the job's own) the
-// job is lit under Projects, and `tab` is the strip's entry for the page. Otherwise: the group the person came
-// through keeps the page when it holds it; then the entry with the page's own tab; then the entry with no tab.
+// entry is the job's tab for the page (src/jobpage.js reads it: jpCur), and `job` the job's entry under Projects,
+// which the menu lights. Otherwise: the group the person came through keeps the page when it holds it; then the entry
+// with the page's own tab; then the entry with no tab.
 function mnCur(B) {
   if (!B) return null;
   const groups = B.field ? [{ id: "field", items: B.day.concat(B.work), flat: 1 }].concat(B.bottom ? [B.bottom] : []) : B.groups,
@@ -199789,19 +199761,28 @@ function mnCur(B) {
     placed = (v) => all.some((x) => x.it.v === v),
     // Company Settings open on the job's settings page: they are Settings, not the job's
     company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
-    pick = (L, tab) => L.find((x) => x.it.tab && x.it.tab === tab) || L.find((x) => !x.it.tab);
+    pick = (L, tab) => L.find((x) => x.it.tab && x.it.tab === tab) || L.find((x) => !x.it.tab),
+    // an alias may lead to a page that is itself an alias (the Studio's Drawings to the job's Drawings, under Documents)
+    alias = (x) => {
+      for (let a = MN_ALIAS[x], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed(a)) return a;
+      return "";
+    };
   if (!B.field && !company && mnJobView(B.r, view) && ("jobs" === mnLastGrp || !placed(view))) {
     const jg = groups.find((g) => "jobs" === g.id),
-      it = jg && "undefined" != typeof S && S && jg.items.find((x) => x.job && x.pid === S.id);
-    if (it) {
-      const strip = mnJobStrip(B.r).map((x) => ({ g: null, it: x })),
+      job = jg && "undefined" != typeof S && S && jg.items.find((x) => x.job && x.pid === S.id);
+    if (job) {
+      const strip = mnJobStrip(B.r)
+          .filter((x) => !x.nostrip)
+          .map((x) => ({ g: jg, it: x })),
         t = pick(strip.filter((x) => x.it.v === view), mnTabOf(view)),
-        // the page a job opens on when it is not one of the strip's tabs (the designer's Project Board): its menu name
-        o = !t && pick(all.filter((x) => x.it.v === view), mnTabOf(view));
-      return { g: jg, it: it, job: 1, tab: t ? t.it : null, name: t ? t.it.l : o ? o.it.l : "" };
+        // a page opened from a job's tab lights that tab and keeps its own name (src/jobpage.js, JP_UNDER): Billing's
+        // change order opened from Contract and Billing stays the job's page
+        under = !t && "function" == typeof jpUnder ? jpUnder(view) : "",
+        u = under && strip.find((x) => x.it.v === under);
+      if (t || u) return { g: jg, it: (t || u).it, job: job, tab: (t || u).it, name: t ? t.it.l : "" };
     }
   }
-  const v = company ? "setup" : placed(view) ? view : MN_ALIAS[view] && placed(MN_ALIAS[view]) ? MN_ALIAS[view] : view,
+  const v = company ? "setup" : placed(view) ? view : alias(view) || view,
     tab = mnTabOf(v),
     hits = all.filter((x) => x.it.v === v);
   if (!hits.length) return null;
@@ -199838,9 +199819,12 @@ function mnSvg(path) {
 // for a job's billing page, that job's client
 function mnGo(g, it) {
   mnOpenG = null;
-  if (it && it.job) return (mnLastGrp = "jobs"), void ("function" == typeof ovOpen ? ovOpen("jobs", it.pid) : (setCurrent(it.pid), setView(it.v)));
+  // a job: the one way into a job (src/jobpage.js), on its first tab
+  if (it && it.job) return (mnLastGrp = "jobs"), void ("function" == typeof jpOpenJob ? jpOpenJob(it.pid) : (setCurrent(it.pid), setView(it.v)));
   mnLastGrp = g.id;
   try {
+    // the job's Purchasing is the Buy Board filtered to the job; Purchasing's own Buy Board is every job's
+    "proc" === it.v && "undefined" != typeof bbProj && (bbProj = "job" === it.tab && S ? S.id : "");
     if ("billing" === it.v) {
       (billTab = it.tab || "billable"), (docOpen = null);
       const p = S && "jobs" === g.id ? S : null;
@@ -199878,7 +199862,7 @@ function mnRail() {
     fi = (i) => String(("object" == typeof ICONS && ICONS[i]) || "").replace(/^<svg viewBox="0 0 24 24">|<\/svg>$/g, ""),
     hand = [],
     leaf = (g, it, cls, icon, main) => {
-      const on = !!cur && cur.it === it,
+      const on = !!cur && (cur.it === it || cur.job === it),
         n = mnItemN(it);
       hand.push([g, it]);
       return `<button type="button" class="${cls}${on ? " on" : ""}" data-grp="${esc(g.id)}" data-v="${esc(it.v)}"${it.tab ? ` data-tab="${esc(it.tab)}"` : ""}${it.pid ? ` data-pid="${esc(it.pid)}"` : ""}${on ? ' aria-current="page"' : ""}${main ? " data-mnmain" : ""} data-mni="${hand.length - 1}">${icon ? mnSvg(icon) : ""}<span class="mn-l">${esc(it.l)}</span><span class="n">${n || ""}</span></button>`;
@@ -199930,18 +199914,23 @@ function mnRail() {
   let last = "";
   const tabs = items
     .map((it, i) => {
+      if (it.nostrip) return "";
       const cap = it.sec && it.sec !== last ? `<span class="mn-sec">${esc(it.sec)}</span>` : "";
       last = it.sec;
-      // a tab's number is onecount's (ocPatchSubs: the count its page states), as before
+      // a job's tabs carry no badge: the pages' own numbers counted every job (Overview 23, Purchasing 17), and the
+      // job's Overview tiles say what waits on you there (Alan, 11-03: numbers only where something waits on you)
       const on = !!cur.tab && cur.tab.v === it.v && cur.tab.tab === it.tab;
       return `${cap}<button data-sub="${it.v}"${it.tab ? ` data-subtab="${it.tab}"` : ""} data-mni="${i}" class="${on ? "on" : ""}">${esc(it.l)}</button>`;
     })
     .join("");
   (sub.hidden = !1),
     // a long strip wraps on a desktop so every page shows (the PM's Change Orders sat past the edge); the phone scrolls
-    (sub.innerHTML = `<span class="sub-proj"></span><div class="sub-tabs${items.length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
+    // a job's switcher is its name in the job header (src/jobpage.js), not a box beside its tabs; a Design page keeps it
+    (sub.innerHTML = `${job ? "" : '<span class="sub-proj"></span>'}<div class="sub-tabs${items.filter((it) => !it.nostrip).length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
     sub.querySelectorAll("[data-mni]").forEach((b) => (b.onclick = () => mnGo(jg, items[+b.dataset.mni])));
-  nav && nav._projsel && (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1));
+  nav &&
+    nav._projsel &&
+    (sub.querySelector(".sub-proj") ? (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)) : (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0)));
 }
 {
   const base = renderNav;

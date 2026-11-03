@@ -255,7 +255,7 @@ class MWalker(Walker):
 async def fresh(pg, uid):
     await close_sheets(pg)
     await reset_lists(pg)
-    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = !!(typeof mOn === 'function' && mOn()); } catch (e) {} }")
+    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = false;   /* retired 11-03: a job's Overview is that job (the job structure) */ } catch (e) {} }")
     await sign_in(pg, uid)
     await settle(pg, 250)
     # every role on the same job where it may open it (121 State Street, the active job and the client's), so the

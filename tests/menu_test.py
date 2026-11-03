@@ -71,15 +71,13 @@ KIDS = {
     ('u_sarah', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
     ('u_angel', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
 }
-# The job's strip while a job is open, sections captioned (the job page's tabs: the job-structure lane rebuilds them).
-STRIPS = {
-    'u_owner': ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
-                '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates',
-                '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
-    'u_alan': ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
-               '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates', 'Billing',
-               '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
-}
+# A job's tabs (Alan, 11-03: docs/mockups/job-structure/): eight, in this order, for a role that may open each page;
+# the job-structure lane's pin, read on the job's page (the desktop's strip; the phone's Overview lists them)
+JOB_TABS = ['Overview', 'Schedule', 'Contract and Billing', 'Budget', 'Purchasing', 'Decisions', 'Site', 'Documents']
+JOB_TABS_FOR = {'u_owner': JOB_TABS, 'u_alan': JOB_TABS,
+                'u_chen': ['Overview', 'Schedule', 'Purchasing', 'Decisions', 'Site', 'Documents'],
+                'u_billing': ['Overview', 'Contract and Billing', 'Documents'],
+                'u_sarah': ['Schedule', 'Decisions', 'Documents']}
 # every office role and billing and the controller start on Today (their approved boards, 2026-10-25)
 HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'home', 'u_controller': 'home', 'u_sarah': 'sday',
         'u_angel': 'ftoday', 'u_alberto': 'time', 'u_alex': 'route', 'u_klein': 'client'}
@@ -131,7 +129,7 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
   const items = (m.field ? m.day.concat(m.work) : m.day.concat(m.work.flatMap(g => g.items))).concat(m.foot).map(s => s.split('=')[0].split(':')[0]);
   const placed = new Set(items.concat(mnJobStrip(role()).map(i => i.v), m.field ? [] : [mnJobLanding(role())])), out = [];
   rv.forEach(v => { if (mb.includes(v) || placed.has(v) || MN_BUTTON.has(v) || ['client', 'clacct'].includes(v)) return;
-    const a = MN_ALIAS[v]; if (a && placed.has(a)) return;
+    for (let a = MN_ALIAS[v], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed.has(a)) return;   // an alias may lead to an alias
     if (MN_QUIET.has(v)) return;   // retired: listed while open, under its group
     out.push(v); });
   return { orphans: out, home: m.home }; }"""
@@ -211,33 +209,25 @@ async def walk_menu(c, pg, u, errs, phone):
                 c.ok(False, f'{u} {dev}: "{g["label"]} > {k["label"]}" not found'); continue
             st = await check_screen(c, pg, f'{u} {dev} "{g["label"]} > {k["label"]}"', errs, None if k['pid'] else k['v'], phone)
             got = await pg.evaluate("() => S.id") if k['pid'] else None
-            # where a job opens is the job-structure lane's (ovOpen): the designer's lands on Project Board, which holds
-            # design jobs only and moves her to one. Reported, not hidden; not this lane's to change.
-            bounced = k['pid'] and u == 'u_sarah' and got != k['pid']
-            if bounced: print(f'NOTE {u} {dev}: the job "{k["label"]}" opens Project Board on {got} (ovOpen; the job-structure lane)')
-            c.ok(st['ent'] == k['label'] or bounced, f'{u} {dev} "{g["label"]} > {k["label"]}": lit entry is "{st["ent"]}"')
+            c.ok(st['ent'] == k['label'], f'{u} {dev} "{g["label"]} > {k["label"]}": lit entry is "{st["ent"]}"')
             c.ok(st['grp'] == g['label'], f'{u} {dev} "{g["label"]} > {k["label"]}": lit group is "{st["grp"]}"')
-            if k['pid'] and not bounced:
-                c.ok(got == k['pid'], f'{u} {dev}: the job "{k["label"]}" opens that job ({got})')
-        # one job's strip: every tab opens and lights itself, the job stays lit under Projects
-        if g['grp'] == 'jobs' and any(k['pid'] for k in kids):
+            # every role's tap on a job opens that job (jpOpenJob, the one way into a job)
+            if k['pid']: c.ok(got == k['pid'], f'{u} {dev}: the job "{k["label"]}" opens that job ({got}, {st["view"]})')
+        # a job's tabs (the desktop's strip; on the phone the job's Overview lists them, job_structure_test): each opens
+        # and lights itself, and the job stays lit under Projects
+        if g['grp'] == 'jobs' and not phone and any(k['pid'] for k in kids):
             j = next(k for k in kids if k['pid'])
             await menu(); await open_group(pg, 'jobs'); await press(pg, kid_sel('jobs', j))
             subs = await pg.evaluate(SUB_JS)
-            if u in STRIPS: c.ok(subs == STRIPS[u], f'{u} {dev} the job strip {subs}\n      want {STRIPS[u]}')
+            if u in JOB_TABS_FOR: c.ok(subs == JOB_TABS_FOR[u], f'{u} {dev} a job\'s tabs {subs}\n      want {JOB_TABS_FOR[u]}')
             n = await pg.evaluate("() => document.querySelectorAll('#subnav [data-mni]').length")
             for i in range(n):
-                # the strip is the job's: its Projects tab leaves the job for the list, so the job is opened again
-                if not await pg.evaluate("k => !!document.querySelector(`#subnav [data-mni='${k}']`)", i):
-                    await menu(); await open_group(pg, 'jobs'); await press(pg, kid_sel('jobs', j))
-                lab = await pg.evaluate("k => { const b = document.querySelector(`#subnav [data-mni='${k}']`); return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : '' }", i)
-                want = await pg.evaluate("k => (document.querySelector(`#subnav [data-mni='${k}']`) || {dataset: {}}).dataset.sub", i)
-                if not await press(pg, f"#subnav [data-mni='{i}']"):
-                    c.ok(False, f'{u} {dev} job "{j["label"]}": tab {i} not found'); continue
+                lab = await pg.evaluate("k => { const b = document.querySelectorAll('#subnav [data-mni]')[k]; return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : '' }", i)
+                want = await pg.evaluate("k => (document.querySelectorAll('#subnav [data-mni]')[k] || {dataset: {}}).dataset.sub", i)
+                await pg.evaluate("k => document.querySelectorAll('#subnav [data-mni]')[k].click()", i)
+                await pg.wait_for_timeout(160)
                 st = await check_screen(c, pg, f'{u} {dev} job "{j["label"]} > {lab}"', errs, want, phone)
-                if want == 'ovjobs':
-                    c.ok(st['ent'] == 'All Projects', f'{u} {dev} job "{j["label"]} > {lab}": lit entry is "{st["ent"]}"'); continue
-                c.ok(st['sub'] == lab or (phone and want == 'tasks'), f'{u} {dev} job "{j["label"]} > {lab}": lit tab is "{st["sub"]}"')
+                c.ok(st['sub'] == lab, f'{u} {dev} job "{j["label"]} > {lab}": lit tab is "{st["sub"]}"')
                 c.ok(st['pid'] == j['pid'], f'{u} {dev} job "{j["label"]} > {lab}": the job is not lit under Projects ({st["ent"]})')
 
 async def desktop(c, p, users):

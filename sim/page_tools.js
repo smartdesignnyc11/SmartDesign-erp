@@ -202,15 +202,16 @@ S.screen = (marks) => {
   const files = root => [...root.querySelectorAll('input[type=file]')].filter(f => !f.hasAttribute('data-simn') && !f.disabled)
     .map(f => { const n = reg(f, 'file'); const lab = fieldLabel(f) || norm((f.closest('label, .f, .drop, div') || {}).innerText || '').slice(0, 50) || (f.accept || 'a file');
       return `[${n} file "${lab}"${f.accept ? ' (' + f.accept + ')' : ''}${f.multiple ? ' multiple' : ''}]`; });
+  // the job's header (src/jobpage.js: its name and switcher, Ask About This Job, the +) sits above its tabs, outside the page
   const pageWalk = () => { const p = []; S._fold = false;
-    ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
+    ['#jp-head', '#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); return [...tidy(p), ...files(S.viewRoot())]; };
   if (ov.length) {
     ov.forEach(o => { const p = ['\n']; S._fold = false; walk(o, p); out.push('== Open on top ==', ...tidy(p), ...files(o)); });
     if (ov.some(S.modal)) out.push(`== Behind it: ${S.title()} (close the sheet to use it) ==`);
     else out.push(`== Under it, still usable: ${S.title()} ==`, ...pageWalk());   // a floating composer leaves the page usable
   } else { const p = []; S._fold = false;
-    ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
+    ['#jp-head', '#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); out.push(...tidy(p), ...files(S.viewRoot())); }
   if (toastOn) { const p = []; walk(t, p); out.push('== Toast ==', ...tidy(p)); }
   S.lastScreen = out.join('\n');
@@ -288,7 +289,7 @@ S.matchLabel = (label, C) => {
 };
 S.markByLabel = (label, want) => {
   document.querySelectorAll('[data-simlab]').forEach(e => e.removeAttribute('data-simlab'));
-  const ov = S.overlays(), page = [document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
+  const ov = S.overlays(), page = [document.querySelector('#jp-head'), document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
   const roots = ov.length ? (ov.some(S.modal) ? ov : ov.concat(page)) : page, C = [];
   roots.forEach(r => r.querySelectorAll('*').forEach(el => { if (!isCtl(el)) return; const k = kindOf(el);
     const act = k === 'button' || k === 'link' || k === 'tab'; if ((want === 'field') === act) return;

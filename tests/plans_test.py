@@ -30,10 +30,16 @@ from harness import async_playwright, open_app, sign_in, go, Checks
 
 TOAST_OPEN = """() => { const t = document.getElementById('toast'); if (!t) return false;
   const a = [...t.querySelectorAll('a, button')].find(x => /^Open$/.test((x.innerText || '').trim())); if (!a) return false; a.click(); return true; }"""
-TOAST_TEXT = "() => (document.getElementById('toast') || {}).innerText || ''"
+TOAST_TEXT = "() => __vt(document.getElementById('toast'))"
 CLOSE = """() => { document.querySelectorAll('#mbm').forEach(m => m.remove()); const v = document.getElementById('viewer'); v && v.classList.remove('on'); }"""
 PRIMARY = """() => [...document.querySelectorAll('.view.on .btn.primary')].filter(b => b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden').length"""
 SW = "() => document.documentElement.scrollWidth"
+# Every read is of what a person can see: an element counts only when it is drawn and not hidden, and its text only
+# then (innerText of a display:none element is its whole textContent, so a hidden copy used to pass these checks).
+VIS = """window.__vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  window.__vt = e => (window.__vis(e) ? e.innerText || '' : '');
+  window.__vq = s => [...document.querySelectorAll(s)].find(window.__vis) || null;
+  window.__vn = s => [...document.querySelectorAll(s)].filter(window.__vis).length;"""
 # an invented drawing, written to a temporary file outside the repo for the upload
 SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="#fff"/>'
        '<rect x="20" y="20" width="360" height="200" fill="none" stroke="#000" stroke-width="3"/>'
@@ -52,7 +58,7 @@ async def register(c, pg, label):
     await pg.wait_for_timeout(300)
     r = await pg.evaluate("""() => { const v = document.querySelector('.view.on');
       const cur = plSheets('p121', { current: true }), all = plSheets('p121');
-      return { id: v.id, h2: (v.querySelector('h2') || {}).innerText || '', rows: v.querySelectorAll('[data-plrow]').length, cur: cur.length, all: all.length,
+      return { id: v.id, h2: __vt(v.querySelector('h2')), rows: [...v.querySelectorAll('[data-plrow]')].filter(__vis).length, cur: cur.length, all: all.length,
         sets: [...new Set(all.map(s => s.set))], sup: all.filter(s => s.status === 'superseded').length,
         kinds: [...new Set(all.map(plKind))], statuses: [...new Set(all.map(plStatus))],
         fields: cur.every(s => s.rev && s.issuedOn && s.issuer && plStatus(s) && s.set) }; }""")
@@ -78,13 +84,13 @@ async def switch_job(c, pg, label):
     # the pilot (2026-10-18): Drawings' job switch said 121 State but kept 45 Cranberry's sheets
     await sign_in(pg, 'u_sarah')
     await pg.evaluate("() => { setCurrent('p45'); plStatusF = 'current'; plSetF = ''; view = 'sdraw'; render(); }"); await pg.wait_for_timeout(300)
-    b0 = await pg.evaluate("() => ({ view, h2: (document.querySelector('.view.on h2') || {}).innerText || '', jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))] })")
+    b0 = await pg.evaluate("() => ({ view, h2: __vt(__vq('.view.on h2')), jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))] })")
     c.ok(b0['view'] == 'plans' and b0['jobs'] == ['p45'], f"{label}: the Studio's Drawings opens the job's Plans page ({b0})")
     await pg.select_option('#pswitch', 'p121'); await pg.wait_for_timeout(500)
-    b1 = await pg.evaluate("() => ({ view, cur: S.id, h2: (document.querySelector('.view.on h2') || {}).innerText || '', jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))], s101: !!document.querySelector('.view.on [data-plopen=\"sh121s101\"]') })")
+    b1 = await pg.evaluate("() => ({ view, cur: S.id, h2: __vt(__vq('.view.on h2')), jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))], s101: !!__vq('.view.on [data-plopen=\"sh121s101\"]') })")
     c.ok(b1['cur'] == 'p121' and b1['h2'] == 'Drawings — 121 State Street' and b1['jobs'] == ['p121'] and b1['s101'], f"{label}: switching job shows that job's sheets ({b1})")
     await click(pg, '.view.on [data-plopen="sh121s101"]', 500)
-    v = await pg.evaluate("() => document.getElementById('v-name').textContent")
+    v = await pg.evaluate("() => __vt(document.getElementById('v-name'))")
     c.ok('S-101' in v, f"{label}: the designer opens 121 State's S-101 ({v})")
     await pg.evaluate(CLOSE)
 
@@ -94,19 +100,19 @@ async def void_check(c, pg, label):
     await pg.evaluate("() => { setCurrent('p121'); }")
     v = await pg.evaluate("""async () => { await plOpen('sh121a201a'); await new Promise(r => setTimeout(r, 300));
       const V = document.getElementById('viewer');
-      return { on: V.classList.contains('on'), stamp: !!V.querySelector('.pl-void-stamp'), bar: (V.querySelector('.pl-voidbar') || {}).innerText || '',
-        name: document.getElementById('v-name').textContent, go: !!V.querySelector('.pl-voidbar [data-plopen="sh121a201b"]'),
+      return { on: V.classList.contains('on'), stamp: __vis(V.querySelector('.pl-void-stamp')), bar: __vt(V.querySelector('.pl-voidbar')),
+        name: __vt(document.getElementById('v-name')), go: __vis(V.querySelector('.pl-voidbar [data-plopen="sh121a201b"]')),
         viewed: DB.studio.acks.some(a => a.kind === 'view' && a.sheetId === 'sh121a201a' && a.uid === 'u_angel') }; }""")
     c.ok(v['on'] and v['stamp'] and 'VOID' in v['bar'] and 'VOID' in v['name'], f"{label}: a superseded revision opens stamped VOID ({v['bar'][:60]})")
     c.ok(v['go'] and v['viewed'], f"{label}: with the way to the current revision, and the view is kept ({v})")
     await click(pg, '#viewer .pl-voidbar [data-plopen]', 500)
-    v2 = await pg.evaluate("() => ({ stamp: !!document.querySelector('#viewer .pl-void-stamp'), name: document.getElementById('v-name').textContent })")
+    v2 = await pg.evaluate("() => ({ stamp: !!__vq('#viewer .pl-void-stamp'), name: __vt(document.getElementById('v-name')) })")
     c.ok(not v2['stamp'] and 'Rev B' in v2['name'], f"{label}: the link opens the current revision, not stamped ({v2['name']})")
     await pg.evaluate(CLOSE)
     # from Documents: the superseded file is marked VOID and opens stamped
     d = await pg.evaluate("""async () => { view = 'files'; render(); await new Promise(r => setTimeout(r, 200));
       const f = S.files.find(x => x.id === plRow('sh121a301a').fileId); openFile(f.id); await new Promise(r => setTimeout(r, 400));
-      return { name: f.name, stamp: !!document.querySelector('#viewer .pl-void-stamp') }; }""")
+      return { name: f.name, stamp: !!__vq('#viewer .pl-void-stamp') }; }""")
     c.ok(d['name'].startswith('VOID') and d['stamp'], f"{label}: from Documents the old A-301 is named VOID and opens stamped ({d['name']})")
     await pg.evaluate(CLOSE)
 
@@ -120,12 +126,12 @@ async def designer_issue(c, pg, label, tmpfile):
     await pg.evaluate("() => { document.querySelector('#mbm [data-plrm=\"r121gk\"]').checked = true; }")
     await pg.fill('#mbm [data-f="why"]', 'The Kleins want the island back; layout being redrawn')
     await click(pg, '#mbm #mbm-ok', 400)
-    h = await pg.evaluate("() => ({ holds: plHolds('p121').map(h => h.roomId), a201: plStatus(plCurrent('p121', 'A-201')), note: !!document.querySelector('.view.on .pl-hold'), t: (document.getElementById('toast') || {}).innerText || '' })")
+    h = await pg.evaluate("() => ({ holds: plHolds('p121').map(h => h.roomId), a201: plStatus(plCurrent('p121', 'A-201')), note: !!__vq('.view.on .pl-hold'), t: __vt(document.getElementById('toast')) })")
     c.ok(h['holds'] == ['r121gk'] and h['a201'] == 'revision' and h['note'], f"{label}: the designer marks the garden kitchen In Revision ({h})")
     c.ok('Open' in h['t'], f"{label}: and the toast has Open ({h['t'][:80]})")
     # New Rev C from an uploaded file
     await click(pg, '.view.on [data-plnew="A-201"]')
-    pre = await pg.evaluate("() => (document.getElementById('pl-preview') || {}).innerText || ''")
+    pre = await pg.evaluate("() => __vt(document.getElementById('pl-preview'))")
     c.ok('Rev B becomes VOID' in pre, f"{label}: the sheet says the old revision becomes VOID before issuing ({pre[:60]})")
     await pg.set_input_files('#pl-file', tmpfile); await pg.wait_for_timeout(300)
     await pg.fill('#mbm [data-f="changed"]', 'Island restored; base cabinet run back to 9 ft; sink stays centered on the window')
@@ -135,7 +141,7 @@ async def designer_issue(c, pg, label, tmpfile):
       const f = p.files.find(x => x.id === s.fileId);
       return { rev: s.rev, old: old.status, oldBy: old.supersededBy === s.id, flash: !!(el && el.classList.contains('tk-flash')), vis: !!(r && r.height && r.bottom > 0 && r.top < innerHeight),
         file: f ? [f.name, f.type, f.cat] : null, chat: (p.chat || []).some(m => m.plSheet === s.id && /VOID/.test(m.text)), need: s.ackNeed.map(n => n.name),
-        toast: (document.getElementById('toast') || {}).innerText || '', origin: s.origin.kind, id: s.id }; }""")
+        toast: __vt(document.getElementById('toast')), origin: s.origin.kind, id: s.id }; }""")
     c.ok(r['rev'] == 'C' and r['old'] == 'superseded' and r['oldBy'], f"{label}: Rev C is current and Rev B is VOID ({r['rev']}, {r['old']})")
     c.ok(r['file'] and r['file'][1].startswith('image') and r['origin'] == 'upload', f"{label}: the uploaded file is stored with the revision ({r['file']})")
     c.ok(r['vis'] and r['flash'], f"{label}: the new revision is on the designer's screen right after saving, highlighted")
@@ -143,7 +149,7 @@ async def designer_issue(c, pg, label, tmpfile):
     c.ok('VOID' in r['toast'], f"{label}: the toast says the old revision is VOID ({r['toast'][:90]})")
     await pg.evaluate("() => { view = 'sday'; render(); }")
     opened = await pg.evaluate(TOAST_OPEN); await pg.wait_for_timeout(400)
-    o = await pg.evaluate("id => ({ view, el: !!document.querySelector(`.view.on [data-plrow=\"${id}\"]`) })", r['id'])
+    o = await pg.evaluate("id => ({ view, el: !!__vq(`.view.on [data-plrow=\"${id}\"]`) })", r['id'])
     c.ok(opened and o['view'] == 'plans' and o['el'], f"{label}: the toast's Open lands on the new revision ({o})")
     return r['id']
 
@@ -155,14 +161,14 @@ async def order_flag(c, pg, label):
         lines: [{ id: 'l1', item: 'Garden kitchen base cabinets, rift oak', qty: 1, unit: 'ls', price: 6400, line: '' }] };
       DB.pos.push(po); window.__plpo = po.id;
       const reasons = poValid(po); poAction(po, 'issue');
-      return { reasons, status: po.status, toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
+      return { reasons, status: po.status, toast: __vt(document.getElementById('toast')) }; }""")
     c.ok(any('Garden kitchen' in x and 'order anyway with a reason' in x for x in r['reasons']), f"{label}: procurement's PO for garden kitchen cabinets carries the hold as a reason ({r['reasons'][-1:]})")
     c.ok(r['status'] == 'draft' and 'Garden kitchen' in r['toast'], f"{label}: and is refused at Issue, with the reason ({r['toast'][:100]})")
     w = await pg.evaluate("""() => { poOpen = window.__plpo; view = 'po'; render();
       const w = document.querySelector('.view.on .pl-warn'); return w ? { t: w.innerText, ov: !!w.querySelector('[data-ploverride]') } : null; }""")
     c.ok(w and 'Garden kitchen' in w['t'] and w['ov'], f"{label}: the PO page says it, with Order Anyway for procurement ({(w or {}).get('t', '')[:80]})")
     q = await pg.evaluate("""() => { const r = { id: 'rqPL1', number: 'RFQ-2026-PL1', projectId: 'p121', status: 'purchasing', title: 'Garden kitchen base cabinets', lines: [{ id: 'q1', item: 'Garden kitchen base cabinets', qty: 1, unit: 'ls' }], quotes: [], history: [], sent: [] };
-      (DB.rfqs = DB.rfqs || []).push(r); const ok = rfqSend(r, [], today()); return { ok, status: r.status, toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
+      (DB.rfqs = DB.rfqs || []).push(r); const ok = rfqSend(r, [], today()); return { ok, status: r.status, toast: __vt(document.getElementById('toast')) }; }""")
     c.ok(q['ok'] is False and q['status'] == 'purchasing' and 'Garden kitchen' in q['toast'], f"{label}: an RFQ for the area is not sent ({q['toast'][:90]})")
     # a field request for the area is flagged for procurement before anyone orders it
     await sign_in(pg, 'u_angel')
@@ -179,7 +185,7 @@ async def order_flag(c, pg, label):
     await pg.evaluate("() => { poOpen = window.__plpo; view = 'po'; render(); }"); await pg.wait_for_timeout(200)
     await click(pg, '.view.on .pl-warn [data-ploverride]')
     await click(pg, '#mbm #mbm-ok', 250)
-    still = await pg.evaluate("() => !!document.querySelector('#mbm')")
+    still = await pg.evaluate("() => !!__vq('#mbm')")
     c.ok(still, f"{label}: an override with no reason is refused")
     await pg.fill('#mbm [data-f="why"]', 'The cabinet boxes are the same in the redraw; only the island moves')
     await click(pg, '#mbm #mbm-ok', 400)
@@ -199,13 +205,13 @@ async def field_ack(c, pg, label, rid):
     if label == 'phone':
         c.ok(await pg.evaluate(SW) <= 390, f"{label}: Today does not scroll sideways at 390px")
     await click(pg, '.view.on .pl-fyou [data-plopen]', 600)
-    v = await pg.evaluate("() => ({ on: document.getElementById('viewer').classList.contains('on'), stamp: !!document.querySelector('#viewer .pl-void-stamp'), ack: !!document.querySelector('#viewer [data-plack]') })")
+    v = await pg.evaluate("() => ({ on: document.getElementById('viewer').classList.contains('on'), stamp: !!__vq('#viewer .pl-void-stamp'), ack: !!__vq('#viewer [data-plack]') })")
     c.ok(v['on'] and not v['stamp'] and v['ack'], f"{label}: he opens it, current, with Acknowledge in the viewer ({v})")
     await click(pg, '#viewer [data-plack]', 500)
     a = await pg.evaluate("""id => { const s = plRow(id), p = plJob('p121'), t = p.tasks.find(x => x.id === 'millgk');
       const rec = DB.studio.acks.find(x => x.kind === 'ack' && x.sheetId === id && x.uid === 'u_angel');
       return { rec: rec ? [rec.name, rec.at] : null, pending: plAckState(s).pending.length, wait: plTaskReasons(p, t).map(x => x.text), holds: plHolds('p121').length,
-        toast: (document.getElementById('toast') || {}).innerText || '', eq: erpQuery({ entity: 'sheetacks' }).rows.some(r => r.who === 'Angel' && r.rev === 'C' && r.action === 'acknowledged') }; }""", rid)
+        toast: __vt(document.getElementById('toast')), eq: erpQuery({ entity: 'sheetacks' }).rows.some(r => r.who === 'Angel' && r.rev === 'C' && r.action === 'acknowledged') }; }""", rid)
     c.ok(a['rec'] and a['rec'][1].startswith('2026-09-03'), f"{label}: Angel's acknowledgment is kept with its time on the app clock ({a['rec']})")
     c.ok(a['pending'] == 0 and not a['wait'] and a['holds'] == 0, f"{label}: the wait and the hold lift after the acknowledgment ({a})")
     c.ok('acknowledged' in a['toast'] and a['eq'], f"{label}: the toast says it and who viewed which revision is queryable ({a['toast'][:70]})")
@@ -218,7 +224,7 @@ async def field_hold(c, pg, label):
     await pg.evaluate("() => { setCurrent('p121'); plMarkInRevision({ projectId: 'p121', roomIds: ['r121ext'], why: 'LPC asked for a new brick mold profile' }); save(); }")
     await sign_in(pg, 'u_angel')
     await pg.evaluate("() => { setCurrent('p121'); view = 'ftoday'; render(); }"); await pg.wait_for_timeout(300)
-    h = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-fstart=\"ext\"]'); const row = b && b.closest('.f-row'); return row ? (row.querySelector('.pl-hold') || {}).innerText || '' : null; }")
+    h = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-fstart=\"ext\"]'); const row = b && b.closest('.f-row'); return row ? __vt(row.querySelector('.pl-hold')) : null; }")
     c.ok(h and 'On hold' in h, f"{label}: the exterior task shows the hold on Today ({h})")
     await click(pg, '.view.on [data-fstart="ext"]', 400)
     m = await pg.evaluate("() => { const m = document.querySelector('#mbm'); return m ? m.innerText : ''; }")
@@ -229,7 +235,7 @@ async def field_hold(c, pg, label):
     c.ok(st2 == 'in-progress', f"{label}: Start Anyway starts it, on the record ({st2})")
     await pg.evaluate("() => { const t = plJob('p121').tasks.find(t => t.id === 'ext'); t.status = 'planned'; delete t.actualStart; }")
     await sign_in(pg, 'u_alan')
-    s = await pg.evaluate("() => { setCurrent('p121'); view = 'sched'; render(); return { note: (document.getElementById('pl-sched') || {}).innerText || '', bars: document.querySelectorAll('#v-sched .pl-held').length }; }")
+    s = await pg.evaluate("() => { setCurrent('p121'); view = 'sched'; render(); return { note: __vt(document.getElementById('pl-sched')), bars: __vn('#v-sched .pl-held') }; }")
     c.ok('Exterior' in s['note'] and (s['bars'] >= 1 or label == 'phone'), f"{label}: the schedule shows the hold ({s['note'][:60]}, {s['bars']} bars)")
     tk = await pg.evaluate("() => t2RowHtml({ kind: 'sched', id: 'ext', projectId: 'p121', title: 'Exterior', project: '121 State Street' }, {})")
     c.ok('On hold' in tk, f"{label}: the task list row shows the hold")
@@ -249,7 +255,7 @@ async def mail_meeting_message(c, pg, label):
     await click(pg, '.view.on .pl-prop [data-plrev]', 600)
     m = await pg.evaluate("""() => { const s = plCurrent('p121', 'A-301'), c = DB.comms[DB.comms.length - 1], f = plJob('p121').files.find(x => x.id === s.fileId);
       return { rev: s.rev, old: plRow('sh121a301b').status, origin: s.origin.kind, file: f ? f.type : '', applied: c.proposals.find(p => p.kind === 'revision').status, nyh: nyhRows().some(r => /^plrev:mail/.test(r.key)),
-        toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
+        toast: __vt(document.getElementById('toast')) }; }""")
     c.ok(m['rev'] == '3' and m['old'] == 'superseded' and m['origin'] == 'mail', f"{label}: one tap: A-301 Rev 3 is current, Rev 2 VOID ({m})")
     c.ok(m['file'] == 'application/pdf' and m['applied'] == 'applied' and not m['nyh'], f"{label}: the PDF is the stored file and the proposal leaves the queue")
     c.ok('Open' in m['toast'], f"{label}: toast with Open ({m['toast'][:80]})")
@@ -284,7 +290,7 @@ async def filed(c, pg, label):
     c.ok(any('A-100 Rev C' in x for x in k), f"{label}: Caught for You names it for the owner ({k})")
     await sign_in(pg, 'u_alan')
     await pg.evaluate("() => { setCurrent('p121'); view = 'plans'; render(); }"); await pg.wait_for_timeout(250)
-    note = await pg.evaluate("() => (document.querySelector('.view.on .pl-amend') || {}).innerText || ''")
+    note = await pg.evaluate("() => __vt(__vq('.view.on .pl-amend'))")
     c.ok('DOB Amendment Needed' in note and 'held until the filing is approved' in note, f"{label}: the Plans page shows the amendment ({note[:70]})")
     await click(pg, '.view.on .pl-amend [data-plamendset$="|approved"]')
     await pg.fill('#mbm [data-f="ref"]', 'B00912345-I1 PAA 2')
@@ -304,8 +310,8 @@ async def thread(c, pg, label):
     await sign_in(pg, 'u_alan')
     # Pinned Plans live on the job's page, not under the chat's composer (Alan, 2026-10-19); the job's chat thread
     # opens the current drawings from its header
-    r = await pg.evaluate("""() => { setCurrent('p121'); msgOpen('job:p121'); const inChat = !!document.querySelector('#v-chat #pl-pinned'), btn = !!document.querySelector('#msg-head [data-msgplans]');
-      view = 'dash'; render(); const pin = document.querySelector('#v-dash #pl-pinned');
+    r = await pg.evaluate("""() => { setCurrent('p121'); msgOpen('job:p121'); const inChat = !!__vq('#v-chat #pl-pinned'), btn = !!__vq('#msg-head [data-msgplans]');
+      view = 'dash'; render(); const pin = __vq('#v-dash #pl-pinned');
       const btns = pin ? [...pin.querySelectorAll('[data-plopen]')].map(b => plRow(b.dataset.plopen)) : [];
       return { n: btns.length, allCur: btns.every(s => plIsCurrent(s)), noOld: !btns.some(s => s.id === 'sh121a201a' || s.id === 'sh121a301b'), inChat, btn }; }""")
     c.ok(r['n'] and r['allCur'] and r['noOld'], f"{label}: the job's page pins current sheets only ({r['n']})")
@@ -320,13 +326,13 @@ async def question(c, pg, label):
     b = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-plsheet=\"p121|A-301\"]'); return b ? b.innerText : ''; }")
     c.ok(b.startswith('Open A-301 Rev'), f"{label}: the field question on My Day links straight to the current A-301 ({b})")
     await click(pg, '.view.on [data-plsheet="p121|A-301"]', 600)
-    v = await pg.evaluate("() => ({ on: document.getElementById('viewer').classList.contains('on'), name: document.getElementById('v-name').textContent, stamp: !!document.querySelector('#viewer .pl-void-stamp'), cur: S.id })")
+    v = await pg.evaluate("() => ({ on: document.getElementById('viewer').classList.contains('on'), name: __vt(document.getElementById('v-name')), stamp: !!__vq('#viewer .pl-void-stamp'), cur: S.id })")
     c.ok(v['on'] and 'A-301' in v['name'] and not v['stamp'] and v['cur'] == 'p121', f"{label}: one tap opens the current sheet in 121 State's register ({v['name']})")
     await pg.evaluate(CLOSE)
     if label == 'phone':
         c.ok(await pg.evaluate(SW) <= 390, f"{label}: My Day does not scroll sideways")
     else:
-        j = await pg.evaluate("""() => DB.projects.map(p => { setCurrent(p.id); view = 'plans'; render(); return [p.id, ((document.querySelector('.view.on h2') || {}).innerText || '').includes(plJobName(p.id))]; })""")
+        j = await pg.evaluate("""() => DB.projects.map(p => { setCurrent(p.id); view = 'plans'; render(); return [p.id, (__vt(__vq('.view.on h2'))).includes(plJobName(p.id))]; })""")
         c.ok(all(x[1] for x in j), f"{label}: the designer reaches every job's Plans page ({j})")
         a = await pg.evaluate("() => paAsk('which revision of A-301 is current on 121 State?').headline")
         c.ok('A-301 Rev' in a and 'current' in a, f"{label}: her assistant answers which A-301 is current ({a[:80]})")
@@ -337,7 +343,7 @@ async def client_view(c, pg, label):
     # cards pushed the client's Choose and Approve below the fold; the client's next step stays on top
     await sign_in(pg, 'u_klein')
     r = await pg.evaluate("""() => { setCurrent('p121'); view = 'client'; render(); const vis = (e) => !!e && e.getClientRects().length > 0;
-      return { pinned: vis(document.querySelector('.view.on #pl-pinned')), studio: !!document.querySelector('.view.on #cl-studio'), views: (ROLE_VIEWS.client || []).includes('plans') }; }""")
+      return { pinned: vis(document.querySelector('.view.on #pl-pinned')), studio: !!__vq('.view.on #cl-studio'), views: (ROLE_VIEWS.client || []).includes('plans') }; }""")
     c.ok(not r['pinned'] and not r['studio'] and not r['views'], f"{label}: the client's Overview carries no register and no design cards for a construction job ({r})")
     s = await pg.evaluate("""async () => { window.scrollTo(0, 900); const a = scrollY; view = (ROLE_VIEWS.client || []).find(v => v !== 'client') || 'client'; render(); await new Promise(r => setTimeout(r, 150)); return [a, scrollY, view]; }""")
     c.ok(s[1] == 0, f"{label}: a new screen opens at its top ({s})")
@@ -361,13 +367,15 @@ async def after_reload(c, pg, label, rid):
     await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
     await sign_in(pg, 'u_sarah')
     await pg.evaluate("() => { setCurrent('p121'); plStatusF = 'current'; plSetF = ''; view = 'plans'; render(); }"); await pg.wait_for_timeout(300)
-    r = await pg.evaluate("id => ({ el: !!document.querySelector(`.view.on [data-plrow=\"${id}\"]`), rev: (plRow(id) || {}).rev, acks: DB.studio.acks.filter(a => a.sheetId === id).length, seeded: DB.studio.sheets.filter(s => s.id === 'sh121a201b').length })", rid)
+    r = await pg.evaluate("id => ({ el: !!__vq(`.view.on [data-plrow=\"${id}\"]`), rev: (plRow(id) || {}).rev, acks: DB.studio.acks.filter(a => a.sheetId === id).length, seeded: DB.studio.sheets.filter(s => s.id === 'sh121a201b').length })", rid)
     c.ok(r['el'] and r['rev'] == 'C' and r['acks'] >= 1 and r['seeded'] == 1, f"{label}: after a reload the revision and its acknowledgment are in the register, the seed not repeated ({r})")
 
 
 async def run(c, p, phone):
     label = 'phone' if phone else 'desktop'
     b, pg, errs = await open_app(p, phone=phone)
+    await pg.add_init_script(VIS)
+    await pg.evaluate(VIS)
     fd, tmp = tempfile.mkstemp(suffix='-A-201 Rev C.svg'); os.write(fd, SVG.encode()); os.close(fd)
     try:
         await register(c, pg, label)
