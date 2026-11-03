@@ -659,6 +659,22 @@ function acSheetOnly(sec) {
         m = row.querySelector(".pr-m span:last-child");
       tt && (tt.textContent = t.desc || t.vendor || "Bank line");
       m && (m.textContent = `${t.amt < 0 ? "−" : "+"}${money(Math.abs(+t.amt || 0))} · ${fmt(t.date)} · ${a ? `${a.name.split(" ")[0]} ${a.last4 || ""}`.trim() : ""}`);
+      // a line with a match proposed says what it would link to on the row, and its first step is Review (its sheet
+      // holds Confirm)
+      const P = t.proposal;
+      if (P && !row.querySelector(".ac-link")) {
+        const tg = "po" === P.kind ? (DB.pos || []).find((x) => x.id === P.poId) : "bill" === P.kind ? (DB.bills || []).find((x) => x.id === P.billId) : null,
+          link = tg ? `${"po" === P.kind ? "" : "Bill "}${tg.number || ""} · ${tg.vendor || ""}` : String(P.label || "").replace(/<[^>]+>/g, "");
+        if (link) {
+          const d = document.createElement("div");
+          (d.className = "pr-m ac-link"), (d.textContent = "→ " + link), row.querySelector(".pr-mid").appendChild(d);
+        }
+        const slot = row.querySelector(".pr-act-slot");
+        if (slot && !slot.querySelector("[data-acreview], [data-acline-open]")) {
+          const b = document.createElement("button");
+          (b.type = "button"), (b.className = "btn sm"), (b.textContent = "Review"), (b.dataset.aclineOpen = t.id), slot.prepend(b);
+        }
+      }
     });
   }
   [...sec.querySelectorAll("button")]
@@ -959,6 +975,8 @@ document.addEventListener(
   (e) => {
     const b = e.target && e.target.closest && e.target.closest("[data-acreview]");
     if (b) return e.preventDefault(), e.stopPropagation(), void acReviewSheet(b.dataset.acreview);
+    const o = e.target && e.target.closest && e.target.closest("[data-acline-open]");
+    if (o) return e.preventDefault(), e.stopPropagation(), void acLineSheet(o.dataset.aclineOpen, null);
     const r = e.target && e.target.closest && e.target.closest("#v-bank.ac-host .pr-row[data-acline]");
     if (!r || e.target.closest(".pr-act-slot, input, select, button, a") || !acPhone()) return;
     e.preventDefault(), e.stopPropagation(), acLineSheet(r.dataset.acline, r.querySelector(".pr-act-slot button"));

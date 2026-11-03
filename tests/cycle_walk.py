@@ -1808,6 +1808,8 @@ def j10_week_money(p):
             c = next((c for c in sc.ctls if c.action and words in c.label and 'statement' in norm(c.label)), None)
             if c is None: continue
             p.tap_ctl(c)
+            # the 11-03 Banking page: on the phone a row opens the line's review sheet; Edit the Line is the form
+            if not p.scr.find('Category', field=True, exact=True) and p.look().find('Edit the Line', exact=True): p.tap('Edit the Line', exact=True)
             if not (p.scr.find('Category', field=True, exact=True) and p.scr.find('Job', field=True, exact=True)): p._act('back'); continue
             for verb, lab, val in (('pick', 'Category', cat_name), ('pick', 'Job', job_name)):   # the sheet may change under a pick
                 p.look(); p.do([(verb, lab, val)])
