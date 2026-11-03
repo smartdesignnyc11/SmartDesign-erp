@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A Person and Their Assistant: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Team.dc.html" aria-label="Back to Team" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">You, the Owner</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Owner / CEO · (917) 555-0100 · alan@smartdesign.nyc</span>
+  </div>
+
+  <div style="padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+    <a href="../today/Tasks.dc.html" style="background: #fff; border: 1px solid #fecaca; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: #172033; min-height: 96px">
+      <span style="font-size: 12px; color: #5b6578">Open Tasks</span><b style="font-size: 22px; color: #b91c1c">15</b><span style="font-size: 12px; color: #5b6578">3 late · the firm’s median is 5</span>
+    </a>
+    <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; min-height: 96px">
+      <span style="font-size: 12px; color: #5b6578">Room to Hand Off</span><b style="font-size: 22px">Billing</b><span style="font-size: 12px; color: #5b6578">has room this week</span>
+    </div>
+  </div>
+
+  <div style="padding: 0 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">What Reaches You for Approval</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{limits}}" as="l" hint-placeholder-count="5">
+      <div style="padding: 10px 14px; border-top: {{l.line}}; display: flex; gap: 10px; align-items: baseline">
+        <span style="flex: 1; font-size: 14px; line-height: 1.4">{{l.k}}</span><span style="font-size: 13px; font-weight: 600; color: #5b6578">{{l.v}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578; line-height: 1.4">Everything else goes to its owner: hours to the PM, bills under the PO to the controller, billing drafts to billing. Today’s setting, “owner approval for payments above $0”, sends you every payment.</div>
+  </div>
+
+  <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578; display: flex"><span style="flex: 1">Your Assistant</span><span style="text-transform: none; letter-spacing: 0">defaults from the Standard</span></div>
+  <span style="padding: 0 16px 8px; font-size: 13px; color: #5b6578; line-height: 1.4">Act Alone: it does it and logs it below. Ask First: it proposes and you press the button. Hand It to Me: it tells you, and drafts nothing. Money, client commitments and the books never act alone.</span>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rules}}" as="r" hint-placeholder-count="14">
+      <div style="border-top: {{r.line}}; display: flex; flex-direction: column">
+        <button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.expanded}}" style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 14px; border: 0; background: transparent; font: inherit; color: #172033; text-align: left; cursor: pointer">
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">{{r.k}}</span><span style="font-size: 12px; color: #5b6578">{{r.sub}}</span></span>
+          <span style="font-size: 13px; font-weight: 700; color: {{r.tone}}">{{r.v}}</span>
+        </button>
+        <sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; gap: 6px; padding: 0 14px 12px">
+            <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
+              <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" disabled="{{o.disabled}}" style="flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid {{o.border}}; background: {{o.bg}}; color: {{o.color}}; font: inherit; font-size: 13px; font-weight: 600">{{o.label}}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">What It Did on Its Own</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; font-size: 14px; color: #5b6578; line-height: 1.4">Nothing yet. Every button it presses lands here with the reason, and you can undo it.</div>
+
+  <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Your Accounts</div>
+  <a href="Connections.dc.html" style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; min-height: 52px; padding: 8px 14px; display: flex; align-items: center; gap: 10px; text-decoration: none; color: #172033">
+    <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">Google: mail, calendar, drive</span><span style="font-size: 12px; color: #5b6578">Not connected, so your assistant reads the records only</span></span>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+  </a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: 'Order Follow-Ups', set: {} }; }
+  renderVals() {
+    const limits = [
+      { k: 'A bill paid before it was approved', v: 'Always' },
+      { k: 'A bill over its PO, or with no PO', v: 'Always' },
+      { k: 'A vendor’s bank details changed, or a first payment to a new vendor', v: 'Always' },
+      { k: 'A purchase order over', v: '$10,000' },
+      { k: 'Payroll, split by job, before pay day', v: 'Every run' }
+    ].map((l, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, l));
+    const R = [
+      ['Order Follow-Ups', 'to vendors: confirm, track, reconfirm 48 hours ahead', 'Ask First', false],
+      ['RFQ Chases', 'to vendors, the day before a quote is due', 'Ask First', false],
+      ['Follow-Ups When Someone Goes Quiet', 'to a vendor, consultant or colleague; never a client', 'Ask First', false],
+      ['Messages to Clients', 'updates, answers, reminders', 'Ask First', false],
+      ['Meetings With Others', 'invites that reach someone else’s calendar', 'Ask First', false],
+      ['Drafts in My Mailbox', 'nothing leaves until you press Send', 'Act Alone', false],
+      ['Tasks for Me', 'a dated task on your own list', 'Ask First', false],
+      ['Holds on My Calendar', 'your time only, marked free', 'Ask First', false],
+      ['Filing Documents', 'an invoice, quote or certificate on its job, order or vendor', 'Act Alone', false],
+      ['Remembering What You Tell Me', 'your private memory', 'Act Alone', false],
+      ['Renewal Chases', 'to an insurer, licensing agency or vendor', 'Ask First', false],
+      ['Payments, Purchases and Prices', 'the Standard: never on its own', 'Ask First', true],
+      ['Commitments to a Client', 'scope, price, schedule, change orders, terms', 'Ask First', true],
+      ['Deleting Records or Changing the Books', 'the Standard: never on its own', 'Ask First', true]
+    ];
+    const rules = R.map((x, i) => {
+      const k = x[0], cur = this.state.set[k] || x[2], open = this.state.open === k, locked = x[3];
+      const opts = ['Act Alone', 'Ask First', 'Hand It to Me'].map((o) => ({
+        label: o, pressed: cur === o ? 'true' : 'false', disabled: locked && o === 'Act Alone',
+        bg: cur === o ? '#172033' : '#fff', color: cur === o ? '#fff' : (locked && o === 'Act Alone' ? '#a0a8b8' : '#172033'), border: cur === o ? '#172033' : '#c9d1e0',
+        pick: () => { if (locked && o === 'Act Alone') return; const s = Object.assign({}, this.state.set); s[k] = o; this.setState({ set: s }); }
+      }));
+      return { k, sub: x[1], v: cur, tone: cur === 'Act Alone' ? '#b45309' : '#5b6578', open, expanded: open ? 'true' : 'false', opts, line: i ? '1px solid #eef1f6' : '0', toggle: () => this.setState({ open: open ? '' : k }) };
+    });
+    return { limits, rules };
+  }
+}
+</script>
+</body>
+</html>
