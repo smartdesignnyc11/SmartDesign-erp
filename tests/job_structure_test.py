@@ -304,7 +304,7 @@ async def run(c, p, phone):
     c.ok(f"{round(base['est'])}%" in mg and f"{round(base['plan'])}%" in mg, f'{dev} BUDGET: margin at completion {round(base["est"])}% vs plan {round(base["plan"])}% on top ({mg[:80]})')
     bb = await pg.evaluate("() => (document.getElementById('jp-billback') || {}).innerText || ''")
     c.ok('Bought for the Client, Not Billed Back' in bb and '$10,170' in bb, f'{dev} BUDGET: Bought for the Client, Not Billed Back names $10,170 ({bb[:120]})')
-    opened = await js(pg, "const e = [...document.querySelectorAll('#jp-budget [data-jpline]')].find(x => /Windows/.test(x.innerText)); if (!e) return null; (e.querySelector('[data-jpopen]') || e).click(); await sleep(200); return (document.querySelector('[data-jpdetail]') || {}).innerText || '';")
+    opened = await js(pg, "const e = [...document.querySelectorAll('#jp-budget [data-jpline]')].find(x => /Windows/.test(x.innerText)); if (!e) return null; (e.querySelector('[data-jpopen]') || e).click(); await sleep(200); return (document.querySelector('.jp-detail') || {}).innerText || '';")
     c.ok(opened and ('WW-2026-118' in opened or 'Window Works' in opened), f'{dev} BUDGET: tapping Windows shows what is behind it ({(opened or "")[:120]})')
     await shot(pg, f'budget_{dev}')
 
@@ -364,13 +364,13 @@ async def run(c, p, phone):
     await shot(pg, f'billing_{dev}')
     bl = await pg.evaluate("""() => { const b = document.getElementById('jbill-body'); if (!b) return null; return { needs: [...b.querySelectorAll('#jb-needs [data-jprow]')].length,
       prim: [...b.querySelectorAll('.btn.primary')].filter(e => e.getClientRects().length).map(e => e.innerText.trim()),
-      contract: [...b.querySelectorAll('#jb-contract [data-k]')].map(e => e.dataset.k), docs: [...b.querySelectorAll('#jb-docs [data-jbdoc]')].map(e => e.dataset.date),
+      contract: [...b.querySelectorAll('#jb-contract [data-label]')].map(e => e.dataset.label), docs: [...b.querySelectorAll('#jb-docs [data-jbdoc]')].map(e => e.dataset.date),
       chips: [...b.querySelectorAll('[data-jbchip]')].map(e => e.innerText.trim()) }; }""")
     c.ok(bl and bl['contract'] == ['Original contract', 'Approved changes', 'Revised contract', 'Billed to date', 'Paid, in the bank', 'Retainage held', 'Left to bill'], f'{dev} BILLING: The Contract lines {bl and bl["contract"]}')
     c.ok(bl and bl['chips'] == ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'], f'{dev} BILLING: the documents chips {bl and bl["chips"]}')
     c.ok(bl and bl['docs'] == sorted(bl['docs'], reverse=True), f'{dev} BILLING: documents newest first')
     c.ok(bl and len(bl['prim']) == 1 and bl['prim'][0].startswith('Draft the Application'), f'{dev} BILLING: one blue safe next step ({bl and bl["prim"]})')
-    money = (await js(pg, "const J = jobFin(S); const g = k => { const e = document.querySelector('#jb-contract [data-k=\"' + k + '\"]'); return e ? e.dataset.v : null; }; return { base: J.base, co: J.coAmt, rev: J.contract, billed: J.billed, paid: J.collected, ret: J.retHeld, s: [g('Original contract'), g('Approved changes'), g('Revised contract'), g('Billed to date'), g('Paid, in the bank'), g('Retainage held')].map(Number) };")) or {'s': 0}
+    money = (await js(pg, "const J = jobFin(S); const g = k => { const e = document.querySelector('#jb-contract [data-label=\"' + k + '\"]'); return e ? e.dataset.amt : null; }; return { base: J.base, co: J.coAmt, rev: J.contract, billed: J.billed, paid: J.collected, ret: J.retHeld, s: [g('Original contract'), g('Approved changes'), g('Revised contract'), g('Billed to date'), g('Paid, in the bank'), g('Retainage held')].map(Number) };")) or {'s': 0}
     c.ok(money.get('s') == [money.get('base'), money.get('co'), money.get('rev'), money.get('billed'), money.get('paid'), money.get('ret')], f'{dev} BILLING: The Contract reads jobFin\'s figures (bank-backed collected) {money}')
 
     # ---- PHONE: tap targets on the job's own controls

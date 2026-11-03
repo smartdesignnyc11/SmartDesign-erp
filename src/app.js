@@ -199836,8 +199836,9 @@ function mnCur(B) {
     hits = all.filter((x) => x.it.v === v);
   // a page opened from a job's tab, while the person is in the job, lights that tab (src/jobpage.js, JP_UNDER):
   // Billing's change order opened from Contract and Billing stays the job's page
-  if ("jobs" === mnLastGrp && "object" == typeof JP_UNDER && JP_UNDER[view]) {
-    const u = all.find((x) => "jobs" === x.g.id && x.it.v === JP_UNDER[view]);
+  const under = "jobs" === mnLastGrp && "function" == typeof jpUnder ? jpUnder(view) : "";
+  if (under) {
+    const u = all.find((x) => "jobs" === x.g.id && x.it.v === under);
     if (u) return u;
   }
   if (!hits.length) return null;
@@ -200079,7 +200080,7 @@ function mnHeading() {
   const cur = mnCur(mnBuild(r));
   if (!cur) return;
   // a page opened under a job's tab (the Submittals log under Decisions) keeps its own name
-  if (cur.it.v !== view && "object" == typeof JP_UNDER && JP_UNDER[view]) return;
+  if (cur.it.v !== view && "function" == typeof jpUnder && jpUnder(view)) return;
   const want = cur.it.l,
     known = MN_KNOWN[view] || new Set(),
     v = document.querySelector(".view.on");

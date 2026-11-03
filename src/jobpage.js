@@ -85,6 +85,17 @@ const JP_TABS = [
     next: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
     warn: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
   };
+// The tab a page sits under while the person is in the job, or "": a page that shows another client's records is not
+// this job's page (Billing opened on 45 Cranberry's invoice is Billing, not 121 State's Contract and Billing)
+function jpUnder(v) {
+  const t = JP_UNDER[v];
+  if (!t || !S) return "";
+  if ("billing" === v) {
+    const cid = ("undefined" != typeof docOpen && docOpen && "undefined" != typeof clientOpen && clientOpen) || ("undefined" != typeof billClient ? billClient : "");
+    return cid && cid === S.clientId ? t : "";
+  }
+  return t;
+}
 let jpSub = "", // phone: the Overview's own page (risk, appr, mat); "" is the Overview
   jpPanel = "risk", // desktop: the panel the tiles choose
   jpMenuOpen = !1,
@@ -398,13 +409,13 @@ function jpRowsHtml(rows, empty) {
     ? `<div class="jp-cards">${rows
         .map(
           (r) =>
-            `<div class="jp-card ${r.tone || ""}" data-jprow="${esc(r.key)}"><span class="jp-ck"><b class="${r.tone || ""}">${esc(r.kind)}</b>${r.when ? ` · ${esc(r.when)}` : ""}</span><div class="jp-ct"><b>${esc(r.title)}</b>${r.amt ? `<b>${esc(r.amt)}</b>` : ""}</div><span class="jp-cw">${esc(r.why || "")}</span>${r.act ? `<div class="jp-ca"><button type="button" class="btn jp-tap" data-jpact="${esc(r.key)}">${esc(r.act)}</button></div>` : ""}</div>`,
+            `<div class="jp-card ${r.tone || ""}" data-jprow="${esc(r.key)}" role="button" tabindex="0"><span class="jp-ck"><b class="${r.tone || ""}">${esc(r.kind)}</b>${r.when ? ` · ${esc(r.when)}` : ""}</span><div class="jp-ct"><b>${esc(r.title)}</b>${r.amt ? `<b>${esc(r.amt)}</b>` : ""}</div><span class="jp-cw">${esc(r.why || "")}</span>${r.act ? `<div class="jp-ca"><button type="button" class="btn jp-tap" data-jpact="${esc(r.key)}">${esc(r.act)}</button></div>` : ""}</div>`,
         )
         .join("")}</div>`
     : `<table class="jp-rows"><tbody>${rows
         .map(
           (r) =>
-            `<tr data-jprow="${esc(r.key)}"><td class="jp-rk ${r.tone || ""}">${esc(r.kind)}${r.when ? ` · ${esc(r.when)}` : ""}</td><td class="jp-rt"><b>${esc(r.title)}</b><span>${esc(r.why || "")}</span></td><td class="jp-ra">${esc(r.amt || "")}</td><td class="jp-rb">${r.act ? `<button type="button" class="btn sm" data-jpact="${esc(r.key)}">${esc(r.act)}</button>` : ""}</td></tr>`,
+            `<tr data-jprow="${esc(r.key)}" class="jp-click"><td class="jp-rk ${r.tone || ""}">${esc(r.kind)}${r.when ? ` · ${esc(r.when)}` : ""}</td><td class="jp-rt"><b>${esc(r.title)}</b><span>${esc(r.why || "")}</span></td><td class="jp-ra">${esc(r.amt || "")}</td><td class="jp-rb">${r.act ? `<button type="button" class="btn sm" data-jpact="${esc(r.key)}">${esc(r.act)}</button>` : ""}</td></tr>`,
         )
         .join("")}</tbody></table>`;
 }
@@ -461,7 +472,7 @@ function jpPanelHtml(id, p) {
       mat: `<button type="button" class="jp-link jp-tap" data-jpgo="proc">Open Purchasing for This Job</button>`,
       margin: jpMay("costs") ? `<button type="button" class="jp-link jp-tap" data-jpgo="costs">Open Budget</button>` : "",
     }[id] || "";
-  return `<section class="jp-card0" id="jp-panel" data-panel="${id}"><div class="jp-ph"><h3>${esc(head[0])}</h3><span>${esc(head[1])}</span></div>${jpRowsHtml(rows, head[2])}${links ? `<div class="jp-pf">${links}</div>` : ""}</section>`;
+  return `<section class="jp-card0" id="jp-panel" data-state="${id}"><div class="jp-ph"><h3>${esc(head[0])}</h3><span>${esc(head[1])}</span></div>${jpRowsHtml(rows, head[2])}${links ? `<div class="jp-pf">${links}</div>` : ""}</section>`;
 }
 function jpNextHtml(p) {
   const N = jpNextUp(p);
@@ -475,7 +486,7 @@ function jpReadyHtml(p) {
   const R = jpReady(p.id);
   return `<section class="jp-ready" id="jp-rtb"><b>Ready to Bill on This Job</b><span>${
     R.amt
-      ? `${money(R.amt)} of measured work on ${R.ready.length} line${1 === R.ready.length ? "" : "s"}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`
+      ? `${money(R.amt)} of measured work on ${R.ready.length} line${1 === R.ready.length ? "" : "s"}: ${esc(R.ready.map((w) => (w.co ? w.co + " " : "") + w.desc.split(/ [—–-] |,/)[0]).join(" and "))}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`
       : `Nothing measured and unbilled on this job${R.held ? `; ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held` : ""}.`
   }</span>${R.amt && jpCanBill() ? `<button type="button" class="jp-link jp-tap" data-jpdraft="1">Draft the Application</button>` : ""}</section>`;
 }
@@ -508,7 +519,7 @@ function jpSectionsHtml(p) {
       files: () => "Drawings, permits",
     };
   return `<div class="jp-cap">This Job</div><nav class="jp-card0 jp-secs" id="jp-sections" aria-label="This job">${items
-    .map((it) => `<button type="button" class="jp-sec jp-tap" data-jpsec="${it.v}"><span class="jp-sl">${esc(it.l)}</span><span class="jp-ss">${esc((sub[it.v] || (() => ""))())}</span>${JP_IC.next}</button>`)
+    .map((it) => `<button type="button" class="jp-sec jp-tap" data-jpsec="${it.v}" aria-label="${esc(it.l)}"><span class="jp-sl">${esc(it.l)}</span><span class="jp-ss">${esc((sub[it.v] || (() => ""))())}</span>${JP_IC.next}</button>`)
     .join("")}</nav>`;
 }
 function jpOverview() {
@@ -526,6 +537,9 @@ function jpOverview() {
     host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpNextHtml(p)}${jpReadyHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
   else
     host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpNextHtml(p)}${jpReadyHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
+  // the job's pinned sheets (Alan, 2026-10-19: they live on the job's page) sit beside Next Up, not in the old layout
+  const pin = v.querySelector(":scope > * #pl-pinned, :scope > #pl-pinned");
+  pin && !jpSub && !host.contains(pin) && (host.querySelector(".jp-aside") || host).appendChild(pin);
 }
 const JP_LINK = {
   proj: "Job Settings",
@@ -640,11 +654,11 @@ function jpBill() {
     chips = ["All", "Estimates", "Change Orders", "Invoices", "Payments"],
     needs = `<section class="jp-card0" id="jb-needs"><div class="jp-ph"><h3>Needs You</h3>${!phone && R.amt && jpCanBill() ? `<button type="button" class="btn primary" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button>` : ""}</div>${
       N.length
-        ? N.map((n) => `<div class="jp-need" data-jprow="${esc(n.key)}"><b>${esc(n.title)}</b><span>${esc(n.why)}</span>${n.open ? `<button type="button" class="btn sm jp-tap" data-jpneed="${esc(n.key)}">${esc(n.act || "Open")}</button>` : ""}</div>`).join("")
+        ? N.map((n) => `<div class="jp-need ${n.open || "rtb" === n.key ? "jp-click" : ""}" data-jprow="${esc(n.key)}"><b>${esc(n.title)}</b><span>${esc(n.why)}</span>${n.open ? `<button type="button" class="btn sm jp-tap" data-jpneed="${esc(n.key)}">${esc(n.act || "Open")}</button>` : ""}</div>`).join("")
         : '<p class="jp-empty">Nothing on this contract needs you.</p>'
     }${phone && R.amt && jpCanBill() ? `<div class="jp-pf"><button type="button" class="btn primary jp-wide" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button></div>` : ""}</section>`,
     contract = `<section class="jp-card0" id="jb-contract"><div class="jp-ph"><h3>The Contract</h3></div>${rows
-      .map(([k, v, w]) => `<div class="jp-kv" data-k="${esc(k)}" data-v="${r2(+v || 0)}"><span style="font-weight:${w}">${esc(k)}</span><b style="font-weight:${w}">${money(+v || 0)}</b></div>`)
+      .map(([k, v, w]) => `<div class="jp-kv" data-label="${esc(k)}" data-amt="${r2(+v || 0)}"><span style="font-weight:${w}">${esc(k)}</span><b style="font-weight:${w}">${money(+v || 0)}</b></div>`)
       .join("")}${A.total ? `<p class="jp-note">Billed ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}: ${money(A.total)}. Those lines hold until the work catches up.</p>` : ""}</section>`,
     chipRow = `<div class="jp-chips">${chips.map((l) => `<button type="button" class="jp-chip jp-tap ${jpDocKind === l ? "on" : ""}" data-jbchip="${esc(l)}" aria-pressed="${jpDocKind === l}">${esc(l)}</button>`).join("")}</div>`,
     list = phone
@@ -691,7 +705,7 @@ function jpLines() {
   });
 }
 function jpLineFlag(l) {
-  if (l.variance > 0.5) return [`${Math.round(l.spentPct)}%`, "bad"];
+  if (l.variance > 0.5) return [`${Math.round(l.spentPct)}% over`, "bad"];
   if (null != l.done && null != l.billed && l.done - l.billed > 5) return ["Billed behind", "warn"];
   if (null != l.done && null != l.billed && l.billed - l.done > 5) return ["Billed ahead", "warn"];
   return ["On budget", "ok"];
@@ -756,7 +770,7 @@ function jpBudget() {
         ]
           .map(([k, val, s, tone, id]) => `<div class="jp-kpi"${id ? ` id="${id}"` : ""}><span>${esc(k)}</span><b class="${tone}">${esc(val)}</b><span>${esc(s)}</span></div>`)
           .join("")}</div>`,
-    detail = (l) => `<div class="jp-detail" data-jpdetail="${esc(l.key)}">${jpLineDetail(l).map(([k, val]) => `<div><span>${esc(k)}</span><b>${esc(val)}</b></div>`).join("")}</div>`,
+    detail = (l) => `<div class="jp-detail">${jpLineDetail(l).map(([k, val]) => `<div><span>${esc(k)}</span><b>${esc(val)}</b></div>`).join("")}</div>`,
     attrs = (l) => `data-jpline="${esc(l.key)}" data-budget="${l.budget}" data-committed="${l.committed}" data-actual="${l.actual}"`,
     lines = phone
       ? `<div class="jp-bcards">${L.map((l) => {
@@ -777,7 +791,7 @@ function jpBudget() {
       : `<table class="jp-bt" id="jp-btable"><thead><tr><th>Line</th><th class="n">Budget</th><th class="n">Committed</th><th class="n">Actual</th><th class="n">Forecast</th><th class="n">Variance</th><th class="n">% Done</th><th class="n">% Billed</th></tr></thead><tbody>${L.map((l) => {
           const f = jpLineFlag(l),
             open = jpBudOpen === l.key;
-          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? "over budget, " + f[0] + " of it" : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
+          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? "over budget, " + f[0].replace(" over", "") + " of it" : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
         }).join("")}</tbody><tfoot><tr><td>Total</td>${["budget", "committed", "actual", "forecast", "variance"].map((k) => `<td class="n">${money(r2(L.reduce((a, l) => a + l[k], 0)))}</td>`).join("")}<td></td><td></td></tr></tfoot></table>`,
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
@@ -838,7 +852,7 @@ function jpDec() {
     shown
       .map((r) => {
         const d = dueWord(r);
-        return `<div class="jp-drow ${r.overdue ? "od" : ""}" data-jdrow="${esc(r.key)}" data-kind="${esc(r.kind)}" data-overdue="${r.overdue ? 1 : 0}"><div class="jp-dh"><span class="jp-dk">${esc("RFIs" === r.kind ? "RFI" : "Submittals" === r.kind ? "Submittal" : r.kind)}</span><span class="jp-grow"></span><span class="jp-dd ${d[1]}">${esc(d[0])}</span></div><b>${esc(r.title)}</b><span class="jp-dw">Waiting on <b>${esc(r.who)}</b>${r.blocks ? ` · blocks ${esc(r.blocks)}` : ""}</span><div><button type="button" class="btn sm jp-tap" data-jdact="${esc(r.key)}">${esc(r.act)}</button></div></div>`;
+        return `<div class="jp-drow jp-click ${r.overdue ? "od" : ""}" data-jdrow="${esc(r.key)}" data-kind="${esc(r.kind)}" data-overdue="${r.overdue ? 1 : 0}"><div class="jp-dh"><span class="jp-dk">${esc("RFIs" === r.kind ? "RFI" : "Submittals" === r.kind ? "Submittal" : r.kind)}</span><span class="jp-grow"></span><span class="jp-dd ${d[1]}">${esc(d[0])}</span></div><b>${esc(r.title)}</b><span class="jp-dw">Waiting on <b>${esc(r.who)}</b>${r.blocks ? ` · blocks ${esc(r.blocks)}` : ""}</span><div><button type="button" class="btn sm jp-tap" data-jdact="${esc(r.key)}">${esc(r.act)}</button></div></div>`;
       })
       .join("") || `<p class="jp-empty">Nothing on this job is waiting on an answer${"All" === jpDecKind ? "" : " of this kind"}.</p>`
   }</div>${jpMoreLinks(["dec", "subm", "sel"])}`;
@@ -993,7 +1007,7 @@ function jpSite() {
           .join("")}<span>One of the logs is wrong: payroll and job cost count both until it is fixed.</span></div></div>`
       : ""
   }<div class="jp-cap">Questions from the Crew · ${Q.length} open</div><div class="jp-qs" id="js-q">${
-    Q.map((r) => `<div class="jp-q" data-jsq="${esc(r.id)}"><span class="jp-ck">${esc(r.by)} · ${esc(String(r.at).slice(0, 10) === td ? stampTime(r.at) : fmt(String(r.at).slice(0, 10)))}</span><b>${esc(r.title)}</b>${r.note ? `<span class="jp-cw">${esc(r.note)}</span>` : ""}<div class="jp-ca"><button type="button" class="btn sm jp-tap" data-jsans="${esc(r.id)}">Answer</button>${qOpen(r)}</div></div>`).join("") ||
+    Q.map((r) => `<div class="jp-q jp-click" data-jsq="${esc(r.id)}"><span class="jp-ck">${esc(r.by)} · ${esc(String(r.at).slice(0, 10) === td ? stampTime(r.at) : fmt(String(r.at).slice(0, 10)))}</span><b>${esc(r.title)}</b>${r.note ? `<span class="jp-cw">${esc(r.note)}</span>` : ""}<div class="jp-ca"><button type="button" class="btn sm jp-tap" data-jsans="${esc(r.id)}">Answer</button>${qOpen(r)}</div></div>`).join("") ||
     '<p class="jp-empty">No open questions from the crew on this job.</p>'
   }</div><div class="jp-cap">Today on Site · ${esc(fmtL(td))}</div><div class="jp-card0" id="js-today">${kv("Crew", crew.length ? `${crew.join(", ")}${hrs && (!fromLog || crew.length > 1) ? ` · ${hrs} h in all` : ""}` : "Nobody logged or clocked in yet")}${kv("Progress", active.length ? active.slice(0, 4).map((t) => t.name).join("; ") + (active.length > 4 ? `; and ${active.length - 4} more` : "") : "Nothing scheduled to run today")}${kv("Photos", photos ? `${photos} today` : "None today")}${kv("Problems", probs.length ? probs.join(" · ") : "None reported")}</div><div class="jp-cap">Coming to Site</div><div class="jp-card0" id="js-coming">${
     coming.map(([d, w]) => kv(jpDay(d), w)).join("") || '<p class="jp-empty">Nothing booked to come to site in the next week.</p>'
@@ -1015,6 +1029,19 @@ function jpTabLinks() {
   put("sched", "jp-schedlinks", ["tasks"], (v) => v.querySelector(":scope > .ph"));
   put("files", "jp-doclinks", ["plans", "insp", "photos", "inbox", "sfile"], (v) => v.querySelector(":scope > .ph"));
   put("proc", "jp-buylinks", ["mat", "recv", "po"], (v) => v.querySelector(".bb-ph0") || v.querySelector(".ph"));
+  // the Buy Board's pill counts every job; on the job's Purchasing it counts the job's rows (the board's own chips)
+  const pill = "proc" === view && jpOn() && document.querySelector("#v-proc .bb-latepill");
+  if (pill) {
+    // the same rows the rail's Buy Board count reads (PRED.buyNeeds: late or to order this week), this job's only
+    let need = [];
+    try {
+      need = PRED.buyNeeds.rows().filter((r) => r.p && r.p.id === S.id);
+    } catch (e) {}
+    const late = jpLate(S.id).length,
+      week = Math.max(0, need.length - late);
+    pill.removeAttribute("data-ovneeds"), pill.removeAttribute("data-ocbadge"), pill.classList.toggle("on", !!late);
+    pill.textContent = late + week ? `${late + week} ${week ? "late or to order this week" : "late"} on this job` : "Nothing late on this job";
+  }
 }
 
 // ---- drawing and wiring ---------------------------------------------------------------------------------------------
@@ -1024,7 +1051,7 @@ function jpTabLinks() {
     // the Buy Board under a job is that job's
     try {
       jpGrant();
-      "proc" === view && "jobs" === mnLastGrp && S && "undefined" != typeof bbProj && (bbProj = S.id);
+      "proc" === view && "jobs" === mnLastGrp && S && "undefined" != typeof bbProj && bbProj && (bbProj = S.id);
       "undefined" != typeof dashAll && "dash" === view && (dashAll = !1);
     } catch (e) {}
     const r = base.apply(this, arguments);
@@ -1134,13 +1161,36 @@ document.addEventListener(
       const r = jpQuestions(S).find((x) => x.id === b.dataset.jsans);
       return void (r && fAnswerRaise(r));
     }
-    if ((b = at("[data-jpopen]"))) return e.preventDefault(), (jpBudOpen = jpBudOpen === b.dataset.jpopen ? "" : b.dataset.jpopen), void render();
+    if ((b = at("[data-jpopen]")) || ((b = at("[data-jpline]")) && !at("a, button"))) {
+      const k = b.dataset.jpopen || b.dataset.jpline;
+      return e.preventDefault(), (jpBudOpen = jpBudOpen === k ? "" : k), void render();
+    }
+    // a row is its record: the whole row does what its button does
+    if (!at("a, button, input, select, textarea") && (b = at("[data-jprow], [data-jdrow], [data-jsq]"))) {
+      const btn = b.querySelector("[data-jpact], [data-jpneed], [data-jdact], [data-jsans]");
+      if (btn) return e.preventDefault(), void btn.click();
+      if ("rtb" === b.dataset.jprow && jpCanBill()) return e.preventDefault(), void blOpenProgress(S.id, !0);
+    }
   },
   !0,
 );
 document.addEventListener("keydown", (e) => {
   "Escape" === e.key && jpMenuOpen && ((jpMenuOpen = !1), jpHead());
 });
+// The phone's bottom bar, the header's Messages, Ask and Search, and the field's tab bar are not the job: a page opened
+// from them is the firm's (the coordinator's Buy Board shortcut is every job's board, not the last job's)
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("#mtabs [data-mv], #tabbar [data-tab], #tb-chat, #tb-ask, #btn-search") : null;
+    if (!b) return;
+    try {
+      mnLastGrp = "";
+    } catch (x) {}
+    "proc" === (b.dataset.mv || b.dataset.tab) && "undefined" != typeof bbProj && (bbProj = "");
+  },
+  !0,
+);
 
 // ---- the look ---------------------------------------------------------------------------------------------------------
 (() => {
@@ -1184,6 +1234,7 @@ body.jp-ovw #v-dash>*:not(#jp-ov):not(.hero){display:none !important}
 .jp-empty{padding:14px 18px;margin:0;color:var(--ink-3);font-size:14px}
 table.jp-rows{width:100%;border-collapse:collapse}
 table.jp-rows td{padding:12px 18px;border-top:1px solid var(--rule-2);vertical-align:middle}
+.jp-click{cursor:pointer} tr.jp-click:hover td,.jp-drow.jp-click:hover,.jp-q.jp-click:hover{background:var(--paper-2)} table.jp-bt tr[data-jpline]{cursor:pointer}
 table.jp-rows tr:first-child td{border-top:0}
 .jp-rk{width:130px;font-size:12px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.03em}
 .jp-rk.bad,.bad{color:var(--bad)} .jp-rk.warn,.warn{color:var(--warn)} .ok{color:var(--ok)}
