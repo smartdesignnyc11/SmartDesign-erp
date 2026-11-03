@@ -126,6 +126,10 @@ async def run(c, pg, u, phone):
             c.ok(F['cap'] == 4 and 'To Approve' in F['chips'], f"FIGURES {tag}: Needs You 4, a To Approve chip with no count: {F['cap']} {F['chips']}")
         if v == 'gl':
             W = await pg.evaluate("() => { const w = wipAtClose(); return w && { toPost: w.toPost, label: w.label }; }")
+            # the phone opens Books on its Ledger (the close is read there, run on the desktop): the Close chip, tapped
+            if phone:
+                await pg.locator('.view.on [data-acchip="gl:close"]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(300)
+                t = (await pg.evaluate(FRONT))['text']
             c.ok(F['cap'] == 4, f"FIGURES {tag}: Books' Needs You 4, got {F['cap']}")
             c.ok(W and money_fmt(W['toPost']) in t, f"FIGURES {tag}: the WIP that posts at the close is wipAtClose's {W}")
             c.ok('booked as the first draw' in t and 'short-paid' in t, f'FIGURES {tag}: the deposit booked as a draw and the short-paid invoice')

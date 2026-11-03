@@ -683,8 +683,9 @@ function acGoChip(pg, k) {
     try {
       const f = AC_FWD[v];
       f && acMay(f[0]) && ((acChip[f[0]] = f[1]), (v = f[0]));
-      // Books opens on its Close (the controller's first question: can I close the month?)
-      "gl" === v && "gl" !== view && acMay("gl") && ((glTab = "periods"), (acChip.gl = "close"));
+      // Books opens on its Close (the controller's first question: can I close the month?); on the phone, where the close
+      // is read and not run (SPEC §2 Books, 9), on its Ledger
+      "gl" === v && "gl" !== view && acMay("gl") && (acPhone() ? ((glTab = "overview"), (acChip.gl = "ledger")) : ((glTab = "periods"), (acChip.gl = "close")));
     } catch (e) {}
     return base.call(this, v);
   };
