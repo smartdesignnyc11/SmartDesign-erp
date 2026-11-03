@@ -343,7 +343,8 @@ function p2nMsgPage() {
   if ("chat" === view && v) {
     const field = "field" === p2nPane && p2nTabsFor().some((x) => "field" === x[0]);
     v.classList.toggle("p2n-fieldon", field);
-    let s = v.querySelector(":scope > .p2n-mtabs");
+    v.querySelectorAll(".p2n-mtabs").forEach((x) => x.remove());
+    let s = null;
     const html = p2nTabsHtml(field ? "field" : "team");
     s && s.remove();
     html && (v.querySelector(".msg-wrap") || v.firstChild).insertAdjacentHTML("beforebegin", html);
@@ -358,7 +359,10 @@ function p2nMsgPage() {
     field && document.body.classList.remove("msg-thread", "msg-solo-ph");
   }
   if ("comms" === view && v) {
-    let s = v.querySelector(":scope > .p2n-mtabs");
+    // one strip per page: every earlier strip goes, wherever a redraw left it (a strip left inside the page stacked up
+    // as people signed in and out on one device)
+    v.querySelectorAll(".p2n-mtabs").forEach((x) => x.remove());
+    let s = null;
     s && s.remove();
     const html = p2nTabsHtml("mail"),
       ph = v.querySelector(":scope > .ph");
