@@ -328,6 +328,59 @@ function pdOvJobs() {
   mail && mail.classList && mail.classList.contains("oc-mail") && (pdInDesign ? mail.style.setProperty("display", "none", "important") : mail.style.removeProperty("display"));
 }
 
+// ---- bought on no approved line: one proposal to the PM, the same day (BACKLOG §9 item 6) ----------------------------
+// Each item bought for a job on no approved estimate or change-order line is a card in the PM's Approvals (his Today):
+// Draft the Change Order makes the bill-back (pdBillBack); nothing reaches the client until he sends it. The count is
+// the items still unproposed, so it equals what Analysis lists as on no estimate line less what is already drafted.
+function pdNoLine() {
+  return ((DB.sel || {}).items || []).filter((it) => {
+    if (it.billBackAbsorbed) return !1;
+    const p = pdProj(it.projectId),
+      c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+      co = it.billBackCo && c && (c.changeOrders || []).find((x) => x.id === it.billBackCo && "void" !== x.status);
+    return !co && selOpenChecks(it).some((k) => "funding" === k.field && /not on any approved estimate line/i.test(k.msg));
+  });
+}
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "pm" === role())) return out;
+      return out.concat(
+        pdNoLine().map((it) => ({
+          kind: "billback",
+          id: "billback:" + it.id,
+          sev: "warn",
+          n: "Bill Back",
+          title: `Bill back ${it.name}`,
+          detail: `${money(selLinePrice(it))} bought for ${puJob(pdProj(it.projectId))} on no approved estimate line · send it to the client, or absorb it with a reason`,
+          yes: "Draft the Change Order",
+          who: "pm",
+          due: today(),
+          sel: it.id,
+          open: { view: "sel" },
+        })),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "billback" === it.kind) {
+        const s = selItem(it.sel);
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes), (c.run = () => s && pdBillBack(s)), (c.go = () => s && selOpenItem(s.id));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+
 // ---- drawing and wiring -----------------------------------------------------------------------------------------------
 const PD_PAGES = { sel: pdSelections, plans: pdDrawings };
 function pdDraw() {

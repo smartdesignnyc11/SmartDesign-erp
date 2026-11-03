@@ -112,6 +112,9 @@ function puOnRoute() {
   try {
     const W = "function" == typeof bbRouteWaiting ? bbRouteWaiting() : null;
     W && W.N.plan.stops.forEach((s) => (s.items || []).forEach((a) => ids.add(String((a.b || a).key || "").split(":")[0])));
+    // once approved, the day's run holds them
+    const run = "function" == typeof ciRunFor ? ciRunFor(today()) : null;
+    run && "approved" === run.status && ((run.plan || {}).stops || []).forEach((s) => (s.items || []).forEach((a) => ids.add(String(a.key || "").split(":")[0])));
   } catch (e) {}
   return (puRouteMemo = { k: k, ids: ids }), ids;
 }
@@ -1042,7 +1045,7 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
   .pu-row{flex-wrap:wrap;padding:12px}
   .pu-row .pu-rb{flex-basis:calc(100% - 56px)}
   .pu-act{min-height:44px;margin-left:auto}
-  .pu-link,.pu-chip{min-height:44px}
+  .pu-link,.pu-chip,.pu-plusb{min-height:44px}
   .pu-chip{padding:0 14px;font-size:14px}
   .pu-sel{min-height:44px;flex:1 1 140px}
   .pu-bar{position:fixed;left:8px;right:8px;bottom:calc(var(--bb-tabs, 64px) + 8px)}

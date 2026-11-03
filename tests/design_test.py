@@ -107,6 +107,14 @@ async def run(c, p, phone):
             c.ok(await pg.locator('.view.on [data-pugroup="room"]').count() == 1, f'{dev} DRAWINGS: By Sheet or By Room')
             c.ok(len(P['blues']) <= 1 and P['sw'] <= P['w'], f'{dev} DRAWINGS: one blue at most, no sideways scroll ({P["blues"]}, {P["sw"]})')
 
+        # ---- BILL BACK: every item bought on no approved line is one card in the PM's Approvals, the same day (BACKLOG 9.6);
+        # the drain, drafted above, has left it
+        await sign_in(pg, 'u_alan')
+        bb = await pg.evaluate("() => mApprovals().filter(i => i.kind === 'billback').map(i => [i.title, tdCard(i).verb])")
+        c.ok(bb and any('Range' in t for t, _ in bb) and all(v == 'Draft the Change Order' for _, v in bb), f'{dev} BILL BACK: the PM\'s Approvals hold each item bought on no line, with Draft the Change Order {bb}')
+        c.ok(not any('Shower drain, square' in t for t, _ in bb), f'{dev} BILL BACK: the drain, drafted already, is not asked twice {bb}')
+        await sign_in(pg, 'u_sarah')
+
         # ---- IN DESIGN
         await go(pg, 'ovstudio')
         st = await pg.evaluate("() => ({ view, f: typeof pdInDesign !== 'undefined' ? pdInDesign : null })")
