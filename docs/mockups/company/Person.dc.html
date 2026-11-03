@@ -55,7 +55,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
           <div style="display: flex; gap: 6px; padding: 0 14px 12px">
             <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
-              <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" disabled="{{o.disabled}}" style="flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid {{o.border}}; background: {{o.bg}}; color: {{o.color}}; font: inherit; font-size: 13px; font-weight: 600">{{o.label}}</button>
+              <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" aria-disabled="{{o.ad}}" style="flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid {{o.border}}; background: {{o.bg}}; color: {{o.color}}; font: inherit; font-size: 13px; font-weight: 600">{{o.label}}</button>
             </sc-for>
           </div>
         </sc-if>
@@ -103,7 +103,7 @@ class Component extends DCLogic {
     const rules = R.map((x, i) => {
       const k = x[0], cur = this.state.set[k] || x[2], open = this.state.open === k, locked = x[3];
       const opts = ['Act Alone', 'Ask First', 'Hand It to Me'].map((o) => ({
-        label: o, pressed: cur === o ? 'true' : 'false', disabled: locked && o === 'Act Alone',
+        label: o, pressed: cur === o ? 'true' : 'false', ad: locked && o === 'Act Alone' ? 'true' : 'false',
         bg: cur === o ? '#172033' : '#fff', color: cur === o ? '#fff' : (locked && o === 'Act Alone' ? '#a0a8b8' : '#172033'), border: cur === o ? '#172033' : '#c9d1e0',
         pick: () => { if (locked && o === 'Act Alone') return; const s = Object.assign({}, this.state.set); s[k] = o; this.setState({ set: s }); }
       }));
