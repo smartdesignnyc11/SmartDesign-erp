@@ -71,6 +71,36 @@ STATE = r"""() => { const vis = """ + VIS + """;
     swIn: !!(H && H.querySelector('#pswitch')), all: typeof dashAll !== 'undefined' && !!dashAll }; }"""
 
 
+PAGES = ['dash', 'sched', 'jbill', 'costs', 'proc', 'jdec', 'jsite', 'files']
+# the job's own blocks (src/jobpage.js): no hidden text in them at all
+OWN = '#jp-head, #jp-ov, #v-dash, #jp-budget, #jbill-body, #jdec-body, #jsite-body'
+# The other device's controls, declared by class (a phone's Take Photo on the desktop, the desktop's Print and
+# dependency lines on the phone, a segment the picker beside it replaces), and the phone's own layout of the lists
+# other lanes draw (a phone row drops a table's header and some columns; a tile's sub-line; Schedule's track
+# sub-lines). Each is counted and printed, never silent; anything else hidden with words in it fails.
+DEVICE = '.phone-only, .desk-only, .desk-only2, .gantt-only, .os-print, .os-hidden'
+PHONE_LAYOUT = 'table.pr-tbl > thead, tr.pr-tr > td, table.dg-t > thead, .glance .gl-s, #track-cards .track > .s'
+HIDDEN = r"""async (arg) => { const sleep = ms => new Promise(r => setTimeout(r, ms)); const [OWN, DEVICE, PHONE_LAYOUT, PAGES, plant] = arg;
+  const norm = t => String(t || '').replace(/\s+/g, ' ').trim(), phone = innerWidth <= 760, bad = [], known = {};
+  const hidden = e => { const s = getComputedStyle(e); return s.display === 'none' || s.visibility === 'hidden' || e.hidden; };
+  const walk = (el, acc) => { for (const e of el.children) { if (e.matches('select, option, datalist, template, script, style, .jp-vh')) continue;
+    if (hidden(e)) { norm(e.textContent).length > 2 && acc.push(e); } else walk(e, acc); } };
+  for (const v of PAGES) { view = v; jpSub = ''; jpMenuOpen = false; if (v === 'proc') bbProj = S.id; render(); await sleep(150);
+    if (plant && v === 'dash') { const d = document.createElement('div'); d.style.display = 'none'; d.textContent = 'Planted hidden tile 999 at risk'; (document.getElementById('jp-ov') || document.querySelector('.view.on')).appendChild(d); }
+    const R = [document.querySelector('.view.on'), document.getElementById('jp-head')].filter(Boolean);
+    const seen = norm(R.map(r => r.innerText).join(' '));
+    const H = []; R.forEach(r => walk(r, H));
+    H.forEach(e => { const say = v + ': ' + (e.id ? '#' + e.id : e.tagName.toLowerCase() + '.' + String(e.className).trim().split(/\s+/)[0]) + ' "' + norm(e.textContent).slice(0, 50) + '"';
+      if (e.closest(OWN.split(', ').filter(x => x !== '#v-dash' || v === 'dash').join(', '))) return bad.push('own ' + say);
+      if (e.matches(DEVICE) || e.closest(DEVICE)) return (known.device = (known.device || 0) + 1);
+      if (phone && (e.matches(PHONE_LAYOUT) || e.closest(PHONE_LAYOUT))) return (known.phone = (known.phone || 0) + 1);
+      // a twin: every piece of its text is on the screen already
+      const tw = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); let n, miss = 0;
+      while ((n = tw.nextNode())) { const t = norm(n.nodeValue); if (t.length > 1 && !n.parentElement.closest('select, script, style') && !seen.includes(t)) miss++; }
+      if (miss) bad.push(say); else known.twin = (known.twin || 0) + 1; }); }
+  return { bad, known }; }"""
+
+
 async def js(pg, body, arg=None):
     try:
         return await pg.evaluate("async (arg) => { const sleep = ms => new Promise(r => setTimeout(r, ms)); " + body + " }", arg)
@@ -384,6 +414,15 @@ async def run(c, p, phone):
           document.querySelectorAll('#jp-head, #jp-ov *, #jp-budget *, #jbill-body *, #jdec-body *, #jsite-body *').forEach(e => { const r = e.getBoundingClientRect();
             if (r.width && r.height && r.right > innerWidth + 1 && !e.closest('select')) out.push(v + ': ' + (e.className || e.tagName) + ' ' + Math.round(r.right)); }); } return out.slice(0, 8);""")
         c.ok(cut == [], f'{dev} PHONE: parts of the job pages run past the right edge {cut}')
+    # ---- HIDDEN: no job page carries hidden text (a check reading textContent passed on the old Overview's hidden cards)
+    await js(pg, "setCurrent('p121'); mnLastGrp = 'jobs'; jpSub = ''; view = 'dash'; render(); await sleep(150);")
+    hd = await pg.evaluate(HIDDEN, [OWN, DEVICE, PHONE_LAYOUT, PAGES, False])
+    c.ok(hd['bad'] == [], f'{dev} HIDDEN: hidden text on the job\'s pages {hd["bad"][:6]}')
+    print(f'  {dev} HIDDEN: allowed, each the other device\'s or a phone row\'s twin: {hd["known"]}')
+    # the instrument: a hidden block planted on the Overview is caught
+    pl = await pg.evaluate(HIDDEN, [OWN, DEVICE, PHONE_LAYOUT, ['dash'], True])
+    c.ok(any('Planted hidden tile' in x for x in pl['bad']), f'{dev} HIDDEN: the check catches a hidden block planted on the Overview ({pl["bad"][:2]})')
+    await js(pg, "view = 'dash'; render(); await sleep(100);")
     c.ok(not errs, f'{dev}: page errors {errs[:3]}')
     await b.close()
 

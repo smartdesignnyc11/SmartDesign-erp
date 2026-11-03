@@ -538,9 +538,40 @@ function jpOverview() {
     host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpNextHtml(p)}${jpReadyHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
   else
     host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpNextHtml(p)}${jpReadyHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
-  // the job's pinned sheets (Alan, 2026-10-19: they live on the job's page) sit beside Next Up, not in the old layout
-  const pin = v.querySelector(":scope > * #pl-pinned, :scope > #pl-pinned");
-  pin && !jpSub && !host.contains(pin) && (host.querySelector(".jp-aside") || host).appendChild(pin);
+  // the job's pinned sheets (Alan, 2026-10-19: they live on the job's page) sit beside Next Up, drawn here: the old
+  // layout they were put into is not drawn on a job's page any more
+  !jpSub &&
+    "function" == typeof plPinnedHtml &&
+    "function" == typeof plStaff &&
+    plStaff() &&
+    plSheets(p.id).length &&
+    (host.querySelector(".jp-aside") || host).insertAdjacentHTML("beforeend", plPinnedHtml(p, 5));
+}
+// The old dashboard (its tiles, Look-Ahead, Needs Attention, Daily Brief, Ahead of Schedule, Since Yesterday, and the
+// notes other sections put under them) is not drawn on a job's page. It used to be drawn and hidden: about 8,600
+// characters a person could not see and a check reading textContent could still pass on. Its own blocks are set aside
+// while a job's Overview is on screen and put back for a dash with no job; whatever else lands in the view is removed.
+let jpDashKept = null;
+function jpDashClear() {
+  const v = document.getElementById("v-dash");
+  if (!v) return;
+  [...v.children].forEach((el) => {
+    if ("jp-ov" === el.id) return;
+    if (el.matches("#kpis, .hero, .grid3")) (jpDashKept = jpDashKept || document.createDocumentFragment()).appendChild(el);
+    else el.remove();
+  });
+}
+function jpDashRestore() {
+  const v = document.getElementById("v-dash");
+  v && jpDashKept && jpDashKept.childNodes.length && v.appendChild(jpDashKept);
+}
+if ("function" == typeof renderDash) {
+  const base = renderDash;
+  renderDash = function () {
+    if ("dash" === view && jpOn()) return;
+    jpDashRestore();
+    return base.apply(this, arguments);
+  };
 }
 const JP_LINK = {
   proj: "Job Settings",
@@ -732,6 +763,33 @@ function jpLineDetail(l) {
   l.variance > 0.5 && out.push(["Over its budget", "+" + money(l.variance)]);
   return out.length ? out : [["Nothing bought or spent on this line yet", ""]];
 }
+// The old line table and tiles are Budget's rows and figures now: emptied, not hidden. A hidden copy is text a person
+// cannot see and a check can still read. The tile pass refills #jc-kpis after renderCosts, so this runs again after the
+// whole draw. The cost-code table, WIP and transactions stay.
+function jpCostsClear() {
+  const v = document.getElementById("v-costs");
+  if (!v || "costs" !== view) return;
+  ["#jc-kpis", "#jl-table"].forEach((s) => {
+    const e = v.querySelector(s);
+    e && ((e.innerHTML = ""), (e.style.display = "none"));
+  });
+  const jf = v.querySelector("#jl-filter"),
+    jr = jf && jf.closest(".row");
+  jr && jr.remove();
+}
+// On the phone the page's lead line is hidden (the header's second line says what the page is), so on a job's pages it
+// is emptied there and put back on a wider screen: hidden text is text a check can read and a person cannot.
+function jpLeads() {
+  const v = document.querySelector(".view.on");
+  if (!v) return;
+  const phone = jpPhone();
+  v.querySelectorAll(":scope > .ph .lead").forEach((l) => {
+    if (phone) {
+      const t = l.textContent;
+      t && ((l.dataset.jpLead = t), (l.textContent = ""));
+    } else if (!l.textContent && l.dataset.jpLead) l.textContent = l.dataset.jpLead;
+  });
+}
 function jpBudget() {
   const v = document.getElementById("v-costs");
   if (!v || "costs" !== view || !S) return;
@@ -739,14 +797,7 @@ function jpBudget() {
   host || ((host = document.createElement("div")), (host.id = "jp-budget"), (host.className = "jp-budget jp-keep"));
   const ph = v.querySelector(":scope > .ph");
   ph ? ph.nextElementSibling !== host && ph.after(host) : v.firstElementChild !== host && v.prepend(host);
-  // the old line table and tiles are this page's rows and figures now; the cost-code table, WIP and transactions stay
-  ["#jc-kpis", "#jl-table"].forEach((s) => {
-    const e = v.querySelector(s);
-    e && ((e.hidden = !0), (e.style.display = "none"));
-  });
-  const jf = v.querySelector("#jl-filter"),
-    jr = jf && jf.closest(".row");
-  jr && ((jr.hidden = !0), (jr.style.display = "none"));
+  jpCostsClear();
   const lead = v.querySelector(":scope > .ph .lead");
   lead && (lead.textContent = "What the job costs us, line by line: the budget with approved changes, what is committed, what is spent and the forecast to finish.");
   const p = S,
@@ -1057,6 +1108,9 @@ function jpTabLinks() {
     } catch (e) {}
     const r = base.apply(this, arguments);
     try {
+      const jon = jpOn();
+      "dash" === view && jon && jpDashClear();
+      jon && (jpCostsClear(), jpLeads());
       jpHead(), jpOverview(), jpBill(), jpDec(), jpSite(), jpTabLinks();
       // the job's + is the job's New; the top bar's New would be a second one on the same screen
       const on = jpOn();
@@ -1215,8 +1269,6 @@ document.addEventListener(
 .jp-mi{display:flex;align-items:center;min-height:44px;padding:0 12px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer}
 .jp-mi:hover,.jp-mi:focus{background:var(--paper-3)}
 .jp-vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-body.jp-ovw #v-dash>*:not(#jp-ov):not(.hero){display:none !important}
-#v-dash>.hero{margin-top:20px}
 .jp-ov{display:flex;flex-direction:column;gap:20px}
 .jp-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 #jp-ov .jp-tile{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;background:var(--paper);border:2px solid var(--rule);border-radius:12px;padding:14px 16px;min-height:110px;font:inherit;color:var(--ink);cursor:pointer;box-shadow:none}
@@ -1308,7 +1360,6 @@ table.jp-bt tfoot td{font-weight:700}
 .jp-clash>div{display:flex;flex-direction:column;gap:4px;color:var(--ink)} .jp-clash b{color:var(--bad)}
 @media (max-width:760px){
   body.jp-on #subnav{display:none !important}
-  body.jp-ovw #v-dash>.hero{display:none !important}
   .jp-head{background:#111a2e;color:#fff;padding:8px 16px 12px;border:0;gap:4px}
   .jp-head .jp-ib{background:transparent;border-color:#3a4866;color:#fff}
   .jp-head .jp-back{border:0;margin-left:-12px}
