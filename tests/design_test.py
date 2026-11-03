@@ -19,7 +19,7 @@ and the desktop (1440x900), from the menu:
 Usage: python3 design_test.py [--phone|--desktop]"""
 import asyncio, re, sys
 from harness import *
-from pd_pages import page, kids, open_entry, groups
+from pd_pages import page, kids, open_entry, groups, press
 
 
 async def modal(pg):
@@ -81,7 +81,7 @@ async def run(c, p, phone):
                 c.ok(await bb.count() > 0, f'{dev} SELECTIONS: the drain carries Draft the Bill-Back for the PM')
                 if await bb.count():
                     n0 = await pg.evaluate("() => DB.clients.flatMap(c => c.changeOrders || []).length")
-                    await bb.first.click(); await pg.wait_for_timeout(600)
+                    await press(bb.first, 600)
                     r = await pg.evaluate("""n0 => { const all = DB.clients.flatMap(c => (c.changeOrders || []).map(co => ({ co, c })));
                       const x = all.slice(-1)[0]; return { n: all.length, n0, status: x && x.co.status, pid: x && x.co.projectId,
                         lines: x ? x.co.lines.map(l => [l.item, +l.cost || 0]) : [], forPm: !!(x && x.co.billBack) }; }""", n0)

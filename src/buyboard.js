@@ -246,6 +246,10 @@ function bbFinish(r) {
       // so Late plus Order This Week is the Buy Board's one number everywhere
       (r.section = "request" === r.kind && r.q && "new" === r.q.status ? "ack" : r.late ? "late" : rfqs.length ? "quotes" : r.orderBy && r.orderBy >= td && wd(td, r.orderBy) <= 5 ? "week" : "later");
   else if ("promise" === r.lateKind) (r.tab = "buy"), (r.section = "late");
+  // "ordered" with no order behind it (no order line, no order number, no store-run receipt) is never arriving: it stays
+  // on the Buy Board as Find the Order (BACKLOG §9 item 5), late by its order-by like any need
+  else if (!r.po && "material" === r.kind && !(r.m && r.m.po))
+    (r.tab = "buy"), (r.noOrder = !0), (r.section = r.orderBy && r.orderBy < td ? "late" : r.orderBy && wd(td, r.orderBy) <= 5 ? "week" : "later");
   else (r.tab = "arriving"), (r.section = "arriving");
   r.arr =
     "arriving" !== r.tab

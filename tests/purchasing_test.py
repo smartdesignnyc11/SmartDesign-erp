@@ -680,7 +680,7 @@ async def s_selftest(p, c):
 # ---------------------------------------------------------------- the 11-03 Purchasing pages (docs/mockups/purchasing/SPEC.md)
 # Six pages, no tab rows; each opens on Needs You (the rows whose next tap is yours, its count equal to its rows), then
 # Waiting on Someone Else (each row names who, no number). The figures are the demo company's on 9/3, as the spec read them.
-from pd_pages import page as pd_page, kids as pd_kids, open_entry as pd_open, groups as pd_groups
+from pd_pages import page as pd_page, kids as pd_kids, open_entry as pd_open, groups as pd_groups, press as pd_press
 PU_FIVE = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors']
 # what waits on Chen on 9/3 (spec section 2): Buy Board 8, Orders 8, Quotes 0, Deliveries 3, Vendors 4, Stock 1
 PU_CHEN = {'Buy Board': 8, 'Orders': 8, 'Quotes': 0, 'Deliveries': 3, 'Vendors': 4, 'Stock': 1}
@@ -765,24 +765,26 @@ async def s_picks(p, c):
         try:
             await sign_in(pg, 'u_chen')
             await pd_open(pg, phone, 'buy', 'Buy Board')
-            n = await pg.locator('.view.on [data-pusec="mine"] [data-bbpick]').count()
-            c.ok(n >= 8, f'picks {dev}: every Needs You row has a check box ({n})')
+            # every Needs You row that can be bought has a check box (a need marked ordered with no order is found, not bought)
+            n = await pg.evaluate("() => { const R = [...document.querySelectorAll('.view.on [data-pusec=\"mine\"] [data-purow]')]; return [R.filter(r => !/Find the Order/.test(r.innerText)).length, R.filter(r => r.querySelector('[data-bbpick]')).length]; }")
+            c.ok(n[0] >= 6 and n[0] == n[1], f'picks {dev}: every Needs You row that can be bought has a check box ({n})')
             if n < 2: continue
             # Paint has no price: a line with no price makes Ask for Quotes the blue
+            pick = lambda nm: pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text=nm).first.locator('[data-bbpick]')
             for nm in ('Paint', 'Bath faucet'):
-                await pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text=nm).first.locator('[data-bbpick]').click(); await pg.wait_for_timeout(250)
+                await pd_press(pick(nm))
             BAR = "() => { const b = [...document.querySelectorAll('.view.on .bb-bar')].find(x => x.getClientRects().length); if (!b) return null; return { t: b.innerText.replace(/\\s+/g, ' '), blue: [...b.querySelectorAll('.btn.primary')].map(x => x.innerText.trim()), other: [...b.querySelectorAll('.btn:not(.primary)')].map(x => x.innerText.trim()) }; }"
             bar = await pg.evaluate(BAR)
             c.ok(bar and '2 lines picked' in bar['t'] and 'no price' in bar['t'], f'picks {dev}: the bar says 2 lines picked and the lines with no price ({bar})')
-            c.ok(bar and bar['blue'] == ['Ask for Quotes'] and 'Order, With a Reason' in bar['other'], f'picks {dev}: a line with no price: Ask for Quotes is the blue, Order, With a Reason the other ({bar})')
-            blues = await pg.evaluate("() => [...document.querySelectorAll('.btn.primary')].filter(x => x.getClientRects().length).length")
+            c.ok(bar and bar['blue'] == ['Ask for Quotes'] and 'order, with a reason' in [x.lower() for x in bar['other']], f'picks {dev}: a line with no price: Ask for Quotes is the blue, Order, With a Reason the other ({bar})')
+            blues = await pg.evaluate("() => [...document.querySelectorAll('.view.on .btn.primary')].filter(x => x.getClientRects().length).length")
             c.ok(blues == 1, f'picks {dev}: one blue on the screen while the bar shows ({blues})')
-            await pg.locator('.view.on .bb-bar button').filter(has_text='Clear').first.click(); await pg.wait_for_timeout(250)
+            await pd_press(pg.locator('.view.on .bb-bar button').filter(has_text='Clear').first)
             c.ok(not await pg.evaluate(BAR), f'picks {dev}: Clear empties the picks')
             # a priced line under $2,500 makes Order the blue: price the slab need, then pick it alone
             await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); const m = p.materials.find(x => /countertop slab/i.test(x.name) && /parlor/i.test(x.name)); m.cost = 1200; save(); render(); }")
             await pg.wait_for_timeout(300)
-            await pg.locator('.view.on [data-pusec="mine"] [data-purow]').filter(has_text='countertop slab').first.locator('[data-bbpick]').click(); await pg.wait_for_timeout(250)
+            await pd_press(pick('countertop slab'))
             bar = await pg.evaluate(BAR)
             c.ok(bar and '1 line picked' in bar['t'] and '$1,200' in bar['t'] and bar['blue'][:1] and bar['blue'][0].startswith('Order'), f'picks {dev}: one priced line under $2,500: the total, and Order is the blue ({bar})')
             c.ok(not errs, f'picks {dev}: page errors {errs[:2]}')

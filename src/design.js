@@ -103,7 +103,6 @@ function pdBillBack(it) {
     billBack: { selId: it.id, by: ((currentUser() || {}).name) || role(), at: appNowIso() },
     lines: [{ id: uid("l"), item: it.name, desc: `${[it.manufacturer, it.sku, it.finish].filter(Boolean).join(", ")}. Bought for ${it.room || "the job"}; on no approved estimate line.`, qty: +it.qty || 1, unit: it.unit || "ea", rate: selUnitPrice(it), cost: selCost(it), taxable: !!it.taxable }],
   });
-  (c.changeOrders = c.changeOrders || []).push(co);
   it.billBackCo = co.id;
   // the PM's next tap: send it to the client, or absorb it with a reason
   const pm = ((DB.users || []).find((u) => "pm" === u.role) || {}).name || "the PM";
@@ -176,7 +175,7 @@ function pdSelections() {
       puSecHtml("others", "With Someone Else", others, { others: 1 }) +
       (rest.length ? `<section class="pu-sec" data-pusec="restfold"><div class="pu-sh"><h3>Everything Else</h3><span class="pu-note">${rest.length} items, ordered or installed</span></div><button type="button" class="pu-link pu-laterb" data-pdrest="1" aria-expanded="${!!puShowAll.selrest}">${puShowAll.selrest ? "Hide Them" : "Show Them"}${puShowAll.selrest ? PU_IC.up : PU_IC.down}</button>${puShowAll.selrest ? `<div class="pu-rows">${rest.map((x) => puRowHtml(x, { quiet: 1 })).join("")}</div>` : ""}</section>` : "") +
       `<div class="pu-foot"><button type="button" class="pu-link" data-pdclient="1">See This Job as the Client Does</button></div>`;
-  return `<div class="pu-page" data-pupage="sel">${pdHead("sel", "Selections", "Every product we specified, on every job: what it is, what it costs, and where it stands.")}${body}</div>`;
+  return `<div class="pu-page pr-keep" data-pupage="sel">${pdHead("sel", "Selections", "Every product we specified, on every job: what it is, what it costs, and where it stands.")}${body}</div>`;
 }
 
 // ---- Drawings ---------------------------------------------------------------------------------------------------------
@@ -253,7 +252,7 @@ function pdDrawings() {
       filters +
       list +
       `<div class="pu-foot"><button type="button" class="pu-link" data-pdreg="1">The Full Register, Set Check and Lessons</button></div>`;
-  return `<div class="pu-page" data-pupage="plans">${pdHead("plans", "Drawings", "Every job's current sheets, and what the field and the agencies are waiting on.")}${body}</div>`;
+  return `<div class="pu-page pr-keep" data-pupage="plans">${pdHead("plans", "Drawings", "Every job's current sheets, and what the field and the agencies are waiting on.")}${body}</div>`;
 }
 let pdPlusOpen = "";
 function pdPlusItems(v) {
@@ -307,7 +306,7 @@ function pdInDesignHtml() {
       })
       .join(""),
     foot = `<div class="pu-sec pd-hours"><div class="pu-sh"><h3>Hours Not Logged${null != mine ? ` ${mine}` : ""}</h3><span class="pu-note">working days in the last five with no time entry</span></div>${miss.map((x) => `<div class="pu-row"><span class="pu-rb"><b data-nocase>${esc(x.e.name)}</b><span class="pu-sub">${x.m.length} day${1 === x.m.length ? "" : "s"}: ${x.m.map(fmt).join(", ")}</span></span><button type="button" class="btn sm" data-stnudge="${esc(x.e.id)}">Ask for Them</button></div>`).join("") || '<p class="pu-empty">Everyone is current.</p>'}</div>`;
-  return `<div class="pd-indesign" data-pupage="indesign"><div class="pd-cards">${cards || '<p class="pu-empty">No job is in design.</p>'}</div>${foot}</div>`;
+  return `<div class="pd-indesign pr-keep" data-pupage="indesign"><div class="pd-cards">${cards || '<p class="pu-empty">No job is in design.</p>'}</div>${foot}</div>`;
 }
 function pdOvJobs() {
   const host = document.getElementById("ovjobs-body");

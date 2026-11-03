@@ -19,7 +19,9 @@ PAGE_JS = r"""() => {
       who: txt(r.querySelector('.pu-who')), nums: [...r.querySelectorAll('.n')].filter(vis).length, blue: [...r.querySelectorAll('.btn.primary')].filter(vis).length })) : null; };
   const hn = k => { const s = sec(k); const n = s && [...s.querySelectorAll('.pu-sh .n')].find(vis); return n ? (/^\d+$/.test(n.textContent.trim()) ? +n.textContent.trim() : n.textContent.trim()) : null; };
   const secs = [...v.querySelectorAll('[data-pusec]')].filter(vis).map(s => s.dataset.pusec);
-  return { page: page ? page.dataset.pupage : '', h2: txt([...v.querySelectorAll('h2')].find(vis)), secs,
+  // on the phone the page's heading rides in the header bar (h2.td-in-hdr): read it there
+  const h2 = [...v.querySelectorAll('h2')].find(vis) || v.querySelector('h2.td-in-hdr');
+  return { page: page ? page.dataset.pupage : '', h2: txt(h2) || (h2 ? h2.textContent.trim() : ''), secs,
     tabs: [...v.querySelectorAll('[role=tablist], .ctabs, .bb-tabs, .tabs')].filter(vis).length,
     mineN: hn('mine'), mine: rows('mine'), othersN: hn('others'), others: rows('others'), routeN: hn('route'), route: rows('route'),
     later: rows('later'), blues: [...v.querySelectorAll('.btn.primary')].filter(vis).map(b => txt(b)),
@@ -54,3 +56,10 @@ async def open_entry(pg, phone, gid, label):
 async def groups(pg, phone):
     await open_menu(pg, phone)
     return [e['label'] for e in await menu(pg) if e['kind'] == 'head' and e['vis']]
+
+
+async def press(loc, wait=300):
+    """tap a control as the person: brought to the middle of the screen (clear of the phone's bars), then tapped"""
+    await loc.evaluate("e => e.scrollIntoView({ block: 'center' })")
+    await loc.click(timeout=8000)
+    await loc.page.wait_for_timeout(wait)

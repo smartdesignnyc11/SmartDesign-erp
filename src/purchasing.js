@@ -435,7 +435,7 @@ function puHeadHtml(v, extra) {
     items = job ? [] : puPlusItems(v),
     name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
     lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
-  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
+  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
 }
 // the old page's tools, one tap down, until their records move here (P4, P5)
 function puFullHtml(v, label) {
@@ -516,7 +516,7 @@ function puBuyRender() {
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
     panel = !phone ? `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${sel ? bbPanelHtml(sel.r, picked.length) : bbPanelHtml(null)}</aside>` : "",
     foot = `<div class="pu-foot"><button type="button" class="pu-link" id="bb-more">FF&amp;E Buy Runs, Receiving and Returns</button></div>`;
-  root.innerHTML = `<div class="pu bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" data-pupage="proc" id="buy-board" data-os-keep>${puHeadHtml("proc")}${filters}<div class="bb-main"><div class="bb-list pu-list" data-nocase>${list}${foot}</div>${panel}</div>${bar}</div>`;
+  root.innerHTML = `<div class="pu pr-keep bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" data-pupage="proc" id="buy-board" data-os-keep>${puHeadHtml("proc")}${filters}<div class="bb-main"><div class="bb-list pu-list" data-nocase>${list}${foot}</div>${panel}</div>${bar}</div>`;
   bbWire(root);
   const q = (s) => root.querySelector(s);
   q("#pu-clear") && (q("#pu-clear").onclick = () => (bbPick.clear(), render()));
@@ -527,7 +527,7 @@ function puTile(id, k, v, s, rows) {
   return `<button type="button" class="pu-tile ${puShowAll.tile === id ? "on" : ""}" data-putile="${id}" aria-pressed="${puShowAll.tile === id}"><span class="pu-tk">${esc(k)}</span><b>${esc(v)}</b><span class="pu-ts" data-nocase>${esc(s)}</span></button>`;
 }
 function puPageHtml(v, parts) {
-  return `<div class="pu-page" data-pupage="${v}">${puHeadHtml(v, parts.acts)}${parts.tiles ? `<div class="pu-tiles">${parts.tiles}</div>` : ""}${parts.filters || ""}${parts.body}</div>`;
+  return `<div class="pu-page pr-keep" data-pupage="${v}">${puHeadHtml(v, parts.acts)}${parts.tiles ? `<div class="pu-tiles">${parts.tiles}</div>` : ""}${parts.filters || ""}${parts.body}</div>`;
 }
 function puOrders() {
   const pid = puInJob(),
@@ -754,6 +754,20 @@ function puBuyFromDoc(kind) {
     });
   return m;
 }
+// One receipt line, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on
+// the order's own job, not the job on screen
+function puReceiveLine(po, l, qty, note, slip) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId);
+  l.received = r2((+l.received || 0) + qty);
+  const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
+  m && l.received >= l.qty - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
+  const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
+  (po.status = full ? "received" : "partial"), full && (po.receivedOn = today());
+  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: [{ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: qty }], slip: slip || "", note: note || "" });
+  try {
+    audit("po", po.id, "received", "", `${l.item || l.desc}: ${qty}`, note || "");
+  } catch (e) {}
+}
 // Receive (the phone's sheet, the desktop's too): the count starts empty; Good, Short, Damaged or Wrong; a photo of the
 // slip; Short, Damaged or Wrong opens a claim on the order (its delivery issue), with Open
 function puReceive(po) {
@@ -768,9 +782,10 @@ function puReceive(po) {
       onSubmit: () => {
         const got = L.map((l) => ({ l: l, q: m.querySelector(`[data-purq="${l.id}"]`).value })).filter((x) => "" !== x.q);
         if (!got.length) return toast("Count at least one line, even if it is 0"), !1;
-        got.forEach((x) => +x.q > 0 && receive(po, x.l, +x.q));
-        const slip = m.querySelector("[data-puslip]");
-        slip && slip.files && slip.files[0] && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slip.files[0].name }]));
+        const slip = m.querySelector("[data-puslip]"),
+          slipName = slip && slip.files && slip.files[0] ? slip.files[0].name : "";
+        got.forEach((x) => +x.q > 0 && puReceiveLine(po, x.l, +x.q, "", slipName));
+        slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
         let claim = null;
         if ("good" !== cond) {
           const x = got[0],
@@ -1049,6 +1064,7 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
   .pu-chip{padding:0 14px;font-size:14px}
   .pu-sel{min-height:44px;flex:1 1 140px}
   .pu-bar{position:fixed;left:8px;right:8px;bottom:calc(var(--bb-tabs, 64px) + 8px)}
+  .bb-picking .pu-list{padding-bottom:180px}
   .pu-bb{width:100%} .pu-bb .btn{flex:1;min-height:44px}
   #buy-board.pu .bb-main{display:block}
   .pu-tile{min-height:84px}
