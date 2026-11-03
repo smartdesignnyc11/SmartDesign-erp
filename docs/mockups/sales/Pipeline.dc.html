@@ -88,13 +88,15 @@ class Component extends DCLogic {
   constructor(p) { super(p); this.state = { tab: 'need', nums: false, newOpen: false }; }
   renderVals() {
     const RED = '#b91c1c', MUTE = '#5b6578';
+    // Need You, one rule: a next step past its date, no touch in 14 days, or signed with no job set up (the deal waits on us).
     const need = [
+      { name: 'Tom & Lily Nakamura', value: '$210,000', stage: 'SIGNED 7/25 · architect referral · 200 E 66th St 9G', when: 'Signed 40 days ago', tone: RED, next: 'No job set up, so nothing can be bought or billed; whether the deposit invoice went is not read', act: 'Set Up the Job' },
       { name: 'Priya Raman', value: '$185,000', stage: 'SITE VISIT · broker referral', when: '2 days late', tone: RED, next: 'Send the recap with the range', act: 'Draft the Recap' },
       { name: 'Daniel Okafor', value: '$95,000', stage: 'LEAD · website · 11 Riverside Dr 4A, co-op', when: '2 days late', tone: RED, next: 'Call back about timing; just closed on the apartment', act: 'Call' },
       { name: 'Marcus Bell', value: '$140,000', stage: 'PROPOSAL OUT · Houzz · 77 Bleecker St 3F', when: 'Quiet 14 days', tone: RED, next: 'Proposal emailed 8/20, one option; nothing since', act: 'Follow Up' }
     ];
     const rest = [
-      { name: 'The Lindqvists', value: '$420,000', stage: 'DESIGN AGREEMENT · architect referral · 145 Hicks St', when: 'Fri 9/4', tone: MUTE, next: 'Walk the house with the architect', act: 'Open' },
+      { name: 'The Lindqvists', value: '$420,000', stage: 'DESIGN PROPOSAL · architect referral · 145 Hicks St', when: 'Fri 9/4', tone: MUTE, next: 'Walk the house with the architect', act: 'Open' },
       { name: 'Ana Petrova', value: '$260,000', stage: 'PROPOSAL OUT · repeat client · 30 E 85th St 12C', when: 'Fri 9/4', tone: MUTE, next: 'Answer the board’s three questions; board approval 10/18', act: 'Open' },
       { name: 'Sofia Adler', value: '$160,000', stage: 'QUALIFIED · managing agent referral', when: 'Sat 9/5', tone: MUTE, next: 'Book the site visit at 70 Remsen', act: 'Open' }
     ];
@@ -105,11 +107,11 @@ class Component extends DCLogic {
     const T = this.state.tab;
     const prep = (rows, blueFirst) => rows.map((r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', primary: blueFirst && i === 0, side: !(blueFirst && i === 0) }));
     const G = {
-      need: [{ title: 'Need You', n: 3, rows: prep(need, true) }, { title: 'On Track', n: 3, rows: prep(rest, false) }],
-      open: [{ title: 'All Open, by Stage', n: 6, rows: prep([need[1], rest[2], need[0], rest[0], need[2], rest[1]], false) }],
+      need: [{ title: 'Need You', n: need.length, rows: prep(need, true) }, { title: 'On Track', n: 3, rows: prep(rest, false) }],
+      open: [{ title: 'All Open, by Stage', n: 6, rows: prep([need[2], rest[2], need[1], rest[0], need[3], rest[1]], false) }],
       closed: [{ title: 'Won and Lost This Quarter', n: 2, rows: prep(closed, false) }]
     };
-    const defs = [{ id: 'need', label: 'Need You', n: 3 }, { id: 'open', label: 'All Open', n: '' }, { id: 'closed', label: 'Won and Lost', n: '' }];
+    const defs = [{ id: 'need', label: 'Need You', n: need.length }, { id: 'open', label: 'All Open', n: '' }, { id: 'closed', label: 'Won and Lost', n: '' }];
     const chips = defs.map((c) => Object.assign({}, c, {
       pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: c.id })

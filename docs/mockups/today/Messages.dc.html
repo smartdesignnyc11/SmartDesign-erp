@@ -91,18 +91,18 @@ class Component extends DCLogic {
       { icon: I.mail, who: 'Mark Hyland', when: '9/1', tone: MUTE, subj: 'Re: 47 West 76th St Apt 3, ceiling repair', snip: '“Money just sent.”', tag: 'Routed to billing', act: 'Open' }
     ]);
     const meet = [
-      { icon: I.meet, who: 'Team Catch Up', when: '8/28', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The hall light fixture at 121 State cannot be replaced next week; now expected mid-September.', tag: '121 State Street · its next steps go to Tasks when approved', act: 'Review' },
-      { icon: I.meet, who: '121 State St: Schedule Review', when: '8/17', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The team aligned on the construction sequence for the garden unit and how inspections are booked.', tag: '121 State Street', act: 'Review' }
+      { icon: I.meet, who: 'Team Catch Up', when: '8/28', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The hall light fixture at 121 State cannot be replaced next week; now expected mid-September.', tag: 'Alan reviews: 121 State Street is his job · its next steps go to Tasks when he approves', act: 'Open' },
+      { icon: I.meet, who: '121 State St: Schedule Review', when: '8/17', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The team aligned on the construction sequence for the garden unit and how inspections are booked.', tag: 'Alan reviews: 121 State Street is his job', act: 'Open' }
     ];
     const T = this.state.tab;
-    const L = { answer, all, meet }[T];
+    const L = { answer, all: all.concat(meet), meet }[T];
     const rows = L.map((r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', primary: T === 'answer' && i === 0, side: !(T === 'answer' && i === 0) }));
-    const defs = [{ id: 'answer', label: 'Needs an Answer', n: 5 }, { id: 'all', label: 'All', n: '' }, { id: 'meet', label: 'Meetings', n: 2 }];
+    const defs = [{ id: 'answer', label: 'Needs an Answer', n: 5 }, { id: 'all', label: 'All', n: '' }, { id: 'meet', label: 'Meetings', n: '' }];
     const chips = defs.map((c) => Object.assign({}, c, {
       pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: c.id })
     }));
-    const lead = { answer: 'Waiting on you, oldest first. A client message counts from the minute it arrives.', all: 'Everything you can read, newest first. A client’s messages also show inside the client.', meet: 'Meeting notes to review: what was decided goes to the record, each next step to Tasks.' }[T];
+    const lead = { answer: 'Waiting on you, oldest first. A client message counts from the minute it arrives.', all: 'Everything you can read, newest first: mail, texts, calls, chats and meeting notes. A client’s messages also show inside the client.', meet: 'Meeting notes. Each job’s PM reviews them (what was decided goes to the record, each next step to Tasks); nothing here waits on you.' }[T];
     return { chips, rows, lead };
   }
 }

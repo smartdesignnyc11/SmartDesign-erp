@@ -43,7 +43,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
     <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 18px; display: flex; align-items: center; gap: 16px">
       <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
         <b style="font-size: 26px">Today</b>
-        <span style="font-size: 14px; color: #5b6578">Thu, Sep 3 · 12 need you today · most urgent first, by the Standard’s order</span>
+        <span style="font-size: 14px; color: #5b6578">Thu, Sep 3 · {{needN}} need you today · most urgent first, by the Standard’s order</span>
       </div>
       <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About My Day</button>
       <div style="position: relative">
@@ -123,33 +123,39 @@ class Component extends DCLogic {
   constructor(p) { super(p); this.state = { panel: 'today', newOpen: false }; }
   renderVals() {
     const P = this.state.panel, RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
-    const rail = {
-      top: [{ label: 'Today', n: 12, has: true, bg: '#22304d', fw: '700' }, { label: 'Tasks', n: 0, has: false, bg: 'transparent', fw: '500' }, { label: 'Messages', n: 5, has: true, bg: 'transparent', fw: '500' }],
-      work: ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Reports']
-    };
-    const T = [
-      { id: 'today', k: 'Need You Today', v: '12', sub: '4 approvals, 8 to do now', tone: RED },
-      { id: 'appr', k: 'Approvals', v: '4', sub: 'Exceptions only: $60,990 in all', tone: INK },
-      { id: 'coming', k: 'Coming Up', v: '6', sub: 'The next 7 days', tone: INK },
-      { id: 'cash', k: 'Safe to Spend', v: '−$4,150.74', sub: 'From the bank, with its parts', tone: RED }
-    ];
-    const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
     const appr = [
       { kind: 'PAYROLL · 2 DAYS LATE', tone: RED, title: 'Payroll 8/17 to 8/28, 6 people', why: '88% of wages not split by job: Chen splits it from the hours, then it comes back to you', amt: '$16,040', act: 'Review Payroll', blue: true },
       { kind: 'BILL · PAID 8/25', tone: RED, title: 'WW-2026-118 · Window Works', why: 'Paid before approval, $3,800 over PO-2026-044, insurance expired 8/15', amt: '$33,500', act: 'Review' },
       { kind: 'BILL · NO PO', tone: MUTE, title: 'AMP-311 · Alberto M Plumbing', why: 'No PO behind it; a $9,800 Chase payment on 8/15 is matched to nothing', amt: '$9,800', act: 'Review' },
       { kind: 'CHARGE · TWICE', tone: MUTE, title: 'Roll Off Dumpster, 121 State Street', why: 'On Amex 8/21 and 8/22, on no estimate or change-order line', amt: '$1,650', act: 'Review' }
     ];
+    // Now, by the 10-21 order: client messages and client money, then law, then sales follow-ups last. Every message
+    // Messages counts as yours is a row here (5), and the Pipeline's signed-with-no-job deal is one too.
     const now = [
-      { kind: 'TODAY 1:30 PM', tone: RED, title: 'Meeting with Samantha Field', why: '118 E 60th apt 31G lobby, from her 8/31 mail; not on your calendar', amt: '', act: 'Hold It' },
-      { kind: 'MAIL · 4 DAYS', tone: RED, title: 'Aliya Chen: Re: Work Complete, 374 Washington Ave', why: 'An unhappy client mail with no answer', amt: '', act: 'Reply' },
+      { kind: 'CALL · 1 DAY · DELIVERY TOMORROW', tone: RED, title: 'R. Torres, Halstead Management: the elevator for Friday’s millwork', why: '121 State Street · the Kleins’ managing agent called 9/2; no call back logged', amt: '', act: 'Call Back' },
+      { kind: 'MAIL · 4 DAYS', tone: RED, title: 'Aliya Chen: Re: Work Complete, 374 Washington Ave', why: 'An unhappy client mail with no answer, past the 2-hour acknowledgement', amt: '', act: 'Reply' },
+      { kind: 'MAIL · 1 DAY', tone: RED, title: 'Sarah Klein: the building needs a COI and a scope of work', why: '121 State Street · her 9/2 mail forwards the alteration agreement; past the 2-hour acknowledgement', amt: '', act: 'Reply' },
+      { kind: 'MAIL · 3 DAYS', tone: RED, title: 'Jeanette: bill 344 or 464 hours of design services?', why: 'The new proposals signed · she needs your number before she bills', amt: '', act: 'Reply' },
+      { kind: 'SIGNED 40 DAYS AGO', tone: RED, title: 'Tom & Lily Nakamura: no job set up', why: '200 E 66th St 9G, signed 7/25 · nothing can be bought or billed until the job exists', amt: '$210,000', act: 'Set Up the Job' },
       { kind: 'FILING · 5 DAYS LATE', tone: RED, title: 'LLC biennial statement, SmartDesign Group LLC', why: 'Lapses 9/28 · NYS Department of State', amt: '', act: 'Draft' },
+      { kind: 'MAIL · 3 DAYS · 1:30 PM TODAY', tone: RED, title: 'Samantha Field: meeting today, 118 E 60th apt 31G', why: 'From her 8/31 mail; not on your calendar, no lead on file · the reply holds the time and makes the lead', amt: '', act: 'Reply and Hold' },
       { kind: 'SALES · 2 DAYS LATE', tone: RED, title: 'Send the site-visit recap with the range', why: 'Priya Raman, $185,000 site visit', amt: '', act: 'Done' },
       { kind: 'SALES · 2 DAYS LATE', tone: RED, title: 'Call back about timing: Daniel Okafor', why: '11 Riverside Dr 4A, $95,000', amt: '', act: 'Call' },
-      { kind: 'SALES · TODAY', tone: MUTE, title: 'Call Marcus: the three things they are really deciding', why: 'Marcus Bell, proposal out since 8/20', amt: '', act: 'Call' },
+      { kind: 'SALES · TODAY', tone: MUTE, title: 'Call Marcus: the three things they are really deciding', why: 'Marcus Bell, proposal out since 8/20, quiet 14 days', amt: '', act: 'Call' },
       { kind: 'SALES · TODAY', tone: MUTE, title: 'Write the design proposal on the client record', why: 'The Lindqvists, 145 Hicks St', amt: '', act: 'Open' },
       { kind: 'SALES · TODAY', tone: MUTE, title: 'Call Jonah Weiss back: website inquiry', why: 'No lead on file yet: New Lead from the Mail fills it', amt: '', act: 'Call' }
     ];
+    const rail = {
+      top: [{ label: 'Today', n: appr.length + now.length, has: true, bg: '#22304d', fw: '700' }, { label: 'Tasks', n: 0, has: false, bg: 'transparent', fw: '500' }, { label: 'Messages', n: 5, has: true, bg: 'transparent', fw: '500' }],
+      work: ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Reports']
+    };
+    const T = [
+      { id: 'today', k: 'Need You Today', v: String(appr.length + now.length), sub: appr.length + ' approvals, ' + now.length + ' to do now', tone: RED },
+      { id: 'appr', k: 'Approvals', v: '4', sub: 'Exceptions only: $60,990 in all', tone: INK },
+      { id: 'coming', k: 'Coming Up', v: '6', sub: 'The next 7 days', tone: INK },
+      { id: 'cash', k: 'Safe to Spend', v: '−$4,150.74', sub: 'From the bank, with its parts', tone: RED }
+    ];
+    const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
     const coming = [
       { kind: 'TOMORROW', tone: MUTE, title: 'Answer the board’s three questions', why: 'Ana Petrova, 30 E 85th St 12C · board packet due 9/15', amt: '', act: 'Open' },
       { kind: 'TOMORROW', tone: MUTE, title: 'Ask Arjun for 20 minutes: he decides the money', why: 'Priya Raman', amt: '', act: 'Open' },
@@ -178,14 +184,14 @@ class Component extends DCLogic {
     const firm = [
       { k: 'Jobs at Risk', sub: '121 State Street: 19 late, 1 sub no-show · 206 Lenox: 3 late', v: '2', tone: RED },
       { k: 'Lines Over Budget', sub: '121 State Street $4,800 on 2 lines · 45 Cranberry St $322', v: '3', tone: RED },
-      { k: 'Deals That Need You', sub: 'The Pipeline’s 3: 2 past their date, 1 quiet 14 days', v: '3', tone: INK },
+      { k: 'Deals That Need You', sub: 'The Pipeline’s 4: 2 past their date, 1 quiet 14 days, 1 signed with no job', v: '4', tone: INK },
       { k: 'Compliance', sub: 'Window Works on site 9/9, insurance lapsed · Tino: open PO, none on file · 4 firm filings and licenses', v: '6', tone: RED },
       { k: 'People Overloaded', sub: 'You: 15 open, 3 overdue · Alan: 10 open', v: '2', tone: INK },
       { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 2 changes, 6 job steps', v: '17', tone: INK },
       { k: 'Saved This Year', sub: '5 savings on record', v: '$877', tone: INK }
     ].map((f, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, f));
     const newOpen = !!this.state.newOpen;
-    return { rail, tiles, panel: panels[P], firm, newOpen, newItems: ['Task', 'Lead', 'Lead from a Mail', 'Message', 'Note or Call'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+    return { needN: appr.length + now.length, rail, tiles, panel: panels[P], firm, newOpen, newItems: ['Task', 'Lead', 'Lead from a Mail', 'Message', 'Note or Call'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
   }
 }
 </script>

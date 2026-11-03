@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop Tasks: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033">
+
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #1b2640; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="{{it.href}}" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px; background: {{it.bg}}; font-weight: {{it.fw}}">
+          <span style="flex: 1">{{it.label}}</span>
+          <sc-if value="{{it.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span></sc-if>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <sc-for list="{{rail.work}}" as="w" hint-placeholder-count="6">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">{{w}}</a>
+      </sc-for>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="../company/Company.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 14px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <b style="font-size: 26px">Tasks</b>
+          <span style="font-size: 14px; color: #5b6578">{{headLine}}</span>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Start the Team Meeting</button>
+        <button type="button" aria-label="New task for you" style="height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New Task
+        </button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+          <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">{{c.label}}<span style="font-weight: 700">{{c.n}}</span></button>
+        </sc-for>
+        <span style="flex: 1"></span>
+        <sc-if value="{{isBoard}}" hint-placeholder-val="{{false}}">
+          <span style="font-size: 13px; color: #5b6578; margin-right: 2px">Columns By</span>
+          <div role="group" aria-label="Board columns by" style="display: flex; border: 1px solid #c9d1e0; border-radius: 10px; overflow: hidden; margin-right: 12px">
+            <sc-for list="{{boardBys}}" as="b" hint-placeholder-count="3">
+              <button type="button" onClick="{{b.pick}}" aria-pressed="{{b.pressed}}" style="height: 36px; padding: 0 12px; border: 0; border-left: {{b.edge}}; background: {{b.bg}}; color: {{b.color}}; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">{{b.label}}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{isTable}}" hint-placeholder-val="{{true}}">
+          <div style="position: relative; margin-right: 12px">
+            <button type="button" onClick="{{toggleCols}}" aria-expanded="{{colsExpanded}}" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #c9d1e0; background: {{colsBg}}; color: #172033; font: inherit; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM10 5v14M15 5v14"></path></svg>Columns
+            </button>
+            <sc-if value="{{colsOpen}}" hint-placeholder-val="{{false}}">
+              <div role="menu" style="position: absolute; right: 0; top: 42px; width: 260px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; z-index: 5; display: flex; flex-direction: column">
+                <span style="padding: 8px 12px 6px; font-size: 12px; color: #5b6578">Show as a column (yours; the owner sets which fields are columns)</span>
+                <sc-for list="{{colMenu}}" as="m" hint-placeholder-count="9">
+                  <button type="button" role="menuitemcheckbox" aria-checked="{{m.on}}" onClick="{{m.flip}}" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 8px; background: #fff; color: {{m.color}}; font: inherit; font-size: 14px; text-align: left; cursor: pointer">
+                    <span style="width: 18px; height: 18px; border-radius: 5px; border: 2px solid {{m.boxBorder}}; background: {{m.boxBg}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center">
+                      <sc-if value="{{m.checked}}" hint-placeholder-val="{{true}}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 12l4 4 8-8"></path></svg></sc-if>
+                    </span>
+                    <span style="flex: 1">{{m.label}}</span><span style="font-size: 12px; color: #8a94a8">{{m.note}}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <div role="group" aria-label="View" style="display: flex; border: 1px solid #c9d1e0; border-radius: 10px; overflow: hidden">
+          <sc-for list="{{views}}" as="v" hint-placeholder-count="4">
+            <button type="button" onClick="{{v.pick}}" aria-pressed="{{v.pressed}}" style="height: 36px; padding: 0 14px; border: 0; border-left: {{v.edge}}; background: {{v.bg}}; color: {{v.color}}; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">{{v.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 20px 32px 32px; display: flex; flex-direction: column; gap: 14px">
+      <sc-if value="{{hasNote}}" hint-placeholder-val="{{false}}">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; font-size: 14px; line-height: 1.45">
+          <span style="flex: 1">{{note}}</span>
+          <a href="../company/Team.dc.html" style="font-size: 14px; font-weight: 600">Open Team</a>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isTable}}" hint-placeholder-val="{{true}}">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div role="row" style="display: grid; grid-template-columns: {{gridCols}}; gap: 10px; align-items: center; padding: 0 10px; border-bottom: 1px solid #dfe4ee; background: #f8fafc">
+            <span></span>
+            <sc-for list="{{head}}" as="h" hint-placeholder-count="9">
+              <button type="button" onClick="{{h.sort}}" aria-sort="{{h.aria}}" title="Sort by {{h.label}}" style="height: 40px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 700; color: {{h.color}}; display: flex; align-items: center; gap: 4px; cursor: pointer; min-width: 0; text-align: left">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{h.label}}</span>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none; opacity: {{h.op}}"><path d="{{h.icon}}"></path></svg>
+              </button>
+            </sc-for>
+          </div>
+          <sc-for list="{{blocks}}" as="bk" hint-placeholder-count="1">
+            <sc-if value="{{bk.hasHead}}" hint-placeholder-val="{{false}}">
+              <div style="padding: 10px 16px 8px 68px; display: flex; align-items: baseline; gap: 10px; border-top: 1px solid #dfe4ee; background: #fbfcfe">
+                <b style="font-size: 14px">{{bk.head}}</b><span style="font-size: 13px; color: #5b6578">{{bk.sub}}</span>
+              </div>
+            </sc-if>
+            <sc-for list="{{bk.rows}}" as="r" hint-placeholder-count="12">
+              <div role="row" style="display: grid; grid-template-columns: {{gridCols}}; gap: 10px; align-items: center; padding: 0 10px; min-height: 44px; border-top: 1px solid #eef1f6; font-size: 14px">
+                <button type="button" onClick="{{r.done}}" aria-label="Mark done: {{r.title}}" style="width: 40px; height: 40px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer">
+                  <span style="width: 20px; height: 20px; border-radius: 10px; border: 2px solid #8a94a8; box-sizing: border-box"></span>
+                </button>
+                <sc-for list="{{r.cells}}" as="cl" hint-placeholder-count="9">
+                  <span title="{{cl.v}}" style="min-width: 0; padding: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: {{cl.ws}}; line-height: 1.35; color: {{cl.tone}}; font-weight: {{cl.fw}}">{{cl.v}}</span>
+                </sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{bk.hasMore}}" hint-placeholder-val="{{false}}">
+              <button type="button" onClick="{{bk.more}}" style="width: 100%; min-height: 40px; padding: 0 16px 0 68px; border: 0; border-top: 1px solid #eef1f6; background: #fff; color: #1d4ed8; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer">{{bk.moreLabel}}</button>
+            </sc-if>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isList}}" hint-placeholder-val="{{false}}">
+        <sc-for list="{{listGroups}}" as="g" hint-placeholder-count="4">
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 10px 16px; display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid #eef1f6">
+              <b style="font-size: 14px; color: {{g.tone}}">{{g.title}}</b><span style="font-size: 13px; color: #5b6578">{{g.sub}}</span>
+            </div>
+            <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 10px; padding: 2px 16px 2px 6px; border-top: {{r.line}}">
+                <button type="button" onClick="{{r.done}}" aria-label="Mark done: {{r.title}}" style="width: 44px; height: 44px; flex: none; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer">
+                  <span style="width: 20px; height: 20px; border-radius: 10px; border: 2px solid #8a94a8; box-sizing: border-box"></span>
+                </button>
+                <span style="width: 64px; flex: none; font-size: 12px; font-weight: 700; color: #5b6578">{{r.key}}</span>
+                <b style="flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" title="{{r.title}}">{{r.title}}</b>
+                <span style="width: 220px; flex: none; font-size: 13px; color: #5b6578; overflow: hidden; text-overflow: ellipsis; white-space: nowrap" title="{{r.where}}">{{r.where}}</span>
+                <span style="width: 120px; flex: none; font-size: 13px; font-weight: 600; color: {{r.tone}}">{{r.when}}</span>
+                <span title="{{r.owner}}" style="width: 32px; height: 32px; flex: none; border-radius: 16px; background: #e8ecf4; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.ini}}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{g.hasMore}}" hint-placeholder-val="{{false}}">
+              <button type="button" onClick="{{g.more}}" style="width: 100%; min-height: 40px; padding: 0 16px 0 60px; border: 0; border-top: 1px solid #eef1f6; background: #fff; color: #1d4ed8; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer">{{g.moreLabel}}</button>
+            </sc-if>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <sc-if value="{{isBoard}}" hint-placeholder-val="{{false}}">
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start">
+          <sc-for list="{{boardCols}}" as="col" hint-placeholder-count="4">
+            <div style="background: #eef1f6; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+              <div style="padding: 2px 4px 4px; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{col.title}}</b><span style="font-size: 12px; color: #5b6578">{{col.sub}}</span></div>
+              <sc-for list="{{col.cards}}" as="k" hint-placeholder-count="3">
+                <div style="background: #fff; border: 1px solid {{k.border}}; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                  <span style="font-size: 12px; color: #5b6578; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{k.key}} · {{k.where}}</span>
+                  <b style="font-size: 14px; line-height: 1.35">{{k.title}}</b>
+                  <sc-if value="{{k.hasWait}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #b45309">Waiting on {{k.wait}}</span></sc-if>
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span title="{{k.owner}}" style="width: 26px; height: 26px; border-radius: 13px; background: #e8ecf4; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{k.ini}}</span>
+                    <span style="flex: 1"></span>
+                    <span style="font-size: 12px; font-weight: 600; color: {{k.tone}}">{{k.when}}</span>
+                  </div>
+                </div>
+              </sc-for>
+              <sc-if value="{{col.empty}}" hint-placeholder-val="{{false}}"><span style="padding: 6px 4px; font-size: 13px; color: #5b6578">{{col.emptyText}}</span></sc-if>
+              <sc-if value="{{col.hasMore}}" hint-placeholder-val="{{false}}">
+                <button type="button" onClick="{{col.more}}" style="min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: #1d4ed8; font: inherit; font-size: 13px; font-weight: 600; text-align: left; padding: 0 4px; cursor: pointer">{{col.moreLabel}}</button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isCal}}" hint-placeholder-val="{{false}}">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">The Next 7 Days, Everything Dated</b><span style="font-size: 13px; color: #5b6578">tasks, decisions, inspections, deliveries and renewals, from their own records</span></div>
+          <sc-for list="{{cal}}" as="ev" hint-placeholder-count="6">
+            <div style="padding: 10px 16px; border-top: {{ev.line}}; display: flex; gap: 16px; align-items: baseline">
+              <span style="width: 90px; flex: none; font-size: 13px; color: #5b6578">{{ev.when}}</span>
+              <span style="flex: 1; font-size: 14px; line-height: 1.4">{{ev.what}}</span>
+              <span style="width: 100px; flex: none; font-size: 12px; font-weight: 700; color: #5b6578">{{ev.kind}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{hasFoot}}" hint-placeholder-val="{{false}}">
+        <span style="font-size: 13px; color: #5b6578; line-height: 1.5">{{foot}}</span>
+      </sc-if>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'mine', view: 'table', sort: null, hidden: {}, colsOpen: false, boardBy: '', more: {}, done: {} }; }
+  renderVals() {
+    const S = this.state, RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033', AMBER = '#b45309';
+    const TODAY = '2026-09-03';
+    // Every open task in the demo on 9/3 (tkAll(), 55), as the build reads them. [key, title, where, owner, due, priority, waiting on]
+    const ALL = [
+      ['OFF-1', 'Renew the LLC biennial statement, SmartDesign Group LLC', 'Office', 'Owner', '2026-08-29', 'P1', ''],
+      ['SAL-1', 'Send the site-visit recap with the range', 'Deal · Priya Raman', 'Owner', '2026-09-01', 'P1', ''],
+      ['SAL-11', 'Call back about timing: Daniel Okafor, 11 Riverside Dr 4A', 'Deal · Daniel Okafor', 'Owner', '2026-09-01', '', ''],
+      ['SAL-7', 'Call Jonah Weiss back: website inquiry', 'Deal · Jonah Weiss', 'Owner', '2026-09-03', 'P1', ''],
+      ['SAL-3', 'Call Marcus: the three things they are really deciding', 'Deal · Marcus Bell', 'Owner', '2026-09-03', 'P1', ''],
+      ['SAL-6', 'Write the design proposal on the client record', 'Deal · The Lindqvists', 'Owner', '2026-09-03', 'P1', ''],
+      ['SAL-4', 'Answer the board’s three questions', 'Deal · Ana Petrova', 'Owner', '2026-09-04', 'P1', ''],
+      ['SAL-2', 'Ask Arjun for 20 minutes: he decides the money', 'Deal · Priya Raman', 'Owner', '2026-09-04', 'P2', ''],
+      ['SAL-12', 'Walk the house with the architect, 145 Hicks St', 'Deal · The Lindqvists', 'Owner', '2026-09-04', '', ''],
+      ['SAL-8', 'Second try: Rebecca Tran', 'Deal · Rebecca Tran', 'Owner', '2026-09-04', 'P3', ''],
+      ['SAL-5', 'Book the site visit at 70 Remsen', 'Deal · Sofia Adler', 'Owner', '2026-09-05', 'P2', ''],
+      ['SAL-13', 'Follow up on the proposal: Marcus Bell, 77 Bleecker St 3F', 'Deal · Marcus Bell', 'Owner', '2026-09-09', '', ''],
+      ['OFF-2', 'Renew: General liability', 'Office', 'Owner', '2027-01-02', 'P2', ''],
+      ['OFF-3', 'Renew: Builder’s risk, 121 State Street', '121 State Street', 'Owner', '2027-01-16', 'P2', ''],
+      ['OFF-6', 'Renew: Window units warranty, 121 State Street', '121 State Street', 'Owner', '2036-08-03', 'P2', ''],
+      ['STA-23', 'Friday client update', '121 State Street', 'Alan', '2026-09-04', 'P2', ''],
+      ['STA-24', 'Site walk and budget against actual', '121 State Street', 'Alan', '2026-09-04', 'P2', ''],
+      ['LEN-2', 'Friday client update', '206 Lenox', 'Alan', '2026-09-04', 'P2', ''],
+      ['LEN-3', 'Site walk and budget against actual', '206 Lenox', 'Alan', '2026-09-04', 'P2', ''],
+      ['LEN-5', 'Replacement boxes for the chipped floor tile', '206 Lenox', 'Alan', '2026-09-05', 'P2', 'Nemo Tile'],
+      ['STA-13', 'Millwork: parlor kitchen and laundry', '121 State Street', 'Alan', '2026-09-18', '', 'Carlos'],
+      ['STA-22', 'Primary bath: glass panel replaces the pony wall on plan', '121 State Street', 'Alan', '2026-09-18', 'P2', ''],
+      ['STA-14', 'Millwork: living and dining install', '121 State Street', 'Alan', '2026-10-02', '', 'Carlos'],
+      ['STA-18', 'Finish flooring', '121 State Street', 'Alan', '2026-10-14', '', 'Tino / crew'],
+      ['STA-15', 'Millwork: office and portals', '121 State Street', 'Alan', '2026-10-16', '', 'Carlos'],
+      ['STA-26', 'Shop drawings for the parlor bookcases', '121 State Street', 'Chen Biron', '2026-09-07', 'P2', 'Carlos Millwork'],
+      ['STA-5', 'DOB plumbing permit (John), contingent on the 2nd floor bath', '121 State Street', 'Chen Biron', '2026-09-09', '', ''],
+      ['STA-4', '3rd floor tile selection confirmed in stock', '121 State Street', 'Chen Biron', '2026-09-10', '', ''],
+      ['STA-6', 'LPC sign-off on window profiles', '121 State Street', 'Chen Biron', '2026-09-12', '', ''],
+      ['STA-11', 'Rough inspection and insulation', '121 State Street', 'Chen Biron', '2026-09-23', '', ''],
+      ['STA-16', 'Parlor kitchen countertop, template to install', '121 State Street', 'Chen Biron', '2026-09-28', '', ''],
+      ['STA-20', 'Primary bath shower glass, template to install', '121 State Street', 'Chen Biron', '2026-10-29', '', ''],
+      ['STA-17', 'Garden kitchen countertop, template to install', '121 State Street', 'Chen Biron', '2026-10-23', '', ''],
+      ['OFF-5', 'Renew: Plumbing permit, 121 State Street', '121 State Street', 'Chen Biron', '2027-08-21', 'P2', ''],
+      ['CRA-21', 'Design development', '45 Cranberry St', 'Design director', '2026-08-31', '', ''],
+      ['CRA-26', 'Friday client update', '45 Cranberry St', 'Design director', '2026-09-04', 'P2', ''],
+      ['PRO-1', 'Friday client update', '140 Prospect Place', 'Design director', '2026-09-04', 'P2', ''],
+      ['CRA-22', 'Construction documents', '45 Cranberry St', 'Design director', '2026-09-28', '', ''],
+      ['CRA-24', 'LPC Certificate of Appropriateness', '45 Cranberry St', 'Design director', '2026-10-08', '', ''],
+      ['CRA-23', 'Filing and permits', '45 Cranberry St', 'Design director', '2026-11-09', '', ''],
+      ['CRA-25', 'Construction administration', '45 Cranberry St', 'Design director', '2026-12-10', '', ''],
+      ['STA-7', 'Framing and blocking, 3rd floor', '121 State Street', 'Alberto', '2026-09-04', '', ''],
+      ['STA-8', 'Framing and blocking, garden bedroom', '121 State Street', 'Alberto', '2026-09-09', '', ''],
+      ['STA-10', 'Rough plumbing', '121 State Street', 'Alberto', '2026-09-18', '', ''],
+      ['LEN-1', 'Bath and kitchen fixtures, hardware', '206 Lenox', 'Alberto', '2026-09-25', '', ''],
+      ['STA-19', 'Fixtures: plumbing and electrical', '121 State Street', 'Alberto', '2026-11-03', '', ''],
+      ['STA-25', 'Morning huddle', '121 State Street', 'Angel', '2026-09-03', 'P2', ''],
+      ['LEN-4', 'Morning huddle', '206 Lenox', 'Angel', '2026-09-03', 'P2', ''],
+      ['STA-12', 'Taping', '121 State Street', 'Angel', '2026-10-06', '', ''],
+      ['STA-2', 'Laundry layout: new washer and dryer sizes', '121 State Street', 'Maya', '2026-09-04', '', ''],
+      ['STA-1', 'Garden bathroom sketch and fixture layout', '121 State Street', 'Maya', '2026-09-05', '', ''],
+      ['STA-3', 'Door design and schedule', '121 State Street', 'Maya', '2026-09-15', '', ''],
+      ['STA-21', 'Exposed-beam ceiling: confirm a 3" drop against 2" on plan', '121 State Street', 'Sarah Davis', '2026-09-04', 'P2', ''],
+      ['STA-9', 'Rough electrical', '121 State Street', 'Satish', '2026-09-18', '', ''],
+      ['STAN-1', 'Reconcile the books for August 2026', 'The Standard', 'Controller', '2026-09-10', 'P2', '']
+    ];
+    // People with nothing open, from the one people list (14 with Alan): named so the team view accounts for everyone.
+    const IDLE = ['Billing', 'Alex', 'Jeanette', 'Lena'];
+    const INI = { 'Owner': 'O', 'Alan': 'A', 'Chen Biron': 'CB', 'Design director': 'DD', 'Alberto': 'Al', 'Angel': 'An', 'Maya': 'M', 'Sarah Davis': 'SD', 'Satish': 'S', 'Controller': 'C' };
+    const ROLE = { 'Owner': 'you', 'Alan': 'project manager', 'Chen Biron': 'coordinator', 'Design director': 'design', 'Alberto': 'framing and plumbing', 'Angel': 'site lead', 'Maya': 'architect', 'Sarah Davis': 'architect', 'Satish': 'electrician', 'Controller': 'controller' };
+    const dnum = (iso) => Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(2026, 8, 3)) / 864e5);
+    const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const rel = (iso) => {
+      const d = dnum(iso), m = +iso.slice(5, 7), dd = +iso.slice(8, 10);
+      if (d < 0) return (-d) + (d === -1 ? ' day late' : ' days late');
+      if (d === 0) return 'Today';
+      if (d === 1) return 'Tomorrow';
+      if (iso.slice(0, 4) !== TODAY.slice(0, 4)) return m + '/' + dd + '/' + iso.slice(0, 4);
+      return WD[new Date(Date.UTC(+iso.slice(0, 4), m - 1, dd)).getUTCDay()] + ' ' + m + '/' + dd;
+    };
+    const tasks = ALL.filter((a) => !S.done[a[0]]).map((a, i) => ({
+      key: a[0], title: a[1], where: a[2], owner: a[3], due: a[4], pri: a[5], wait: a[6], carried: '', status: 'To Do',
+      ini: INI[a[3]] || '', d: dnum(a[4]), when: rel(a[4]), tone: dnum(a[4]) < 0 ? RED : (a[6] ? AMBER : MUTE), order: i,
+      done: () => this.setState({ done: Object.assign({}, S.done, { [a[0]]: true }) })
+    }));
+    const mine = tasks.filter((t) => t.owner === 'Owner');
+    // Waiting On: tasks you handed to someone who is waiting on an outside party (the build's Waiting on Others, 2).
+    const waiting = tasks.filter((t) => t.key === 'STA-26' || t.key === 'LEN-5');
+    const T = S.tab;
+    const pool = T === 'mine' ? mine : T === 'waiting' ? waiting : tasks;
+    const late = mine.filter((t) => t.d < 0).length;
+    const people = [];
+    tasks.forEach((t) => { if (people.indexOf(t.owner) < 0) people.push(t.owner); });
+
+    // Table: the nine default columns (10-26 lane), header click sorts ascending, descending, then back; empties last; natural keys.
+    const COLS = [
+      { id: 'key', label: 'Key', w: '62px' }, { id: 'title', label: 'Task', w: 'minmax(0, 1fr)', fixed: true }, { id: 'where', label: 'Project', w: '130px' },
+      { id: 'owner', label: 'Owner', w: '100px' }, { id: 'due', label: 'Due', w: '96px' }, { id: 'pri', label: 'Priority', w: '68px' },
+      { id: 'carried', label: 'New or Carried', w: '120px' }, { id: 'status', label: 'Status', w: '66px' }, { id: 'wait', label: 'Waiting On', w: '118px' }
+    ];
+    const vis = COLS.filter((c) => c.fixed || !S.hidden[c.id]);
+    const nat = (k) => { const m = /^([A-Z]+)-(\d+)$/.exec(k) || ['', k, '0']; return [m[1], +m[2]]; };
+    const cmp = (a, b, id) => {
+      if (id === 'key') { const x = nat(a.key), y = nat(b.key); return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1]; }
+      if (id === 'due') return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+      const x = String(a[id] || '').toLowerCase(), y = String(b[id] || '').toLowerCase();
+      return x < y ? -1 : x > y ? 1 : 0;
+    };
+    const sortRows = (rows) => {
+      const s = S.sort;
+      const base = rows.slice().sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.order - b.order));
+      if (!s) return base;
+      const full = base.filter((r) => s.id === 'due' || String(r[s.id] || '') !== ''), empty = base.filter((r) => !(s.id === 'due' || String(r[s.id] || '') !== ''));
+      full.sort((a, b) => cmp(a, b, s.id) * (s.dir === 'asc' ? 1 : -1) || a.order - b.order);
+      return full.concat(empty);
+    };
+    const cellOf = (t, id) => {
+      if (id === 'due') return { v: t.when, tone: t.d < 0 ? RED : INK, fw: t.d < 0 ? '700' : '400' };
+      if (id === 'title') return { v: t.title, tone: INK, fw: '600', ws: 'normal' };
+      if (id === 'key') return { v: t.key, tone: MUTE, fw: '700' };
+      if (id === 'wait') return { v: t.wait || '—', tone: t.wait ? AMBER : '#9aa6bd', fw: t.wait ? '600' : '400' };
+      const v = t[id];
+      return { v: v || '—', tone: v ? INK : '#9aa6bd', fw: '400' };
+    };
+    const tRow = (t) => ({ title: t.title, done: t.done, cells: vis.map((c) => Object.assign({ ws: 'nowrap' }, cellOf(t, c.id))) });
+    const UP = 'M12 19V5M6 11l6-6 6 6', DOWN = 'M12 5v14M6 13l6 6 6-6', BOTH = 'M8 9l4-4 4 4M8 15l4 4 4-4';
+    const head = vis.map((c) => {
+      const on = S.sort && S.sort.id === c.id;
+      return { label: c.label, color: on ? INK : MUTE, op: on ? '1' : '0.45', icon: on ? (S.sort.dir === 'asc' ? UP : DOWN) : BOTH,
+        aria: on ? (S.sort.dir === 'asc' ? 'ascending' : 'descending') : 'none',
+        sort: () => this.setState({ sort: !on ? { id: c.id, dir: 'asc' } : S.sort.dir === 'asc' ? { id: c.id, dir: 'desc' } : null }) };
+    });
+    const gridCols = '40px ' + vis.map((c) => c.w).join(' ');
+    const CAP = 3;
+    const moreFor = (who) => () => this.setState({ more: Object.assign({}, S.more, { [who]: !S.more[who] }) });
+    const byPerson = (rows, cap) => people.filter((p) => rows.some((r) => r.owner === p)).map((p) => {
+      const all = sortRows(rows.filter((r) => r.owner === p)), open = !!S.more[p], shown = open ? all : all.slice(0, cap);
+      const lateN = all.filter((r) => r.d < 0).length;
+      return { who: p, head: p === 'Owner' ? 'You' : p, sub: (ROLE[p] || '') + (lateN ? ' · has late work' : ''), rows: shown, hasMore: all.length > cap,
+        moreLabel: open ? 'Show fewer' : 'Show the rest of ' + (p === 'Owner' ? 'yours' : p + '’s'), more: moreFor(p) };
+    });
+    const blocks = T === 'team'
+      ? byPerson(tasks, CAP).map((g) => Object.assign({}, g, { hasHead: true, rows: g.rows.map(tRow) }))
+      : [{ hasHead: false, head: '', sub: '', rows: sortRows(pool).map(tRow), hasMore: false, moreLabel: '', more: () => {} }];
+
+    // List: Late, Today, Tomorrow, Later This Week, Later (Mine and Waiting On); by person on Team.
+    const lrow = (r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', where: r.where + (r.wait ? ' · waiting on ' + r.wait : '') });
+    const bucket = (t) => (t.d < 0 ? 'Late' : t.d === 0 ? 'Today' : t.d === 1 ? 'Tomorrow' : t.d <= 7 ? 'Later This Week' : 'Later');
+    const listGroups = T === 'team'
+      ? byPerson(tasks, CAP).map((g) => ({ title: g.head, sub: g.sub, tone: INK, rows: g.rows.map(lrow), hasMore: g.hasMore, moreLabel: g.moreLabel, more: g.more }))
+      : ['Late', 'Today', 'Tomorrow', 'Later This Week', 'Later'].map((b) => {
+          const rows = sortRows(pool).filter((t) => bucket(t) === b);
+          return { title: b, sub: b === 'Later' ? 'after next week, the renewals' : '', tone: b === 'Late' ? RED : INK, rows: rows.map(lrow), hasMore: false, moreLabel: '', more: () => {}, n: rows.length };
+        }).filter((g) => g.n);
+
+    // Board: columns by Status (the build's To Do, Doing, Waiting On, Done), Project, or Person (the Monday and Thursday walk).
+    const by = S.boardBy || (T === 'team' ? 'person' : 'status');
+    const BCAP = 5;
+    const card = (t) => ({ key: t.key, where: t.where, title: t.title, owner: t.owner, ini: t.ini, when: t.when, tone: t.d < 0 ? RED : MUTE, border: t.d < 0 ? '#fecaca' : '#dfe4ee', wait: t.wait, hasWait: !!t.wait });
+    const colOf = (title, sub, rows, k) => {
+      const open = !!S.more['col:' + k], shown = open ? rows : rows.slice(0, BCAP);
+      return { title, sub, cards: shown.map(card), empty: !rows.length, emptyText: k === 'done' ? 'Done this week shows here, the last 10 [DONE ROWS]' : 'Nothing here', hasMore: rows.length > BCAP,
+        moreLabel: open ? 'Show fewer' : 'Show the rest', more: () => this.setState({ more: Object.assign({}, S.more, { ['col:' + k]: !open }) }) };
+    };
+    const bp = sortRows(pool);
+    let boardCols;
+    if (by === 'status') boardCols = [colOf('To Do', 'late first', bp.filter((t) => !t.wait), 'todo'), colOf('Doing', '', [], 'doing'), colOf('Waiting On', 'someone outside owes a step', bp.filter((t) => t.wait), 'wait'), colOf('Done', '', [], 'done')];
+    else if (by === 'project') { const ps = []; bp.forEach((t) => { const p = t.where.indexOf('Deal') === 0 ? 'Sales' : t.where; if (ps.indexOf(p) < 0) ps.push(p); }); boardCols = ps.map((p) => colOf(p, '', bp.filter((t) => (t.where.indexOf('Deal') === 0 ? 'Sales' : t.where) === p), 'p:' + p)); }
+    else boardCols = people.filter((p) => bp.some((t) => t.owner === p)).map((p) => colOf(p === 'Owner' ? 'You' : p, ROLE[p] || '', bp.filter((t) => t.owner === p), 'u:' + p));
+    const seg = (items, cur, set) => items.map((it, i) => ({ label: it[1], pressed: cur === it[0] ? 'true' : 'false', bg: cur === it[0] ? '#172033' : '#fff', color: cur === it[0] ? '#fff' : INK, edge: i ? '1px solid #c9d1e0' : '0', pick: () => this.setState(set(it[0])) }));
+    const boardBys = seg([['status', 'Status'], ['project', 'Project'], ['person', 'Person']], by, (v) => ({ boardBy: v }));
+    const views = seg([['list', 'List'], ['board', 'Board'], ['table', 'Table'], ['cal', 'Calendar']], S.view, (v) => ({ view: v, colsOpen: false }));
+
+    const defs = [{ id: 'mine', label: 'Mine', n: mine.length }, { id: 'waiting', label: 'Waiting On', n: waiting.length }, { id: 'team', label: 'Team', n: '' }];
+    const chips = defs.map((c) => Object.assign({}, c, {
+      pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : INK, border: T === c.id ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: c.id, boardBy: '', more: {} })
+    }));
+    const colMenu = COLS.map((c) => {
+      const on = c.fixed || !S.hidden[c.id];
+      return { label: c.label, note: c.fixed ? 'always' : '', on: on ? 'true' : 'false', checked: on, boxBorder: on ? INK : '#9aa6bd', boxBg: on ? INK : '#fff', color: c.fixed ? MUTE : INK,
+        flip: () => { if (c.fixed) return; this.setState({ hidden: Object.assign({}, S.hidden, { [c.id]: !S.hidden[c.id] }) }); } };
+    });
+    const cal = [
+      { when: 'Thu 9/3', what: 'Meeting with Samantha Field, 1:30 pm, 118 E 60th lobby (from her mail; not held yet)', kind: 'MEETING' },
+      { when: 'Thu 9/3', what: 'Your 3 tasks due today, Jonah Weiss’s call first', kind: 'TASKS' },
+      { when: 'Fri 9/4', what: 'Your 4 tasks due, Ana Petrova’s board questions first', kind: 'TASKS' },
+      { when: 'Fri 9/4', what: 'Rough electric walk at 121 State Street, 10:00', kind: 'INSPECTION' },
+      { when: 'Fri 9/4', what: 'Millwork delivery at 121 State Street: the service elevator is not booked yet', kind: 'DELIVERY' },
+      { when: 'Sat 9/5', what: 'Book the site visit at 70 Remsen', kind: 'TASK' },
+      { when: 'Wed 9/9', what: 'Window Works on site at 121 State Street; their insurance lapsed 8/15', kind: 'DELIVERY' },
+      { when: 'Thu 9/10', what: 'Rough plumbing starts at 121 State Street', kind: 'MILESTONE' }
+    ].map((c, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, c));
+    const headLine = T === 'team' ? 'Everyone’s open tasks, grouped by person, late first'
+      : 'Yours: ' + mine.length + ' open, ' + late + ' late · you are waiting on ' + waiting.length;
+    const note = T === 'team' ? 'Grouped by person, with no load figures: how loaded each person is lives once, on Team. Everyone on the one people list is here; those with nothing open are named at the foot.'
+      : T === 'waiting' ? 'Tasks you handed on that wait on someone outside the firm. Each names who; chase from the task.' : '';
+    const foot = T === 'team' ? 'Nothing open: ' + IDLE.join(', ') + '. Team lists 14 people with Alan; ' + people.length + ' have open tasks here.'
+      : T === 'mine' ? 'Mine is every open task of yours, the same ' + mine.length + ' the person page and Team show. Renewals sit under Later until their lead time.' : '';
+    const colsOpen = !!S.colsOpen;
+    const rail = {
+      top: [{ label: 'Today', n: 16, has: true, bg: 'transparent', fw: '500', href: 'DeskToday.dc.html' }, { label: 'Tasks', n: 0, has: false, bg: '#22304d', fw: '700', href: 'DeskTasks.dc.html' }, { label: 'Messages', n: 5, has: true, bg: 'transparent', fw: '500', href: 'DeskMessages.dc.html' }],
+      work: ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Reports']
+    };
+    return {
+      rail, chips, views, boardBys, headLine, note, hasNote: !!note, foot, hasFoot: !!foot,
+      isTable: S.view === 'table', isList: S.view === 'list', isBoard: S.view === 'board', isCal: S.view === 'cal',
+      head, gridCols, blocks, listGroups, boardCols, cal, colMenu, colsOpen,
+      colsExpanded: colsOpen ? 'true' : 'false', colsBg: colsOpen ? '#eef2ff' : '#fff', toggleCols: () => this.setState({ colsOpen: !colsOpen })
+    };
+  }
+}
+</script>
+</body>
+</html>

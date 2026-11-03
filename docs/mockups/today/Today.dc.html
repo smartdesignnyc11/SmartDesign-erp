@@ -28,7 +28,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
       </button>
     </div>
-    <span style="font-size: 13px; color: #b9c3d8">Thu, Sep 3 · 12 need you today · signed in as the Owner</span>
+    <span style="font-size: 13px; color: #b9c3d8">Thu, Sep 3 · {{needN}} need you today · signed in as the Owner</span>
   </div>
 
   <div style="margin: 16px 16px 0; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
@@ -37,8 +37,8 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <span style="display: flex; align-items: baseline; gap: 8px"><span style="flex: 1; font-size: 13px; color: #5b6578">Safe to Spend</span><b style="font-size: 20px; color: #b91c1c">−$4,150.74</b></span>
       <sc-if value="{{cashOpen}}" hint-placeholder-val="{{true}}">
         <span style="display: flex; flex-direction: column; gap: 3px; font-size: 13px; line-height: 1.4">
-          <sc-for list="{{cashParts}}" as="c" hint-placeholder-count="5">
-            <span style="display: flex; gap: 8px"><span style="flex: 1; color: #5b6578">{{c.k}}</span><span style="font-weight: 600">{{c.v}}</span></span>
+          <sc-for list="{{cashParts}}" as="cp" hint-placeholder-count="5">
+            <span style="display: flex; gap: 8px"><span style="flex: 1; color: #5b6578">{{cp.k}}</span><span style="font-weight: 600">{{cp.v}}</span></span>
           </sc-for>
           <span style="color: #5b6578">$21,350 recorded from the Riveras is not in the bank, so it is not counted. Chase reconciled through 6/30, Amex through 7/31.</span>
         </span>
@@ -123,10 +123,15 @@ class Component extends DCLogic {
       { icon: I.bill, title: 'AMP-311 · Alberto M Plumbing · $9,800', when: 'Since 9/2', whenTone: MUTE, why: 'no PO behind it; a $9,800 Chase payment on 8/15 is matched to nothing', act: 'Review' },
       { icon: I.alert, title: 'Roll Off Dumpster · $1,650', when: '8/21 and 8/22', whenTone: MUTE, why: 'charged twice on Amex, on no estimate line at 121 State Street', act: 'Review' }
     ];
+    // Every message Messages counts as yours is a row (5), and the Pipeline's signed-with-no-job deal; 10-21 order.
     const now = [
-      { icon: I.cal, title: 'Meeting with Samantha Field, 118 E 60th lobby', when: 'Today 1:30 pm', whenTone: RED, why: 'from her 8/31 mail; not on your calendar yet', act: 'Hold It' },
+      { icon: I.call, title: 'Call back R. Torres: the elevator for Friday’s millwork', when: '1 day', whenTone: RED, why: '121 State Street · the Kleins’ managing agent · the delivery is tomorrow', act: 'Call Back' },
       { icon: I.mail, title: 'Aliya Chen: Re: Work Complete, 374 Washington Ave', when: '4 days', whenTone: RED, why: 'an unhappy client mail with no answer', act: 'Reply' },
+      { icon: I.mail, title: 'Sarah Klein: the building needs a COI and a scope', when: '1 day', whenTone: RED, why: '121 State Street · past the 2-hour acknowledgement', act: 'Reply' },
+      { icon: I.mail, title: 'Jeanette: bill 344 or 464 design hours?', when: '3 days', whenTone: RED, why: 'she needs your number before she bills', act: 'Reply' },
+      { icon: I.task, title: 'Set up the Nakamuras’ job · $210,000', when: 'Signed 40 days ago', whenTone: RED, why: 'nothing can be bought or billed until the job exists', act: 'Set Up the Job' },
       { icon: I.law, title: 'Renew the LLC biennial statement', when: 'Filing 5 days late', whenTone: RED, why: 'SmartDesign Group LLC lapses 9/28', act: 'Draft' },
+      { icon: I.cal, title: 'Samantha Field: meeting today, 118 E 60th lobby', when: 'Today 1:30 pm', whenTone: RED, why: 'her 8/31 mail; not on your calendar, no lead on file', act: 'Reply and Hold' },
       { icon: I.task, title: 'Send the site-visit recap with the range', when: '2 days late', whenTone: RED, why: 'Priya Raman, $185,000', act: 'Done' },
       { icon: I.call, title: 'Call back about timing: Daniel Okafor', when: '2 days late', whenTone: RED, why: '11 Riverside Dr 4A, $95,000', act: 'Call' },
       { icon: I.call, title: 'Call Marcus: the three things they are really deciding', when: 'Today', whenTone: MUTE, why: 'Marcus Bell, proposal out since 8/20', act: 'Call' },
@@ -144,11 +149,11 @@ class Component extends DCLogic {
     const T = this.state.tab;
     const prep = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', primary: !!r.primary, side: !r.primary }, r));
     const S = {
-      today: [{ title: 'Approvals', n: 4, note: 'exceptions only', rows: prep(appr) }, { title: 'Now', n: 8, note: 'most urgent first', rows: prep(now) }],
+      today: [{ title: 'Approvals', n: 4, note: 'exceptions only', rows: prep(appr) }, { title: 'Now', n: now.length, note: 'most urgent first', rows: prep(now) }],
       appr: [{ title: 'Approvals', n: 4, note: 'exceptions only', rows: prep(appr) }],
       coming: [{ title: 'Coming Up', n: 6, note: 'next 7 days', rows: prep(coming.map((r, i) => Object.assign({}, r, { primary: false }))) }]
     };
-    const defs = [{ id: 'today', label: 'Today', n: 12 }, { id: 'appr', label: 'Approvals', n: 4 }, { id: 'coming', label: 'Coming Up', n: 6 }];
+    const defs = [{ id: 'today', label: 'Today', n: appr.length + now.length }, { id: 'appr', label: 'Approvals', n: 4 }, { id: 'coming', label: 'Coming Up', n: 6 }];
     const chips = defs.map((c) => Object.assign({}, c, {
       pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: c.id })
@@ -162,7 +167,7 @@ class Component extends DCLogic {
     const firm = [
       { k: 'Jobs at Risk', sub: '121 State Street: 19 late, 1 sub no-show · 206 Lenox: 3 late', v: '2', tone: RED },
       { k: 'Lines Over Budget', sub: '121 State Street $4,800 on 2 lines · 45 Cranberry St $322', v: '3', tone: RED },
-      { k: 'Deals That Need You', sub: 'Same 3 as the Pipeline: 2 past their date, 1 quiet 14 days', v: '3', tone: '#172033' },
+      { k: 'Deals That Need You', sub: 'Same 4 as the Pipeline: 2 past their date, 1 quiet 14 days, 1 signed with no job', v: '4', tone: '#172033' },
       { k: 'Compliance', sub: 'Window Works on site 9/9, insurance lapsed 8/15 · Tino: open PO, none on file · 4 firm filings and licenses in Insurance and Licenses', v: '6', tone: RED },
       { k: 'People Overloaded', sub: 'You: 15 open, 3 overdue · Alan: 10 open', v: '2', tone: '#172033' },
       { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 2 changes to the ERP, 6 job checklist steps', v: '17', tone: '#172033' },
@@ -170,7 +175,7 @@ class Component extends DCLogic {
     ];
     const cashOpen = !!this.state.cash, firmOpen = !!this.state.firm;
     return {
-      chips, sections: S[T], cashParts, firm, cashOpen, cashClosed: !cashOpen, firmOpen,
+      needN: appr.length + now.length, chips, sections: S[T], cashParts, firm, cashOpen, cashClosed: !cashOpen, firmOpen,
       cashExpanded: cashOpen ? 'true' : 'false', firmExpanded: firmOpen ? 'true' : 'false',
       firmChevron: firmOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6',
       toggleCash: () => this.setState({ cash: !cashOpen }), toggleFirm: () => this.setState({ firm: !firmOpen })
