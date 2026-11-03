@@ -15,7 +15,13 @@ regarding that particular project." The checks, each on both devices:
   BUDGET   Budget's figures per estimate line equal the Costs page's figures of master (lineProfit, jobFin)
   SITE     a job's Site shows only its own daily logs; one person logged on two jobs over a day's hours is warned
   RFI      an RFI is a record with who owes it, by when and what it blocks, listed on Decisions, answered off the list
-  PHONE    no sideways scroll, tap targets of 44px on the job's own controls, one blue primary per screen
+  PHONE    no sideways scroll, tap targets of 44px on the job's own controls, one blue primary per screen; on every
+           job tab, nothing past the right edge and no button or tile whose words run past its own edges
+  HIDDEN   no job page carries hidden text: the job's own blocks carry none at all; elsewhere on a job tab a hidden
+           block is only the other device's twin of something on screen (the check is shown to catch a planted one)
+  ROLES    the + offers each role only the kinds it can open where they live, and each opens a sheet it can save
+  TIES     Contract and Billing: in the bank + recorded, not yet in the bank = the payments recorded on the job;
+           Budget: the rows (with Not on an Estimate Line) sum to Cost to Date; "13% over", never "113%"
 Screenshots of every new page land in review/job_structure/.
 Usage: python3 job_structure_test.py [--desktop|--phone]
 """
@@ -99,6 +105,20 @@ HIDDEN = r"""async (arg) => { const sleep = ms => new Promise(r => setTimeout(r,
       while ((n = tw.nextNode())) { const t = norm(n.nodeValue); if (t.length > 1 && !n.parentElement.closest('select, script, style') && !seen.includes(t)) miss++; }
       if (miss) bad.push(say); else known.twin = (known.twin || 0) + 1; }); }
   return { bad, known }; }"""
+# every element of a job tab inside the screen; a button's, tile's or chip's words inside its own edges
+OVERFLOW = r"""async (arg) => { const sleep = ms => new Promise(r => setTimeout(r, ms)); const [OWN, PAGES] = arg; const out = [], words = [];
+  // a strip that scrolls on its own and sits on the screen clips what is in it (strips nest: any one on the screen does)
+  const strip = e => { for (let x = e.parentElement; x && x !== document.body; x = x.parentElement) { const o = getComputedStyle(x).overflowX; if ((o === 'auto' || o === 'scroll') && x.getBoundingClientRect().right <= innerWidth + 1) return x; } return null; };
+  for (const v of PAGES) { view = v; jpSub = ''; jpMenuOpen = false; if (v === 'proc') bbProj = S.id; render(); await sleep(150);
+    const R = [document.querySelector('.view.on'), document.getElementById('jp-head')].filter(Boolean);
+    R.forEach(root => root.querySelectorAll('*').forEach(e => { const r = e.getBoundingClientRect(); if (!r.width || !r.height || e.closest('select')) return;
+      if (r.right > innerWidth + 1 || r.left < -1) { const own = e.closest(OWN), st = strip(e);
+        // the job's own blocks never run off the screen; elsewhere only inside a strip that scrolls on its own and sits on the screen
+        if (own || !st) out.push(v + ': ' + (e.id || String(e.className).trim().split(/\s+/)[0] || e.tagName) + ' ' + Math.round(r.right)); } }));
+    R.forEach(root => root.querySelectorAll('button, .btn, label.btn, a.btn, .gl, .jp-tile, .jp-kpi, .pill, .chip, [role=button]').forEach(e => { if (!e.getClientRects().length) return; const s = getComputedStyle(e);
+      if (s.overflowX === 'auto' || s.overflowX === 'scroll') return;
+      if (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 2 && s.overflowY === 'hidden') words.push(v + ': "' + (e.innerText || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 40) + '" ' + e.scrollWidth + '>' + e.clientWidth); })); }
+  return { edge: [...new Set(out)].slice(0, 10), words: [...new Set(words)].slice(0, 10) }; }"""
 
 
 async def js(pg, body, arg=None):
@@ -482,6 +502,11 @@ async def run(c, p, phone):
           document.querySelectorAll('#jp-head, #jp-ov *, #jp-budget *, #jbill-body *, #jdec-body *, #jsite-body *').forEach(e => { const r = e.getBoundingClientRect();
             if (r.width && r.height && r.right > innerWidth + 1 && !e.closest('select')) out.push(v + ': ' + (e.className || e.tagName) + ' ' + Math.round(r.right)); }); } return out.slice(0, 8);""")
         c.ok(cut == [], f'{dev} PHONE: parts of the job pages run past the right edge {cut}')
+    if phone:
+        ov = await pg.evaluate(OVERFLOW, [OWN, PAGES])
+        c.ok(ov['edge'] == [], f'{dev} PHONE: parts of a job tab run past the screen\'s edge {ov["edge"]}')
+        c.ok(ov['words'] == [], f'{dev} PHONE: a button\'s or tile\'s words run past its own edges {ov["words"]}')
+
     # ---- HIDDEN: no job page carries hidden text (a check reading textContent passed on the old Overview's hidden cards)
     await js(pg, "setCurrent('p121'); mnLastGrp = 'jobs'; jpSub = ''; view = 'dash'; render(); await sleep(150);")
     hd = await pg.evaluate(HIDDEN, [OWN, DEVICE, PHONE_LAYOUT, PAGES, False])

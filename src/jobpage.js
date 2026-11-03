@@ -1406,6 +1406,8 @@ table.jp-bt tfoot td{font-weight:700}
 .jp-clash>div{display:flex;flex-direction:column;gap:4px;color:var(--ink)} .jp-clash b{color:var(--bad)}
 @media (max-width:760px){
   body.jp-on #subnav{display:none !important}
+  /* a header button's words stay inside it: it takes the width its words need and the row wraps, never cut */
+  body.jp-on .view.on>.ph .acts .btn{flex:1 1 auto;white-space:normal;height:auto;min-height:44px;text-align:center;justify-content:center}
   .jp-head{background:#111a2e;color:#fff;padding:8px 16px 12px;border:0;gap:4px}
   .jp-head .jp-ib{background:transparent;border-color:#3a4866;color:#fff}
   .jp-head .jp-back{border:0;margin-left:-12px}
