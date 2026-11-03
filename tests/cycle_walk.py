@@ -1039,6 +1039,8 @@ QUOTE_TYPED = {'Atlantic Yard Supply': ['891', '2288', '61']}   # Ray Quint's pr
 def open_rfq(p, rfq):
     """the RFQ's own page: from its card on Quotes, unless Quotes still has it open"""
     if p.look().has('RFQs — ' + rfq): return
+    # the 11-03 Quotes page lists each request as a row (Needs You, or Waiting on Someone Else): the row is the record
+    if p.scr.row(rfq + ' · '): return p.tap_row(rfq + ' · ', expect='RFQs')
     p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
 
 
@@ -1064,7 +1066,10 @@ def j5_three_quotes(p):
         p.tap('New Vendor', expect='Add Vendor')
         p.do([('type', 'Name', name), ('type', 'Trade', 'Lumber & drywall'), ('pick', 'Kind', 'Supplier'), ('type', 'Contact', who), ('type', 'Email', mail), ('tap', 'Add Vendor')])
     p.tap('Quotes', exact=True)
-    p.tap('New RFQ', expect='Which Lines?')
+    # the 11-03 Quotes page (docs/mockups/purchasing): one + for new things; its New Request for Quote starts from the
+    # lines (the same Which Lines? sheet the old page's New RFQ opened)
+    p.tap('New', exact=True)
+    p.tap('New Request for Quote', expect='Which Lines?')
     p.pick('Job', JOB['job'])
     p.look()
     boxes = [p.scr.find(ln, field=True, kinds=('check',)) for ln in RFQ_LINES]

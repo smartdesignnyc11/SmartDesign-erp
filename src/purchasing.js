@@ -361,7 +361,7 @@ function puQuoteRows() {
       asked = (q.vendors || []).length || (q.sent || []).length,
       due = q.dueDate && q.dueDate < td,
       mine = !asked || got >= asked || (due && got < asked) || (got > 0 && got >= 3);
-    R.push({ b: mine ? "mine" : "others", actor: mine ? "coord" : "vendor", who: mine ? "" : `${asked - got} of ${asked} vendors`, id: "rfq:" + q.id, name: `${q.number}: ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: `${got} of ${asked || 0} quotes in${q.dueDate ? ` · due ${fmt(q.dueDate)}` : ""}`, why: !asked ? "Not sent yet." : got >= asked || got >= 3 ? "Every quote is in: level them and award." : due ? "Past its due date: chase the vendors who have not quoted." : "Out to the vendors.", act: !asked ? "Send It" : got >= asked || got >= 3 ? "Level and Award" : due ? "Chase" : "Open", run: () => rfqOpenFor(q.id) });
+    R.push({ b: mine ? "mine" : "others", actor: mine ? "coord" : "vendor", who: mine ? "" : `${asked - got} of ${asked} vendors`, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: `${got} of ${asked || 0} quotes in${q.dueDate ? ` · due ${fmt(q.dueDate)}` : ""}`, why: !asked ? "Not sent yet." : got >= asked || got >= 3 ? "Every quote is in: level them and award." : due ? "Past its due date: chase the vendors who have not quoted." : "Out to the vendors.", act: !asked ? "Send It" : got >= asked || got >= 3 ? "Level and Award" : due ? "Chase" : "Open", run: () => rfqOpenFor(q.id) });
   });
   return R;
 }
@@ -387,7 +387,8 @@ function puCount(v) {
 let puOpenRows = {}, // id -> row (this draw's), so a tap finds its record
   puLaterOpen = !1,
   puShowAll = {},
-  puFilter = { po: "open", vendors: "all", inv: "all" },
+  // Orders opens on every order (a draft from an award is found where its order is), drafts first
+  puFilter = { po: "all", vendors: "all", inv: "all" },
   puFull = {};
 const PU_IC = {
   plus: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
@@ -433,7 +434,7 @@ function puPlusItems(v) {
     po: [
       ["New Purchase Order From Lines", "Pick the job's estimate or change-order lines", () => puBuyFromDoc()],
     ],
-    rfq: [["New Request for Quote", "Starts from the lines you are buying for", () => ("function" == typeof rfqNew ? rfqNew() : puBuyFromDoc("quote"))]],
+    rfq: [["New Request for Quote", "Starts from the lines you are buying for", () => ("function" == typeof rfqNewSheet ? rfqNewSheet() : puBuyFromDoc("quote"))]],
     recv: [["Log Something That Arrived", "With no order behind it", () => ("function" == typeof openEditor ? openEditor("mat", null) : null)]],
     vendors: [],
     inv: [
@@ -592,10 +593,11 @@ function puOrders() {
     cnbSum = cnb.total,
     t = puShowAll.tile || "",
     f = puFilter.po,
-    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))),
+    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))).sort((a, b) => ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[a.status] ?? 4) - ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[b.status] ?? 4)),
     poRow = (po) => {
       const st = "function" == typeof poState ? poState(po) : { msg: po.status };
-      return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")} · Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
+      // one line names the order, its vendor, its job and what it buys: an order is found by any of them
+      return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"} · ${puJob(DB.projects.find((p) => p.id === po.projectId))}: ${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")}`, job: "", line: `Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
     },
     tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
     tiles =
