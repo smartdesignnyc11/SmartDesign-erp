@@ -175,6 +175,12 @@ S.menu = () => {
       return norm(c.textContent || el.title || '') + (n ? ' ' + n : '');
     }).filter(Boolean));
   }
+  // the 11-03 menu: a closed group's pages are one tap away (its name opens it), so they are read as the menu's too
+  items.push(...[...document.querySelectorAll('#nav-groups .mn-kids button')].map(el => {
+    const n = norm((el.querySelector('.n') || {}).textContent || ''), c = el.cloneNode(true);
+    c.querySelectorAll('.n, svg').forEach(x => x.remove());
+    return norm(c.textContent || '') + (n ? ' ' + n : '');
+  }).filter(Boolean));
   return [...new Set(items)];
 };
 S.title = () => { const r = S.viewRoot(); const h = r.querySelector('h1, h2, .ph h2, .f-hero b'); return norm(h ? h.innerText : (r.id || '')).slice(0, 80); };
@@ -304,6 +310,15 @@ S.go = label => {
   if (!hit) { const B = [...document.querySelectorAll('button, a')].filter(el => vis(el) && !el.closest('section.view') && norm(el.innerText || el.getAttribute('aria-label') || '').toLowerCase() === want);
     if (B.length) hit = { el: B[0], t: want }; }
   if (!hit) return { ok: false, why: `no "${label}" in your menu; it has: ${S.menu().join(' · ')}` };
+  // the 11-03 menu: a group opens on its name and lists its pages; going to a group is its name, then its own page
+  // (All Projects, an overview, else its first page), two taps as a person makes them
+  if (hit.el.matches && hit.el.matches('[data-mnhead]')) {
+    const g = hit.el.dataset.mnhead;
+    if (hit.el.getAttribute('aria-expanded') !== 'true') hit.el.click();
+    const m = document.querySelector(`#nav-groups [data-mngr="${g}"] [data-mnmain]`);
+    if (m) m.click();
+    return { ok: true, label: hit.t };
+  }
   hit.el.click(); return { ok: true, label: hit.t };
 };
 S.closeTop = () => { const ov = S.overlays(); if (!ov.length) return false; const o = ov[ov.length - 1];

@@ -3464,8 +3464,45 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
    Settings set apart at the foot of the rail; Ask in the header for every role (an icon on the phone). ---------- */
 #subnav .sub-tabs .mn-sec{flex:none;align-self:center;font-size:var(--fs-cap,11.5px);font-weight:600;color:var(--ink-3);padding:0 2px 0 14px;white-space:nowrap;letter-spacing:.02em}
 #subnav .sub-tabs .mn-sec:first-child{padding-left:4px}
-#nav-groups button.mn-gap{margin-top:14px;position:relative}
-#nav-groups button.mn-gap::before{content:"";position:absolute;left:10px;right:10px;top:-8px;border-top:1px solid rgba(255,255,255,.12)}
+/* the 11-03 menu (docs/mockups/job-structure: MenuNow and Main on the phone, Desk's rail): Your Day and Work captions,
+   a group that opens on its name (the whole row; no arrow), its pages under it, Company and Settings and Record a
+   Feedback Session at the foot. One number style: a filled badge, only where something waits on the person. */
+#nav-groups .mn-cap{padding:12px 10px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+#nav-groups .mn-cap:first-child{padding-top:2px}
+#nav-groups .mn-head{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r);color:rgba(255,255,255,.78);text-decoration:none;font-size:13px;line-height:1.2;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+#nav-groups .mn-head:hover{background:rgba(255,255,255,.07);color:#fff}
+#nav-groups .mn-head[aria-expanded=true]{background:rgba(255,255,255,.07);color:#fff;font-weight:600}
+#nav-groups .mn-head:focus-visible,#nav-groups button:focus-visible{outline:2px solid #93c5fd;outline-offset:-2px}
+#nav-groups .mn-head svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#nav-groups .mn-kids{display:flex;flex-direction:column;gap:1px;padding:2px 0 6px 26px}
+#nav-groups .mn-kids[hidden]{display:none}
+#nav-groups button.mn-kid{min-height:32px;padding:6px 10px}
+#nav-groups button.mn-kid.on{background:rgba(255,255,255,.16);color:#fff;font-weight:600}
+#nav-groups .mn-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nav-groups .n,#nav-groups button.on .n{margin-left:auto;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:10px;background:#dc2626;color:#fff;font-size:11.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:none}
+#nav-groups .n:empty,#nav-groups button.on .n:empty{display:none}
+#nav-groups .n::before{content:none}
+#nav-groups .mn-foot{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12);display:flex;flex-direction:column;gap:2px}
+#nav-groups .mn-fbs:empty{display:none}
+#nav-groups #fbs-rail{width:100%;margin:0;display:flex;align-items:center;gap:10px;padding:7px 10px;background:none;border:0;border-radius:var(--r);color:rgba(255,255,255,.78);font-size:13px;font-weight:400;justify-content:flex-start;min-height:0;height:auto}
+#nav-groups #fbs-rail:hover{background:rgba(255,255,255,.07);color:#fff}
+#nav-groups #fbs-rail svg{width:16px;height:16px;flex:none}
+@media (max-width:760px){
+  #nav-groups button,#nav-groups .mn-head,#nav-groups #fbs-rail{min-height:48px;font-size:15px}
+  #nav-groups .mn-head{font-weight:600}
+  #nav-groups button.mn-kid{min-height:44px;font-size:15px;padding:0 10px}
+  #nav-groups .mn-kids{padding-left:30px}
+  #nav-groups .mn-head svg,#nav-groups button svg{width:20px;height:20px}
+  #nav-groups .n{min-width:24px;height:24px;border-radius:12px;font-size:13px}
+  /* Sales Settings is now one tap from the menu's foot, so the phone walks reach it: its tabs are full tap targets */
+  .hb-page.hb-settings .hb-set-rail button{height:44px;min-height:44px}
+}
+@media (min-width:761px){
+  body.rail-min #nav-groups .mn-cap,body.rail-min #nav-groups .mn-kids,body.rail-min #nav-groups .mn-l,body.rail-min #nav-groups #fbs-rail span{display:none}
+  body.rail-min #nav-groups .mn-head,body.rail-min #nav-groups #fbs-rail{justify-content:center;padding:9px 0;gap:0}
+  body.rail-min #nav-groups .mn-head svg{width:20px;height:20px}
+  body.rail-min #nav-groups .n{position:absolute;top:3px;right:8px;min-width:0;width:7px;height:7px;padding:0;border-radius:50%;font-size:0;line-height:0}
+}
 @media (max-width:760px){
   body:not(.m-on) #tb-ask{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
   body:not(.m-on) #tb-ask span{display:none}

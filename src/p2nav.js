@@ -410,14 +410,7 @@ if ("function" == typeof mnChat) {
     return r;
   };
 }
-// the menu's Messages entry carries the same number
-if ("function" == typeof mnItemN) {
-  const base = mnItemN;
-  mnItemN = function (it) {
-    if (it && !it.tab && "chat" === it.v) return p2nMsgN().n;
-    return base.apply(this, arguments);
-  };
-}
+// the menu's Messages entry carries the same number (mnItemN reads p2nMsgN, src/app.js, the menu section)
 
 // ---- N3 read marks on a team thread: "Seen by Chen, Angel", else Sent ---------------------------------------------
 // A direct thread already said Read. A group or a job's team thread said nothing, so the sender chased by phone what
@@ -792,7 +785,6 @@ function p2nTeamViews() {
   "object" == typeof NAV_LABELS && (NAV_LABELS.chat = "Messages");
   "object" == typeof IA_LABELS && (IA_LABELS.chat = "Messages");
   "function" == typeof mnKnow && (mnKnow("team", "Team"), mnKnow("chat", "Messages"), mnKnow("chat", "Chat"), mnKnow("comms", "Inbox"), mnKnow("comms", "Messages"));
-  "object" == typeof MN_HOMEGROUP && ((MN_HOMEGROUP.team = "Company"), (MN_HOMEGROUP.chat = "Messages"));
   // the query layer's People (eqPeople, Ask's "what is Chen's phone") reads the team's phone and email from here
   if ("function" == typeof eqPeople) {
     const base = eqPeople;
@@ -811,30 +803,17 @@ function p2nTeamViews() {
 })();
 
 // ---- N3/N4/N5 the menus ---------------------------------------------------------------------------------------------
-// Messages after Tasks for every office role; Inbox leaves Today's group (it is Messages > Mail); People and Companies
-// leave Sales (they are Clients' tabs); Team joins Company; the foreman's bar takes Requests; Chat reads Messages.
+// Messages after Tasks for every office role, Inbox out of Today (it is Messages > Mail), People and Companies out of
+// Sales (they are Clients' tabs), Team in Company: the 11-03 menu declares all of that itself (src/app.js, the menu
+// section: MN_DAY, MN_SALES, MN_FOOT). Here: the bars' Chat reads Messages, and the foreman's bar takes Requests.
 (() => {
-  // the rail's mark for Messages: the two square bubbles of the header's and the bar's Messages (never Ask's sparkle)
-  "object" == typeof MN_ICON && (MN_ICON.chat = '<path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/>');
-  const MSG_G = () => MN_G("msgs", "Messages", "chat", [["chat", "Messages"]]);
-  const office = ["owner", "pm", "coord", "billing", "controller", "designer", "design_mgr"];
-  office.forEach((r) => {
+  ["owner", "pm", "coord", "billing", "controller", "designer", "design_mgr"].forEach((r) => {
     const M = MENU[r];
-    if (!M || !M.groups) return;
-    M.groups = M.groups.map((g) => {
-      const items = g.items.filter((x) => !(Array.isArray(x) && ("home" === g.id ? "comms" === x[0] : "sales" === g.id && ["hbcontacts", "hbcompanies"].includes(x[0]))));
-      "office" === g.id && !items.some((x) => Array.isArray(x) && "team" === x[0]) && items.splice(Math.min(2, items.length), 0, ["team", "Team"]);
-      return Object.assign({}, g, { items: items });
-    });
-    const i = M.groups.findIndex((g) => "mytasks" === g.id);
-    M.groups.some((g) => "msgs" === g.id) || M.groups.splice(i < 0 ? 1 : i + 1, 0, MSG_G());
-    (M.phone || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
+    M && (M.phone || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
   });
   ["foreman", "crew", "driver"].forEach((r) => {
     const M = MENU[r];
     M && (M.bar || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
-    // Team is placed at the foot of the field menu (the colleague to call), not left to fall under More
-    M && M.rest && !M.rest.some((x) => "team" === x[0]) && M.rest.push(["team", "Team", "people"]);
   });
   // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest). The bar keeps four
   // shortcuts (Alan, 2026-10-19: "a max of 4"), so Site, the one the synthesis ranks below Daily Log, leads the rest.
@@ -851,7 +830,6 @@ function p2nTeamViews() {
   "undefined" != typeof MN_BUTTON && MN_BUTTON.delete && MN_BUTTON.delete("chat");
   try {
     "function" == typeof mnKnowAll && mnKnowAll();
-    "function" == typeof mnHomeGroups && mnHomeGroups();
   } catch (e) {}
 })();
 

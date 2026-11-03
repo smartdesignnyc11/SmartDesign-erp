@@ -4,10 +4,9 @@
 //  S2  starting an estimate from a job took twelve taps;
 //  S3  controls and pages with no name a screen reader could read.
 //
-// Design gate (BACKLOG §1.16). No new noun, list, queue or store. The menu gains no item: the phone menu's groups
-// open in place to show the pages they already hold (the same entries as the page strip, mnBuild), so the PM's
-// Projects > Estimates is two taps from the open menu. New Estimate is the existing button (docNewEstimate) on the
-// existing Billing > Estimates tab, which a job's strip already opens.
+// Design gate (BACKLOG §1.16). No new noun, list, queue or store. The phone menu's groups opened in place here (an
+// arrow beside each); the 11-03 menu (src/app.js, the menu section) folds that in: a group opens on its name. New
+// Estimate is the existing button (docNewEstimate) on the existing Billing > Estimates tab, which a job's strip opens.
 // =====================================================================================================================
 
 // ---- S1: a sheet on <body> belongs to the screen that opened it ------------------------------------------------------
@@ -116,94 +115,6 @@ function p2EstContext() {
   return k;
 }
 
-// ---- S2: the phone menu opens a group in place --------------------------------------------------------------------
-// The phone menu showed each group as one entry that opened its first page; a page further in (the PM's Estimates,
-// under Projects) was a page and a sideways swipe of the strip away. Each group of two or more pages now carries a
-// Show Pages toggle; it lists the group's own pages under it, captioned by section, and one tap opens a page.
-const P2_CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
-let p2MnOpen = "";
-function p2MenuShow() {
-  document.querySelectorAll("#nav-groups .mn-gr").forEach((r) => {
-    const on = r.dataset.mngr === p2MnOpen;
-    r.querySelector(".mn-exp").setAttribute("aria-expanded", on), (r.querySelector(".mn-kids").hidden = !on);
-  });
-}
-function p2MenuGroups() {
-  const wrap = document.getElementById("nav-groups");
-  if (!wrap || !("function" == typeof mOn && mOn()) || !("function" == typeof mnOn && mnOn())) return;
-  const B = mnBuild(role());
-  if (!B || B.field) return;
-  const G = B.groups.concat(B.more.length ? [{ id: "more", n: "More", items: B.more }] : []).concat(B.bottom ? [B.bottom] : []);
-  wrap.querySelectorAll("button[data-grp]").forEach((b) => {
-    const g = G.find((x) => x.id === b.dataset.grp);
-    if (!g || g.items.length < 2 || b.classList.contains("mn-has")) return;
-    // the group's entry stays where it is (a direct child of the menu); its toggle and pages follow it in one box
-    b.classList.add("mn-has");
-    const row = document.createElement("div");
-    row.className = "mn-gr";
-    row.dataset.mngr = g.id;
-    b.after(row);
-    const open = p2MnOpen === g.id;
-    let last = "";
-    const kids = g.items
-      .map((it, i) => {
-        const cap = it.sec && it.sec !== last ? `<div class="mn-kcap">${esc(it.sec)}</div>` : "";
-        return (last = it.sec), `${cap}<a href="#" role="button" class="mn-kid" data-mnkid="${g.id}:${i}">${esc(it.l)}</a>`;
-      })
-      .join("");
-    row.insertAdjacentHTML(
-      "beforeend",
-      `<a href="#" role="button" class="mn-exp" data-mnexp="${g.id}" aria-expanded="${open}" aria-label="Show ${esc(g.n)} Pages">${P2_CHEV}</a><div class="mn-kids" ${open ? "" : "hidden"}>${kids}</div>`,
-    );
-    row.querySelector(".mn-exp").onclick = (e) => {
-      e.preventDefault(), e.stopPropagation();
-      p2MnOpen = p2MnOpen === g.id ? "" : g.id;
-      p2MenuShow();
-    };
-    row.querySelectorAll("[data-mnkid]").forEach(
-      (a) =>
-        (a.onclick = (e) => {
-          e.preventDefault(), e.stopPropagation();
-          const it = g.items[+a.dataset.mnkid.split(":")[1]];
-          // leave a record the way the group's own entry does (the rail's click pass clears the open record)
-          try {
-            if ("undefined" != typeof docOpen && docOpen) {
-              const c = (DB.clients || []).find((x) => x.id === clientOpen),
-                d = c && findDoc(c, docOpen.kind, docOpen.id);
-              d && "function" == typeof docLeave && docLeave(c, d), (docOpen = null);
-            }
-            "undefined" != typeof poOpen && (poOpen = null), "undefined" != typeof clientOpen && (clientOpen = null);
-          } catch (x) {}
-          it && mnGo(g, it);
-        }),
-    );
-  });
-}
-if ("function" == typeof mnRail) {
-  const base = mnRail;
-  mnRail = function () {
-    const r = base.apply(this, arguments);
-    try {
-      p2MenuGroups();
-    } catch (e) {
-      console.warn("menu groups", e);
-    }
-    return r;
-  };
-}
-// the open group follows the page on screen when the menu opens
-document.addEventListener(
-  "click",
-  (e) => {
-    if (!e.target.closest || !e.target.closest("#menu-btn")) return;
-    try {
-      const cur = mnCur(mnBuild(role()));
-      (p2MnOpen = (cur && cur.g.id) || p2MnOpen), p2MenuShow();
-    } catch (x) {}
-  },
-  !0,
-);
-
 // ---- S3: every control and every page has a name ---------------------------------------------------------------------
 // A page's section carries its menu name (a screen reader read the Daily Log as "v-flog"), and an icon-only control
 // with a title reads its title. Controls drawn without either are named where they are drawn.
@@ -212,8 +123,9 @@ function p2Names() {
   if (v) {
     let n = "";
     try {
+      // the page's menu name (inside a job, its tab's; the job's name is the record's)
       const cur = "function" == typeof mnCur && mnCur(mnBuild(role()));
-      n = (cur && cur.it.l) || ("function" == typeof mnLabel ? mnLabel(view) : "");
+      n = ("function" == typeof mnCurLabel && mnCurLabel(cur)) || ("function" == typeof mnLabel ? mnLabel(view) : "");
     } catch (e) {}
     n && n !== view && v.getAttribute("aria-label") !== n && v.setAttribute("aria-label", n);
     v.getAttribute("role") || v.setAttribute("role", "region");
@@ -236,17 +148,3 @@ function p2Names() {
     return r;
   };
 }
-(() => {
-  const css = `
-#nav-groups button.mn-has{padding-right:48px !important}
-#nav-groups .mn-gr{position:relative;margin-top:-2px}
-#nav-groups .mn-exp{position:absolute;right:0;top:0;transform:translateY(-100%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:8px;color:inherit;opacity:.8;z-index:1}
-#nav-groups .mn-exp[aria-expanded=true] svg{transform:rotate(180deg)}
-#nav-groups .mn-kids{display:flex;flex-direction:column;padding:2px 0 8px 38px}
-#nav-groups .mn-kids[hidden]{display:none}
-#nav-groups .mn-kid{display:flex;align-items:center;min-height:44px;padding:0 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:15px}
-#nav-groups .mn-kcap{font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;opacity:.6;padding:8px 10px 2px}
-`;
-  const st = document.createElement("style");
-  (st.id = "p2fix-css"), (st.textContent = css), document.head.appendChild(st);
-})();
