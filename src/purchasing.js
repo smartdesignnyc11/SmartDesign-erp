@@ -217,7 +217,7 @@ function puOrderRows(pid) {
         !(po.sc || po.retainagePct) &&
         put({ id: "prepay:" + po.id, name: `${po.vendor}: ${money(paid)} paid before delivery`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${po.number} · ${money(rec)} received · promised ${po.expected ? fmt(po.expected) : "no date"}`, why: "It comes off the next bill; hold the bill until it does.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "warn" });
       (po.issues || [])
-        .filter((i) => i.claim && "open" === (i.status || "open"))
+        .filter((i) => (i.claim || ["short", "damaged", "wrong"].includes(i.type)) && "open" === (i.status || "open"))
         .forEach((i, k) =>
           put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad" }),
         );
@@ -416,11 +416,10 @@ function puPlusItems(v) {
     ],
     po: [
       ["New Purchase Order From Lines", "Pick the job's estimate or change-order lines", () => puBuyFromDoc()],
-      ["Blank Purchase Order", "Only when no line covers it", click("btn-newpo")],
     ],
     rfq: [["New Request for Quote", "Starts from the lines you are buying for", () => ("function" == typeof rfqNew ? rfqNew() : puBuyFromDoc("quote"))]],
     recv: [["Log Something That Arrived", "With no order behind it", () => ("function" == typeof openEditor ? openEditor("mat", null) : null)]],
-    vendors: [["New Vendor", "Filled from a mail or a card photo", click("btn-newvendor")]],
+    vendors: [],
     inv: [
       ["New Stock Item", "A consumable or a tool", click("btn-newinv")],
       ["Count a Shelf", "Set what is really there", click("btn-invmove")],
@@ -448,13 +447,38 @@ function puHost(v) {
   host || ((host = document.createElement("div")), (host.className = "pu"), sec.insertBefore(host, sec.firstChild));
   sec.classList.add("pu-host");
   sec.classList.toggle("pu-full", !!puFull[v]);
-  puHideOld(sec, !puFull[v]);
+  puHideOld(sec, !puFull[v], v);
   return host;
 }
+// The old page's own New button (its handlers, its id) rides in the new head, not blue (housekeeping is never blue); it
+// goes home before each draw and when the old page shows (a record open)
+const PU_MOVE = { vendors: ["btn-newvendor"], po: ["btn-newpo"] },
+  PU_BTN = {};
+function puBtnHome() {
+  Object.values(PU_BTN).forEach((x) => {
+    x.b.classList.toggle("primary", x.primary);
+    x.b.parentElement !== x.home && x.home.appendChild(x.b);
+  });
+}
+function puBtnMove(v, host) {
+  const acts = host.querySelector(".pu-ph .acts");
+  acts &&
+    (PU_MOVE[v] || []).forEach((id) => {
+      const b = (PU_BTN[id] && PU_BTN[id].b) || document.getElementById(id);
+      if (!b) return;
+      PU_BTN[id] || (PU_BTN[id] = { b: b, home: b.parentElement, primary: b.classList.contains("primary") });
+      b.classList.remove("primary"), acts.appendChild(b);
+    });
+}
+// What stays on screen of the old page: on the desktop the receiving line by line is Deliveries' Arriving (the phone has
+// the Receive sheet); Orders keeps the per-line New PO table (buying starts from the line) until Reports' Cash holds it.
+const PU_KEEP = { po: ["po-funds"], recv: ["recv-body"] },
+  puKeep = (v, c) => (PU_KEEP[v] || []).includes(c.id) && !("recv" === v && puPhone());
 // the old page's parts are hidden inline (a phone rule with !important on an id would show them otherwise)
-function puHideOld(sec, hide) {
+function puHideOld(sec, hide0, v) {
   [...sec.children].forEach((c) => {
     if (c.classList.contains("pu")) return;
+    const hide = hide0 && !puKeep(v, c);
     hide
       ? (null == c.dataset.puhid && (c.dataset.puhid = c.style.display || ""), c.style.setProperty("display", "none", "important"))
       : null != c.dataset.puhid && (c.style.removeProperty("display"), c.dataset.puhid && (c.style.display = c.dataset.puhid), delete c.dataset.puhid);
@@ -463,7 +487,7 @@ function puHideOld(sec, hide) {
 function puDrop(v) {
   const sec = document.getElementById("v-" + v);
   if (!sec) return;
-  puHideOld(sec, !1);
+  puBtnHome(), puHideOld(sec, !1);
   sec.classList.remove("pu-host", "pu-full");
   const h = sec.querySelector(":scope > .pu");
   h && h.remove();
@@ -591,10 +615,11 @@ function puDeliveries() {
     body =
       puSecHtml("mine", "Needs You", mine, { count: "recv", empty: "Nothing waits on you: every delivery is on time." }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
-      (arriving.length ? `<section class="pu-sec" data-pusec="arriving"><div class="pu-sh"><h3>Arriving</h3></div><div class="pu-rows">${arrBody.join("")}</div></section>` : "") +
+      // the phone receives from the sheet; the desktop receives line by line below (the old page's cards, kept on screen)
+      (arriving.length && puPhone() ? `<section class="pu-sec" data-pusec="arriving"><div class="pu-sh"><h3>Arriving</h3></div><div class="pu-rows">${arrBody.join("")}</div></section>` : "") +
       puSecHtml("office", "In Transit and At the Office", office, { quiet: 1 }) +
       puSecHtml("back", "Going Back", back, { quiet: 1 }) +
-      puFullHtml("recv", "Receive Line by Line");
+      (puPhone() ? puFullHtml("recv", "Receive Line by Line") : `<h3 class="pu-h3">Arriving: Receive Line by Line</h3>`);
   return puPageHtml("recv", { body: body });
 }
 let puVendFilter = "all";
@@ -707,7 +732,7 @@ function puDraw() {
   if (!host) return;
   puOpenRows = {};
   try {
-    host.innerHTML = PU_PAGES[v]();
+    puBtnHome(), (host.innerHTML = PU_PAGES[v]()), puBtnMove(v, host);
   } catch (e) {
     console.warn("purchasing page", v, e), puDrop(v);
   }
@@ -1001,6 +1026,8 @@ function puStockGate(R, go) {
   const css = `
 .view.pu-host:not(.pu-full)>:not(.pu){display:none !important}
 .view.pu-host.pu-full>:not(.pu){margin-top:16px}
+#v-recv.pu-host #recv-body>.ph{display:none}
+.pu-h3{margin:18px 0 8px;font-size:15px}
 .pu-ph{display:flex;align-items:flex-start;gap:16px}
 .pu-ph .pu-tt{flex:1;min-width:0}
 .pu-ph .acts{display:flex;gap:8px;align-items:center}
