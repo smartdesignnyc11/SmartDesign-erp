@@ -199771,15 +199771,15 @@ function mnCur(B) {
     const jg = groups.find((g) => "jobs" === g.id),
       job = jg && "undefined" != typeof S && S && jg.items.find((x) => x.job && x.pid === S.id);
     if (job) {
-      const strip = mnJobStrip(B.r)
-          .filter((x) => !x.nostrip)
-          .map((x) => ({ g: jg, it: x })),
+      // the entry's group is the job's own strip (src/jobpage.js lists its tabs from it: the phone's This Job)
+      const sg = { id: "jobs", n: jg.n, icon: jg.icon, proj: 1, items: mnJobStrip(B.r) },
+        strip = sg.items.filter((x) => !x.nostrip).map((x) => ({ g: sg, it: x })),
         t = pick(strip.filter((x) => x.it.v === view), mnTabOf(view)),
         // a page opened from a job's tab lights that tab and keeps its own name (src/jobpage.js, JP_UNDER): Billing's
         // change order opened from Contract and Billing stays the job's page
         under = !t && "function" == typeof jpUnder ? jpUnder(view) : "",
         u = under && strip.find((x) => x.it.v === under);
-      if (t || u) return { g: jg, it: (t || u).it, job: job, tab: (t || u).it, name: t ? t.it.l : "" };
+      if (t || u) return { g: sg, it: (t || u).it, job: job, tab: (t || u).it, name: t ? t.it.l : "" };
     }
   }
   const v = company ? "setup" : placed(view) ? view : alias(view) || view,
