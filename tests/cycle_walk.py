@@ -1379,6 +1379,12 @@ def j4_friday_review(p):
                 [r for r in cost_cards(sc.text) if r['over']]
             p.expect(not over or len(flagged) >= len(over), 'Budget flags the estimate lines over budget (committed or actual above the budget cost)',
                      f'{len(over)} over by the columns ({"; ".join(over)}), {len(flagged)} flagged')
+        # the job's change orders and its submittals are a chip each on their tab (11-03): the PM opens each list
+        for tab, chip in (('Contract and Billing', 'Change Orders'), ('Decisions', 'Submittals')):
+            if page != tab: continue
+            c = sc.find(chip)
+            p.expect(c is not None, f'{tab} lists the job\'s {chip.lower()} on their own', sc.excerpt(tab, 6))
+            if c is not None: p.tap_ctl(c); p.look()
     sc = open_job(p, 'Overview')
     c = next((x for x in sc.ctls if x.action and re.search(r'^(draft|send|write|prepare)\b.{0,20}\bupdate', x.label, re.I)), None)
     p.expect(c is not None, 'the app drafts the client update from the week (schedule, logs, decisions, money)', 'no update to draft on the job')
