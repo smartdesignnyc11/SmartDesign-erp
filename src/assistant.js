@@ -1947,7 +1947,9 @@ function paFridayNeeds(jobs) {
     };
   });
 }
-function paFridayOpen(p, k) {
+// The week's client update for a job: one draft in the outbox, found or written from agClientUpdate. The assistant's
+// Friday card and the job page's Draft the Client Update both open this one, so there is never a second draft of it.
+function paFridayDraft(p, k) {
   const fri = tdyFriday(today()),
     key = `asst|friday|${p.id}|${fri}`;
   bnInit();
@@ -1956,6 +1958,10 @@ function paFridayOpen(p, k) {
     o = { id: uid("ox"), kind: "followup", asstType: "clientMessages", to: { name: k.name, email: k.email || "" }, subject: `${agShort(p)} — this week`, body: `Hi ${agFirst(k.name)},\n\n${agClientUpdate(p)}\n\n${agSign()}`, about: { label: `the weekly update for ${agShort(p)}`, projectId: p.id }, aboutKey: key, forName: paMe().name, forUid: paMe().id, status: "draft", approval: !0, at: today(), by: `${paFirst()}'s assistant`, why: `the Standard asks for a client update every Friday, and ${agShort(p)} has had none since last Friday` };
     DB.outbox.push(o), save();
   }
+  return o;
+}
+function paFridayOpen(p, k) {
+  const o = paFridayDraft(p, k);
   // in the conversation, not a sheet over it: the draft is a reply the person reads, changes in place and approves
   paSay("a", `Here is the Friday update for ${agShort(p)}, written from the schedule ${agFirst(k.name)} sees. Read it, change what you like, then approve it.`, { drafts: [o.id], kind: "draftReady" });
   save(), paBfBust();

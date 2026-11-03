@@ -116,6 +116,23 @@ def sent_mail(db):
     return out
 
 
+def place_keys(w):
+    """the pages a logged place stands for, as the book names them ("view", or "billing:<tab>"). The job's eight tabs
+    (Alan, 11-03) put the old job pages inside two of them, and the place says the chip on screen (page_tools.js
+    S.where): the job's change orders are Contract and Billing on its Change Orders chip (the old Billing > Change
+    Orders); its decisions are Decisions on any chip but Submittals (the old Decisions log); its submittals are
+    Decisions on the Submittals chip (the old Submittals log). The same evidence as before: the person had that list on
+    screen for that job, one kind at a time."""
+    v, t = w.get('view') or '', w.get('tab') or ''
+    if not v: return set()
+    K = {v}
+    if v == 'billing' and t: K.add(f'billing:{t}')
+    if v == 'jbill' and t == 'Change Orders': K.add('billing:co')
+    if v == 'jdec':
+        K.add('subm' if t == 'Submittals' else 'dec')
+    return K
+
+
 def reached(db, who_rx, about_rx=None):
     R = re.compile(who_rx, re.I)
     return [m for m in sent_mail(db) if R.search(m['to']) and (not about_rx or re.search(about_rx, m['text'], re.I))]
@@ -676,7 +693,7 @@ class Cycle:
             if a.get('uid') != 'u_alan': continue
             w = self.where(a)
             if w.get('cur') != p['id'] or not w.get('view'): continue
-            seen.update({w['view'] + (':' + w['tab'] if w.get('tab') and w['view'] == 'billing' else ''), w['view']})
+            seen.update(place_keys(w))
         miss = [x for x in pages if x not in seen]
         upd = [m for m in self.to_ashby(r'update|week|this week|next week') if m['by'] == 'u_alan' and (m.get('day') or '') >= '2026-09-04']
         over = [r for r in self.line_table() if r['over'] > 0]
@@ -806,8 +823,7 @@ class Cycle:
             if a.get('uid') != 'u_alan': continue
             w = self.where(a)
             if not w.get('view'): continue
-            k = w['view'] + (':' + w['tab'] if w.get('tab') and w['view'] == 'billing' else '')
-            seen[w.get('cur') or ''].update({k, w['view']})
+            seen[w.get('cur') or ''].update(place_keys(w))
         miss = [f"{j}: {', '.join(p for p in cov.get('pages', []) if p not in seen.get(j, set()))}" for j in jobs if any(p not in seen.get(j, set()) for p in cov.get('pages', []))]
         done = [j for j in jobs if all(p in seen.get(j, set()) for p in cov.get('pages', []))]
         if not any(seen.get(j) for j in jobs): return 'not done', 'no job reviewed', {}
@@ -1204,6 +1220,7 @@ def coverage(actions, book, uid):
         if not v: continue
         k = f"{v}:{w.get('tab')}" if v == 'billing' and w.get('tab') else v
         if k in keys: seen.add(k)
+        seen.update((place_keys(w) - {v}) & keys)   # the job's tabs stand for the old job pages they carry
         if v in keys and (v != 'billing' or w.get('tab') in (None, '', 'billable')): seen.add(v)   # the PM's "Billing" is the page on its first tab
         if v in views: ms += a.get('ms') or 0; n += 1
     got = [lab for k, lab in C['pages'] if k in seen]

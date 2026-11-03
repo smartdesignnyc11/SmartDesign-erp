@@ -1320,7 +1320,9 @@ def card_blocks(text):
     """the phone's Budget: a card per line, every figure under its own label; each card is the text from one line's
     name to the next"""
     L = text.split('\n')
-    idx = [i for i, l in enumerate(L) if re.search(r'\bEST-\d{4}-\d+', l) and '|' not in l]
+    # the document number may follow the name with no space between them in the reader's text ("supplyEST-2026-016":
+    # on the card they are two lines), so it is found without a word boundary
+    idx = [i for i, l in enumerate(L) if re.search(r'EST-\d{4}-\d+', l) and '|' not in l]
     # the name is on the line with the document number (the card's first line), or on the line just above it
     own = lambda l: re.sub(r'^(\[\d+\]\s*)+', '', l).strip()
     return [(L[i] if re.match(r'^\s*(\[\d+[^\]]*\]\s*)*[^\s\[]', own(L[i])) and not own(L[i]).startswith('EST-') else
@@ -1379,6 +1381,12 @@ def j4_friday_review(p):
                 [r for r in cost_cards(sc.text) if r['over']]
             p.expect(not over or len(flagged) >= len(over), 'Budget flags the estimate lines over budget (committed or actual above the budget cost)',
                      f'{len(over)} over by the columns ({"; ".join(over)}), {len(flagged)} flagged')
+        # the job's change orders and its submittals are a chip each on their tab (11-03): the PM opens each list
+        for tab, chip in (('Contract and Billing', 'Change Orders'), ('Decisions', 'Submittals')):
+            if page != tab: continue
+            c = sc.find(chip)
+            p.expect(c is not None, f'{tab} lists the job\'s {chip.lower()} on their own', sc.excerpt(tab, 6))
+            if c is not None: p.tap_ctl(c); p.look()
     sc = open_job(p, 'Overview')
     c = next((x for x in sc.ctls if x.action and re.search(r'^(draft|send|write|prepare)\b.{0,20}\bupdate', x.label, re.I)), None)
     p.expect(c is not None, 'the app drafts the client update from the week (schedule, logs, decisions, money)', 'no update to draft on the job')
@@ -1386,7 +1394,9 @@ def j4_friday_review(p):
         p.tap_ctl(c)
         sc = p.look()
         body = next((x for x in sc.ctls if x.kind == 'text'), None)
-        if body and over: p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+        if body and over:
+            p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+            sc = p.look()   # the sheet as it is now: the controls are numbered afresh after typing
         b = next((x for x in (sc.actions('sheet') if sc.sheet else sc.actions()) if re.match(r'^send', norm(x.label))), None)
         if b is None: raise Stuck('send the client update', 'a Send on the update', sc, c.label)
         p.tap_ctl(b)
@@ -2325,6 +2335,10 @@ def selftest():
     cards = ('By Estimate Line\n[60] Drywall & cement board: supply EST-2026-016 120% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
              '[61] Framing lumber: supply EST-2026-016 On budget\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
     check(over_lines(cards) == ['Drywall & cement board: supply $369 over'] and [r['over'] for r in cost_cards(cards)] == [True, False], f'reader: the phone\'s Budget cards are read by their labels ({over_lines(cards)}, {cost_cards(cards)})')
+    # the card's name and its document number on two lines read as one with no space between them ("supplyEST-...")
+    cards2 = ('By Estimate Line\n[17] [18]\nDrywall & cement board: supplyEST-2026-016\n21% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\n'
+              '[19] [20]\nDrywall hang, tape & prime (SD crew)EST-2026-016\nOn budget\nBudget\n$5,200\nCommitted\n—\nActual\n—\n')
+    check(over_lines(cards2) == ['Drywall & cement board: supply $369 over'], f'reader: a card whose name runs into its document number is still read ({over_lines(cards2)}, {cost_cards(cards2)})')
     # the pass rule and where a journey stops
     base = {'journey': 'J8', 'device': 'desktop', 'taps': 10, 'budget': 12, 'minutes': 5.0, 'budget_min': 6, 'stuck': None, 'soft': [], 'grades': [{'step': 'C30', 'status': 'right', 'detail': ''}]}
     check(not failures_of(base) and stops_at(base) == 'passes', 'pass rule: no stop, no failed expectation, the records right and the budget kept is a pass')

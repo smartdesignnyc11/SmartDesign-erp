@@ -515,6 +515,39 @@ function jpForecastHtml(p) {
     W.give && jpMay("sched") ? '<button type="button" class="jp-link jp-tap" data-jppull="1">Pull In</button>' : ""
   }</section>`;
 }
+// The week's client update, from the job's Overview (J4: the PM's Friday review ends with it). The same draft the
+// assistant's Friday card opens (paFridayDraft: the client-safe week, never costs, crew, hours or notes), in a sheet the
+// person reads, changes and sends with their own send (paApproveDraft). Only for who writes to the client.
+function jpUpdateContact(p) {
+  const c = jpClient(p);
+  return c && ((c.contacts || []).find((x) => /decision/i.test(x.role || "")) || (c.contacts || [])[0]);
+}
+function jpUpdateHtml(p) {
+  if ("function" != typeof paFridayDraft || !["owner", "pm"].includes(role()) || !jpUpdateContact(p)) return "";
+  return `<div class="jp-pf jp-upd"><button type="button" class="jp-link jp-tap" data-jpupdate="1">Draft the Client Update</button></div>`;
+}
+function jpClientUpdate() {
+  const p = S,
+    k = jpUpdateContact(p);
+  if (!k) return toast("This job has no client contact to write to");
+  const o = paFridayDraft(p, k),
+    body0 = o.body;
+  mbModal(
+    `Client Update: ${esc(jpName(p))}`,
+    `<p class="small" style="margin:0 0 10px;color:var(--ink-2)">To ${esc(k.name)}${k.email ? ` &lt;${esc(k.email)}&gt;` : " (no address on file yet)"}. Written from what the client sees: progress, the next two weeks, what we need from them and the finish. Nothing goes until you send it.</p>${mbF(
+      "Subject",
+      `<input data-f="subject" value="${esc(o.subject || "")}">`,
+    )}${mbF("The update", `<textarea data-f="body" rows="12">${esc(o.body || "")}</textarea>`)}`,
+    {
+      submit: `Send to ${esc(jpFirst(jpClient(p)) || k.name)}`,
+      onSubmit: (f) => {
+        (o.subject = String(f.subject || o.subject).trim()), (o.body = String(f.body || "").trim() || body0), o.body !== body0 && (o.edited = !0);
+        save();
+        Promise.resolve(paApproveDraft(o)).then(() => render());
+      },
+    },
+  );
+}
 function jpNextHtml(p) {
   const N = jpNextUp(p);
   return `<section class="jp-card0" id="jp-next"><div class="jp-ph"><h3>Next Up on This Job</h3><span>${esc(fmtL(today()))}</span></div>${
@@ -575,9 +608,9 @@ function jpOverview() {
   phone || jpSub || (jpPanel = jpPanel || "risk");
   if (phone && jpSub) host.innerHTML = `<h2 class="jp-vh">Overview</h2>${jpPanelHtml(jpSub, p)}`;
   else if (phone)
-    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
+    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpUpdateHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
   else
-    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
+    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpUpdateHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
   // the job's pinned sheets (Alan, 2026-10-19: they live on the job's page) sit beside Next Up, drawn here: the old
   // layout they were put into is not drawn on a job's page any more
   !jpSub &&
@@ -1284,6 +1317,7 @@ document.addEventListener(
       return void (f && f());
     }
     if ((b = at("#jd-newrfi"))) return e.preventDefault(), void jpRfiNew();
+    if ((b = at("[data-jpupdate]"))) return e.preventDefault(), void jpClientUpdate();
     if ((b = at("[data-jppull]"))) return e.preventDefault(), e.stopPropagation(), void ("function" == typeof tpPullIn && tpPullIn(tpForecastWhy(S).give));
     if ((b = at("[data-jsans]"))) {
       e.preventDefault();
