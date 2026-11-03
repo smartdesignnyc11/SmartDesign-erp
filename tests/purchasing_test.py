@@ -704,7 +704,7 @@ async def s_pages(p, c):
                 c.ok(P['tabs'] == 0, f'pages {dev}: {label} has no tab row ({P["tabs"]})')
                 c.ok(P['secs'][:1] == ['mine'], f'pages {dev}: {label} opens on Needs You {P["secs"]}')
                 mine = P['mine'] or []
-                c.ok(P['mineN'] == len(mine) == want, f'pages {dev}: {label} Needs You {P["mineN"]} equals its {len(mine)} rows, {want} on 9/3')
+                c.ok((P['mineN'] or 0) == len(mine) == want and (want or P['mineN'] is None), f'pages {dev}: {label} Needs You {P["mineN"]} equals its {len(mine)} rows, {want} on 9/3')
                 n = next((k[2] for k in await pd_kids(pg, phone, 'buy') if k[0] == label), None)
                 c.ok((n or 0) == want, f'pages {dev}: the menu\'s {label} reads {n}, the page\'s Needs You {want}')
                 oth = P['others'] or []

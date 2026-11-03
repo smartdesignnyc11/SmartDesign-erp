@@ -223,7 +223,8 @@ function pdDrawings() {
     mine = R.filter((x) => "mine" === x.b),
     others = R.filter((x) => "others" === x.b),
     jobs = (DB.projects || []).filter((p) => "function" == typeof plSheets && plSheets(p.id, { current: 1 }).length),
-    job = puInJob() || pdJob || (S && jobs.some((p) => p.id === S.id) ? S.id : jobs[0] && jobs[0].id) || "",
+    // the register below is the job in the header's switcher (the person's job, plans_test): By Room groups that job's sheets
+    job = puInJob() || (S && S.id) || (jobs[0] && jobs[0].id) || "",
     sheets = job && "function" == typeof plSheets ? plSheets(job, { current: 1 }).sort((a, b) => String(a.number).localeCompare(String(b.number), void 0, { numeric: !0 })) : [],
     sheetRow = (s) => {
       const st = (PL_STATUS[plStatus(s)] || [plStatus(s)])[0];
@@ -239,21 +240,29 @@ function pdDrawings() {
     byRoom = rooms
       .map((r) => ({ r: r, S0: sheets.filter((s) => (s.rooms || []).includes(r.id) || ("function" == typeof plHit && plHit(r, `${s.title} ${s.change || ""}`))) }))
       .filter((x) => x.S0.length),
-    filters = `<div class="pu-filters">${puInJob() ? "" : `<select class="pu-sel" id="pd-djob" aria-label="Job">${jobs.map((p) => `<option value="${esc(p.id)}" ${job === p.id ? "selected" : ""}>${esc(puJob(p))}</option>`).join("")}</select>`}<button type="button" class="pu-chip ${"sheet" === pdGroup ? "on" : ""}" data-pugroup="sheet" aria-pressed="${"sheet" === pdGroup}">By Sheet</button><button type="button" class="pu-chip ${"room" === pdGroup ? "on" : ""}" data-pugroup="room" aria-pressed="${"room" === pdGroup}">By Room</button></div>`,
-    list =
-      "room" === pdGroup
-        ? byRoom.length
-          ? byRoom.map((x) => puSecHtml("room:" + x.r.id, x.r.name, x.S0.map(sheetRow), { quiet: 1 })).join("")
-          : `<p class="pu-empty">No sheet names a room on this job yet.</p>`
-        : puSecHtml("sheets", "Current Sheets", sheets.map(sheetRow), { quiet: 1, empty: "No current sheets on this job." }),
+    // By Sheet is the job's register itself, below (its set and status filters, current sheets by default); By Room
+    // groups the same current sheets under the rooms they name
+    group = `<div class="pu-filters"><span class="pu-fl">Sheets:</span><button type="button" class="pu-chip ${"sheet" === pdGroup ? "on" : ""}" data-pugroup="sheet" aria-pressed="${"sheet" === pdGroup}">By Sheet</button><button type="button" class="pu-chip ${"room" === pdGroup ? "on" : ""}" data-pugroup="room" aria-pressed="${"room" === pdGroup}">By Room</button></div>`,
+    list = "room" === pdGroup ? (byRoom.length ? byRoom.map((x) => puSecHtml("room:" + x.r.id, x.r.name, x.S0.map(sheetRow), { quiet: 1 })).join("") : `<p class="pu-empty">No sheet names a room on this job yet.</p>`) : "",
     body =
       puSecHtml("mine", "Needs You", mine, { count: "plans", empty: "Nothing waits on you: the field has its answers and every set is current." }) +
       puSecHtml("others", "With Someone Else", others, { others: 1 }) +
       puSecHtml("agency", "At the Agency", pdAgency(), { quiet: 1 }) +
-      filters +
-      list +
-      `<div class="pu-foot"><button type="button" class="pu-link" data-pdreg="1">The Full Register, Set Check and Lessons</button></div>`;
-  return `<div class="pu-page pr-keep" data-pupage="plans">${pdHead("plans", "Drawings", "Every job's current sheets, and what the field and the agencies are waiting on.")}${body}</div>`;
+      group +
+      list;
+  // the page's heading is the register's (Drawings, the job in the switcher, its New Revision and Issue a Set)
+  return `<div class="pu-page pr-keep" data-pupage="plans">${body}</div>`;
+}
+// Drawings is the job's register with what waits across jobs drawn under its heading: the sections sit after the
+// register's own header; By Room sets the register's table aside for the room groups
+function pdDrawPlans() {
+  const body = document.getElementById("plans-body"),
+    ph = body && body.querySelector(":scope > .ph");
+  if (!body || !ph) return;
+  body.querySelectorAll(":scope > .pu").forEach((x) => x.remove());
+  const host = document.createElement("div");
+  (host.className = "pu"), (host.innerHTML = pdDrawings()), ph.after(host);
+  body.querySelectorAll(":scope > .tw, :scope > .pl-filters").forEach((x) => (x.style.display = "room" === pdGroup ? "none" : ""));
 }
 let pdPlusOpen = "";
 function pdPlusItems(v) {
@@ -410,7 +419,15 @@ function pdDraw() {
   const v = view;
   if (!PD_PAGES[v]) return;
   // inside a job the register is the job's (its Documents tab); the field keeps its own sheets
-  if (!puOffice() || ("plans" === v && puInJob())) return void puDrop(v);
+  const out = () => document.querySelectorAll("#plans-body > .pu").forEach((x) => x.remove());
+  if (!puOffice() || ("plans" === v && puInJob())) return void (puDrop(v), out());
+  if ("plans" === v) {
+    try {
+      return void pdDrawPlans();
+    } catch (e) {
+      return void console.warn("drawings", e);
+    }
+  }
   const host = puHost(v);
   if (!host) return;
   try {

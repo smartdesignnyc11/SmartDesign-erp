@@ -150,7 +150,15 @@ function fbsTab() {
   const sub = [...document.querySelectorAll("#subnav .on, .sub-tabs .on")].find(fbsVis),
     seg = [...document.querySelectorAll(".view.on .seg .on, .view.on .ctabs .on, .view.on [role=tab][aria-selected=true]")].find(fbsVis),
     t = (el) => fbsTxt(el).replace(/\s*\d+\+?$/, "").trim();
-  return [sub && t(sub), seg && t(seg)].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(" · ").slice(0, 70);
+  // a page with no tab row (the 11-03 pages: job, vendor, room and status are filters) is placed by its filters as they
+  // read: the chips that are on, else each filter's choice ("Job: All")
+  let flt = "";
+  if (!sub && !seg) {
+    const chips = [...document.querySelectorAll(".view.on .pu-chip[aria-pressed=true], .view.on .jp-chip.on, .view.on .ac-chip.on")].filter(fbsVis).map(t),
+      sels = [...document.querySelectorAll(".view.on select.pu-sel")].filter(fbsVis).map((s) => (s.selectedOptions[0] ? s.selectedOptions[0].textContent.trim() : ""));
+    flt = (chips.length ? chips : sels).filter(Boolean).join(" · ");
+  }
+  return [sub && t(sub), seg && t(seg), flt].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(" · ").slice(0, 70);
 }
 const FBS_NO = /\b(?:[A-Z]{1,6}-\d{2,4}(?:-\d{1,5})?|[A-Z]{2,6}\d{2,6})\b/;
 // the record open, as its number and title on screen (type, no, title)

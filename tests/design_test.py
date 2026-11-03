@@ -102,7 +102,8 @@ async def run(c, p, phone):
         # ---- DRAWINGS
         await open_entry(pg, phone, 'studio', 'Drawings')
         P = await page(pg)
-        c.ok(P and P['page'] == 'plans' and P['h2'] == 'Drawings', f'{dev} DRAWINGS: the page opens under its own heading ({P and P["h2"]})')
+        # Drawings is the job's register (the job in the header's switcher, plans_test) with what waits across jobs under it
+        c.ok(P and P['page'] == 'plans' and P['h2'].startswith('Drawings') and await pg.locator('.view.on [data-plrow]').count() > 0, f'{dev} DRAWINGS: the page opens under its own heading, over the job\'s register ({P and P["h2"]})')
         if P and P['page']:
             c.ok(P['tabs'] == 0, f'{dev} DRAWINGS: no tab rows ({P["tabs"]})')
             mine = P['mine'] or []

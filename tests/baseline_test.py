@@ -55,7 +55,15 @@ async def main():
         # Approvals card). The 4 waiting on a decision and not yet late left it.
         # Billing 4 -> 2 (lane 1, 2026-10-26, TRIAGE class 2's accept): 121 State is billed ahead, so its application and
         # the windows' stored materials are held rows with the reason, not items to bill or send
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 17, 'money': 6, 'billing': 3}, f"rail badges {r['badges']}")
+        # Purchasing 17 -> 0 for the owner (the 11-03 Purchasing pages, docs/mockups/purchasing/SPEC.md: Needs You counts
+        # only the person's own next taps; the owner's menu carries no counts and his Today only the escalations). The
+        # coordinator's Buy Board reads 8 and the PM's 1 (purchasing_test pages). One number: the owner's Buy Board page
+        # shows no Needs You count either, checked below.
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 0, 'money': 6, 'billing': 3}, f"rail badges {r['badges']}")
+        ob = await pg.evaluate("""() => { view = 'proc'; render(); const v = document.querySelector('#v-proc');
+          const s = v && v.querySelector('[data-pusec="mine"]'); return { sec: !!s, n: s ? s.querySelectorAll('.pu-sh .n').length : -1,
+            rows: s ? s.querySelectorAll('[data-purow]').length : -1, rail: needs('buy') }; }""")
+        c.ok(ob['sec'] and ob['n'] == 0 and ob['rows'] == 0 and ob['rail'] == 0, f"the owner's Buy Board shows no Needs You count, as his rail ({ob})")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
         # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)
