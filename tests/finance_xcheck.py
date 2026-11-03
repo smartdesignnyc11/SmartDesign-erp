@@ -11,6 +11,7 @@ The run ends with `N flags` and exits 1 when N > 0.
   python3 finance_xcheck.py --figure cash   only one figure family (cash, ar, unmatched, ap, wip, backlog,
                                             net, safe, rtb, job121, ledger, stock); repeatable or comma-separated
   python3 finance_xcheck.py --figure invariants   only the ledger invariants (below)
+  python3 finance_xcheck.py --figure money        only the money definitions (BACKLOG §1.35, below)
   python3 finance_xcheck.py --json          machine-readable result (flags, every reading, not-shown notes)
   python3 finance_xcheck.py -v              also print every reading that agreed
 
@@ -24,6 +25,19 @@ later lane: each one walks all clients and every invoice and payment, the Live J
   INV ONE ANSWER    one record's "is it a deposit" has one answer across the ledger (2400 vs 4xxx), the line
                     figures (sovBilled, lineFin's deposit share), the printout (cxKind) and invIsDeposit; a sent
                     document whose print and books differ is allowed only when a Controller finding names it
+
+The money definitions (the Accounting lane, 11-03; BACKLOG §1.35). Each figure is recomputed from the records by its
+definition and compared with what prints it (--figure money):
+  INV SAFE TO SPEND       the set-aside is cash received with a bank line less earned, job by job, never below $0, and
+                          each forecast week carries it; Safe to Spend is the lower of ours today and that low; sending
+                          an unpaid invoice moves it by $0; a payment moves it by the cash less what it sets aside
+  INV ONE JOB COST        jobCostPosted's posted cost is the P&L by project row; posted plus not yet posted is the job's own
+                          figure; its parts add up; jobs posted plus no job is the P&L's job cost
+  INV ONE BILLED AHEAD    Billed Ahead of the Work is the lines above zero; every row and finding prints that, never a net
+  INV ONE TO BILL         every finding that says bill names the job's or line's to-bill figure (toBill)
+  INV ONE DATE            a vendor's bank-detail change reads as its record's date wherever named, never "N days ago"
+  INV CLOSE POSTS THE SCHEDULE  the ledger bridge's "the close posts" is wipAtClose; after the close 2500/1200 by job
+                          equal the WIP schedule at the month end as read before it
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -56,7 +70,10 @@ PINNED = {
     'backlog':         582941,   # contract - earned ($582,940.76; $581,408.29 before truthpct)
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
     'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
-    'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
+    'safe':            104999,   # safe to spend ($104,999.32: the Accounting lane, 11-03, BACKLOG §1.35 item 1, an approved
+                                 # definition: the set-aside is cash received with a bank line less earned, job by job,
+                                 # 121 State's $169,750 less $122,626 = $47,124, not all of Over-Billed (WIP) $156,274, which
+                                 # set aside $92,265 billed and never paid; -$4,150.74 before, -$2,618.27 before truthpct)
     'rtb':             32331,    # ready to bill (lane 1, round three, 2026-10-26, the month walk's E248: a job billed ahead on the whole still bills every line behind its measure and holds only the lines ahead, so 121 State's application, $12,651 on framing and electrical, is ready again with the reason; the windows' stored materials, on a line itself ahead, stay held; $19,680 / 2 rows before)
                                  # (lane 1, round one, 2026-10-26: TRIAGE class 2's accept, nothing proposed on a job billed ahead: 121 State's application $12,651 and the windows' stored materials, now $10,170, are held with the reason; $46,301 / 4 rows before)
                                  # (before that: $47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
@@ -71,14 +88,19 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants'}.get(
+                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants',
+                    'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
+                    'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER'}
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER',
+         'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
+         'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
+         'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -223,7 +245,9 @@ async def check_role(pg, R, uid):
         R.money('cash', S('Home brief › Accounting card "Cash on the Books"'), t, r'Cash on the books\s*\n\s*' + MONEY, required=not pulse)
         R.money('cash', S('Home brief › Cash sentence'), t, r'Cash: ' + MONEY + r' in the bank')
         R.money('safe', S('Home brief › Accounting card "Safe to Spend"'), t, r'Safe to spend\s*\n\s*' + MONEY, required=not pulse)
-        R.money('safe', S('Home brief › Cash sentence'), t, r'but ' + MONEY + r' short', sign=-1)
+        # the sentence reads "but $X short" when Safe to Spend is negative, "$X safe to spend" when it is not
+        if re.search(r'but ' + MONEY + r' short', t or ''): R.money('safe', S('Home brief › Cash sentence'), t, r'but ' + MONEY + r' short', sign=-1)
+        else: R.money('safe', S('Home brief › Cash sentence'), t, r'in the bank, ' + MONEY + r' safe to spend', required=False)
         R.money('ar', S('Home brief › Accounting card "Receivables"'), t, r'Receivables\s*\n\s*' + MONEY, required=not pulse)
         R.money('ap_bills', S('Home brief › Accounting card "Payables"'), t, r'Payables\s*\n\s*' + MONEY, required=not pulse)
         R.money('ap_payroll_due', S('Home brief › Accounting card'), t, MONEY + r'[^\n]{0,20}past due', required=False)
@@ -249,36 +273,41 @@ async def check_role(pg, R, uid):
         R.money('backlog', S('Dashboard › Backlog & Pipeline'), t, MONEY + r'\s*\n\s*(?i:remaining contract on signed work)', required=False)
         R.count('pct121', S('Dashboard › Margin at Completion'), t, r'121 State Street · bid[^\n]*· (\d+)% complete', required=False, unit='%')
 
-    # Accounting overview tiles
-    if gate('ovmoney', 'Accounting overview'):
-        await nav(pg, 'money', 'ovmoney'); t = await text_of(pg, 'ovmoney')
-        R.count('unmatched_n', S('Accounting overview › tile "No Record Behind"'), t, r'No Record Behind\s*\n\s*(\d+)')
-        R.money('unmatched_amt', S('Accounting overview › Today\'s Review'), t, r'bank lines with no receipt, bill or payroll behind them · ' + MONEY)
-        for k in ('cash', 'ar', 'ap_bills', 'safe', 'wip_over', 'net'):
-            R.note(k, S('Accounting overview'), 'not shown on the overview tiles')
-
-    # Banking
+    # The 11-03 Accounting pages (docs/mockups/accounting/): the Accounting overview forwards to Banking, and each page
+    # states its figures once on its front (Needs You, then where things stand); the old tiles are gone.
+    # Banking: To Review is the one money-in-and-out queue; the Accounts card carries each account's balance
     if gate('bank', 'Banking'):
         await nav(pg, 'money', 'bank'); t = await text_of(pg, 'bank')
-        R.money('cash', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n\s*' + MONEY)
-        R.count('unmatched_n', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*(\d+)')
-        R.money('unmatched_amt', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_payroll_due', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n[^\n]*\n[^\n]*?' + MONEY + r' past due', required=False)
+        R.money('cash', S('Banking › Accounts "Chase Business Checking"'), t, r'Chase Business Checking[^\n]*\n[^\n]*?\s*' + MONEY)
+        R.count('unmatched_n', S('Banking › Needs You "lines to match"'), t, r'(\d+) lines? to match')
+        R.count('unmatched_n', S('Banking › chip "To Review"'), t, r'To Review\s*(\d+)')
+        R.money('unmatched_amt', S('Banking › Needs You "at stake"'), t, MONEY + r' at stake')
 
-    # Bills and Payroll
+    # Bills and Payroll: the payroll past pay day on Needs You; the bill the bank paid before approval under With Others
     if gate('ap', 'Bills and Payroll'):
         await nav(pg, 'money', 'ap'); t = await text_of(pg, 'ap')
-        R.money('ap_payroll_due', S('Bills and Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_paid_unappr', S('Bills and Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
-        # owed bills: approved and unpaid. The page counts them as "Due This Week" + overdue bills; nothing else is owed.
+        R.money('ap_payroll_due', S('Bills and Payroll › Needs You "Payroll"'), t, r'Payroll [^\n]*?· ' + MONEY + r' · \d+ days? past pay day')
+        R.money('ap_paid_unappr', S('Bills and Payroll › With Others'), t, r'(?i:with others)[\s\S]*?WW-2026-118[^\n]*\n(?:[^\n]*\n)?\s*' + MONEY)
         R.money('ap_bills', S('Bills and Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
 
-    # Billing
+    # Billing: what is ready to bill is Needs You's rows (their sum and count); what is owed is Collections' aging
     if gate('billing', 'Billing'):
         await nav(pg, 'billing', 'billing'); t = await text_of(pg, 'billing')
-        R.money('rtb', S('Billing › tile "Ready to Bill"'), t, r'Ready to Bill\s*\n\s*' + MONEY)
-        R.count('rtb_n', S('Billing › tile "Ready to Bill"'), t, r'Ready to Bill\s*\n[^\n]*\n\s*(\d+) items? earned')
-        R.money('ar', S('Billing › tile "Sent and Unpaid"'), t, r'Sent and Unpaid\s*\n\s*' + MONEY)
+        tl = (t or '').lower()
+        need = t[tl.find('needs you'):tl.find('collections')] if 'collections' in tl else ''
+        rows = [parse_money(m)[0] for m in re.findall(MONEY + r' ready to bill', need)]
+        if R.want('rtb'):
+            v = round(sum(rows)); ok = abs(v - PINNED['rtb']) <= len(rows)
+            R.readings.append({'figure': 'rtb', 'surface': S('Billing › Needs You (ready rows, summed)'), 'raw': str(rows), 'value': v, 'expected': PINNED['rtb'], 'ok': ok})
+            if not ok: R.flag('rtb', S('Billing › Needs You (ready rows, summed)'), fmt(v), fmt(PINNED['rtb']))
+            ok = len(rows) == PINNED['rtb_n']
+            R.readings.append({'figure': 'rtb_n', 'surface': S('Billing › Needs You (ready rows)'), 'raw': str(len(rows)), 'value': len(rows), 'expected': PINNED['rtb_n'], 'ok': ok})
+            if not ok: R.flag('rtb_n', S('Billing › Needs You (ready rows)'), str(len(rows)), str(PINNED['rtb_n']))
+        aging = [parse_money(m)[0] for m in re.findall(r'(?:Current|1 to 30 Days|31 to 60 Days|Over 60 Days)\s*\n\s*' + MONEY, t)]
+        if R.want('ar'):
+            v = round(sum(aging)); ok = abs(v - PINNED['ar']) <= 2 and len(aging) == 4
+            R.readings.append({'figure': 'ar', 'surface': S('Billing › Collections (the aging, summed)'), 'raw': str(aging), 'value': v, 'expected': PINNED['ar'], 'ok': ok})
+            if not ok: R.flag('ar', S('Billing › Collections (the aging, summed)'), fmt(v), fmt(PINNED['ar']))
 
     # Ledger: Overview, Statements, Accounts, Close
     if gate('gl', 'Ledger'):
@@ -287,7 +316,13 @@ async def check_role(pg, R, uid):
         R.count('unmatched_n', S('Ledger › Overview bridge'), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S('Ledger › Overview bridge'), t, r'bank items? not yet matched — ' + MONEY)
         R.money('net', S('Ledger › Overview bridge "Net income in the management view"'), t, r'Net income in the management view[^\t\n]*\t\s*' + MONEY)
-        R.money('wip_over', S('Ledger › Overview bridge "WIP adjustment not yet posted"'), t, r'WIP over/under-billing adjustment not yet posted[^\t\n]*\t\s*' + MONEY, absval=True)
+        # the WIP not yet on the ledger is split by the close that posts it (BACKLOG §1.35 item 3): the next close posts
+        # the schedule at its month end, the movement after it posts at the close after; together they are Over-Billed
+        if R.want('wip_over'):
+            parts = [abs(parse_money(m)[0]) for m in re.findall(r'(?:WIP adjustment the [^\t\n]*close posts|WIP movement since|WIP over/under-billing adjustment not yet posted)[^\t\n]*\t\s*' + MONEY, t)]
+            v = round(sum(parts)); ok = bool(parts) and abs(v - PINNED['wip_over']) <= len(parts)
+            R.readings.append({'figure': 'wip_over', 'surface': S('Ledger › Overview bridge (WIP rows, summed)'), 'raw': str(parts), 'value': v, 'expected': PINNED['wip_over'], 'ok': ok})
+            if not ok: R.flag('wip_over', S('Ledger › Overview bridge (WIP rows, summed)'), fmt(v) if parts else 'not shown', fmt(PINNED['wip_over']))
         R.money('ap_payroll_due', S('Ledger › Overview bridge'), t, MONEY + r' of payroll await approval', required=False)
         ledger_net = None
         m = re.search(r'Net income on the ledger\t\s*' + MONEY, t)
@@ -712,6 +747,238 @@ INV_DEP_JS = INV_SUM + """
   });
   return out;"""
 
+# ---- the money definitions (BACKLOG §1.35, the Accounting lane, 11-03): one question, one number, from the records ----
+# Each is recomputed here from the records by its own definition, never by calling the function that prints it, and
+# then compared with every place that prints it.
+INV_MONEY_JS = """
+  const out = { safe: [], jobcost: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  const near = (a, b, t) => Math.abs((+a || 0) - (+b || 0)) <= (t == null ? 0.01 : t);
+  const fresh = async () => { if (typeof payBackReset === 'function') payBackReset(); render(); await sleep(120); };
+  const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
+  // 1. Safe to Spend. The set-aside, job by job: cash received on the job's invoices that a bank line backs, less earned
+  const banked = (c, py) => typeof payBankedAmt === 'function' ? payBankedAmt(c, py) : (payBanked(c, py) ? +py.amount : 0);
+  const setAsideFromRecords = () => {
+    let tot = 0; const by = {};
+    DB.projects.forEach(p => {
+      const c = DB.clients.find(x => x.id === p.clientId); if (!c) return;
+      const ids = new Set((c.invoices || []).filter(i => i.projectId === p.id && !['void', 'draft'].includes(i.status)).map(i => i.id));
+      const got = r2((c.payments || []).filter(py => !py.unapplied && ids.has(py.invoiceId)).reduce((a, py) => a + banked(c, py), 0));
+      const amt = r2(Math.max(0, got - jobFin(p).earned)); by[p.id] = amt; tot = r2(tot + amt);
+    });
+    return { tot, by };
+  };
+  const read = () => { const X = safeToSpend(); return { safe: X.safe, ours: X.B.trulyOurs, cash: X.B.cash, cashToday: X.B.cashToday, sa: X.B.setAside, low: X.low, lowOurs: X.F.lowOurs, weeks: X.F.weeks }; };
+  await fresh();
+  let A = setAsideFromRecords(), X = read();
+  say('safe', near(X.sa, A.tot), `companyBalance set-aside ${X.sa}`, `${A.tot} from the payments with a bank line, less earned, job by job`);
+  say('safe', near(X.ours, r2(X.cashToday - A.tot)), `ours today ${X.ours}`, `cash today ${X.cashToday} less ${A.tot}`);
+  const lowW = X.weeks && X.weeks.length ? r2(Math.min(...X.weeks.map(w => w.balance - (w.setAside == null ? NaN : w.setAside)))) : NaN;
+  say('safe', near(X.low, lowW), `13-week low after the set-aside ${X.low}`, `${lowW}: each week's balance less its set-aside`);
+  say('safe', near(X.safe, Math.min(X.ours, lowW)), `Safe to Spend ${X.safe}`, `the lower of ${X.ours} and ${lowW}`);
+  say('safe', X.weeks && X.weeks.every(w => w.setAside != null && w.setAside >= 0), 'every forecast week carries its set-aside', 'w.setAside >= 0 on all 13 weeks');
+  say('safe', near(stsSafe(), X.safe) && near(PRED.safeToSpend.figure(), X.safe), `stsSafe ${stsSafe()} · PRED ${PRED.safeToSpend.figure()}`, `${X.safe} everywhere`);
+  out.safeNow = X.safe;
+  // sending an invoice nobody has paid moves Safe to Spend by $0 (billed and unpaid is never set aside)
+  const c121 = DB.clients.find(c => (c.invoices || []).some(i => i.projectId === 'p121'));
+  const inv = newDoc(c121, 'invoice', { mode: 'items' });
+  inv.projectId = 'p121'; inv.lines = [{ id: uid('l'), item: 'Invariant check: billed, not paid', qty: 1, unit: 'ls', rate: 25000 }];
+  if (!c121.invoices.includes(inv)) c121.invoices.push(inv);
+  docTotal(inv); inv.status = 'sent'; inv.date = today(); inv.due = iso(addDays(parse(today()), 30)); docMark(inv);
+  await fresh();
+  let Y = read();
+  say('safe', near(Y.ours, X.ours) && near(Y.safe, X.safe), `sent $25,000 unpaid: ours ${X.ours} -> ${Y.ours}, safe ${X.safe} -> ${Y.safe}`, 'both unchanged');
+  // a payment with a bank line on a job already collected ahead of its work: Safe to Spend moves by the cash less what
+  // it sets aside, which is the whole payment (it is all collected ahead)
+  const pay = (c, i, amt, id) => {
+    DB.txns.push(txnStamp({ id: id, date: today(), acct: ((DB.accounts || []).find(a => a.type === 'bank') || {}).id || 'ac1', desc: 'DEPOSIT ' + id, amt: amt, cat: 'income', source: 'ofx', status: 'categorized' }, 'stmt:finx', id));
+    c.payments.push({ id: 'p_' + id, date: today(), amount: amt, invoiceId: i.id, txnId: id, method: 'ACH' });
+  };
+  X = Y; pay(c121, inv, 25000, 'fx_sa121'); await fresh(); Y = read(); A = setAsideFromRecords();
+  say('safe', near(Y.sa - X.sa, 25000) && near(Y.ours - X.ours, (Y.cash - X.cash) - 25000), `paid $25,000 on 121 State (collected ahead): cash ${r2(Y.cash - X.cash)}, set-aside ${r2(Y.sa - X.sa)}, ours ${r2(Y.ours - X.ours)}`, 'set-aside +25,000; ours moves by cash less 25,000');
+  // on a job not yet collected ahead: only the part beyond what the job has earned is set aside
+  const p140 = DB.projects.find(p => p.id === 'p140'), c140 = p140 && DB.clients.find(c => c.id === p140.clientId);
+  const i140 = c140 && (c140.invoices || []).find(i => i.projectId === 'p140' && !['void', 'draft', 'paid'].includes(i.status));
+  if (i140) {
+    const before = setAsideFromRecords().by.p140 || 0, earned = jobFin(p140).earned, bal = r2(docTotal(i140).total);
+    X = read(); pay(c140, i140, bal, 'fx_sa140'); await fresh(); Y = read();
+    const want = r2(Math.max(0, bal - earned) - before);
+    say('safe', near(Y.sa - X.sa, want) && near(Y.ours - X.ours, (Y.cash - X.cash) - want), `paid ${bal} on 140 Prospect (earned ${earned}): set-aside ${r2(Y.sa - X.sa)}, ours ${r2(Y.ours - X.ours)}, cash ${r2(Y.cash - X.cash)}`, `set-aside +${want}`);
+  } else say('safe', false, 'no open invoice on 140 Prospect', 'the seed has INV-2026-D140-R open');
+  // 2. one job cost: the posted cost is the P&L by project row; posted plus not yet posted is the job's own figure
+  if (typeof jobCostPosted !== 'function' || typeof jobCostTie !== 'function') { say('jobcost', false, 'no one job-cost function (jobCostPosted, jobCostTie)', 'one function every screen reads'); return out; }
+  DB.projects.forEach(p => {
+    const C = jobCostPosted(p), J = jobFin(p);
+    const S = rpPL(['2000-01-01', today()]), row = (S.rows || []).find(x => x.id === p.id);
+    if (!row && !(J.actual > 0)) return;
+    say('jobcost', near(C.posted, row ? row.cost : 0), `${p.project.name}: jobCost posted ${C.posted}`, `P&L by project ${row ? row.cost : 0}`);
+    say('jobcost', near(r2(C.posted + C.notPosted), J.actual), `${p.project.name}: posted ${C.posted} + not yet posted ${C.notPosted}`, `the job's ${J.actual}`);
+    say('jobcost', near(C.parts.reduce((a, x) => a + x.amt, 0), C.posted), `${p.project.name}: parts ${C.parts.map(x => x.id + ' ' + x.amt).join(', ')}`, `sum to ${C.posted}`);
+    say('jobcost', Math.abs(C.notPosted) < 0.005 || !!C.notPostedLabel, `${p.project.name}: ${C.notPosted} not yet posted`, 'a labelled line');
+  });
+  const T = jobCostTie(['2026-01-01', today()]), P = companyPL(['2026-01-01', today()]);
+  say('jobcost', near(T.posted + T.noJob, P.cogsT) && near(T.diff, r2(T.noJob - T.notPosted)), `jobs posted ${T.posted} + no job ${T.noJob}; jobs' own ${T.jobs}`, `the P&L's job cost ${P.cogsT}; the gap is ${r2(T.noJob - T.notPosted)}: ${T.why}`);
+  return out;"""
+
+# the same, on a fresh page: one billed-ahead, one to-bill, the bank change's date, the close
+INV_MONEY2_JS = """
+  const out = { ahead: [], tobill: [], bankdate: [], close: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
+  const money_ = s => +String(s).replace(/[$,]/g, '');
+  const rtb = readyToBill(), F = analystFindings();
+  if (typeof billedAhead !== 'function') window.billedAhead = () => ({ total: NaN });
+  if (typeof toBill !== 'function') window.toBill = () => ({ total: NaN, ready: NaN, held: NaN, rows: [], heldRows: [] });
+  if (typeof wipAtClose !== 'function') window.wipAtClose = (ym) => { const P = fin2WipPlan(ym); return { toPost: P.toPost, rows: P.rows.map(r => ({ p: r.p, schedule: r2(r.over - r.under) })) }; };
+  // 3. Billed Ahead of the Work: the lines' own billed less measured value, above zero (from pgRows, not pbAhead)
+  DB.projects.forEach(p => {
+    let rows = []; try { rows = pgRows(p.id) || []; } catch (e) {}
+    const A = typeof pbAhead === 'function' ? pbAhead(p.id) : { lines: [], total: 0 };
+    const lines = A.lines || [];
+    const sum = r2(lines.reduce((a, l) => a + r2((+l.scheduled || 0) * (+l.net || 0) / 100), 0));
+    const one = typeof billedAhead === 'function' ? billedAhead(p.id).total : null;
+    if (!lines.length && !one) return;
+    say('ahead', one != null && Math.abs(one - sum) < 0.02, `${p.project.name}: billedAhead ${one}`, `the ${lines.length} lines above zero add to ${sum}`);
+    // every row, held row and finding that names billing ahead on this job prints that figure, and no net variant
+    const texts = rtb.rows.concat(rtb.held).filter(r => r.p && r.p.id === p.id).map(r => strip(r.why) + ' ' + strip(r.title))
+      .concat(F.filter(f => (f.title || '').includes(shortName(p))).map(f => strip(f.title) + ' ' + strip(f.detail)));
+    texts.forEach(t => {
+      if (!/billed ahead/i.test(t)) return;
+      const bad = /\\bnet \\$[\\d,]+/i.test(t);
+      const figs = [...t.matchAll(/Billed Ahead of the Work \\$([\\d,]+)/g)].map(m => money_(m[1]));
+      say('ahead', !bad && figs.every(v => Math.abs(v - Math.round(sum)) <= 1), `${p.project.name}: "${t.slice(0, 220)}"`, `Billed Ahead of the Work ${Math.round(sum)}, no net figure`);
+    });
+  });
+  // 4. to bill: every finding that tells someone to bill names the job's or the line's to-bill figure
+  F.forEach(f => {
+    const t = strip(f.title) + '. ' + strip(f.detail);
+    t.split(/[;.]/).forEach(part => {
+      if (!/\\bbill (it|them)\\b|\\bto bill\\b/i.test(part) || /ready to bill/i.test(part)) return;
+      const m = part.match(/\\$([\\d,]+)/); if (!m) return;
+      const v = money_(m[1]);
+      const pid = (DB.projects.find(p => t.includes(shortName(p)) || t.includes(p.project.name)) || {}).id;
+      const figs = pid ? [toBill(pid).total, toBill(pid).ready, toBill(pid).held].concat(toBill(pid).rows.concat(toBill(pid).heldRows).map(r => r.amount)) : [];
+      say('tobill', figs.some(x => Math.abs(Math.round(x) - v) <= 1), `${f.area}: "${part.trim().slice(0, 200)}"`, `one of the to-bill figures ${figs.map(x => Math.round(x)).join(', ') || '(no job)'}`);
+    });
+  });
+  // 5. one event, one date: a bank-detail change reads as its own record's date wherever it is named
+  const vs = (DB.vendors || []).filter(v => v.bankChangedAt);
+  const surfaces = [];
+  for (const v of ['verify', 'bank', 'home', 'ap']) { try { view = v; render(); await sleep(150); surfaces.push([v, document.querySelector('.view.on') ? document.querySelector('.view.on').innerText : '']); } catch (e) {} }
+  surfaces.push(['analyst', F.map(f => strip(f.title) + '. ' + strip(f.detail)).join('\\n')]);
+  try { const pays = (typeof verifyAll === 'function' ? verifyAll() : null); } catch (e) {}
+  vs.forEach(v => surfaces.forEach(([w, t]) => t.split('\\n').forEach(line => {
+    if (!line.includes(v.name) || !/bank(ing)? (details )?changed|changed its bank/i.test(line)) return;
+    say('bankdate', line.includes(fmt(v.bankChangedAt)) && !/\\b\\d+ days? ago\\b/.test(line), `${w}: "${line.trim().slice(0, 220)}"`, `${v.name}'s change dated ${fmt(v.bankChangedAt)}, never "N days ago"`);
+  })));
+  // 6. what the close posts is the WIP schedule at the month end, job by job; after the close 2500/1200 equal it
+  const ym = fin2CloseYm();
+  if (ym) {
+    const W = wipAtClose(ym);
+    view = 'gl'; render(); await sleep(200);
+    const gl = document.querySelector('.view.on') ? document.querySelector('.view.on').innerText : '';
+    const posts = gl.split('\\n').filter(l => /posts at the|close posts/i.test(l) && /\\$[\\d,]/.test(l));
+    posts.forEach(l => {
+      const m = l.match(/close posts[^\\t]*\\t\\s*([\\u2212\\-]?\\$[\\d,.]+)/);
+      if (!m) return;
+      say('close', Math.abs(Math.abs(money_(m[1].replace(/[\\u2212\\-]/, ''))) - W.toPost) < 0.01, `Ledger bridge: "${l.trim().slice(0, 200)}"`, `the ${ym} close posts ${W.toPost}`);
+    });
+    say('close', posts.some(l => /close posts/i.test(l)), `Ledger bridge rows: ${posts.map(l => l.slice(0, 80)).join(' | ') || 'none'}`, `a row naming what the ${ym} close posts`);
+    signIn('u_owner'); render(); await sleep(100);
+    // the blockers are the close's own gate (closetie_test works them); this check is what the close posts once it runs
+    const keepB = fin2CloseBlockers; fin2CloseBlockers = () => [];
+    let r; try { r = fin2RunClose(ym, 'finance_xcheck: the close posts the WIP schedule'); } finally { fin2CloseBlockers = keepB; }
+    if (!r.ok) say('close', false, `the close refused: ${r.why}`, 'the close runs');
+    else {
+      const end = fin2End(ym);
+      W.rows.forEach(x => {
+        const B = (a) => { const G = glBalances({ entityId: 'all', to: end, acct: a, projectId: x.p.id }); return G[a] ? G[a].bal : 0; };
+        const J = jobFin(x.p, ['', end]);
+        say('close', Math.abs(r2(B('2500') - B('1200')) - x.schedule) < 0.01 && Math.abs(r2((J.over || 0) - (J.under || 0)) - x.schedule) < 0.01, `${x.p.project.name}: 2500/1200 ${r2(B('2500') - B('1200'))}, schedule ${r2((J.over || 0) - (J.under || 0))}`, `${x.schedule}, as read before the close`);
+      });
+    }
+  }
+  return out;"""
+
+# the chief of staff's review (11-03): reading never writes; a deposit has one home at the close; the old figure is gone
+INV_MONEY3_JS = """
+  const out = { readonly: [], closeinc: [], oldword: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  // 1. reading any money figure leaves the data, the audit trail included, byte for byte as it was: below the audit
+  // trail's 5,000-row cap and at it (where a splice-back once dropped a real row and left a preview row)
+  const reads = () => { safeToSpend(); stsSafe(); companyBalance(); cashForecast(); setAside(); jobCostTie(['2026-01-01', today()]);
+    DB.projects.forEach(p => { jobCostPosted(p); billedAhead(p.id); toBill(p.id); }); wipAtClose(); wipPlanAtClose(fin2CloseYm());
+    acBillNeeds(''); acApNeeds(); acBooksNeeds(); acBankReview(); acCollections(''); PRED.safeToSpend.rows(); stsWhy(); };
+  for (const cap of [false, true]) {
+    if (cap) { DB.audit = DB.audit || []; while (DB.audit.length < 5000) DB.audit.push({ id: 'fx' + DB.audit.length, kind: 'fixture', action: 'fill', note: 'finance_xcheck: the audit cap' }); }
+    reads();   // once, so anything a first read derives (the ledger's own sync) is in place
+    const before = JSON.stringify(DB);
+    reads();
+    const after = JSON.stringify(DB);
+    let at = -1; if (before !== after) { at = [...before].findIndex((ch, i) => ch !== after[i]); }
+    say('readonly', before === after, `${cap ? 'at' : 'below'} the audit cap (${DB.audit.length} rows): ${before === after ? 'unchanged' : 'changed near ' + before.slice(Math.max(0, at - 80), at + 80)}`, 'the data byte for byte as it was');
+  }
+  // 2. after a close, ledger income by job equals the management view (one home for a deposit: 140 Prospect's $24,000
+  // retainer sits in 2400; the close never posts it again into 2500)
+  appSetDay('2026-10-02'); signIn('u_owner'); render(); await sleep(150);
+  const keepB = fin2CloseBlockers; fin2CloseBlockers = () => [];
+  const runs = [];
+  try { for (const ym of ['2026-08', '2026-09']) { const r = fin2RunClose(ym, 'finance_xcheck: a deposit has one home at the close'); runs.push([ym, r.ok, r.why || '']); } }
+  finally { fin2CloseBlockers = keepB; }
+  say('closeinc', runs.every(x => x[1]), `the August and September closes: ${JSON.stringify(runs)}`, 'both run');
+  const end = '2026-09-30', T = {}; glAccounts().forEach(a => T[a.id] = a.type);
+  const S = rpPL(['2026-01-01', end]);
+  DB.projects.forEach(p => {
+    const led = r2(glLines({ entityId: 'all', projectId: p.id, to: end }).filter(l => T[l.acct] === 'revenue').reduce((a, l) => a + (+l.cr || 0) - (+l.dr || 0), 0));
+    const row = (S.rows || []).find(x => x.id === p.id), mg = r2(row ? row.income : 0);
+    if (!led && !mg) return;
+    say('closeinc', Math.abs(led - mg) < 1, `${p.project.name}: ledger income ${led}`, `the management view's ${mg}`);
+  });
+  // 3. the old Safe to Spend wording and figure are gone from every screen and Ask answer that names cash
+  appSetDay('2026-09-03'); render(); await sleep(100);
+  const OLD = /Truly ours =|billed ahead of work \\$|over-billed \\(WIP, cost-to-cost: client money|lower of truly ours|[\\u2212-]\\$4,151\\b|[\\u2212-]\\$4,150\\.74/;
+  for (const u of ['u_owner', 'u_controller']) {
+    signIn(u); render(); await sleep(100);
+    for (const v of ['home', 'dashboard', 'bank', 'ap', 'gl', 'billing', 'reports']) {
+      try { setView(v); await sleep(200); } catch (e) { continue; }
+      const t = (document.querySelector('.view.on') || {}).innerText || '';
+      const m = t.match(OLD);
+      say('oldword', !m, `${u} ${v}: ${m ? '"' + t.slice(Math.max(0, m.index - 80), m.index + 80) + '"' : 'clear'}`, 'no old Safe to Spend wording or figure');
+    }
+    for (const q of ['how much is safe to spend', 'what is our cash position', 'how much cash do we have', 'what is our runway']) {
+      let a = ''; try { const r = await paAsk(q); a = typeof r === 'string' ? r : JSON.stringify(r); } catch (e) { a = String(e); }
+      const m = a.match(OLD);
+      say('oldword', !m, `${u} Ask "${q}": ${m ? a.slice(Math.max(0, m.index - 80), m.index + 80) : 'clear'}`, 'no old Safe to Spend wording or figure');
+    }
+  }
+  return out;"""
+
+async def check_money(p, R):
+    """BACKLOG §1.35: one figure per question, recomputed from the records, the same everywhere."""
+    keys = ['inv_safe', 'inv_jobcost', 'inv_ahead', 'inv_tobill', 'inv_bankdate', 'inv_close', 'inv_readonly', 'inv_closeinc', 'inv_oldword']
+    if not any(R.want(k) for k in keys): return
+    js = lambda body: "async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); try { " + body + " } catch (e) { return { error: String(e && e.stack || e) }; } }"
+    for body in (INV_MONEY_JS, INV_MONEY2_JS, INV_MONEY3_JS):
+        b, pg, errs = await open_app(p)
+        await sign_in(pg, 'u_controller')
+        res = await pg.evaluate(js(body))
+        if 'error' in res:
+            R.flag('inv_safe', 'the money invariants could not run', res['error'][:300], 'they run'); await b.close(); continue
+        for k, rows in res.items():
+            if not isinstance(rows, list): continue
+            key = 'inv_' + k
+            if not R.want(key): continue
+            if not rows and k in ('ahead', 'close', 'safe', 'jobcost', 'readonly', 'closeinc', 'oldword'):
+                R.flag(key, 'nothing read', 'no rows', 'at least one reading'); continue
+            for ok, seen, want in rows:
+                R.readings.append({'figure': key, 'surface': seen[:120], 'raw': seen, 'value': None, 'expected': want, 'ok': ok})
+                if not ok: R.flag(key, 'records', seen, want)
+                elif R.verbose: print('  ok', label(key), '|', seen[:140])
+        if 'safeNow' in res and R.want('safe') and abs(res['safeNow'] - PINNED['safe']) > 1:
+            R.flag('safe', 'safeToSpend() on the seed', res['safeNow'], PINNED['safe'])
+        for e in errs[:3]: R.flag('inv_safe', 'page', e[:200], 'no page errors')
+        await b.close()
+
 async def check_invariants(p, R):
     if not R.want('inv_dep'): return
     def read(key, surface, ok, seen, expected):
@@ -774,6 +1041,7 @@ async def main():
         await b.close()
         await check_stock(p, R)
         await check_invariants(p, R)
+        await check_money(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

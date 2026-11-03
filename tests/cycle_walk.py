@@ -993,7 +993,8 @@ def match_deposit(p, inv, dep):
         prop = sc.text[i: i + 400]
         p.expect(inv in prop, f'the app proposes the transfer for {inv}', prop[:200])
         c = next((x for x in sc.ctls if x.pos > i and x.action), None)
-        if c is None or not re.match(r'^(confirm|match|record|apply)', norm(c.label)):
+        # the 11-03 Banking page: on the phone a line is confirmed in its sheet, never from the list (Review opens it)
+        if c is None or not re.match(r'^(confirm|match|record|apply|review)', norm(c.label)):
             raise Stuck('match the Ashbys\' transfer', f'a Confirm or Match to {inv} on the bank line', sc, c.label if c else '')
         p.tap_ctl(c)
         sc = p.look()
@@ -1785,15 +1786,19 @@ def j10_week_money(p):
         c = None
         for m in re.finditer(r'(?m)^(?:\[\d+\] )?9/[3-8] · ', sc.text):   # the phone's cards carry their number in front
             x = next((y for y in sc.ctls if y.pos > m.start() and y.action), None)
-            if x is not None and norm(x.label) == 'confirm' and x.pos - m.start() < 700: c = x; break
+            # the 11-03 Banking page: on the phone the row's Review opens the line's sheet, where Confirm is
+            if x is not None and norm(x.label) in ('confirm', 'review') and x.pos - m.start() < 700: c = x; break
         if c is None: break
         p.tap_ctl(c)
-        if p.look().sheet:   # a confirmation that asks why (a payment before its bill)
+        stop = False
+        for _s in range(2):   # the line's sheet (the phone), then a confirmation that asks why (a payment before its bill)
+            if not p.look().sheet: break
             w = next((x for x in p.scr.ctls if not x.action and x.kind in ('input', 'text')), None)
             b = next((x for x in p.scr.actions('sheet') if re.match(r'^(confirm|save|match|yes)', norm(x.label))), None)
             if w is not None and b is not None: p.do_ctls([('type', w, 'Confirmed against the statement (controller, weekly close)'), ('tap', b)])
             elif b is not None: p.tap_ctl(b)
-            else: p._act('back'); break
+            else: p._act('back'); stop = True; break
+        if stop: break
     # the week's lines that need a category: the app's own suggestion accepted; a line the app cannot place is coded from what
     # the firm knows about it (KNOWN: the PM's pendants for the Ashbys; the designer's pendants for the Kleins, world_book E058)
     for _ in range(10):
@@ -1813,6 +1818,8 @@ def j10_week_money(p):
             c = next((c for c in sc.ctls if c.action and words in c.label and 'statement' in norm(c.label)), None)
             if c is None: continue
             p.tap_ctl(c)
+            # the 11-03 Banking page: on the phone a row opens the line's review sheet; Edit the Line is the form
+            if not p.scr.find('Category', field=True, exact=True) and p.look().find('Edit the Line', exact=True): p.tap('Edit the Line', exact=True)
             if not (p.scr.find('Category', field=True, exact=True) and p.scr.find('Job', field=True, exact=True)): p._act('back'); continue
             for verb, lab, val in (('pick', 'Category', cat_name), ('pick', 'Job', job_name)):   # the sheet may change under a pick
                 p.look(); p.do([(verb, lab, val)])
@@ -1831,7 +1838,9 @@ def j10_week_money(p):
     left = [l[:40] for l in re.findall(r'(?m)^9/[3-8] · [^\n]*', sc.text[k:end if end > k else len(sc.text)])] if k >= 0 else []
     p.expect(not left, 'every line of the week is matched or coded from its own proposal', f'{len(left)} of the week\'s lines still need a category: ' + '; '.join(left))
     # 2. the payroll from approved hours, for the owner
-    p.go('Accounting > Time and Crew', expect_menu=False)   # the 11-03 menu: Time and Crew under Accounting
+    # the 11-03 Accounting pages (docs/mockups/accounting/): Time and Crew is Bills and Payroll's Payroll chip
+    p.go('Accounting > Bills and Payroll', expect_menu=False)
+    p.tap('Payroll', exact=True)
     p.tap('Build Payroll from Approved Time', exact=True)
     sc = p.scr
     if sc.sheet:
