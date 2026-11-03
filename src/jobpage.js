@@ -333,10 +333,22 @@ function jpRisks() {
   try {
     A = attention().filter((a) => 3 === a.sev);
   } catch (e) {}
+  // a cost over its budget nobody has reviewed is at risk on this job, with Review (the overspend review the old page
+  // carried as a note, drawn and hidden: the job's first screen said nothing of it). The same people review it.
+  try {
+    "function" == typeof ovsAll &&
+      S &&
+      ["owner", "pm", "controller"].includes(role()) &&
+      ovsAll()
+        .filter((o) => o.p.id === S.id && !ovsReviewedBy(o))
+        .forEach((o) =>
+          A.push({ go: ["ovs", o.key], t: `Over budget: ${ovsWhat(o)}, +${money(o.over)}`, why: `${o.by.length ? `Taken over by ${o.by.map((x) => x.label).join(", ")}. ` : ""}${OVS_MONEY_LINE}`, when: "" }),
+        );
+  } catch (e) {}
   return A.sort((a, b) => String(a.when || "").localeCompare(String(b.when || "")));
 }
-const JP_RISK_VERB = { dec: "Get an Answer", mat: "Expedite", po: "Review the Order", bill: "Review the Bill", task: "Open the Task", insp: "Book It", iss: "Open the RFI", permit: "Open the Permit", action: "Open the Task", view: "Open" };
-const JP_RISK_KIND = { dec: "Decision", mat: "Order", po: "Order", bill: "Bill", task: "Schedule", insp: "Inspection", iss: "RFI", permit: "Permit", action: "Task", view: "Site" };
+const JP_RISK_VERB = { ovs: "Review", dec: "Get an Answer", mat: "Expedite", po: "Review the Order", bill: "Review the Bill", task: "Open the Task", insp: "Book It", iss: "Open the RFI", permit: "Open the Permit", action: "Open the Task", view: "Open" };
+const JP_RISK_KIND = { ovs: "Overrun", dec: "Decision", mat: "Order", po: "Order", bill: "Bill", task: "Schedule", insp: "Inspection", iss: "RFI", permit: "Permit", action: "Task", view: "Site" };
 function jpApprJob(a) {
   const o = a.open || {};
   if (o.project) return o.project;
@@ -441,7 +453,7 @@ function jpPanelRows(id, p) {
   if ("risk" === id)
     return jpRisks().map((a, i) => {
       const [k, rid] = a.go,
-        key = act(`risk:${i}`, () => ("view" === k ? jpGo(rid) : openEditor(k, rid)));
+        key = act(`risk:${i}`, () => ("view" === k ? jpGo(rid) : "ovs" === k ? ovsSheet(rid) : openEditor(k, rid)));
       return { key: key, kind: JP_RISK_KIND[k] || "Item", when: a.when ? fmt(a.when) : "", tone: "bad", title: a.t.replace(/^Decision: /, ""), why: [a.why, a.act].filter(Boolean).map((s) => String(s).trim().replace(/[^.!?]$/, "$&.")).join(" "), act: JP_RISK_VERB[k] || "Open" };
     });
   if ("appr" === id)
