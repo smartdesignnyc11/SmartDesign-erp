@@ -44,14 +44,20 @@ NUMS = r"""() => { const vis = e => !!e && e.getClientRects().length > 0 && getC
   return { want: typeof tkTasksN === 'function' ? tkTasksN() : -1, rail: n('#nav-groups button[data-grp="mytasks"] .n'), sub: n('#subnav [data-sub="tkall"] .n'),
     bar: n('#mtabs [data-mv="tkall"] .n'), buyBar: n('#mtabs [data-mv="proc"] .n') }; }"""
 # Today's All in full: each Due Soon task, where it stands (its own row, or the approval holding it), from the DOM
-TODAY_TASKS = r"""async () => { tdyTabSet('all'); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 200));
-  const M = tdyModel(), d = document.querySelector('.view.on .td-do[data-tdytab="all"]'); if (!d) return null;
-  const onPage = (it) => !!d.querySelector(`.td-card[data-kind="${CSS.escape(it.kind)}"][data-id="${CSS.escape(String(it.id))}"]`);
+# The Your Day mock-up (11-03): Today opens on what is due today and late; the rest of the next 7 days is Coming Up,
+# one tap on the same page. Due Soon's tasks are each on one of the two, once.
+TODAY_TASKS = r"""async () => { const keys = new Set(); let tdy = 0, buyRows = 0;
+  for (const t of ['today', 'coming']) { tdyTabSet(t); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 200));
+    const d = document.querySelector('.view.on .td-do[data-tdytab="' + t + '"]'); if (!d) return null;
+    d.querySelectorAll('.td-card').forEach(e => keys.add(e.dataset.kind + '|' + e.dataset.id));
+    tdy += d.querySelectorAll('.td-card[data-kind="tdyTask"]').length; buyRows += d.querySelectorAll('.td-card[data-kind="tdyBuy"]').length; }
+  const M = tdyModel();
+  const onPage = (it) => keys.has(it.kind + '|' + String(it.id));
   const holder = (x) => M.all.find(it => it.kind === 'tdyTask' && it.id === x.id) || M.all.find(it => it.kind !== 'tdyTask' && tdyApprRefs(it).some(r => (x.t.refs || []).includes(r)));
   const placed = M.tasks.map(x => { const h = holder(x); return { code: (x.t.row && x.t.row.code) || x.t.title, as: h ? h.kind : null, on: !!h && onPage(h), late: h ? (td2Cur.T.rows.find(y => y.key === h.kind + ':' + h.id) || {}).late : null }; });
-  const rows = d.querySelectorAll('.td-card[data-kind="tdyTask"]').length, want = M.all.filter(it => it.kind === 'tdyTask').length;
-  const out = { n: M.tasks.length, rows, want, placed, buyAsTask: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyRows: d.querySelectorAll('.td-card[data-kind="tdyBuy"]').length };
-  tdyAllOpen = false; render(); return out; }"""
+  const rows = tdy, want = td2Model().rows.filter(x => x.it.kind === 'tdyTask').length;
+  const out = { n: M.tasks.length, rows, want, placed, buyAsTask: M.tasks.filter(it => it.kind === 'tdyBuy').length, buyRows };
+  tdyTabSet('today'); tdyAllOpen = false; render(); return out; }"""
 
 
 async def one_number(c, pg, phone):
@@ -91,10 +97,11 @@ async def one_number(c, pg, phone):
         # the Tasks page says the same number where the person reads it
         await go(pg, 'tkall'); await pg.wait_for_timeout(200)
         page = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
-          const q = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv="week"] .n')].find(vis), m = [...document.querySelectorAll('.view.on [data-ocbadge="tkall"]')].find(vis);
-          return { who: tkWho, chip: q ? +q.textContent : null, mark: m ? m.textContent.trim() : null }; }""")
+          const q = [...document.querySelectorAll('.view.on .tv-qchips [data-ydchip="b:open"] .n')].find(vis), m = [...document.querySelectorAll('.view.on [data-ocbadge="tkall"]')].find(vis);
+          return { who: tkWho, chip: q ? +q.textContent : null, mark: m ? m.textContent.trim() : null, mine: openTasks('me').length }; }""")
+        # the phone's Mine chip is every open task of the person's (the Your Day mock-up); the desktop's pill is Due Soon
         pn = page['chip'] if phone else (int(re.match(r'\d+', page['mark']).group()) if page['mark'] and re.match(r'\d+', page['mark']) else (0 if page['mark'] else None))
-        c.ok(page['who'] == 'me' and pn == W, f'{tag} {r}: Tasks opens on Mine and reads {W} ({page})')
+        c.ok(page['who'] == 'me' and pn == (page['mine'] if phone else W), f'{tag} {r}: Tasks opens on Mine and reads {page["mine"] if phone else W} ({page})')
 
 
 async def hand_off(c, pg):

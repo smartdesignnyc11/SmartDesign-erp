@@ -204,8 +204,11 @@ STATE_JS = r"""() => ({ view, folded: typeof paMenuView === 'function' ? paMenuV
 PAGE_N = r"""v => { const vis = e => !!e && e.getClientRects().length > 0;
   const first = s => { const m = String(s || '').match(/\d+/); return m ? +m[0] : 0; };
   const V = document.querySelector('.view.on'); if (!V) return null;
-  if (v === 'home') { const c = [...V.querySelectorAll('.td-tabs [data-tdytabbtn="late"] .n, .td-tabs [data-tdytabbtn="late"]')].find(vis); return c ? { n: first(c.textContent), how: 'the Late chip' } : null; }
-  if (v === 'chat') { const T = [...V.querySelectorAll('[data-p2nmt]')].filter(vis); if (!T.length) return null;
+  // the Your Day mock-up (11-03): Today's number is its Today chip (the rows it opens on); Messages' is Needs an Answer
+  if (v === 'home') { const c = [...V.querySelectorAll('.td-tabs [data-tdytabbtn="today"] .n')].find(vis); return c ? { n: first(c.textContent), how: 'the Today chip' } : null; }
+  if (v === 'chat') { const c = [...V.querySelectorAll('#yd-chat [data-ydchip="need"] .n')].find(vis);
+    if (c) return { n: first(c.textContent), how: 'the Needs an Answer chip' };
+    const T = [...V.querySelectorAll('[data-p2nmt]')].filter(vis); if (!T.length) return null;
     return { n: T.reduce((a, b) => a + first((b.querySelector('.n') || b).textContent.replace(/^[^\d]*/, '')), 0), how: 'the sum of the Team, Mail and Field tabs' }; }
   if (v === 'billing') { const m = V.innerText.match(/(\d+) to bill or send/); return m ? { n: +m[1], how: '"N to bill or send"' } : null; }
   // the phone's Tasks page states its Due Soon on the chip (the marked line is the desktop's)
@@ -398,16 +401,15 @@ async def run_role(c, pg, u, phone, errs, reach, table):
                 row['ok'] = (st['view'] in (v, al) or st['folded'] == v) and (not tb or st['billTab'] == tb)
                 row['got'] = st['view'] + (':' + st['billTab'] if tb else '')
             elif v == 'mapprove':
-                row['new'] = 'Today > Open the Approvals Page'
+                # the Your Day mock-up (11-03): Approvals is Today's chip, no page of its own
+                row['new'] = 'Today > Approvals chip'
                 tod = next((e for e in M if e['kind'] == 'top' and e['v'] in ('home', 'sday')), None)
                 if tod: await go_entry(pg, tod, phone)
                 if await pg.locator('.view.on [data-tdytabbtn="appr"]').count():
                     await tap(pg, pg.locator('.view.on [data-tdytabbtn="appr"]').first, phone)
-                a = pg.locator('.view.on [data-tdall], .view.on [data-mnappr]').first
-                if await a.count():
-                    await a.scroll_into_view_if_needed(); await tap(pg, a, phone)
                 st = await pg.evaluate(STATE_JS)
-                row['ok'] = st['view'] == 'mapprove'; row['got'] = st['view']
+                on = await pg.evaluate("() => (document.querySelector('.view.on [data-tdytabbtn].on') || {dataset: {}}).dataset.tdytabbtn")
+                row['ok'] = st['view'] == 'home' and on == 'appr'; row['got'] = st['view'] + ':' + str(on)
             else:
                 # a job's own page: Projects > a job > its tab (the job page's tabs belong to the job-structure lane)
                 jobs = [e for e in M if e['grp'] == 'jobs' and e['kind'] == 'kid' and e['pid']]

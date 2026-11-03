@@ -178,6 +178,7 @@ async def tasks_as(p, uid, phone):
     if not phone:
         c.ok(m['modes'] == ['List', 'Table', 'Board', 'Calendar'], f'{who}: view switch {m["modes"]}')
         c.ok(m['mode'] == 'table', f'{who}: the desktop opens on {m["mode"]}, want Table')
+    if not phone and mine:   # an empty Mine shows the empty line, not a table
         want = ['KEY', 'TASK', 'PROJECT', 'OWNER', 'DUE', 'PRIORITY', 'NEW OR CARRIED', 'STATUS', 'WAITING ON']
         c.ok(all(x in m['cols'] for x in want), f'{who}: Table columns {m["cols"]}')
         # click-to-sort: Due ascending, descending, back
@@ -185,7 +186,8 @@ async def tasks_as(p, uid, phone):
           if (!th) return null; th.click(); await new Promise(r => setTimeout(r, 150));
           const a = (tvSorts()[0] || {}); return [a.k, a.dir]; }""")
         c.ok(s and s[0] == 'due', f'{who}: clicking Due does not sort by it ({s})')
-    # Team: grouped by person, no load figures, everyone else named at the foot
+    # Team: grouped by person, no load figures, everyone else named at the foot (the List's layout; the Table keeps its own)
+    await pg.evaluate("() => tkSetMode('cards')"); await pg.wait_for_timeout(150)
     await pg.evaluate("() => { const b = [...document.querySelectorAll('#tkall-body [data-tvview], #tkall-body [data-ydchip]')].find(x => /^Team/.test(x.textContent.trim())); b && b.click(); }")
     await pg.wait_for_timeout(200)
     t = await pg.evaluate("""() => { const g = [...document.querySelectorAll('#tkall-body [data-ydteamwho]')].map(e => e.dataset.ydteamwho);

@@ -521,7 +521,7 @@ function slClientRender() {
       }</span>`
     : "";
   const job = X.P[0];
-  h.innerHTML = `<div class="yd-ph"><button type="button" class="yd-back" data-ydclback aria-label="Back to Clients">${ydSvg("back")}${phone ? "" : "Clients"}</button></div><div class="yd-ph"><div class="grow"><h2>${esc(c.name)}</h2><div class="yd-sub">${esc([job ? shortName(job) : c.propertyAddr, mayMoney ? `contract ${ydMoney0(F.revised)}` : ""].filter(Boolean).join(" · "))}</div></div>${plus}</div>${tilesHtml}${tabsHtml}${body}`;
+  h.innerHTML = `<div class="yd-ph"><button type="button" class="yd-back" data-ydclback aria-label="Back to Clients">${ydSvg("back")}${phone ? "" : "Clients"}</button></div><div class="yd-ph"><div class="grow"><h2>${esc(c.name)}</h2><div class="yd-sub">${esc([job ? shortName(job) : c.propertyAddr, job && "function" == typeof tpJobPct ? `${Math.round(tpJobPct(job))}% done` : "", mayMoney ? `contract ${ydMoney0(F.revised)}` : ""].filter(Boolean).join(" · "))}</div></div>${plus}</div>${tilesHtml}${tabsHtml}${body}`;
 }
 function slClientNewItems(c) {
   const P = (DB.projects || []).find((p) => p.clientId === c.id),
@@ -621,6 +621,8 @@ function slForward() {
   const v = view;
   if (["salesnum", "hbforecast", "hbdash"].includes(v) && ydMay("ovsales")) return (view = "ovsales"), (slChip = "need"), (slNumsOpen = !0);
   if (["hbdeals", "hbquotes", "hbsequences", "hbworkspace", "hbplaybooks", "scleads"].includes(v) && ydMay("ovsales")) return (view = "ovsales");
+  // the Playbook is the Standard's Sales playbook section: the document, under the Standard
+  if ("playbook" === v && ydMay("standard")) return (view = "standard"), (ydStdChip = "doc");
   if ("partners" === v && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "partners");
   if (["hbcontacts", "hbcompanies"].includes(v) && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "all");
   if ("billing" === v && !YD_ESTIMATES_IN_MENU && "sales" === mnLastGrp && ydMay("ovsales")) return (view = "ovsales"), (slChip = "props"), (mnLastGrp = "sales");

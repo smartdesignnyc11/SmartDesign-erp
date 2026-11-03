@@ -47,20 +47,23 @@ RAIL = {
 }
 BUY = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock', 'Requests', 'Route']
 SETTINGS = ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Reports']
+COMPANY = ['Company and Settings', 'Team', 'The Brain', 'Insurance and Licenses', 'Connections', 'The SmartDesign Standard', 'Company Settings']
 # Each group's pages (Projects lists the person's jobs first: checked by name below, then All Projects).
 KIDS = {
     ('u_owner', 'buy'): BUY,
-    ('u_owner', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
+    # Sales and Clients (docs/mockups/sales, 11-03): Pipeline and Clients; Estimates off the menu, reversibly (YD_ESTIMATES_IN_MENU)
+    ('u_owner', 'sales'): ['Pipeline', 'Clients'],
     ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
     ('u_owner', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
     ('u_owner', 'reports'): ['All Reports', 'Dashboard'],
-    ('u_owner', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Your Own Data', 'Sales Settings'],
+    # Company and Settings (docs/mockups/company, 11-03): the hub, then six pages
+    ('u_owner', 'setup'): COMPANY,
     ('u_alan', 'buy'): BUY,
-    ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
+    ('u_alan', 'sales'): ['Pipeline', 'Clients'],
     ('u_alan', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Controls', 'Accounting Overview'],
-    ('u_alan', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Sales Settings'],
+    ('u_alan', 'setup'): COMPANY,
     ('u_chen', 'buy'): BUY,
-    ('u_chen', 'sales'): ['Pipeline', 'Clients', 'Forecast', 'Sales Dashboard', 'Partners', 'Playbook'],
+    ('u_chen', 'sales'): ['Pipeline', 'Clients'],
     ('u_chen', 'money'): ['Time and Crew'],
     ('u_chen', 'studio'): ['Selections', 'Drawings'],
     ('u_billing', 'buy'): ['Vendors'],
@@ -68,7 +71,7 @@ KIDS = {
     ('u_controller', 'buy'): ['Orders', 'Vendors', 'Purchasing Overview'],
     ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
     ('u_sarah', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
-    ('u_sarah', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
+    ('u_sarah', 'setup'): ['Company and Settings', 'Team', 'Connections', 'The SmartDesign Standard'],
     ('u_angel', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
 }
 # A job's tabs (Alan, 11-03: docs/mockups/job-structure/): eight, in this order, for a role that may open each page;

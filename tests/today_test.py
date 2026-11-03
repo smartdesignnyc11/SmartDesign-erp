@@ -143,18 +143,21 @@ async def main():
             # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1)
             al = await pg.evaluate("""() => { const M = tdyModel(), k = it => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
               const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
-              return [+document.querySelector('.view.on [data-tdytabbtn="all"] .n').textContent, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
-            c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
+              return [+document.querySelector('.view.on [data-tdytabbtn="today"] .n').textContent, td2Model().need, M.all.length, new Set(M.all.map(k)).size]; }""")
+            # the Your Day mock-up (11-03): the Today chip is the rows Today opens on (approvals and now); the model
+            # still holds each thing once
+            c.ok(al[0] == al[1] and al[2] == al[3], f'{tag} phone: Today {al[0]} vs its rows {al[1]} (model {al[2]}, distinct {al[3]})')
             # the Approvals filter's count = its source = the Approvals page's Everything chip (the owner's chip; the PM's
             # board has All, Late and Waiting, so his approvals are read through the same filter by hand)
             await pg.evaluate("() => { tdyTabSet('appr'); render(); }") if tag == 'pm' else await pg.click('.view.on [data-tdytabbtn="appr"]')
             await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
-            src = await pg.evaluate("() => PRED.waitingOnMe.count()")
-            more = 0  # a filter shows its whole list in place; its link opens the full Approvals page (lane "today")
+            # the owner's Approvals is the 10-26 exceptions (Your Day mock-up, BACKLOG 10.6); everyone else's is their queue
+            src = await pg.evaluate("() => role() === 'owner' ? ydOwnerExc(PRED.waitingOnMe.rows()).length : tdyModel().appr.length")
+            more = 0  # the chip shows its whole list in place; Approvals is no page of its own any more
             cards = await pg.evaluate("() => document.querySelectorAll('.view.on .td-do .td-card').length")
-            c.ok(n == src, f'{tag} phone: Do Now {n} vs PRED.waitingOnMe {src}')
-            c.ok(cards == n and await pg.locator('.view.on [data-tdall]').count() == 1, f'{tag} phone: the Approvals filter lists {cards} cards vs {n}, with a link to the Approvals page')
+            c.ok(n == src, f'{tag} phone: Approvals {n} vs its source {src}')
+            c.ok(cards == n and await pg.locator('.view.on [data-tdall]').count() == 0, f'{tag} phone: the Approvals chip lists {cards} cards vs {n}, and no link to an Approvals page')
             # Caught for You: the count is the rows, once expanded (behind the quiet line)
             await quiet_open(pg)
             cn = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcaught]').dataset.tdcaught")
@@ -166,21 +169,15 @@ async def main():
                 await pg.click('.view.on [data-tdcatchall]'); await pg.wait_for_timeout(200)
             c.ok(shown == cn, f'{tag} phone: Caught for You says {cn}, lists {shown}')
             print(f'{tag} phone: Do Now {n}, Caught for You {cn}')
-            # the Approvals page counts the same queue, and "N more" opens it at the top (the body is the phone's scroller)
-            await pg.evaluate("() => document.querySelector('.view.on [data-tdall]').scrollIntoView()"); await pg.wait_for_timeout(100)
-            y0 = await pg.evaluate("() => Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop))")
-            await pg.click('.view.on [data-tdall]'); await pg.wait_for_timeout(350)
-            y1 = await pg.evaluate("() => [Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop)), view]")
-            c.ok(y1 == [0, 'mapprove'], f'{tag} phone: "Open the Approvals Page" from scroll {y0} lands on {y1[1]} scrolled {y1[0]}px; want Approvals at the top')
-            ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
-            c.ok(ev == n, f'{tag} phone: Approvals Everything {ev} vs Do Now {n}')
-            chips = await pg.evaluate("() => [...document.querySelectorAll('#mappr-tabs [data-mak]:not([data-mak=\"all\"]) .n')].map(b => +b.innerText)")
-            c.ok(sum(chips) == ev, f'{tag} phone: Approvals chips {chips} sum to {sum(chips)}, Everything says {ev}')
+            # the old Approvals page forwards to this chip (Your Day mock-up, 11-03)
+            await pg.evaluate("() => setView('mapprove')"); await pg.wait_for_timeout(300)
+            y1 = await pg.evaluate("() => [view, (document.querySelector('.view.on [data-tdytabbtn].on') || {dataset: {}}).dataset.tdytabbtn]")
+            c.ok(y1 == ['home', 'appr'], f'{tag} phone: the old Approvals page lands on {y1}; want Today, Approvals')
             # the brief: three short lines, the full brief one tap away
             await go(pg, 'home'); await pg.wait_for_timeout(250)
             await pg.evaluate("() => { tdyTabSet('appr'); render(); }"); await pg.wait_for_timeout(250)
             bl = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td2-bl')].map(l => l.innerText)")
-            c.ok(len(bl) <= 2, f'{tag} phone: the update has {len(bl)} lines (two on the phone): {bl}')
+            c.ok(len(bl) <= 3, f'{tag} phone: the update has {len(bl)} lines (three on the phone: the Your Day brief): {bl}')
             await quiet_open(pg)
             await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(300)
             full = await pg.evaluate("() => document.querySelectorAll('.view.on #jv .jv-body p').length")
@@ -261,17 +258,11 @@ async def main():
         c.ok(not orphan, f'{len(orphan)} item(s) in nobody\'s queue: {orphan[:4]}')
         c.ok(sum(counts.values()) == len(every), f'queues {counts} add to {sum(counts.values())}, everyone\'s holds {len(every)}')
         print('delegation:', counts)
-        # the owner's Approvals still shows what waits on the others
-        await sign_in(pg, 'u_owner'); await go(pg, 'mapprove'); await pg.wait_for_timeout(250)
-        oth = await pg.evaluate("() => { const a = document.querySelector('.view.on .m-appr-others'); return a ? a.innerText.replace(/\\s+/g, ' ') : null; }")
-        c.ok(oth and str(len(every) - counts['owner']) in oth, f"owner: Approvals' Everyone line reads {oth!r}, want the {len(every) - counts['owner']} items on the others")
-        if oth:
-            vis = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-mothers]'), r = b.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }")
-            c.ok(vis, 'owner: the "wait on the others" line is below the first screen of Approvals')
-            await pg.click('.view.on [data-mothers]'); await pg.wait_for_timeout(250)
-            rows = await pg.evaluate("() => document.querySelectorAll('#mbm .m-appr-o').length")
-            c.ok(rows == len(every) - counts['owner'], f'owner: Waiting on the Others lists {rows} rows, want {len(every) - counts["owner"]}')
-            await pg.evaluate("() => mbCloseModal()")
+        # the owner's Approvals is exceptions only (DECISIONS 10-26, the Your Day mock-up): what waits on the others is
+        # on their own Today, not on his (the old Approvals page and its "wait on the others" line forward to the chip)
+        await sign_in(pg, 'u_owner'); await go(pg, 'home'); await pg.wait_for_timeout(250)
+        ex = await pg.evaluate("() => tdyModel().appr.every(it => it.ydWhy && it.ydWhy.length)")
+        c.ok(ex, "owner: an approval on his Today that is not one of the 10-26 exceptions")
         c.ok(not errs, f'delegation: errors {errs[:2]}')
         await b.close()
         # ---- every office role's Home is Today (lane "today", 2026-10-19: one Today page per person, MENU_DRAFT
@@ -279,9 +270,9 @@ async def main():
         b, pg, errs = await open_app(p, False)
         for uid in ('u_chen', 'u_billing', 'u_controller'):
             await sign_in(pg, uid); await go(pg, 'home'); await quiet_open(pg)
-            t = await pg.evaluate("() => view === 'home' ? [!!document.querySelector('.view.on .td-home .td-tabs'), document.querySelectorAll('.view.on [data-tdpulse]').length, +document.querySelector('.view.on [data-tdcount]').dataset.tdcount, tdyModel().all.length] : null")
+            t = await pg.evaluate("() => view === 'home' ? [!!document.querySelector('.view.on .td-home .td-tabs'), document.querySelectorAll('.view.on [data-tdpulse]').length, +document.querySelector('.view.on [data-tdcount]').dataset.tdcount, td2Model().need] : null")
             want = {'u_chen': 0, 'u_billing': 1, 'u_controller': 2}[uid]  # billing: Overdue AR; the controller: Safe to Spend and Overdue AR
-            c.ok(t and t[0] and t[1] == want and t[2] == t[3], f'{uid}: Home is their Today, with {want} Pulse numbers and All = their queue ({t})')
+            c.ok(t and t[0] and t[1] == want and t[2] == t[3], f'{uid}: Home is their Today, with {want} Pulse numbers and Today = their rows ({t})')
         c.ok(not errs, f'other roles: errors {errs[:2]}')
         await b.close()
     sys.exit(c.done())

@@ -52,12 +52,19 @@ async def hub_as(p, uid, phone):
         c.ok(mk['view'] == k and str(len(need)) == n, f'{who}: the hub says {k} {n}, the page shows {len(need)} ({mk["view"]})')
         await go(pg, 'cohub')
     # old pages land on their new homes
-    for old, new in (('ovoffice', 'cohub'), ('setup', 'cohub'), ('hbsettings', 'cosettings'), ('rdata', 'cosettings'), ('rpbox', 'cosettings')):
+    for old, new in (('ovoffice', 'cohub'), ('setup', 'cohub')):
         if not await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old): continue
         await pg.evaluate("v => setView(v)", old)
         await pg.wait_for_timeout(150)
         st = await pg.evaluate("() => view")
         c.ok(st == new, f'{who}: {old} lands on {st}, want {new}')
+    # Sales Settings, Your Own Data and Problem Reports open in place under Company Settings: lit there, nothing lost
+    for old in ('hbsettings', 'rdata', 'rpbox'):
+        if not await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old): continue
+        await pg.evaluate("v => setView(v)", old)
+        await pg.wait_for_timeout(150)
+        st = await pg.evaluate("() => { const c = mnCur(mnBuild(role())); return [view, c ? c.it.v : '']; }")
+        c.ok(st == [old, 'cosettings'], f'{who}: {old} opens as {st}, want its page lit as Company Settings')
     if phone:
         await go(pg, 'cohub')
         await phone_fit(c, pg, f'{who} hub')

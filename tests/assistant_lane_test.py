@@ -109,12 +109,17 @@ async def sec_fold(p, c):
     r = await pg.evaluate("() => ({ view, tab: paTab, seg: paFindSeg, h: document.querySelector('.view.on h2').textContent, t: document.querySelector('.view.on').innerText, n: document.querySelectorAll('#cos-body').length, inPa: !!document.querySelector('#v-pa #cos-body') })")
     c.ok(r['view'] == 'pa' and r['tab'] == 'findings' and r['seg'] == 'chains', f"'cos' opens the assistant's Findings › Every Chain: {r['view']} {r['tab']} {r['seg']}")
     c.ok(r['n'] == 1 and r['inPa'] and 'bank items not yet matched' in r['t'], "the Chief of Staff's pass draws inside the tab, once")
-    # the menu (lane "menu") keeps the Chief of Staff as its own entry and lights it on this tab; the heading reads as it
-    want = await pg.evaluate("() => { const b = document.querySelector('#subnav .sub-tabs button.on') || document.querySelector('#nav-groups button.on'); return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : IA_LABELS.pa; }")
-    c.ok(r['h'] == want == 'Chief of Staff', f"one page heading, the menu's lit entry: {r['h']!r} vs {want!r}")
+    # the Company mock-up (11-03): the menu has no Chief of Staff entry (its findings are Today's rows); the tab under Ask
+    # keeps its heading and lights no other entry
+    want = await pg.evaluate("() => { const b = document.querySelector('#subnav .sub-tabs button.on') || document.querySelector('#nav-groups button.on'); return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : ''; }")
+    c.ok(r['h'] == 'Chief of Staff' and want in ('', 'Chief of Staff'), f"one page heading, no other lit entry: {r['h']!r} vs {want!r}")
+    # The Brain is its own page under Company and Settings (the Company mock-up); Brain Settings stays a tab of Ask
     await go(pg, 'brain')
+    r = await pg.evaluate("() => ({ view, page: !!document.querySelector('#yd-brain [data-ydchip=\"need\"]') })")
+    c.ok(r['view'] == 'brain' and r['page'], f"'brain' opens The Brain's page for the owner: {r}")
+    await pg.evaluate("() => { paOpen('brain'); }"); await pg.wait_for_timeout(200)
     r = await pg.evaluate("() => ({ view, tab: paTab, t: document.querySelector('.view.on').innerText, n: document.querySelectorAll('#brain-body').length, tabs: [...document.querySelectorAll('.view.on .pa-tabs [data-patab]')].map(b => b.dataset.patab), h2: [...document.querySelectorAll('.view.on h2')].length })")
-    c.ok(r['view'] == 'pa' and r['tab'] == 'brain' and r['n'] == 1, f"'brain' opens Brain Settings for the owner: {r['view']} {r['tab']} {r['n']}")
+    c.ok(r['view'] == 'pa' and r['tab'] == 'brain' and r['n'] == 1, f"Ask's Brain Settings tab still opens for the owner: {r['view']} {r['tab']} {r['n']}")
     c.ok('Approval Rules, Everyone' in r['t'] and re.search(r'Lessons', r['t']), 'Brain Settings holds everyone\'s approval rules and The Brain')
     c.ok(r['tabs'] == ['chat', 'findings', 'activity', 'brain'] and r['h2'] == 1, f"four tabs, one heading: {r['tabs']} h2={r['h2']}")
     await go(pg, 'home'); await go(pg, 'pa')
@@ -132,10 +137,13 @@ async def sec_fold(p, c):
     c.ok(f['tabN'] == f['listN'] == f['all'] and f['all'] > 0, f"the Findings tab's count is the rows it lists: tab {f['tabN']}, list {f['listN']}, rows {f['all']}")
     c.ok(f['caught'] == f['td'], f"Caught holds the same rows as Today's Caught for You: {f['caught']} vs {f['td']}")
     c.ok(f['why'] == f['rows'] and f['vals'] >= f['rows'] - 2, f"every finding says why and names the value: because {f['why']}/{f['rows']}, value {f['vals']}")
-    # the PM: Findings › The Brain, no Brain Settings
+    # the PM: The Brain's page, read only (only the owner approves); no Brain Settings tab under his Ask
     await sign_in(pg, 'u_alan'); await go(pg, 'brain')
-    r = await pg.evaluate("() => ({ view, tab: paTab, seg: paFindSeg, tabs: [...document.querySelectorAll('.view.on [data-patab]')].map(b => b.dataset.patab), hands: !!document.querySelector('.view.on #brain-body [data-bntab=\"hands\"]') })")
-    c.ok(r['tab'] == 'findings' and r['seg'] == 'brain' and 'brain' not in r['tabs'] and r['hands'], f"for the PM, 'brain' opens Findings › The Brain, with Hands; no Brain Settings: {r}")
+    r = await pg.evaluate("() => ({ view, page: !!document.getElementById('yd-brain'), acts: document.querySelectorAll('#yd-brain [data-ydact]').length })")
+    c.ok(r['view'] == 'brain' and r['page'] and r['acts'] == 0, f"for the PM, 'brain' opens The Brain read only: {r}")
+    await pg.evaluate("() => { paOpen('findings'); }"); await pg.wait_for_timeout(200)
+    r = await pg.evaluate("() => ({ tabs: [...document.querySelectorAll('.view.on [data-patab]')].map(b => b.dataset.patab) })")
+    c.ok('brain' not in r['tabs'], f"the PM has no Brain Settings tab: {r}")
     # the client keeps their Ask surface; the old ids are not theirs to open
     await sign_in(pg, 'u_klein'); await go(pg, 'pa')
     r = await pg.evaluate("() => ({ tabs: document.querySelectorAll('.view.on .pa-tabs').length, inp: !!document.getElementById('pa-in') })")
@@ -165,8 +173,8 @@ async def sec_rules(p, c):
     c.ok(r['lv'] == 'alone' and 'makeTasks' in r['del'] and r['on'], f'Alan sets Tasks for Me to Act Alone on Activity: {r["lv"]} {r["del"]}')
     c.ok(r['log']['by'] == 'Alan Mishali' or r['log']['byUid'] == 'u_alan', f"the change is logged with who: {r['log']}")
     c.ok(r['log']['level'] == 'alone' and 'Open' in r['toast'], f"the log says the level and the toast has Open: {r['log'].get('level')} {r['toast']!r}")
-    # the owner sees and changes anyone's on Brain Settings
-    await sign_in(pg, 'u_owner'); await go(pg, 'brain')
+    # the owner sees and changes anyone's on Brain Settings (a tab of Ask; each person's page in Team holds the same control)
+    await sign_in(pg, 'u_owner'); await pg.evaluate("() => paOpen('brain')"); await pg.wait_for_timeout(250)
     await pg.select_option('.view.on [data-paruleswho]', 'u_alan'); await pg.wait_for_timeout(300)
     await pg.click('.view.on [data-parule="u_alan|holdTime|hand"]'); await pg.wait_for_timeout(300)
     r = await pg.evaluate("() => ({ lv: paRule('holdTime', 'u_alan'), hand: (DB.asst.u_alan.handIt || []).slice(), by: DB.company.delegationLog.slice(-1)[0].by, dis: document.querySelector('.view.on [data-parule=\"u_alan|followUps|alone\"]').disabled })")

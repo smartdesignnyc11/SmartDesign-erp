@@ -467,7 +467,8 @@ async def tasks_one(pg, lint, run, phone):
     seen = {'tkTasksN()': W, "Today's Tasks rows": h['rows']}
     for k, where in (('rail', 'the side menu'), ('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('tile', "Today's Due Soon tile"), ('bar', 'the phone bar')):
         if h[k] is not None: seen[where] = h[k]
-        elif k in ('rail', 'bar') and W and h['railShown' if k == 'rail' else 'barShown']: seen[where + ' (no badge)'] = 0
+        # the approved menu (Your Day SPEC 2, 11-03): the side menu's and the phone bar's Tasks carry no number, since
+        # Today counts what is due; a badge that does show must still be the one number
     if await to_view(pg, 'tkall'):
         m = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0; const q = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv="week"] .n')].find(vis);
           return { who: tkWho, chip: q ? +q.textContent : null, mark: __cl.marked('tkall') }; }""")

@@ -289,7 +289,7 @@ function ydPersonRender(h) {
   } catch (e) {}
   const rules = p.uid && "function" == typeof paRulesHtml && (self || owner) ? paRulesHtml(p.uid) : '<div class="yd-empty">No login, so no assistant yet.</div>';
   h.innerHTML = `<div class="yd-ph"><button type="button" class="yd-back" data-ydteamback aria-label="Back to Team">${ydSvg("back")}${phone ? "" : "Team"}</button></div>
-  <div class="yd-ph"><div class="grow"><h2>${esc(p.name)}${self ? " (you)" : ""}</h2><div class="yd-sub">${esc([p.title, p.phone || "no phone on file", p.email || "no email on file"].join(" · "))}</div></div></div>
+  <div class="yd-ph"><div class="grow"><h2>${esc(p.name)}${self ? " (you)" : ""}</h2><div class="yd-sub">${esc([p.title, p.phone || "no phone on file", p.email || "no email on file"].join(" · "))}</div></div>${p.uid && !self && ydMay("chat") ? `<button type="button" class="btn" data-p2nmsg="${esc(p.uid)}">Message</button>` : ""}</div>
   <section class="yd-card"><div class="yd-sh"><h3>Open Tasks</h3></div><div class="yd-row" data-ydrow="tasks" role="button" tabindex="0"><span class="yd-t"><b>${T.length} open${late ? `, ${late} late` : ""}</b><span>${esc(self ? "the same list as your Tasks' Mine" : `the same list as Tasks' Team chip, under ${p.name}`)}</span></span><button type="button" class="btn" data-ydgo="tkall">Open Tasks</button></div></section>
   <section class="yd-card"><div class="yd-sh"><h3>${self ? "What Reaches You for Approval" : "What Reaches Them for Approval"}</h3><span class="note">${owner ? "you change a limit; nobody else can" : "only the owner changes a limit"}</span></div>${lim
     .map(([k, v, edit]) => (edit ? `<div class="yd-kv"><span>${esc(k)}</span><label class="small"><span class="muted">$</span><input type="number" min="0" step="500" data-ydlimit="${esc(edit)}" value="${+((DB.company || {}).poApprovalOver || 1e4)}" style="width:110px;min-height:44px"${owner ? "" : " disabled"} aria-label="${esc(k)}"></label></div>` : ydKv(k, v)))
@@ -518,7 +518,8 @@ function ydGrant() {
       M = "object" == typeof MENU && MENU[r];
     if (!rv || !M || "client" === r) return;
     const push = (v) => rv.includes(v) || rv.push(v);
-    ["team", "brain", "obligations", "conn", "standard", "setup", "ovoffice"].some((v) => rv.includes(v)) && push("cohub");
+    // the field keeps its short menu: their own page, Connections and the Standard, no hub
+    !M.field && ["team", "brain", "obligations", "conn", "standard", "setup", "ovoffice"].some((v) => rv.includes(v)) && push("cohub");
     // Company Settings: the owner's and the controller's; anyone who kept Sales Settings, Your Own Data or Problem
     // Reports finds them there (their rows only)
     (["owner", "controller"].includes(r) || ["hbsettings", "rdata", "rpbox"].some((v) => rv.includes(v))) && push("cosettings");
@@ -529,8 +530,8 @@ function ydCoForward() {
   if (!ydOffice()) return;
   const v = view;
   if (("ovoffice" === v || "setup" === v) && ydMay("cohub")) return (view = "cohub");
-  if (["hbsettings", "rdata", "rpbox"].includes(v) && !ydSetKeep && ydMay("cosettings")) return (view = "cosettings");
-  if ("proj" === v && "undefined" != typeof settingsMode && "company" === settingsMode && !ydSetKeep && ydMay("cosettings")) return (view = "cosettings");
+  // Sales Settings, Your Own Data, Problem Reports and the firm's settings stay their own pages, opened from Company
+  // Settings' rows and lit under it (MN_ALIAS, mnCur below): nothing that links to them breaks
 }
 {
   const base = setView;
@@ -568,7 +569,21 @@ function ydCoForward() {
     return r;
   };
 }
-"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cohub", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", cos: "cohub" });
+"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cohub", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", playbook: "standard" });
+// the firm's settings page (the job settings page in company mode) is lit as Company Settings
+if ("function" == typeof mnCur) {
+  const base = mnCur;
+  mnCur = function (B) {
+    try {
+      if (B && !B.field && "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode) {
+        const g = B.bottom,
+          it = g && g.items.find((x) => "cosettings" === x.v);
+        if (it) return { g: g, it: it };
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
 document.addEventListener(
   "click",
   (e) => {

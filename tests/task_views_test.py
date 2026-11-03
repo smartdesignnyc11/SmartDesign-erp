@@ -95,7 +95,9 @@ async def one_number(c, pg, who, phone):
         c.ok(s['n'] == want, f'{who}: {m} · Mine · Due Soon says {s["n"]}, the list counts {want}')
     # saved tabs: each gives the count of the list it stands for (on the Table: the Board's bar has no tabs, as its mockup)
     await mode(pg, 'table', 'all', 'all')
-    for vid in ('b:open', 'b:week', 'b:wait', 'b:all'):
+    # the Your Day mock-up (11-03): the saved tabs are Mine, Waiting On and Team (the old Everything, everyone's); My Week
+    # is Mine's Due Soon filter, not a tab
+    for vid in ('b:open', 'b:wait', 'b:all'):
         await pg.evaluate(CLOSE)
         await pg.evaluate("id => tvApply(id)", vid)
         await pg.wait_for_timeout(300)
@@ -104,7 +106,8 @@ async def one_number(c, pg, who, phone):
         c.ok(s['rows'] == want, f'{who}: saved tab {vid} draws {s["rows"]}, the list for it counts {want} ({s["mode"]})')
         if not phone:
             tab = await pg.evaluate("id => { const b = document.querySelector(`.tv-sv[data-tvview='${id}']`); return b ? { on: b.classList.contains('on'), n: +((b.querySelector('.n') || {}).textContent || -1) } : null; }", vid)
-            c.ok(tab and tab['on'] and tab['n'] == want, f'{who}: the tab {vid} is the one showing and reads {want} ({tab})')
+            # Team carries no number: it waits on nobody in particular
+            c.ok(tab and tab['on'] and tab['n'] == (-1 if vid == 'b:all' else want), f'{who}: the tab {vid} is the one showing and reads {want} ({tab})')
     if phone:
         return
     # a filter chip: Owner, through the bar's Filter, gives the owner's own count
@@ -373,7 +376,7 @@ async def mine_views(c, pg):
     c.ok('Chen meeting walk' in mine and t and 'Open' in t['open'], f'coord: her saved view is in her tabs and toasts with Open ({mine[-2:]})')
     await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
     theirs = await pg.evaluate("() => tvViews().map(v => v.name)")
-    c.ok('Chen meeting walk' not in theirs and theirs == ['All Open', 'My Week', 'Waiting on Others', 'Everything'], f'owner: the coordinator\'s view is not in the owner\'s tabs ({theirs})')
+    c.ok('Chen meeting walk' not in theirs and theirs == ['Mine', 'Waiting On', 'Team'], f'owner: the coordinator\'s view is not in the owner\'s tabs ({theirs})')
     await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
     vid = await pg.evaluate("() => (tvViews().find(v => v.name === 'Chen meeting walk') || {}).id")
     await pg.evaluate("() => { tkWho = 'me'; t2View = 'week'; tkSetMode('cards'); }")
@@ -668,7 +671,7 @@ async def polish(c, p):
         await pg.evaluate("() => tvApply('b:wait')"); await pg.wait_for_timeout(300)
         t2 = await pg.evaluate(TABLE_FIT)
         c.ok(t2['wait'] >= 2 and not t2['clip'], f'{w}: Waiting on Others shows every name whole or with an ellipsis ({t2["wait"]} chips; cut {t2["clip"]})')
-        await pg.evaluate("() => tvApply('b:week')"); await pg.wait_for_timeout(300)
+        await pg.evaluate("() => { tkWho = 'me'; t2View = 'week'; renderTkAll(); }"); await pg.wait_for_timeout(300)
         t = await pg.evaluate(TABLE_FIT)
         c.ok(t['chips'][:2] == ['Owner: Me', 'Due: Soon'], f'{w}: My Week says its filters as chips ({t["chips"]})')
         # the board and the List show the ID too

@@ -289,7 +289,19 @@ function ydMsgNeeds() {
   try {
     chat = "function" == typeof p2nChatItems ? p2nChatItems() : [];
   } catch (e) {}
-  const out = mail.map((c) => ({ kind: "tdyMail", id: c.id, c: c, at: String(c.date || "") })).concat(chat.map((it) => ({ kind: it.kind, id: it.id, it: it, at: String(it.at || it.due || (it.m && it.m.at) || "") })));
+  // a question from the site waiting on the person (Approvals' Site Questions) is a question like any other
+  let site = [];
+  try {
+    site = ydOffice() && PRED.siteQuestionsMine ? PRED.siteQuestionsMine.rows() : [];
+  } catch (e) {}
+  const raiseAt = (it) => {
+    const r = (((DB.field || {}).raises) || []).find((x) => x.id === it.id);
+    return String((r && r.at) || "");
+  };
+  const out = mail
+    .map((c) => ({ kind: "tdyMail", id: c.id, c: c, at: String(c.date || "") }))
+    .concat(chat.map((it) => ({ kind: it.kind, id: it.id, it: it, at: String(it.at || it.due || (it.m && it.m.at) || "") })))
+    .concat(site.map((it) => ({ kind: "raise", id: it.id, it: it, at: raiseAt(it) })));
   return out.sort((a, b) => a.at.localeCompare(b.at));
 }
 // the menu's Messages number, the Needs an Answer chip and its rows: one list
@@ -347,6 +359,13 @@ function ydMsgRows(chip) {
         return { id: c.id, at: x.at, title: `${ydMsgWho(c)}: ${ydMsgAbout(c)}`, meta: [ydMsgKind(c), ydMsgWhere(c)].filter(Boolean).join(" · "), when: ydAge(c.date), late: !0, act: "call" === c.channel ? "Call Back" : "Reply", run: () => ydMsgOpen(c), c: c };
       }
       const it = x.it;
+      if ("raise" === x.kind) {
+        let c = null;
+        try {
+          c = tdCard(it);
+        } catch (e) {}
+        return { id: String(x.id), at: x.at, title: tdPlain((c && td2Txt(c.line1)) || it.title || "A question from the site"), meta: `From the site \u00b7 ${tdPlain((c && td2Txt(c.why)) || it.detail || "")}`, when: ydWhen(x.at), late: !0, act: "Answer", run: () => (c ? c.run() : mGo(it.open)) };
+      }
       return { id: String(x.id), at: x.at, title: tdPlain(it.title || "A message"), meta: tdPlain(it.detail || "Team"), when: ydWhen(x.at), late: !0, act: "Reply", run: () => (it.open ? mGo(it.open) : setView("chat")) };
     });
   if ("meet" === chip)
@@ -630,7 +649,7 @@ td2Model = function () {
     Q = rows.filter((x) => inTab(tab, x)),
     desk = td2Desk(),
     fold = "today" === tab && !tdyAllOpen,
-    cap = desk ? 14 : 6,
+    cap = desk ? 14 : 5,
     secsOf = "appr" === tab ? ["appr"] : "coming" === tab ? ["coming"] : ["appr", "now"],
     shown = [];
   secsOf.forEach((s) => Q.filter((x) => x.sec === s).forEach((x) => (!fold || shown.length < cap) && shown.push(x)));
@@ -756,13 +775,15 @@ if ("function" == typeof tvBuiltIns) {
     return [
       { id: "b:open", name: "Mine", s: S({ tkWho: "me" }) },
       { id: "b:wait", name: "Waiting On", s: S({ t2View: "blocked" }) },
-      { id: "b:team", name: "Team", s: S({}) },
+      // Team is the old Everything (everyone, all open): its id stays, so a saved link or a test that names it lands here
+      { id: "b:all", name: "Team", s: S({}) },
     ];
   };
 }
 const ydTeamOn = () => {
   try {
-    return "tkall" === view && tvIsOn(tvBuiltIns()[2]);
+    // the Team list by person is the List's and the phone's; the Table and the Board keep their own layout of the same rows
+    return "tkall" === view && tvIsOn(tvBuiltIns()[2]) && ("cards" === (tkMode || "cards") || ydPhone());
   } catch (e) {
     return !1;
   }
@@ -814,7 +835,7 @@ function ydTasksAfter() {
   if (!host || "tkall" !== view || !ydOffice()) return;
   const phone = ydPhone();
   // the Team chip carries no number (it waits on nobody in particular)
-  host.querySelectorAll('[data-tvview="b:team"] .n').forEach((n) => (n.textContent = ""));
+  host.querySelectorAll('[data-tvview="b:all"] .n').forEach((n) => (n.textContent = ""));
   if (phone) {
     // the phone's chips are the same three
     const q = host.querySelector(".tv-qchips");
@@ -824,7 +845,7 @@ function ydTasksAfter() {
         on = vs.find((v) => tvIsOn(v));
       q.innerHTML = vs
         .map((v) => {
-          const n = "b:team" === v.id ? "" : tvCountFor(v, P);
+          const n = "b:all" === v.id ? "" : tvCountFor(v, P);
           return `<button type="button" class="yd-chip${on && on.id === v.id ? " on" : ""}" data-ydchip="${esc(v.id)}" aria-pressed="${!!(on && on.id === v.id)}">${esc(v.name)}<span class="n">${n}</span></button>`;
         })
         .join("");
@@ -882,6 +903,7 @@ function ydForward() {
     }
     const r = base.apply(this, arguments);
     try {
+      ydOffice() && document.querySelectorAll('#mtabs [data-mv="tkall"] i.n').forEach((i) => i.remove());
       ydMsgRender();
       ydTodayAfter();
       document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === "v-" + view));
@@ -889,6 +911,28 @@ function ydForward() {
       console.warn("your day", e);
     }
     return r;
+  };
+}
+// Ask's "what is waiting on me" is Today's Approvals chip and Messages' Needs an Answer: the same rows, one number
+if ("function" == typeof paAsk) {
+  const base = paAsk;
+  const fix = (a) => {
+    try {
+      if (!a || "onme" !== a.kind || !YD_TD_ROLES.includes(role()) || !TD2_SPEC[role()]) return a;
+      const T = td2Model(),
+        n = (T.chips.find((c) => "appr" === c.k) || {}).n || 0,
+        m = ydMsgNeeds().length;
+      a.headline = n
+        ? `${ydPlural(n, "thing")} waiting on your approval${m ? `, and ${ydPlural(m, "message")} waiting on your answer` : ""}.`
+        : `Nothing is waiting on your approval${m ? `; ${ydPlural(m, "message")} waiting on your answer` : ""}.`;
+      a.note = "The same list as Today's Approvals chip, and Messages' Needs an Answer.";
+      "function" == typeof paGo && (a.go = paGo({ view: "home" }));
+    } catch (e) {}
+    return a;
+  };
+  paAsk = function () {
+    const a = base.apply(this, arguments);
+    return a && "function" == typeof a.then ? a.then(fix) : fix(a);
   };
 }
 // Tasks carries no number in the menu: Today already counts what is due (the approved menu, Your Day SPEC 2)
