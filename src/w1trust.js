@@ -320,17 +320,22 @@ function w1Restore(el) {
   if (!st || st.discarded) return;
   const d = w1Get(st.key);
   if (!d || !d.fields) return;
-  let put = 0;
+  let put = 0,
+    back = 0;
   w1Sigs(w1BodyOf(el, st)).forEach((sig, f) => {
     const x = d.fields[sig];
     f._w1k = st.key + "::" + sig;
     if (!x || x.v === x.d0 || (f._w1typed && f._w1own) || w1UsedLately(f._w1k)) return;
     const now = w1Val(f);
-    if (now === x.v || now !== x.d0) return;
+    // a sheet that keeps its own draft (the foreman's Say It holds DB.field.draft) opens already showing the typing:
+    // it is the draft back all the same, and gets the same notice and Discard Draft (which empties the sheet's own copy
+    // too, through the field's input event)
+    if (now === x.v) return void ((f._w1d0 = x.d0), back++);
+    if (now !== x.d0) return;
     if ((f._w1n = (f._w1n || 0) + 1) > 3) return;
     w1Set(f, x.v), (f._w1d0 = x.d0), put++;
   });
-  put && !st.restored && ((st.restored = !0), w1Bar(el, st, d));
+  (put || back) && !st.restored && ((st.restored = !0), w1Bar(el, st, d));
 }
 // "Your draft is back", with Discard Draft, which asks first
 function w1Bar(el, st, d) {

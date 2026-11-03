@@ -129,6 +129,8 @@ class DraftWalk(TapLint):
             # the page's buttons (one of each kind), then its first rows and cards: a sheet opens from one or the other.
             # A row is a card, a link, or a plain button that carries a record's text (the 11-03 pages' rows)
             plan = [c for c in await self.buttons_of(lst['cands']) if not crawl.DESTRUCT_RE.match(c['label'])]
+            # a tab that makes something (Tasks' New View, drawn among the saved views) is a button, not a place
+            maker = [c for c in lst['cands'] if c['scope'] == 'view' and c['kind'] == 'tab' and re.match(r'(New|Add)\b', c['label'])]
             fam, B = Counter(), {'card': [], 'link': [], 'button': []}
             for c in lst['cands']:
                 if c['scope'] != 'view' or any(x['key'] == c['key'] for x in plan): continue
@@ -137,10 +139,10 @@ class DraftWalk(TapLint):
                 if fam[c['family']] > 1 or crawl.DESTRUCT_RE.match(c['label']): continue
                 B[c['kind']].append(c)
             # the first two rows and the last (a page's last section is often another kind of record: the permits
-            # under the inspections), then the first two row buttons and the first link, each kind apart so that
-            # one never crowds the other out
+            # under the inspections), then the first two row buttons and the first two links (the calendar's events are
+            # links), each kind apart so that one never crowds the other out
             cards = B['card'][:2] + B['card'][-1:] if len(B['card']) > 2 else B['card']
-            plan = plan[:30] + cards + B['button'][:2] + B['link'][:1]
+            plan = plan[:30] + maker + cards + B['button'][:2] + B['link'][:2]
             dirty = None
             for c in plan:
                 await self.fresh(dirty, u)

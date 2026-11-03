@@ -18,6 +18,7 @@ tapping its menu entry, on the desktop (1440x900) and the phone (390x844, touch)
            wipAtClose's
   FOLDED   Spend and the Accounting overview forward to Banking; Time and Crew opens as Bills and Payroll's Payroll
            chip, Controls and the operating Budget as Books' chips, each under the page's name; nothing is lost
+  NEWMENU  a pick from a page's New menu (the controller's New, Vendor Bill) opens its form and the menu goes away
   JOB      the Billing job filter scopes Needs You, the aging, the retainage and the documents to the job
   PHONE    at 390: nothing sideways, every button and chip on the front at least 44px tall, no Confirm on a bank list row
 Usage: python3 accounting_test.py [--desktop|--phone] [--user u_billing,...]
@@ -158,6 +159,13 @@ async def run(c, pg, u, phone):
             c.ok('booked as the first draw' in t and 'short-paid' in t, f'FIGURES {tag}: the deposit booked as a draw and the short-paid invoice')
     # the folded pages
     if u == 'u_controller':
+        # NEWMENU: a pick from a page's New menu opens its form and the menu goes away (it stayed drawn under the form)
+        await pg.evaluate("() => setView('ap')"); await pg.wait_for_timeout(200)
+        await pg.locator('.view.on [data-acnew="ap"]').first.click(); await pg.wait_for_timeout(200)
+        await pg.locator('.view.on [data-acnewpick="ap:bill"]').first.click(); await pg.wait_for_timeout(400)
+        M = await pg.evaluate("() => ({ menu: [...document.querySelectorAll('.ac-menu[role=menu]')].filter(e => e.getClientRects().length).length, drawer: !!document.querySelector('#drawer.on'), open: acNewOpen })")
+        c.ok(M['drawer'] and M['menu'] == 0 and not M['open'], f"NEWMENU {u} {dev}: New › Vendor Bill opens the bill and the New menu is gone ({M})")
+        await pg.evaluate("() => { try { closeEditor(); } catch (e) {} }"); await pg.wait_for_timeout(150)
         for old, want, chip in (('spend', 'bank', None), ('ovmoney', 'bank', None), ('time', 'time', 'Payroll'), ('verify', 'verify', 'Controls'), ('budget', 'budget', 'Operating Budget')):
             await pg.evaluate("v => setView(v)", old); await pg.wait_for_timeout(250)
             F = await pg.evaluate(FRONT)

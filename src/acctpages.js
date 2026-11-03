@@ -948,7 +948,10 @@ document.addEventListener(
     if ((b = at("[data-acnewpick]"))) {
       e.preventDefault();
       const [pg, k] = b.dataset.acnewpick.split(":");
-      return void acNew(pg, k);
+      acNew(pg, k);
+      // acNew closes the menu in its state; a pick that opens a form or a sheet draws nothing, so the menu is drawn away
+      // here (a pick that draws the page has already taken it)
+      return void (!acNewOpen && document.querySelector('.ac-front .ac-menu[role="menu"]') && acMount());
     }
     if ((b = at("[data-acjob]"))) return e.preventDefault(), (acJobOpen = !acJobOpen), (acNewOpen = ""), void acMount();
     if ((b = at("[data-acjobpick]"))) return e.preventDefault(), (acJob = b.dataset.acjobpick), (acJobOpen = !1), void render();
