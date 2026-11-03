@@ -199695,7 +199695,7 @@ const MN_JOBS = () => [
     // for the PM or the coordinator: they reach a selection from a decision or a Buy Board row, drawings from the job.
     MN_G("studio", "Design", "studio", [
       ["sel", "Selections", null, { not: ["pm", "coord"] }],
-      ["plans", "Drawings", null, { not: ["pm", "coord"] }],
+      ["plans", "Drawings", null, { not: ["pm", "coord"], proj: 1 }],
     ]),
     MN_G("reports", "Reports", "reports", [
       ["reports", "All Reports", null, { head: 1 }],
@@ -199871,7 +199871,7 @@ function mnKnow(v, l) {
 function mnItem(x, sec) {
   const o = x[3] || {};
   // opts.roles: listed only for these roles; opts.not: never for these (a page they may still open from a record)
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip, roles: o.roles || null, not: o.not || null };
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip, roles: o.roles || null, not: o.not || null, proj: !!o.proj };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -200173,7 +200173,7 @@ function mnRail() {
   const sub = document.getElementById("subnav");
   if (!sub) return;
   const job = !!(cur && cur.job),
-    proj = !job && !!cur && !B.field && !!cur.g.proj && "jobs" !== cur.g.id;
+    proj = !job && !!cur && !B.field && (!!cur.g.proj || !!cur.it.proj) && "jobs" !== cur.g.id;
   if (!job && !proj) {
     (sub.innerHTML = ""), (sub.hidden = !0), nav && nav._projsel && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !B.field));
     return;

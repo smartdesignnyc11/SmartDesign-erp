@@ -415,7 +415,8 @@ function puSecHtml(key, title, rows, o) {
   o = o || {};
   if (!rows.length && !o.empty) return "";
   // the count is the menu badge's source only on the firm's page; inside a job it counts the job (the menu counts the firm)
-  const n = o.count ? `<span class="n"${puInJob() || o.scoped ? "" : ` data-ocbadge="${esc(o.count)}"`}>${rows.length}</span>` : "";
+  // nothing waiting carries no number (the rail shows none either): the empty sentence says it
+  const n = o.count && rows.length ? `<span class="n"${puInJob() || o.scoped ? "" : ` data-ocbadge="${esc(o.count)}"`}>${rows.length}</span>` : "";
   return `<section class="pu-sec" data-pusec="${key}"><div class="pu-sh"><h3>${esc(title)}</h3>${n}${o.note ? `<span class="pu-note" data-nocase>${esc(o.note)}</span>` : ""}</div>${rows.length ? `<div class="pu-rows">${rows.map((x) => puRowHtml(x, o)).join("")}</div>` : `<p class="pu-empty" data-nocase>${esc(o.empty)}</p>`}${o.foot || ""}</section>`;
 }
 function puPlusItems(v) {

@@ -312,7 +312,7 @@ async def run_role(pg, lint, tag, uid, phone):
           const mk = v.querySelector('[data-pusec="mine"] [data-ocbadge="proc"]');
           const shown = new Set([...v.querySelectorAll('[data-purow]')].map(e => e.dataset.purow));
           const L = PRED.lateMaterial.rows();
-          const out = { pill: mk ? +mk.textContent : null, need: PRED.buyNeeds.rows().length, badge: needs('buy'), late: L.length,
+          const out = { pill: mk ? +mk.textContent : (v.querySelector('[data-pusec="mine"]') ? 0 : null), need: PRED.buyNeeds.rows().length, badge: needs('buy'), late: L.length,
             rows: v.querySelectorAll('[data-pusec="mine"] [data-purow]').length,
             placed: L.filter(r => shown.has(r.id) || (r.ordered && r.po)).length };
           try { const M = tdyModel(); if (M.buy) { out.todayChip = M.buy.length;
