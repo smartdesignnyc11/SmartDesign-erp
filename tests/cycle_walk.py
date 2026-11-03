@@ -823,9 +823,14 @@ def j2_price_job(p):
     """The PM: the 12 lines of the takeoff keyed into the estimate on the job, the margin read, then sent to the Ashbys."""
     open_estimate(p, menu_check=True, create=True)
     p.look()
-    f = p.scr.find('Project', field=True)
-    p.expect(f is not None and norm(f.value) == norm(JOB['job']), 'the estimate shows its project, 214 Lincoln Place',
-             f'Project = "{f.value if f else "(no field)"}" {{{"|".join(f.opts) if f else ""}}}')
+    # the estimate's own Project field (exact: "Switch project", the job's switcher, is not the estimate's project, and it
+    # passed this check on the phone before the job structure took the switcher off the phone's section pages); the phone
+    # folds the fields under the header line, which names the job
+    f = p.scr.find('Project', field=True, exact=True)
+    head = next((c for c in p.scr.ctls if c.action and re.search(r' · (Mon|Tue|Wed|Thu|Fri|Sat|Sun), \w{3} \d+', c.label)), None)
+    p.expect((f is not None and norm(f.value) == norm(JOB['job'])) or (f is None and head is not None and norm(JOB['job']) in norm(head.label)),
+             'the estimate shows its project, 214 Lincoln Place',
+             f'Project = "{f.value if f else "(no field)"}" {{{"|".join(f.opts) if f else ""}}}; header: {head.label if head else "(none)"}')
     if f and norm(JOB['job']) in [norm(o) for o in f.opts] and norm(f.value) != norm(JOB['job']):
         p.pick('Project', JOB['job'])
     saves_twice = False
