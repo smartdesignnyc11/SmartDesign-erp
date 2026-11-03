@@ -488,6 +488,20 @@ function jpPanelHtml(id, p) {
     }[id] || "";
   return `<section class="jp-card0" id="jp-panel" data-state="${id}"><div class="jp-ph"><h3>${esc(head[0])}</h3><span>${esc(head[1])}</span></div>${jpRowsHtml(rows, head[2])}${links ? `<div class="jp-pf">${links}</div>` : ""}</section>`;
 }
+// The job's finish forecast and why (tpForecastWhy: the same reading as Schedule's forecast card): a late finish, its
+// live cause and the Pull In a give-back offers. It was the old dashboard's Schedule tile, drawn and hidden on the job's
+// page, so the job's Overview said nothing of a late finish; it sits above Next Up now, only when there is something to say.
+function jpForecastHtml(p) {
+  if ("function" != typeof tpForecastWhy || !(p.tasks || []).length) return "";
+  let W = null;
+  try {
+    W = tpForecastWhy(p);
+  } catch (e) {}
+  if (!W || !(W.late > 0 || W.give) || !W.text) return "";
+  return `<section class="jp-fc ${W.late > 0 ? "bad" : "warn"}" id="jp-forecast"><b>Forecast ${esc(fmtL(W.sc))}</b><span>${esc(W.text.replace(/ — Pull In$/, ""))}</span>${
+    W.give && jpMay("sched") ? '<button type="button" class="jp-link jp-tap" data-jppull="1">Pull In</button>' : ""
+  }</section>`;
+}
 function jpNextHtml(p) {
   const N = jpNextUp(p);
   return `<section class="jp-card0" id="jp-next"><div class="jp-ph"><h3>Next Up on This Job</h3><span>${esc(fmtL(today()))}</span></div>${
@@ -548,9 +562,9 @@ function jpOverview() {
   phone || jpSub || (jpPanel = jpPanel || "risk");
   if (phone && jpSub) host.innerHTML = `<h2 class="jp-vh">Overview</h2>${jpPanelHtml(jpSub, p)}`;
   else if (phone)
-    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpNextHtml(p)}${jpReadyHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
+    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div>${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpSectionsHtml(p)}${jpMoreLinks(["proj"])}`;
   else
-    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpNextHtml(p)}${jpReadyHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
+    host.innerHTML = `<h2 class="jp-vh">Overview</h2><div class="jp-tiles">${jpTiles(p)}</div><div class="jp-two"><div class="jp-main">${jpPanelHtml(jpPanel, p)}</div><aside class="jp-aside">${jpForecastHtml(p)}${jpNextHtml(p)}${jpReadyHtml(p)}${jpMoreLinks(["proj", "sboard"])}</aside></div>`;
   // the job's pinned sheets (Alan, 2026-10-19: they live on the job's page) sit beside Next Up, drawn here: the old
   // layout they were put into is not drawn on a job's page any more
   !jpSub &&
@@ -1257,6 +1271,7 @@ document.addEventListener(
       return void (f && f());
     }
     if ((b = at("#jd-newrfi"))) return e.preventDefault(), void jpRfiNew();
+    if ((b = at("[data-jppull]"))) return e.preventDefault(), e.stopPropagation(), void ("function" == typeof tpPullIn && tpPullIn(tpForecastWhy(S).give));
     if ((b = at("[data-jsans]"))) {
       e.preventDefault();
       const r = jpQuestions(S).find((x) => x.id === b.dataset.jsans);
@@ -1349,6 +1364,8 @@ table.jp-rows tr:first-child td{border-top:0}
 .jp-nx{display:flex;gap:10px;align-items:baseline;width:100%;padding:10px 18px;border:0;border-top:1px solid var(--rule-2);background:none;font:inherit;font-size:14px;text-align:left;color:var(--ink);cursor:pointer}
 .jp-nx:first-of-type{border-top:0}
 .jp-nw{width:62px;flex:none;font-size:12px;color:var(--ink-3)}
+.jp-fc{border:1px solid var(--rule);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;font-size:14px;line-height:1.45;background:var(--paper)}
+.jp-fc.bad{border-color:#fecaca;background:var(--bad-2)} .jp-fc.bad>b{color:var(--bad)} .jp-fc.warn{border-color:#fde68a;background:#fffbeb}
 .jp-ready{background:var(--accent-2);border:1px solid #bfdbfe;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.45}
 .jp-cap{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:6px 0 -6px}
 .jp-secs{display:flex;flex-direction:column}

@@ -104,7 +104,7 @@ async def sec_sched(p, c):
     c.ok('save changes' not in m.lower() and 'confirm' not in m.lower(), f'leaving the approved CO asks nothing: {m[:80]!r}')
     st = await pg.evaluate(f"() => {{ const c = {KLEIN}, d = c.changeOrders.find(x => x.czGive); return {{ open: d.czGive.open, pulled: d.czGive.pulled, end: S.tasks.find(t => t.id === 'frame').end, live: typeof czGiveOpen === 'function' ? czGiveOpen(c, d) : null }} }}")
     c.ok(st['open'] is False and st['live'] is False and st['end'] == '2026-09-10', f'after leaving the record the give-back stays closed: {st}')
-    # the three readers agree: no give-back note on Changes, no Pull In on the forecast card or the Today tile
+    # the three readers agree: no give-back note on Changes, no Pull In on the forecast card or the job Overview's forecast
     await pg.evaluate("() => { view = 'sched'; schedView = 'changes'; render() }"); await pg.wait_for_timeout(400)
     note = await pg.evaluate("() => [...document.querySelectorAll('.cz-givenote')].map(x => x.innerText)")
     card = await pg.evaluate("() => { const t = document.querySelector('#track-cards .ops-fc'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
@@ -112,7 +112,7 @@ async def sec_sched(p, c):
     c.ok('Pull In' not in card, f'the forecast card offers no Pull In after Pull In: {card!r}')
     c.ok(await pg.locator('[data-czpull]').count() == 0, 'no Pull In button anywhere on Schedule after Pull In')
     await go(pg, 'dash'); await pg.wait_for_timeout(300)
-    tile = await pg.evaluate("() => { const t = document.querySelector('#kpis .gl[data-gl=\"sched\"]'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
+    tile = await pg.evaluate("() => { const t = document.getElementById('jp-forecast'); return t && t.getClientRects().length ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     c.ok('Pull In' not in tile and 'still on' not in tile, f'the Today forecast tile reads the live history: {tile!r}')
     # the no-show slip: +5 on Framing, reason no-show
     end = await pg.evaluate(SLIP, ['frame', 5, 'noshow'])
@@ -120,7 +120,7 @@ async def sec_sched(p, c):
     c.ok(why['late'] == 5 and re.search(r'no-show|could not be on site', why['text'], re.I) and 'Framing' in why['text'] and '+5' in why['text'],
          f"the forecast names the live cause (the no-show +5 on Framing): {why['text']!r}")
     await go(pg, 'dash'); await pg.wait_for_timeout(300)
-    tile = await pg.evaluate("() => { const t = document.querySelector('#kpis .gl[data-gl=\"sched\"]'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
+    tile = await pg.evaluate("() => { const t = document.getElementById('jp-forecast'); return t && t.getClientRects().length ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     await go(pg, 'sched'); await pg.wait_for_timeout(300)
     card = await pg.evaluate("() => { const t = document.querySelector('#track-cards .ops-fc'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     c.ok(why['text'] in tile and why['text'] in card, f"the tile and the card read the same cause: tile {tile!r} card {card!r}")

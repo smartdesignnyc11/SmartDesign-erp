@@ -85,7 +85,7 @@ OWN = '#jp-head, #jp-ov, #v-dash, #jp-budget, #jbill-body, #jdec-body, #jsite-bo
 # other lanes draw (a phone row drops a table's header and some columns; a tile's sub-line; Schedule's track
 # sub-lines). Each is counted and printed, never silent; anything else hidden with words in it fails.
 DEVICE = '.phone-only, .desk-only, .desk-only2, .gantt-only, .os-print, .os-hidden'
-PHONE_LAYOUT = 'table.pr-tbl > thead, tr.pr-tr > td, table.dg-t > thead, .glance .gl-s, #track-cards .track > .s'
+PHONE_LAYOUT = 'table.pr-tbl > thead, tr.pr-tr > td, table.dg-t > thead, .glance .gl-s, #track-cards .track:not(.ops-fc) > .s'
 HIDDEN = r"""async (arg) => { const sleep = ms => new Promise(r => setTimeout(r, ms)); const [OWN, DEVICE, PHONE_LAYOUT, PAGES, plant] = arg;
   const norm = t => String(t || '').replace(/\s+/g, ' ').trim(), phone = innerWidth <= 760, bad = [], known = {};
   const hidden = e => { const s = getComputedStyle(e); return s.display === 'none' || s.visibility === 'hidden' || e.hidden; };
@@ -262,6 +262,14 @@ async def run(c, p, phone):
         if r: c.ok(MARK not in r['t'] and 'Lenox' not in r['t'], f'{dev} COUNTS: {x["k"]} lists only this job')
         if phone and x['tl'] in ('risk', 'appr'): await shot(pg, f'overview_{x["tl"]}_{dev}')
     if not phone: await shot(pg, f'overview_panels_{dev}')
+    # the finish forecast and its cause are on the Overview, drawn, whenever Schedule's forecast card has one (the old
+    # dashboard's Schedule tile carried it, drawn hidden); a slip on the critical path makes one
+    fc = (await js(pg, """const t = S.tasks.find(x => x.status !== 'done' && computeCPM().cpm[x.id] && computeCPM().cpm[x.id].critical);
+      const P = S.project, t0 = P.target, e0 = t.end, d0 = t.dur; if (!P.target) P.target = addWork(today(), 20); t.end = addWork(t.end, 25); t.dur = (t.dur || 1) + 25;
+      jpSub = ''; view = 'dash'; render(); await sleep(200); const W = tpForecastWhy(S), e = document.getElementById('jp-forecast');
+      const out = { late: W.late, text: W.text, card: e && e.getClientRects().length ? e.innerText.replace(/\\s+/g, ' ') : '' };
+      t.end = e0; t.dur = d0; P.target = t0; render(); await sleep(100); return out;""")) or {}
+    c.ok(fc.get('late', 0) > 0 and fc.get('text') and fc['text'].replace(' — Pull In', '') in fc.get('card', ''), f'{dev} OVERVIEW: a late finish and its cause are on the Overview ({fc})')
     await js(pg, "jpSub = ''; render();")
 
     # ---- NEW: the + menu, each kind tied to the job and its client
