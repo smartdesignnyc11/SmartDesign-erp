@@ -20270,21 +20270,9 @@ function wire() {
   }),
     $("#pswitch").addEventListener("change", (e) => {
       if ("__new" === e.target.value) return (e.target.value = S.id), void newProjectDialog();
-      if ("__all" !== e.target.value) {
-        if (void 0 !== dashAll && dashAll && "dash" === view) {
-          dashAll = !1;
-          try {
-            localStorage.setItem("dashAll", "0");
-          } catch (_) {}
-        }
-        setCurrent(e.target.value), save(), render();
-      } else {
-        dashAll = !0;
-        try {
-          localStorage.setItem("dashAll", "1");
-        } catch (_) {}
-        render();
-      }
+      // All Projects in the switcher is the list of jobs; any other entry is that job, on the same tab
+      if ("__all" === e.target.value) return (e.target.value = S.id), void setView((ROLE_VIEWS[role()] || []).includes("ovjobs") ? "ovjobs" : "port");
+      setCurrent(e.target.value), save(), render();
     }),
     document.body.addEventListener("click", (e) => {
       const od = e.target.closest("[data-opendoc]");
@@ -20488,7 +20476,7 @@ function wire() {
       if (npf) return void newProjectDialog(npf.dataset.newprojFor);
       const op = e.target.closest("[data-open]");
       if (op && DB.projects.some((x) => x.id === op.dataset.open))
-        return setCurrent(op.dataset.open), save(), void setView("dash");
+        return "function" == typeof jpOpenJob ? void jpOpenJob(op.dataset.open) : (setCurrent(op.dataset.open), save(), void setView("dash"));
       const go = e.target.closest("[data-go]");
       if (go) {
         e.preventDefault();
@@ -45438,13 +45426,10 @@ render = function () {
       setCurrent(e.target.value), (v.dataset.officeOrder = ""), render();
     });
 };
-let dashAll = (() => {
-  try {
-    return "1" === localStorage.getItem("dashAll");
-  } catch (e) {
-    return !1;
-  }
-})();
+// The job's Overview showed every job when this was on (the phone's default), so tapping 121 State Street opened
+// All Projects > Overview (Alan, 10-27). It is off for good: a job's Overview is that job, and the firm's view of
+// every job is Projects (ovjobs). The flag stays a name because older layers read it.
+let dashAll = !1;
 const shortName = (p) =>
   ((p && p.project && p.project.name) || "")
     .replace(/ — design$/, "")
@@ -49576,7 +49561,7 @@ function fOfficeMount() {
       const v = $("#v-field"),
         ph = v?.querySelector(".ph");
       if (!ph) return;
-      const html = fOfficeCard({ always: !0 });
+      const html = fOfficeCard({ always: !0, projectId: S && S.id });
       if (!html) return;
       ph.insertAdjacentHTML("afterend", html), fWireOffice($("#f-office"));
     }
@@ -68372,9 +68357,7 @@ const renderPortfolioBase_p6 = renderPortfolio;
         !e.target.closest("button,a") &&
         (e.stopPropagation(),
         e.preventDefault(),
-        setCurrent(tr.dataset.edit.split(":")[1]),
-        save(),
-        setView("dash"));
+        "function" == typeof jpOpenJob ? jpOpenJob(tr.dataset.edit.split(":")[1]) : (setCurrent(tr.dataset.edit.split(":")[1]), save(), setView("dash")));
     },
     !0,
   );
@@ -89422,11 +89405,8 @@ function glnWire(root) {
           b.dataset.glp && "function" == typeof setCurrent && setCurrent(b.dataset.glp),
           "dash-all" === go)
         ) {
-          dashAll = !0;
-          try {
-            localStorage.setItem("dashAll", "1");
-          } catch (e) {}
-          view = "dash";
+          // every job's day is the list of jobs, not a job's Overview (dashAll is retired)
+          view = (ROLE_VIEWS[role()] || []).includes("ovjobs") ? "ovjobs" : "port";
         } else {
           if (void 0 !== dashAll && "port" !== go && "home" !== go && "mapprove" !== go) {
             dashAll = !1;
@@ -89702,9 +89682,7 @@ function glnProjectRow() {
       !0,
     );
 })();
-try {
-  mOn() && null === localStorage.getItem("dashAll") && void 0 !== dashAll && (dashAll = !0);
-} catch (e) {}
+// (the phone no longer defaults the job's Overview to every job: dashAll is retired, see its declaration)
 if ("function" == typeof render) {
   const renderBase_gl = render;
   render = function () {
@@ -130393,11 +130371,9 @@ function ovOpen(gid, id) {
   if (r) {
     // A job opens on its page; someone without that page gets the first job page they have.
     if ("jobs" === gid)
-      return (
-        setCurrent(r.p.id),
-        save(),
-        void setView(["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
-      );
+      return "function" == typeof jpOpenJob
+        ? void jpOpenJob(r.p.id, ["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
+        : (setCurrent(r.p.id), save(), void setView("dash"));
     if ("buy" !== gid)
       return "sales" === gid
         ? ("function" == typeof hbOpen ? hbOpen("deal", r.l.id) : (view = "hbdeals"),
@@ -143171,11 +143147,14 @@ function ocWriteBadges() {
     });
 }
 function ocPatchSubs() {
-  const sub = document.getElementById("subnav");
+  const sub = document.getElementById("subnav"),
+    // a job's tabs carry no badge (Alan, 11-03): the pages' numbers count every job; the job's tiles count the job
+    job = "function" == typeof jpCur && !!jpCur();
   if (
     sub &&
     (sub.querySelectorAll("[data-sub]").forEach((b) => {
       const v = b.dataset.sub;
+      if (job) return void (b.querySelector(".n") && b.querySelector(".n").remove());
       // a retired page leaves the strip only for a role it retires for (the controller, who cannot open the Buy Board,
       // keeps the Purchasing overview)
       if (OC_RETIRED[v] && ocRetiredTarget(v)) return void b.remove();
@@ -196356,7 +196335,7 @@ window.addEventListener(
       const dv = document.getElementById("v-dash");
       // under the page's header, never above it: put first, the header pass moved the header back over it on the next
       // draw and the two traded places on every draw (the reopen and a view switch showed different pages)
-      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts")) {
+      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts") && !("function" == typeof jpOn && jpOn())) {
         const ph = dv.querySelector(":scope > .ph");
         ph ? ph.insertAdjacentHTML("afterend", docJobActs(S.clientId, S.id)) : dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
       }
@@ -199358,35 +199337,22 @@ document.addEventListener(
                     heading is the page's name, never a record's.
    The client portal (FD_CLIENT_NAV) and the Mercer & Bond workspace keep their own menus: neither is in scope.
    --------------------------------------------------------------------------------------------------------- */
-const MN_JOBS = (o) =>
-    [
-      ["ovjobs", "Projects"],
-      ["dash", "Overview"],
-      ["proj", "Project Settings"],
-      "Plan",
-      ["sched", "Schedule"],
-      ["tasks", "Tasks"],
-      ["dec", "Decisions"],
-      ["subm", "Submittals"],
-      ["insp", "Permits"],
-      "Field",
-      ["field", "Field"],
-      ["photos", "Photos"],
-      ["recv", "Deliveries"],
-      ["mat", "Materials"],
-      // the job's money (disagreement 1): change orders and the estimates for extras live here; Billing reads
-      // "approved, not billed" from the same list. "Money" is never a label (CLAUDE.md), so the section is named
-      // for what is in it.
-      "Costs & Billing",
-      ["costs", "Costs"],
-    ]
-      .concat(o.co ? [["billing", "Change Orders", "co"], ["billing", "Estimates", "estimates"]] : [])
-      .concat(o.billing ? [["billing", "Billing"]] : [])
-      .concat(["Files & Mail", ["files", "Documents"]])
-      .concat(!1 === o.plans ? [] : [["plans", "Drawings"]])
-      .concat([
-        ["inbox", "Mail"],
-      ]),
+const MN_JOBS = () => [
+    // The job's eight tabs (Alan, 11-03: docs/mockups/job-structure/, src/jobpage.js). Inside a job everything is that
+    // job: the about eighteen tabs of before fold into these, and each page they reached opens under its tab (JP_UNDER,
+    // MN_ALIAS). Projects stays the group's first entry, the list of jobs, and is not a tab of the job (nostrip).
+    // A tab shows for a role that may open its page (Contract and Billing: billing; Budget: costs; Site: field).
+    ["ovjobs", "Projects", null, { nostrip: 1 }],
+    ["dash", "Overview"],
+    ["sched", "Schedule"],
+    ["jbill", "Contract and Billing"],
+    ["costs", "Budget"],
+    // the one Buy Board, filtered to the job (bbProj): its tab "job" tells it from Purchasing's own Buy Board
+    ["proc", "Purchasing", "job"],
+    ["jdec", "Decisions"],
+    ["jsite", "Site"],
+    ["files", "Documents"],
+  ],
   // Purchasing (procurement P1, docs/PROCUREMENT_PLAN.md section 4): Buy Board, Quotes, Orders, Deliveries, Vendors,
   // Stock; Issues & Credits joins in P4. One noun, one list: the Purchasing overview and Requests are rows of the Buy
   // Board now (a request is a need until it is bought), Route is the driver's own screen, Selections a design tool.
@@ -199458,7 +199424,7 @@ const MN_JOBS = (o) =>
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
-        MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1 }), { proj: 1 }),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS(), { proj: 1 }),
         MN_G("money", "Accounting", "money", [
           ["ovmoney", "Accounting"],
           ["ap", "Bills & Payroll"],
@@ -199497,8 +199463,8 @@ const MN_JOBS = (o) =>
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
-        // change orders and extra estimates in each job (disagreement 1); no Design or Accounting (question 4)
-        MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
+        // the job holds its contract, change orders and billing (Contract and Billing, 11-03); no Design or Accounting (question 4)
+        MN_G("jobs", "Projects", "jobs", MN_JOBS(), { proj: 1 }),
         // the PM prices the job (journey J2), so he gets Sales as open question 4 decided ("only if they estimate"):
         // Sales holds Estimates alone for him, so the rail draws it as Estimates (a group of one is its page). The
         // same list as Billing's Estimates, his jobs only (iaDocRows); the job's own Estimates stays in Projects. Its
@@ -199523,7 +199489,7 @@ const MN_JOBS = (o) =>
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1 })),
-        MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS(), { proj: 1 }),
         // Accounting (view): the coordinator may open no accounting page today, so the group stays empty and is
         // not drawn; Time & Crew leaves her rail (workshop cut list)
         MN_G("money", "Accounting", "money", [
@@ -199549,7 +199515,7 @@ const MN_JOBS = (o) =>
         MN_G("home", "Today", "today", MN_TODAY),
         MN_TASKS(),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
-        MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS(), { proj: 1 }),
         MN_G("bank", "Banking", "bank", [["bank", "Banking"]]),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
       ],
@@ -199611,7 +199577,7 @@ const MN_JOBS = (o) =>
         MN_TASKS(),
         // drawings: one register per job, a top item for the designer (disagreement 6)
         MN_G("drawings", "Drawings", "drawings", [["plans", "Drawings"]], { proj: 1 }),
-        MN_G("jobs", "Projects", "jobs", MN_JOBS({ plans: !1 }), { proj: 1 }),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS(), { proj: 1 }),
         MN_G("studio", "Design", "studio", [
           ["ovstudio", "Design"],
           ["sboard", "Project Board"],
@@ -199747,7 +199713,7 @@ function mnKnowAll() {
 }
 // an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless}
 function mnItem(x, sec) {
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!(x[3] && x[3].quiet), unless: (x[3] && x[3].unless) || "" };
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!(x[3] && x[3].quiet), unless: (x[3] && x[3].unless) || "", nostrip: !!(x[3] && x[3].nostrip) };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -199848,7 +199814,7 @@ function mnBuild(r) {
     settings.length && (out.bottom = { id: "setup", n: "Settings", icon: "setup", items: settings });
   return out;
 }
-const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "");
+const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "proc" === v && "undefined" != typeof bbProj && bbProj ? "job" : "");
 // Which item the page on screen is: the group the person came through keeps it when it holds the page; then the
 // item with the page's own tab; then the item for the page with no tab; then the first.
 function mnCur(B) {
@@ -199860,9 +199826,20 @@ function mnCur(B) {
     placed = (v) => all.some((x) => x.it.v === v),
     // Company Settings open on the job's settings page: they are Settings, not the job's
     company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
-    v = company ? "setup" : placed(view) ? view : MN_ALIAS[view] && placed(MN_ALIAS[view]) ? MN_ALIAS[view] : view,
+    // an alias may lead to a page that is itself an alias (the Studio's Drawings to the job's Drawings, under Documents)
+    alias = (x) => {
+      for (let a = MN_ALIAS[x], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed(a)) return a;
+      return "";
+    },
+    v = company ? "setup" : placed(view) ? view : alias(view) || view,
     tab = mnTabOf(v),
     hits = all.filter((x) => x.it.v === v);
+  // a page opened from a job's tab, while the person is in the job, lights that tab (src/jobpage.js, JP_UNDER):
+  // Billing's change order opened from Contract and Billing stays the job's page
+  if ("jobs" === mnLastGrp && "object" == typeof JP_UNDER && JP_UNDER[view]) {
+    const u = all.find((x) => "jobs" === x.g.id && x.it.v === JP_UNDER[view]);
+    if (u) return u;
+  }
   if (!hits.length) return null;
   const pick = (L) => L.find((x) => x.it.tab && x.it.tab === tab) || L.find((x) => !x.it.tab);
   // a page with a rail entry of its own (Tasks) lights that entry unless the person came through a strip that holds it
@@ -199904,6 +199881,8 @@ function mnSvg(path) {
 function mnGo(g, it) {
   mnLastGrp = g.id;
   try {
+    // the job's Purchasing is the Buy Board filtered to the job; Purchasing's own Buy Board is every job's
+    "proc" === it.v && "undefined" != typeof bbProj && (bbProj = "job" === it.tab && S ? S.id : "");
     if ("billing" === it.v) {
       (billTab = it.tab || "billable"), (docOpen = null);
       const p = S && "jobs" === g.id ? S : null;
@@ -199960,29 +199939,34 @@ function mnRail() {
   const sub = document.getElementById("subnav");
   if (!sub) return;
   const g = cur && !B.field ? cur.g : null;
-  // a group of one page has no strip, unless it is a job's page: the strip then carries the project switcher
-  if (!g || (g.items.length < 2 && !g.proj)) {
+  // a group of one page has no strip, unless it is a job's page: the strip then carries the project switcher. The list
+  // of jobs is no job's page: on it the job's tabs do not show
+  if (!g || (g.items.length < 2 && !g.proj) || (cur && cur.it.nostrip)) {
     (sub.innerHTML = ""), (sub.hidden = !0), nav && nav._projsel && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !B.field));
     return;
   }
   let last = "";
   const tabs = g.items
     .map((it, i) => {
+      if (it.nostrip) return "";
       const cap = it.sec && it.sec !== last ? `<span class="mn-sec">${esc(it.sec)}</span>` : "";
       last = it.sec;
       // Billing's number is its queue; as a sub-tab it sits over a list scoped by the job or the tab, so it carries
       // no badge there (the Billing rail entry keeps it, as before)
-      const n = "billing" === it.v ? 0 : mnItemN(it);
+      // a job's tabs carry no badge: the pages' own numbers counted every job (Overview 23, Purchasing 17), and the
+      // job's Overview tiles say what waits on you there (Alan, 11-03: numbers only where something waits on you)
+      const n = "billing" === it.v || "jobs" === g.id ? 0 : mnItemN(it);
       return `${cap}<button data-sub="${it.v}"${it.tab ? ` data-subtab="${it.tab}"` : ""} data-mni="${i}" class="${cur.it === it ? "on" : ""}">${esc(it.l)}${n ? `<span class="n">${n}</span>` : ""}</button>`;
     })
     .join("");
   (sub.hidden = !1),
     // a long strip wraps on a desktop so every page shows (the PM's Change Orders sat past the edge); the phone scrolls
-    (sub.innerHTML = `${g.proj ? '<span class="sub-proj"></span>' : ""}<div class="sub-tabs${g.items.length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
+    // a job's switcher is its name in the job header (src/jobpage.js), not a box beside its tabs
+    (sub.innerHTML = `${g.proj && "jobs" !== g.id ? '<span class="sub-proj"></span>' : ""}<div class="sub-tabs${g.items.filter((it) => !it.nostrip).length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
     sub.querySelectorAll("[data-mni]").forEach((b) => (b.onclick = () => mnGo(g, g.items[+b.dataset.mni])));
   nav &&
     nav._projsel &&
-    (g.proj ? (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)) : (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0)));
+    (g.proj && sub.querySelector(".sub-proj") ? (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)) : (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0)));
 }
 {
   const base = renderNav;
@@ -200094,6 +200078,8 @@ function mnHeading() {
   if (!mnOn(r) || MN_BUTTON.has(view)) return;
   const cur = mnCur(mnBuild(r));
   if (!cur) return;
+  // a page opened under a job's tab (the Submittals log under Decisions) keeps its own name
+  if (cur.it.v !== view && "object" == typeof JP_UNDER && JP_UNDER[view]) return;
   const want = cur.it.l,
     known = MN_KNOWN[view] || new Set(),
     v = document.querySelector(".view.on");

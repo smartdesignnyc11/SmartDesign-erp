@@ -45,12 +45,10 @@ RAIL = {
 }
 # The sub-tab strip of the groups the workshop reshaped, sections captioned.
 STRIPS = {
-    ('u_owner', 'jobs'): ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
-                          '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates',
-                          '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
-    ('u_alan', 'jobs'): ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
-                         '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates', 'Billing',
-                         '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
+    # Projects is the list of jobs: no job's tabs show on it. A job's own eight tabs are JOB_TABS, read on the job's page
+    # (Alan, 11-03, the approved job structure: docs/mockups/job-structure/; this pin changed for that design)
+    ('u_owner', 'jobs'): [],
+    ('u_alan', 'jobs'): [],
     # Inbox is Messages > Mail (p2nav, 2026-10-25)
     ('u_owner', 'home'): ['Today', 'Approvals', 'Tasks'],
     ('u_owner', 'money'): ['Accounting', 'Bills & Payroll', 'Time & Crew', 'Banking', 'Spend', 'Billing', 'Ledger', 'Controls', 'Budget'],
@@ -68,6 +66,12 @@ STRIPS = {
     ('u_sarah', 'home'): ['Today', 'Tasks'],
     ('u_sarah', 'studio'): ['Design', 'Project Board', 'Filings', 'Selections'],
 }
+# A job's tabs (Alan, 11-03: docs/mockups/job-structure/): eight, in this order, for a role that may open each page.
+JOB_TABS = ['Overview', 'Schedule', 'Contract and Billing', 'Budget', 'Purchasing', 'Decisions', 'Site', 'Documents']
+JOB_TABS_FOR = {'u_owner': JOB_TABS, 'u_alan': JOB_TABS,
+                'u_chen': ['Overview', 'Schedule', 'Purchasing', 'Decisions', 'Site', 'Documents'],
+                'u_billing': ['Overview', 'Contract and Billing', 'Documents'],
+                'u_sarah': ['Schedule', 'Decisions', 'Documents']}
 # Pages cut from each role's daily menu (the workshop's cut list and the decided menus). Each is still one tap away
 # under More; nothing a role could open before is lost. A page that lands here without being listed fails the test:
 # place it in MENU (src/app.js, the menu section) or add it here on purpose.
@@ -137,7 +141,7 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
   const items = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more, m.bottom).map(s => s.split('=')[0].split(':')[0]);
   const placed = new Set(items), out = [];
   rv.forEach(v => { if (mb.includes(v) || placed.has(v) || MN_BUTTON.has(v) || ['client', 'clacct'].includes(v)) return;
-    const a = MN_ALIAS[v]; if (a && placed.has(a)) return;
+    for (let a = MN_ALIAS[v], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed.has(a)) return;   // an alias may lead to an alias
     if (MN_QUIET.has(v)) return;   // retired: listed while open, under its group
     out.push(v); });
   return { orphans: out, more: m.more.map(s => s.split('=')[0]), home: m.home }; }"""
@@ -210,6 +214,21 @@ async def desktop(c, p, users):
                 st = await check_screen(c, pg, f'{u} desktop "{g["label"]} > {lab}"', errs, want)
                 c.ok(st['sub'] == lab, f'{u} desktop "{g["label"]} > {lab}": lit sub-tab is "{st["sub"]}"')
                 c.ok(st['grp'] == g['label'], f'{u} desktop "{g["label"]} > {lab}": lit group is "{st["grp"]}"')
+        # a job's page: its eight tabs, each pressed for real (the job structure, 11-03)
+        if u in JOB_TABS_FOR:
+            await pg.evaluate("() => { jpOpenJob('p121'); }")
+            await pg.wait_for_timeout(250)
+            subs = await pg.evaluate(SUB_JS)
+            c.ok(subs == JOB_TABS_FOR[u], f'{u} a job\'s tabs {subs}\n      want {JOB_TABS_FOR[u]}')
+            n = await pg.evaluate("() => document.querySelectorAll('#subnav [data-mni]').length")
+            for k in range(n):
+                lab = await pg.evaluate("k => { const b = document.querySelectorAll('#subnav [data-mni]')[k]; return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : '' }", k)
+                want = await pg.evaluate("k => (document.querySelectorAll('#subnav [data-mni]')[k] || {dataset: {}}).dataset.sub", k)
+                await pg.evaluate("k => document.querySelectorAll('#subnav [data-mni]')[k].click()", k)
+                await pg.wait_for_timeout(160)
+                st = await check_screen(c, pg, f'{u} desktop "121 State Street > {lab}"', errs, want)
+                c.ok(st['sub'] == lab, f'{u} desktop "121 State Street > {lab}": lit tab is "{st["sub"]}"')
+                c.ok(st['grp'] == 'Projects', f'{u} desktop "121 State Street > {lab}": lit group is "{st["grp"]}"')
         # Ask: the header button opens the assistant and lights itself
         await press(pg, '#tb-ask')
         st = await pg.evaluate(STATE)
