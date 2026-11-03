@@ -181,12 +181,26 @@ function puPoBilled(po) {
 }
 // Committed, Not Yet Billed: each live order's total less what its vendor has billed (P5: the bill, through the one
 // "paid", is the cost; a payment with no bill is a prepayment, never billed work)
+// Committed is one number, read through the one money function (jobFin: open orders net of their bills and of what was
+// paid on them with no bill); this page adds no definition of its own. A payment on an order before its bill (Tino's
+// $8,000) is cost to date, not committed: it is said on its own line under the figure, here and on the job's Budget.
 function puCommitted(pid) {
-  return (DB.pos || [])
-    .filter((po) => puLive(po) && (!pid || po.projectId === pid))
-    .map((po) => ({ po: po, left: r2(Math.max(0, poTotal(po).total - puPoBilled(po))) }))
-    .filter((x) => x.left > 0.5);
+  const P = (DB.projects || []).filter((p) => (!pid || p.id === pid) && (DB.pos || []).some((po) => po.projectId === p.id && puLive(po)));
+  let total = 0;
+  P.forEach((p) => {
+    try {
+      total += +jobFin(p).committed || 0;
+    } catch (e) {}
+  });
+  return { total: r2(total), pos: (DB.pos || []).filter((po) => puLive(po) && (!pid || po.projectId === pid)), prepaid: puPrepaid(pid) };
 }
+function puPrepaid(pid) {
+  return (DB.pos || [])
+    .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
+    .map((po) => ({ po: po, amt: "function" == typeof poPaidDirect ? poPaidDirect(po) : 0 }))
+    .filter((x) => x.amt > 0.5);
+}
+const puPrepaidSay = (X) => (X.length ? `Paid before a bill: ${money(r2(X.reduce((a, x) => a + x.amt, 0)))} (${X.map((x) => `${x.po.vendor}, ${x.po.number}`).join("; ")}). It is cost to date, not committed; it comes off the next bill.` : "");
 function puOverOrder(pid) {
   return (DB.pos || [])
     .filter((po) => "cancelled" !== po.status && (!pid || po.projectId === pid))
@@ -554,8 +568,9 @@ function puBuyRender() {
 }
 
 // The pages drawn over the old ones (#v-po, #v-rfq, #v-recv, #v-vendors, #v-inv)
-function puTile(id, k, v, s, rows) {
-  return `<button type="button" class="pu-tile ${puShowAll.tile === id ? "on" : ""}" data-putile="${id}" aria-pressed="${puShowAll.tile === id}"><span class="pu-tk">${esc(k)}</span><b>${esc(v)}</b><span class="pu-ts" data-nocase>${esc(s)}</span></button>`;
+function puTile(id, k, v, s, extra) {
+  // extra: a line of its own under the figure (what the figure leaves out, said where it is read)
+  return `<button type="button" class="pu-tile ${puShowAll.tile === id ? "on" : ""}" data-putile="${id}" aria-pressed="${puShowAll.tile === id}"><span class="pu-tk">${esc(k)}</span><b>${esc(v)}</b><span class="pu-ts" data-nocase>${esc(s)}</span>${extra ? `<span class="pu-tx" data-pux="${id}" data-nocase>${esc(extra)}</span>` : ""}</button>`;
 }
 function puPageHtml(v, parts) {
   return `<div class="pu-page pr-keep" data-pupage="${v}">${puHeadHtml(v, parts.acts)}${parts.tiles ? `<div class="pu-tiles">${parts.tiles}</div>` : ""}${parts.filters || ""}${parts.body}</div>`;
@@ -571,7 +586,7 @@ function puOrders() {
     cnb = puCommitted(pid),
     owedSum = r2(owed.reduce((a, x) => a + (x.money || 0), 0)),
     overSum = r2(over.reduce((a, x) => a + (x.money || 0), 0)),
-    cnbSum = r2(cnb.reduce((a, x) => a + x.left, 0)),
+    cnbSum = cnb.total,
     t = puShowAll.tile || "",
     f = puFilter.po,
     pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))),
@@ -579,12 +594,12 @@ function puOrders() {
       const st = "function" == typeof poState ? poState(po) : { msg: po.status };
       return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")} · Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
     },
-    tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.map((x) => Object.assign(poRow(x.po), { id: "cnb:" + x.po.id, why: `${money(x.left)} committed, not yet billed` })) : null,
+    tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
     tiles =
       puTile("mine", "Needs You", String(mine.length), "rows whose next tap is yours") +
       puTile("owed", "Owed Back", money(owedSum), `${owed.length} return${1 === owed.length ? "" : "s"} and credits`) +
       puTile("over", "Over the Order", money(overSum), over.length ? over.map((x) => x.po.number).join(", ") : "nothing paid past an order") +
-      puTile("cnb", "Committed, Not Yet Billed", money(cnbSum), `${cnb.length} open order${1 === cnb.length ? "" : "s"}, by their bills`),
+      puTile("cnb", "Committed, Not Yet Billed", money(cnbSum), `${cnb.pos.length} open order${1 === cnb.pos.length ? "" : "s"}, net of their bills`, puPrepaidSay(cnb.prepaid)),
     chips = [["draft", "Draft"], ["open", "Open"], ["received", "Received"], ["all", "All"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Orders:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-pupof="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
     body =
@@ -1087,6 +1102,7 @@ function puStockGate(R, go) {
 .pu-tile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:12px 14px;font:inherit;color:var(--ink);cursor:pointer;min-height:92px}
 .pu-tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .pu-tk{font-size:13px;color:var(--ink-3)} .pu-tile b{font-size:22px} .pu-ts{font-size:12.5px;color:var(--ink-3)}
+.pu-tx{font-size:12.5px;color:var(--warn);border-top:1px dashed var(--rule);padding-top:4px;margin-top:2px;line-height:1.35}
 .pu-note2{font-size:13px;color:var(--ink-3);margin:0 0 12px}
 table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} table.pu-vt tbody tr{cursor:pointer}
 .pu-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:10px 14px;box-shadow:0 -6px 20px rgba(17,26,46,.08);z-index:20}

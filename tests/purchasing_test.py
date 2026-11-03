@@ -854,13 +854,16 @@ async def s_leaks(p, c):
           const cells = [...v.querySelectorAll('[data-puw9]')].filter(e => e.getClientRects().length).map(e => e.dataset.puw9);
           return { m: m ? [+m[1], +m[2]] : null, none: cells.filter(x => x === 'none').length, all: cells.length }; }""")
         c.ok(ww['m'] and ww['m'][0] == ww['none'] and ww['m'][1] == ww['all'], f'leaks: "N of M have no W-9" equals the W-9 column ({ww})')
-        # 5b. Committed, Not Yet Billed is computed from bills, not payments
+        # 5b. Committed is one number (jobFin: open orders net of their bills and of payments with no bill), read the same on
+        # Orders and on the job's Budget; the $8,000 paid to Tino before a bill is its own line under the figure on both
+        # (review, 11-03: Orders read $46,721 against Budget's $38,721)
         await pd_open(pg, False, 'buy', 'Orders')
         cnb = await pg.evaluate("() => { const t = document.querySelector('.view.on [data-putile=\"cnb\"]'); return t ? t.innerText.replace(/\\s+/g, ' ') : ''; }")
-        want = await pg.evaluate("""() => { const amt = b => (b.lines || []).reduce((s, l) => s + (+l.amount || 0), 0) || +b.amount || 0;
-          const billed = po => (DB.bills || []).filter(b => b.poId === po.id && b.status !== 'void').reduce((a, b) => a + amt(b), 0);
-          return Math.round(DB.pos.filter(p => ['issued', 'partial', 'pending'].includes(p.status)).reduce((a, p) => a + Math.max(0, poTotal(p).total - billed(p)), 0)); }""")
-        c.ok(cnb and ('$' + format(want, ',')) in cnb, f'leaks: Committed, Not Yet Billed reads ${want:,} from the bills ({cnb})')
+        want = await pg.evaluate("() => Math.round(DB.projects.filter(p => DB.pos.some(po => po.projectId === p.id && ['issued', 'partial', 'pending'].includes(po.status))).reduce((a, p) => a + jobFin(p).committed, 0))")
+        c.ok(cnb and ('$' + format(want, ',')) in cnb and 'Paid before a bill: $8,000' in cnb, f'leaks: Orders reads committed ${want:,} (jobFin) with the $8,000 paid before a bill on its own line ({cnb})')
+        await sign_in(pg, 'u_alan')
+        bud = await pg.evaluate("() => { jpOpenJob('p121', 'costs'); const e = document.querySelector('#jp-prepaid'); return e ? { c: Math.round(+e.dataset.committed), t: e.innerText, jf: Math.round(jobFin(S).committed) } : null; }")
+        c.ok(bud and bud['c'] == bud['jf'] == want and 'Paid before a bill: $8,000' in bud['t'], f'leaks: 121 State Street\'s Budget committed ties to Orders ${want:,}, with the same $8,000 line ({bud})')
         c.ok(not errs, f'leaks: page errors {errs[:2]}')
     finally:
         await b.close()
