@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>All Projects: In Design</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="../job-structure/Main.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">All Projects</b>
+      <button type="button" aria-label="New project" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Projects menu · where the old Design overview now lives, as a filter</span>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{inDesign}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 0">
+      <sc-for list="{{projects}}" as="p" hint-placeholder-count="3">
+        <a href="#" style="background: #fff; border: 1px solid {{p.border}}; border-radius: 12px; overflow: hidden; text-decoration: none; color: #172033; display: flex; flex-direction: column">
+          <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 16px">{{p.name}}</b><span style="font-size: 12px; font-weight: 700; color: {{p.tone}}">{{p.flag}}</span></div>
+            <span style="font-size: 13px; color: #5b6578">{{p.client}} · {{p.phase}}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 14px 12px">
+            <sc-for list="{{p.facts}}" as="f" hint-placeholder-count="4">
+              <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">{{f.k}}</span><b style="font-size: 13px; color: {{f.tone}}">{{f.v}}</b></span>
+            </sc-for>
+          </div>
+          <div style="border-top: 1px solid #eef1f6; padding: 9px 14px; font-size: 13px; line-height: 1.4; color: #5b6578">{{p.team}}</div>
+        </a>
+      </sc-for>
+    </div>
+    <div style="margin: 14px 16px 24px; background: #fff; border: 1px solid #fde68a; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+      <b style="font-size: 14px">Hours Not Logged on Design Work</b>
+      <span style="font-size: 13px; line-height: 1.45; color: #5b6578">Maya 8/31 · Lena 9/1 and 8/31 · Sarah Davis 9/1 and 8/31. Hours against the proposal are only true once these are in.</span>
+      <a href="#" style="display: flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 600">Ask for Them</a>
+    </div>
+  </sc-if>
+  <sc-if value="{{notDesign}}" hint-placeholder-val="{{false}}">
+    <div style="margin: 12px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; font-size: 14px; color: #5b6578">The Projects list (job-structure mock-up). This screen shows only the In Design filter.</div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { f: 'In Design' }; }
+  renderVals() {
+    const R = '#b91c1c', A = '#b45309', K = '#172033', G = '#15803d';
+    const fact = (k, v, tone) => ({ k, v, tone: tone || K });
+    const projects = [
+      { name: '45 Cranberry St — design', client: 'Rivera family', phase: 'Design development', flag: 'OVER THE PROPOSAL', tone: R, border: '#fecaca',
+        facts: [fact('Hours, Against the Proposal', '121 of 244'), fact('Schematic Design', '41.5 of 40, over', R), fact('Drawings', '6 sheets to re-issue', A), fact('At the Agency', 'LPC Certificate of Appropriateness, 6 days')],
+        team: 'Maya, architect, 20.5 hrs · Lena, designer, 22 hrs' },
+      { name: '140 Prospect Place — design', client: 'Jessop family', phase: 'Schematic', flag: 'SURVEY FIRST', tone: A, border: '#fde68a',
+        facts: [fact('Hours, Against the Proposal', '13 of 404'), fact('Retainer', '0 hrs'), fact('Survey', '11 rooms not measured', A), fact('Approvals', '0 of 5 filings approved · 2 gates open')],
+        team: 'Sarah Davis, architect, 13 hrs. Next: kitchen option 3 (9/11), primary bath options (9/12), existing-conditions survey (9/22)' },
+      { name: '121 State Street', client: 'Sarah & David Klein', phase: 'In construction', flag: '', tone: G, border: '#dfe4ee',
+        facts: [fact('Hours, Against the Proposal', '0 of 0: no design proposal'), fact('Survey', 'Measured', G), fact('Drawings', '17 current sheets'), fact('At the Agency', 'nothing in review')],
+        team: 'Design questions from the field go to Drawings; selections to Selections' }
+    ];
+    const chips = ['All', 'Building', 'In Design'].map((label) => {
+      const on = this.state.f === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ f: label }) };
+    });
+    return { chips, projects, inDesign: this.state.f === 'In Design', notDesign: this.state.f !== 'In Design' };
+  }
+}
+</script>
+</body>
+</html>

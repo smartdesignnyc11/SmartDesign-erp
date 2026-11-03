@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasks: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <a href="../job-structure/Main.dc.html" aria-label="Open the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Tasks</b>
+      <button type="button" onClick="{{toggleView}}" aria-label="Change the view" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+        {{viewLabel}}
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <button type="button" aria-label="New task for you" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Yours: 12 open, 3 late · 2 you are waiting on</span>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">{{c.label}}<span style="font-weight: 700">{{c.n}}</span></button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{isList}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column">
+          <div style="padding: 12px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: {{g.tone}}; display: flex; gap: 6px"><span>{{g.title}}</span><span>{{g.n}}</span></div>
+          <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+              <div style="display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; border-top: {{r.line}}">
+                <button type="button" aria-label="Mark done" style="width: 44px; height: 44px; flex: none; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer">
+                  <span style="width: 22px; height: 22px; border-radius: 11px; border: 2px solid #8a94a8; box-sizing: border-box"></span>
+                </button>
+                <a href="#" style="flex: 1; min-width: 0; min-height: 52px; padding: 6px 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; text-decoration: none; color: #172033">
+                  <b style="font-size: 15px; line-height: 1.35">{{r.title}}</b>
+                  <span style="font-size: 13px; color: #5b6578; line-height: 1.35"><span style="color: {{r.tone}}; font-weight: 600">{{r.when}}</span> · {{r.where}}</span>
+                </a>
+                <span style="width: 32px; height: 32px; flex: none; border-radius: 16px; background: #e8ecf4; color: #172033; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center" title="{{r.who}}">{{r.ini}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isCal}}" hint-placeholder-val="{{false}}">
+    <div style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+      <div style="padding: 12px 14px; display: flex; align-items: center"><b style="flex: 1; font-size: 15px">This Week, Everything Dated</b><span style="font-size: 12px; color: #5b6578">tasks, decisions, inspections, renewals</span></div>
+      <sc-for list="{{cal}}" as="c" hint-placeholder-count="6">
+        <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 10px; align-items: baseline">
+          <span style="font-size: 12px; color: #5b6578; width: 56px; flex: none">{{c.when}}</span>
+          <span style="flex: 1; font-size: 14px; line-height: 1.4">{{c.what}}</span>
+          <span style="font-size: 11px; font-weight: 700; color: #5b6578">{{c.kind}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 12px">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 15px">Team Meeting</b><span style="font-size: 13px; color: #5b6578">Mondays and Thursdays, 10:00 · walks the board by person</span></div>
+    <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Start</button>
+  </div>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'mine', view: 'list' }; }
+  renderVals() {
+    const RED = '#b91c1c', MUTE = '#5b6578';
+    const R = (title, when, where, who, ini, tone) => ({ title, when, where, who, ini, tone: tone || MUTE });
+    const mine = [
+      { title: 'Late', n: 3, tone: RED, rows: [
+        R('Renew the LLC biennial statement, SmartDesign Group LLC', 'Filing 5 days late', 'OFF-1 · lapses 9/28', 'You', 'O', RED),
+        R('Send the site-visit recap with the range', '2 days late', 'SAL-1 · Priya Raman', 'You', 'O', RED),
+        R('Call back about timing: Daniel Okafor', '2 days late', 'SAL-11 · 11 Riverside Dr 4A', 'You', 'O', RED) ] },
+      { title: 'Today', n: 3, tone: MUTE, rows: [
+        R('Call Jonah Weiss back: website inquiry', 'Today', 'SAL-7', 'You', 'O'),
+        R('Call Marcus: the three things they are really deciding', 'Today', 'SAL-3 · Marcus Bell', 'You', 'O'),
+        R('Write the design proposal on the client record', 'Today', 'SAL-6 · The Lindqvists', 'You', 'O') ] },
+      { title: 'Tomorrow', n: 4, tone: MUTE, rows: [
+        R('Answer the board’s three questions', 'Fri 9/4', 'SAL-4 · Ana Petrova', 'You', 'O'),
+        R('Ask Arjun for 20 minutes: he decides the money', 'Fri 9/4', 'SAL-2 · Priya Raman', 'You', 'O'),
+        R('Walk the house with the architect', 'Fri 9/4', 'SAL-12 · The Lindqvists, 145 Hicks St', 'You', 'O'),
+        R('Second try: Rebecca Tran', 'Fri 9/4', 'SAL-8', 'You', 'O') ] },
+      { title: 'Later This Week', n: 2, tone: MUTE, rows: [
+        R('Book the site visit at 70 Remsen', 'Sat 9/5', 'SAL-5 · Sofia Adler', 'You', 'O'),
+        R('Follow up on the proposal: Marcus Bell', 'Wed 9/9', 'SAL-13 · 77 Bleecker St 3F', 'You', 'O') ] }
+    ];
+    const waiting = [
+      { title: 'You Are Waiting On', n: 2, tone: MUTE, rows: [
+        R('Shop drawings for the parlor bookcases', 'Due Mon 9/7', 'STA-26 · 121 State Street · Carlos Millwork by Fri 9/4', 'Chen Biron', 'CB'),
+        R('Replacement boxes for the chipped floor tile', 'Due Sat 9/5', 'LEN-5 · 206 Lenox · Nemo Tile owes a ship date since 9/2', 'Alan', 'A') ] }
+    ];
+    const team = [
+      { title: 'By Person, Most Loaded First', n: '4 of 9', tone: MUTE, rows: [
+        R('Owner: 15 open, 3 overdue', 'Overloaded', 'the firm’s median is 5', 'Owner', 'O', RED),
+        R('Alan: 10 open, 0 overdue', 'Overloaded', 'answers the field in 25 min', 'Alan', 'A', RED),
+        R('Chen Biron: 9 open, 0 overdue', 'On track', 'coordinator', 'Chen Biron', 'CB'),
+        R('Design director: 7 open, 1 overdue', '1 late', 'design', 'Design director', 'DD') ] }
+    ];
+    const T = this.state.tab;
+    const prep = (gs) => gs.map((g) => Object.assign({}, g, { rows: g.rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r)) }));
+    const G = { mine: prep(mine), waiting: prep(waiting), team: prep(team) };
+    const defs = [{ id: 'mine', label: 'Mine', n: 12 }, { id: 'waiting', label: 'Waiting On', n: 2 }, { id: 'team', label: 'Team', n: '' }];
+    const chips = defs.map((c) => Object.assign({}, c, {
+      pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: c.id })
+    }));
+    const cal = [
+      { when: 'Thu 9/3', what: 'Meeting with Samantha Field, 1:30 pm', kind: 'MEETING' },
+      { when: 'Fri 9/4', what: '4 of your tasks (Ana Petrova’s board questions first)', kind: 'TASKS' },
+      { when: 'Fri 9/4', what: 'Rough electric walk at 121 State Street, 10:00', kind: 'SITE' },
+      { when: 'Sat 9/5', what: 'Book the site visit at 70 Remsen', kind: 'TASK' },
+      { when: 'Wed 9/9', what: 'Window Works on site at 121 State Street, insurance expired', kind: 'DELIVERY' },
+      { when: 'Thu 9/10', what: 'Rough plumbing starts at 121 State Street', kind: 'MILESTONE' }
+    ];
+    const isCal = this.state.view === 'cal';
+    return { chips, groups: G[T], cal, isCal, isList: !isCal, viewLabel: isCal ? 'Calendar' : 'List', toggleView: () => this.setState({ view: isCal ? 'list' : 'cal' }) };
+  }
+}
+</script>
+</body>
+</html>

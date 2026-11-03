@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bills and Payroll</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1450px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Bills and Payroll</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New bill, payroll run or time entry" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">What the firm owes vendors and its own people, from arrival to paid</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: flex; flex-direction: column">
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="3">
+        <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 15px; font-weight: 600">{{n}}</a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 4</div>
+    <sc-for list="{{needs}}" as="n" hint-placeholder-count="4">
+      <a href="#" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; min-height: 44px; text-decoration: none; color: #172033">
+        <b style="font-size: 15px; color: {{n.tone}}">{{n.title}}</b>
+        <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{n.why}}</span>
+      </a>
+    </sc-for>
+    <div style="padding: 12px 14px; border-top: 1px solid #eef1f6">
+      <button type="button" style="width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 16px; font-weight: 600">Split the Payroll by Job</button>
+    </div>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">WITH OTHERS</div>
+    <a href="#" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; text-decoration: none; color: #172033">
+      <div style="display: flex"><b style="flex: 1; font-size: 15px">WW-2026-118 · Window Works</b><b style="font-size: 15px">$33,500</b></div>
+      <span style="font-size: 13px; color: #5b6578; line-height: 1.4">With Alan. Paid by card 8/25 before approval; PO-2026-044 covers $29,700, $3,800 over.</span>
+    </a>
+  </div>
+
+  <div style="padding: 18px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px; font-size: 13px; color: #5b6578; padding-bottom: 8px">{{lead}}</div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rows}}" as="d" hint-placeholder-count="5">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 14px; border-top: {{d.line}}; text-decoration: none; color: #172033">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <b style="font-size: 15px">{{d.no}}</b>
+          <span style="font-size: 13px; color: #5b6578">{{d.what}}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none">
+          <b style="font-size: 15px">{{d.amt}}</b>
+          <span style="font-size: 12px; font-weight: 700; color: {{d.tone}}">{{d.status}}</span>
+        </div>
+      </a>
+    </sc-for>
+    <sc-if value="{{empty}}" hint-placeholder-val="{{false}}"><div style="padding: 16px 14px; font-size: 14px; color: #5b6578">Nothing approved and unpaid. The Payment Run is built from this list.</div></sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1450}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'To Approve', newOpen: false }; }
+  renderVals() {
+    const T = this.state.tab, Rd = '#b91c1c', A = '#b45309', G = '#15803d', N = '#5b6578', K = '#172033';
+    const needs = [
+      { title: 'Payroll 8/17 to 8/28 · $16,040 · 2 days past pay day', why: '6 employees. 88% sits on Unallocated Labor, 12% on 45 Cranberry St. Split it by job; then it goes to Alan to approve.', tone: Rd },
+      { title: '4 time entries to approve · 30.1 h', why: 'Thu 9/3. Flagged: Satish left 2.5 h early and clocked in 4.2 km from the site; Alex started 0.5 h late. Satish has no entry for 9/2.', tone: K },
+      { title: 'AMP-311 · Alberto M Plumbing · $9,800 held', why: 'Check 2205 for $9,800 cleared 8/15, before the bill\'s date. Confirm it paid this bill, or that it paid something else.', tone: K },
+      { title: 'CM-0091 · Carlos Millwork · $38,000 paid 8/20', why: 'No unconditional lien waiver on file. Record it before the next payment to this sub.', tone: K }
+    ];
+    const sets = {
+      'To Approve': ['PMs recommend bills and Alan approves them; a payroll run is approved by Alan or the controller. Whoever entered an item cannot approve it.', [
+        { no: 'Payroll 8/17 to 8/28', what: '6 employees · 88% not on a job', amt: '$16,040', status: 'Split first', tone: Rd },
+        { no: 'WW-2026-118 · Window Works', what: '121 State Street · paid before approval', amt: '$33,500', status: 'With Alan', tone: A },
+        { no: 'AMP-311 · Alberto M Plumbing', what: '121 State Street · due 9/12', amt: '$9,800', status: 'Held, possibly paid', tone: A } ]],
+      'To Pay': ['Approved and unpaid, by due date. The Payment Run is built from here; the bank pays it.', []],
+      'Paid': ['Each payment names its bill, its account and the bank line that cleared it.', [
+        { no: 'CM-0091 · Carlos Millwork', what: '8/20 · ACH · Chase ····4471 · no lien waiver', amt: '$38,000', status: 'In the bank', tone: G },
+        { no: 'NT-88412 · Nemo Tile', what: '8/12 · ACH · Chase ····4471', amt: '$4,250', status: 'In the bank', tone: G } ]],
+      'Payroll': ['Hours become payroll and labor cost on each job. On site now: nobody · overtime this week: 0.0 h.', [
+        { no: 'Time entries, Thu 9/3', what: 'Angel 8.0 h · Alberto 9.1 h · Alex 7.0 h · Satish 6.0 h', amt: '30.1 h', status: '4 to approve', tone: A },
+        { no: 'Payroll 8/17 to 8/28', what: '45 Cranberry St 12% · Unallocated Labor 88%', amt: '$16,040', status: 'Due 9/1', tone: Rd },
+        { no: 'Next payroll run', what: '[NEXT PERIOD] · from approved hours', amt: '[EST.]', status: 'Not built', tone: N } ]]
+    };
+    const [lead, list] = sets[T];
+    const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const chips = [['To Approve', '3'], ['To Pay', ''], ['Paid', ''], ['Payroll', '']].map(([l, c]) => ({
+      label: c ? l + ' ' + c : l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: l })
+    }));
+    return {
+      needs, chips, rows, lead, empty: rows.length === 0,
+      newOpen: this.state.newOpen, newExpanded: this.state.newOpen ? 'true' : 'false', newBg: this.state.newOpen ? '#2a3a5e' : 'transparent',
+      newItems: ['Vendor Bill', 'Payroll Run', 'Time Entry'],
+      toggleNew: () => this.setState({ newOpen: !this.state.newOpen })
+    };
+  }
+}
+</script>
+</body>
+</html>

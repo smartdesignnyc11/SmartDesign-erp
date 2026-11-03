@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Billing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="13">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}"><span style="flex: 1">{{r.label}}</span><b style="font-size: 12px; color: #fca5a5">{{r.count}}</b></span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px; display: flex; align-items: flex-end; gap: 16px">
+      <div style="flex: 1">
+        <b style="font-size: 26px">Billing</b>
+        <div style="font-size: 14px; color: #5b6578; margin-top: 4px">The client's documents for every job: what to bill, what is owed, what is in the bank · Thu, Sep 3</div>
+        <div style="display: flex; gap: 8px; margin-top: 14px">
+          <sc-for list="{{jobs}}" as="j" hint-placeholder-count="4">
+            <button type="button" onClick="{{j.pick}}" aria-pressed="{{j.on}}" style="height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid {{j.border}}; background: {{j.bg}}; color: {{j.color}}; font: inherit; font-size: 13px; font-weight: 600">{{j.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #c9d1e0; border-radius: 10px; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        New
+      </button>
+    </div>
+    <div style="padding: 24px 32px; display: flex; gap: 20px; align-items: flex-start">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">Needs You · {{needsCount}}</b>
+            <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 14px; font-weight: 600">{{primary}}</button>
+          </div>
+          <sc-for list="{{needs}}" as="n" hint-placeholder-count="4">
+            <div style="padding: 10px 18px; border-top: {{n.line}}; display: flex; gap: 12px"><b style="font-size: 14px; width: 380px; flex: none">{{n.title}}</b><span style="font-size: 14px; color: #5b6578">{{n.why}}</span></div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">Documents</b>
+            <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+              <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 13px; font-weight: 600">{{ch.label}}</button>
+            </sc-for>
+          </div>
+          <div style="display: grid; grid-template-columns: 120px 150px 150px minmax(0, 1fr) 110px 150px 70px; font-size: 12px; color: #5b6578; padding: 10px 18px; border-bottom: 1px solid #eef1f6">
+            <span>Kind</span><span>Number</span><span>Job</span><span>What</span><span style="text-align: right">Amount</span><span style="padding-left: 24px">Status</span><span>Date</span>
+          </div>
+          <sc-for list="{{docs}}" as="d" hint-placeholder-count="10">
+            <div style="display: grid; grid-template-columns: 120px 150px 150px minmax(0, 1fr) 110px 150px 70px; align-items: center; padding: 9px 18px; border-top: {{d.line}}; font-size: 14px">
+              <span style="color: #5b6578">{{d.kind}}</span><b>{{d.no}}</b><span>{{d.job}}</span><span>{{d.what}}</span><b style="text-align: right">{{d.amt}}</b><span style="padding-left: 24px; font-weight: 700; color: {{d.tone}}">{{d.status}}</span><span style="color: #5b6578">{{d.date}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6; display: flex; align-items: baseline"><b style="flex: 1; font-size: 15px">Collections</b><span style="font-size: 12px; color: #5b6578">At due, 7, 15, 30 days</span></div>
+          <sc-for list="{{aging}}" as="a" hint-placeholder-count="5">
+            <div style="padding: 8px 16px; border-top: {{a.line}}; display: flex"><span style="flex: 1; font-size: 14px">{{a.k}}</span><b style="font-size: 14px">{{a.v}}</b></div>
+          </sc-for>
+          <div style="padding: 10px 16px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">Open invoices tie to ledger 1100 except $0.16 short-paid on INV-2026-035 (with the controller).</div>
+          <sc-for list="{{chase}}" as="c" hint-placeholder-count="2">
+            <div style="padding: 10px 16px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 2px">
+              <div style="display: flex"><b style="flex: 1; font-size: 14px">{{c.no}}</b><b style="font-size: 14px">{{c.amt}}</b></div>
+              <span style="font-size: 13px; color: #5b6578">{{c.who}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Collected Means in the Bank</b></div>
+          <div style="padding: 10px 16px; display: flex"><span style="flex: 1; font-size: 14px">Collected, with a bank line</span><b style="font-size: 14px">$169,750</b></div>
+          <div style="padding: 10px 16px; border-top: 1px solid #eef1f6; display: flex"><span style="flex: 1; font-size: 14px">Recorded, not in the bank</span><b style="font-size: 14px; color: #b91c1c">$21,350</b></div>
+          <div style="padding: 0 16px 12px; font-size: 13px; color: #5b6578">Rivera family, ACH 7/30 and 8/14. Banking finds them, or they are marked bounced.</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { kind: 'All', job: 'All Jobs' }; }
+  renderVals() {
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const J = this.state.job, K = this.state.kind;
+    const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
+    const rail = [
+      R('Today', { count: '1' }), R('Tasks'), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'),
+      R('Accounting', { bg: '#1b2640' }),
+      R('Billing', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '4' }),
+      R('Banking', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Bills and Payroll', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Reports')
+    ];
+    const allNeeds = [
+      { job: '45 Cranberry St', title: '$17,080 ready to bill · 45 Cranberry St', why: 'At filing / submission reached: 40% of the design fee.' },
+      { job: '121 State Street', title: '$12,651 of measured work · 121 State Street', why: '2 lines on the foreman\'s measure. 7 lines Billed Ahead of the Work ($66,470) and the windows billback ($10,170) are held.' },
+      { job: '140 Prospect Place', title: '$2,600 of design hours · 140 Prospect Place', why: '13 hours banked, not yet on an invoice.' },
+      { job: '45 Cranberry St', title: '$21,350 not in the bank · Rivera family', why: 'Recorded ACH payments of 7/30 and 8/14. Ask the client whether they were sent.' }
+    ];
+    const needs = ln(allNeeds.filter((n) => J === 'All Jobs' || n.job === J));
+    const primary = { 'All Jobs': 'Draft the Invoice, $17,080', '45 Cranberry St': 'Draft the Invoice, $17,080', '121 State Street': 'Draft the Application, $12,651', '140 Prospect Place': 'Draft the Invoice, $2,600' }[J];
+    const G = '#15803d', A = '#b45309', Rd = '#b91c1c', N = '#5b6578';
+    const all = [
+      { kind: 'Invoice', k: 'Invoices', job: '140 Prospect Place', no: 'INV-2026-D140-R', what: 'Design retainer, 120 hours', amt: '$24,000', status: 'Due 9/15', tone: A, date: '9/3' },
+      { kind: 'Change Order', k: 'Change Orders', job: '121 State Street', no: 'CO-2026-002', what: 'Sand and stain existing treads, 3rd floor', amt: '$1,850', status: 'Waiting on client', tone: A, date: '9/3' },
+      { kind: 'Invoice', k: 'Invoices', job: '121 State Street', no: 'INV-2026-038', what: 'Progress application #2', amt: '$68,265', status: 'Due 9/15', tone: A, date: '9/1' },
+      { kind: 'Payment', k: 'Payments', job: '121 State Street', no: 'Check 2214', what: 'Applied to INV-2026-035', amt: '$72,750', status: 'In the bank 8/29', tone: G, date: '8/29' },
+      { kind: 'Change Order', k: 'Change Orders', job: '121 State Street', no: 'CO-2026-001', what: 'Radiant floor heat in primary bath', amt: '$6,200', status: 'Approved', tone: G, date: '8/28' },
+      { kind: 'Invoice', k: 'Invoices', job: '121 State Street', no: 'INV-2026-035', what: 'Progress application #1', amt: '$72,750', status: 'Paid', tone: G, date: '8/24' },
+      { kind: 'Payment', k: 'Payments', job: '45 Cranberry St', no: 'ACH 8/14', what: 'Applied to INV-2026-D45-1', amt: '$16,350', status: 'Not in the bank', tone: Rd, date: '8/14' },
+      { kind: 'Payment', k: 'Payments', job: '121 State Street', no: 'Wire 8/6', what: 'Applied to INV-2026-031', amt: '$97,000', status: 'In the bank 8/6', tone: G, date: '8/6' },
+      { kind: 'Invoice', k: 'Invoices', job: '45 Cranberry St', no: 'INV-2026-D45-1', what: 'At signing, 50% of the design fee', amt: '$16,350', status: 'Not in the bank', tone: Rd, date: '8/3' },
+      { kind: 'Invoice', k: 'Invoices', job: '121 State Street', no: 'INV-2026-031', what: 'Deposit, 20%', amt: '$97,000', status: 'Paid', tone: G, date: '8/1' },
+      { kind: 'Payment', k: 'Payments', job: '45 Cranberry St', no: 'ACH 7/30', what: 'Applied to INV-2026-D45-R', amt: '$5,000', status: 'Not in the bank', tone: Rd, date: '7/30' },
+      { kind: 'Invoice', k: 'Invoices', job: '45 Cranberry St', no: 'INV-2026-D45-R', what: 'Design retainer', amt: '$5,000', status: 'Not in the bank', tone: Rd, date: '7/28' },
+      { kind: 'Estimate', k: 'Estimates', job: '140 Prospect Place', no: 'EST-2026-D140', what: 'Professional services, 140 Prospect Place', amt: '$191,800', status: 'Converted', tone: G, date: '8/26' },
+      { kind: 'Estimate', k: 'Estimates', job: '45 Cranberry St', no: 'EST-2026-D45', what: 'Design services, 45 Cranberry St', amt: '$42,700', status: 'Converted', tone: G, date: '7/20' },
+      { kind: 'Estimate', k: 'Estimates', job: '121 State Street', no: 'EST-2026-014', what: 'Garden unit and 3rd floor renovation', amt: '$485,000', status: 'Converted', tone: G, date: '7/15' },
+      { kind: 'Estimate', k: 'Estimates', job: '121 State Street', no: 'EST-13881', what: 'Full renovation, superseded', amt: '$825,152', status: 'Draft', tone: N, date: '3/16' }
+    ];
+    const docs = ln(all.filter((d) => (K === 'All' || d.k === K) && (J === 'All Jobs' || d.job === J)));
+    const pill = (l, on, pick) => ({ label: l, on: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick });
+    const chips = ['All', 'Estimates', 'Change Orders', 'Invoices', 'Payments'].map((l) => pill(l, K === l, () => this.setState({ kind: l })));
+    const jobs = ['All Jobs', '121 State Street', '45 Cranberry St', '140 Prospect Place'].map((l) => pill(l, J === l, () => this.setState({ job: l })));
+    const aging = ln([ { k: 'Open, 2 invoices', v: '$92,265' }, { k: 'Current', v: '$92,265' }, { k: '1 to 30 days late', v: '$0' }, { k: '31 to 60 days late', v: '$0' }, { k: 'Over 60 days late', v: '$0' }, { k: 'Retainage held by clients', v: '$15,668' } ]);
+    const chase = [
+      { job: '121 State Street', no: 'INV-2026-038 · Sarah & David Klein', amt: '$68,265', who: 'Due 9/15 · reminder on the due date · last touch [LAST TOUCH]' },
+      { job: '140 Prospect Place', no: 'INV-2026-D140-R · Jessop family', amt: '$24,000', who: 'Due 9/15 · reminder on the due date · last touch [LAST TOUCH]' }
+    ].filter((c) => J === 'All Jobs' || c.job === J);
+    return { rail, needs, needsCount: String(needs.length), primary, chips, jobs, docs, aging, chase };
+  }
+}
+</script>
+</body>
+</html>

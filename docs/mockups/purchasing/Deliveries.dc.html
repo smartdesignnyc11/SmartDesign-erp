@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deliveries</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column; position: relative">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Deliveries</b>
+      <button type="button" aria-label="Log something that arrived with no order" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Everything on its way to a site, the office or back to a vendor</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px">
+    <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You</span>
+    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">3</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+    <sc-for list="{{late}}" as="d" hint-placeholder-count="2">
+      <div style="background: #fff; border: 1px solid #fecaca; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 5px">
+        <span style="font-size: 12px; font-weight: 700; color: #b91c1c">ARRIVES AFTER IT IS NEEDED</span>
+        <b style="font-size: 15px; line-height: 1.3">{{d.what}}</b>
+        <span style="font-size: 13px; color: #5b6578">{{d.po}} · {{d.vendor}} · 121 State Street</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 2px">
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Ordered</span><b style="font-size: 13px">{{d.qty}}</b></span>
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Promised</span><b style="font-size: 13px; color: #b91c1c">{{d.promised}}</b></span>
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Needed on Site</span><b style="font-size: 13px">{{d.need}}</b></span>
+        </div>
+        <span style="font-size: 13px; line-height: 1.4">{{d.why}}</span>
+        <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap">
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Expedite</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Move the Task</button>
+          <button type="button" onClick="{{d.receive}}" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Receive</button>
+        </div>
+      </div>
+    </sc-for>
+    <div style="background: #fff; border: 1px solid #fde68a; border-radius: 12px; overflow: hidden">
+      <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 12px; font-weight: 700; color: #b45309">ROUTE TO APPROVE · ALEX · THU, SEP 3</span>
+        <b style="font-size: 15px">3 stops, about 4.5 miles, 2 items for 121 State Street</b>
+        <span style="font-size: 13px; line-height: 1.4">Blue tape is in stock: 18 rolls at the warehouse. Take the tape from stock and the Lowe's stop buys only the plastic.</span>
+      </div>
+      <sc-for list="{{stops}}" as="s" hint-placeholder-count="3">
+        <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 10px">
+          <span style="width: 56px; flex: none; font-size: 12px; color: #5b6578">{{s.when}}</span>
+          <span style="font-size: 14px; line-height: 1.4">{{s.what}}</span>
+        </div>
+      </sc-for>
+      <div style="padding: 10px 14px 12px; border-top: 1px solid #eef1f6; display: flex; gap: 8px">
+        <button type="button" style="flex: 1; min-height: 48px; border-radius: 10px; border: {{routeBorder}}; background: {{routeBg}}; font: inherit; font-size: 15px; font-weight: 700; color: {{routeColor}}">Approve With Tape From Stock</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Coming Up</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.45; color: #5b6578">Nothing to reconfirm in the next 2 working days. The next promised deliveries are Carlos Millwork 9/18 and Tino 10/5; each gets a reconfirm draft 48 hours ahead with the site window, 8 to 4.</div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">At the Office, Going to Site</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{office}}" as="o" hint-placeholder-count="3">
+      <div style="padding: 10px 14px; border-top: {{o.line}}; display: flex; flex-direction: column; gap: 3px; min-height: 44px; justify-content: center">
+        <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 14px">{{o.what}}</b><span style="font-size: 12px; color: {{o.tone}}; font-weight: 700">{{o.state}}</span></div>
+        <span style="font-size: 13px; color: #5b6578">{{o.sub}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Going Back to a Vendor</div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{back}}" as="b" hint-placeholder-count="2">
+      <div style="padding: 10px 14px; border-top: {{b.line}}; display: flex; flex-direction: column; gap: 3px">
+        <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 14px">{{b.what}}</b><b style="font-size: 14px">{{b.amt}}</b></div>
+        <span style="font-size: 13px; color: #5b6578">{{b.sub}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 6px 14px 4px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">The money side of each return, and its credit, is on Orders.</div>
+    <a href="Orders.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; font-size: 14px">Open the Returns on Orders</a>
+  </div>
+  <div style="height: 40px"></div>
+
+  <sc-if value="{{receiving}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; inset: 0; background: rgba(17,26,46,.45); display: flex; flex-direction: column; justify-content: flex-end">
+      <div role="dialog" aria-label="Receive" style="position: sticky; bottom: 0; background: #fff; border-radius: 16px 16px 0 0; padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 17px">Receive {{rx.po}}</b><span style="font-size: 13px; color: #5b6578">{{rx.vendor}} · 121 State Street · promised {{rx.promised}}</span></div>
+          <button type="button" onClick="{{closeRx}}" aria-label="Close" style="width: 44px; height: 44px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #172033">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+          </button>
+        </div>
+        <div style="border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <b style="font-size: 15px">{{rx.what}}</b>
+          <span style="font-size: 13px; color: #5b6578">Ordered {{rx.qty}} · received so far 0</span>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #5b6578">Counted on the truck
+            <span style="display: flex; align-items: center; min-height: 48px; border: 2px solid #2563eb; border-radius: 10px; padding: 0 12px; font-size: 17px; color: #8a94a8">Count it, then type the number ({{rx.unit}})</span>
+          </label>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+            <sc-for list="{{conds}}" as="c" hint-placeholder-count="4">
+              <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; border-radius: 10px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
+            </sc-for>
+          </div>
+          <sc-if value="{{problem}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; line-height: 1.4; color: #7c2d12">A {{condLower}} line opens a claim on the order with a 48-hour clock; the bill is held at what arrived.</span></sc-if>
+          <button type="button" style="min-height: 48px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #172033; display: flex; align-items: center; justify-content: center; gap: 8px">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+            Photograph the Slip
+          </button>
+        </div>
+        <button type="button" style="min-height: 52px; border-radius: 12px; border: 0; background: #2563eb; font: inherit; font-size: 16px; font-weight: 700; color: #fff">Done: Save What Arrived</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { rx: '', cond: 'Good' }; }
+  renderVals() {
+    const S = this.state;
+    const L = [
+      { id: 'po48', po: 'PO-2026-048', vendor: 'Carlos Millwork', what: 'Parlor kitchen + laundry millwork', qty: '1 ls', unit: 'pieces, from the packing list', promised: '9/18', need: '9/2', why: '16 days after the install was due. Ask for a date by cabinet run, or move the install task.' },
+      { id: 'po47', po: 'PO-2026-047', vendor: 'Tino', what: '5" white oak flooring, select', qty: '900 sf', unit: 'sf', promised: '10/5', need: '10/2', why: '3 days late for the 3rd floor. $8,000 already paid on $8,721.' }
+    ];
+    const late = L.map((d) => Object.assign({}, d, { receive: () => this.setState({ rx: d.id, cond: 'Good' }) }));
+    const stops = [
+      { when: '7:05 am', what: 'Lowe’s — Gowanus: 1 case blue tape + 4 mil plastic (no price on file)' },
+      { when: '7:29 am', what: 'Brooklyn Lumber — Red Hook: 40 ea 2x4x8 KD studs, cheapest, saves $16' },
+      { when: '7:57 am', what: '121 State Street: drop the studs for Alberto and the tape and plastic for Angel' }
+    ];
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const office = ln([
+      { what: 'Range, 36" dual fuel', state: 'HELD: DAMAGED', tone: '#b91c1c', sub: 'Diamond Appliances · Kitchen · claim open; do not send to site' },
+      { what: 'Shower drain, square', state: 'ON SITE BY 10/12', tone: '#5b6578', sub: 'Signature Hardware · Guest bath · at the office since 8/16' },
+      { what: 'Brass centre post, 4 pieces', state: 'ON SITE BY 10/19', tone: '#5b6578', sub: 'House of Antique Hardware · Primary bath · at the office since 8/19' }
+    ]);
+    const back = ln([
+      { what: 'Lavatory faucet, chrome', amt: '$1,880', sub: 'To Ferguson, RMA-44812 · 45 Cranberry St · window closes 9/14, 11 days' },
+      { what: '38 sq ft zellige', amt: '$551', sub: 'To Bedrosians · 45 Cranberry St · needs an RMA first' }
+    ]);
+    const rxRec = L.find((d) => d.id === S.rx) || L[1];
+    const conds = ['Good', 'Short', 'Damaged', 'Wrong'].map((label) => {
+      const on = S.cond === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ cond: label }) };
+    });
+    const receiving = !!S.rx;
+    return { late, stops, office, back, receiving, rx: rxRec, conds, problem: S.cond !== 'Good', condLower: S.cond.toLowerCase(),
+      closeRx: () => this.setState({ rx: '' }),
+      routeBg: receiving ? '#fff' : '#2563eb', routeColor: receiving ? '#172033' : '#fff', routeBorder: receiving ? '1px solid #c9d1e0' : '0' };
+  }
+}
+</script>
+</body>
+</html>

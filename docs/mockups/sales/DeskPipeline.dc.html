@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop Pipeline: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1200px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">
+          <span style="flex: 1">{{it.label}}</span>
+          <sc-if value="{{it.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span></sc-if>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Projects</a>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Purchasing</a>
+      <div style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #1b2640; font-size: 15px; font-weight: 600">Sales and Clients</div>
+      <div style="display: flex; flex-direction: column; padding: 2px 0 6px 20px">
+        <span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: #2a3a5e; font-size: 14px; font-weight: 600">Pipeline</span>
+        <a href="DeskClient.dc.html" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; font-size: 14px; color: #c5cde0; text-decoration: none">Clients</a>
+      </div>
+      <sc-for list="{{rail.work}}" as="w" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">{{w}}</a>
+      </sc-for>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="../company/Company.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Record a Feedback Session</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 18px; display: flex; align-items: center; gap: 16px">
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+        <b style="font-size: 26px">Pipeline</b>
+        <span style="font-size: 14px; color: #5b6578">Every open deal, from the first inquiry to the signature · all three pipelines (Design-Build, Construction Only, Design Only)</span>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About Sales</button>
+      <div style="position: relative">
+        <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New lead" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: {{newBg}}; color: #172033; display: flex; align-items: center; justify-content: center; cursor: pointer">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+        <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+          <div role="menu" style="position: absolute; right: 0; top: 46px; width: 260px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; z-index: 5; display: flex; flex-direction: column">
+            <span style="padding: 8px 12px 6px; font-size: 12px; color: #5b6578">New</span>
+            <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 14px">Lead from a Mail</a>
+            <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 14px">Lead, Typed In</a>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{tiles}}" as="k" hint-placeholder-count="4">
+          <button type="button" onClick="{{k.pick}}" aria-pressed="{{k.pressed}}" style="text-align: left; background: #fff; border: 2px solid {{k.border}}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: #172033; cursor: pointer; min-height: 110px">
+            <span style="font-size: 13px; color: #5b6578">{{k.k}}</span>
+            <b style="font-size: 26px; color: {{k.tone}}">{{k.v}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{k.sub}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{isBoard}}" hint-placeholder-val="{{true}}">
+        <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+          <sc-for list="{{board}}" as="col" hint-placeholder-count="6">
+            <div style="background: #eef1f6; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 300px">
+              <div style="display: flex; align-items: baseline; gap: 6px; padding: 2px 4px"><b style="flex: 1; font-size: 13px">{{col.stage}}</b><span style="font-size: 12px; color: #5b6578">{{col.sum}}</span></div>
+              <sc-for list="{{col.cards}}" as="c" hint-placeholder-count="2">
+                <a href="Deal.dc.html" style="background: #fff; border: 1px solid {{c.border}}; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: #172033">
+                  <b style="font-size: 14px">{{c.name}}</b>
+                  <span style="font-size: 13px; font-weight: 600">{{c.value}}</span>
+                  <span style="font-size: 12px; color: #5b6578; line-height: 1.35"><span style="color: {{c.tone}}; font-weight: 600">{{c.when}}</span> · {{c.next}}</span>
+                </a>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isList}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; gap: 20px; align-items: flex-start">
+          <section style="flex: 1; min-width: 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 18px; display: flex; align-items: center; border-bottom: 1px solid #eef1f6"><b style="flex: 1; font-size: 17px">{{panel.title}}</b><span style="font-size: 13px; color: #5b6578">{{panel.sub}}</span></div>
+            <sc-for list="{{panel.rows}}" as="r" hint-placeholder-count="4">
+              <div style="padding: 12px 18px; border-top: {{r.line}}; display: flex; gap: 16px; align-items: center">
+                <span style="width: 150px; flex: none; font-size: 12px; font-weight: 700; color: {{r.tone}}">{{r.kind}}</span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px"><b style="font-size: 15px">{{r.title}}</b><span style="font-size: 13px; color: #5b6578">{{r.why}}</span></div>
+                <b style="font-size: 15px; width: 100px; text-align: right">{{r.amt}}</b>
+                <button type="button" style="height: 36px; min-width: 110px; padding: 0 14px; border-radius: 8px; border: {{r.btnBorder}}; background: {{r.btnBg}}; font: inherit; font-size: 13px; font-weight: 600; color: {{r.btnColor}}">{{r.act}}</button>
+              </div>
+            </sc-for>
+          </section>
+          <aside style="width: 340px; flex: none; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">How Sales Is Going</b></div>
+            <sc-for list="{{nums}}" as="n" hint-placeholder-count="6">
+              <div style="padding: 10px 16px; display: flex; gap: 10px; align-items: baseline; border-top: {{n.line}}"><span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">{{n.k}}</span><span style="font-size: 12px; color: #5b6578">{{n.sub}}</span></span><b style="font-size: 15px">{{n.v}}</b></div>
+            </sc-for>
+          </aside>
+        </div>
+      </sc-if>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { panel: 'need', newOpen: false }; }
+  renderVals() {
+    const P = this.state.panel, RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
+    const rail = { top: [{ label: 'Today', n: 12, has: true }, { label: 'Tasks', n: 0, has: false }, { label: 'Messages', n: 5, has: true }], work: ['Accounting', 'Design', 'Reports'] };
+    const T = [
+      { id: 'need', k: 'Need You', v: '3', sub: '2 past their date, 1 quiet 14 days', tone: RED },
+      { id: 'open', k: 'Open Pipeline', v: '$1.3M', sub: '6 deals · weighted $686K', tone: INK },
+      { id: 'prop', k: 'Proposals Out', v: '$400,000', sub: 'Marcus Bell, Ana Petrova', tone: INK },
+      { id: 'won', k: 'Signed This Quarter', v: '$210,000', sub: 'The Nakamuras, 7/25 · 1 lost', tone: INK }
+    ];
+    const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
+    const card = (name, value, when, next, late) => ({ name, value, when, next, tone: late ? RED : MUTE, border: late ? '#fecaca' : '#dfe4ee' });
+    const board = [
+      { stage: 'Lead', sum: '$95K', cards: [card('Daniel Okafor', '$95,000', '2 days late', 'Call back about timing', true)] },
+      { stage: 'Qualified', sum: '$160K', cards: [card('Sofia Adler', '$160,000', 'Sat 9/5', 'Book the site visit at 70 Remsen')] },
+      { stage: 'Site Visit', sum: '$185K', cards: [card('Priya Raman', '$185,000', '2 days late', 'Send the recap with the range', true)] },
+      { stage: 'Design Agreement', sum: '$420K', cards: [card('The Lindqvists', '$420,000', 'Fri 9/4', 'Walk the house with the architect')] },
+      { stage: 'Proposal Out', sum: '$400K', cards: [card('Marcus Bell', '$140,000', 'Quiet 14 days', 'Proposal emailed 8/20', true), card('Ana Petrova', '$260,000', 'Fri 9/4', 'Answer the board’s questions')] },
+      { stage: 'Job Set Up, Not Signed', sum: '$0', cards: [] }
+    ];
+    const deco = (rows) => rows.map((r, i) => Object.assign({ amt: '' }, r, { line: i ? '1px solid #eef1f6' : '0', btnBg: i === 0 ? '#2563eb' : '#fff', btnColor: i === 0 ? '#fff' : INK, btnBorder: i === 0 ? '0' : '1px solid #c9d1e0' }));
+    const panels = {
+      need: { title: 'Deals That Need You', sub: 'A next step past its date, or no touch in 14 days', rows: deco([
+        { kind: 'SITE VISIT · 2 DAYS LATE', tone: RED, title: 'Priya Raman', why: 'Send the recap with the range · broker referral', amt: '$185,000', act: 'Draft the Recap' },
+        { kind: 'LEAD · 2 DAYS LATE', tone: RED, title: 'Daniel Okafor, 11 Riverside Dr 4A', why: 'Call back about timing · just closed on the apartment', amt: '$95,000', act: 'Call' },
+        { kind: 'PROPOSAL · QUIET 14 DAYS', tone: RED, title: 'Marcus Bell, 77 Bleecker St 3F', why: 'Proposal emailed 8/20, one option; wants to sell in two years', amt: '$140,000', act: 'Follow Up' }
+      ]) },
+      prop: { title: 'Proposals Out', sub: 'Each opens the deal and its estimate', rows: deco([
+        { kind: 'PRESENTED 8/26', tone: MUTE, title: 'Ana Petrova, 30 E 85th St 12C', why: 'Three options; she leans to the middle one · board approval 10/18 · estimate [PLACEHOLDER]', amt: '$260,000', act: 'Open' },
+        { kind: 'EMAILED 8/20', tone: RED, title: 'Marcus Bell, 77 Bleecker St 3F', why: 'One option · no touch since · estimate [PLACEHOLDER]', amt: '$140,000', act: 'Follow Up' }
+      ]) },
+      won: { title: 'Won and Lost This Quarter', sub: 'Won means signed', rows: deco([
+        { kind: 'SIGNED 7/25', tone: MUTE, title: 'Tom & Lily Nakamura, 200 E 66th St 9G', why: 'Architect referral (David Kahn) · no job set up on the record yet', amt: '$210,000', act: 'Set Up the Job' },
+        { kind: 'LOST 8/3', tone: MUTE, title: 'Owen Marsh', why: 'Past-client referral · lost after the proposal · no reason recorded', amt: '$110,000', act: 'Record the Reason' }
+      ]) }
+    };
+    const nums = [
+      { k: 'First Reply', sub: 'Median across 7 leads; the winners reply inside the hour', v: '3 h' },
+      { k: 'Close Rate, Presented', sub: '1 won, 1 lost', v: '50%' },
+      { k: 'Inquiry to Agreement', sub: 'The one job won this quarter', v: '48 days' },
+      { k: 'Leads From Partners', sub: '3 this quarter from 3 partners', v: '3' },
+      { k: 'Thank-Yous Owed', sub: 'David Kahn sent us work and heard nothing back', v: '1' },
+      { k: 'Lost and Why', sub: 'Owen Marsh $110K: no reason recorded', v: '1' }
+    ].map((n, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, n));
+    const isBoard = P === 'open';
+    const newOpen = !!this.state.newOpen;
+    return { rail, tiles, board, panel: panels[P] || panels.need, nums, isBoard, isList: !isBoard, newOpen, newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Books</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="13">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}"><span style="flex: 1">{{r.label}}</span><b style="font-size: 12px; color: #fca5a5">{{r.count}}</b></span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 0">
+      <div style="display: flex; align-items: flex-end; gap: 16px">
+        <div style="flex: 1">
+          <b style="font-size: 26px">Books</b>
+          <div style="font-size: 14px; color: #5b6578; margin-top: 4px">The ledger, the close and the controls · Consolidated, 4 entities · no month closed yet</div>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #c9d1e0; border-radius: 10px; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          New Journal Entry
+        </button>
+      </div>
+      <div style="display: flex; gap: 26px; margin-top: 16px; font-size: 14px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+          <button type="button" onClick="{{t.pick}}" style="padding: 10px 0 12px; border: 0; background: transparent; font: inherit; color: {{t.color}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}">{{t.label}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding: 24px 32px; display: flex; gap: 20px; align-items: flex-start">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">Needs You · 5</b>
+            <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 14px; font-weight: 600">Continue the August Close</button>
+          </div>
+          <sc-for list="{{needs}}" as="n" hint-placeholder-count="5">
+            <div style="padding: 10px 18px; border-top: {{n.line}}; display: flex; gap: 12px"><b style="font-size: 14px; width: 360px; flex: none">{{n.title}}</b><span style="font-size: 14px; color: #5b6578">{{n.why}}</span></div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: baseline"><b style="flex: 1; font-size: 17px">{{title}}</b><span style="font-size: 13px; color: #5b6578">{{sub}}</span></div>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+            <div style="padding: 9px 18px; border-top: {{r.line}}; display: grid; grid-template-columns: minmax(0, 1fr) 320px 140px; gap: 12px; align-items: center; font-size: 14px">
+              <span style="font-weight: {{r.fw}}">{{r.k}}</span><span style="color: #5b6578; font-size: 13px">{{r.sub}}</span><b style="text-align: right; color: {{r.tone}}">{{r.v}}</b>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <aside style="width: 380px; flex: none; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Ledger Against the Management View</b></div>
+          <sc-for list="{{bridge}}" as="b" hint-placeholder-count="6">
+            <div style="padding: 8px 16px; border-top: {{b.line}}; display: flex; gap: 12px"><span style="flex: 1; font-size: 13px; font-weight: {{b.fw}}">{{b.k}}</span><span style="font-size: 13px; font-weight: {{b.fw}}">{{b.v}}</span></div>
+          </sc-for>
+          <div style="padding: 10px 16px; border-top: 1px solid #eef1f6; font-size: 12px; color: #5b6578">Financial Statements show the management view. The ledger's own P&amp;L agrees once the close posts the WIP adjustment.</div>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Reconciled Through</b></div>
+          <sc-for list="{{recon}}" as="a" hint-placeholder-count="3">
+            <div style="padding: 9px 16px; border-top: {{a.line}}; display: flex"><span style="flex: 1; font-size: 13px">{{a.k}}</span><b style="font-size: 13px; color: {{a.tone}}">{{a.v}}</b></div>
+          </sc-for>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Close' }; }
+  renderVals() {
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400' }, r));
+    const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
+    const rail = [
+      R('Today', { count: '2' }), R('Tasks', { count: '1' }), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'),
+      R('Accounting', { bg: '#1b2640' }),
+      R('Billing', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Banking', { pad: '32px', fs: '14px', color: '#c5cde0', count: '15' }),
+      R('Bills and Payroll', { pad: '32px', fs: '14px', color: '#c5cde0', count: '4' }),
+      R('Books', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff', count: '5' }),
+      R('Reports')
+    ];
+    const T = this.state.tab, Rd = '#b91c1c', A = '#b45309', G = '#15803d', K = '#172033';
+    const tabs = ['Close', 'Ledger', 'Controls', 'Budget', 'Tax and 1099'].map((l) => ({ label: l, color: l === T ? '#172033' : '#5b6578', fw: l === T ? '700' : '500', line: l === T ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
+    const needs = ln([
+      { title: 'Close August: 15 of 24 checks open', why: '7 bank lines not matched ($52,406), Chase reconciled only through June, 2 matches not confirmed. Books by the 10th.' },
+      { title: 'INV-2026-031, Deposit 20%, $97,000, booked as the first draw', why: 'Confirm it as the first draw, or reverse and re-post it as the deposit with a reason, dated the first open day.' },
+      { title: 'Over-Billed (WIP) against Billed Ahead of the Work', why: '121 State Street $131,058 against $66,470, $64,587 apart; 140 Prospect Place $22,512 against $0.' },
+      { title: 'Amex August is $365.64 apart from its statement', why: 'Our records 13 lines, $41,044.51; the statement 14 lines, $40,678.87.' },
+      { title: 'INV-2026-035 short-paid by $0.16', why: 'Ledger 1100 $92,265.16 against $92,265.00 open. Collect it or write it off with a reason.' }
+    ]);
+    const views = {
+      'Close': ['Close August 2026', '24 checks · 9 done · 15 open', [
+        { k: 'Bank lines not matched to a line', sub: 'August · 0 with a signed exception', v: '7 · $52,406', tone: Rd },
+        { k: 'Chase Business Checking not reconciled through 8/31', sub: 'Last reconciled 6/30', v: '27 lines', tone: Rd },
+        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart from the statement', v: '13 lines', tone: Rd },
+        { k: 'Home Depot Pro Xtra not reconciled through 8/31', sub: 'Never reconciled', v: '1 line', tone: Rd },
+        { k: 'Bank matches not confirmed by a person', sub: 'AMP-311 · WW-2026-118', v: '2', tone: A },
+        { k: 'Client payments recorded, not in the bank after 5 business days', sub: 'Rivera family, 7/30 and 8/14', v: '2', tone: A },
+        { k: 'Bills paid from the bank before approval', sub: 'WW-2026-118, with Alan', v: '1', tone: A },
+        { k: 'Budget variances over 10% and $2,500 with no commentary', sub: 'Operating budget', v: '5', tone: A },
+        { k: 'Jobs without a cost-to-complete review this month', sub: '121 State · 45 Cranberry · 140 Prospect', v: '3', tone: A },
+        { k: 'Job-cost lines with no project', sub: 'Zelle to M Rodriguez, 8/29', v: '1', tone: A },
+        { k: 'Posts at the close: WIP adjustment', sub: '121 State $58,011 · 45 Cranberry $5,998, to 2500 and 1200', v: '$64,008', tone: K, fw: '600' },
+        { k: 'Posts at the close: accrued wages', sub: 'Payroll 8/17 to 8/28 $16,040 · 45 Cranberry timesheets $3,699', v: '$19,739', tone: K, fw: '600' } ]],
+      'Ledger': ['The Ledger', 'Journal, accounts and trial balance · append-only', [
+        { k: 'Journals to approve', sub: 'Drafted by the controller, posted by Alan', v: '0', tone: G },
+        { k: 'Manual journal entries dated in August', sub: 'Flagged with who, when and why wherever they show', v: '0 · $0', tone: G },
+        { k: 'Entries not from a document', sub: '1 opening entry', v: '$172,503', tone: A },
+        { k: 'Drift', sub: 'Every posting re-derives from its document', v: '0', tone: G },
+        { k: 'Uncoded cost', sub: 'Direct cost carrying no project', v: '$7K', tone: A },
+        { k: 'Income backed by a bank or card line', sub: 'Year to date', v: '$169,750', tone: K },
+        { k: 'Cost backed by a bank or card line', sub: 'Year to date · $9,650 more by hand, flagged', v: '$123,598', tone: K } ]],
+      'Controls': ['Controls', 'The checks; the lines themselves are worked on Banking', [
+        { k: 'Cleared lines not yet verified', sub: 'Three-way match after clearing · never run', v: '36', tone: A },
+        { k: 'Held by a control', sub: 'Window Works bank details changed [DATE]: confirm on a known number', v: '1', tone: Rd },
+        { k: 'Owner sees payments above', sub: 'And first payments, bank-detail changes, over the PO, regardless of size', v: '$5,000', tone: K },
+        { k: 'Early-payment discounts available', sub: 'No discount offered on open bills', v: '$0', tone: K } ]],
+      'Budget': ['Operating Budget 2026', 'Reforecast Q3 active · by entity, account and month', [
+        { k: 'Revenue, year to date', sub: 'Budget $154,074', v: '$142,759', tone: A },
+        { k: 'Operating expenses, year to date', sub: 'Budget $20,120 · includes $14,841 Needs Category', v: '$39,595', tone: Rd },
+        { k: 'Net profit, year to date', sub: 'Budget $18,863', v: '−$5,330', tone: Rd } ]],
+      'Tax and 1099': ['Tax and 1099', '2026', [
+        { k: 'Payees at $2,000 or more', sub: 'Paid by check, ACH, Zelle or wire', v: '4', tone: K },
+        { k: 'Without a W-9', sub: 'Requested from the vendor record', v: '3', tone: A },
+        { k: 'Paid but not set up as vendors', sub: 'Atlantic Realty · M Rodriguez · J Rosario', v: '3', tone: A },
+        { k: 'Sales tax and the capital-improvement check', sub: '', v: '[PLACEHOLDER]', tone: K } ]]
+    };
+    const [title, sub, list] = views[T];
+    const bridge = ln([
+      { k: 'Net income on the ledger', v: '$175,285.70', fw: '700' },
+      { k: 'WIP over-billing, posts at the close', v: '−$156,274.27' },
+      { k: 'Bills paid before approval', v: '−$33,500.00' },
+      { k: 'Deposit and retainer invoices', v: '$24,000.00' },
+      { k: 'Spend with no category', v: '−$14,841.31' },
+      { k: 'Net income, management view', v: '−$5,329.88', fw: '700' }
+    ]);
+    const recon = ln([
+      { k: 'Chase Business Checking ····4471', v: 'June 2026', tone: A },
+      { k: 'Amex Business Platinum ····1009', v: 'July 2026', tone: A },
+      { k: 'Home Depot Pro Xtra ····7720', v: 'Never', tone: Rd }
+    ]);
+    return { rail, tabs, needs, title, sub, rows: ln(list), bridge, recon };
+  }
+}
+</script>
+</body>
+</html>

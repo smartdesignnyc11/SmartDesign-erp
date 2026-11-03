@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buy Board</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column; position: relative">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Buy Board</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New purchase" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">What has to be bought, by the date it must be ordered</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: flex; flex-direction: column">
+      <span style="padding: 8px 12px 4px; font-size: 12px; color: #5b6578">Start a purchase</span>
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="3">
+        <a href="#" role="menuitem" style="display: flex; flex-direction: column; justify-content: center; min-height: 52px; padding: 4px 12px; border-radius: 8px; color: #172033; text-decoration: none">
+          <b style="font-size: 15px">{{n.t}}</b><span style="font-size: 12px; color: #5b6578">{{n.s}}</span>
+        </a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 14px 16px 8px">
+    <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You</span>
+    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{mineCount}}</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+    <sc-for list="{{mine}}" as="r" hint-placeholder-count="5">
+      <div style="background: #fff; border: 1px solid {{r.border}}; border-radius: 12px; padding: 10px 12px 12px 4px; display: flex; gap: 4px">
+        <button type="button" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}" aria-label="Pick this line" style="width: 44px; height: 44px; flex: none; border: 0; background: transparent; display: flex; align-items: center; justify-content: center">
+          <span style="width: 22px; height: 22px; border-radius: 6px; border: 2px solid {{r.boxBorder}}; background: {{r.boxBg}}; display: flex; align-items: center; justify-content: center">
+            <sc-if value="{{r.picked}}" hint-placeholder-val="{{false}}"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 12l4 4 8-8"></path></svg></sc-if>
+          </span>
+        </button>
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 4px">
+          <b style="font-size: 15px; line-height: 1.3">{{r.name}}</b>
+          <span style="font-size: 13px; color: #5b6578">{{r.job}} · {{r.src}}</span>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 2px">
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Quantity</span><b style="font-size: 13px">{{r.qty}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">On Site</span><b style="font-size: 13px">{{r.site}}</b></span>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Order By</span><b style="font-size: 13px; color: {{r.tone}}">{{r.by}}</b></span>
+          </div>
+          <span style="font-size: 13px; line-height: 1.4; color: {{r.whyTone}}">{{r.why}}</span>
+          <sc-if value="{{r.hasKnow}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; gap: 8px; align-items: flex-start; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.4; color: #14532d">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M3 9l9-6 9 6v11H3zM9 20v-6h6v6"></path></svg>
+              <span>{{r.know}}</span>
+            </div>
+          </sc-if>
+          <div style="display: flex; gap: 8px; margin-top: 4px">
+            <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">{{r.act}}</button>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Waiting on Someone Else</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{others}}" as="o" hint-placeholder-count="5">
+      <div style="padding: 10px 14px; border-top: {{o.line}}; display: flex; flex-direction: column; gap: 3px; min-height: 44px; justify-content: center">
+        <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 14px">{{o.name}}</b><span style="font-size: 12px; font-weight: 700; color: #b45309">{{o.by}}</span></div>
+        <span style="font-size: 13px; color: #5b6578">{{o.job}} · {{o.amt}}</span>
+        <span style="font-size: 13px; line-height: 1.4">Waiting on <b>{{o.who}}</b>: {{o.why}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <button type="button" onClick="{{toggleLater}}" aria-expanded="{{laterExpanded}}" style="margin: 16px 16px 0; min-height: 48px; border-radius: 12px; border: 1px solid #dfe4ee; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #172033; display: flex; align-items: center; justify-content: center; gap: 8px">
+    {{laterLabel}}
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="{{laterIcon}}"></path></svg>
+  </button>
+  <sc-if value="{{laterOpen}}" hint-placeholder-val="{{false}}">
+    <div style="margin: 10px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+      <sc-for list="{{later}}" as="l" hint-placeholder-count="4">
+        <div style="padding: 10px 14px; border-top: {{l.line}}; display: flex; flex-direction: column; gap: 3px">
+          <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 14px">{{l.name}}</b><span style="font-size: 12px; color: #5b6578">Order by {{l.by}}</span></div>
+          <span style="font-size: 13px; color: #5b6578">{{l.job}} · on site {{l.site}}</span>
+          <span style="font-size: 13px; line-height: 1.4; color: {{l.tone}}">{{l.why}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+  <div style="height: 120px"></div>
+
+  <sc-if value="{{hasPicked}}" hint-placeholder-val="{{true}}">
+    <div style="position: sticky; bottom: 0; margin-top: auto; background: #fff; border-top: 1px solid #dfe4ee; box-shadow: 0 -8px 24px rgba(17,26,46,.08); padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 13px; color: #5b6578">{{pickedLine}}</span>
+      <div style="display: flex; gap: 8px">
+        <button type="button" style="flex: 1; min-height: 48px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #172033">{{secondary}}</button>
+        <button type="button" style="flex: 1; min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; font: inherit; font-size: 15px; font-weight: 700; color: #fff">{{primary}}</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { job: 'All Jobs', picked: { paint: true, bath: true }, later: false, newOpen: false }; }
+  renderVals() {
+    const S = this.state;
+    // Needs You: the needs whose next tap is the coordinator's. Records as the 9/3 build reads them.
+    const MINE = [
+      { id: 'studs', name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto, for Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: 'Fri', tone: '#b45309',
+        why: 'Not acknowledged in 26 hours. Angel was told to call the office.', know: 'Price book: $3.98 each at Brooklyn Lumber — Red Hook on 9/2; Home Depot — Gowanus $4.27.', act: 'Acknowledge and Link' },
+      { id: 'tape', name: '1 case Blue tape + 4 mil plastic', job: '121 State Street', src: 'Request from Angel', qty: '1 case', site: '9/4', by: 'Today', tone: '#b45309',
+        why: 'On Alex’s store run today, Lowe’s — Gowanus.', know: 'At the warehouse: 18 rolls of 1.5" blue tape. Pick the tape from stock; buy only the plastic.', act: 'Pick From Stock' },
+      { id: 'demo', name: 'Demolition & disposal', job: '121 State Street', src: 'EST-2026-014 · subcontract · $19,850', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c',
+        why: 'No sub contracted. Over $2,500: three bids, or a reason.', know: '', act: 'Ask for Bids' },
+      { id: 'ext', name: 'Exterior — scaffold, brick mold, paint', job: '121 State Street', src: 'EST-2026-014 · subcontract · $12,300', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c',
+        why: 'No sub contracted. Over $2,500: three bids, or a reason.', know: '', act: 'Ask for Bids' },
+      { id: 'appl', name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c',
+        why: 'Marked ordered with no order behind it. Promised 9/25, needed 9/10.', know: '', act: 'Find the Order' },
+      { id: 'ins', name: 'Insulation', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c',
+        why: 'Marked ordered with no order behind it. Promised 9/16, needed 9/11.', know: '', act: 'Find the Order' },
+      { id: 'paint', name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c',
+        why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'slab', name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: 'Tue, passed', tone: '#b91c1c',
+        why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'bath', name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material', qty: '[QTY]', site: '9/15', by: 'Tue, passed', tone: '#b91c1c',
+        why: 'No price yet.', know: '', act: 'Ask for Quotes' }
+    ];
+    const OTHERS = [
+      { name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', amt: 'Ferguson · $2,360', by: '8/13, passed', who: 'Alberto M Plumbing', why: 'submittal 22 40 00-001 came back Revise and Resubmit; the order waits for approval.' },
+      { name: 'Thermostatic shower set with handshower', job: '121 State Street', amt: 'Ferguson · $2,340', by: '8/13, passed', who: 'Alberto M Plumbing', why: 'the same submittal.' },
+      { name: 'Washer / dryer (new sizes)', job: '121 State Street', amt: 'no price yet', by: '8/26, passed', who: 'the architect', why: 'laundry layout decision, 8 days late.' },
+      { name: 'Trim, doors, paint & hardware', job: '121 State Street', amt: 'EST-2026-014 · $32,500', by: '8/24, passed', who: 'the PM', why: 'material portion not set; the line includes labour.' },
+      { name: 'Tile — two baths', job: '121 State Street', amt: 'EST-2026-014 · $22,550', by: 'Mon, passed', who: 'the PM', why: 'material portion not set.' },
+      { name: 'Additional tile prep', job: '121 State Street', amt: 'CO-2026-001 · $488', by: 'Mon, passed', who: 'the PM', why: 'material portion not set.' },
+      { name: 'Radiant heat mats & thermostat', job: '121 State Street', amt: 'CO-2026-001 · $2,890', by: 'Wed, passed', who: 'the PM', why: 'material portion not set.' }
+    ];
+    const LATER = [
+      { name: 'GWB boards (~25) & cement board', job: '121 State Street', site: '9/16', by: '9/11', why: 'At the warehouse: 12 sheets 5/8" Type X and 8 sheets moisture-resistant. Count before you buy.', tone: '#14532d' },
+      { name: 'Radiant heat mats (primary bath)', job: '121 State Street', site: '9/29', by: '9/15', why: 'No price yet.', tone: '#5b6578' },
+      { name: 'Interior doors', job: '121 State Street', site: '10/7', by: '9/16', why: 'Waiting on a decision: interior door design and sizes.', tone: '#5b6578' },
+      { name: 'Undermount fireclay sink, 30"', job: '121 State Street', site: '10/26', by: '9/18', why: 'Selection, Kitchen · Build.com · $1,495 left on the line.', tone: '#5b6578' },
+      { name: 'Radiator valves & fittings', job: '121 State Street', site: '10/21', by: '10/7', why: 'Marked ordered with no order behind it.', tone: '#b45309' }
+    ];
+    const jobOk = (j) => S.job === 'All Jobs' || S.job === j;
+    const mineRows = MINE.filter((r) => jobOk(r.job));
+    const mine = mineRows.map((r) => {
+      const picked = !!S.picked[r.id];
+      return Object.assign({}, r, { picked, pressed: picked ? 'true' : 'false', hasKnow: !!r.know,
+        boxBorder: picked ? '#172033' : '#9aa6bd', boxBg: picked ? '#172033' : '#fff',
+        border: picked ? '#172033' : (r.tone === '#b91c1c' ? '#fecaca' : '#dfe4ee'), whyTone: '#172033',
+        pick: () => { const p = Object.assign({}, S.picked); if (p[r.id]) delete p[r.id]; else p[r.id] = true; this.setState({ picked: p }); } });
+    });
+    const others = OTHERS.filter((o) => jobOk(o.job)).map((o, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, o));
+    const later = LATER.filter((l) => jobOk(l.job)).map((l, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, l));
+    const chips = ['All Jobs', '121 State Street', '206 Lenox'].map((label) => {
+      const on = S.job === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ job: label }) };
+    });
+    const pickedRows = MINE.filter((r) => S.picked[r.id]);
+    const noPrice = pickedRows.length && pickedRows.every((r) => /No price/.test(r.why) || /bids/.test(r.why));
+    const jobs = Array.from(new Set(pickedRows.map((r) => r.job)));
+    const pickedLine = pickedRows.length + (pickedRows.length === 1 ? ' line picked' : ' lines picked') + ' · ' + jobs.join(', ') + (noPrice ? ' · no price on file: ask first' : '');
+    const newOpen = !!S.newOpen;
+    const newItems = [
+      { t: 'Buy From an Estimate or Invoice', s: 'Pick the job, the document, then its lines' },
+      { t: 'Restock the Warehouse', s: 'From Stock items at or under their reorder point' },
+      { t: 'Blank Need', s: 'Only when no line covers it; the line is asked for before approval' }
+    ];
+    return { chips, mine, mineCount: mineRows.length, others, later, laterOpen: !!S.later, laterExpanded: S.later ? 'true' : 'false',
+      laterLabel: S.later ? 'Hide the Later Needs' : 'Show the Later Needs, Order by 9/11 to 10/9', laterIcon: S.later ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6',
+      toggleLater: () => this.setState({ later: !S.later }),
+      hasPicked: pickedRows.length > 0, pickedLine, primary: noPrice ? 'Ask for Quotes' : 'Order ' + pickedRows.length + (pickedRows.length === 1 ? ' Line' : ' Lines'), secondary: noPrice ? 'Order Anyway' : 'Ask for Quotes',
+      newOpen, newItems, newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

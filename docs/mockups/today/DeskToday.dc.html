@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop Today: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1200px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px; background: {{it.bg}}; font-weight: {{it.fw}}">
+          <span style="flex: 1">{{it.label}}</span>
+          <sc-if value="{{it.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span></sc-if>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <sc-for list="{{rail.work}}" as="w" hint-placeholder-count="6">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">{{w}}</a>
+      </sc-for>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="../company/Company.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Record a Feedback Session</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 18px; display: flex; align-items: center; gap: 16px">
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+        <b style="font-size: 26px">Today</b>
+        <span style="font-size: 14px; color: #5b6578">Thu, Sep 3 · 12 need you today · most urgent first, by the Standard’s order</span>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About My Day</button>
+      <div style="position: relative">
+        <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: {{newBg}}; color: #172033; display: flex; align-items: center; justify-content: center; cursor: pointer">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+        <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+          <div role="menu" style="position: absolute; right: 0; top: 46px; width: 240px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; z-index: 5; display: flex; flex-direction: column">
+            <span style="padding: 8px 12px 6px; font-size: 12px; color: #5b6578">New, for you</span>
+            <sc-for list="{{newItems}}" as="n" hint-placeholder-count="4">
+              <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 14px">{{n}}</a>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{tiles}}" as="k" hint-placeholder-count="4">
+          <button type="button" onClick="{{k.pick}}" aria-pressed="{{k.pressed}}" style="text-align: left; background: #fff; border: 2px solid {{k.border}}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: #172033; cursor: pointer; min-height: 110px">
+            <span style="font-size: 13px; color: #5b6578">{{k.k}}</span>
+            <b style="font-size: 26px; color: {{k.tone}}">{{k.v}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{k.sub}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; gap: 20px; align-items: flex-start">
+        <section style="flex: 1; min-width: 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 14px 18px; display: flex; align-items: center; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">{{panel.title}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{panel.sub}}</span>
+          </div>
+          <sc-for list="{{panel.rows}}" as="r" hint-placeholder-count="8">
+            <div style="padding: 12px 18px; border-top: {{r.line}}; display: flex; gap: 16px; align-items: center">
+              <span style="width: 130px; flex: none; font-size: 12px; font-weight: 700; color: {{r.tone}}">{{r.kind}}</span>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                <b style="font-size: 15px">{{r.title}}</b>
+                <span style="font-size: 13px; color: #5b6578">{{r.why}}</span>
+              </div>
+              <b style="font-size: 15px; width: 100px; text-align: right">{{r.amt}}</b>
+              <button type="button" style="height: 36px; min-width: 96px; padding: 0 14px; border-radius: 8px; border: {{r.btnBorder}}; background: {{r.btnBg}}; font: inherit; font-size: 13px; font-weight: 600; color: {{r.btnColor}}">{{r.act}}</button>
+            </div>
+          </sc-for>
+        </section>
+
+        <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+            <b style="font-size: 15px">Your Brief</b>
+            <span style="font-size: 14px; line-height: 1.45"><a href="#">121 State Street</a> is slipping: rough plumbing starts 9/10, held by a late material, about 7 working days behind.</span>
+            <span style="font-size: 14px; line-height: 1.45">Window Works’ insurance expired 8/15, and they are booked at 121 State Street on 9/9. Chen is chasing the certificate.</span>
+            <span style="font-size: 14px; line-height: 1.45">Aliya Chen wrote on 8/30 about 374 Washington Avenue and has had no answer for 4 days.</span>
+          </div>
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6; display: flex"><b style="flex: 1; font-size: 15px">Where the Firm Stands</b><span style="font-size: 13px; color: #5b6578">your checklist</span></div>
+            <sc-for list="{{firm}}" as="f" hint-placeholder-count="6">
+              <a href="#" style="padding: 10px 16px; display: flex; gap: 10px; align-items: center; border-top: {{f.line}}; text-decoration: none; color: #172033">
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">{{f.k}}</span><span style="font-size: 12px; color: #5b6578">{{f.sub}}</span></span>
+                <b style="font-size: 15px; color: {{f.tone}}">{{f.v}}</b>
+              </a>
+            </sc-for>
+          </div>
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">On Your Calendar Today</b></div>
+            <div style="padding: 10px 16px; display: flex; gap: 10px"><span style="width: 64px; flex: none; font-size: 12px; color: #5b6578">1:30 pm</span><span style="font-size: 14px; line-height: 1.4">Samantha Field, 118 E 60th apt 31G lobby (from her mail; not held yet)</span></div>
+            <div style="padding: 10px 16px; display: flex; gap: 10px; border-top: 1px solid #eef1f6"><span style="width: 64px; flex: none; font-size: 12px; color: #5b6578">Tomorrow</span><span style="font-size: 14px; line-height: 1.4">Walk 145 Hicks St with the Lindqvists’ architect</span></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { panel: 'today', newOpen: false }; }
+  renderVals() {
+    const P = this.state.panel, RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
+    const rail = {
+      top: [{ label: 'Today', n: 12, has: true, bg: '#22304d', fw: '700' }, { label: 'Tasks', n: 0, has: false, bg: 'transparent', fw: '500' }, { label: 'Messages', n: 5, has: true, bg: 'transparent', fw: '500' }],
+      work: ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Reports']
+    };
+    const T = [
+      { id: 'today', k: 'Need You Today', v: '12', sub: '4 approvals, 8 to do now', tone: RED },
+      { id: 'appr', k: 'Approvals', v: '4', sub: 'Exceptions only: $60,990 in all', tone: INK },
+      { id: 'coming', k: 'Coming Up', v: '6', sub: 'The next 7 days', tone: INK },
+      { id: 'cash', k: 'Safe to Spend', v: '−$4,150.74', sub: 'From the bank, with its parts', tone: RED }
+    ];
+    const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
+    const appr = [
+      { kind: 'PAYROLL · 2 DAYS LATE', tone: RED, title: 'Payroll 8/17 to 8/28, 6 people', why: '88% of wages not split by job: Chen splits it from the hours, then it comes back to you', amt: '$16,040', act: 'Review Payroll', blue: true },
+      { kind: 'BILL · PAID 8/25', tone: RED, title: 'WW-2026-118 · Window Works', why: 'Paid before approval, $3,800 over PO-2026-044, insurance expired 8/15', amt: '$33,500', act: 'Review' },
+      { kind: 'BILL · NO PO', tone: MUTE, title: 'AMP-311 · Alberto M Plumbing', why: 'No PO behind it; a $9,800 Chase payment on 8/15 is matched to nothing', amt: '$9,800', act: 'Review' },
+      { kind: 'CHARGE · TWICE', tone: MUTE, title: 'Roll Off Dumpster, 121 State Street', why: 'On Amex 8/21 and 8/22, on no estimate or change-order line', amt: '$1,650', act: 'Review' }
+    ];
+    const now = [
+      { kind: 'TODAY 1:30 PM', tone: RED, title: 'Meeting with Samantha Field', why: '118 E 60th apt 31G lobby, from her 8/31 mail; not on your calendar', amt: '', act: 'Hold It' },
+      { kind: 'MAIL · 4 DAYS', tone: RED, title: 'Aliya Chen: Re: Work Complete, 374 Washington Ave', why: 'An unhappy client mail with no answer', amt: '', act: 'Reply' },
+      { kind: 'FILING · 5 DAYS LATE', tone: RED, title: 'LLC biennial statement, SmartDesign Group LLC', why: 'Lapses 9/28 · NYS Department of State', amt: '', act: 'Draft' },
+      { kind: 'SALES · 2 DAYS LATE', tone: RED, title: 'Send the site-visit recap with the range', why: 'Priya Raman, $185,000 site visit', amt: '', act: 'Done' },
+      { kind: 'SALES · 2 DAYS LATE', tone: RED, title: 'Call back about timing: Daniel Okafor', why: '11 Riverside Dr 4A, $95,000', amt: '', act: 'Call' },
+      { kind: 'SALES · TODAY', tone: MUTE, title: 'Call Marcus: the three things they are really deciding', why: 'Marcus Bell, proposal out since 8/20', amt: '', act: 'Call' },
+      { kind: 'SALES · TODAY', tone: MUTE, title: 'Write the design proposal on the client record', why: 'The Lindqvists, 145 Hicks St', amt: '', act: 'Open' },
+      { kind: 'SALES · TODAY', tone: MUTE, title: 'Call Jonah Weiss back: website inquiry', why: 'No lead on file yet: New Lead from the Mail fills it', amt: '', act: 'Call' }
+    ];
+    const coming = [
+      { kind: 'TOMORROW', tone: MUTE, title: 'Answer the board’s three questions', why: 'Ana Petrova, 30 E 85th St 12C · board packet due 9/15', amt: '', act: 'Open' },
+      { kind: 'TOMORROW', tone: MUTE, title: 'Ask Arjun for 20 minutes: he decides the money', why: 'Priya Raman', amt: '', act: 'Open' },
+      { kind: 'TOMORROW', tone: MUTE, title: 'Walk the house with the architect', why: 'The Lindqvists, 145 Hicks St', amt: '', act: 'Open' },
+      { kind: 'TOMORROW', tone: MUTE, title: 'Second try: Rebecca Tran', why: 'Sales', amt: '', act: 'Call' },
+      { kind: 'SAT', tone: MUTE, title: 'Book the site visit at 70 Remsen', why: 'Sofia Adler, $160,000', amt: '', act: 'Open' },
+      { kind: 'WED 9/9', tone: MUTE, title: 'Follow up on the proposal', why: 'Marcus Bell, 77 Bleecker St 3F', amt: '', act: 'Open' }
+    ];
+    const cash = [
+      { kind: 'BANK', tone: MUTE, title: 'Chase Business Checking ····4471', why: 'Reconciled through 6/30', amt: '$184,231', act: 'Open' },
+      { kind: 'LESS', tone: MUTE, title: 'Owed on cards', why: 'Amex ····1009 reconciled through 7/31 · Home Depot ····7720 never reconciled', amt: '−$16,067', act: 'Open' },
+      { kind: 'LESS', tone: MUTE, title: 'Payroll due', why: 'The 8/17 to 8/28 run, waiting on you above', amt: '−$16,040', act: 'Open' },
+      { kind: 'LESS', tone: RED, title: 'Billed ahead of the work', why: 'Client money for work not done yet, cost to cost', amt: '−$156,274', act: 'Open' },
+      { kind: 'NOT COUNTED', tone: MUTE, title: 'Rivera family payments recorded, not in the bank', why: '$5,000 on 7/30 and $16,350 on 8/14: billing is resolving them', amt: '$21,350', act: 'Open' }
+    ];
+    const deco = (rows, first) => rows.map((r, i) => Object.assign({}, r, {
+      line: i ? '1px solid #eef1f6' : '0',
+      btnBg: first && i === 0 ? '#2563eb' : '#fff', btnColor: first && i === 0 ? '#fff' : '#172033', btnBorder: first && i === 0 ? '0' : '1px solid #c9d1e0'
+    }));
+    const panels = {
+      today: { title: 'Need You Today', sub: 'Approvals first, then what is due now', rows: deco(appr.concat(now), true) },
+      appr: { title: 'Approvals', sub: 'Paid before approval, over the PO, no PO, payroll · everything else goes to its owner', rows: deco(appr, true) },
+      coming: { title: 'Coming Up', sub: 'The next 7 days, by date', rows: deco(coming, false) },
+      cash: { title: 'Safe to Spend: −$4,150.74', sub: 'The lower of truly ours and the 13-week low ($135,583)', rows: deco(cash, false) }
+    };
+    const firm = [
+      { k: 'Jobs at Risk', sub: '121 State Street: 19 late, 1 sub no-show · 206 Lenox: 3 late', v: '2', tone: RED },
+      { k: 'Lines Over Budget', sub: '121 State Street $4,800 on 2 lines · 45 Cranberry St $322', v: '3', tone: RED },
+      { k: 'Deals That Need You', sub: 'The Pipeline’s 3: 2 past their date, 1 quiet 14 days', v: '3', tone: INK },
+      { k: 'Compliance', sub: 'Tino: open PO, no insurance · the LLC filing', v: '2', tone: RED },
+      { k: 'People Overloaded', sub: 'You: 15 open, 3 overdue · Alan: 10 open', v: '2', tone: INK },
+      { k: 'Lessons and Changes to Approve', sub: 'In The Brain', v: '[PLACEHOLDER]', tone: INK },
+      { k: 'Saved This Year', sub: '5 savings on record', v: '$877', tone: INK }
+    ].map((f, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, f));
+    const newOpen = !!this.state.newOpen;
+    return { rail, tiles, panel: panels[P], firm, newOpen, newItems: ['Task', 'Lead', 'Lead from a Mail', 'Message', 'Note or Call'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

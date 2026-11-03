@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ana Petrova: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Pipeline.dc.html" aria-label="Back to the Pipeline" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Ana Petrova</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New for this deal" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Proposal Out · $260,000 · repeat client · 30 E 85th St 12C, co-op</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px">
+      <span style="grid-column: 1 / -1; padding: 8px 12px 4px; font-size: 12px; color: #5b6578">New for Ana Petrova</span>
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="6">
+        <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 15px; font-weight: 600">{{n}}</a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="margin: 16px 16px 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px" aria-label="Stage">
+    <sc-for list="{{stages}}" as="s" hint-placeholder-count="5">
+      <div style="display: flex; flex-direction: column; gap: 6px; align-items: stretch">
+        <span style="height: 6px; border-radius: 3px; background: {{s.bar}}"></span>
+        <span style="font-size: 11px; line-height: 1.25; color: {{s.color}}; font-weight: {{s.fw}}">{{s.label}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 700; color: #5b6578">NEXT STEP · YOURS · FRI 9/4</span>
+    <b style="font-size: 16px; line-height: 1.35">Answer the board’s three questions</b>
+    <span style="font-size: 13px; color: #5b6578; line-height: 1.4">The board packet goes in by 9/15 (14 days ahead of the first-Monday meeting). The assistant drafts the answers from her last job’s packet; you send.</span>
+    <button type="button" style="min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">Draft the Answers</button>
+  </div>
+
+  <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Road to Signed</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{plan}}" as="p" hint-placeholder-count="4">
+      <div style="padding: 10px 14px; border-top: {{p.line}}; display: flex; gap: 10px; align-items: baseline">
+        <span style="font-size: 12px; color: #5b6578; width: 46px; flex: none">{{p.when}}</span>
+        <span style="flex: 1; font-size: 14px; line-height: 1.4">{{p.what}}</span>
+        <span style="font-size: 12px; color: #5b6578">{{p.who}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <b style="font-size: 15px">Set Up the Job</b>
+    <span style="font-size: 13px; color: #5b6578; line-height: 1.45">When she says yes to an option: makes the job at 30 E 85th St 12C under her client record (she is a repeat client), carries these notes, the board’s rules and the next steps, and names the PM. The deal stays Proposal Out until the agreement is signed; then it is Won.</span>
+    <div style="display: flex"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Set Up the Job</button></div>
+  </div>
+
+  <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">This Deal</div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{sections}}" as="s" hint-placeholder-count="5">
+      <button type="button" onClick="{{s.pick}}" aria-expanded="{{s.expanded}}" style="width: 100%; display: flex; flex-direction: column; gap: 6px; min-height: 52px; padding: 12px 14px; border: 0; border-top: {{s.line}}; background: transparent; font: inherit; color: #172033; text-align: left; cursor: pointer">
+        <span style="display: flex; align-items: center; gap: 10px; width: 100%"><span style="flex: 1; font-size: 15px; font-weight: 600">{{s.label}}</span><span style="font-size: 13px; color: #5b6578">{{s.sub}}</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="{{s.chev}}"></path></svg></span>
+        <sc-if value="{{s.open}}" hint-placeholder-val="{{false}}">
+          <span style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{s.lines}}" as="l" hint-placeholder-count="3"><span style="font-size: 13px; line-height: 1.4; color: #172033">{{l}}</span></sc-for>
+          </span>
+        </sc-if>
+      </button>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: 'Proposal', newOpen: false }; }
+  renderVals() {
+    const names = ['Lead', 'Site Visit', 'Proposal Out', 'Job Set Up', 'Signed'];
+    const stages = names.map((l, i) => ({ label: l, bar: i < 2 ? '#93c5fd' : i === 2 ? '#2563eb' : '#dfe4ee', color: i === 2 ? '#172033' : '#5b6578', fw: i === 2 ? '700' : '500' }));
+    const plan = [
+      { when: '9/4', what: 'Answer the board’s three questions', who: 'Us' },
+      { when: '9/15', what: 'Board packet submitted', who: 'Us' },
+      { when: '10/18', what: 'Board approval', who: 'Building' },
+      { when: '10/23', what: 'Agreement and deposit', who: 'Ana' }
+    ].map((p, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, p));
+    const S = [
+      { label: 'Proposal', sub: 'Presented 8/26', lines: ['Three options presented at her kitchen table on 8/26; she leans to the middle one.', 'The estimate behind it: [PLACEHOLDER] (no estimate record is linked to this deal today).', 'Range she gave: $220,000 to $280,000, paid in cash, no other bids.'] },
+      { label: 'Why She Is Buying', sub: 'Priority', lines: ['A second apartment in the same building, for her mother.', 'Wants it done by 1/1/2027.'] },
+      { label: 'People', sub: '2', lines: ['Ana Petrova: decides the money, for us, met.', 'Board of 30 E 85th: neutral, not met yet.'] },
+      { label: 'Building', sub: 'Douglas Elliman', lines: ['Board meets the first Monday of the month; the packet goes in 14 days ahead.', 'Work hours 9 to 5 weekdays · alteration agreement seen · about 6 weeks lead.'] },
+      { label: 'Every Touch', sub: '3', lines: ['7/24 · call: she called; we spoke the same morning.', '8/4 · site visit with her mother.', '8/26 · presented three options; updated board packet from her last job.'] }
+    ];
+    const sections = S.map((s, i) => {
+      const open = this.state.open === s.label;
+      return Object.assign({}, s, { open, expanded: open ? 'true' : 'false', chev: open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6', line: i ? '1px solid #eef1f6' : '0', pick: () => this.setState({ open: open ? '' : s.label }) });
+    });
+    const newOpen = !!this.state.newOpen;
+    return { stages, plan, sections, newOpen, newItems: ['Estimate', 'Task', 'Note or Call', 'Message', 'Meeting', 'Document'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

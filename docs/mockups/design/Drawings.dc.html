@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drawings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1900px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="../job-structure/Main.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Drawings</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New drawing" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Every job's current sheets, and what the field and the agencies are waiting on</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: flex; flex-direction: column">
+      <span style="padding: 8px 12px 4px; font-size: 12px; color: #5b6578">New for {{job}}</span>
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="3">
+        <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 15px; font-weight: 600">{{n}}</a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px">
+    <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You · every job</span>
+    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">8</span>
+  </div>
+
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #fecaca; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-size: 12px; font-weight: 700; color: #b91c1c">QUESTION FROM THE FIELD · ANSWER BY 9/4</span>
+    <b style="font-size: 15px; line-height: 1.35">Exposed-beam ceiling: 3" drop or 2"? Satish needs it to set the cans.</b>
+    <span style="font-size: 13px; color: #5b6578">121 State Street · Angel, 27 hours ago · sheet A-301, Rev 2 is current</span>
+    <span style="font-size: 14px; line-height: 1.45">Plan A-301 says 2"; the framing notes say 3". Holds Framing & blocking – garden bedroom.</span>
+    <div style="display: flex; gap: 8px; margin-top: 4px">
+      <button type="button" style="flex: 1; min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; font: inherit; font-size: 15px; font-weight: 700; color: #fff">Answer Angel</button>
+      <button type="button" style="min-height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Open A-301</button>
+    </div>
+  </div>
+
+  <div style="margin: 10px 16px 0; background: #fff; border: 1px solid #fde68a; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 12px; font-weight: 700; color: #b45309">TO RE-ISSUE · 45 CRANBERRY ST — DESIGN</span>
+      <b style="font-size: 15px">Kitchen rear wall moved 14'-6" to 13'-6"</b>
+      <span style="font-size: 13px; color: #5b6578">These sheets show the old wall; the field builds from them until they are re-issued.</span>
+    </div>
+    <sc-for list="{{reissue}}" as="r" hint-placeholder-count="6">
+      <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 10px; min-height: 44px; box-sizing: border-box; align-items: center">
+        <b style="width: 58px; flex: none; font-size: 13px">{{r.sheet}}</b><span style="font-size: 14px">{{r.title}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 10px 14px 12px; border-top: 1px solid #eef1f6"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Re-Issue the 6 Sheets</button></div>
+  </div>
+
+  <div style="margin: 10px 16px 0; background: #fff; border: 1px solid #fde68a; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 12px; font-weight: 700; color: #b45309">ROOMS NOT MEASURED · 140 PROSPECT PLACE — DESIGN</span>
+    <b style="font-size: 15px">11 rooms still on listing dimensions</b>
+    <span style="font-size: 14px; line-height: 1.45">Design development, the set issue and fabrication orders wait for the existing-conditions survey, scheduled 9/22.</span>
+    <div style="display: flex; gap: 8px; margin-top: 4px"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Open the Survey Checklist</button></div>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">At the Agency</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px">
+    <b style="font-size: 14px">LPC Certificate of Appropriateness</b>
+    <span style="font-size: 13px; color: #5b6578">45 Cranberry St — design · in review, 6 days · the permit record is on the job's Documents</span>
+  </div>
+
+  <div style="padding: 18px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Current Sheets</div>
+  <div style="display: flex; gap: 8px; padding: 0 16px 10px; flex-wrap: wrap">
+    <sc-for list="{{jobChips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
+    </sc-for>
+  </div>
+  <div role="group" aria-label="Group the sheets" style="display: flex; margin: 0 16px 10px; background: #e8ecf3; border-radius: 10px; padding: 3px">
+    <sc-for list="{{views}}" as="v" hint-placeholder-count="2">
+      <button type="button" onClick="{{v.pick}}" aria-pressed="{{v.pressed}}" style="flex: 1; min-height: 44px; border: 0; border-radius: 8px; background: {{v.bg}}; font: inherit; font-size: 14px; font-weight: 600; color: #172033">{{v.label}}</button>
+    </sc-for>
+  </div>
+  <sc-if value="{{bySheet}}" hint-placeholder-val="{{true}}">
+    <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+      <sc-for list="{{sheets}}" as="s" hint-placeholder-count="8">
+        <a href="#" style="padding: 10px 14px; border-top: {{s.line}}; display: flex; flex-direction: column; gap: 3px; text-decoration: none; color: #172033">
+          <div style="display: flex; gap: 8px; align-items: baseline"><b style="font-size: 14px">{{s.sheet}} · Rev {{s.rev}}</b><span style="flex: 1; font-size: 14px">{{s.title}}</span></div>
+          <span style="font-size: 12px; font-weight: 700; color: {{s.tone}}">{{s.status}} · {{s.date}}</span>
+          <span style="font-size: 13px; line-height: 1.4; color: #5b6578">{{s.change}}</span>
+          <span style="font-size: 12px; color: #5b6578">Field: {{s.field}}</span>
+        </a>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{byRoom}}" hint-placeholder-val="{{false}}">
+    <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+      <sc-for list="{{rooms}}" as="r" hint-placeholder-count="10">
+        <div style="padding: 10px 14px; border-top: {{r.line}}; display: flex; align-items: center; gap: 10px; min-height: 44px; box-sizing: border-box">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{r.room}}</b><span style="font-size: 13px; color: #5b6578">{{r.floor}} · {{r.phase}} · measured</span></div>
+          <span style="font-size: 13px; color: #5b6578">{{r.sheets}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="margin: 16px 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+    <b style="font-size: 14px">What the Sets Teach</b>
+    <span style="font-size: 13px; line-height: 1.45; color: #5b6578">Firm-wide, 5 conflicts between sets; most often the design presentation against LPC (3). Proposed to the owner: update the presentation to the LPC and DOB comments before it goes to the client or the field.</span>
+    <a href="#" style="display: flex; align-items: center; min-height: 44px; font-size: 14px">Run the Set Check on {{job}}</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1900}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { job: '121 State Street', view: 'sheet', newOpen: false }; }
+  renderVals() {
+    const S = this.state;
+    const reissue = [
+      { sheet: 'L-101', title: 'Rear elevation — windows' }, { sheet: 'A-101', title: 'Garden floor plan' }, { sheet: 'A-201', title: 'Kitchen plan & elevations' },
+      { sheet: 'A-501', title: 'Millwork elevations — kitchen' }, { sheet: 'FF-01', title: 'Kitchen appliance & fixture schedule' }, { sheet: 'S-101', title: 'Framing plan — garden' }
+    ];
+    const G = '#15803d', B = '#1d4ed8';
+    const SH = [
+      { sheet: 'SK-3', rev: 'A', title: 'RFI 3 sketch — garden bath joist sistering', status: 'ISSUED FOR CONSTRUCTION', date: '9/3', tone: G, change: 'Sister the two notched joists with LVL; no change to the filed plan', field: 'Angel acknowledged 9/3, 7:40 AM' },
+      { sheet: 'A-301', rev: '2', title: 'Stair section', status: 'ISSUED FOR CONSTRUCTION', date: '9/2', tone: G, change: 'Landing widened to 42 in; flitch header per S-101; exposed-beam ceiling drop 2 in at the garden bedroom', field: 'Angel acknowledged 9/2, 9:14 AM' },
+      { sheet: 'A-102', rev: 'B', title: 'Garden bedroom and rear extension plan', status: 'ISSUED FOR CONSTRUCTION', date: '9/2', tone: G, change: 'Rear wall moved from 16\'-4" to 15\'-8" for the window seat', field: 'Angel acknowledged 9/2, 7:50 AM' },
+      { sheet: 'CALC-S2', rev: '1', title: 'Garden bedroom steel beam and post calculation', status: 'ISSUED FOR CONSTRUCTION', date: '9/1', tone: G, change: 'W8x18 beam over the garden bedroom; Maya Natarajan, PE', field: 'Angel 9/1, 7:50 AM' },
+      { sheet: 'A-201', rev: 'B', title: 'Garden kitchen plan and elevations', status: 'ISSUED FOR CONSTRUCTION', date: '8/20', tone: G, change: 'Base cabinet run shortened 6 in at the window', field: 'Angel 8/20, 9:14 AM' },
+      { sheet: 'A-202', rev: 'C', title: 'Parlor kitchen and laundry elevations', status: 'ISSUED FOR CONSTRUCTION', date: '8/12', tone: G, change: 'Laundry counter dropped to 34 in for the new washer and dryer sizes', field: 'Angel 8/12, 9:14 AM' },
+      { sheet: 'A-100', rev: 'B', title: 'Garden floor plan', status: 'FOR PERMIT · DOB', date: '9/22/2025', tone: B, change: 'Garden bath door swing reversed per the plan examiner', field: 'Angel 9/22, 9:14 AM' },
+      { sheet: 'L-201', rev: 'A', title: 'Rear facade — windows and brick mold', status: 'FOR PERMIT · LPC', date: '11/20/2025', tone: B, change: 'Filed with LPC', field: 'Angel 11/20, 9:14 AM' }
+    ].map((s, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, s));
+    const other = [{ sheet: '[SHEET]', rev: '[REV]', title: '[CURRENT SHEETS ON THIS JOB]', status: 'CURRENT', date: '[DATE]', tone: G, change: 'The build read the register for 121 State Street only.', field: '[FIELD]', line: '0' }];
+    const RM = [
+      ['Parlor kitchen', 'Parlor', '6 sheets'], ['Garden kitchen', 'Garden', '5 sheets'], ['Primary bath', '3rd', '4 sheets'], ['Garden bath', 'Garden', '4 sheets'], ['Stair', 'Garden to parlor', '4 sheets'],
+      ['Garden bedroom', 'Garden', '4 sheets'], ['Living and dining', 'Parlor', '1 sheet'], ['Laundry', 'Parlor', '4 sheets'], ['Office', '3rd', '2 sheets'], ['Facade and windows', 'Exterior', '3 sheets']
+    ];
+    const rooms = RM.map((r, i) => ({ room: r[0], floor: r[1], phase: 'Construction Docs', sheets: r[2], line: i ? '1px solid #eef1f6' : '0' }));
+    const is121 = S.job === '121 State Street';
+    const chip = (label) => { const on = S.job === label; return { label: label.replace(' — design', ''), pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ job: label }) }; };
+    const jobChips = ['121 State Street', '45 Cranberry St — design', '140 Prospect Place — design'].map(chip);
+    const views = [['sheet', 'By Sheet'], ['room', 'By Room']].map(([id, label]) => ({ label, pressed: S.view === id ? 'true' : 'false', bg: S.view === id ? '#fff' : 'transparent', pick: () => this.setState({ view: id }) }));
+    const newOpen = !!S.newOpen;
+    return { reissue, jobChips, views, sheets: is121 ? SH : other, rooms: is121 ? rooms : [{ room: '[ROOMS]', floor: '[FLOOR]', phase: '[PHASE]', sheets: '[SHEETS]', line: '0' }],
+      bySheet: S.view === 'sheet', byRoom: S.view === 'room', job: S.job,
+      newOpen, newItems: ['New Revision', 'Issue a Set', 'Upload a Consultant Sheet', 'New Room'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

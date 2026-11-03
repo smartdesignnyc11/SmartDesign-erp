@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Buy Board</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1180px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">
+          <span style="flex: 1">{{it.label}}</span>
+          <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Projects</a>
+      <div style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #1b2640; font-size: 15px; font-weight: 600">Purchasing</div>
+      <div style="display: flex; flex-direction: column; padding: 2px 0 6px 20px">
+        <sc-for list="{{rail.sub}}" as="s" hint-placeholder-count="6">
+          <a href="{{s.href}}" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: {{s.bg}}; font-size: 14px; color: {{s.color}}; text-decoration: none; font-weight: {{s.fw}}">
+            <span style="flex: 1">{{s.label}}</span>
+            <sc-if value="{{s.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{s.n}}</span></sc-if>
+          </a>
+        </sc-for>
+      </div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Reports</a>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px">
+      <div style="display: flex; align-items: center; gap: 16px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <b style="font-size: 26px">Buy Board</b>
+          <span style="font-size: 14px; color: #5b6578">Every job's needs: estimate and change-order lines, approved selections and site requests, by the date each must be ordered</span>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About Buying</button>
+        <div style="position: relative">
+          <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="Start a purchase" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: {{newBg}}; color: #172033; display: flex; align-items: center; justify-content: center; cursor: pointer">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+          <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+            <div role="menu" style="position: absolute; right: 0; top: 46px; width: 300px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; z-index: 5; display: flex; flex-direction: column">
+              <span style="padding: 8px 12px 6px; font-size: 12px; color: #5b6578">Start a purchase</span>
+              <sc-for list="{{newItems}}" as="n" hint-placeholder-count="3">
+                <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 14px">{{n}}</a>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 14px; align-items: center">
+        <span style="font-size: 13px; color: #5b6578; margin-right: 4px">Job</span>
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+          <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 13px; font-weight: 600">{{c.label}}</button>
+        </sc-for>
+        <span style="font-size: 13px; color: #5b6578; margin: 0 4px 0 16px">Vendor: All</span>
+        <span style="font-size: 13px; color: #5b6578; margin: 0 4px 0 8px">Trade: All</span>
+        <span style="font-size: 13px; color: #5b6578; margin: 0 4px 0 8px">Document: All</span>
+      </div>
+    </div>
+
+    <div style="padding: 20px 32px; display: flex; gap: 20px; align-items: flex-start; overflow: hidden">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <sc-for list="{{sections}}" as="sec" hint-placeholder-count="2">
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 10px">
+              <b style="font-size: 16px">{{sec.title}}</b>
+              <sc-if value="{{sec.hasN}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{sec.n}}</span></sc-if>
+              <span style="flex: 1"></span>
+              <span style="font-size: 13px; color: #5b6578">{{sec.sub}}</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 32px minmax(0, 2.2fr) 56px 52px 92px minmax(0, 2fr) 132px; gap: 10px; padding: 8px 14px; font-size: 12px; color: #5b6578; border-bottom: 1px solid #eef1f6">
+              <span></span><span>Need, Job and Line</span><span>Qty</span><span>On Site</span><span>Order By</span><span>Why, and What We Know</span><span></span>
+            </div>
+            <sc-for list="{{sec.rows}}" as="r" hint-placeholder-count="5">
+              <div onClick="{{r.open}}" style="display: grid; grid-template-columns: 32px minmax(0, 2.2fr) 56px 52px 92px minmax(0, 2fr) 132px; gap: 10px; padding: 10px 14px; border-top: {{r.line}}; align-items: center; font-size: 14px; background: {{r.bg}}; cursor: pointer">
+                <span style="width: 20px; height: 20px; border-radius: 5px; border: 2px solid #9aa6bd; background: #fff"></span>
+                <span style="display: flex; flex-direction: column; gap: 2px"><b style="line-height: 1.3">{{r.name}}</b><span style="font-size: 12px; color: #5b6578; line-height: 1.35">{{r.job}} · {{r.src}}</span></span>
+                <span>{{r.qty}}</span>
+                <span>{{r.site}}</span>
+                <b style="color: {{r.tone}}; font-size: 13px">{{r.by}}</b>
+                <span style="font-size: 13px; line-height: 1.4">{{r.why}}<sc-if value="{{r.hasKnow}}" hint-placeholder-val="{{false}}"><br><span style="color: #15803d">{{r.know}}</span></sc-if></span>
+                <sc-if value="{{r.hasAct}}" hint-placeholder-val="{{true}}"><button type="button" style="height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 13px; font-weight: 600; color: #172033">{{r.act}}</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 12px">
+          <b style="font-size: 15px">Later</b>
+          <span style="flex: 1; font-size: 14px; color: #5b6578">Order by 9/11 to 10/9, all on 121 State Street. GWB boards first: 12 sheets of 5/8" Type X sit at the warehouse.</span>
+          <a href="#" style="font-size: 14px">Show the Later Needs</a>
+        </div>
+      </section>
+
+      <aside style="width: 330px; flex: none; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 12px; color: #5b6578">{{panel.kicker}}</span>
+          <b style="font-size: 18px; line-height: 1.3">{{panel.name}}</b>
+        </div>
+        <div style="margin: 12px 16px 4px; background: {{panel.alertBg}}; border: 1px solid {{panel.alertBorder}}; border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; color: {{panel.alertTone}}">{{panel.alert}}</div>
+        <sc-for list="{{panel.facts}}" as="f" hint-placeholder-count="5">
+          <div style="padding: 9px 16px; display: flex; gap: 10px; border-top: {{f.line}}; font-size: 14px">
+            <span style="flex: 1; color: #5b6578">{{f.k}}</span><b style="text-align: right">{{f.v}}</b>
+          </div>
+        </sc-for>
+        <div style="padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px">
+          <button type="button" style="min-height: 44px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">{{panel.primary}}</button>
+          <button type="button" style="min-height: 44px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 15px; font-weight: 600">{{panel.secondary}}</button>
+          <span style="font-size: 12px; color: #5b6578; line-height: 1.4">{{panel.note}}</span>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { job: 'All Jobs', sel: 'studs', newOpen: false }; }
+  renderVals() {
+    const S = this.state;
+    const sub = (label, n, href, on) => ({ label, n, has: n > 0, href, bg: on ? '#2a3a5e' : 'transparent', color: on ? '#fff' : '#c5cde0', fw: on ? '600' : '400' });
+    const rail = {
+      top: [{ label: 'Today', n: 14 }, { label: 'Tasks', n: 3 }, { label: 'Messages', n: 2 }],
+      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html', true), sub('Quotes', 0, 'Quotes.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 3, 'Stock.dc.html')]
+    };
+    const MINE = [
+      { id: 'studs', name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto · Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: 'Fri', tone: '#b45309', why: 'Not acknowledged in 26 hours.', know: 'Price book $3.98 each, Brooklyn Lumber — Red Hook, 9/2', act: 'Acknowledge' },
+      { id: 'tape', name: '1 case Blue tape + 4 mil plastic', job: '121 State Street', src: 'Request from Angel', qty: '1 case', site: '9/4', by: 'Today', tone: '#b45309', why: 'On today’s store run.', know: 'At the warehouse: 18 rolls of 1.5" blue tape', act: 'Pick From Stock' },
+      { id: 'demo', name: 'Demolition & disposal', job: '121 State Street', src: 'EST-2026-014 · subcontract · $19,850', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
+      { id: 'ext', name: 'Exterior — scaffold, brick mold, paint', job: '121 State Street', src: 'EST-2026-014 · subcontract · $12,300', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
+      { id: 'appl', name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/25.', know: '', act: 'Find the Order' },
+      { id: 'ins', name: 'Insulation', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/16.', know: '', act: 'Find the Order' },
+      { id: 'paint', name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'slab', name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/11', by: 'Tue, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'bath', name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material', qty: '[QTY]', site: '9/15', by: 'Tue, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' }
+    ];
+    const OTHERS = [
+      { id: 'faucet', name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', src: 'Selection, Primary bath · Ferguson · $2,360', qty: '2 ea', site: '11/16', by: '8/13, passed', tone: '#b45309', why: 'Waiting on Alberto M Plumbing: submittal 22 40 00-001, Revise and Resubmit.', know: '' },
+      { id: 'shower', name: 'Thermostatic shower set with handshower', job: '121 State Street', src: 'Selection, Primary bath · Ferguson · $2,340', qty: '1 ea', site: '11/16', by: '8/13, passed', tone: '#b45309', why: 'Waiting on Alberto M Plumbing: the same submittal.', know: '' },
+      { id: 'wd', name: 'Washer / dryer (new sizes)', job: '121 State Street', src: 'Material', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b45309', why: 'Waiting on the architect: laundry layout decision, 8 days late.', know: '' },
+      { id: 'trim', name: 'Trim, doors, paint & hardware', job: '121 State Street', src: 'EST-2026-014 · $32,500', qty: '1 ls', site: '8/31', by: '8/24, passed', tone: '#b45309', why: 'Waiting on the PM: material portion not set.', know: '' },
+      { id: 'tile', name: 'Tile — two baths', job: '121 State Street', src: 'EST-2026-014 · $22,550', qty: '1 ls', site: '9/8', by: 'Mon, passed', tone: '#b45309', why: 'Waiting on the PM: material portion not set.', know: '' },
+      { id: 'prep', name: 'Additional tile prep', job: '121 State Street', src: 'CO-2026-001 · $488', qty: '1 ls', site: '9/8', by: 'Mon, passed', tone: '#b45309', why: 'Waiting on the PM: material portion not set.', know: '' },
+      { id: 'mats', name: 'Radiant heat mats & thermostat', job: '121 State Street', src: 'CO-2026-001 · $2,890', qty: '1 ls', site: '9/10', by: 'Wed, passed', tone: '#b45309', why: 'Waiting on the PM: material portion not set.', know: '' }
+    ];
+    const ok = (r) => S.job === 'All Jobs' || r.job === S.job;
+    const row = (r, i, act) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', hasKnow: !!r.know, hasAct: act, bg: S.sel === r.id ? '#eff6ff' : '#fff', open: () => this.setState({ sel: r.id }) });
+    const mine = MINE.filter(ok), others = OTHERS.filter(ok);
+    const sections = [
+      { title: 'Needs You', n: mine.length, hasN: true, sub: 'Your next tap moves each one', rows: mine.map((r, i) => row(r, i, true)) },
+      { title: 'Waiting on Someone Else', n: 0, hasN: false, sub: 'Each names who, and you can chase', rows: others.map((r, i) => row(r, i, false)) }
+    ];
+    const P = {
+      studs: { kicker: 'Request from Alberto · 121 State Street · Framing & blocking – garden bedroom', name: '40 ea 2x4x8 KD studs', alertBg: '#fffbeb', alertBorder: '#fde68a', alertTone: '#78350f',
+        alert: 'Asked from the site 26 hours ago and not acknowledged. Needed on site 9/8; Alex’s suggested route buys it at Brooklyn Lumber — Red Hook.',
+        facts: [['Line', 'Framing & blocking – garden bedroom (from the request; confirm)'], ['Line budget', '[BUDGET]'], ['Committed', '$0'], ['Best recent price', '$3.98 each, Brooklyn Lumber — Red Hook, 9/2'], ['Other stores', 'Home Depot — Gowanus $4.27, Lowe’s — Gowanus $4.38'], ['At the warehouse', 'none']],
+        primary: 'Acknowledge and Put on the Run', secondary: 'Make a Purchase Order', note: 'Under $2,500: no quotes needed. The line link carries to the order and the card receipt.' },
+      faucet: { kicker: 'Selection, Primary bath · 121 State Street', name: 'Wall-mount lavatory faucet, cross handles', alertBg: '#fef2f2', alertBorder: '#fecaca', alertTone: '#7f1d1d',
+        alert: 'Order by 8/13, passed. Needed on site 11/16; Ferguson has been taking 61 days. The order waits on submittal 22 40 00-001, back with Alberto M Plumbing.',
+        facts: [['Line budget', '$2,360'], ['Committed', '$0'], ['Last 3 buys', 'none on file'], ['At the warehouse', 'none'], ['Also owed', 'A chrome pair goes back to Ferguson, RMA-44812, by 9/14']],
+        primary: 'Chase Alberto for the Resubmittal', secondary: 'Open the Submittal', note: 'The PO cannot issue until the submittal is approved.' }
+    };
+    const pick = P[S.sel] || { kicker: '121 State Street', name: (MINE.concat(OTHERS).find((r) => r.id === S.sel) || {}).name || '', alertBg: '#f8fafc', alertBorder: '#dfe4ee', alertTone: '#172033', alert: '[DETAIL FROM THE LINE]', facts: [['Line budget', '[BUDGET]'], ['Committed', '[COMMITTED]'], ['Last 3 buys', '[PRICES]'], ['At the warehouse', '[STOCK]']], primary: 'Order', secondary: 'Ask for Quotes', note: '' };
+    const panel = Object.assign({}, pick, { facts: pick.facts.map((f, i) => ({ k: f[0], v: f[1], line: i ? '1px solid #eef1f6' : '1px solid #eef1f6' })) });
+    const chips = ['All Jobs', '121 State Street', '206 Lenox'].map((label) => {
+      const on = S.job === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ job: label }) };
+    });
+    const newOpen = !!S.newOpen;
+    return { rail, chips, sections, panel, newOpen, newItems: ['Buy From an Estimate or Invoice', 'Restock the Warehouse', 'Blank Need'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

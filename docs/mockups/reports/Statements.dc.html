@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Financial Statements</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1350px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="../accounting/Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Financial Statements</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">The firm's statements and the Pack, for any week or month · Consolidated · accrual</span>
+  </div>
+
+  <div style="padding: 16px 16px 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Period</div>
+  <div style="padding: 4px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{periods}}" as="ch" hint-placeholder-count="4">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="margin: 8px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 3px">
+      <b style="font-size: 16px">{{pack.title}}</b>
+      <span style="font-size: 13px; color: {{pack.tone}}; line-height: 1.4">{{pack.state}}</span>
+    </div>
+    <div style="padding: 0 14px 12px">
+      <button type="button" style="width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 16px; font-weight: 600">{{pack.cta}}</button>
+    </div>
+  </div>
+
+  <div style="padding: 18px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{kinds}}" as="ch" hint-placeholder-count="4">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">{{head}}</div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+      <div style="padding: 8px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 12px">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: {{r.fw}}">{{r.k}}</span><span style="font-size: 12px; color: #5b6578">{{r.sub}}</span></div>
+        <span style="font-size: 15px; font-weight: {{r.fw}}; color: {{r.tone}}">{{r.v}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">WHAT STANDS BEHIND THESE NUMBERS · YEAR TO DATE</div>
+    <sc-for list="{{truth}}" as="t" hint-placeholder-count="4">
+      <div style="padding: 8px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 12px"><span style="flex: 1; font-size: 13px">{{t.k}}</span><b style="font-size: 13px; color: {{t.tone}}">{{t.v}}</b></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1350}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { period: 'August 2026', kind: 'Profit and Loss' }; }
+  renderVals() {
+    const P = this.state.period, K = this.state.kind, Rd = '#b91c1c', A = '#b45309', G = '#15803d', D = '#172033';
+    const pill = (l, on, pick) => ({ label: l, on: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick });
+    const periods = ['This Week', 'August 2026', 'September to Date', 'Year to Date'].map((l) => pill(l, P === l, () => this.setState({ period: l })));
+    const kinds = ['Profit and Loss', 'Balance Sheet', 'Cash Flow', 'Budget vs Actual'].map((l) => pill(l, K === l, () => this.setState({ kind: l })));
+    const packs = {
+      'This Week': { title: 'The Weekly Flash, week ending Thu, Sep 3', state: 'One page for the Monday meeting: cash, collections, jobs, people and what to act on.', tone: '#5b6578', cta: 'Open the Weekly Flash' },
+      'August 2026': { title: 'The August Pack', state: 'Draft: August is not closed. 15 of 24 close checks are open; the Pack becomes final when the controller closes the month.', tone: A, cta: 'Open the August Pack, Draft' },
+      'September to Date': { title: 'The September Pack', state: 'Month open, through Thu, Sep 3.', tone: '#5b6578', cta: 'Open the September Pack' },
+      'Year to Date': { title: 'Year to date, Jan 1 to Sep 3', state: 'Compared with the same stretch of 2025 and with the budget, Reforecast Q3.', tone: '#5b6578', cta: 'Open the Year-to-Date Pack' }
+    };
+    const r = (k, v, o) => Object.assign({ k, v, sub: '', fw: '400', tone: D }, o || {});
+    const pl = {
+      'This Week': [r('Collected this week', '$72,750', { sub: 'check 2214, Kleins, in the bank 8/29' }), r('Billed this week', '$92,265'), r('Payables past due', '$16,040', { tone: Rd, sub: 'payroll 8/17 to 8/28' }), r('Safe to Spend', '−$4,151', { tone: Rd, fw: '700', sub: '13-week low $135,583' }), r('Hours this week', '111.47')],
+      'August 2026': [r('Revenue, earned', '$135,175'), r('Job cost', '$100,494'), r('Gross profit', '$34,681', { fw: '600' }), r('Overhead', '$9,257'), r('Net profit, 19%', '$25,424', { fw: '700' })],
+      'September to Date': [r('Revenue, earned', '$7,584', { sub: 'budget $20,599, pro-rated' }), r('Job cost', '$8,000'), r('Gross profit', '−$416', { fw: '600', tone: Rd }), r('Overhead', '$14,865', { sub: '8 lines not yet coded' }), r('Net profit', '−$15,281', { fw: '700', tone: Rd })],
+      'Year to Date': [r('Revenue, earned', '$142,759', { sub: '$169,750 collected with a bank line · $21,350 recorded, not in the bank' }), r('Job cost, 76%', '$108,494'), r('Gross profit, 24%', '$34,265', { fw: '600' }), r('Overhead, incl. $14,841 not yet coded', '$39,595'), r('Payroll approved or paid', '$0', { tone: Rd, sub: '$16,040 submitted, awaiting approval' }), r('Net profit, −4%', '−$5,330', { fw: '700', tone: Rd })]
+    };
+    const bva = [r('Revenue', '$142,759', { sub: 'budget $154,074 · −$11,314, −7%' }), r('Job cost', '$108,494', { sub: 'budget $115,090 · −$6,596' }), r('Operating expenses', '$39,595', { tone: Rd, sub: 'budget $20,120 · +$19,475, +97%' }), r('Net profit', '−$5,330', { fw: '700', tone: Rd, sub: 'budget $18,863 · −$24,193' })];
+    const bs = [r('Cash, Chase ····4471', '$184,231'), r('Accounts receivable, 1100', '$92,265.16'), r('Retainage receivable, 1150', '$15,668.35'), r('Cards owed', '−$16,067'), r('Retainage payable, 2050', '$0.00'), r('Billings in excess, 2500', '[PLACEHOLDER]', { sub: '$0 on the ledger until the close posts $64,008' }), r('Total assets, liabilities, equity', '[PLACEHOLDER]')];
+    const cf = [r('Cash at the start of the period', '[PLACEHOLDER]'), r('From operations', '[PLACEHOLDER]'), r('Card payments and transfers, outside the P&L', '$42,013', { sub: 'year to date' }), r('Cash at the end, Chase ····4471', '$184,231')];
+    const tables = { 'Profit and Loss': pl[P], 'Budget vs Actual': bva, 'Balance Sheet': bs, 'Cash Flow': cf };
+    const heads = { 'Profit and Loss': 'PROFIT AND LOSS · ' + P.toUpperCase(), 'Budget vs Actual': 'BUDGET VS ACTUAL · YEAR TO DATE', 'Balance Sheet': 'BALANCE SHEET · AT THU, SEP 3', 'Cash Flow': 'CASH FLOW · YEAR TO DATE' };
+    const truth = [
+      { k: 'Income backed by a bank or card line', v: '$169,750', tone: G },
+      { k: 'Cost backed by a bank or card line', v: '$123,598', tone: G },
+      { k: 'Cost by hand, no bank line (flagged)', v: '$9,650', tone: A },
+      { k: 'Entries not from a document: 1 opening entry', v: '$172,503', tone: A },
+      { k: 'Manual journal entries', v: '0', tone: G }
+    ];
+    return { periods, kinds, pack: packs[P], head: heads[K], rows: tables[K], truth };
+  }
+}
+</script>
+</body>
+</html>

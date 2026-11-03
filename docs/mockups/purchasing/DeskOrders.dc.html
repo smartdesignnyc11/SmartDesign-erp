@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Orders</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1380px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">
+          <span style="flex: 1">{{it.label}}</span>
+          <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Projects</a>
+      <div style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #1b2640; font-size: 15px; font-weight: 600">Purchasing</div>
+      <div style="display: flex; flex-direction: column; padding: 2px 0 6px 20px">
+        <sc-for list="{{rail.sub}}" as="s" hint-placeholder-count="6">
+          <a href="{{s.href}}" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: {{s.bg}}; font-size: 14px; color: {{s.color}}; text-decoration: none; font-weight: {{s.fw}}">
+            <span style="flex: 1">{{s.label}}</span>
+            <sc-if value="{{s.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{s.n}}</span></sc-if>
+          </a>
+        </sc-for>
+      </div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Reports</a>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px; display: flex; align-items: center; gap: 16px">
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+        <b style="font-size: 26px">Orders</b>
+        <span style="font-size: 14px; color: #5b6578">Every purchase order and store run, from issue to paid; claims, returns and credits sit on the order they came from</span>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About Orders</button>
+      <button type="button" aria-label="New purchase order" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+
+    <div style="padding: 20px 32px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{tiles}}" as="k" hint-placeholder-count="4">
+          <button type="button" onClick="{{k.pick}}" aria-pressed="{{k.pressed}}" style="text-align: left; background: #fff; border: 2px solid {{k.border}}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: #172033; cursor: pointer; min-height: 104px">
+            <span style="font-size: 13px; color: #5b6578">{{k.k}}</span>
+            <b style="font-size: 24px; color: {{k.tone}}">{{k.v}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{k.sub}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <section style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 10px"><b style="flex: 1; font-size: 17px">{{panel.title}}</b><span style="font-size: 13px; color: #5b6578">{{panel.sub}}</span></div>
+        <sc-for list="{{panel.rows}}" as="r" hint-placeholder-count="5">
+          <div style="padding: 11px 18px; border-top: {{r.line}}; display: flex; gap: 16px; align-items: center">
+            <span style="width: 170px; flex: none; font-size: 12px; font-weight: 700; color: {{r.tone}}">{{r.kind}}</span>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{r.title}}</b><span style="font-size: 13px; color: #5b6578">{{r.why}}</span></div>
+            <b style="width: 90px; text-align: right; font-size: 14px">{{r.amt}}</b>
+            <sc-if value="{{r.hasAct}}" hint-placeholder-val="{{true}}"><button type="button" style="width: 170px; height: 34px; border-radius: 8px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 13px; font-weight: 600; color: #172033">{{r.act}}</button></sc-if>
+          </div>
+        </sc-for>
+      </section>
+
+      <section style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 12px">
+          <b style="flex: 1; font-size: 17px">Orders</b>
+          <span style="font-size: 13px; color: #5b6578">Job: All · Vendor: All · Open and received</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 110px 130px minmax(0, 1.9fr) 120px 56px 70px 84px 84px 150px; gap: 10px; padding: 8px 18px; font-size: 12px; color: #5b6578; border-bottom: 1px solid #eef1f6">
+          <span>Order</span><span>Vendor</span><span>Items and Estimate Line</span><span>Job</span><span>Issued</span><span>Expected</span><span style="text-align: right">Total</span><span style="text-align: right">Paid</span><span>Status</span>
+        </div>
+        <sc-for list="{{orders}}" as="o" hint-placeholder-count="4">
+          <div style="display: grid; grid-template-columns: 110px 130px minmax(0, 1.9fr) 120px 56px 70px 84px 84px 150px; gap: 10px; padding: 11px 18px; border-top: {{o.line}}; font-size: 14px; align-items: center">
+            <a href="#">{{o.po}}</a><span>{{o.vendor}}</span><span style="line-height: 1.35">{{o.items}}<br><span style="font-size: 12px; color: #5b6578">{{o.lineRef}}</span></span><span>{{o.job}}</span><span>{{o.issued}}</span><span>{{o.exp}}</span><span style="text-align: right">{{o.total}}</span><b style="text-align: right; color: {{o.paidTone}}">{{o.paid}}</b><span style="font-size: 12px; font-weight: 700; color: {{o.tone}}">{{o.status}}</span>
+          </div>
+        </sc-for>
+        <div style="padding: 12px 18px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">Papers: 14 bills have no invoice copy on file; the assistant is chasing them from procurement@ (delegated). <a href="#">See the Chases</a></div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1380}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { panel: 'needs' }; }
+  renderVals() {
+    const P = this.state.panel;
+    const sub = (label, n, href, on) => ({ label, n, has: n > 0, href, bg: on ? '#2a3a5e' : 'transparent', color: on ? '#fff' : '#c5cde0', fw: on ? '600' : '400' });
+    const rail = { top: [{ label: 'Today', n: 14 }, { label: 'Tasks', n: 3 }, { label: 'Messages', n: 2 }],
+      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html', true), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 3, 'Stock.dc.html')] };
+    const R = '#b91c1c', A = '#b45309', G = '#15803d';
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', hasAct: !!r.act }, r));
+    const needs = [
+      { kind: 'PAID OVER THE ORDER', tone: R, title: 'PO-2026-044 · Window Works · 121 State Street', why: '$33,500 paid on $29,700. Bill WW-2026-118 PM-approved; insurance lapsed 8/15; vendor blocked.', amt: '+$3,800', act: 'Hold and Claim' },
+      { kind: 'PAID BEFORE DELIVERY', tone: A, title: 'PO-2026-047 · Tino · 121 State Street', why: '$8,000 of $8,721 paid, nothing received; expected 10/5, needed 10/2.', amt: '$8,000', act: 'Check the Terms' },
+      { kind: 'CLAIM · DAMAGED', tone: A, title: 'Range, 36" dual fuel · Diamond Appliances · 121 State Street', why: 'Dented side panel; waiting on Bertazzoni for a panel or a swap. 4 days open.', amt: '$8,990', act: 'Chase Diamond' },
+      { kind: 'RETURN · 11 DAYS LEFT', tone: A, title: 'Lavatory faucet, chrome · Ferguson · 45 Cranberry St', why: 'RMA-44812; box in the office; replacement already bought. Window closes 9/14.', amt: '$1,880', act: 'Put on the Next Run' },
+      { kind: 'CREDIT LANDED', tone: G, title: '8 surplus cup pulls · House of Antique Hardware', why: 'Amex credit 8/31; paid $148, $22 kept as restock.', amt: '$126', act: 'Confirm the Match' },
+      { kind: 'RETURN · WINDOW CLOSED', tone: R, title: '38 sq ft zellige · Bedrosians · 45 Cranberry St', why: 'Closed 44 days ago; $413 back after a 25% restock if they bend.', amt: '$551', act: 'Ask for an RMA' },
+      { kind: 'MONEY IN, NOTHING BEHIND IT', tone: A, title: 'Bedrosians tile credit memo, bank line 8/25', why: 'No return or claim matches it yet.', amt: '$215', act: 'Attach to a Return' },
+      { kind: 'PAID ABOVE THE BEST PRICE', tone: A, title: '2 store receipts, Home Depot — Flatbush 8/14 and Gowanus 8/27', why: 'Cheaper at Brooklyn Lumber — Red Hook and Quality Building Supply — Park Slope.', amt: '$343', act: 'Open the Receipts' }
+    ];
+    const panels = {
+      needs: { title: 'Needs You: Money to Hold or Recover', sub: 'Most money first within each kind', rows: ln(needs) },
+      back: { title: 'Owed Back to Us', sub: '3 returns open', rows: ln([Object.assign({}, needs[3], { why: 'Expect back $1,880. ' + needs[3].why }), Object.assign({}, needs[5], { amt: '$413', why: 'Paid $551; expect back $413 after a 25% restock. Window closed 44 days ago.' }), { kind: 'RETURN · CREDIT LANDED', tone: G, title: '8 surplus cup pulls · House of Antique Hardware', why: 'Shipped back, UPS 1Z44R8110399; paid $148, expect back $126, and $126 landed on the Amex 8/31.', amt: '$126', act: 'Confirm the Match' }]) },
+      over: { title: 'Over the Order', sub: 'Bills or payments above the order', rows: ln([needs[0]]) },
+      open: { title: 'Committed, Not Yet Billed', sub: '2 open orders', rows: ln([
+        { kind: 'OPEN · ARRIVES LATE', tone: R, title: 'PO-2026-048 · Carlos Millwork', why: '$76,000 order, $38,000 paid; expected 9/18, needed on site 9/2.', amt: '$38,000', act: 'Open in Deliveries' },
+        { kind: 'OPEN · ARRIVES LATE', tone: R, title: 'PO-2026-047 · Tino', why: '$8,721 order, $8,000 paid; expected 10/5, needed on site 10/2.', amt: '$721', act: 'Open in Deliveries' }]) }
+    };
+    const T = [
+      { id: 'needs', k: 'Needs You', v: String(needs.length), sub: 'Money to hold or recover', tone: R },
+      { id: 'back', k: 'Owed Back to Us', v: '$2,419', sub: '3 returns open', tone: A },
+      { id: 'over', k: 'Over the Order', v: '$3,800', sub: 'Window Works, PO-2026-044', tone: R },
+      { id: 'open', k: 'Committed, Not Yet Billed', v: '$39K', sub: '2 open orders', tone: '#172033' }
+    ];
+    const tiles = T.map((t) => Object.assign({}, t, { border: P === t.id ? '#2563eb' : '#dfe4ee', pressed: P === t.id ? 'true' : 'false', pick: () => this.setState({ panel: t.id }) }));
+    const orders = [
+      { po: 'PO-2026-048', vendor: 'Carlos Millwork', items: 'Parlor kitchen + laundry millwork', lineRef: 'EST-2026-014 · Millwork & countertops', job: '121 State Street', issued: '8/18', exp: '9/18', total: '$76,000', paid: '$38,000', paidTone: '#172033', status: 'ISSUED · ARRIVES LATE', tone: R },
+      { po: 'PO-2026-047', vendor: 'Tino', items: '5" white oak flooring, select', lineRef: 'EST-2026-014 · Flooring', job: '121 State Street', issued: '9/1', exp: '10/5', total: '$8,721', paid: '$8,000', paidTone: A, status: 'ISSUED · PAID AHEAD', tone: A },
+      { po: 'PO-2026-044', vendor: 'Window Works', items: 'Double-hung windows, front & rear', lineRef: 'EST-2026-014 · Windows — front & rear façade', job: '121 State Street', issued: '8/12', exp: '8/31', total: '$29,700', paid: '$33,500', paidTone: R, status: 'RECEIVED · PAID OVER', tone: R },
+      { po: 'PO-2026-041', vendor: 'Nemo Tile', items: 'Calacatta porcelain 12x24', lineRef: 'EST-2026-014 · Tile — two baths', job: '121 State Street', issued: '8/10', exp: '8/24', total: '$4,250', paid: '$4,250', paidTone: '#172033', status: 'RECEIVED AND PAID', tone: G }
+    ].map((o, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, o));
+    return { rail, tiles, panel: panels[P], orders };
+  }
+}
+</script>
+</body>
+</html>

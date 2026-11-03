@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop Client: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1200px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
+      <div style="width: 32px; height: 32px; border-radius: 8px; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700">S</div>
+      <b style="font-size: 16px">SmartDesigns</b>
+    </div>
+    <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Your Day</div>
+      <sc-for list="{{rail.top}}" as="it" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">
+          <span style="flex: 1">{{it.label}}</span>
+          <sc-if value="{{it.has}}" hint-placeholder-val="{{true}}"><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{it.n}}</span></sc-if>
+        </a>
+      </sc-for>
+      <div style="padding: 12px 12px 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8b97b0">Work</div>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Projects</a>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Purchasing</a>
+      <div style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #1b2640; font-size: 15px; font-weight: 600">Sales and Clients</div>
+      <div style="display: flex; flex-direction: column; padding: 2px 0 6px 20px">
+        <a href="DeskPipeline.dc.html" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; font-size: 14px; color: #c5cde0; text-decoration: none">Pipeline</a>
+        <span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: #2a3a5e; font-size: 14px; font-weight: 600">Clients</span>
+      </div>
+      <sc-for list="{{rail.work}}" as="w" hint-placeholder-count="3">
+        <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">{{w}}</a>
+      </sc-for>
+    </div>
+    <div style="border-top: 1px solid #2a3550; padding: 8px; display: flex; flex-direction: column">
+      <a href="../company/Company.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Company and Settings</a>
+      <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: #c5cde0; text-decoration: none; font-size: 14px">Record a Feedback Session</a>
+    </div>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 0">
+      <div style="display: flex; align-items: center; gap: 16px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <b style="font-size: 26px">Sarah &amp; David Klein</b>
+          <span style="font-size: 14px; color: #5b6578">Client since 7/28 · 121 State Street, Brooklyn · Sarah decides (sarah.klein@example.com, (917) 555-0142) · David pays</span>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About the Kleins</button>
+        <div style="position: relative">
+          <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New for the Kleins" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: {{newBg}}; color: #172033; display: flex; align-items: center; justify-content: center; cursor: pointer">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+          <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+            <div role="menu" style="position: absolute; right: 0; top: 46px; width: 260px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; z-index: 5; display: flex; flex-direction: column">
+              <span style="padding: 8px 12px 6px; font-size: 12px; color: #5b6578">New for the Kleins</span>
+              <sc-for list="{{newItems}}" as="n" hint-placeholder-count="8">
+                <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 14px">{{n}}</a>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <div style="display: flex; gap: 26px; margin-top: 16px; font-size: 14px" role="tablist">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+          <button type="button" role="tab" onClick="{{t.pick}}" aria-selected="{{t.sel}}" style="padding: 10px 0 12px; border: 0; background: transparent; font: inherit; color: {{t.color}}; font-weight: {{t.fw}}; border-bottom: 2px solid {{t.line}}; cursor: pointer">{{t.label}}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{tiles}}" as="k" hint-placeholder-count="4">
+          <div style="background: #fff; border: 1px solid {{k.border}}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-height: 100px">
+            <span style="font-size: 13px; color: #5b6578">{{k.k}}</span>
+            <b style="font-size: 26px; color: {{k.tone}}">{{k.v}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{k.sub}}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; gap: 20px; align-items: flex-start">
+        <section style="flex: 1; min-width: 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 14px 18px; display: flex; align-items: center; border-bottom: 1px solid #eef1f6">
+            <b style="flex: 1; font-size: 17px">{{panel.title}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{panel.sub}}</span>
+          </div>
+          <sc-for list="{{panel.rows}}" as="r" hint-placeholder-count="8">
+            <div style="padding: 12px 18px; border-top: {{r.line}}; display: flex; gap: 16px; align-items: center">
+              <span style="width: 130px; flex: none; font-size: 12px; font-weight: 700; color: {{r.tone}}">{{r.kind}}</span>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                <b style="font-size: 15px">{{r.title}}</b>
+                <span style="font-size: 13px; color: #5b6578">{{r.why}}</span>
+              </div>
+              <b style="font-size: 15px; width: 100px; text-align: right">{{r.amt}}</b>
+              <button type="button" style="height: 36px; min-width: 96px; padding: 0 14px; border-radius: 8px; border: {{r.btnBorder}}; background: {{r.btnBg}}; font: inherit; font-size: 13px; font-weight: 600; color: {{r.btnColor}}">{{r.act}}</button>
+            </div>
+          </sc-for>
+          <div style="padding: 12px 18px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">{{panel.foot}}</div>
+        </section>
+
+        <aside style="width: 340px; flex: none; display: flex; flex-direction: column; gap: 16px">
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Their Job</b></div>
+            <a href="../job-structure/Desk.dc.html" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; text-decoration: none; color: #172033">
+              <b style="font-size: 14px">121 State Street</b>
+              <span style="font-size: 13px; color: #5b6578">Garden unit + 3rd floor · 14% done · finish Wed, Nov 4 · rough plumbing held</span>
+            </a>
+          </div>
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <div style="padding: 14px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">People and the Building</b></div>
+            <sc-for list="{{people}}" as="p" hint-placeholder-count="4">
+              <div style="padding: 10px 16px; display: flex; flex-direction: column; gap: 2px; border-top: {{p.line}}"><span style="font-size: 14px; font-weight: 600">{{p.n}}</span><span style="font-size: 12px; color: #5b6578">{{p.r}}</span></div>
+            </sc-for>
+          </div>
+          <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+            <b style="font-size: 15px">Notes</b>
+            <span style="font-size: 14px; line-height: 1.45">Client travels often: batch decisions for Friday calls. Prefers written summaries before committing. Email; text for same-day.</span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Overview', newOpen: false }; }
+  renderVals() {
+    const RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033', T = this.state.tab;
+    const rail = { top: [{ label: 'Today', n: 12, has: true }, { label: 'Tasks', n: 0, has: false }, { label: 'Messages', n: 5, has: true }], work: ['Accounting', 'Design', 'Reports'] };
+    const tabs = ['Overview', 'Contract and Billing', 'Messages'].map((l) => ({ label: l, sel: T === l ? 'true' : 'false', color: T === l ? INK : MUTE, fw: T === l ? '700' : '500', line: T === l ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
+    const tiles = [
+      { k: 'Waiting on Us', v: '1', sub: 'Sarah’s mail of 9/2', tone: RED, border: '#fecaca' },
+      { k: 'Waiting on Them', v: '6', sub: '5 decisions, 1 overdue · 1 change order to sign', tone: INK, border: '#dfe4ee' },
+      { k: 'They Owe', v: '$68,265', sub: 'INV-2026-038, due 9/15, current', tone: INK, border: '#dfe4ee' },
+      { k: 'Contract', v: '$491,200', sub: '$485,000 base + $6,200 approved · $237,516 left to bill', tone: INK, border: '#dfe4ee' }
+    ];
+    const deco = (rows) => rows.map((r, i) => Object.assign({ amt: '' }, r, { line: i ? '1px solid #eef1f6' : '0', btnBg: i === 0 ? '#2563eb' : '#fff', btnColor: i === 0 ? '#fff' : INK, btnBorder: i === 0 ? '0' : '1px solid #c9d1e0' }));
+    const panels = {
+      'Overview': { title: 'What Needs You With the Kleins', sub: 'Most urgent first', foot: 'Their earlier history (the schedule published 7/28, CO-2026-001 approved on site 8/28) is under Messages.', rows: deco([
+        { kind: 'MAIL · SINCE 9/2', tone: RED, title: 'Sarah: Fwd: 121 State St alteration agreement', why: 'The building wants a COI and a detailed scope of work; the attachment is not read yet', act: 'Reply' },
+        { kind: 'DECISION · 9/2', tone: RED, title: '2nd floor bathroom finishes', why: 'Overdue, blocking rough plumbing on 9/10. Batch it into Friday’s call, as she prefers', act: 'Ask Sarah' },
+        { kind: 'CHANGE ORDER', tone: MUTE, title: 'CO-2026-002: sand and stain the 3rd floor treads', why: 'Sent 9/3 for signature', amt: '$1,850', act: 'Remind' },
+        { kind: 'DECISIONS · 9/16 TO 9/30', tone: MUTE, title: 'Tile in stock, exterior sheen, backsplash, lighting layout', why: '4 more decisions, each with the work it holds', act: 'Open' },
+        { kind: 'FRIDAY', tone: MUTE, title: 'Friday client update', why: 'Work done this week, the next two weeks, decisions needed with dates', act: 'Draft' }
+      ]) },
+      'Contract and Billing': { title: 'Contract and Billing', sub: 'Estimates, the contract, change orders, invoices and payments, newest first', foot: 'Billed $253,684 gross; $15,668 retainage held, so $238,015 net is invoiced (52% of the schedule of values). Paid $169,750.', rows: deco([
+        { kind: 'INVOICE · SENT 9/1', tone: MUTE, title: 'INV-2026-038 · Progress billing #2', why: 'Due 9/15 · current · 14 lines', amt: '$68,265', act: 'Open' },
+        { kind: 'CHANGE ORDER · SENT', tone: MUTE, title: 'CO-2026-002 · Sand and stain existing treads (3rd fl)', why: 'Sent 9/3 for signature', amt: '$1,850', act: 'Open' },
+        { kind: 'PAYMENT · 8/29', tone: MUTE, title: 'Check #2214 for INV-2026-035', why: 'Bank line: [PLACEHOLDER]', amt: '$72,750', act: 'Open' },
+        { kind: 'CHANGE ORDER · SIGNED', tone: MUTE, title: 'CO-2026-001 · Radiant floor heat in the primary bath', why: 'Approved by Sarah on site 8/28', amt: '$6,200', act: 'Open' },
+        { kind: 'INVOICE · PAID', tone: MUTE, title: 'INV-2026-035 · Progress billing #1', why: '8/24 · 13 lines', amt: '$72,750', act: 'Open' },
+        { kind: 'PAYMENT · 8/6', tone: MUTE, title: 'Wire for INV-2026-031', why: 'Bank line: [PLACEHOLDER]', amt: '$97,000', act: 'Open' },
+        { kind: 'INVOICE · PAID', tone: MUTE, title: 'INV-2026-031 · Deposit, 20%', why: '8/1', amt: '$97,000', act: 'Open' },
+        { kind: 'CONTRACT · 7/28', tone: MUTE, title: 'Signed contract, from EST-2026-014', why: 'Garden unit + 3rd floor renovation', amt: '$485,000', act: 'Open' },
+        { kind: 'ESTIMATE · DRAFT', tone: RED, title: 'EST-13881 · Full renovation, 121 State Street', why: 'A draft from 3/16, never sent; the contract came from EST-2026-014', act: 'Archive' }
+      ]) },
+      'Messages': { title: 'Messages With the Kleins', sub: 'Mail, texts, calls, portal chat and meeting notes about their job', foot: 'The portal chat with the Kleins has no messages yet.', rows: deco([
+        { kind: 'MAIL · 9/2', tone: RED, title: 'Sarah: Fwd: 121 State St alteration agreement', why: 'Waiting on us · Alteration Agreement 2024.pdf', act: 'Reply' },
+        { kind: 'SENT · 9/3', tone: MUTE, title: 'INV-003 and CO-2026-002 sent for signature', why: 'By Chen', act: 'Open' },
+        { kind: 'MEETING · 8/28', tone: MUTE, title: 'Team Catch Up (notes from Gemini)', why: 'The hall light fixture is now expected mid-September', act: 'Open' },
+        { kind: 'TEXT · 8/29', tone: MUTE, title: 'Luis, the super: no deliveries Saturday', why: 'Board rule; Monday 9am is fine, service entrance', act: 'Open' },
+        { kind: 'ON SITE · 8/28', tone: MUTE, title: 'CO-2026-001 approved by Sarah on site', why: 'Logged by Chen', act: 'Open' },
+        { kind: 'MEETING · 8/17', tone: MUTE, title: '121 State St: Schedule Review', why: 'Construction sequence for the garden unit', act: 'Open' }
+      ]) }
+    };
+    const people = [
+      { n: 'Sarah Klein', r: 'Owner, decides · sarah.klein@example.com' },
+      { n: 'David Klein', r: 'Owner, pays · david.klein@example.com · (917) 555-0187' },
+      { n: 'R. Torres, Halstead Management', r: 'Managing agent · (212) 555-0140' },
+      { n: 'Luis, the super', r: '(212) 555-0101 · work 9:00 to 4:30, noisy work 10 to 3, service elevator by reservation' }
+    ].map((p, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, p));
+    const newOpen = !!this.state.newOpen;
+    return { rail, tabs, tiles, panel: panels[T], people, newOpen, newItems: ['Message', 'Task', 'Note or Call', 'Meeting', 'Estimate', 'Change Order', 'Invoice', 'Job'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

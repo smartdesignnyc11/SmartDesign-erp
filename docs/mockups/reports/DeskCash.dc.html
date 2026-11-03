@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Cash</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="13">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}"><span style="flex: 1">{{r.label}}</span><b style="font-size: 12px; color: #fca5a5">{{r.count}}</b></span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px; display: flex; align-items: flex-end; gap: 16px">
+      <div style="flex: 1">
+        <b style="font-size: 26px">Cash</b>
+        <div style="font-size: 14px; color: #5b6578; margin-top: 4px">What is ours to spend, what is the client's, and the next 13 weeks · as of Thu, Sep 3 · Chase statement through 8/31</div>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #c9d1e0; border-radius: 10px; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Excel</button>
+    </div>
+    <div style="padding: 24px 32px; display: flex; gap: 20px; align-items: flex-start">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; gap: 16px">
+          <div style="width: 360px; flex: none; background: #fff; border: 1px solid #fecaca; border-radius: 12px; overflow: hidden">
+            <div style="padding: 12px 16px 2px; font-size: 13px; color: #5b6578; font-weight: 700">Safe to Spend</div>
+            <div style="padding: 0 16px 8px"><b style="font-size: 30px; color: #b91c1c">−$4,151</b><div style="font-size: 12px; color: #5b6578">the lower of ours today and the 13-week low</div></div>
+            <sc-for list="{{parts}}" as="p" hint-placeholder-count="6">
+              <div style="padding: 7px 16px; border-top: 1px solid #eef1f6; display: flex"><span style="flex: 1; font-size: 13px; font-weight: {{p.fw}}">{{p.k}}</span><span style="font-size: 13px; font-weight: {{p.fw}}">{{p.v}}</span></div>
+            </sc-for>
+            <div style="padding: 8px 16px 12px; border-top: 1px solid #eef1f6; font-size: 12px; color: #b91c1c">Not counted: $21,350 recorded, not in the bank (Rivera).</div>
+          </div>
+          <div style="flex: 1; min-width: 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column">
+            <div style="padding: 12px 16px; display: flex; align-items: baseline"><b style="flex: 1; font-size: 15px">Balance by Week, Next 13 Weeks</b><span style="font-size: 12px; color: #5b6578">Scale $0 to $250K · low $135,583, week of 11/26</span></div>
+            <div role="img" aria-label="Bank balance by week" style="margin: 0 16px; height: 190px; display: flex; align-items: flex-end; gap: 6px; border-bottom: 1px solid #c9d1e0">
+              <sc-for list="{{bars}}" as="b" hint-placeholder-count="13">
+                <button type="button" onClick="{{b.pick}}" aria-label="{{b.aria}}" aria-pressed="{{b.on}}" style="flex: 1; height: 190px; border: 0; padding: 0; background: transparent; display: flex; align-items: flex-end; cursor: pointer"><span style="display: block; width: 100%; height: {{b.h}}; background: {{b.c}}; border-radius: 4px 4px 0 0"></span></button>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 6px; margin: 4px 16px 0; font-size: 11px; color: #5b6578">
+              <sc-for list="{{bars}}" as="b" hint-placeholder-count="13"><span style="flex: 1; text-align: center">{{b.w}}</span></sc-for>
+            </div>
+            <div style="padding: 10px 16px 12px; margin-top: 8px; border-top: 1px solid #eef1f6; font-size: 13px"><b>Week of {{wk.w}}: {{wk.bal}}</b> · in {{wk.inn}} · out {{wk.out}} · {{wk.what}}</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 16px">
+          <sc-for list="{{panels}}" as="pn" hint-placeholder-count="3">
+            <div style="flex: 1; min-width: 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+              <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">{{pn.t}}</b><div style="font-size: 12px; color: #5b6578">{{pn.sub}}</div></div>
+              <sc-for list="{{pn.rows}}" as="r" hint-placeholder-count="5">
+                <div style="padding: 8px 16px; border-top: {{r.line}}; display: flex; gap: 8px"><div style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-size: 13px; font-weight: {{r.fw}}">{{r.k}}</span><span style="font-size: 12px; color: #5b6578">{{r.sub}}</span></div><b style="font-size: 13px; color: {{r.tone}}">{{r.v}}</b></div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <aside style="width: 300px; flex: none; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Needs You · 3</b></div>
+        <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
+          <div style="padding: 10px 16px; border-top: {{n.line}}; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{n.title}}</b><span style="font-size: 13px; color: #5b6578">{{n.why}}</span></div>
+        </sc-for>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { wk: 12 }; }
+  renderVals() {
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400', tone: '#172033', sub: '' }, r));
+    const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
+    const rail = [
+      R('Today', { count: '6' }), R('Tasks', { count: '12' }), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
+      R('Reports', { bg: '#1b2640' }),
+      R('Job Profitability', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Cash', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' }),
+      R('Financial Statements', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Report Builder', { pad: '32px', fs: '14px', color: '#c5cde0' })
+    ];
+    const Rd = '#b91c1c', A = '#b45309';
+    const parts = [
+      { k: 'In the bank, Chase ····4471', v: '$184,231', fw: '600' }, { k: 'Less owed on cards', v: '−$16,067', fw: '400' },
+      { k: 'Less payroll due, past due 9/1', v: '−$16,040', fw: '400' }, { k: 'Less Over-Billed (WIP)', v: '−$156,274', fw: '400' },
+      { k: 'Ours today', v: '−$4,151', fw: '700' }, { k: '13-week low, week of 11/26', v: '$135,583', fw: '400' }
+    ];
+    const W = [['9/3', '—', '$16,915', '$167,316', 'payroll owed $16,040'], ['9/10', '$92,265', '$16,240', '$243,341', 'Kleins +$68,265, Jessop +$24,000'], ['9/17', '—', '$16,067', '$227,274', 'card balances'], ['9/24', '$19,680', '$19,862', '$227,091', 'next bills +$19,680, payroll'], ['10/1', '$13,350', '$50,313', '$190,128', 'PO-2026-048 $38,000'], ['10/8', '—', '$16,540', '$173,588', 'payroll'], ['10/15', '—', '$721', '$172,867', 'PO-2026-047 $721'], ['10/22', '—', '$18,662', '$154,205', 'payroll, State Farm'], ['10/29', '$29,018', '$12,938', '$170,285', 'retainage release +$15,668'], ['11/5', '—', '$16,040', '$154,245', 'payroll'], ['11/12', '—', '—', '$154,245', 'nothing scheduled'], ['11/19', '—', '$16,040', '$138,205', 'payroll'], ['11/26', '—', '$2,622', '$135,583', 'the 13-week low']];
+    const vals = [167316, 243341, 227274, 227091, 190128, 173588, 172867, 154205, 170285, 154245, 154245, 138205, 135583];
+    const wi = this.state.wk;
+    const bars = vals.map((v, i) => ({ w: W[i][0], h: Math.round(v / 250000 * 190) + 'px', c: i === wi ? '#172033' : '#94a3b8', on: i === wi ? 'true' : 'false', aria: 'Week of ' + W[i][0] + ', ' + W[i][3], pick: () => this.setState({ wk: i }) }));
+    const w = W[wi];
+    const panels = [
+      { t: 'Client Funds', sub: 'The client\'s money on hand · 121 State Street', rows: ln([
+        { k: 'Held for materials still to buy', v: '$25,375', fw: '600' },
+        { k: 'Trim, doors, paint and hardware', sub: 'collected $14,700 · spent $0', v: '$14,700' },
+        { k: 'Tile, two baths', sub: 'collected $12,075 · spent $4,250', v: '$7,825' },
+        { k: 'Flooring', sub: 'collected $10,850 · spent $8,000', v: '$2,850' },
+        { k: 'Spent ahead of what the client paid', sub: 'windows $20,270 · millwork $4,400', v: '$24,683', tone: A } ]) },
+      { t: 'Coming In', sub: 'Receivables · ties to ledger 1100 within $0.16', rows: ln([
+        { k: 'INV-2026-038 · Kleins', sub: 'due 9/15 · current', v: '$68,265' },
+        { k: 'INV-2026-D140-R · Jessop', sub: 'due 9/15 · current', v: '$24,000' },
+        { k: 'Open, all current', v: '$92,265', fw: '600' },
+        { k: 'Retainage held by clients', sub: 'ties to ledger 1150', v: '$15,668' },
+        { k: 'Recorded, not in the bank', sub: 'Rivera, 7/30 and 8/14', v: '$21,350', tone: Rd } ]) },
+      { t: 'Going Out', sub: 'Payables · paid on Bills and Payroll', rows: ln([
+        { k: 'Payroll 8/17 to 8/28', sub: '1 to 30 days past due', v: '$16,040', tone: Rd },
+        { k: 'Owed on cards', sub: 'due dates not on file', v: '$16,067' },
+        { k: 'Open purchase orders', sub: 'PO-2026-048 · PO-2026-047', v: '$38,721' },
+        { k: 'Paid before approval', sub: 'WW-2026-118 · a signature, not a payment', v: '$33,500', tone: A },
+        { k: 'Held, possibly already paid', sub: 'AMP-311', v: '$9,800', tone: A } ]) }
+    ];
+    const needs = ln([
+      { title: 'Payroll $16,040 is 2 days past pay day', why: 'Blocked until it is split by job.' },
+      { title: '$33,500 left the bank before approval', why: 'WW-2026-118, $3,800 over its PO.' },
+      { title: '$21,350 of Rivera payments not in the bank', why: 'Billing asks the client.' }
+    ]);
+    return { rail, parts, bars, wk: { w: w[0], inn: w[1], out: w[2], bal: w[3], what: w[4] }, panels, needs };
+  }
+}
+</script>
+</body>
+</html>

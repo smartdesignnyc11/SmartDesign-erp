@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Report Builder</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1300px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="../accounting/Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Report Builder</b>
+      <button type="button" aria-label="New report" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Any record in the system, filtered, grouped and totalled, then saved, pinned or sent to Excel</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; background: #fff; border: 1px solid #c9d1e0; border-radius: 10px; color: #5b6578">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+    <span style="font-size: 15px">Search reports, or ask for one</span>
+  </div>
+
+  <div style="padding: 16px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="3">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px; font-size: 13px; color: #5b6578; padding-bottom: 8px; line-height: 1.4">{{lead}}</div>
+  <div style="margin: 0 16px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px; border-top: {{r.line}}; text-decoration: none; color: #172033">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 15px">{{r.name}}</b><span style="font-size: 13px; color: #5b6578">{{r.what}}</span></div>
+        <span style="font-size: 13px; color: #5b6578; flex: none">{{r.n}}</span>
+      </a>
+    </sc-for>
+  </div>
+
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">START FROM</div>
+    <div style="padding: 0 14px 12px; display: flex; gap: 8px; flex-wrap: wrap">
+      <sc-for list="{{sources}}" as="s" hint-placeholder-count="10">
+        <a href="#" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid #c9d1e0; border-radius: 10px; text-decoration: none; color: #172033; font-size: 14px; font-weight: 600">{{s}}</a>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1300}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Saved' }; }
+  renderVals() {
+    const T = this.state.tab;
+    const saved = [
+      { name: 'AR aging by client', what: 'Invoices · by client · balance over $0', n: '2 rows' },
+      { name: 'Open POs by vendor', what: 'Purchase orders · by vendor · issued or partly received', n: '2 rows' },
+      { name: 'Bills awaiting approval', what: 'Vendor bills · submitted, or with the owner', n: '2 rows' },
+      { name: 'Uncategorized bank items', what: 'Bank transactions · no category', n: '11 rows' },
+      { name: 'Job GP vs bid', what: 'Jobs', n: '4 rows' },
+      { name: 'Hours by employee', what: 'Time entries · by employee', n: '7 rows' },
+      { name: 'Invoices due this week', what: 'Invoices · balance over $0', n: '2 rows' },
+      { name: 'Change order log', what: 'Change orders', n: '2 rows' },
+      { name: 'Revenue by job by month', what: 'Every dollar · revenue · by job', n: '4 rows' }
+    ];
+    const moved = [
+      { name: 'Cost Library', what: 'Lives on Purchasing, the price book. Saved here too.', n: 'Standard' },
+      { name: 'Cost Intelligence', what: 'Lives on each job\'s Budget and Purchasing\'s price history.', n: 'Standard' },
+      { name: 'Submittal Log', what: 'Lives on Decisions, every job. Saved here too.', n: 'Standard' },
+      { name: 'Daily Log Summary', what: 'Lives on each job\'s Site. Saved here too.', n: 'Standard' },
+      { name: 'Progress vs Plan', what: 'Lives on each job\'s Contract and Billing, the measure billing bills on.', n: 'Standard' },
+      { name: 'Studio', what: 'Design retainers billed and on account. Lives on Design.', n: 'Standard' },
+      { name: '1099 Register', what: 'Lives on Books, Tax and 1099.', n: 'Standard' },
+      { name: 'Lien-Waiver Register', what: 'Lives on Bills and Payroll, on each sub\'s bill.', n: 'Standard' }
+    ];
+    const pinned = [];
+    const sets = {
+      'Saved': [saved, 'The firm\'s saved reports. Each one opens, filters, sorts and goes to Excel; none is pinned yet.'],
+      'Standard': [moved, 'Reports that used to sit under Reports and now live with the person who acts on them. Each is still a saved report here, so nothing is lost.'],
+      'Pinned': [pinned, 'Pin a report to your Today as a list, a figure or a reminder. Nothing is pinned yet.']
+    };
+    const [list, lead] = sets[T];
+    const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const chips = ['Saved', 'Standard', 'Pinned'].map((l) => ({ label: l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0', pick: () => this.setState({ tab: l }) }));
+    const sources = ['Invoices', 'Payments', 'Vendor Bills', 'Bank Lines', 'Purchase Orders', 'Change Orders', 'Jobs', 'Estimate Lines', 'Time Entries', 'Every Dollar'];
+    return { chips, rows, lead, sources };
+  }
+}
+</script>
+</body>
+</html>

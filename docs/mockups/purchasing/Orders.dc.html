@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orders</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1750px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Orders</b>
+      <button type="button" aria-label="New purchase order" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Every order and store run, from issue to paid, and the money owed back</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+    <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 3px">
+      <span style="font-size: 12px; color: #5b6578">Committed, Not Yet Billed</span><b style="font-size: 20px">$39K</b><span style="font-size: 12px; color: #5b6578">2 open orders</span>
+    </div>
+    <div style="background: #fff; border: 1px solid #fde68a; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 3px">
+      <span style="font-size: 12px; color: #5b6578">Owed Back to Us</span><b style="font-size: 20px; color: #b45309">$2,419</b><span style="font-size: 12px; color: #5b6578">3 returns open</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 18px 16px 8px">
+    <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You · money to hold or recover</span>
+    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{needCount}}</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+    <sc-for list="{{needs}}" as="n" hint-placeholder-count="6">
+      <div style="background: #fff; border: 1px solid {{n.border}}; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 5px">
+        <div style="display: flex; gap: 8px; align-items: baseline">
+          <span style="flex: 1; font-size: 12px; font-weight: 700; color: {{n.tone}}">{{n.kind}}</span>
+          <b style="font-size: 15px">{{n.amt}}</b>
+        </div>
+        <b style="font-size: 15px; line-height: 1.3">{{n.title}}</b>
+        <span style="font-size: 13px; color: #5b6578">{{n.job}}</span>
+        <span style="font-size: 14px; line-height: 1.45">{{n.why}}</span>
+        <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap">
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">{{n.act}}</button>
+          <sc-if value="{{n.hasAlt}}" hint-placeholder-val="{{false}}"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">{{n.alt}}</button></sc-if>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 20px 16px 8px; align-items: center">
+    <span style="flex: 1; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Orders</span>
+  </div>
+  <div style="display: flex; gap: 8px; padding: 0 16px 10px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
+    </sc-for>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+    <sc-for list="{{orders}}" as="o" hint-placeholder-count="2">
+      <a href="#" style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: #172033">
+        <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 15px">{{o.po}} · {{o.vendor}}</b><span style="font-size: 12px; font-weight: 700; color: {{o.tone}}">{{o.status}}</span></div>
+        <span style="font-size: 14px">{{o.items}}</span>
+        <span style="font-size: 13px; color: #5b6578">{{o.job}} · issued {{o.issued}}</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 4px">
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Total</span><b style="font-size: 13px">{{o.total}}</b></span>
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Paid</span><b style="font-size: 13px">{{o.paid}}</b></span>
+          <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Expected</span><b style="font-size: 13px">{{o.exp}}</b></span>
+        </div>
+      </a>
+    </sc-for>
+  </div>
+
+  <div style="margin: 16px 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+    <b style="font-size: 14px">Papers the Assistant Is Chasing</b>
+    <span style="font-size: 13px; line-height: 1.45; color: #5b6578">14 bills with no invoice copy on file. The assistant asks the vendors from procurement@ (delegated); nothing here waits on you.</span>
+    <a href="#" style="display: flex; align-items: center; min-height: 44px; font-size: 14px">See the Chases</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1750}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { filter: 'Open' }; }
+  renderVals() {
+    const R = '#b91c1c', A = '#b45309';
+    const N = [
+      { kind: 'PAID OVER THE ORDER', tone: R, border: '#fecaca', amt: '+$3,800', title: 'PO-2026-044 · Window Works', job: '121 State Street · Double-hung windows, front & rear',
+        why: 'Paid $33,500 on a $29,700 order (+13%). Bill WW-2026-118 is approved by the PM; their insurance lapsed 8/15 and they are blocked.', act: 'Hold and Claim $3,800', alt: 'Escalate to Alan', hasAlt: true },
+      { kind: 'PAID BEFORE DELIVERY', tone: A, border: '#fde68a', amt: '$8,000', title: 'PO-2026-047 · Tino', job: '121 State Street · 5" white oak flooring, select',
+        why: '$8,000 of $8,721 paid; nothing received. Expected 10/5, needed on site 10/2.', act: 'Check the Terms', hasAlt: false },
+      { kind: 'CLAIM · DAMAGED', tone: A, border: '#fde68a', amt: '$8,990', title: 'Range, 36" dual fuel · Diamond Appliances', job: '121 State Street · Kitchen selection',
+        why: 'Dented left side panel, photographed at delivery. Diamond confirmed; waiting on Bertazzoni for a panel or a swap. 4 days open.', act: 'Chase Diamond', hasAlt: false },
+      { kind: 'RETURN · 11 DAYS LEFT', tone: A, border: '#fde68a', amt: '$1,880', title: 'Lavatory faucet, chrome sent, brass ordered · Ferguson', job: '45 Cranberry St — design · RMA-44812',
+        why: 'The box is in the office and the replacement was already bought, so we paid twice. The window closes 9/14.', act: 'Put It on the Next Run', hasAlt: false },
+      { kind: 'CREDIT LANDED', tone: '#15803d', border: '#bbf7d0', amt: '$126', title: '8 surplus cup pulls · House of Antique Hardware', job: '45 Cranberry St — design',
+        why: 'Credit on the Amex 8/31, 27 days after it shipped back. We paid $148; they kept $22 (15% restock).', act: 'Confirm the Match', alt: 'Not This One', hasAlt: true },
+      { kind: 'RETURN · WINDOW CLOSED', tone: R, border: '#fecaca', amt: '$551', title: '38 sq ft over-ordered zellige · Bedrosians', job: '45 Cranberry St — design',
+        why: 'Window closed 44 days ago; $413 would come back after a 25% restock. Ask anyway, or write it off on purpose so it lands in job cost.', act: 'Ask for an RMA', alt: 'Write It Off', hasAlt: true },
+      { kind: 'MONEY IN, NOTHING BEHIND IT', tone: A, border: '#fde68a', amt: '$215', title: 'Bedrosians tile credit memo', job: 'Bank line 8/25',
+        why: 'A credit with no return or claim to match. Usually a credit we were owed and forgot.', act: 'Attach to a Return', hasAlt: false },
+      { kind: 'PAID ABOVE THE BEST PRICE', tone: A, border: '#fde68a', amt: '$343', title: '2 store receipts in August', job: 'Home Depot — Flatbush 8/14 ($120) · Home Depot — Gowanus 8/27 ($224)',
+        why: 'The same items were cheaper at Brooklyn Lumber — Red Hook and Quality Building Supply — Park Slope.', act: 'Open the Receipts', hasAlt: false }
+    ];
+    const O = [
+      { po: 'PO-2026-048', vendor: 'Carlos Millwork', items: 'Parlor kitchen + laundry millwork', job: '121 State Street', issued: '8/18', total: '$76,000', paid: '$38,000', exp: '9/18', status: 'ARRIVES LATE', tone: R, open: true },
+      { po: 'PO-2026-047', vendor: 'Tino', items: '5" white oak flooring, select', job: '121 State Street', issued: '9/1', total: '$8,721', paid: '$8,000', exp: '10/5', status: 'ARRIVES LATE', tone: R, open: true },
+      { po: 'PO-2026-044', vendor: 'Window Works', items: 'Double-hung windows, front & rear', job: '121 State Street', issued: '8/12', total: '$29,700', paid: '$33,500', exp: '8/31', status: 'RECEIVED · OVER', tone: R, open: false },
+      { po: 'PO-2026-041', vendor: 'Nemo Tile', items: 'Calacatta porcelain 12x24', job: '121 State Street', issued: '8/10', total: '$4,250', paid: '$4,250', exp: '8/24', status: 'RECEIVED AND PAID', tone: '#15803d', open: false }
+    ];
+    const F = this.state.filter;
+    const orders = O.filter((o) => F === 'All' || (F === 'Open' ? o.open : !o.open));
+    const chips = ['Open', 'Received', 'All'].map((label) => {
+      const on = F === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ filter: label }) };
+    });
+    return { needs: N, needCount: N.length, orders, chips };
+  }
+}
+</script>
+</body>
+</html>

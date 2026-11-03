@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Kleins: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1200px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Clients.dc.html" aria-label="Back to Clients" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Sarah &amp; David Klein</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New for the Kleins" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Client since 7/28 · 1 job · Sarah decides, David pays</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px">
+      <span style="grid-column: 1 / -1; padding: 8px 12px 4px; font-size: 12px; color: #5b6578">New for the Kleins (121 State Street filled in)</span>
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="8">
+        <a href="#" role="menuitem" style="display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 8px; color: #172033; text-decoration: none; font-size: 15px; font-weight: 600">{{n}}</a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+      <a href="#" style="background: #fff; border: 1px solid {{t.border}}; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: #172033; min-height: 96px">
+        <span style="font-size: 12px; color: #5b6578">{{t.k}}</span>
+        <b style="font-size: 22px; color: {{t.tone}}">{{t.v}}</b>
+        <span style="font-size: 12px; color: #5b6578; line-height: 1.35">{{t.sub}}</span>
+      </a>
+    </sc-for>
+  </div>
+
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 700; color: #b91c1c">WAITING ON US · SINCE 9/2</span>
+    <b style="font-size: 15px; line-height: 1.35">Sarah: Fwd: 121 State St alteration agreement</b>
+    <span style="font-size: 13px; color: #5b6578; line-height: 1.4">The managing agent sent the building’s alteration agreement. The building also wants a COI and a detailed scope of work. The attachment is not read yet.</span>
+    <button type="button" style="min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">Reply to Sarah</button>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; display: flex; align-items: center"><b style="flex: 1; font-size: 15px">Waiting on the Kleins</b><span style="font-size: 13px; color: #5b6578">6</span></div>
+    <sc-for list="{{theirs}}" as="w" hint-placeholder-count="6">
+      <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 10px; align-items: baseline">
+        <span style="font-size: 12px; width: 52px; flex: none; color: {{w.tone}}; font-weight: 600">{{w.when}}</span>
+        <span style="flex: 1; font-size: 14px; line-height: 1.4">{{w.what}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 16px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">This Client</div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{sections}}" as="s" hint-placeholder-count="5">
+      <a href="{{s.href}}" style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-top: {{s.line}}; text-decoration: none; color: #172033">
+        <span style="flex: 1; font-size: 15px; font-weight: 600">{{s.label}}</span>
+        <span style="font-size: 13px; color: #5b6578">{{s.sub}}</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+      </a>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { newOpen: false }; }
+  renderVals() {
+    const RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
+    const tiles = [
+      { k: 'Waiting on Us', v: '1', sub: 'Sarah’s mail of 9/2', tone: RED, border: '#fecaca' },
+      { k: 'Waiting on Them', v: '6', sub: '5 decisions (1 overdue), 1 change order to sign', tone: INK, border: '#dfe4ee' },
+      { k: 'They Owe', v: '$68,265', sub: 'INV-2026-038, due 9/15, current', tone: INK, border: '#dfe4ee' },
+      { k: 'Left to Bill', v: '$237,516', sub: 'of $491,200 with approved changes', tone: INK, border: '#dfe4ee' }
+    ];
+    const theirs = [
+      { when: '9/2', tone: RED, what: '2nd floor bathroom finishes: overdue, blocking rough plumbing' },
+      { when: 'Sent 9/3', tone: MUTE, what: 'CO-2026-002, sand and stain the 3rd floor treads, $1,850: to sign' },
+      { when: '9/16', tone: MUTE, what: 'Confirm the new 3rd floor tile selection is in stock' },
+      { when: '9/17', tone: MUTE, what: 'Exterior paint finish and sheen' },
+      { when: '9/29', tone: MUTE, what: 'Garden kitchen backsplash: tile or stone' },
+      { when: '9/30', tone: MUTE, what: '3rd floor lighting layout' }
+    ];
+    const S = [
+      ['Their Job', '121 State Street · 14% · Nov 4', '../job-structure/Job.dc.html'],
+      ['Contract and Billing', '3 invoices, 2 change orders', 'DeskClient.dc.html'],
+      ['Messages', '1 waiting on us', 'DeskClient.dc.html'],
+      ['People and the Building', 'Co-op · agent, super, rules', 'DeskClient.dc.html'],
+      ['Notes and History', 'Batch decisions for Friday calls', 'DeskClient.dc.html']
+    ];
+    const sections = S.map((x, i) => ({ label: x[0], sub: x[1], href: x[2], line: i ? '1px solid #eef1f6' : '0' }));
+    const newOpen = !!this.state.newOpen;
+    return { tiles, theirs, sections, newOpen, newItems: ['Message', 'Task', 'Note or Call', 'Meeting', 'Estimate', 'Change Order', 'Invoice', 'Job'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+  }
+}
+</script>
+</body>
+</html>

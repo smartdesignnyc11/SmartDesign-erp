@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Books</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1680px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Books</b>
+      <button type="button" aria-label="New journal entry" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">The ledger, the close and the controls · Consolidated, 4 entities · August open</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU · 5</div>
+    <sc-for list="{{needs}}" as="n" hint-placeholder-count="5">
+      <a href="#" style="padding: 10px 14px; border-top: 1px solid #eef1f6; display: flex; flex-direction: column; gap: 3px; min-height: 44px; text-decoration: none; color: #172033">
+        <b style="font-size: 15px">{{n.title}}</b>
+        <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{n.why}}</span>
+      </a>
+    </sc-for>
+    <div style="padding: 12px 14px; border-top: 1px solid #eef1f6">
+      <button type="button" style="width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 16px; font-weight: 600">Continue the August Close</button>
+    </div>
+  </div>
+
+  <div style="padding: 18px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px; font-size: 13px; color: #5b6578; padding-bottom: 8px; line-height: 1.4">{{lead}}</div>
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; border-top: {{r.line}}; text-decoration: none; color: #172033">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 14px; font-weight: {{r.fw}}">{{r.k}}</span>
+          <span style="font-size: 12px; color: #5b6578">{{r.sub}}</span>
+        </div>
+        <b style="font-size: 15px; color: {{r.tone}}; flex: none">{{r.v}}</b>
+      </a>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1680}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Close' }; }
+  renderVals() {
+    const T = this.state.tab, Rd = '#b91c1c', A = '#b45309', G = '#15803d', K = '#172033';
+    const needs = [
+      { title: 'Close August: 15 of 24 checks open', why: '7 bank lines not matched ($52,406), Chase reconciled only through June, 2 matches not confirmed. Books by the 10th.' },
+      { title: 'INV-2026-031, Deposit 20%, $97,000, booked as the first draw', why: 'Posted as work, so 121 State Street reads over-billed. Confirm it as the first draw, or reverse and re-post it as the deposit with a reason.' },
+      { title: 'Over-Billed (WIP) against Billed Ahead of the Work', why: '121 State Street $131,058 against $66,470, $64,587 apart; 140 Prospect Place $22,512 against $0. Reconcile before the close.' },
+      { title: 'Amex August is $365.64 apart from its statement', why: 'Our records hold 13 lines, $41,044.51; the statement 14 lines, $40,678.87. A double import, the wrong account or the wrong month.' },
+      { title: 'INV-2026-035 short-paid by $0.16', why: 'Ledger 1100 is $92,265.16 against $92,265.00 open. Collect it or write it off with a reason.' }
+    ];
+    const sets = {
+      'Close': ['Close August 2026. The checklist, then the accrued wages and the WIP adjustment post, the WIP ties to 2500 and 1200 job by job, and the month is frozen. Its Pack is then final.', [
+        { k: 'Bank lines not matched to a line', sub: 'August · 0 with a signed exception', v: '7 · $52,406', tone: Rd },
+        { k: 'Chase Business Checking not reconciled through 8/31', sub: 'Last reconciled 6/30', v: '27 lines', tone: Rd },
+        { k: 'Amex Business Platinum not reconciled through 8/31', sub: '$365.64 apart', v: '13 lines', tone: Rd },
+        { k: 'Bank matches not confirmed by a person', sub: 'AMP-311, WW-2026-118', v: '2', tone: A },
+        { k: 'Client payments not seen in the bank', sub: 'Rivera family, 7/30 and 8/14', v: '2', tone: A },
+        { k: 'Budget variances over 10% and $2,500, no commentary', sub: 'Operating budget, Reforecast Q3', v: '5', tone: A },
+        { k: 'Jobs without a cost-to-complete review this month', sub: '121 State, 45 Cranberry, 140 Prospect', v: '3', tone: A },
+        { k: 'Posts at the close: WIP adjustment', sub: '121 State $58,011 · 45 Cranberry $5,998', v: '$64,008', tone: K, fw: '600' },
+        { k: 'Posts at the close: accrued wages', sub: 'Payroll 8/17 to 8/28 $16,040 · timesheets $3,699', v: '$19,739', tone: K, fw: '600' } ]],
+      'Ledger': ['Every entry behind the numbers. Posted money is append-only: a change is a linked reversal and re-post with a reason.', [
+        { k: 'Journals to approve', sub: 'Drafted by the controller, posted by Alan', v: '0', tone: G },
+        { k: 'Entries not from a document', sub: '1 opening entry · flagged everywhere it shows', v: '$172,503', tone: A },
+        { k: 'Drift', sub: 'Every posting re-derives from its document', v: '0', tone: G },
+        { k: 'Uncoded cost', sub: 'Direct cost on no project', v: '$7K', tone: A },
+        { k: 'Net income on the ledger', sub: 'Before the WIP adjustment posts', v: '$175,285.70', tone: K, fw: '600' },
+        { k: 'Net income in the management view', sub: 'Fully explained: WIP −$156,274, paid before approval −$33,500, deposits and retainers $24,000, Needs Category −$14,841', v: '−$5,329.88', tone: K, fw: '600' } ]],
+      'Controls': ['Checks that run on every cleared line and every bill, and who must say yes. The lines themselves are worked on Banking.', [
+        { k: 'Cleared lines not yet verified', sub: 'Three-way match after clearing · never run', v: '36', tone: A },
+        { k: 'Held by a control', sub: 'Window Works changed its bank details [DATE]: confirm by phone on a known number', v: '1', tone: Rd },
+        { k: 'Owner sees payments above', sub: 'Plus first payments to a vendor, bank-detail changes, over the PO', v: '$5,000', tone: K },
+        { k: 'Early-payment discounts available', sub: 'No discount offered on open bills', v: '$0', tone: K } ]],
+      'Budget': ['The 2026 operating budget by entity, account and month. One version is active; the Pack and Financial Statements read it.', [
+        { k: 'Active version', sub: 'Reforecast Q3', v: 'Active', tone: G },
+        { k: 'Net profit, year to date', sub: 'Budget $18,863', v: '−$5,330', tone: Rd },
+        { k: 'Operating expenses, year to date', sub: 'Budget $20,120 · includes $14,841 Needs Category', v: '$39,595', tone: Rd } ]],
+      'Tax and 1099': ['Year-end and filings: the 1099 register, W-9s and sales tax with the capital-improvement check.', [
+        { k: 'Payees at $2,000 or more in 2026', sub: 'Paid by check, ACH, Zelle or wire', v: '4', tone: K },
+        { k: 'Without a W-9', sub: 'Request W-9 from each before year end', v: '3', tone: A },
+        { k: 'Paid but not set up as vendors', sub: 'Atlantic Realty, M Rodriguez, J Rosario', v: '3', tone: A },
+        { k: 'Sales tax', sub: 'Capital-improvement check', v: '[PLACEHOLDER]', tone: K } ]]
+    };
+    const [lead, list] = sets[T];
+    const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400' }, r));
+    const chips = ['Close', 'Ledger', 'Controls', 'Budget', 'Tax and 1099'].map((l) => ({
+      label: l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: l })
+    }));
+    return { needs, chips, rows, lead };
+  }
+}
+</script>
+</body>
+</html>

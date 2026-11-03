@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Banking</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 2400px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Banking</b>
+      <button type="button" onClick="{{toggleNew}}" aria-expanded="{{newExpanded}}" aria-label="New in Banking" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: {{newBg}}; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Every bank and card line, matched to the line it pays · 3 accounts</span>
+  </div>
+  <sc-if value="{{newOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; box-shadow: 0 12px 32px rgba(17,26,46,.16); padding: 6px; display: flex; flex-direction: column">
+      <sc-for list="{{newItems}}" as="n" hint-placeholder-count="5">
+        <a href="#" role="menuitem" style="display: flex; flex-direction: column; justify-content: center; min-height: 48px; padding: 4px 12px; border-radius: 8px; color: #172033; text-decoration: none"><b style="font-size: 15px">{{n.k}}</b><span style="font-size: 12px; color: #5b6578">{{n.v}}</span></a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">NEEDS YOU</div>
+    <div style="padding: 0 14px 12px; display: flex; flex-direction: column; gap: 4px">
+      <b style="font-size: 22px">15 lines to match</b>
+      <span style="font-size: 14px; color: #5b6578">$67,272 at stake · oldest 19 days, since 8/15</span>
+      <span style="font-size: 13px; color: #5b6578; line-height: 1.4">August closes only when its 7 lines, $52,406, are matched to a line or carry a signed exception. 8 September lines are typed by hand and not yet at the bank.</span>
+    </div>
+    <div style="padding: 12px 14px; border-top: 1px solid #eef1f6">
+      <button type="button" style="width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font: inherit; font-size: 16px; font-weight: 600">Start the Review, 15 Lines</button>
+    </div>
+  </div>
+
+  <div style="padding: 18px 16px 8px; display: flex; gap: 8px; flex-wrap: wrap">
+    <sc-for list="{{chips}}" as="ch" hint-placeholder-count="5">
+      <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 14px; font-weight: 600">{{ch.label}}</button>
+    </sc-for>
+  </div>
+  <div style="margin: 0 16px; font-size: 13px; color: #5b6578; padding-bottom: 8px">{{lead}}</div>
+  <div style="margin: 0 16px 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+      <a href="#" style="display: flex; flex-direction: column; gap: 3px; min-height: 64px; padding: 10px 14px; border-top: {{r.line}}; text-decoration: none; color: #172033">
+        <div style="display: flex; gap: 12px; align-items: baseline">
+          <b style="flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere">{{r.desc}}</b>
+          <b style="font-size: 15px; flex: none">{{r.amt}}</b>
+        </div>
+        <span style="font-size: 12px; color: #5b6578">{{r.when}}</span>
+        <span style="font-size: 13px; line-height: 1.4; color: {{r.tone}}; font-weight: {{r.fw}}">{{r.note}}</span>
+      </a>
+    </sc-for>
+  </div>
+
+  <div style="margin: 0 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <div style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #5b6578">ACCOUNTS</div>
+    <sc-for list="{{accounts}}" as="a" hint-placeholder-count="3">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px; border-top: 1px solid #eef1f6; text-decoration: none; color: #172033">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <b style="font-size: 15px">{{a.name}}</b>
+          <span style="font-size: 13px; color: {{a.tone}}">{{a.state}}</span>
+        </div>
+        <b style="font-size: 15px">{{a.bal}}</b>
+      </a>
+    </sc-for>
+    <div style="padding: 12px 14px; border-top: 1px solid #eef1f6">
+      <button type="button" style="width: 100%; min-height: 48px; border: 1px solid #c9d1e0; border-radius: 10px; background: #fff; color: #172033; font: inherit; font-size: 15px; font-weight: 600">Reconcile August</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2400}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'To Review', newOpen: false }; }
+  renderVals() {
+    const T = this.state.tab, Rd = '#b91c1c', A = '#b45309', G = '#15803d', N = '#5b6578';
+    const typed = ' · typed by hand, not yet at the bank';
+    const review = [
+      { desc: 'SQ *WINDOW WORKS BKLYN', amt: '$33,500', when: '8/25 · Amex ····1009', note: 'Paid before approval: bill WW-2026-118, $3,800 over PO-2026-044. Waits on Alan.', tone: Rd },
+      { desc: 'CHECK 2205 ALBERTO M PLUMBING LLC', amt: '$9,800', when: '8/15 · Chase ····4471', note: 'Proposed: bill AMP-311. The check is dated before the bill: possibly already paid.', tone: Rd },
+      { desc: 'ACH DEBIT SATISH ELECTRIC INC', amt: '$7,400', when: '9/2 · Chase ····4471' + typed, note: 'Suggested: 121 State Street, 06 Electrical. No bill on file.', tone: A },
+      { desc: 'ZELLE TO M RODRIGUEZ', amt: '$6,800', when: '8/29 · Chase ····4471', note: 'No PO or bill; coded as job cost with no job. Wages? Ask Alan.', tone: Rd },
+      { desc: 'ZELLE TO J ROSARIO', amt: '$2,400', when: '9/2 · Chase ····4471' + typed, note: 'No vendor and no category.', tone: A },
+      { desc: 'SQ *BROOKLYN LUMBER', amt: '$2,141', when: '9/2 · Amex ····1009' + typed, note: 'No order or receipt behind it.', tone: A },
+      { desc: 'WATERWORKS SHOWROOM SOHO', amt: '$1,900', when: '9/2 · Amex ····1009' + typed, note: 'Suggested: 121 State Street, 13 Fixtures. On the Kleins\' selections: bill it back.', tone: A },
+      { desc: 'ROLL OFF DUMPSTER SVC', amt: '$1,650', when: '8/22 · Amex ····1009', note: 'Possible duplicate: $1,650 on 8/21 too.', tone: Rd },
+      { desc: 'AMAZON MKTPLACE 2X HEAT MAT THERMOSTAT', amt: '$390', when: '9/2 · Amex ····1009' + typed, note: 'For CO-2026-001, radiant heat: bill it on the next application.', tone: A },
+      { desc: 'AMAZON MKTPLACE US*R41K2', amt: '$316', when: '8/31 · Amex ····1009', note: 'No order or receipt behind it.', tone: A },
+      { desc: 'QUALITY BLDG SUPPLY 118', amt: '$300', when: '9/2 · Amex ····1009' + typed, note: 'Gabriel\'s receipt of 8/30 matches: settle it.', tone: G },
+      { desc: 'HOME DEPOT PRO SCREWS BLOCKING', amt: '$287', when: '9/1 · Home Depot ····7720' + typed, note: 'Suggested: 121 State Street, 03 Framing, as coded on 8/27.', tone: N },
+      { desc: 'BEDROSIANS TILE CREDIT MEMO', amt: '+$215', when: '8/25 · Amex ····1009', note: 'Suggested: 45 Cranberry St, 08 Tile, a vendor credit that lowers job cost.', tone: N },
+      { desc: 'HOUSE OF ANTIQUE HDW CREDIT', amt: '+$126', when: '8/31 · Amex ····1009', note: 'Suggested: 121 State Street, 11 Finish carpentry, a vendor credit.', tone: N },
+      { desc: 'CHIPOTLE 1122 ATLANTIC AVE', amt: '$49', when: '9/3 · Amex ····1009' + typed, note: 'Meals. Whose card? Pick the holder on the line.', tone: N }
+    ];
+    const moneyIn = [
+      { desc: 'Rivera family · ACH, Retainer', amt: '$5,000', when: '7/30 · recorded against INV-2026-D45-R', note: 'Recorded, not in the bank. Find it on a bank statement, or mark it bounced.', tone: Rd },
+      { desc: 'Rivera family · ACH, INV-2026-D45-1', amt: '$16,350', when: '8/14 · recorded against INV-2026-D45-1', note: 'Recorded, not in the bank. Find it on a bank statement, or mark it bounced.', tone: Rd }
+    ];
+    const receipts = [
+      { desc: 'Quality Building Supply · Gabriel', amt: '$300', when: '8/30 · 121 State Street', note: 'Window frames $238 and N95 masks $61. Matches the 9/2 card line.', tone: G },
+      { desc: 'Dakota Hardware · Gabriel', amt: '$97', when: '9/1 · 121 State Street · General conditions', note: 'Paid himself: approving it adds a reimbursement to Bills and Payroll.', tone: A }
+    ];
+    const matched = [
+      { desc: 'DEPOSIT CHECK 2214 KLEIN', amt: '+$72,750', when: '8/29 · Chase ····4471', note: 'Payment on INV-2026-035, Sarah & David Klein.', tone: G },
+      { desc: '[BANK TEXT] · Carlos Millwork', amt: '$38,000', when: '8/20 · Chase ····4471', note: 'Bill CM-0091, 121 State Street, Millwork and countertops.', tone: G },
+      { desc: 'ACH DEBIT NEMO TILE SUPPLY', amt: '$4,250', when: '8/12 · Chase ····4471', note: 'Bill NT-88412, 121 State Street, Tile.', tone: G }
+    ];
+    const sets = {
+      'To Review': [review, '15 lines no bill, order, invoice, receipt or payroll line explains yet. Tap a line to see what it would link to before you confirm.'],
+      'Money In': [moneyIn, 'Client payments recorded in Billing that the bank has not shown. They are not collected and not cash until a bank line backs them.'],
+      'Receipts': [receipts, 'Captured at the counter, waiting on a yes. Approving makes them payable and billable.'],
+      'Matched': [matched, 'Every line already tied to the line it pays. Search every line from here.']
+    };
+    const [list, lead] = sets[T];
+    const rows = list.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: r.tone === Rd ? '600' : '400' }, r));
+    const chips = [['To Review', '15'], ['Money In', '2'], ['Receipts', '2'], ['Matched', '']].map(([l, c]) => ({
+      label: c ? l + ' ' + c : l, on: T === l ? 'true' : 'false', bg: T === l ? '#172033' : '#fff', color: T === l ? '#fff' : '#172033', border: T === l ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: l })
+    }));
+    const accounts = [
+      { name: 'Chase Business Checking ····4471', bal: '$184,231', state: 'Statement through 8/31 · reconciled through June', tone: '#b45309' },
+      { name: 'Amex Business Platinum ····1009', bal: '−$12,648', state: 'August is $365.64 apart from the statement · reconciled through July', tone: '#b91c1c' },
+      { name: 'Home Depot Pro Xtra ····7720', bal: '−$3,419', state: 'Never reconciled', tone: '#b91c1c' }
+    ];
+    return {
+      chips, rows, lead, accounts,
+      newOpen: this.state.newOpen, newExpanded: this.state.newOpen ? 'true' : 'false', newBg: this.state.newOpen ? '#2a3a5e' : 'transparent',
+      newItems: [ { k: 'Import a Statement', v: 'QFX, OFX or CSV from the bank' }, { k: 'Connect a Bank', v: 'A live feed for an account' }, { k: 'Bank Rule', v: 'Code lines like this one from now on' }, { k: 'Receipt', v: 'A photo of a receipt, tied to its job and line' }, { k: 'Typed Line', v: 'Not from the bank: flagged until a bank line backs it' } ],
+      toggleNew: () => this.setState({ newOpen: !this.state.newOpen })
+    };
+  }
+}
+</script>
+</body>
+</html>

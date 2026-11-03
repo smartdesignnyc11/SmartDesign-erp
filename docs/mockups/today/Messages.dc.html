@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Messages: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1000px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <a href="../job-structure/Main.dc.html" aria-label="Open the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Messages</b>
+      <button type="button" aria-label="Search messages" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4"></path></svg>
+      </button>
+      <button type="button" aria-label="New message" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Mail, texts, calls, chats and meeting notes, in one list</span>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">{{c.label}}<span style="font-weight: 700">{{c.n}}</span></button>
+    </sc-for>
+  </div>
+  <span style="padding: 6px 16px 10px; font-size: 13px; color: #5b6578; line-height: 1.4">{{lead}}</span>
+
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+      <div style="padding: 12px 14px; border-top: {{r.line}}; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; gap: 12px; align-items: flex-start">
+          <span style="width: 36px; height: 36px; flex: none; border-radius: 18px; background: #e8ecf4; display: flex; align-items: center; justify-content: center; color: #5b6578" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{r.icon}}"></path></svg>
+          </span>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <span style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 15px">{{r.who}}</b><span style="font-size: 12px; color: {{r.tone}}; font-weight: 600">{{r.when}}</span></span>
+            <span style="font-size: 14px; font-weight: 600; line-height: 1.35">{{r.subj}}</span>
+            <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{r.snip}}</span>
+            <span style="font-size: 12px; color: #5b6578">{{r.tag}}</span>
+          </div>
+        </div>
+        <sc-if value="{{r.primary}}" hint-placeholder-val="{{false}}">
+          <button type="button" style="min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">{{r.act}}</button>
+        </sc-if>
+        <sc-if value="{{r.side}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; gap: 8px; padding-left: 48px">
+            <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">{{r.act}}</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'answer' }; }
+  renderVals() {
+    const I = {
+      mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
+      call: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
+      chat: 'M4 5h16v11H8l-4 4z',
+      text: 'M7 3h10a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2',
+      meet: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20a6 6 0 0 1 12 0M17 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6'
+    };
+    const RED = '#b91c1c', MUTE = '#5b6578';
+    const answer = [
+      { icon: I.mail, who: 'Aliya Chen', when: '4 days', tone: RED, subj: 'Re: Work Complete, 374 Washington Avenue', snip: '“With all due respect, are you kidding me? This is literally what we hired you all to do…”', tag: 'Client mail to Jeanette, who has no login yet, so it is yours · past the 2-hour acknowledgement', act: 'Reply' },
+      { icon: I.mail, who: 'Sarah Klein', when: '1 day', tone: RED, subj: 'Fwd: 121 State St alteration agreement', snip: 'The managing agent sent the building’s alteration agreement; they also need a COI and a detailed scope of work.', tag: '121 State Street · the Kleins · attachment not read yet', act: 'Reply' },
+      { icon: I.call, who: 'Robert Torres, by the answering service', when: '1 day', tone: RED, subj: 'Called as an existing client', snip: 'Left a message with the answering service on 9/2.', tag: 'Call · no call back logged', act: 'Call Back' },
+      { icon: I.mail, who: 'Samantha Field', when: '3 days', tone: RED, subj: '118 E 60th apt 31G: next steps', snip: '“Great speaking with you today. Attached is the alteration agreement for the building.”', tag: 'New prospect · meeting today 1:30 pm · no lead on file', act: 'Reply' },
+      { icon: I.mail, who: 'Jeanette Hernandez', when: '3 days', tone: RED, subj: 'Re: New client proposals signed', snip: 'Asks whether to bill 344 or 464 hours of design services.', tag: 'From the team · needs your number', act: 'Reply' }
+    ];
+    const all = answer.concat([
+      { icon: I.chat, who: 'Site Leads (Alan, Chen, Angel)', when: '7:31 am', tone: MUTE, subj: 'Rough electric walk at 121 State is at 10:00 tomorrow', snip: 'Angel: “Will do. The electrician is on site from 8.”', tag: 'Team chat · answered', act: 'Open' },
+      { icon: I.text, who: 'Luis, super at 121 State', when: '8/29', tone: MUTE, subj: 'Text', snip: '“No deliveries Saturday, board rule. Monday 9am is fine, use the service entrance.”', tag: '121 State Street · filed to the building’s rules', act: 'Open' },
+      { icon: I.mail, who: 'Nemo Tile accounts', when: '9/1', tone: MUTE, subj: 'Statement: SmartDesign Group LLC', snip: '1 invoice outstanding, $2,140, due September 30.', tag: 'Routed to the controller', act: 'Open' },
+      { icon: I.mail, who: 'Mark Hyland', when: '9/1', tone: MUTE, subj: 'Re: 47 West 76th St Apt 3, ceiling repair', snip: '“Money just sent.”', tag: 'Routed to billing', act: 'Open' }
+    ]);
+    const meet = [
+      { icon: I.meet, who: 'Team Catch Up', when: '8/28', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The hall light fixture at 121 State cannot be replaced next week; now expected mid-September.', tag: '121 State Street · its next steps go to Tasks when approved', act: 'Review' },
+      { icon: I.meet, who: '121 State St: Schedule Review', when: '8/17', tone: MUTE, subj: 'Notes from Gemini, to review', snip: 'The team aligned on the construction sequence for the garden unit and how inspections are booked.', tag: '121 State Street', act: 'Review' }
+    ];
+    const T = this.state.tab;
+    const L = { answer, all, meet }[T];
+    const rows = L.map((r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', primary: T === 'answer' && i === 0, side: !(T === 'answer' && i === 0) }));
+    const defs = [{ id: 'answer', label: 'Needs an Answer', n: 5 }, { id: 'all', label: 'All', n: '' }, { id: 'meet', label: 'Meetings', n: 2 }];
+    const chips = defs.map((c) => Object.assign({}, c, {
+      pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: c.id })
+    }));
+    const lead = { answer: 'Waiting on you, oldest first. A client message counts from the minute it arrives.', all: 'Everything you can read, newest first. A client’s messages also show inside the client.', meet: 'Meeting notes to review: what was decided goes to the record, each next step to Tasks.' }[T];
+    return { chips, rows, lead };
+  }
+}
+</script>
+</body>
+</html>

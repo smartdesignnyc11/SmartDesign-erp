@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quotes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1150px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Menu.dc.html" aria-label="Back to the menu" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Quotes</b>
+      <button type="button" aria-label="New request for quote" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Requests out to vendors and subs, and the prices we already know</span>
+  </div>
+
+  <div role="group" aria-label="Mock-up state" style="display: flex; margin: 14px 16px 0; background: #e8ecf3; border-radius: 10px; padding: 3px">
+    <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+      <button type="button" onClick="{{m.pick}}" aria-pressed="{{m.pressed}}" style="flex: 1; min-height: 44px; border: 0; border-radius: 8px; background: {{m.bg}}; font: inherit; font-size: 13px; font-weight: 600; color: #172033">{{m.label}}</button>
+    </sc-for>
+  </div>
+  <span style="padding: 6px 16px 0; font-size: 12px; color: #5b6578">Mock-up switch, not part of the page: the build has no requests out on 9/3.</span>
+
+  <sc-if value="{{empty}}" hint-placeholder-val="{{true}}">
+    <div style="margin: 14px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+      <b style="font-size: 15px">No requests out</b>
+      <span style="font-size: 14px; line-height: 1.45; color: #5b6578">Two subcontracts over $2,500 on the Buy Board have no bids asked: Demolition & disposal ($19,850) and Exterior — scaffold, brick mold, paint ($12,300), both 121 State Street.</span>
+      <a href="BuyBoard.dc.html" style="display: flex; align-items: center; min-height: 44px; font-size: 14px; font-weight: 600">Open Them on the Buy Board</a>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{asked}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px">
+      <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You</span>
+      <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{rfqCount}}</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px">
+      <sc-for list="{{rfqs}}" as="q" hint-placeholder-count="2">
+        <div style="background: #fff; border: 1px solid {{q.border}}; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 12px; font-weight: 700; color: #5b6578">{{q.kind}}</span>
+            <b style="font-size: 15px; line-height: 1.3">{{q.title}}</b>
+            <span style="font-size: 13px; color: #5b6578">{{q.job}}</span>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 4px">
+              <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Budget</span><b style="font-size: 13px">{{q.budget}}</b></span>
+              <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Quotes In</span><b style="font-size: 13px">{{q.inOf}}</b></span>
+              <span style="display: flex; flex-direction: column"><span style="font-size: 11px; color: #5b6578">Due</span><b style="font-size: 13px; color: {{q.dueTone}}">{{q.due}}</b></span>
+            </div>
+          </div>
+          <sc-for list="{{q.vendors}}" as="v" hint-placeholder-count="3">
+            <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; display: flex; gap: 8px; align-items: center; min-height: 44px; box-sizing: border-box">
+              <span style="flex: 1; font-size: 14px">{{v.name}}</span>
+              <span style="font-size: 13px; color: {{v.tone}}">{{v.state}}</span>
+            </div>
+          </sc-for>
+          <div style="padding: 9px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578; line-height: 1.4">{{q.check}}</div>
+          <div style="padding: 10px 14px 12px; border-top: 1px solid #eef1f6; display: flex; gap: 8px; flex-wrap: wrap">
+            <sc-for list="{{q.acts}}" as="a" hint-placeholder-count="3">
+              <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: {{a.border}}; background: {{a.bg}}; font: inherit; font-size: 14px; font-weight: 600; color: {{a.color}}">{{a.t}}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="padding: 20px 16px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Prices We Know · last 90 days, every store</div>
+  <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+    <sc-for list="{{prices}}" as="p" hint-placeholder-count="2">
+      <div style="padding: 12px 14px; border-top: {{p.line}}; display: flex; flex-direction: column; gap: 4px">
+        <div style="display: flex; gap: 8px; align-items: baseline"><b style="flex: 1; font-size: 15px">{{p.item}}</b><b style="font-size: 15px; color: #15803d">{{p.best}}</b></div>
+        <span style="font-size: 13px; color: #5b6578">Best: {{p.where}}</span>
+        <span style="font-size: 13px; line-height: 1.4">{{p.others}}</span>
+      </div>
+    </sc-for>
+    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6"><a href="#" style="display: flex; align-items: center; min-height: 44px; font-size: 14px">Search Every Price</a></div>
+  </div>
+  <span style="padding: 10px 16px 24px; font-size: 13px; line-height: 1.45; color: #5b6578">The same prices sit on each Buy Board line and on the order sheet, so nobody pays more than last time without a reason.</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1150}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { mode: 'today' }; }
+  renderVals() {
+    const M = this.state.mode;
+    const modes = [['today', 'Today, 9/3'], ['asked', 'After Ask for Bids']].map(([id, label]) => ({ label, pressed: M === id ? 'true' : 'false', bg: M === id ? '#fff' : 'transparent', pick: () => this.setState({ mode: id }) }));
+    const sec = { t: 'Chase', border: '1px solid #c9d1e0', bg: '#fff', color: '#172033' };
+    const rfqs = [
+      { kind: 'BIDS · SUBCONTRACT', title: 'Demolition & disposal', job: '121 State Street · EST-2026-014 · needed before Demo & subfloor prep starts', budget: '$19,850', inOf: '0 of 3', due: '[DUE DATE]', dueTone: '#b45309', border: '#fde68a',
+        vendors: [{ name: '[DEMO SUB 1]', state: 'Asked, not opened', tone: '#5b6578' }, { name: '[DEMO SUB 2]', state: 'Opened, no reply', tone: '#b45309' }, { name: '[DEMO SUB 3]', state: 'Asked, not opened', tone: '#5b6578' }],
+        check: 'Angel checks the scope beside the bids, not before them. Sent from procurement@ with Chen in copy.',
+        acts: [sec, { t: 'Edit', border: '1px solid #c9d1e0', bg: '#fff', color: '#172033' }, { t: 'Cancel', border: '1px solid #c9d1e0', bg: '#fff', color: '#172033' }] },
+      { kind: 'BIDS · SUBCONTRACT', title: 'Exterior — scaffold, brick mold, paint', job: '121 State Street · EST-2026-014', budget: '$12,300', inOf: '2 of 3', due: '[DUE DATE]', dueTone: '#172033', border: '#dfe4ee',
+        vendors: [{ name: '[EXTERIOR SUB 1]', state: '[BID AMOUNT]', tone: '#172033' }, { name: '[EXTERIOR SUB 2]', state: '[BID AMOUNT]', tone: '#172033' }, { name: '[EXTERIOR SUB 3]', state: 'Asked, no reply', tone: '#b45309' }],
+        check: 'Two bids in: level them by scope before the third lands, or award with a reason. Insurance is checked at award; nobody goes on site without it.',
+        acts: [{ t: 'Level the Bids', border: '0', bg: '#2563eb', color: '#fff' }, sec] }
+    ];
+    const prices = [
+      { item: '2x4x8 KD studs, each', best: '$3.98', where: 'Brooklyn Lumber — Red Hook, Wed, Sep 2', others: 'Home Depot — Gowanus $4.27 · Lowe’s — Gowanus $4.38 · Home Depot — Flatbush $4.47' },
+      { item: '3/4 in CDX plywood 4x8, per sheet', best: '$54.90', where: 'Brooklyn Lumber — Red Hook, Wed, Sep 2', others: 'Home Depot — Flatbush $62.40 · Home Depot — Gowanus $62.95' }
+    ].map((p, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, p));
+    return { modes, empty: M === 'today', asked: M === 'asked', rfqs, rfqCount: rfqs.length, prices };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: Job Profitability</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+  <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; padding: 18px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <b style="font-size: 16px; padding: 0 12px 14px">SmartDesigns</b>
+    <sc-for list="{{rail}}" as="r" hint-placeholder-count="13">
+      <span style="display: flex; align-items: center; min-height: 38px; padding: 0 12px 0 {{r.pad}}; border-radius: 8px; background: {{r.bg}}; font-size: {{r.fs}}; color: {{r.color}}"><span style="flex: 1">{{r.label}}</span><b style="font-size: 12px; color: #fca5a5">{{r.count}}</b></span>
+    </sc-for>
+  </nav>
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px; display: flex; align-items: flex-end; gap: 16px">
+      <div style="flex: 1">
+        <b style="font-size: 26px">Job Profitability</b>
+        <div style="font-size: 14px; color: #5b6578; margin-top: 4px">Every job: what it will make, and where its billing stands · as of Thu, Sep 3 · Consolidated</div>
+        <div style="display: flex; gap: 8px; margin-top: 14px">
+          <sc-for list="{{chips}}" as="ch" hint-placeholder-count="2">
+            <button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid {{ch.border}}; background: {{ch.bg}}; color: {{ch.color}}; font: inherit; font-size: 13px; font-weight: 600">{{ch.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 1px solid #c9d1e0; border-radius: 10px; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Excel</button>
+    </div>
+    <div style="padding: 24px 32px; display: flex; gap: 20px; align-items: flex-start">
+      <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+            <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <span style="font-size: 12px; color: #5b6578">{{t.k}}</span><b style="font-size: 22px">{{t.v}}</b><span style="font-size: 12px; color: #5b6578">{{t.sub}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="display: grid; grid-template-columns: {{cols}}; gap: 10px; font-size: 12px; color: #5b6578; padding: 10px 18px; border-bottom: 1px solid #eef1f6">
+            <sc-for list="{{heads}}" as="h" hint-placeholder-count="8"><span style="text-align: {{h.al}}">{{h.t}}</span></sc-for>
+          </div>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+            <div style="display: grid; grid-template-columns: {{cols}}; gap: 10px; align-items: center; padding: 11px 18px; border-top: {{r.line}}; font-size: 14px; font-weight: {{r.fw}}">
+              <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="8"><span style="text-align: {{c.al}}; color: {{c.tone}}">{{c.t}}</span></sc-for>
+            </div>
+          </sc-for>
+          <div style="padding: 10px 18px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578">{{foot}}</div>
+        </div>
+      </section>
+      <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">Needs You · 3</b></div>
+          <sc-for list="{{needs}}" as="n" hint-placeholder-count="3">
+            <div style="padding: 10px 16px; border-top: {{n.line}}; display: flex; flex-direction: column; gap: 2px"><b style="font-size: 14px">{{n.title}}</b><span style="font-size: 13px; color: #5b6578">{{n.why}}</span></div>
+          </sc-for>
+        </div>
+        <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #eef1f6"><b style="font-size: 15px">The Company, After Overhead</b><div style="font-size: 12px; color: #5b6578">Year to date</div></div>
+          <sc-for list="{{company}}" as="c" hint-placeholder-count="5">
+            <div style="padding: 8px 16px; border-top: {{c.line}}; display: flex"><span style="flex: 1; font-size: 14px; font-weight: {{c.fw}}">{{c.k}}</span><span style="font-size: 14px; font-weight: {{c.fw}}">{{c.v}}</span></div>
+          </sc-for>
+          <div style="padding: 10px 16px; border-top: 1px solid #eef1f6; font-size: 12px; color: #5b6578">P&amp;L job cost $108,494 against the jobs' own $113,083: [REASON]. <a href="Statements.dc.html">Open the P&amp;L</a></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { view: 'Margin' }; }
+  renderVals() {
+    const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', fw: '400' }, r));
+    const R = (label, o) => Object.assign({ label, pad: '12px', bg: 'transparent', fs: '15px', color: '#e5e9f2', count: '' }, o || {});
+    const rail = [
+      R('Today', { count: '6' }), R('Tasks', { count: '12' }), R('Messages', { count: '1' }), R('Projects'), R('Purchasing'), R('Sales and Clients'), R('Accounting'), R('Design'),
+      R('Reports', { bg: '#1b2640' }),
+      R('Job Profitability', { pad: '32px', bg: '#2a3a5e', fs: '14px', color: '#fff' }),
+      R('Cash', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Financial Statements', { pad: '32px', fs: '14px', color: '#c5cde0' }),
+      R('Report Builder', { pad: '32px', fs: '14px', color: '#c5cde0' })
+    ];
+    const V = this.state.view, Rd = '#b91c1c', A = '#b45309', K = '#172033', N = '#5b6578';
+    const chips = ['Margin', 'Work in Progress'].map((l) => ({ label: l, on: V === l ? 'true' : 'false', bg: V === l ? '#172033' : '#fff', color: V === l ? '#fff' : '#172033', border: V === l ? '#172033' : '#c9d1e0', pick: () => this.setState({ view: l }) }));
+    const tiles = [
+      { k: 'Contracts', v: '$725,700', sub: '3 jobs with a contract · $1,850 CO pending' },
+      { k: 'Margin at Completion', v: '$196,039', sub: '27% of contract' },
+      { k: 'Over-Billed (WIP)', v: '$156,274', sub: 'under-billed $0' },
+      { k: 'Backlog', v: '$582,941', sub: 'contract less earned' }
+    ];
+    const c = (t, al, tone) => ({ t, al: al || 'right', tone: tone || K });
+    const views = {
+      'Margin': {
+        cols: 'minmax(0, 1.6fr) 100px 100px 100px 100px 100px 110px 80px',
+        heads: ['Job', 'Contract', 'Billed', 'Collected', 'Cost to Date', 'Projected Cost', 'Margin', 'Bid'].map((t, i) => ({ t, al: i ? 'right' : 'left' })),
+        rows: [
+          { cells: [c('121 State Street · Kleins · 14% done', 'left'), c('$491,200'), c('$253,684'), c('$169,750'), c('$105,084'), c('$388,888'), c('$102,313 · 21%', 'right', A), c('22%')] },
+          { cells: [c('140 Prospect Place · Jessop · design', 'left'), c('$191,800'), c('$24,000'), c('$0'), c('$967'), c('$124,670'), c('$67,130 · 35%'), c('35%')] },
+          { cells: [c('45 Cranberry St · Rivera · design', 'left'), c('$42,700'), c('$21,350'), c('$0'), c('$7,032'), c('$16,104'), c('$26,596 · 62%'), c('62%')] },
+          { cells: [c('206 Lenox · 3rd floor turnover · no contract', 'left'), c('—'), c('—'), c('—'), c('$0'), c('—'), c('cost only', 'right', N), c('—')] },
+          { fw: '700', cells: [c('All jobs', 'left'), c('$725,700'), c('$299,034'), c('$169,750'), c('$113,083'), c('$529,662'), c('$196,039 · 27%'), c('')] }
+        ],
+        foot: 'Collected means a bank line backs it: Rivera\'s $21,350 is recorded, not in the bank. 206 Lenox shows $0 while crew hours and a scaffold are on site: [NOT IN JOB COST YET].'
+      },
+      'Work in Progress': {
+        cols: 'minmax(0, 1.5fr) 100px 100px 90px 100px 100px 120px 130px 110px',
+        heads: ['Job', 'Contract', 'Cost to Date', 'Cost Basis', 'Earned', 'Billed', 'Over-Billed (WIP)', 'Billed Ahead, Field', 'Backlog'].map((t, i) => ({ t, al: i ? 'right' : 'left' })),
+        rows: [
+          { cells: [c('121 State Street · measured 14%', 'left'), c('$491,200'), c('$105,084'), c('25%'), c('$122,626'), c('$253,684'), c('$131,058', 'right', Rd), c('$66,470'), c('$368,574')] },
+          { cells: [c('140 Prospect Place', 'left'), c('$191,800'), c('$967'), c('1%'), c('$1,488'), c('$24,000'), c('$22,512', 'right', A), c('$0'), c('$190,312')] },
+          { cells: [c('45 Cranberry St', 'left'), c('$42,700'), c('$7,032'), c('44%'), c('$18,645'), c('$21,350'), c('$2,705'), c('[PLACEHOLDER]'), c('$24,055')] },
+          { fw: '700', cells: [c('All jobs', 'left'), c('$725,700'), c('$113,083'), c('21%'), c('$142,759'), c('$299,034'), c('$156,274'), c(''), c('$582,941')] }
+        ],
+        foot: 'Ties to the cent: net over-billing $156,274.27 is billed less earned, job by job. It posts to 2500 at the close (August: $64,008 on the month-end schedule). Billed is gross, before retainage.'
+      }
+    };
+    const v = views[V];
+    const needs = ln([
+      { title: '121 State Street: 20.83% at completion, bid 21.81%', why: 'Windows $3,800 over budget: WW-2026-118 on a $29,700 PO.' },
+      { title: 'Job margins leave out $14,072 of payroll', why: 'Payroll 8/17 to 8/28 is 88% on Unallocated Labor.' },
+      { title: 'Over-Billed (WIP) $156,274 on 3 jobs', why: 'The controller reconciles it with Billed Ahead of the Work before the close.' }
+    ]);
+    const company = ln([
+      { k: 'Revenue, earned', v: '$142,759' }, { k: 'Job cost', v: '$108,494' }, { k: 'Gross profit, 24%', v: '$34,265', fw: '600' },
+      { k: 'Overhead, incl. $14,841 not yet coded', v: '$39,595' }, { k: 'Net profit, −4%', v: '−$5,330', fw: '700' }
+    ]);
+    return { rail, chips, tiles, cols: v.cols, heads: v.heads, rows: ln(v.rows), foot: v.foot, needs, company };
+  }
+}
+</script>
+</body>
+</html>
