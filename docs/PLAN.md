@@ -10,6 +10,14 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Every menu through the ten questions (Alan, 11-03 night: "Keep doing this and updating the site till it's done")
+The bar is docs/mockups/QUESTIONS.md. Each module is mocked up first, reviewed against the ten questions, then built and deployed once it passes the full tier. No approvals are asked overnight; real-people actions still wait for Alan.
+- Projects (the job, 8 tabs, one +) and the menu: spec approved (docs/mockups/job-structure/); two lanes building.
+- Purchasing and Design: mock-up in progress (docs/mockups/purchasing/, design/).
+- Accounting and Reports: mock-up in progress (docs/mockups/accounting/, reports/).
+- Today, Tasks, Messages; Sales and Clients; Company and Settings: mock-up in progress (docs/mockups/today/, sales/, company/).
+- Order of builds: job and menu merge and deploy first; then module lanes, two at a time, never sharing files.
+
 ## Overnight 10-26 (Alan asleep: "check on all the runs so they aren't stalled")
 - A check-in every 40 minutes: every run's log growth, slot holders past their timeout, the lanes; anything hung is restarted and logged here.
 - On green: deploy the import fix, the boot fix and the loop's eyes (one build, one net, the month and the screen walk); then tell Alan it is safe to import.
