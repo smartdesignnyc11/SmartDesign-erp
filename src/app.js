@@ -35746,7 +35746,7 @@ function setAsideWeeks(weeks) {
 // burdened rates that no posted payroll run has put on the job (they post when the run is split to jobs, or as accrued
 // wages at the close). jobFin's actual is posted plus not yet posted, and the parts add up to it to the cent: 121 State
 // $101,693.94 posted plus $3,390.01 clocked is the job's $105,083.95. Bills are a labelled part, never called job cost.
-function jobCost(p, range) {
+function jobCostPosted(p, range) {
   const R = range || ["", today()],
     J = jobFin(p, R);
   let rows = [];
@@ -35781,7 +35781,7 @@ function jobCost(p, range) {
 function jobCostTie(range) {
   const R = range || ["2026-01-01", today()],
     S = rpPL(R),
-    list = (DB.projects || []).map((p) => jobCost(p, R)).filter((x) => Math.abs(x.onJob) >= 0.005 || Math.abs(x.posted) >= 0.005),
+    list = (DB.projects || []).map((p) => jobCostPosted(p, R)).filter((x) => Math.abs(x.onJob) >= 0.005 || Math.abs(x.posted) >= 0.005),
     plCost = r2((S.rows || []).reduce((a, r) => a + (+r.cost || 0), 0) + (+(S.none || {}).cost || 0)),
     noJob = r2(+(S.none || {}).cost || 0),
     jobs = r2(list.reduce((a, x) => a + x.onJob, 0)),

@@ -22,6 +22,14 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # shared with the server's nightly run) and src/loop.js (the loop in the app, BACKLOG §1.19 and §1.32) ride before them.
 SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/teamws.js', 'src/meetdoc_core.js', 'src/mtreview.js', 'src/p0money.js', 'src/phonerows.js', 'src/p2fix.js', 'src/p2nav.js', 'src/buyboard.js', 'src/clientdocs.js', 'src/p2money.js', 'src/today2.js', 'src/fbsession.js', 'src/w1trust.js', 'src/jobpage.js', 'src/acctpages.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
+# One script, one global scope: a second top-level `function name(` silently replaces the first everywhere, including the
+# callers that meant the first (11-03: the Accounting lane's jobCost(p, range) replaced the Costs page's jobCost(p) and
+# the job's Budget threw on two jobs). The override pattern reassigns (`name = function`), never redeclares.
+import collections, re
+_decl = collections.Counter(re.findall(r'(?m)^function\s+([A-Za-z0-9_$]+)\s*\(', js))
+_dup = sorted(n for n, k in _decl.items() if k > 1)
+if _dup:
+    sys.exit('a top-level function is declared twice (the second replaces the first everywhere): ' + ', '.join(_dup))
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
         sys.exit(f + ' has a syntax error; not building')

@@ -31,7 +31,7 @@ definition and compared with what prints it (--figure money):
   INV SAFE TO SPEND       the set-aside is cash received with a bank line less earned, job by job, never below $0, and
                           each forecast week carries it; Safe to Spend is the lower of ours today and that low; sending
                           an unpaid invoice moves it by $0; a payment moves it by the cash less what it sets aside
-  INV ONE JOB COST        jobCost's posted cost is the P&L by project row; posted plus not yet posted is the job's own
+  INV ONE JOB COST        jobCostPosted's posted cost is the P&L by project row; posted plus not yet posted is the job's own
                           figure; its parts add up; jobs posted plus no job is the P&L's job cost
   INV ONE BILLED AHEAD    Billed Ahead of the Work is the lines above zero; every row and finding prints that, never a net
   INV ONE TO BILL         every finding that says bill names the job's or line's to-bill figure (toBill)
@@ -804,9 +804,9 @@ INV_MONEY_JS = """
     say('safe', near(Y.sa - X.sa, want) && near(Y.ours - X.ours, (Y.cash - X.cash) - want), `paid ${bal} on 140 Prospect (earned ${earned}): set-aside ${r2(Y.sa - X.sa)}, ours ${r2(Y.ours - X.ours)}, cash ${r2(Y.cash - X.cash)}`, `set-aside +${want}`);
   } else say('safe', false, 'no open invoice on 140 Prospect', 'the seed has INV-2026-D140-R open');
   // 2. one job cost: the posted cost is the P&L by project row; posted plus not yet posted is the job's own figure
-  if (typeof jobCost !== 'function' || typeof jobCostTie !== 'function') { say('jobcost', false, 'no one job-cost function (jobCost, jobCostTie)', 'one function every screen reads'); return out; }
+  if (typeof jobCostPosted !== 'function' || typeof jobCostTie !== 'function') { say('jobcost', false, 'no one job-cost function (jobCostPosted, jobCostTie)', 'one function every screen reads'); return out; }
   DB.projects.forEach(p => {
-    const C = jobCost(p), J = jobFin(p);
+    const C = jobCostPosted(p), J = jobFin(p);
     const S = rpPL(['2000-01-01', today()]), row = (S.rows || []).find(x => x.id === p.id);
     if (!row && !(J.actual > 0)) return;
     say('jobcost', near(C.posted, row ? row.cost : 0), `${p.project.name}: jobCost posted ${C.posted}`, `P&L by project ${row ? row.cost : 0}`);
