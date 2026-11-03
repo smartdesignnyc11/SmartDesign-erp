@@ -2,6 +2,13 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## 2026-11-03: the approved job structure and menu, then every module (Alan: "Keep doing this and updating the site till it's done")
+| Lane | Scope | Design gate | Status |
+|---|---|---|---|
+| job structure | docs/mockups/job-structure: the job header with one +, 8 tabs (Overview, Schedule, Contract and Billing, Budget, Purchasing, Decisions, Site, Documents), each this job only; `src/jobpage.js`, one way into a job (`jpOpenJob`) | Extends `MN_JOBS`, `MN_ALIAS`, `jobFin`, `lineProfit`, the Buy Board (`bbProj`), the issue record for RFIs; no new store | Reviewed 11-03: merge after six fixes (hidden cards, + by role, recorded-not-banked line, not-on-a-line row, % over wording, phone overflow check). Fixing |
+| menu | The 11-03 menu, one declaration filtered by ROLE_VIEWS; groups open on their name; badges only where the page shows the count; More removed | Extends `MENU`/`ROLE_VIEWS`; folds the p2fix, p2nav, today2 menu wrappers | Reviewed 11-03: merge after fixes ("and" not "&" with a lint; merge the job lane in and resolve 13+2 conflicts; no designer excuse in menu_test). Fixing; main session runs the untested suites and the full tier on the merged head |
+| module lanes (next) | Accounting money definitions (BACKLOG 1.35) with Billing, Banking, Bills and Payroll; Purchasing and Design; then Today, Sales and Company; then Reports. Specs: docs/mockups/<module>/SPEC.md, each with a Registry section | Each SPEC names the noun, list and queue entries it extends (BACKLOG 1.16) | Waiting on the job and menu deploy. Two at a time, no shared files |
+
 ## 2026-10-21: every role sees what it needs, early, in one place (Alan's ask)
 Spec: BACKLOG §1.34. Plan for his yes: `docs/CONSOLIDATION.md`.
 
