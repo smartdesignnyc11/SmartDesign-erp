@@ -456,8 +456,12 @@ function puHost(v) {
 // goes home before each draw and when the old page shows (a record open)
 const PU_MOVE = { vendors: ["btn-newvendor"], po: ["btn-newpo"] },
   PU_BTN = {};
-function puBtnHome() {
-  Object.values(PU_BTN).forEach((x) => {
+// v: only that page's buttons (dropping another page never takes this page's button away)
+function puBtnHome(v) {
+  Object.keys(PU_BTN)
+    .filter((id) => !v || (PU_MOVE[v] || []).includes(id))
+    .map((id) => PU_BTN[id])
+    .forEach((x) => {
     x.b.classList.toggle("primary", x.primary);
     x.b.parentElement !== x.home && x.home.appendChild(x.b);
   });
@@ -489,7 +493,7 @@ function puHideOld(sec, hide0, v) {
 function puDrop(v) {
   const sec = document.getElementById("v-" + v);
   if (!sec) return;
-  puBtnHome(), puHideOld(sec, !1);
+  puBtnHome(v), puHideOld(sec, !1);
   sec.classList.remove("pu-host", "pu-full");
   const h = sec.querySelector(":scope > .pu");
   h && h.remove();
@@ -734,7 +738,7 @@ function puDraw() {
   if (!host) return;
   puOpenRows = {};
   try {
-    puBtnHome(), (host.innerHTML = PU_PAGES[v]()), puBtnMove(v, host);
+    puBtnHome(v), (host.innerHTML = PU_PAGES[v]()), puBtnMove(v, host);
   } catch (e) {
     console.warn("purchasing page", v, e), puDrop(v);
   }

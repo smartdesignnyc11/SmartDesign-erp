@@ -434,7 +434,8 @@ document.addEventListener("change", (e) => {
 (function pdRegister() {
   "object" == typeof OC_BADGE && ((OC_BADGE.sel = { n: () => (pdIsDesigner() ? pdSelMine().length : 0) }), (OC_BADGE.plans = { n: () => (pdIsDesigner() ? pdDrawRows().filter((x) => "mine" === x.b).length : 0) }));
   // the old Design pages' homes: the overview is All Projects' In Design filter; Project Board and Filings light Drawings
-  "object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovstudio: "ovjobs", sboard: "plans", sfile: "plans", sdraw: "plans" });
+  "object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovstudio: "ovjobs", sboard: "plans", sfile: "plans", sdraw: "plans", sel: "jdec" });
+  // (for a role with no Design menu, the PM and the coordinator, a selection opens under the job's Decisions, where its approval lives)
   "object" == typeof OC_RETIRED && OC_RETIRED.ovstudio && delete OC_RETIRED.ovstudio;
   const L = { sel: "Selections", plans: "Drawings" };
   [void 0 !== NAV_LABELS ? NAV_LABELS : null, void 0 !== IA_LABELS ? IA_LABELS : null].forEach((x) => x && Object.assign(x, L));
