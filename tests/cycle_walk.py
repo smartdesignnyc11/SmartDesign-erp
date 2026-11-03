@@ -413,7 +413,9 @@ class Person:
 
     def go(self, label, expect_menu=True):
         """the menu entry a person reads in their menu (the rail, or the tab bar and More on the phone)"""
-        if expect_menu and self.scr.text and self.scr.menu and not any(norm(re.sub(r'\s+\d+$', '', m)) == norm(label) for m in self.scr.menu):
+        # "Group > Page" (the 11-03 menu lists a group's pages under its name): the group is what the menu shows
+        top = re.split(r'\s*>\s*', label)[0]
+        if expect_menu and self.scr.text and self.scr.menu and not any(norm(re.sub(r'\s+\d+$', '', m)) == norm(top) for m in self.scr.menu):
             self.expect(False, f'"{label}" in the menu', f'the menu has: {" · ".join(self.scr.menu)}')
         if self.scr.sheet: self._act('back')   # a sheet left open is closed first, as a person does
         self.last_control = f'menu: {label}'
@@ -626,7 +628,8 @@ def inquiry_to_won(p, subject, client, value, close, note=None):
     p.tap('Apply', after='New lead', expect='New Lead from This Message')
     p.do([('type', 'Name', client), ('pick', 'Building', 'Townhouse'), ('type', 'Due', '2026-09-04'), ('tap', 'New Lead')])
     p.expect('is a lead' in p.scr.toast, 'a toast that the lead was made, with Open', p.scr.toast)
-    p.go('Sales')
+    # the 11-03 menu: Sales and Clients opens on its Pipeline (the old Sales page)
+    p.go('Sales and Clients')
     p.tap_row(client, expect='Convert to Opportunity')
     p.tap('Convert to Opportunity', expect='Opportunity Name')
     p.do([('type', 'Value', str(int(value))), ('tap', 'Convert')])
@@ -706,8 +709,7 @@ def x1_owner_proposal_first(p):
              f'Project = "{f.value if f else ""}", options {{{"|".join(f.opts) if f else ""}}}')
     num = (re.findall(r'EST-\d{4}-\d+', p.scr.text) or [''])[0]
     new_project(p, PROBE['job'], PROBE['addr'], JOB['start'], PROBE['client'])
-    p.go('Sales')
-    p.tap('Estimates', exact=True)
+    p.go('Sales and Clients > Estimates')   # the 11-03 menu: the firm's Estimates under Sales and Clients
     p.tap_row(num or PROBE['client'], after='Search', expect='Estimate EST-')
     f = header_field(p, 'Project')
     p.expect(f is not None and norm(f.value) == norm(PROBE['job']), f'{num} shows its job, {PROBE["job"]}, once the job is open', f'Project = "{f.value if f else ""}"')
@@ -893,8 +895,7 @@ def record_signature(p):
     p.expect(bool(re.search(r'record (the )?(client )?approval|approved|signed .*EST-|mark .*approved', p.scr.text[p.scr.text.find('accept it as written'):], re.I)),
              f'the signed copy is read as {num} approved, with a proposal to record it (not only a note)',
              p.scr.excerpt('accept it as written', 10))
-    p.go('Sales')
-    p.tap('Estimates', exact=True)
+    p.go('Sales and Clients > Estimates')   # the 11-03 menu: the firm's Estimates under Sales and Clients
     p.tap_row(num, after='Search', expect='Estimate EST-')
     if not p.scr.find('Record Client Approval'):
         p.tap('More', exact=True, after='Bill to')
@@ -1457,8 +1458,7 @@ def enter_bill(p, po, two_lines=False):
 def approve_what_arrived(p, inv, po, less, why):
     """the three-way match: the bill approved at what arrived and the rest held in dispute (the claim). Only the Owner
     approves part of a bill: the coordinator hands it over"""
-    p.go('Accounting', expect_menu=False)
-    p.tap('Bills & Payroll', exact=True)
+    p.go('Accounting > Bills & Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
     c = p.look().find('Review', after=inv, exact=True) or p.scr.row(inv)   # the bill's own row (its control comes before its words)
     if c is None: raise Stuck(f'hold {inv}', f'{inv} among the bills to approve', p.scr, 'Bills & Payroll')
     p.tap_ctl(c)
@@ -1781,7 +1781,10 @@ def j10_week_money(p):
         m = re.search(r'Payroll 8/31', sc.text)
         c = next((x for x in sc.ctls if m and x.pos > m.start() and x.action and re.match(r'^approve', norm(x.label))), None)
         if c is None:
-            sc = p.go('Approvals', expect_menu=False)
+            # the 11-03 menu: Approvals is opened from Today (its Approvals chip, then Open the Approvals Page)
+            if sc.find('Approvals', exact=True): p.tap('Approvals', exact=True)
+            if p.look().find('Open the Approvals Page', exact=True): p.tap('Open the Approvals Page', exact=True)
+            sc = p.look()
             m = re.search(r'Payroll[^\n]{0,20}8/31', sc.text)
             c = next((x for x in sc.ctls if m and x.pos > m.start() and x.action and re.match(r'^(approve|review)', norm(x.label))), None)
         if c is None: raise Stuck('the owner approves the payroll', 'the payroll from 8/31 with its Approve on the owner\'s Today or Approvals', p.scr, 'Today')
@@ -2053,8 +2056,9 @@ def button_findings(sc, rec, where, ctx, page=False):
 
 # where each role looks for these records: menu label, then the tabs under it (as each role's menu holds them)
 DANGER_SCREENS = {
-    'u_owner': [('Today',), ('Accounting', 'Bills & Payroll'), ('Sales', 'Estimates'), ('Company', 'Obligations'), ('Purchasing', 'Orders')],
-    'u_alan': [('Today',), ('Projects', 'Estimates'), ('Projects', 'Billing'), ('Purchasing', 'Orders')],
+    # the 11-03 menu: the firm's Estimates under Sales and Clients, Billing under Accounting, Obligations in the foot
+    'u_owner': [('Today',), ('Accounting', 'Bills & Payroll'), ('Sales and Clients', 'Estimates'), ('Company and Settings', 'Obligations'), ('Purchasing', 'Orders')],
+    'u_alan': [('Today',), ('Sales and Clients', 'Estimates'), ('Accounting', 'Billing'), ('Purchasing', 'Orders')],
     'u_chen': [('Today',), ('Purchasing', 'Orders')],
     'u_billing': [('Today',), ('Billing', 'Estimates'), ('Billing', 'Invoices'), ('Billing',)],
 }
@@ -2063,8 +2067,7 @@ HOLD = ('WW-2026-118', 'Paid on the Amex before approval and $3,800 over PO-2026
 
 def hold_bill(p, number, why, who):
     """the owner puts the bill on hold through its own Hold (Pilot 3 day 1: "the tap I fear most" came after this)"""
-    p.go('Accounting', expect_menu=False)
-    p.tap('Bills & Payroll', exact=True)
+    p.go('Accounting > Bills & Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
     c = p.scr.find('Review', after=number, exact=True) or p.scr.next_action(number)
     if not c: return False
     p.tap_ctl(c)
@@ -2138,8 +2141,9 @@ def danger_walk(w, devices, screens=None, hold=True, slot='work2'):
 
 
 def open_path(p, path):
-    p.go(path[0], expect_menu=False)
-    for t in path[1:]: p.tap(t, exact=True)
+    # the 11-03 menu: "Group > Page" is the group's name, then its page in the menu (else the page's own tab)
+    p.go(' > '.join(path[:2]), expect_menu=False)
+    for t in path[2:]: p.tap(t, exact=True)
     return p.scr
 
 

@@ -321,6 +321,15 @@ S.go = label => {
   }
   hit.el.click(); return { ok: true, label: hit.t };
 };
+// "Group > Page": the page under the open group (the 11-03 menu lists a group's pages under its name)
+S.goKid = label => {
+  const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
+  const K = [...document.querySelectorAll('#nav-groups .mn-kids:not([hidden]) button')];
+  const t = el => { const c = el.cloneNode(true); c.querySelectorAll('.n, svg').forEach(x => x.remove()); return norm(c.textContent || '').toLowerCase(); };
+  const hit = K.find(el => t(el) === want);
+  if (!hit) return false;
+  hit.click(); return true;
+};
 S.closeTop = () => { const ov = S.overlays(); if (!ov.length) return false; const o = ov[ov.length - 1];
   const B = [...o.querySelectorAll('button, a')].filter(vis);
   const b = B.find(x => /^(cancel|close|done|back|not now|×|x)$/i.test(norm(x.innerText || x.getAttribute('aria-label') || x.title || '')))
