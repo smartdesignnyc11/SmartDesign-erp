@@ -207,7 +207,7 @@ function fbsAdd(k, o) {
     S_.full || ((S_.full = !0), fbsBar());
     return null;
   }
-  const now = Date.now(),
+  const now = Date.now(), // wall clock: the recording's length
     e = Object.assign({ n: S_.events.length + 1, k: k, at: fbsWallIso(now), t: Math.round(now - S_.startMs) / 1000 }, o || {});
   S_.events.push(e);
   fbsPersist();
@@ -353,7 +353,7 @@ document.addEventListener(
     if (!el || !el.matches || !el.matches("input, textarea, [contenteditable]") || el.matches("input[type=checkbox], input[type=radio], input[type=file]") || el.closest("#fbs-bar, [data-fbs]")) return;
     // the length only: the value itself is never read into the log
     const len = el.isContentEditable ? (el.textContent || "").length : String(el.value || "").length,
-      now = Date.now();
+      now = Date.now(); // wall clock: the recording's length
     if (fbsTyping && fbsTyping.el === el && now - fbsTyping.last < 8000 && fbsLive.events[fbsLive.events.length - 1] === fbsTyping.e) {
       fbsTyping.e.len = len;
       fbsTyping.last = now;
@@ -492,7 +492,7 @@ function fbsStart() {
   if (!fbsStaff()) return toast("Feedback sessions are for the team");
   if (fbsLive && "recording" === fbsLive.status) return void toast("A feedback session is already recording: Finish it first");
   const me = fbsMe(),
-    now = Date.now();
+    now = Date.now(); // wall clock: the recording's length
   let r = "";
   try {
     r = role();
@@ -609,7 +609,7 @@ function fbsFinish(title) {
   const S_ = fbsLive;
   if (!S_) return;
   fbsAdd("finish");
-  const end = Date.now(),
+  const end = Date.now(), // wall clock: the recording's length
     first = S_.events.find((e) => "nav" === e.k) || {};
   const r = {
     id: S_.id,

@@ -702,7 +702,7 @@ const PA_LEAD = {
 function paPaneHtml() {
   let F = null;
   // one question, one number: the tab's count and the list below are the same rows, read once
-  "findings" === paTab && "you" === paFindSeg && ((F = paFindings()), (paFindN = { at: Date.now(), n: F.length, who: paMe().id }));
+  "findings" === paTab && "you" === paFindSeg && ((F = paFindings()), (paFindN = { at: Date.now(), n: F.length, who: paMe().id })); // wall clock: a timer on this device, never stored as a date
   const h = `<div class="ph"><div><h2>${esc(paHead())}</h2><div class="lead">${esc(PA_LEAD[paTab] || "")}</div></div></div>${paTabsHtml()}`;
   if ("findings" === paTab) {
     const S = paSegsFor();
@@ -1299,7 +1299,7 @@ paSend = function (text, opts) {
   const extra = att ? { att: paAttMeta(att), attText: String(att.text || "").slice(0, 2e4) } : void 0;
   if (paBusy && !o.next) return paQueue.push(att ? { q: q, att: att } : q), paSay("me", q, extra), save(), renderPa(), paScroll(), void toast("Next in line — I will answer it as soon as the one above is done");
   o.next || paSay("me", q, extra);
-  (paBusy = !0), (paSteps = []), (paLive = { q: q, text: "", steps: [], at: Date.now() }), (paLiveQ = q), (paStreamCut = !1), (paStopping = !1);
+  (paBusy = !0), (paSteps = []), (paLive = { q: q, text: "", steps: [], at: Date.now() }), (paLiveQ = q), (paStreamCut = !1), (paStopping = !1); // wall clock: a timer on this device, never stored as a date
   let settled = !1,
     stopped = !1;
   // Stop (the button that stands in for Send while it works, or Escape): what has streamed stays, marked stopped;
@@ -1369,17 +1369,17 @@ paSend = function (text, opts) {
     viaModel = (fallback) => {
       paStreamHooks = {
         onRound: () => {
-          paLive && ((paLive.text = ""), (paLive.at = Date.now()));
+          paLive && ((paLive.text = ""), (paLive.at = Date.now())); // wall clock: a timer on this device, never stored as a date
         },
         onText: (t) => {
-          (paStreamLast = t), !settled && paLive && ((paLive.text = t), (paLive.at = Date.now()), paLiveDraw());
+          (paStreamLast = t), !settled && paLive && ((paLive.text = t), (paLive.at = Date.now()), paLiveDraw()); // wall clock: a timer on this device, never stored as a date
         },
         onThink: () => {
-          paLive && (paLive.at = Date.now());
+          paLive && (paLive.at = Date.now()); // wall clock: a timer on this device, never stored as a date
         },
       };
       return mindAsk(q + docFor(), (step) => {
-        settled || (paSteps.push(step), paLive && (paLive.steps.push(step), (paLive.at = Date.now())), renderPa(), paScroll());
+        settled || (paSteps.push(step), paLive && (paLive.steps.push(step), (paLive.at = Date.now())), renderPa(), paScroll()); // wall clock: a timer on this device, never stored as a date
       })
         .then((r) => {
           paStreamHooks = null;
@@ -1389,7 +1389,7 @@ paSend = function (text, opts) {
         })
         .catch((e) => {
           if (((paStreamHooks = null), stopped)) return;
-          (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback);
+          (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback); // wall clock: when the model last answered
         });
     };
   setTimeout(() => {
@@ -1711,7 +1711,7 @@ function paBriefModel(fresh) {
     console.warn("assistant briefing", e);
     m = { headline: "", today: [], did: [], needs: [], chasing: [], asks: [], hidden: 0 };
   }
-  return (paBfCache = { at: Date.now(), who: me.id, m: m }), m;
+  return (paBfCache = { at: Date.now(), who: me.id, m: m }), m; // wall clock: a timer on this device, never stored as a date
 }
 const paSnoozed = (A, k) => !!(A.snooze && A.snooze[k] && A.snooze[k] > today());
 const paPmMode = () => ["pm", "owner"].includes(role());
@@ -2396,7 +2396,7 @@ const paNameHead = (w) => {
       .concat((DB.vendors || []).map((v) => v.name))
       .concat((DB.clients || []).flatMap((c) => [c.name].concat((c.contacts || []).map((k) => k.name))))
       .filter((n) => n && String(n).trim().split(/\s+/).every((w) => /^[A-Z0-9&(]/.test(w)));
-    paNameHeads = { at: Date.now(), set: new Set(L.map((n) => String(n).trim().split(/\s+/)[0].toLowerCase())) };
+    paNameHeads = { at: Date.now(), set: new Set(L.map((n) => String(n).trim().split(/\s+/)[0].toLowerCase())) }; // wall clock: a timer on this device, never stored as a date
   }
   return paNameHeads.set.has(String(w || "").toLowerCase());
 };
@@ -3289,7 +3289,7 @@ document.addEventListener(
       m = (el && A.thread.find((x) => x.id === el.dataset.pcmsg)) || A.thread.filter((x) => "a" === x.who && !x.nudge).slice(-1)[0];
     if (!m) return;
     // the offer may first ask for an address (a sheet the person fills in), so it looks for a while, then stops
-    const t0 = Date.now(),
+    const t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
       look = () => {
         const fresh = (DB.outbox || []).filter((o) => o && !seen.has(o.id) && "draft" === o.status && o.forName === paMe().name).map((o) => o.id);
         if (!fresh.length) return void (Date.now() - t0 < 9e4 && "pa" === view && setTimeout(look, 400));

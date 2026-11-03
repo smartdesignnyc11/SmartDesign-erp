@@ -2737,7 +2737,10 @@ function holidayName(d) {
   const l = (S.project.holidays || "").split("\n").find((l) => l.trim().startsWith(d));
   return l ? l.trim().split(/\s+/).slice(1).join(" ") : "";
 }
-const today = () => (S && S.project && S.project.today) || tzToday(),
+// One clock (BACKLOG section 9 item 1): before a job is current (the first boot's seeds run then), the day is the app's day
+// (appDay: the company's as-of, else the jobs' pinned day), never the wall clock's. A seed that read the wall clock here
+// stamped the range's claim and the selection checks 10-29 to 11-02 on a 9/3 demo day.
+const today = () => (S && S.project && S.project.today) || appDay(),
   task = (id) => S.tasks.find((t) => t.id === id),
   mat = (id) => S.materials.find((m) => m.id === id);
 function log(msg, src = "manual", by) {
@@ -3951,7 +3954,7 @@ function toast(msg, go, ms) {
     "mousedown",
     (e) => {
       const el = e.target && e.target.closest ? e.target.closest(sel) : null;
-      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null;
+      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null; // wall clock: a timer on this device, never stored as a date
     },
     !0,
   );
@@ -4029,7 +4032,7 @@ document.addEventListener(
   "click",
   (e) => {
     const t = e.target && e.target.closest && e.target.closest(NAV_TAB_SEL);
-    t && (navTabAt = Date.now());
+    t && (navTabAt = Date.now()); // wall clock: a timer on this device, never stored as a date
   },
   !0,
 );
@@ -8198,7 +8201,7 @@ function routeEmail(e) {
 async function checkEmail(onlyProjectId) {
   const st = $("#mail-status");
   st && (st.textContent = "Reading recent mail…"), toast("Checking email…");
-  const since = DB.lastMail ? DB.lastMail.slice(0, 10) : iso(addDays(new Date(), -14)),
+  const since = DB.lastMail ? DB.lastMail.slice(0, 10) : iso(addDays(new Date(), -14)), // wall clock: the real mailbox is read since this day
     projSummary = DB.projects
       .filter((p) => !onlyProjectId || p.id === onlyProjectId)
       .map((p) => ({
@@ -8308,7 +8311,7 @@ async function checkEmail(onlyProjectId) {
       ),
         held++;
   }
-  (DB.lastMail = new Date().toISOString()),
+  (DB.lastMail = new Date().toISOString()), // wall clock: the real mailbox's cursor
     save(),
     render(),
     st &&
@@ -11384,7 +11387,7 @@ const AI_REGISTRY = [
 async function testAI() {
   const el = $("#ai-test-out");
   el.textContent = "Testing…";
-  const t0 = Date.now(),
+  const t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     r = await ai("Reply with exactly: OK", 50, 6e4);
   el.innerHTML = r.startsWith("__ERR")
     ? `<span style="color:var(--bad)">Failed: ${esc(r.slice(6))}</span><div class="small muted">Copy this line when reporting. Everything that does not use the assistant keeps working.</div>`
@@ -22604,7 +22607,7 @@ function askTake(msg) {
 function askReplay(msg, val) {
   askMem.set(askKey(msg), { v: val });
   const el = askEl;
-  (askOn = Date.now()),
+  (askOn = Date.now()), // wall clock: a timer
     setTimeout(() => {
       try {
         el && el.isConnected && el.click();
@@ -34982,7 +34985,9 @@ function buyList(scope) {
               po = pos[0],
               lf = m.line ? lineFin(m.line) : null;
             m.line && covered.add(m.line);
-            const price = +m.cost || (lf ? lf.budget : 0),
+            // a material's price is its own (a quote, a receipt, a price book line), never its estimate line's whole budget
+            // (labour and every other material on the line): with none it reads No price yet, the line's budget beside it
+            const price = +m.cost || 0,
               vendor = m.vendor || po?.vendor || lf?.line.vendor || "",
               ordered = ["ordered", "shipped"].includes(m.status) || !!po,
               eta = m.eta || po?.expected || "";
@@ -41615,7 +41620,7 @@ async function jvPolishRun(F, key) {
     r = await ai(
       `You are the company's operations assistant — calm, specific, no hype, no emoji. Rewrite these facts as a spoken morning brief for the ${ROLE_NAMES[role()] || role()} in 4–6 short paragraphs, keep every number and name exactly, keep the greeting, end with one suggested first move. Plain text, paragraphs separated by blank lines.\n\n${lines.join("\n")}`,
     );
-  if (r.startsWith("__ERR")) return (jvPolishFail[key] = Date.now()), void console.warn("brief polish", r);
+  if (r.startsWith("__ERR")) return (jvPolishFail[key] = Date.now()), void console.warn("brief polish", r); // wall clock: a retry back-off
   (DB.company.briefCache[key] = { text: r.trim(), t: nowStamp() }), save(), "home" === view && render();
 }
 function aiReady() {
@@ -43227,7 +43232,7 @@ function timerToggle(id, label, projectId) {
     }
     localStorage.setItem(
       "studio-timer",
-      JSON.stringify({ id: id, label: label, projectId: projectId, start: Date.now() }),
+      JSON.stringify({ id: id, label: label, projectId: projectId, start: Date.now() }), // wall clock: a timer on this device, never stored as a date
     ),
       toast(`Timer started — ${label}`);
   }
@@ -51762,7 +51767,7 @@ load = async function (opts = {}) {
       (DB.txns = DB.txns || []))),
     // an empty team workspace starts from an empty firm, never from this device's stored copy (the demo)
     !remote && teamWs && (DB = twsSkeleton(window.__sdWs)),
-    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }),
+    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }), // wall clock: when the real team workspace was joined
     await loadBase_cl({ skipStorage: !!remote || teamWs });
   try {
     const pr = await Cloud.profile(),
@@ -88798,7 +88803,7 @@ if (
         mOn() &&
         (mPendingCall = {
           name: (a.textContent || "").replace(/^Call\s+/i, "").trim(),
-          at: Date.now(),
+          at: Date.now(), // wall clock: a timer on this device, never stored as a date
           view: view,
           hbObj: void 0 !== hbObj ? hbObj : null,
           hbId: void 0 !== hbOpenId && void 0 !== hbObj ? hbOpenId[hbObj] : null,
@@ -93203,7 +93208,7 @@ const TB_PROJECT_VIEWS = [
   ],
   TB_CROSS = ["studio", "sday", "proc", "sel", "port", "vendors", "inv", "req", "route", "po", "recv", "rfq"];
 function tbRealToday() {
-  return tzToday();
+  return tzToday(); // wall clock: the real day, by name
 }
 function tbIsClient() {
   return "client" === role();
@@ -106187,7 +106192,7 @@ const RP_KEY = "sdp:reports",
   RP_KEEP_DAYS = 60;
 let rpTrail = [],
   rpErrors = [],
-  rpStart = Date.now(),
+  rpStart = Date.now(), // wall clock: the session's length
   rpFrozen = null;
 const RP_PRIVATE =
     ".rp-private, .money, .amt, .num, #v-bank, #v-gl, #v-time, #v-payroll, #v-vendors, #v-clients, #v-ap, #v-verify, #v-mbown, #v-mbraise, .trail, .appr, .bank-row, .ct-body, .doc-body, input, textarea, select, [contenteditable]",
@@ -106229,9 +106234,9 @@ function rpWhere(el) {
 function rpPush(kind, what, where) {
   const last = rpTrail[rpTrail.length - 1];
   if (last && last.kind === kind && last.what === what && last.where === where)
-    return (last.n = (last.n || 1) + 1), void (last.t = Date.now());
+    return (last.n = (last.n || 1) + 1), void (last.t = Date.now()); // wall clock: the problem report records when it happened on this device
   rpTrail.push({
-    t: Date.now(),
+    t: Date.now(), // wall clock: the problem report records when it happened on this device
     kind: kind,
     what: String(what || "").slice(0, 48),
     where: String(where || "").slice(0, 30),
@@ -106258,7 +106263,7 @@ if (
   ),
   window.addEventListener("error", (e) => {
     rpErrors.push({
-      t: Date.now(),
+      t: Date.now(), // wall clock: the problem report records when it happened on this device
       m: String(e.message || "").slice(0, 140),
       at: `${String(e.filename || "")
         .split("/")
@@ -106271,7 +106276,7 @@ if (
   }),
   window.addEventListener("unhandledrejection", (e) => {
     const m = String((e.reason && e.reason.message) || e.reason || "").slice(0, 140);
-    rpErrors.push({ t: Date.now(), m: m, at: "promise" }),
+    rpErrors.push({ t: Date.now(), m: m, at: "promise" }), // wall clock: the problem report records when it happened on this device
       rpErrors.length > 5 && rpErrors.shift(),
       rpPush("broke", m.slice(0, 48), view),
       (rpFrozen = rpTrail.slice()),
@@ -107800,7 +107805,7 @@ function spdBegin() {
   try {
     min = appNowIso().slice(0, 16);
   } catch (e) {
-    min = String(Date.now());
+    min = String(Date.now()); // wall clock: a cache key only
   }
   null === s || s !== SPD.snap || min !== SPD.min
     ? (SPD.ver++, (SPD.snap = s || ""), (SPD.min = min), (SPD.memo = new Map()))
@@ -112240,7 +112245,7 @@ const csEv = (label, text, go, ref) => ({
   ];
 function csRun() {
   csInit();
-  const t0 = "object" == typeof performance && performance.now ? performance.now() : Date.now(),
+  const t0 = "object" == typeof performance && performance.now ? performance.now() : Date.now(), // wall clock: a timer
     X = csCtx(),
     facts = csScan(),
     findings = [],
@@ -112255,7 +112260,7 @@ function csRun() {
     ran.push({ id: c.id, chain: c.chain, title: c.title, rule: c.rule, n: got.length }),
       got.forEach((f) => findings.push(Object.assign({ check: c.id, chain: c.chain, rule: c.rule }, f)));
   });
-  const t1 = "object" == typeof performance && performance.now ? performance.now() : Date.now();
+  const t1 = "object" == typeof performance && performance.now ? performance.now() : Date.now(); // wall clock: a timer
   return (
     findings.sort((a, b) => (b.sev || 0) - (a.sev || 0) || String(a.chain).localeCompare(String(b.chain))),
     {
@@ -115570,7 +115575,7 @@ async function gsRun(opts) {
   const g = gsMine();
   if (!g || !gcOn()) return null;
   gsRunning = !0;
-  const t0 = Date.now(),
+  const t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [], first: !!o.first };
   for (const [k, fn] of [
     ["mail", gsGmail],
@@ -120366,7 +120371,7 @@ if ("function" == typeof mindTool) {
               : finish(a),
           )
           .catch((e) => {
-            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a);
+            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a); // wall clock: when the model last answered
           });
       });
     }, 120);
@@ -121845,7 +121850,7 @@ window.addEventListener("popstate", (e) => {
 try {
   new MutationObserver(() => {
     const d = document.getElementById("drawer");
-    d && d.classList.contains("on") && (rxDrawerAt = Date.now());
+    d && d.classList.contains("on") && (rxDrawerAt = Date.now()); // wall clock: a timer on this device, never stored as a date
   }).observe(document.getElementById("drawer"), { attributes: !0, attributeFilter: ["class"] });
 } catch (e) {}
 function rxMigrateCO() {
@@ -132028,7 +132033,7 @@ if (
       pend = null,
       force = !1;
     (cl.add = function (...a) {
-      return a.includes("on") && ((shownAt = Date.now()), clearTimeout(pend), (pend = null)), add(...a);
+      return a.includes("on") && ((shownAt = Date.now()), clearTimeout(pend), (pend = null)), add(...a); // wall clock: a timer on this device, never stored as a date
     }),
       (cl.remove = function (...a) {
         if (force || !a.includes("on") || !t.querySelector("a, button")) return rm(...a);
@@ -132151,7 +132156,7 @@ if (
     "click",
     (e) => {
       const b = e.target.closest && e.target.closest("button, .btn, [role=button]");
-      lkPress = b ? { b: b, at: Date.now() } : null;
+      lkPress = b ? { b: b, at: Date.now() } : null; // wall clock: a timer on this device, never stored as a date
     },
     !0,
   ),
@@ -132162,7 +132167,7 @@ if (
         e.target &&
         e.target.matches &&
         e.target.matches("input, select") &&
-        (lkPress = { b: e.target, at: Date.now() });
+        (lkPress = { b: e.target, at: Date.now() }); // wall clock: a timer on this device, never stored as a date
     },
     !0,
   ),
@@ -132268,7 +132273,7 @@ if (
 }
 function lkPinned() {
   try {
-    return today() !== tzToday();
+    return today() !== tzToday(); // wall clock: is the day pinned
   } catch (x) {
     return !1;
   }
@@ -148040,7 +148045,7 @@ let rcToastAt = 0;
 if ("function" == typeof toast) {
   const base = toast;
   toast = function () {
-    return (rcToastAt = Date.now()), base.apply(this, arguments);
+    return (rcToastAt = Date.now()), base.apply(this, arguments); // wall clock: a timer on this device, never stored as a date
   };
 }
 if ("function" == typeof thCoBar) {
@@ -150329,7 +150334,7 @@ function rcPressed(e) {
   )
     return;
   if (rcPress && Date.now() - rcPress.at < 50) return;
-  const at = Date.now(),
+  const at = Date.now(), // wall clock: a timer on this device, never stored as a date
     snap = rcSnap();
   (rcPress = { at: at }),
     setTimeout(() => {
@@ -150363,7 +150368,7 @@ if (
         ok.addEventListener(
           "click",
           () => {
-            const n0 = Date.now(),
+            const n0 = Date.now(), // wall clock: a timer
               tryFocus = () => {
                 const t = document.querySelector('.view.on .docwrap [data-d="title"]');
                 if (t) {
@@ -154325,7 +154330,7 @@ if ("function" == typeof hbDateWindow) {
   const base = toast;
   toast = function () {
     try {
-      rcToastAt = Date.now();
+      rcToastAt = Date.now(); // wall clock: a timer on this device, never stored as a date
     } catch (e) {}
     return base.apply(this, arguments);
   };
@@ -154334,7 +154339,7 @@ if ("function" == typeof hbDateWindow) {
   const base = toastDone;
   toastDone = function () {
     try {
-      rcToastAt = Date.now();
+      rcToastAt = Date.now(); // wall clock: a timer on this device, never stored as a date
     } catch (e) {}
     return base.apply(this, arguments);
   };
@@ -165397,7 +165402,7 @@ function dlDraft(p, d) {
       (c.subsOn || []).forEach((x) => (x.touched = !0)),
       (c.step = 0),
       (c.editing = "submitted" === ex.status),
-      (c.startedMs = Date.now()),
+      (c.startedMs = Date.now()), // wall clock: a timer on this device, never stored as a date
       (DB.field.dlDraft[key] = c);
     return dlSyncSite(c, p);
   }
@@ -165451,7 +165456,7 @@ function dlDraft(p, d) {
       date: d,
       v: 2,
       step: 0,
-      startedMs: Date.now(),
+      startedMs: Date.now(), // wall clock: a timer on this device, never stored as a date
       weather: "",
       temp: "",
       weatherSrc: "manual",
@@ -167758,7 +167763,7 @@ function igFindByText(msg) {
           igPressRx.test(el.textContent || el.value || ""))
       )
         try {
-          igPress = { at: Date.now(), snap: igSigSnap() };
+          igPress = { at: Date.now(), snap: igSigSnap() }; // wall clock: a timer on this device, never stored as a date
         } catch (err) {
           igPress = null;
         }
@@ -167849,7 +167854,7 @@ let igPay = null;
       }
     } catch (e) {}
     const r = base.apply(this, arguments),
-      at = Date.now();
+      at = Date.now(); // wall clock: a timer on this device, never stored as a date
     return (
       setTimeout(() => {
         try {
@@ -173708,7 +173713,7 @@ AG_FIN.unshift(
     re: /\bverif(y|ies|ied|ication)\b|\btamper(ed|ing)?\b|\bchain (intact|sealed|ok)\b/,
     kind: "money",
     run(P) {
-      const t0 = Date.now();
+      const t0 = Date.now(); // wall clock: a timer on this device, never stored as a date
       let V = [];
       try {
         V = truthVerifyAll();
@@ -197730,7 +197735,7 @@ function fndFlash(name, sel, quiet) {
 // a highlight outlives the render that follows a save (the next tap's render used to wipe it)
 let fndHot = [];
 function fndRehot() {
-  const t = Date.now();
+  const t = Date.now(); // wall clock: a timer on this device, never stored as a date
   (fndHot = fndHot.filter((h) => h.until > t)),
     fndHot.forEach((h) => {
       const root = fndRoot();
@@ -197811,7 +197816,7 @@ function fndArm(soft) {
     // staff only: the client's portal shows what a client does on it, and these lists are not theirs to open
     if (!DB || !fndUid() || "client" === role()) return void (fndBase = null);
     const now = fndKeys(),
-      t = Date.now();
+      t = Date.now(); // wall clock: a timer on this device, never stored as a date
     // what the last tap made before its toast (a sheet's second tap comes first) is carried, not dropped
     fndBase && now.forEach((k) => fndBase.has(k) || fndPending.set(k, t));
     (fndBase = now), (fndArmAt = t);
@@ -197825,7 +197830,7 @@ const fndFocusEl = (root) =>
 function fndSettle() {
   if (!fndBase || !DB) return;
   const now = fndKeys(),
-    t0 = Date.now(),
+    t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     fresh = [...new Set([...now].filter((k) => !fndBase.has(k)).concat([...fndPending].filter(([k, t]) => t0 - t < 1e4 && now.has(k)).map(([k]) => k)))];
   fndPending.clear();
   if (!fresh.length) return;
@@ -197833,7 +197838,7 @@ function fndSettle() {
   fresh.forEach((k) => fndBase.add(k));
   const root = fndRoot(),
     L = fndLoad(),
-    at = Date.now();
+    at = Date.now(); // wall clock: a timer on this device, never stored as a date
   let add = 0;
   fresh.forEach((k) => {
     const x = fndFind(k),
@@ -199398,18 +199403,17 @@ const MN_JOBS = () => [
   MN_WORK = [
     // the person's jobs come first (mnJobItems), then All Projects
     MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1, nostrip: 1 }]], { proj: 1, jobs: 1 }),
-    // procurement P1 (docs/PROCUREMENT_PLAN.md section 4); Requests and Route (a request is a need on the Buy Board, the
-    // store run the driver's) sat under More. The controller cannot open the Buy Board: the Purchasing overview is his.
+    // Purchasing (docs/mockups/purchasing/SPEC.md, 11-03): six pages in Alan's order, no tab rows (src/purchasing.js).
+    // Stock is the coordinator's and the driver's register (decision 1); every other role sees the five. A field request
+    // is a need on the Buy Board and the store run is on Deliveries, so Requests and Route forward there (MN_ALIAS); the
+    // controller's Purchasing opens on Orders (the old overview forwards to the role's first page).
     MN_G("buy", "Purchasing", "buy", [
       ["proc", "Buy Board"],
       ["po", "Orders"],
       ["rfq", "Quotes"],
       ["recv", "Deliveries"],
       ["vendors", "Vendors"],
-      ["inv", "Stock"],
-      ["req", "Requests"],
-      ["route", "Route"],
-      ["ovbuy", "Purchasing Overview", null, { head: 1, unless: "proc" }],
+      ["inv", "Stock", null, { roles: ["coord", "driver"] }],
     ]),
     MN_G("sales", "Sales and Clients", "sales", MN_SALES),
     // the mockup: Billing, Banking, Bills and Payroll first; Billing is the firm's list, with its client filter
@@ -199424,13 +199428,13 @@ const MN_JOBS = () => [
       ["budget", "Budget"],
       ["ovmoney", "Accounting Overview", null, { head: 1 }],
     ]),
+    // Design (docs/mockups/design/SPEC.md, 11-03): Selections and Drawings (src/design.js). The studio overview is the In
+    // Design filter of All Projects; Project Board and Filings live on the job and in Drawings (MN_ALIAS). No Design menu
+    // for the PM or the coordinator: they reach a selection from a decision or a Buy Board row, drawings from the job.
     MN_G("studio", "Design", "studio", [
-      ["sel", "Selections"],
-      ["plans", "Drawings"],
-      ["sboard", "Project Board"],
-      ["sfile", "Filings"],
-      ["ovstudio", "Design Overview", null, { head: 1 }],
-    ], { proj: 1 }),
+      ["sel", "Selections", null, { not: ["pm", "coord"] }],
+      ["plans", "Drawings", null, { not: ["pm", "coord"] }],
+    ]),
     MN_G("reports", "Reports", "reports", [
       ["reports", "All Reports", null, { head: 1 }],
       // the Home Dashboard moves into Reports (workshop cut list)
@@ -199562,7 +199566,8 @@ const MN_JOBS = () => [
         ["time", "Clock", "clock"],
         ["files", "Receipts", "camera"],
       ],
-      rest: [["req", "Requests", "box"]],
+      // Stock: the driver picks for the route from it (Purchasing, decision 1, 11-03)
+      rest: [["req", "Requests", "box"], ["inv", "Stock", "box"]],
     },
   };
 // the design manager (no seat in the pilot) runs the designer's menu; Approvals is a filter of Today
@@ -199603,7 +199608,8 @@ function mnKnow(v, l) {
 // an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless, head}
 function mnItem(x, sec) {
   const o = x[3] || {};
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip };
+  // opts.roles: listed only for these roles; opts.not: never for these (a page they may still open from a record)
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip, roles: o.roles || null, not: o.not || null };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -199719,7 +199725,8 @@ function mnBuild(r) {
   if (!M) return null;
   const rv = ROLE_VIEWS[r] || [],
     has = (v) => rv.includes(v),
-    may = (it) => has(it.v) && !(it.unless && has(it.unless)),
+    rk = "design_mgr" === r ? "designer" : r,
+    may = (it) => has(it.v) && !(it.unless && has(it.unless)) && !(it.roles && !it.roles.includes(rk)) && !(it.not && it.not.includes(rk)),
     shown = (it) => !it.quiet || it.v === view,
     G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),
@@ -200889,7 +200896,7 @@ async function msgVoiceToggle() {
   }
   const rec = new MediaRecorder(stream),
     parts = [],
-    t0 = Date.now(),
+    t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     key = T.key;
   rec.ondataavailable = (e) => e.data && e.data.size && parts.push(e.data);
   const st = (msgRecState = {
@@ -200924,7 +200931,7 @@ let msgVoicePtr = 0;
   document.addEventListener("pointerdown", (e) => {
     const b = e.target && e.target.closest && e.target.closest("#msg-voice");
     if (!b || (e.button && 0 !== e.button)) return;
-    e.preventDefault(), (downAt = msgVoicePtr = Date.now());
+    e.preventDefault(), (downAt = msgVoicePtr = Date.now()); // wall clock: a press timer
     msgRecState ? msgRecState.stop() : msgVoiceToggle();
   });
   document.addEventListener("pointerup", () => {

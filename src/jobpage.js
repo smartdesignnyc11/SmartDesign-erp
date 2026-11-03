@@ -894,6 +894,14 @@ function jpLeads() {
     } else if (!l.textContent && l.dataset.jpLead) l.textContent = l.dataset.jpLead;
   });
 }
+// Committed (jobFin: open orders net of their bills and of what was paid on them with no bill), and on its own line what
+// it leaves out: a payment on an order before its bill is cost to date, not committed (src/purchasing.js puPrepaid; the
+// Orders page says the same under its figure, so 121 State's two committed numbers tie)
+function jpPrepaidLine(p, L) {
+  const X = "function" == typeof puPrepaid ? puPrepaid(p.id) : [],
+    c = r2(L.reduce((a, l) => a + (+l.committed || 0), 0));
+  return `<div class="jp-note jp-prepaid" id="jp-prepaid" data-committed="${c}"><b>Committed ${money(c)}</b>${X.length ? ` · ${esc(puPrepaidSay(X))}` : ""}</div>`;
+}
 function jpBudget() {
   const v = document.getElementById("v-costs");
   if (!v || "costs" !== view || !S) return;
@@ -954,7 +962,7 @@ function jpBudget() {
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
       : `<div class="jp-billback ok" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>Nothing: everything bought for the client is on an invoice.</span></div>`;
-  host.innerHTML = `${kpis}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
+  host.innerHTML = `${kpis}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
 }
 
 // ---- Decisions: everything waiting on an answer --------------------------------------------------------------------
