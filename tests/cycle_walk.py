@@ -1305,7 +1305,11 @@ def card_blocks(text):
     name to the next"""
     L = text.split('\n')
     idx = [i for i, l in enumerate(L) if re.search(r'\bEST-\d{4}-\d+', l) and '|' not in l]
-    return [(L[i - 1] if i and not re.search(r'EST-\d{4}', L[i - 1]) else '', '\n'.join(L[i: (idx[k + 1] - 1) if k + 1 < len(idx) else i + 12])) for k, i in enumerate(idx)]
+    # the name is on the line with the document number (the card's first line), or on the line just above it
+    own = lambda l: re.sub(r'^(\[\d+\]\s*)+', '', l).strip()
+    return [(L[i] if re.match(r'^\s*(\[\d+[^\]]*\]\s*)*[^\s\[]', own(L[i])) and not own(L[i]).startswith('EST-') else
+             (L[i - 1] if i and not re.search(r'EST-\d{4}', L[i - 1]) else ''),
+             '\n'.join(L[i: (idx[k + 1] - 1) if k + 1 < len(idx) else i + 12])) for k, i in enumerate(idx)]
 
 
 def cost_cards(text):
@@ -2300,8 +2304,8 @@ def selftest():
            '[51] [52 Framing lumber: supply EST-2026-016] | $1,100 | $827 | — | $1,100 | — | — | 0%\n'
            '[53] [54 Drywall & cement board: supply EST-2026-016 · over budget, 120% of it] | $1,800 | $2,169 | — | $2,169 | +$369 | — | 0%\n')
     check(over_lines(bud) == ['Drywall & cement board: supply $369 over'], f'reader: the Budget table\'s columns name the line over budget ({over_lines(bud)})')
-    cards = ('By Estimate Line\n[60] Drywall & cement board: supply 120% over\nEST-2026-016\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
-             '[61] Framing lumber: supply On budget\nEST-2026-016\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
+    cards = ('By Estimate Line\n[60] Drywall & cement board: supply EST-2026-016 120% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
+             '[61] Framing lumber: supply EST-2026-016 On budget\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
     check(over_lines(cards) == ['Drywall & cement board: supply $369 over'] and [r['over'] for r in cost_cards(cards)] == [True, False], f'reader: the phone\'s Budget cards are read by their labels ({over_lines(cards)}, {cost_cards(cards)})')
     # the pass rule and where a journey stops
     base = {'journey': 'J8', 'device': 'desktop', 'taps': 10, 'budget': 12, 'minutes': 5.0, 'budget_min': 6, 'stuck': None, 'soft': [], 'grades': [{'step': 'C30', 'status': 'right', 'detail': ''}]}

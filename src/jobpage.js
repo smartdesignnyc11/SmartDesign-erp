@@ -777,7 +777,7 @@ function jpBudget() {
       ? `<div class="jp-bcards">${L.map((l) => {
           const f = jpLineFlag(l),
             open = jpBudOpen === l.key;
-          return `<div class="jp-bcard ${"bad" === f[1] ? "over" : ""}" ${attrs(l)}><button type="button" class="jp-bbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><span class="jp-bt"><b>${esc(l.name)}</b><b class="${f[1]}">${esc(f[0])}</b></span><span class="jp-bdoc">${esc(l.doc)}</span><span class="jp-bgrid">${[
+          return `<div class="jp-bcard ${"bad" === f[1] ? "over" : ""}" ${attrs(l)}><button type="button" class="jp-bbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><span class="jp-bt"><span class="jp-bn"><b>${esc(l.name)}</b> <span class="jp-bdoc">${esc(l.doc)}</span></span><b class="${f[1]}">${esc(f[0])}</b></span><span class="jp-bgrid">${[
             ["Budget", money(l.budget)],
             ["Committed", l.committed ? money(l.committed) : "—"],
             ["Actual", l.actual ? money(l.actual) : "—"],
@@ -1346,9 +1346,10 @@ table.jp-bt tfoot td{font-weight:700}
   .jp-bcards{display:flex;flex-direction:column;gap:10px;margin:0 0 16px}
   .jp-bcard{background:var(--paper);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
   .jp-bcard.over{border-color:#fecaca}
-  .jp-bbtn{width:100%;border:0;background:none;padding:12px 14px;display:flex;flex-direction:column;gap:6px;font:inherit;color:var(--ink);text-align:left}
-  .jp-bt{display:flex;gap:8px;align-items:baseline;width:100%} .jp-bt b:first-child{flex:1;font-size:15px}
-  .jp-bgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%}
+  .jp-bbtn{width:100%;border:0;background:none;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font:inherit;color:var(--ink);text-align:left}
+  .jp-bt{display:flex;gap:8px;align-items:baseline;width:100%} .jp-bn{flex:1;min-width:0;font-size:15px} .jp-bt>b{white-space:nowrap;font-size:14px}
+  .jp-bgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 6px;width:100%}
+  .jp-bf b{font-size:13.5px}
   .jp-bf{display:flex;flex-direction:column} .jp-bk{font-size:11px;color:var(--ink-3)} .jp-bf b{font-size:14px}
   .jp-bcard .jp-detail{margin:0;padding:6px 14px 10px;background:var(--paper-2)}
   .jp-billback{padding:14px}
