@@ -598,7 +598,7 @@ function acMount() {
   "time" === view && (acChip.ap = "payroll"),
     "verify" === view && (acChip.gl = "controls"),
     "budget" === view && (acChip.gl = "budget"),
-    "gl" === view && ["controls", "budget"].includes(acChip.gl) && (acChip.gl = "close"),
+    "gl" === view && ["controls", "budget"].includes(acChip.gl) && (acChip.gl = "periods" === glTab ? "close" : "ledger"),
     "ap" === view && "payroll" === acChip.ap && (acChip.ap = "approve");
   const inner = { billing: acBillingHtml, bank: acBankHtml, ap: acApHtml, gl: acBooksHtml }[pg];
   let html = "";
@@ -634,7 +634,8 @@ function acPrep() {
   try {
     "bank" === view && ("review" === acChip.bank ? (txnFilter = "open") : "matched" === acChip.bank && "open" === txnFilter && (txnFilter = "all"));
     "ap" === view && (apFilter = { approve: "queue", pay: "approved", paid: "paid" }[acChip.ap] || apFilter);
-    "gl" === view && "close" === acChip.gl && (glTab = "periods");
+    // Books' chip follows the ledger's own tab (a link that opens a tab, New Entry among them, keeps it)
+    "gl" === view && "tax" !== acChip.gl && (acChip.gl = "periods" === glTab ? "close" : "ledger");
   } catch (e) {}
 }
 function acGoChip(pg, k) {
@@ -642,6 +643,7 @@ function acGoChip(pg, k) {
   acNewOpen = "";
   const to = "ap" === pg ? ("payroll" === k ? "time" : "ap") : "gl" === pg ? ("controls" === k ? "verify" : "budget" === k ? "budget" : "gl") : pg;
   "gl" === pg && "ledger" === k && "periods" === glTab && (glTab = "overview");
+  "gl" === pg && "close" === k && (glTab = "periods");
   to === view ? render() : setView(to);
 }
 // forward the retired pages to their new homes (SPEC §3)
@@ -651,6 +653,8 @@ function acGoChip(pg, k) {
     try {
       const f = AC_FWD[v];
       f && acMay(f[0]) && ((acChip[f[0]] = f[1]), (v = f[0]));
+      // Books opens on its Close (the controller's first question: can I close the month?)
+      "gl" === v && "gl" !== view && acMay("gl") && ((glTab = "periods"), (acChip.gl = "close"));
     } catch (e) {}
     return base.call(this, v);
   };
