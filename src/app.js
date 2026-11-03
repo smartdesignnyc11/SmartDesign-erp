@@ -71263,7 +71263,7 @@ briefSentences = function (F, r) {
     ("owner" !== r && "controller" !== r) ||
       out.push(
         stsSafe() < 0
-          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-stsSafe())} short once client funds and payables are set aside.`
+          ? `Cash: ${moneyK(F.B.cash)} in the bank, but ${moneyK(-stsSafe())} short once what is owed and the cash received for work not yet done are set aside.`
           : `Cash: ${moneyK(F.B.cash)} in the bank, ${moneyK(stsSafe())} safe to spend.`,
       ),
     out
@@ -125288,7 +125288,7 @@ function finAnswer(raw) {
         F.weeks[0] || { balance: F.low, start: td },
       );
     return out(
-      `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}: ${stsWhy(S)} The 13-week low after the set-aside is ${money(S.low)} in the week of ${fmtL(low.start)}.`,
+      `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `Safe to spend today: ${money(S.safe)}`}. ${stsWhy(S)} The 13-week low after the set-aside is ${money(S.low)} in the week of ${fmtL(low.start)}.`,
       `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
@@ -133148,12 +133148,12 @@ const fin2Closes = () => ((DB.periods || {}).closes || []).filter((c) => "close"
 // movement past the month end posts at the close after.
 // The close posts the month's accrued wages first and plans the WIP with them in (fin2RunClose), so the figure is read
 // the same way: the wages are posted for the reading and taken off again (nothing is saved or audited), and the plan is
-// what the close would post now. Read from the plan before the wages, it said $64,008 for August where the close posts
-// $69,519 (121 State $62,627, 45 Cranberry $6,892).
-function wipAtClose(ym) {
-  ym = ym || fin2CloseYm();
-  if (!ym) return null;
-  let P;
+// what the close would post now. Read from the plan before the wages, it said $64,008 for August on 9/3 where the close
+// posts $64,333.74 (45 Cranberry's labor moves to the run's burden: $5,998 -> $6,323).
+// The plan itself (fin2WipPlan's shape), read the way the close reads it: with the month's accrued wages in. The Close
+// page's WIP step reads this, so its "to post" is the figure the close posts.
+function wipPlanAtClose(ym) {
+  let P = null;
   const G = DB.gl || {},
     n0 = (G.journals || []).length,
     seq0 = G.seq,
@@ -133170,6 +133170,12 @@ function wipAtClose(ym) {
     G.journals && G.journals.length > n0 && G.journals.splice(n0), (G.seq = seq0), DB.audit && DB.audit.length > a0 && DB.audit.splice(a0);
     "undefined" != typeof SPD && (SPD.on = spd);
   }
+  return P;
+}
+function wipAtClose(ym) {
+  ym = ym || fin2CloseYm();
+  if (!ym) return null;
+  const P = wipPlanAtClose(ym);
   if (!P) return null;
   return {
     ym: ym,
@@ -133758,7 +133764,8 @@ function fin2ClosePageHtml() {
   const items = closeChecklist(ym),
     open = items.filter((i) => !i.ok),
     block = fin2CloseBlockers(ym),
-    wip = fin2WipPlan(ym),
+    // what the close will post: the schedule with the month's accrued wages in (wipPlanAtClose, BACKLOG §1.35 item 3)
+    wip = ("function" == typeof wipPlanAtClose && wipPlanAtClose(ym)) || fin2WipPlan(ym),
     wages = fin2WagePlan(ym),
     nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
   return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change. The close posts the accrued wages below first and plans this entry after them: an accrued run moves a job's labor to the run's burden, so the entry can differ from this preview by that much, and the close ties the result to 2500/1200 job by job before it locks anything.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
@@ -172835,9 +172842,10 @@ AG_FIN.push(
       const B = agBF().B;
       return {
         headline: stsSafe() < 0
-          ? `Short by ${money(-stsSafe())} today: safe to spend is ${money(stsSafe())} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
-          : `${money(stsSafe())} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
-        work: [`Cash ${money(B.cash)}`, `Cards owed ${money(-B.cards)}`, `Client funds held ${money(B.clientFunds)}`, `Payables accrued ${money(B.apAccrued)}`, `Payroll accrued ${money(B.payrollAccrued)}`],
+          ? `Short by ${money(-stsSafe())} today: safe to spend is ${money(stsSafe())} once what is owed and the cash received for work not yet done are set aside, from ${money(B.cash)} in the bank.`
+          : `Today's safe to spend is ${money(stsSafe())}: ${money(B.cash)} in the bank, less what is owed and the cash received for work not yet done.`,
+        // the build-up, line for line as Today's Safe to Spend sheet shows it (PRED.safeToSpend.rows, BACKLOG §1.35 item 1)
+        work: PRED.safeToSpend.rows().map((r) => `${r[0]} ${money(r[1])}`),
         go: agGo("bank"),
         ran: agRan("bank accounts, client funds and payables", ["as of " + fmtL(today())], "", (DB.accounts || []).length),
       };
