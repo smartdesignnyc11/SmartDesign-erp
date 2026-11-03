@@ -572,7 +572,7 @@ function puOrders() {
     pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))),
     poRow = (po) => {
       const st = "function" == typeof poState ? poState(po) : { msg: po.status };
-      return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
+      return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")} · Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
     },
     tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.map((x) => Object.assign(poRow(x.po), { id: "cnb:" + x.po.id, why: `${money(x.left)} committed, not yet billed` })) : null,
     tiles =
