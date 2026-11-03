@@ -200,7 +200,7 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
     await reset_lists(pg)
     # each person has their own device: what the overview remembers (All projects or one job) starts as a new
     # device has it (app.js: a phone with nothing stored opens the overview on All projects)
-    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = !!(typeof mOn === 'function' && mOn()); } catch (e) {} }")
+    await pg.evaluate("() => { try { localStorage.removeItem('dashAll'); dashAll = false;   /* retired 11-03: a job's Overview is that job (the job structure) */ } catch (e) {} }")
     await sign_in(pg, uid)
     await settle(pg, 250)
     meta = await pg.evaluate("""() => { window.__cecat = CENSUS.catalog();

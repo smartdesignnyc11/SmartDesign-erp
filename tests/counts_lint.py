@@ -193,7 +193,8 @@ async def run_role(pg, lint, tag, uid, phone):
     await pg.evaluate(JS_HELPERS)
     info = await pg.evaluate(r"""uid => {
       const pv = new Set(); (typeof NAV_GROUPS !== 'undefined' ? NAV_GROUPS : IA_GROUPS).forEach(g => { if (g.proj) g.views.forEach(v => pv.add(v)); });
-      ['subm','photos','cos','budget','sched','dec','tasks','insp','field','mat','files','costs','inbox','chat','recv','proj','dash','client','ftoday','fsite','fcrew','flog','fraise']
+      // the job's own pages (the job structure, Alan 11-03): Contract and Billing, Decisions and Site are per job too
+      ['subm','photos','cos','budget','sched','dec','tasks','insp','field','mat','files','costs','inbox','chat','recv','proj','dash','client','ftoday','fsite','fcrew','flog','fraise','jbill','jdec','jsite']
         .forEach(v => pv.add(v));
       ['port','ovjobs','ovstudio','studio','sday','tkall'].forEach(v => pv.delete(v));
       const sw = document.getElementById('pswitch');

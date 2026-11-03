@@ -651,14 +651,21 @@ def new_project(p, name, addr, start, client):
 
 
 def open_job(p, page=None):
-    """the job's own page, the way a PM gets to it: Projects, the job, then the page in the job's menu"""
+    """the job's own page, the way a PM gets to it: Projects, the job, then the page in the job's tabs (the job structure,
+    Alan 11-03: eight tabs on the desktop; on the phone the job's Overview lists the other seven under This Job, each row
+    named by its page with its state beside it)"""
     p.go('Projects', expect_menu=False)
     sw = p.scr.find('Switch project', field=True)
     if sw and norm(sw.value) != norm(JOB['job']): p.pick('Switch project', JOB['job']); p.look()   # the page redraws for the job: read it again
     elif not sw:
         r = p.look().row(JOB['job'], after='Every job') or p.scr.row(JOB['job'])
         if r: p.tap_ctl(r)
-    if page: p.tap(page, exact=True)
+    if page:
+        sc = p.look()
+        c = sc.find(page, exact=True) or sc.find(page, after='This Job')
+        if c: p.tap_ctl(c)
+        elif not (page == 'Overview' and sc.has('Next Up on This Job')):   # the phone opens on the job's Overview
+            p.tap(page, exact=True)
     return p.look()
 
 
@@ -733,14 +740,16 @@ def open_estimate(p, menu_check=False, create=False):
     if menu_check:
         p.expect(any(norm(re.sub(r'\s+\d+$', '', m)) == 'estimates' for m in p.scr.menu),
                  'Estimates in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
-    open_job(p, 'Estimates')
-    row = p.look().row('Wren & Julian Ashby', after='Search') or p.scr.row('EST-20', after='Search')
+    open_job(p, 'Contract and Billing')
+    p.tap('Estimates', exact=True)
+    row = p.look().row('EST-20', after='Documents')
     if row is None and create:
-        p.tap('New Estimate', exact=True, expect='Start Estimate')
+        p.tap('New for this job', exact=True, expect='New for')
+        p.tap('Estimate', exact=True, expect='Start Estimate')
         p.tap('Start Estimate', expect='Estimate EST-')
         return
-    if row is None: raise Stuck('open the Ashbys\' estimate', 'the estimate in 214 Lincoln Place\'s Estimates', p.scr, p.last_control)
-    p.tap_row('EST-20', after='Search', expect='Estimate EST-')
+    if row is None: raise Stuck('open the Ashbys\' estimate', 'the estimate in 214 Lincoln Place\'s Contract and Billing', p.scr, p.last_control)
+    p.tap_row('EST-20', after='Documents', expect='Estimate EST-')
 
 
 def line_fields(p, k):
@@ -1276,24 +1285,48 @@ def j6_buy_it(p):
 
 
 # ---------------------------------------------------------------------------------------------------- J4 review the job (Friday)
-REVIEW_PAGES = ('Schedule', 'Costs', 'Change Orders', 'Decisions', 'Submittals')
+REVIEW_PAGES = ('Schedule', 'Budget', 'Contract and Billing', 'Decisions')   # the job structure (Alan, 11-03)
+
+
+def line_name(cell):
+    """an estimate line's name in its cell: the words before its document number (the line may be a button: its label)"""
+    cell = re.sub(r'^\s*(\[\d+\]\s*)+', '', cell.strip())
+    cell = re.sub(r'^\[\d+\s+', '', cell).rstrip(']')
+    return re.sub(r'\s*EST-\d{4}-\d+.*$', '', re.sub(r'\[\d+[^\]]*\]', '', cell) if cell.startswith('[') else cell).strip()
+
+
+def card_blocks(text):
+    """the phone's Budget: a card per line, every figure under its own label; each card is the text from one line's
+    name to the next"""
+    L = text.split('\n')
+    idx = [i for i, l in enumerate(L) if re.search(r'\bEST-\d{4}-\d+', l) and '|' not in l]
+    return [(L[i - 1] if i and not re.search(r'EST-\d{4}', L[i - 1]) else '', '\n'.join(L[i: (idx[k + 1] - 1) if k + 1 < len(idx) else i + 12])) for k, i in enumerate(idx)]
+
+
+def cost_cards(text):
+    out = []
+    num = lambda rx, b: (lambda m: CY.num(m.group(1)) if m and '$' in m.group(1) else 0)(re.search(rx + r'\s*(\$[\d,.]+|—)', b))
+    for name, b in card_blocks(text):
+        if not re.search(r'\bBudget\b', b): continue
+        nm = line_name(re.sub(r'\s*\d+% over\b.*|\s*(On budget|Billed (behind|ahead))\b.*', '', name or b.split('\n')[0]))
+        out.append({'line': nm, 'budget': num(r'Budget', b), 'actual': num(r'Actual', b), 'committed': num(r'Committed', b), 'over': bool(re.search(r'\d+% over|over budget', (name or '') + b))})
+    return out
 
 
 def cost_rows(text):
-    """the Costs page's Line Profitability table, read the way a PM reads it: each estimate line's budget cost, actual
-    and committed (columns found by their headings)"""
-    head = next((l for l in text.split('\n') if re.search(r'BUDGET COST', l) and re.search(r'COMMITTED', l)), '')
-    if not head: return []
+    """the Budget page's lines (Costs before the job structure), read the way a PM reads it: each estimate line's budget,
+    actual and committed (columns found by their headings)"""
+    head = next((l for l in text.split('\n') if '|' in l and re.search(r'BUDGET', l, re.I) and re.search(r'COMMITTED', l, re.I)), '')
+    if not head: return cost_cards(text)
     H = [re.sub(r'\[\d+\s*|\]', '', c).strip().upper() for c in head.split('|')]
     col = lambda name: next((i for i, h in enumerate(H) if h.startswith(name)), None)
-    ib, ia, ic = col('BUDGET COST'), col('ACTUAL'), col('COMMITTED')
+    ib, ia, ic = col('BUDGET'), col('ACTUAL'), col('COMMITTED')
     out = []
     for l in text.split('\n'):
         if 'EST-' not in l or '|' not in l: continue
         c = [x.strip() for x in l.split('|')]
         if None in (ib, ia, ic) or len(c) <= max(ib, ia, ic): continue
-        name = re.sub(r'EST-\d{4}-\d+.*$', '', re.sub(r'\[\d+[^\]]*\]', '', c[0])).strip()
-        out.append({'line': name, 'budget': CY.num(c[ib]), 'actual': CY.num(c[ia]), 'committed': CY.num(c[ic])})
+        out.append({'line': line_name(c[0]), 'budget': CY.num(c[ib]), 'actual': CY.num(c[ia]), 'committed': CY.num(c[ic])})
     return out
 
 
@@ -1313,11 +1346,13 @@ def j4_friday_review(p):
         if page == 'Schedule':
             p.expect(bool(re.search(r'\b(9/8|9/9|9/1\d|9/2\d|Sep \d)', sc.text)) and not sc.has('No Schedule'),
                      'the schedule shows 214 Lincoln\'s next three weeks', sc.excerpt('Schedule', 8))
-        if page == 'Costs':
-            p.expect(bool(cost_rows(sc.text)), 'Costs shows budget, committed and actual for each estimate line', sc.excerpt('Costs', 10))
+        if page == 'Budget':
+            p.expect(bool(cost_rows(sc.text)), 'Budget shows budget, committed and actual for each estimate line', sc.excerpt('Budget', 10))
             over = over_lines(sc.text)
-            flagged = [l for l in sc.text.split('\n') if 'EST-' in l and '|' in l and re.search(r'over|⚠|flag', l.split('|')[1] if len(l.split('|')) > 1 else '', re.I)]
-            p.expect(not over or len(flagged) >= len(over), 'Costs flags the estimate lines over budget (committed or actual above the budget cost)',
+            # a line is flagged over budget on its own row (the line's words, or a flags column where a page has one)
+            flagged = [l for l in sc.text.split('\n') if 'EST-' in l and '|' in l and re.search(r'over budget|⚠', l.split('|')[0], re.I)] or \
+                [r for r in cost_cards(sc.text) if r['over']]
+            p.expect(not over or len(flagged) >= len(over), 'Budget flags the estimate lines over budget (committed or actual above the budget cost)',
                      f'{len(over)} over by the columns ({"; ".join(over)}), {len(flagged)} flagged')
     sc = open_job(p, 'Overview')
     c = next((x for x in sc.ctls if x.action and re.search(r'^(draft|send|write|prepare)\b.{0,20}\bupdate', x.label, re.I)), None)
@@ -1334,7 +1369,7 @@ def j4_friday_review(p):
     text = ('Wren, Julian: the week at 214 Lincoln Place. Signed Thursday; demo starts Tuesday 9/8 with the parlor kitchen, '
             'then framing and the garden bath rough. Material is ordered. ' + (('Over budget: ' + '; '.join(over) + '. ') if over else 'Nothing is over budget. ') + 'Alan')
     p.mail('send', 'Wren Ashby', '214 Lincoln Place: this week and next week', text)
-    p.note('the client update sent from the PM\'s own mailbox' + (f' naming {len(over)} lines over' if over else ' (Costs named no line over budget)'))
+    p.note('the client update sent from the PM\'s own mailbox' + (f' naming {len(over)} lines over' if over else ' (Budget named no line over budget)'))
 
 
 # ---------------------------------------------------------------------------------------------------- J7 receive and match
@@ -1390,7 +1425,8 @@ def slip_photo(p, po):
 
 def receive_desktop(p, dw, tile):
     """the job's Deliveries: each line as it came (the qty is typed, Received), the short and the damage reported on the line"""
-    open_job(p, 'Deliveries')
+    open_job(p, 'Purchasing')
+    p.tap('Deliveries', exact=True)   # Deliveries lives under the job's Purchasing (the job structure, 11-03)
     report_problem(p, dw, 'short', 'Drywall & cement board: supply', SHORT_BOARDS, f'{SHORT_BOARDS} cement boards backordered, balance next week (Angel)')
     report_problem(p, tile, 'damaged', 'Porcelain floor tile 12x24 matte: supply', DAMAGED_SF, 'two boxes cracked in the pallet; photo of the boxes (Angel)')
     for line, qty in (('Framing lumber: supply', 1), ('Drywall & cement board: supply', 1)):
@@ -2254,6 +2290,14 @@ def selftest():
              'Framing lumber: supplyEST-2026-016 | — | $1,450 | $1,100 | — | — | $350 | 24% | 0% | $827\n'
              'Drywall & cement board: supplyEST-2026-016 | — | $2,450 | $1,800 | — | — | $650 | 27% | 0% | $2,169\n')
     check(over_lines(costs) == ['Drywall & cement board: supply $369 over'], f'reader: the Costs table\'s columns name the line over budget ({over_lines(costs)})')
+    # the Budget table (the job structure, 11-03): the line is a button, the over-budget flag rides on the line's own cell
+    bud = ('[50] Line | Budget | Committed | Actual | Forecast | Variance | % Done | % Billed\n'
+           '[51] [52 Framing lumber: supply EST-2026-016] | $1,100 | $827 | — | $1,100 | — | — | 0%\n'
+           '[53] [54 Drywall & cement board: supply EST-2026-016 · over budget, 120% of it] | $1,800 | $2,169 | — | $2,169 | +$369 | — | 0%\n')
+    check(over_lines(bud) == ['Drywall & cement board: supply $369 over'], f'reader: the Budget table\'s columns name the line over budget ({over_lines(bud)})')
+    cards = ('By Estimate Line\n[60] Drywall & cement board: supply 120% over\nEST-2026-016\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
+             '[61] Framing lumber: supply On budget\nEST-2026-016\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
+    check(over_lines(cards) == ['Drywall & cement board: supply $369 over'] and [r['over'] for r in cost_cards(cards)] == [True, False], f'reader: the phone\'s Budget cards are read by their labels ({over_lines(cards)}, {cost_cards(cards)})')
     # the pass rule and where a journey stops
     base = {'journey': 'J8', 'device': 'desktop', 'taps': 10, 'budget': 12, 'minutes': 5.0, 'budget_min': 6, 'stuck': None, 'soft': [], 'grades': [{'step': 'C30', 'status': 'right', 'detail': ''}]}
     check(not failures_of(base) and stops_at(base) == 'passes', 'pass rule: no stop, no failed expectation, the records right and the budget kept is a pass')
