@@ -492,6 +492,8 @@ function bbSteps(r) {
   if ((r.rfqs || []).length) return [["Open the Quote", "rfq"], ["Order", "order"]];
   S1.push(["Order", "order"]);
   (r.lineKey || "ffe" === r.kind) && S1.push(["Ask for Quotes", "quote"]);
+  // a need bought for no line names one (one picker for every kind)
+  !r.lineKey && ["material", "ffe"].includes(r.kind) && S1.push(["Link to a Line", "link"]);
   r.task && S1.push(["Move the Task", "move"]);
   return S1;
 }
@@ -740,27 +742,41 @@ function bbLineSuggest(r) {
     return { s: s, score: hit * 2 + tk };
   }).sort((a, b) => b.score - a.score);
 }
-function bbLinkLine(r) {
-  if ("request" !== r.kind) return toast("Only a field request is linked by hand; the others carry their line");
-  const L = bbLineSuggest(r),
-    cur = r.q.line || "";
+// One line picker for every need that does not come from a line (CLAUDE.md "How purchasing starts"; review, 11-03): a
+// field request (q.line), a material (m.line) and a selection (it.line) each name the estimate or change-order line they
+// are bought for. A need that is a line (an estimate, change-order or subcontract line) carries it. Only contract lines
+// are offered (a selection is not a line of its own). opts.alt: a second way out (the PM's bill-back, when no line in
+// the contract covers it); opts.done: after linking.
+const bbLinkTarget = (r) => ("request" === r.kind && r.q) || ("material" === r.kind && r.m) || ("ffe" === r.kind && r.it) || null;
+function bbLinkLine(r, opts) {
+  opts = opts || {};
+  const rec = bbLinkTarget(r);
+  if (!rec) return toast(`${r.name} is a contract line: it carries its own`);
+  const L = bbLineSuggest(r).filter((x) => /^(estimate|co):/.test(x.s.key)),
+    cur = rec.line || "",
+    who = "request" === r.kind ? `${r.askedBy || "The crew"} asked for ${r.qty} for ${bbJob(r.p)}.` : `${r.name}, ${bbJob(r.p)}.`;
   const m = mbModal(
     `Link to a Line — <span data-nocase>${esc(r.name)}</span>`,
-    `<p class="small muted" style="margin:0 0 8px">${esc(r.askedBy || "The crew")} asked for ${esc(r.qty)} for ${esc(bbJob(r.p))}. Pick the line it is bought for; the best matches are first. The order and the bill then cost to that line.</p><div class="bb-links">${L.map(({ s: s, score: sc }, i) => `<label class="bb-link"><input type="radio" name="bbl" data-bbl="${esc(s.key)}" ${s.key === cur || (!cur && 0 === i && sc > 0) ? "checked" : ""}><span><b data-nocase>${esc(s.item)}</b><span class="small muted" data-nocase>${esc(s.docNo || "Selection")}${sc > 1 ? " · matches the request" : ""}${null != s.budget ? ` · ${money(s.budget)}` : ""}</span></span></label>`).join("") || '<p class="small muted">This job has no approved estimate, change-order or FF&amp;E lines yet.</p>'}</div>`,
+    `<p class="small muted" style="margin:0 0 8px" data-nocase>${esc(who)} Pick the estimate or change-order line it is bought for; the best matches are first. The order and the bill then cost to that line.${opts.why ? ` ${esc(opts.why)}` : ""}</p><div class="bb-links">${L.map(({ s: s, score: sc }, i) => `<label class="bb-link"><input type="radio" name="bbl" data-bbl="${esc(s.key)}" ${s.key === cur || (!cur && 0 === i && sc > 0) ? "checked" : ""}><span><b data-nocase>${esc(s.item)}</b><span class="small muted" data-nocase>${esc(s.docNo || "")}${sc > 1 ? " · matches its words" : ""}${null != s.budget ? ` · ${money(s.budget)}` : ""}</span></span></label>`).join("") || '<p class="small muted">This job has no approved estimate or change-order lines yet.</p>'}</div>`,
     {
       submit: "Link the Line",
+      alt: opts.alt,
       onSubmit: () => {
         const el = m.querySelector("[data-bbl]:checked");
         if (!el) return toast("Pick a line"), !1;
         const key = el.dataset.bbl,
           s = L.find((x) => x.s.key === key);
-        r.q.line = key;
-        (r.q.log = r.q.log || []).push({ t: "function" == typeof nowStamp ? nowStamp() : appNowIso(), by: ((currentUser() || {}).name) || role(), text: `Linked to ${s ? `${s.s.docNo || "Selection"} · ${s.s.item}` : key}` });
+        rec.line = key;
+        "request" === r.kind && (rec.log = rec.log || []).push({ t: "function" == typeof nowStamp ? nowStamp() : appNowIso(), by: ((currentUser() || {}).name) || role(), text: `Linked to ${s ? `${s.s.docNo} · ${s.s.item}` : key}` });
         try {
-          audit("request", r.q.id, "line linked", cur, key);
+          audit({ request: "request", material: "material", ffe: "sel" }[r.kind], rec.id, "line linked", cur, key);
+        } catch (e) {}
+        try {
+          "ffe" === r.kind && ("undefined" != typeof _fundCache && (_fundCache = null), "function" == typeof selVerifyLocal && selVerifyLocal(rec));
         } catch (e) {}
         save(), render();
-        rcToast(`${r.name} is bought for ${s ? s.s.item : key}`, [{ label: "Open", run: () => ((bbSel = ovBuyId(Object.assign({}, r, { key: "req:" + r.q.id }))), setView("proc")) }]);
+        opts.done && opts.done(key);
+        rcToast(`${r.name} is bought for ${s ? `${s.s.docNo} · ${s.s.item}` : key}`, [{ label: "Open", run: () => ((bbSel = r.id), setView("proc")) }]);
       },
     },
   );

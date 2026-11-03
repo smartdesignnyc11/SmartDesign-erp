@@ -427,7 +427,7 @@ function puPlusItems(v) {
     proc: [
       ["Buy From an Estimate or Invoice", "Pick the job, the document, then its lines", () => puBuyFromDoc()],
       ["Restock the Warehouse", "From Stock items at or under their reorder point", () => puPlus("inv", "restock")],
-      ["Blank Need", "Only when no line covers it; the line is asked for before approval", () => ("function" == typeof openEditor ? openEditor("mat", null) : toast("Open a job to add a need"))],
+      ["Blank Need", "Only when no line covers it; the line is asked for first", () => puNewNeed()],
     ],
     po: [
       ["New Purchase Order From Lines", "Pick the job's estimate or change-order lines", () => puBuyFromDoc()],
@@ -557,6 +557,8 @@ function puBuyRender() {
     list =
       puSecHtml("mine", "Needs You", mine, { count: "proc", scoped: !!(bbProj || bbVendor || bbTrade), pick: 1, sel: bbSel, empty: "Nothing waits on you. Every due need is ordered, asked for or with someone else." }) +
       puSecHtml("route", "On Today's Route", route, { quiet: 1, note: "Counted once, in the route approval on Deliveries" }) +
+      // inside a job, its orders promised after the day the site needs them (they live on Deliveries; the PM reads them here)
+      (puInJob() ? puSecHtml("promise", "Promised After It Is Needed", puDelivRows(puInJob()).filter((x) => x.need).map((x) => Object.assign({}, x, { who: "the coordinator, expediting" })), { others: 1 }) : "") +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1, sel: bbSel }) +
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
     panel = !phone ? `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${sel ? bbPanelHtml(sel.r, picked.length) : bbPanelHtml(null)}</aside>` : "",
@@ -1029,6 +1031,114 @@ function puStockGate(R, go) {
 // a page's sections (Needs You, Waiting on Someone Else, Later) group records; they are not records (the phone row pass
 // and tests/phone_rows_lint.py read them as sections, as the old board's bb-sec)
 "undefined" != typeof PR_SECTIONS && !PR_SECTIONS.includes("pu-sec") && PR_SECTIONS.push("pu-sec");
+// A promise later than the need date reaches the PM the day it is known (decision 3, 11-03): a card on his Today, on his
+// jobs, with Move the Task (the schedule is his) and the job's Purchasing one tap away. The coordinator expedites it from
+// Deliveries; the PM decides whether the work waits. It is its own card, not a Buy Board line, so the Buy Board's
+// number stays its Needs You.
+function puLatePromises(pm) {
+  const me = String(((currentUser() || {}).name) || "").toLowerCase().split(" ")[0];
+  return buyList("")
+    .filter((r) => r.ordered && r.po && "promise" === r.lateKind && !r.received)
+    .filter((r) => !pm || !r.p.project.pm || String(r.p.project.pm).toLowerCase().includes(me));
+}
+if ("function" == typeof tdyModel) {
+  const base = tdyModel;
+  tdyModel = function () {
+    const M = base.apply(this, arguments);
+    try {
+      if ("pm" !== role()) return M;
+      const L = puLatePromises(!0).map((r) => ({
+        kind: "tdyPromise",
+        id: "promise:" + r.id,
+        src: "purchasing",
+        r: r,
+        title: `${r.name}: promised ${fmt(r.eta)}, needed ${fmt(r.needBy)}`,
+        detail: `${puJob(r.p)} · ${r.po.number} from ${r.po.vendor}${r.task ? ` · ${r.task.name} starts ${fmt(r.task.start)}` : ""}. The coordinator is expediting; move the task, or keep it and hold the crew`,
+        due: r.needBy,
+        urgency: 1,
+      }));
+      L.length && (M.all = (M.all || []).concat(L));
+      M.promise = L;
+    } catch (e) {
+      console.warn("late promise on Today", e);
+    }
+    return M;
+  };
+}
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "tdyPromise" === it.kind) {
+        const r = it.r;
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail)), (c.verb = "Move the Task"), (c.run = () => bbMoveTask(r)), (c.go = () => jpOpenJob(r.p.id, "proc"));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+// The demo's 121 State Street materials, seeded with no line, are linked to the estimate and change-order lines they
+// are bought for (invented demo data, read off EST-2026-014 and CO-2026-001; each id is checked against its name, and
+// a firm's own data, with the seeds off, is never touched). The plumbing, electrical and exterior materials sit on lines a
+// sub holds (Alberto, Satish, the exterior scaffold): whose they are is the coordinator's to say with the picker. Shower
+// glass, the parlor kitchen's appliances and the
+// washer/dryer are on no line of the contract: they say so.
+const PU_DEMO_LINES = {
+  m2: ["Framing", "estimate:es1:l2"], m4: ["Insulation", "estimate:es1:l6"],
+  m5: ["GWB", "estimate:es1:l6"], m6: ["Radiant heat mats", "co:co1:l1"], m7: ["Waterproofing", "estimate:es1:l7"],
+  m8: ["Tile", "estimate:es1:l7"], m9: ["Tile", "estimate:es1:l7"], m10: ["White oak", "estimate:es1:l8"],
+  m11: ["LVP", "estimate:es1:l8"], m12: ["Interior doors", "estimate:es1:l10"], m13: ["Base molding", "estimate:es1:l10"],
+  m14: ["Interior paint", "estimate:es1:l10"],
+  m19: ["Parlor kitchen countertop", "estimate:es1:l9"],
+  m20: ["Garden kitchen countertop", "estimate:es1:l9"], m22: ["Door hardware", "estimate:es1:l10"], m23: ["Stair runner", "estimate:es1:l8"],
+};
+function puDemoLines() {
+  if (!DB || DB.__puLines || ("function" == typeof sdSeedsOff && sdSeedsOff())) return;
+  const p = (DB.projects || []).find((x) => "p121" === x.id);
+  if (!p || "function" != typeof findLine) return;
+  DB.__puLines = 1;
+  (p.materials || []).forEach((m) => {
+    const L = PU_DEMO_LINES[m.id];
+    L && !m.line && String(m.name).toLowerCase().startsWith(L[0].toLowerCase()) && findLine(L[1]) && (m.line = L[1]);
+  });
+  save();
+}
+// A blank need asks for its line before it is saved (one picker: the job's estimate and change-order lines), or for why
+// there is none; it is a material on the job, on the Buy Board at once
+function puNewNeed() {
+  const P = (DB.projects || []).filter((p) => p.project && "function" == typeof rfqLineSources);
+  const pid = (S && P.some((p) => p.id === S.id) && S.id) || (P[0] && P[0].id);
+  if (!pid) return toast("Open a job to add a need");
+  const opts = (j) => rfqLineSources(j).filter((s) => /^(estimate|co):/.test(s.key)).map((s) => `<option value="${esc(s.key)}">${esc(`${s.docNo} · ${s.item}`)}</option>`).join("");
+  const m = mbModal(
+    "Blank Need",
+    `<p class="small muted" style="margin:0 0 8px">Only when no line covers it. Name the line it is bought for; with none, say why, and the PM sees it as cost on no line.</p><label class="f"><span>Job</span><select id="pu-nj">${P.map((p) => `<option value="${esc(p.id)}" ${p.id === pid ? "selected" : ""}>${esc(puJob(p))}</option>`).join("")}</select></label><label class="f"><span>What</span><input id="pu-nw" placeholder="What has to be bought"></label><label class="f"><span>Quantity</span><input id="pu-nq" inputmode="decimal" placeholder="e.g. 12 sheets"></label><label class="f"><span>Estimate Line</span><select id="pu-nl"><option value="">Pick the line it is bought for</option>${opts(pid)}<option value="__none">No line covers it</option></select></label><label class="f"><span>Why No Line</span><input id="pu-nwhy" placeholder="Only when no line covers it"></label>`,
+    {
+      submit: "Add the Need",
+      onSubmit: () => {
+        const j = m.querySelector("#pu-nj").value,
+          what = m.querySelector("#pu-nw").value.trim(),
+          line = m.querySelector("#pu-nl").value,
+          why = m.querySelector("#pu-nwhy").value.trim(),
+          p = (DB.projects || []).find((x) => x.id === j);
+        if (!what) return toast("Say what has to be bought"), !1;
+        if (!line) return toast("Pick the estimate line it is bought for, or No line covers it"), !1;
+        if ("__none" === line && !why) return toast("Say why no line covers it"), !1;
+        const mm = { id: uid("m"), name: what, cat: "finish", taskId: "", lead: 5, when: "start", status: "not-ordered", eta: "", vendor: "", po: "", qty: m.querySelector("#pu-nq").value.trim(), cost: 0, deliverTo: "site", notes: "__none" === line ? `No estimate line: ${why}` : "", line: "__none" === line ? "" : line };
+        (p.materials = p.materials || []).push(mm);
+        try {
+          audit("material", mm.id, "need added", "", mm.line || "no line", why);
+        } catch (e) {}
+        save(), render();
+        toast(`${what} is on the Buy Board for ${puJob(p)}${mm.line ? "" : ", on no estimate line"}`, { label: "Open", run: () => ((bbProj = ""), setView("proc")) });
+      },
+    },
+  );
+  const js = m.querySelector("#pu-nj");
+  js && (js.onchange = () => (m.querySelector("#pu-nl").innerHTML = `<option value="">Pick the line it is bought for</option>${opts(js.value)}<option value="__none">No line covers it</option>`));
+  return m;
+}
 // the old Purchasing overview opens the role's first Purchasing page
 {
   const base = render;
@@ -1036,7 +1146,7 @@ function puStockGate(R, go) {
     if ("ovbuy" === view) view = (ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po";
     const r = base.apply(this, arguments);
     try {
-      puDraw(), puCrumbs();
+      puDemoLines(), puDraw(), puCrumbs();
     } catch (e) {
       console.warn("purchasing", e);
     }

@@ -34985,7 +34985,9 @@ function buyList(scope) {
               po = pos[0],
               lf = m.line ? lineFin(m.line) : null;
             m.line && covered.add(m.line);
-            const price = +m.cost || (lf ? lf.budget : 0),
+            // a material's price is its own (a quote, a receipt, a price book line), never its estimate line's whole budget
+            // (labour and every other material on the line): with none it reads No price yet, the line's budget beside it
+            const price = +m.cost || 0,
               vendor = m.vendor || po?.vendor || lf?.line.vendor || "",
               ordered = ["ordered", "shipped"].includes(m.status) || !!po,
               eta = m.eta || po?.expected || "";

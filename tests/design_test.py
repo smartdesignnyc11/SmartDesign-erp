@@ -81,11 +81,15 @@ async def run(c, p, phone):
             # must-fix 2: the drain bought on no approved estimate line drafts the bill-back for the PM
             dr = pg.locator('.view.on [data-purow]').filter(has_text='Shower drain').first
             if await dr.count():
-                bb = dr.locator('button').filter(has_text=re.compile('Bill-Back'))
-                c.ok(await bb.count() > 0, f'{dev} SELECTIONS: the drain carries Draft the Bill-Back for the PM')
+                # the line first (the contract may already cover it; review 11-03), the bill-back when no line does
+                bb = dr.locator('button').filter(has_text=re.compile('Link to a Line or Bill Back'))
+                c.ok(await bb.count() > 0, f'{dev} SELECTIONS: the drain carries Link to a Line or Bill Back')
                 if await bb.count():
                     n0 = await pg.evaluate("() => DB.clients.flatMap(c => c.changeOrders || []).length")
                     await press(bb.first, 600)
+                    lk = await pg.evaluate("() => { const m = document.querySelector('#mbm'); return m ? { lines: m.querySelectorAll('[data-bbl]').length, ok: (m.querySelector('#mbm-ok') || {}).innerText, alt: (m.querySelector('#mbm-alt') || {}).innerText } : null; }")
+                    c.ok(lk and lk['lines'] >= 3 and lk['ok'] == 'Link the Line' and 'Bill-Back' in (lk['alt'] or ''), f'{dev} SELECTIONS: the line picker comes first, the bill-back second ({lk})')
+                    if lk: await press(pg.locator('#mbm #mbm-alt'), 700)
                     r = await pg.evaluate("""n0 => { const all = DB.clients.flatMap(c => (c.changeOrders || []).map(co => ({ co, c })));
                       const x = all.slice(-1)[0]; return { n: all.length, n0, status: x && x.co.status, pid: x && x.co.projectId,
                         lines: x ? x.co.lines.map(l => [l.item, +l.cost || 0]) : [], forPm: !!(x && x.co.billBack) }; }""", n0)
@@ -115,8 +119,14 @@ async def run(c, p, phone):
         # the drain, drafted above, has left it
         await sign_in(pg, 'u_alan')
         bb = await pg.evaluate("() => mApprovals().filter(i => i.kind === 'billback').map(i => [i.title, tdCard(i).verb])")
-        c.ok(bb and any('Range' in t for t, _ in bb) and all(v == 'Draft the Change Order' for _, v in bb), f'{dev} BILL BACK: the PM\'s Approvals hold each item bought on no line, with Draft the Change Order {bb}')
+        c.ok(bb and any('Range' in t for t, _ in bb) and all(v == 'Link to a Line' for _, v in bb), f'{dev} BILL BACK: the PM\'s Approvals hold each item bought on no line, with Link to a Line first {bb}')
         c.ok(not any('Shower drain, square' in t for t, _ in bb), f'{dev} BILL BACK: the drain, drafted already, is not asked twice {bb}')
+        # the PM links the range to the line the contract holds: no bill-back, the card leaves, the item is funded by it
+        ln = await pg.evaluate("""() => { const a = mApprovals().find(i => i.kind === 'billback' && /Range/.test(i.title)); if (!a) return null; tdCard(a).run();
+          const m = document.querySelector('#mbm'); const r = m && m.querySelector('[data-bbl^="estimate:"]'); if (!r) return { picker: false };
+          r.checked = true; m.querySelector('#mbm-ok').click(); const it = DB.sel.items.find(i => /Range, 36/.test(i.name));
+          return { picker: true, line: it.line, left: mApprovals().some(i => i.kind === 'billback' && /Range/.test(i.title)), fund: selFunding(it).state }; }""")
+        c.ok(ln and ln['picker'] and ln['line'] and not ln['left'] and ln['fund'] != 'not-billable', f'{dev} BILL BACK: linking the range to its line clears the card and funds it ({ln})')
         await sign_in(pg, 'u_sarah')
 
         # ---- IN DESIGN

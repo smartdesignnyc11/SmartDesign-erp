@@ -97,6 +97,15 @@ async def desktop(c, p):
         # the 11-03 design (docs/mockups/purchasing, decision 3): an ordered need lives on Deliveries, whose Needs You holds the
         # late promise with Expedite (the menu's Deliveries number); Today's Buy Board items are the Buy Board's Needs You
         c.ok(bo and '10/23' in bo['why'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Deliveries: a backorder to 10/23 on a 10/2 need is late, on the Deliveries Needs You with Expedite, and in Ask {bo}')
+        # decision 3: a promise later than the need date reaches the PM's Today and his job the day it is known
+        await sign_in(pg, 'u_alan')
+        pt = await pg.evaluate("""() => { const M = tdyModel(); const it = (M.all || []).find(i => i.kind === 'tdyPromise' && /White oak/.test(i.title));
+          jpOpenJob('p121', 'proc'); const s = document.querySelector('#v-proc [data-pusec="promise"]');
+          const risk = (typeof jpRisks === 'function' ? jpRisks() : []).some(a => /White oak/.test(a.t));
+          return { title: it ? it.title : null, verb: it ? tdCard(it).verb : null, job: s ? s.innerText.replace(/\\s+/g, ' ') : '', risk }; }""")
+        c.ok(pt['title'] and '10/23' in pt['title'] and pt['verb'] == 'Move the Task', f"Today: the PM's Today carries the oak promised 10/23 for 10/2, with Move the Task {pt}")
+        c.ok('White oak' in pt['job'] and pt['risk'], f"Today: the job's Purchasing tab and its At Risk name the late promise {pt}")
+        await sign_in(pg, 'u_chen')
         # ---- LINKS: a request gets its line from the picker, ranked by match, never guessed
         lk = await pg.evaluate("""() => { const r = buyList('').find(x => x.kind === 'request' && x.q.id === 'rq2'); const before = r.q.line;
           bbLinkLine(r); const opts = [...document.querySelectorAll('#mbm [data-bbl]')].map(i => i.dataset.bbl);

@@ -736,7 +736,9 @@ async def s_pages(p, c):
                     c.ok(any('PEX fittings' in r['t'] for r in mine), f'pages {dev}: Stock Needs You is PEX fittings at their reorder point')
                     c.ok('Blue tape' in P['text'] and 'Wanted by a Need' in P['text'], f'pages {dev}: Stock shows what a need could use, with no count')
             # the owner and the PM see Alan's five; the PM's Buy Board counts his material splits
-            for uid, want_buy in (('u_owner', 0), ('u_alan', 4)):
+            # the PM's: the line whose material portion is not set (Additional tile prep, CO-2026-001); the 11-03 review linked the
+            # demo's materials to their lines, so the tile, trim and radiant lines are bought through their materials
+            for uid, want_buy in (('u_owner', 0), ('u_alan', 1)):
                 await sign_in(pg, uid)
                 K = await pd_kids(pg, phone, 'buy')
                 c.ok([k[0] for k in K] == PU_FIVE, f'pages {dev}: {uid} sees Alan\'s five in his order {[k[0] for k in K]}')
@@ -868,6 +870,33 @@ async def s_leaks(p, c):
     finally:
         await b.close()
 
+async def s_lines(p, c):
+    """Every need carries its estimate line (CLAUDE.md "How purchasing starts"; review 11-03): one picker for a material,
+    a selection and a request; a blank need asks for its line; the demo's materials are linked to their real lines."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        await go(pg, 'proc')
+        seed = await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); const m = id => (p.materials.find(x => x.id === id) || {}).line || ''; return { oak: m('m10'), tile: m('m9'), appl: m('m24') }; }")
+        c.ok(seed['oak'] == 'estimate:es1:l8' and seed['tile'] == 'estimate:es1:l7' and seed['appl'] == '', f'lines: the demo materials name their lines; the appliances, on no line, say so ({seed})')
+        for kind, rx in (('material', 'Appliances'), ('ffe', 'fireclay sink')):
+            r = await pg.evaluate("""([kind, rx]) => { const r = buyList('').find(x => x.kind === kind && new RegExp(rx).test(x.name)); if (!r) return null;
+              bbLinkLine(r); const m = document.querySelector('#mbm'); const o = m && m.querySelector('[data-bbl^="estimate:"]'); if (!o) return { picker: false, text: m ? m.innerText.slice(0, 120) : '' };
+              o.checked = true; const key = o.dataset.bbl; m.querySelector('#mbm-ok').click();
+              const back = buyList('').find(x => x.kind === kind && new RegExp(rx).test(x.name));
+              return { picker: true, key, line: back && back.lineKey }; }""", [kind, rx])
+            c.ok(r and r.get('picker') and r['line'] == r['key'], f'lines: one picker links a {kind} need to its estimate line ({r})')
+        bn = await pg.evaluate("""() => { const n0 = DB.projects.find(x => x.id === 'p121').materials.length; puNewNeed(); const m = document.querySelector('#mbm');
+          m.querySelector('#pu-nj').value = 'p121'; m.querySelector('#pu-nj').dispatchEvent(new Event('change')); m.querySelector('#pu-nw').value = 'Shims, 2 bundles';
+          m.querySelector('#mbm-ok').click(); const refused = !!document.querySelector('#mbm') && DB.projects.find(x => x.id === 'p121').materials.length === n0;
+          const sel = document.querySelector('#mbm #pu-nl'); sel.value = [...sel.options].find(o => o.value.startsWith('estimate:')).value;
+          document.querySelector('#mbm #mbm-ok').click(); const m2 = DB.projects.find(x => x.id === 'p121').materials.slice(-1)[0];
+          return { refused, name: m2.name, line: m2.line }; }""")
+        c.ok(bn['refused'] and bn['name'] == 'Shims, 2 bundles' and bn['line'].startswith('estimate:'), f'lines: a blank need is refused until it names its line ({bn})')
+        c.ok(not errs, f'lines: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 async def s_clock(p, c):
     """One clock: nothing is stamped later than the app's day (BACKLOG section 9 item 1)."""
     b, pg, errs = await fresh(p)
@@ -889,7 +918,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('lines', s_lines), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

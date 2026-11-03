@@ -137,7 +137,7 @@ function pdSelRow(it) {
   // the reasons, in the order the designer acts: the stale price, what blocks (sev 3), the spec sheet the field needs
   const rest = C.filter((k) => !(price && "price" === k.field)),
     reasons = (price ? [price] : []).concat(rest.filter((k) => 3 === k.sev), rest.filter((k) => "spec" === k.field && 3 !== k.sev), rest.filter((k) => 3 !== k.sev && "spec" !== k.field)).map((k) => (k.msg ? k.msg : k)).slice(0, 4),
-    act = fund ? ["Draft the Bill-Back for the PM", () => pdBillBack(it)] : price ? ["Update the Price", () => pdUpdatePrice(it)] : spec ? ["Find the Spec Sheet", () => selOpenItem(it.id)] : ["Open", () => selOpenItem(it.id)];
+    act = fund ? ["Link to a Line or Bill Back", () => pdLinkOrBill(it)] : price ? ["Update the Price", () => pdUpdatePrice(it)] : spec ? ["Find the Spec Sheet", () => selOpenItem(it.id)] : ["Open", () => selOpenItem(it.id)];
   if ("mine" === b && !pdIsDesigner()) (b = "others"), (who = "the designer");
   return {
     id: "sel:" + it.id,
@@ -327,6 +327,27 @@ function pdOvJobs() {
   mail && mail.classList && mail.classList.contains("oc-mail") && (pdInDesign ? mail.style.setProperty("display", "none", "important") : mail.style.removeProperty("display"));
 }
 
+// A selection's estimate line is the line that names it (selId) or the line the picker linked it to (it.line): funding,
+// the bill-back and the Buy Board read the same link
+{
+  const base = selEstLine;
+  selEstLine = function (it) {
+    const r = base.apply(this, arguments);
+    if (r || !it || !/^(estimate|co):/.test(it.line || "")) return r;
+    const f = findLine(it.line);
+    return f ? { key: it.line, doc: f.doc, line: f.line, client: f.client } : null;
+  };
+}
+// Link to a Line, or bill it back: the contract may already cover what was bought (the PM is never steered into billing
+// the client for work the estimate holds); only when no line does is the change order drafted
+function pdLinkOrBill(it) {
+  const p = pdProj(it.projectId);
+  if (!p || "function" != typeof bbLinkLine) return pdBillBack(it);
+  return bbLinkLine(
+    { kind: "ffe", it: it, p: p, name: it.name, qty: `${+it.qty || 1} ${it.unit || "ea"}`, id: "sel:" + it.id },
+    { why: "If no line in the contract covers it, draft the change order for the PM instead.", alt: { label: "No Line: Draft the Bill-Back", run: () => setTimeout(() => pdBillBack(it), 0) } },
+  );
+}
 // ---- bought on no approved line: one proposal to the PM, the same day (BACKLOG §9 item 6) ----------------------------
 // Each item bought for a job on no approved estimate or change-order line is a card in the PM's Approvals (his Today):
 // Draft the Change Order makes the bill-back (pdBillBack); nothing reaches the client until he sends it. The count is
@@ -353,8 +374,8 @@ if ("function" == typeof mApprovals) {
           sev: "warn",
           n: "Bill Back",
           title: `Bill back ${it.name}`,
-          detail: `${money(selLinePrice(it))} bought for ${puJob(pdProj(it.projectId))} on no approved estimate line · send it to the client, or absorb it with a reason`,
-          yes: "Draft the Change Order",
+          detail: `${money(selLinePrice(it))} bought for ${puJob(pdProj(it.projectId))} on no approved estimate line · link it to the line the contract already holds, or bill it back to the client, or absorb it with a reason`,
+          yes: "Link to a Line",
           who: "pm",
           due: today(),
           sel: it.id,
@@ -373,7 +394,7 @@ if ("function" == typeof tdCard) {
     try {
       if (it && "billback" === it.kind) {
         const s = selItem(it.sel);
-        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes), (c.run = () => s && pdBillBack(s)), (c.go = () => s && selOpenItem(s.id));
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes), (c.run = () => s && pdLinkOrBill(s)), (c.go = () => s && selOpenItem(s.id));
       }
     } catch (e) {}
     return c;
