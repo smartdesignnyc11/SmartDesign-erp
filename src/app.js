@@ -26402,7 +26402,7 @@ function analystFindings() {
       (DB.projects || []).forEach((p) => {
         const A = pbAhead(p.id),
           w = r2(+jobFin(p).over || 0),
-          l = r2(+A.total || 0),
+          l = r2(+billedAhead(p.id).total || 0),
           gap = r2(Math.abs(w - l));
         (w > 0.005 || l > 0.005) &&
           gap >= Math.max(1e3, 0.1 * Math.max(w, l)) &&
@@ -26828,14 +26828,19 @@ function analystFindings() {
       F.rows
         .filter((r) => r.floated > 1e3)
         .forEach((r) =>
-          add(
-            "med",
-            "Billing",
-            `Floating client purchases — ${r.line.item}`,
-            `${money(r.floated)} spent on ${r.p?.project.name || ""} beyond what the client has paid for that line — bill it`,
-            r.floated,
-            { view: "reports", tab: "funds" },
-          ),
+          (() => {
+            // spend ahead of what the client paid is a cash question (BACKLOG §1.35 item 5); what is to bill on the
+            // line is toBill's figure, the same as Billing's, never this one
+            const TB = r.p ? toBill(r.p.id, { lineRef: r.key }) : { total: 0, held: 0 };
+            add(
+              "med",
+              "Cash",
+              `Spent ahead of what the client has paid — ${r.line.item}`,
+              `${money(r.floated)} spent on ${r.p?.project.name || ""} ahead of what the client has paid for that line (Cash > Client Funds)${TB.total > 0.005 ? `; ${money(TB.total)} of it is to bill on Billing${TB.held > 0.005 ? `, held while the job is billed ahead` : ""}` : ""}`,
+              r.floated,
+              { view: "reports", tab: "funds" },
+            );
+          })(),
         );
     const B2 = companyBalance();
     B2.available < 0 &&
@@ -34751,12 +34756,16 @@ companyBalance = function () {
     (B.payrollAccrued = accruedPayroll()),
     (B.undeposited = r2(undepositedReceipts().reduce((a, x) => a + undepAmt(x), 0))),
     (B.credits = r2(DB.clients.reduce((a, c) => a + clientFin(c).credits, 0)));
-  const W = DB.projects.map(wipRow);
+  const W = DB.projects.map(wipRow),
+    SA = setAside();
   return (
     (B.over = r2(W.reduce((a, w) => a + w.over, 0))),
     (B.under = r2(W.reduce((a, w) => a + w.under, 0))),
+    // what is set aside is cash received for work not yet done (BACKLOG §1.35 item 1), never Over-Billed (WIP)
+    (B.setAside = SA.total),
+    (B.setAsideBy = SA.rows),
     (B.cashToday = r2(B.cash - -B.cards - B.ap - B.payrollAccrued)),
-    (B.trulyOurs = r2(B.cashToday - B.over)),
+    (B.trulyOurs = r2(B.cashToday - B.setAside)),
     (B.available = r2(B.cash - B.clientFunds)),
     (B.paidBeforeApproval = DB.bills.filter(
       (b) => b.paidBeforeApproval && !["paid", "verified", "void"].includes(b.status),
@@ -34868,8 +34877,8 @@ const METRIC_DEFS = {
     actual:
       "Cost incurred = all bills entered (approved or awaiting approval) + bank items without a bill + labor at burdened rates.",
     cashToday: "Cash today = bank (book) − credit cards − unpaid bills − payroll due.",
-    trulyOurs: "Truly ours = cash today − billings in excess of earned (client money for work not yet done).",
-    safe: "Safe to spend = the lower of truly ours and the 13-week forecast low.",
+    trulyOurs: "Ours today = cash today − what is set aside: cash received for work not yet done, job by job (received with a bank line less earned, never below $0). Billed and unpaid is never set aside.",
+    safe: "Safe to spend = the lower of ours today and the 13-week forecast low after the same set-aside.",
   },
   companyPLBase5 = companyPL;
 function tieOut(range) {
@@ -35664,12 +35673,82 @@ repBarV2 = function (projs) {
     );
 };
 const renderReportsBase7 = renderReports;
+// The set-aside (BACKLOG §1.35 item 1, 11-03): client money for work not yet done, job by job. Cash received on the
+// job's invoices with a bank line behind it (jobFin's collected: paysBanked), less the revenue the job has earned
+// (jobFin's earned, cost to cost), never below $0. Billed and unpaid is never set aside, and one job's unpaid invoice
+// never offsets another job's cash. Client funds (deposits, retainers, collected and not yet bought) sit inside it.
+// It took all of Over-Billed (WIP) before ($156,274 on 9/3), cash that never arrived included, and Safe to Spend
+// read -$4,151; on the same records it is 121 State's $169,750 received less $122,626 earned.
+function setAsideRows() {
+  return (DB.projects || [])
+    .map((p) => {
+      let J;
+      try {
+        J = jobFin(p);
+      } catch (e) {
+        return null;
+      }
+      const collected = r2(+J.collected || 0),
+        earned = r2(+J.earned || 0);
+      return { p: p, collected: collected, earned: earned, billed: r2(+J.billed || 0), amt: r2(Math.max(0, collected - earned)) };
+    })
+    .filter((x) => x && (x.amt > 0.005 || x.collected > 0.005));
+}
+function setAside() {
+  const rows = setAsideRows();
+  return { rows: rows, total: r2(rows.reduce((a, x) => a + x.amt, 0)) };
+}
+// The same set-aside, week by week over the 13-week forecast, as it unwinds with the work: each job's received cash
+// grows by its own open invoices in the week they are forecast to arrive (due date, or the client's promise; overdue
+// a week out, as the forecast places them), and its earned revenue moves evenly from today's to the contract by the
+// job's target finish (held where the job has no target or is past it). Week k's set-aside is the sum over jobs of
+// received less earned, never below $0.
+function setAsideWeeks(weeks) {
+  const td = today(),
+    rows = (DB.projects || [])
+      .map((p) => {
+        let J;
+        try {
+          J = jobFin(p);
+        } catch (e) {
+          return null;
+        }
+        if (!J || !(+J.contract > 0 || +J.collected > 0)) return null;
+        const c = (DB.clients || []).find((x) => x.id === p.clientId),
+          ins = [];
+        try {
+          c &&
+            clientFin(c).open.forEach((o) => {
+              if (o.x.projectId !== p.id) return;
+              let d = (o.x.promise && o.x.promise.date) || o.x.due || td;
+              d < td && !(o.x.promise && o.x.promise.date) && (d = iso(addDays(parse(td), 7)));
+              ins.push([d, o.bal]);
+            });
+        } catch (e) {}
+        const tgt = (p.project && p.project.target) || "",
+          span = tgt > td ? dayDiff(td, tgt) : 0;
+        return { p: p, collected: +J.collected || 0, earned: +J.earned || 0, left: Math.max(0, (+J.contract || 0) - (+J.earnedContract || +J.earned || 0)), ins: ins, span: span };
+      })
+      .filter(Boolean);
+  return (weeks || []).map((w) => {
+    const by = rows.map((x) => {
+      const got = x.collected + x.ins.filter((i) => i[0] <= w.end).reduce((a, i) => a + i[1], 0),
+        f = x.span > 0 ? Math.min(1, Math.max(0, dayDiff(td, w.end) / x.span)) : 0,
+        earned = x.earned + x.left * f;
+      return { p: x.p, amt: r2(Math.max(0, got - earned)) };
+    });
+    return { end: w.end, total: r2(by.reduce((a, x) => a + x.amt, 0)), by: by.filter((x) => x.amt > 0.005) };
+  });
+}
 // Safe to Spend is one figure, read by every screen that names it (Today reads PRED.safeToSpend, which reads this):
-// the lower of truly ours and the 13-week low. Screens that printed truly ours under the label read stsSafe().
+// the lower of ours today (cash today less the set-aside) and the 13-week low after the same set-aside comes off each
+// week (BACKLOG §1.35 item 1). low is that low; cashLow the forecast's own low before the set-aside. Screens that
+// printed truly ours under the label read stsSafe().
 function safeToSpend() {
   const B = companyBalance(),
-    F = cashForecast();
-  return { B: B, F: F, safe: r2(Math.min(B.trulyOurs, F.low)), low: F.low };
+    F = cashForecast(),
+    low = null != F.lowOurs ? F.lowOurs : F.low;
+  return { B: B, F: F, safe: r2(Math.min(B.trulyOurs, low)), low: r2(low), cashLow: F.low, setAside: B.setAside || 0 };
 }
 function stsSafe() {
   let v = null;
@@ -35686,9 +35765,9 @@ function stsWhy(X) {
       B.cards ? `${money(-B.cards)} owed on cards` : "",
       B.ap ? `${money(B.ap)} of unpaid bills` : "",
       B.payrollAccrued ? `${money(B.payrollAccrued)} of payroll due` : "",
-      B.over ? `${money(B.over)} over-billed (WIP, cost-to-cost: client money for work not done)` : "",
+      B.setAside ? `${money(B.setAside)} set aside (cash received for work not yet done: ${(B.setAsideBy || []).filter((x) => x.amt > 0.005).map((x) => `${shortName(x.p)} ${money(x.amt)}`).join(", ")})` : "",
     ].filter(Boolean);
-  return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low (${money(X.low)}) is lower, so it is the figure` : ""}${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
+  return `${money(B.cash)} in the bank${parts.length ? ", less " + parts.join(", ") : ""}${X.low < B.trulyOurs ? `; the 13-week low after the set-aside (${money(X.low)}) is lower, so it is the figure` : ""}; billed and unpaid is never set aside${B.undeposited ? `; ${money(B.undeposited)} recorded, not yet in the bank, is not counted` : ""}.`;
 }
 function biggestReceivable() {
   let best = null;
@@ -35724,7 +35803,7 @@ function ptToday() {
     W = worstJob(),
     phone =
       (currentUser(), (c) => c?.contacts?.find((x) => x.primary)?.phone || c?.contacts?.[0]?.phone || "");
-  return `<div class="today"><div class="today-c ${safe < 0 ? "bad" : safe < B.payrollAccrued ? "warn" : ""}"><span>Safe to spend</span><b>${money(safe)}</b><i>truly ours ${money(B.trulyOurs)} · 13-week low ${money(low)}</i></div><div class="today-c"><span>Biggest receivable</span><b>${R ? money(R.bal) : "—"}</b><i>${R ? `${esc(R.c.name)} · ${esc(R.o.x.number)} · ${R.o.age > 0 ? `<span class="bad">${R.o.age} d overdue</span>` : "due " + fmt(R.o.x.due)}${phone(R.c) ? ` · <a href="tel:${esc(phone(R.c))}">call</a>` : ""}` : "nothing open"}</i></div><div class="today-c ${W && (W.fade < -1 || W.h.late > 0) ? "warn" : ""}"><span>Job to watch</span><b>${W ? esc(W.p.project.name.replace(/ —.*$/, "")) : "—"}</b><i>${W ? [W.fade < 0 ? `GP ${W.J.estGPPct}% vs bid ${W.J.plannedGPPct}%` : "", W.over ? `${esc(W.over.name)} +${money(W.over.actual - W.over.budget)}` : "", W.h.late > 0 ? `${W.h.late} d late` : "", W.h.health?.why?.[0] ? esc(W.h.health.why[0]) : ""].filter(Boolean).slice(0, 2).join(" · ") || "on track" : ""}</i></div></div>`;
+  return `<div class="today"><div class="today-c ${safe < 0 ? "bad" : safe < B.payrollAccrued ? "warn" : ""}"><span>Safe to spend</span><b>${money(safe)}</b><i>ours today ${money(B.trulyOurs)} · 13-week low after the set-aside ${money(low)}</i></div><div class="today-c"><span>Biggest receivable</span><b>${R ? money(R.bal) : "—"}</b><i>${R ? `${esc(R.c.name)} · ${esc(R.o.x.number)} · ${R.o.age > 0 ? `<span class="bad">${R.o.age} d overdue</span>` : "due " + fmt(R.o.x.due)}${phone(R.c) ? ` · <a href="tel:${esc(phone(R.c))}">call</a>` : ""}` : "nothing open"}</i></div><div class="today-c ${W && (W.fade < -1 || W.h.late > 0) ? "warn" : ""}"><span>Job to watch</span><b>${W ? esc(W.p.project.name.replace(/ —.*$/, "")) : "—"}</b><i>${W ? [W.fade < 0 ? `GP ${W.J.estGPPct}% vs bid ${W.J.plannedGPPct}%` : "", W.over ? `${esc(W.over.name)} +${money(W.over.actual - W.over.budget)}` : "", W.h.late > 0 ? `${W.h.late} d late` : "", W.h.health?.why?.[0] ? esc(W.h.health.why[0]) : ""].filter(Boolean).slice(0, 2).join(" · ") || "on track" : ""}</i></div></div>`;
 }
 function bandOf(r) {
   return "bill" === r.sev ||
@@ -35853,8 +35932,8 @@ const ptJobsBase3 = ptJobs;
 }),
   (ptCash = function () {
     const { B: B, F: F, safe: safe } = safeToSpend(),
-      lowWk = F.weeks.reduce((a, w) => (w.balance < a.balance ? w : a), F.weeks[0]);
-    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− over-billed (WIP): client money for work not done</span><b>${money(B.over)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Truly ours</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of truly ours and the 13-week low</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
+      lowWk = F.weeks.reduce((a, w) => ((w.ours ?? w.balance) < (a.ours ?? a.balance) ? w : a), F.weeks[0]);
+    return `<div class="cashb"><div class="cash-row"><span>In the bank (book)</span><b>${money(B.cash)}</b></div>${B.undeposited ? `<div class="cash-row dim"><span>Recorded, not yet in the bank (not counted)</span><b>${money(B.undeposited)}</b></div>` : ""}<div class="cash-row dim"><span>− credit cards</span><b>${money(-B.cards)}</b></div><div class="cash-row dim"><span>− unpaid bills</span><b>${money(B.ap)}</b></div>${B.payrollAccrued ? `<div class="cash-row dim"><span>− payroll due</span><b>${money(B.payrollAccrued)}</b></div>` : ""}<div class="cash-row"><span>Cash today</span><b>${money(B.cashToday)}</b></div><div class="cash-row dim"><span>− set aside: cash received for work not yet done</span><b>${money(B.setAside || 0)}</b></div><div class="cash-row big ${B.trulyOurs < 0 ? "bad" : ""}"><span>Ours today</span><b>${money(B.trulyOurs)}</b></div>\n    <div class="cash-grid"><div><span>Safe to spend</span><b class="${safe < 0 ? "bad" : ""}">${money(safe)}</b><i>lower of ours today and the 13-week low after the set-aside</i></div><div><span>13-week low after the set-aside</span><b class="${(F.lowOurs ?? F.low) < 0 ? "bad" : ""}">${money(F.lowOurs ?? F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>Held for purchases</span><b>${money(B.clientFunds)}</b><i>of the billed-ahead amount, still to buy</i></div></div>\n    <div class="small muted">${METRIC_DEFS.cashToday} ${METRIC_DEFS.trulyOurs} ${METRIC_DEFS.safe}${B.paidBeforeApproval.length ? ` <b class="bad">${B.paidBeforeApproval.length} bill${B.paidBeforeApproval.length > 1 ? "s" : ""} paid before approval — see Money.</b>` : ""}</div></div>`;
   }),
   Object.assign(PORTLETS, { today: "Today strip" });
 const renderPortletBase3 = renderPortlet;
@@ -36769,13 +36848,22 @@ cashForecast = function () {
     }),
   );
   let bal = F.cash;
-  return (
-    F.weeks.forEach((w) => {
-      (w.net = w.inflow - w.outflow), (bal += w.net), (w.balance = bal);
+  F.weeks.forEach((w) => {
+    (w.net = w.inflow - w.outflow), (bal += w.net), (w.balance = bal);
+  }),
+    (F.low = Math.min(...F.weeks.map((w) => w.balance)));
+  // the set-aside comes off every week as it unwinds with the work (BACKLOG §1.35 item 1): w.setAside, w.ours, and
+  // the low of ours (lowOurs), which Safe to Spend compares with ours today, like with like
+  try {
+    const A = setAsideWeeks(F.weeks);
+    F.weeks.forEach((w, i) => {
+      (w.setAside = A[i] ? A[i].total : 0), (w.setAsideBy = A[i] ? A[i].by : []), (w.ours = r2(w.balance - w.setAside));
     }),
-    (F.low = Math.min(...F.weeks.map((w) => w.balance))),
-    F
-  );
+      (F.lowOurs = r2(Math.min(...F.weeks.map((w) => w.ours))));
+  } catch (e) {
+    console.warn("set-aside weeks", e);
+  }
+  return F;
 };
 const DRILL_TITLES = {
   income: "Revenue (earned)",
@@ -63080,14 +63168,16 @@ function rtFor(o) {
       });
   }
   if (c.bankChanged && vend && vend.bankChangedAt) {
-    const days = Math.round((new Date(s.date || today()) - new Date(vend.bankChangedAt)) / 864e5);
+    // one event, one date (BACKLOG §1.35 item 6): the change's own record, shown as a date; the gap is counted from
+    // this payment's date and says so (it read "4 days ago" on 9/3 for a change made 8/20, counted from 8/24)
+    const days = dayDiff(vend.bankChangedAt, s.date || today());
     days >= 0 &&
       days <= c.bankChanged &&
       why.push({
         role: "owner",
         kind: "bank-changed",
         hard: !0,
-        msg: `${vend.name} changed its bank details ${days} day${1 === days ? "" : "s"} ago — confirm by phone on a number you already had, not one on the invoice`,
+        msg: `${vend.name} changed its bank details on ${fmt(vend.bankChangedAt)}, ${days} day${1 === days ? "" : "s"} before this payment — confirm by phone on a number you already had, not one on the invoice`,
       });
   }
   if (c.overPO && s.poId) {
@@ -123954,7 +124044,7 @@ if ("function" == typeof companyBalance) {
       (B.possiblyPaidAmt = r2(B.possiblyPaid.reduce((a, b) => a + billTotal(b), 0))),
       (B.apAccrued = r2(Math.max(0, (B.apAccrued || 0) - B.possiblyPaid.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billTotal(b), 0)))),
       (B.cashToday = r2(B.cash + B.cards - B.ap - B.payrollAccrued)),
-      (B.trulyOurs = r2(B.cashToday - (B.over || 0))),
+      (B.trulyOurs = r2(B.cashToday - (B.setAside || 0))),
       (B.available = r2(B.cash - (B.clientFunds || 0))),
       (B.runway = B.burn ? r2((B.cash + B.cards) / B.burn) : null),
       (B.unmatched = bankUnmatched()),
@@ -124293,13 +124383,32 @@ if ("function" == typeof glOverviewHtml) {
             return 0;
           }
         })(),
+        // the WIP not yet on the ledger, split by the close that posts it (BACKLOG §1.35 item 3): the next close posts
+        // the schedule at its month end (wipAtClose), and what moved after that month end posts at the close after it
+        wipOpen = r2((e.wipAdj || 0) - wipLed),
+        WC = (() => {
+          try {
+            const w = wipAtClose();
+            return w && w.end < to && w.end >= from ? w : null;
+          } catch (x) {
+            return null;
+          }
+        })(),
         items = [
-          [
-            fin2Closes().length && lockedThrough()
-              ? `WIP movement since the ${fin3Label(lockedThrough())} close (posts at the next close)`
-              : "WIP over/under-billing adjustment not yet posted (posts at the month close)",
-            r2((e.wipAdj || 0) - wipLed),
-          ],
+          ...(WC
+            ? [
+                // over-billing posted lowers income: the schedule's net over-billing comes off the management net
+                [`WIP adjustment the ${WC.label} close posts: the WIP schedule at ${fmt(WC.end)}, ${WC.rows.filter((r) => Math.abs(r.toPost) >= 0.005).map((r) => `${shortName(r.p)} ${money(r.toPost)} over-billed`).join(", ") || "nothing to post"}`, -WC.toPost],
+                [`WIP movement since ${fmt(WC.end)} (posts at the ${fin3Label(fin2Next(WC.ym))} close)`, r2(wipOpen + WC.toPost)],
+              ]
+            : [
+                [
+                  fin2Closes().length && lockedThrough()
+                    ? `WIP movement since the ${fin3Label(lockedThrough())} close (posts at the next close)`
+                    : "WIP over/under-billing adjustment not yet posted (posts at the month close)",
+                  wipOpen,
+                ],
+              ]),
           [
             "Bills the bank paid before approval (cost in the management view; vendor prepayments on the ledger until the bill is approved)",
             -r2(e.accrued || 0),
@@ -125127,17 +125236,17 @@ function finAnswer(raw) {
       B = S.B,
       F = S.F,
       low = F.weeks.reduce(
-        (a, w) => (w.balance < a.balance ? w : a),
+        (a, w) => ((w.ours ?? w.balance) < (a.ours ?? a.balance) ? w : a),
         F.weeks[0] || { balance: F.low, start: td },
       );
     return out(
-      `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}; the 13-week low is ${money(F.low)} in the week of ${fmtL(low.start)}.`,
+      `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}: ${stsWhy(S)} The 13-week low after the set-aside is ${money(S.low)} in the week of ${fmtL(low.start)}.`,
       `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
           (w) =>
-            `Week of ${fmtL(w.start)} · in ${money(w.inflow)} · out ${money(w.outflow)} · balance ${money(w.balance)}`,
+            `Week of ${fmtL(w.start)} · in ${money(w.inflow)} · out ${money(w.outflow)} · balance ${money(w.balance)}${w.setAside ? ` · set aside ${money(w.setAside)} · ours ${money(w.ours)}` : ""}`,
         ),
       finCan("dashboard") ? { view: "dashboard" } : finGoRep("flash"),
     );
@@ -132985,6 +133094,29 @@ function fin2CloseYm() {
   return m < today().slice(0, 7) ? m : null;
 }
 const fin2Closes = () => ((DB.periods || {}).closes || []).filter((c) => "close" === c.run);
+// What the next close posts (BACKLOG §1.35 item 3): the WIP schedule at that month's end, job by job, less what 2500 and
+// 1200 already hold (fin2WipPlan, which the close posts). One function for every screen that names a figure "posts at
+// the close": Books' close row, the ledger bridge, Job Profitability. The schedule as of today is a different date: its
+// movement past the month end posts at the close after.
+function wipAtClose(ym) {
+  ym = ym || fin2CloseYm();
+  if (!ym) return null;
+  let P;
+  try {
+    P = fin2WipPlan(ym);
+  } catch (e) {
+    return null;
+  }
+  return {
+    ym: ym,
+    end: P.end,
+    label: fin3Label(ym),
+    schedule: P.net,
+    onLedger: P.onLedger,
+    toPost: P.toPost,
+    rows: P.rows.map((r) => ({ p: r.p, over: r.over, under: r.under, schedule: r2(r.over - r.under), onLedger: r2(r.onOver - r.onUnder), toPost: r2(r.dOver - r.dUnder) })),
+  };
+}
 function fin2RevAcct(p) {
   try {
     const B = {};
@@ -174107,7 +174239,7 @@ function tdMyJobs() {
 // ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
 predDef("safeToSpend", {
   label: "Safe to Spend",
-  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and what is over-billed on the WIP schedule) and the 13-week low; a payment recorded but not yet in the bank is not counted",
+  rule: "the lower of ours today (cash, less cards, unpaid bills, payroll due and what is set aside: cash received for work not yet done, job by job) and the 13-week low after the same set-aside; billed and unpaid is never set aside; a payment recorded but not yet in the bank is not counted",
   // what is set aside, one line (named setAside: other predicates use why for their own rows)
   setAside: () => stsWhy(),
   figure: () => safeToSpend().safe,
@@ -174121,9 +174253,12 @@ predDef("safeToSpend", {
       ["Credit cards", B.cards],
       ["Unpaid bills", -B.ap],
       ["Payroll due", -(B.payrollAccrued || 0)],
-      ["Over-billed (WIP)", -(B.over || 0)],
-      ["Truly ours", B.trulyOurs, "total"],
-      ["13-week low", X.low, "total"],
+      // the set-aside, job by job: what each job received less what it has earned (BACKLOG §1.35 item 1)
+      ...(B.setAsideBy || [])
+        .filter((x) => x.amt > 0.005)
+        .map((x) => [`Set aside: ${shortName(x.p)}, ${money(x.collected)} received less ${money(x.earned)} earned`, -x.amt]),
+      ["Ours today", B.trulyOurs, "total"],
+      ["13-week low after the set-aside", X.low, "total"],
       ["Safe to spend", X.safe, "figure"],
     ].filter((r) => r[2] || Math.abs(+r[1] || 0) >= 0.005);
   },
@@ -188858,6 +188993,36 @@ function rbDraftFloated(pid, svId) {
     return out;
   };
 }
+// Billed Ahead of the Work (BACKLOG §1.35 item 4), one figure per job: each schedule line's billed to date less its
+// measured value, counting only the lines above the firm's tolerance (pbAhead's lines; the deposit is its own invoice and
+// never on the lines). The Billing queue row, the job's Contract and Billing, Books' WIP gap row and Job Profitability
+// read this; no "net" variant is printed.
+function billedAhead(pid) {
+  let A = null;
+  try {
+    A = "function" == typeof pbAhead ? pbAhead(pid) : null;
+  } catch (e) {}
+  const lines = (A && A.lines) || [];
+  return { pid: pid, total: r2((A && A.total) || 0), n: lines.length, lines: lines, depPct: (A && A.depPct) || 0 };
+}
+// To bill (BACKLOG §1.35 item 5): billable cost or work not yet on an invoice under the contract's terms, the one
+// figure every row, finding and answer that says "bill" reads: Ready to Bill's rows plus the rows it holds, for a job
+// and optionally one schedule line (svId) or estimate line (lineRef). Spend beyond what the client has paid is a cash
+// question (Cash > Client Funds), never "bill it".
+function toBill(pid, opts) {
+  const o = opts || {};
+  let R = { rows: [], held: [] };
+  try {
+    R = readyToBill() || R;
+  } catch (e) {}
+  const c = (DB.clients || []).find((x) => (DB.projects || []).some((p) => p.id === pid && p.clientId === x.id)),
+    sv = o.svId || (o.lineRef && c && ((c.sov || []).find((v) => v.lineRef === o.lineRef) || {}).id) || "",
+    mine = (x) => x.p && x.p.id === pid && (!sv || (x.sv && x.sv.id === sv) || x.svId === sv),
+    ready = (R.rows || []).filter(mine),
+    held = (R.held || []).filter(mine),
+    sum = (L) => r2(L.reduce((a, x) => a + (+x.amount || 0), 0));
+  return { pid: pid, svId: sv, ready: sum(ready), held: sum(held), total: sum(ready.concat(held)), rows: ready, heldRows: held };
+}
 // Ready to Bill carries the reimbursable and floated rows; the Billing Queue drafts them.
 {
   const base = readyToBill;
@@ -188881,20 +189046,23 @@ function rbDraftFloated(pid, svId) {
           // ahead on the whole: lines behind are netted against lines ahead (a job one line ahead and the rest
           // behind still bills what is behind)
           if (!(A && A.total > 0.005 && !(A.net <= 0.005))) return !0;
-          const depWords = A.depPct ? `, not counting the ${A.depPct}% deposit` : "";
+          // one billed-ahead figure (BACKLOG §1.35 item 4): Billed Ahead of the Work, the lines above zero (billedAhead).
+          // The net ($53,819 on 121 State: the lines ahead less the measured work behind) answered two questions in one
+          // and is no longer printed; it still decides whether the job as a whole is ahead.
+          const BA = billedAhead(r.p.id),
+            aheadWords = `Billed Ahead of the Work ${money(BA.total)} on ${BA.n} line${1 === BA.n ? "" : "s"}`;
           if ("application" === r.kind) {
             let n = 0;
             try {
               n = pgRows(r.p.id).filter((x) => !pgLineHold(x) && pgPeriodAmt(x) > 0.005).length;
             } catch (e) {}
-            const k = A.lines.length;
-            return (r.ahead = A), (r.why = `bills ${money(r.amount)} of measured work on ${n} line${1 === n ? "" : "s"}; holds ${k} line${1 === k ? "" : "s"} billed ahead, net ${money(A.net)}${depWords}`), !0;
+            return (r.ahead = A), (r.why = `bills ${money(r.amount)} of measured work on ${n} line${1 === n ? "" : "s"}; holds the lines billed ahead (${aheadWords})`), !0;
           }
           if ("floated" === r.kind && r.sv && !A.lines.some((l) => l.svId === r.sv.id)) return !0;
           // the held row keeps what the ready row said (the change orders on the application, the line's materials)
           const co = "application" === r.kind ? (String(r.title || "").match(/ · with (.+)$/) || [])[1] : "",
             what = "floated" === r.kind ? `${r.sv ? r.sv.desc + ": " : ""}${money(r.amount)} of stored materials` : `the next application (${money(r.amount)}${co ? ", with " + co : ""})`;
-          held.push({ p: r.p, c: r.c, sv: null, hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: on what was sent, the job is billed ${money(A.net)} ahead of the work${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}; billing more needs a reason` });
+          held.push({ p: r.p, c: r.c, sv: null, svId: (r.sv && r.sv.id) || "", hid: `ahead:${r.p.id}:${r.key || r.kind}`, line: "", amount: r2(r.amount), ahead: A, why: `${what} waits: the job is billed ahead of the work on what was sent (${aheadWords}); billing more needs a reason` });
           return !1;
         }));
       rows.sort((a, b) => b.amount - a.amount);
