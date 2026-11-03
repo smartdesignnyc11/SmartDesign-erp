@@ -1187,3 +1187,39 @@ The cracks, each owned by a lane:
 | + leaks and flow (master 265579f) | **257/292** | 6 | **29** | **$1,937** | **3** |
 Still open after leaks and flow: the lighting submittal never released (no architect event in the book), the joist CO unpriced (no price on record), Tomas Restoration not a vendor on file, the countertop slab and radiant mats ordered 2 and 1 days late, payroll runs ($7,920 and $10,932) below what the bank paid ($18,100 and $18,680) with the gap not yet shown as hours paid but not approved, and leak_test's three PARTIALs (overspend at landing, per-figure source ids, nothing-slips edge cases).
 
+## §9 Mock-up review: Purchasing and Design (chief of staff, 2026-11-03)
+Defects the mock-up authors found in the live build (master 8eeb990), written as class fixes, each with the check that makes it fail loudly
+next time. Specs: docs/mockups/purchasing/SPEC.md and docs/mockups/design/SPEC.md, section 8. Owner: the Purchasing and Design build lanes;
+the checks go in through the main session.
+
+1. **One clock in stamping paths.** Selections' checks are stamped 2026-11-02 and the range's claim 2026-10-29 on a 9/3 demo day, so two
+   items with the same order-by read "passed 20 days ago" and "passed 80 days ago", and a sink due 9/18 reads "passed 45 days ago".
+   Class fix: every stamp goes through `appNow()` / `appNowIso()` / `stampText()`. Checks: (a) a source lint that fails on `new Date()`
+   or `Date.now()` with no argument outside the clock functions; (b) after the day walk, no stored date on any record is later than
+   `today()`; (c) relative ages ("passed N days ago") recomputed from `today()` for a planted date. Why it got through: ONE_CLOCK in
+   tests/lint.py reads dates printed on screen, and these show only as relative ages.
+2. **A number equals what it describes, in one unit.** Selections' To Check 4 against 6 cards with no spec sheet; Vendors' "11 missing a
+   W-9" against a W-9 column of 12 dashes; Hours Not Logged 4 on the designer's Today against "5 designer-days" on Design; a money tile
+   (Owed Back $2,419) whose rows showed another sum. Checks, in tests/counts_lint.py: (e) a count in a sentence ("N of M have no X",
+   "N missing X") equals the rows whose X is empty; (f) a money tile equals the sum of the rows it opens; (g) one label, one unit; and the
+   designer's Selections and the coordinator's Vendors on its walk.
+3. **One decision, one count across pages.** The blue tape was counted on the Buy Board, in the route approval and on Stock. Class fix: a
+   record's next tap is counted on one page; the others show it with no number. Check: counts lint (h), the same record id carries a
+   count in at most one Needs You per role.
+4. **Money leak: buying what is in stock.** Alex's route buys blue tape with 18 rolls on the shelf; the drywall need reads "No price yet"
+   with 12 sheets of Type X in the warehouse. Class fix: one stock check on every buying door (Buy Board order, request for quote, purchase
+   order, store run and route, FF&E run) before money is committed, proposing the pick and the warehouse stop. Check: the purchasing and
+   buy-board suites plant stock and a request for it, then assert each door shows the stock and the route proposes the pick, never the buy.
+5. **Money leak: marked ordered with no order behind it.** Appliances, Insulation and Radiator valves read ordered, and a tile says
+   "1 arriving"; nothing is coming. Class fix: "ordered" must point to a live order line, store-run receipt or card line; with none, the need
+   stays on the Buy Board as "Find the Order" and never counts as arriving. Check: a data invariant in the net (every ordered need has an
+   order link) and counts lint: an arriving count equals rows with a real order and a promised date.
+6. **Money leak: bought on no approved estimate line, with no bill-back ask.** The shower drain (121 State Street, guest bath) was bought on
+   no approved line, and Analysis lists 7 such rows; nobody is asked to bill it back. Class fix: every cost line (order, bill, card, store
+   run) on no approved estimate or change-order line raises one proposal to the PM: a drafted change order or bill-back line, or absorb with
+   a reason; nothing reaches the client without him. Check: tests/leak_test.py plants a purchase on no line and asserts the PM's Today has
+   the proposal the same day, and that Analysis's "on no estimate line" count equals the open proposals.
+7. **Money and tax: paid with no W-9.** The Vendors mock shows Window Works, Tino, Nemo Tile and Satish Electric paid ($53,150) with no
+   W-9, and Alberto M Plumbing $9,800 "paid" on a bill that cannot be paid (verify against the build). Class fix: a payment to a vendor with
+   no W-9 on file is a Needs You row for the controller (backup withholding, the year-end 1099). Check: the payment-run suite asserts the
+   Payment Check holds it, and the finance cross-check lists any vendor paid without one.

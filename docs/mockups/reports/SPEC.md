@@ -24,8 +24,8 @@ Mock-ups: `JobProfit` + `DeskJobProfit`, `Cash` + `DeskCash`, `Statements`, `Bui
 3. Holds one row per job (the job's own Budget and Contract and Billing roll up here); Margin and Work in Progress are two views of the same rows. The per-line detail stays on the job's Budget.
 4. Owner: "which job is making or losing money?" PM: his jobs. Controller: the WIP schedule and its tie.
 5. A job row opens that job's Budget, never a firm list.
-6. Needs You 3 (121 State 20.83% at completion against 21.81% bid, windows $3,800 over; $14,072 of payroll on no job; Over-Billed (WIP) $156,274), tiles (contracts $725,700, margin $196,039 at 27%, billed $299,034, collected $169,750 with a bank line), the jobs, then the company after overhead (net −$5,330).
-7. Needs You 3 = its rows; tiles are where things stand, labelled.
+6. At Risk 3, the approved job page's word, each row naming whose it is (121 State 20.83% at completion against 21.81% bid, windows $3,800 over, with Alan; $14,072 of payroll on no job, with the controller; Over-Billed (WIP) $156,274, with the controller), tiles (contracts $725,700, margin $196,039 at 27%, billed $299,034, collected $169,750 with a bank line), the jobs, then the company after overhead (net −$5,330).
+7. At Risk 3 = its rows; tiles are where things stand, labelled. A report holds no Needs You: nothing on it waits on the reader that is not acted on elsewhere.
 8. No +: nothing is created on a report.
 9. Phone: each job a card with labelled figures; no table.
 10. One page; WIP folds in as a view (same jobs, one list), and stays a named standard report for the bank and surety.
@@ -36,8 +36,8 @@ Mock-ups: `JobProfit` + `DeskJobProfit`, `Cash` + `DeskCash`, `Statements`, `Bui
 3. Holds Safe to Spend with its parts, the 13-week forecast, client funds by line, the receivables and payables aging with their ledger ties. The invoices' home is Billing; the bills' is Bills and Payroll; this reads them.
 4. Owner: "can I spend, and when is the low?" Controller: the forecast and ties. Billing: what comes in.
 5. A week, a client or a line opens that record.
-6. Safe to Spend −$4,151 = bank $184,231 (statement through 8/31) − cards $16,067 − payroll due $16,040 − Over-Billed (WIP) $156,274; the 13-week low $135,583 (11/26); "not counted: $21,350 recorded, not in the bank". Then Needs You 3, then the views.
-7. One "ours" figure. Needs You 3 = its rows.
+6. Safe to Spend = the lower of ours today and ours at the 13-week low. Ours today = bank $184,231 (statement through 8/31) − cards $16,067 − payroll due $16,040 − client money for work not done (job by job, paid to us with a bank line less earned, never below $0; billed and unpaid is never set aside; client funds sit inside it, never added). On the mock's figures that set-aside is about $47,124 (all 121 State) and ours today about $105,000, not −$4,151 (decided 11-03 by definition, BACKLOG §1.35.1; the build recomputes it). The same set-aside comes off every forecast week, so the low compares like with like; "not counted: $21,350 recorded, not in the bank". Then At Risk 3 (whose on each row), then the views.
+7. One "ours" figure. At Risk 3 = its rows.
 8. No +.
 9. Phone: the bars are 13 tappable weeks with the selected week labelled; scale written.
 10. One page; Client Funds, Receivables, Payables and the Cash Forecast become its four views.
@@ -57,7 +57,7 @@ Mock-ups: `JobProfit` + `DeskJobProfit`, `Cash` + `DeskCash`, `Statements`, `Bui
 **Report Builder**.
 1. What: any record in the system, filtered, grouped and totalled, then saved, pinned or sent to Excel.
 2. Label: "Report Builder", as today and in the approved menu.
-3. Holds saved reports (9 today) and the standard reports that moved to the role that acts, kept here too so nothing is lost and Cmd-K finds them.
+3. Holds saved reports (9 today) and the standard reports that moved to the role that acts (the Work in Progress Schedule and the Client Statement included), kept here too so nothing is lost and Cmd-K finds them. A saved report's name matches its filter ("Invoices due this week" filters by due date).
 4. Controller and owner: "a question no page answers". Everyone: their pinned reports.
 5. n/a: not inside a record.
 6. Search (or ask), then Saved, Standard, Pinned, then Start From (every queryable table, NetSuite's differentiator).
@@ -101,11 +101,12 @@ Mock-ups: `JobProfit` + `DeskJobProfit`, `Cash` + `DeskCash`, `Statements`, `Bui
 | Controller | all four | Financial Statements |
 | Billing | Job Profitability, Cash, Report Builder | Cash |
 | PM | Job Profitability (his jobs only, no company card), Report Builder | Job Profitability |
+| Coordinator, designer | Report Builder (their saved and pinned reports, scoped to what their role may read): the Dashboard was their only report entry | their Today |
 
 ## 5. Decisions made here, and why
 
 1. **Work in Progress is a view of Job Profitability**, not a page: the same job rows, one list per noun (Q3). It stays named in Report Builder and Cmd-K.
-2. **Financial Statements is added** to the approved three: the P&L, the balance sheet and the Pack need one home the owner can find, and the Ledger's copy folds into it. Recommend Alan says yes; the alternative (statements under Books) hides the P&L from the owner's menu.
+2. **Financial Statements is added** to the approved three: the P&L, the balance sheet and the Pack need one home the owner can find, and the Ledger's copy folds into it. Decided 11-03 by the chief of staff under Alan's overnight instruction (reversible, told to him in the morning brief): the approved three predate Books taking the statements off the Ledger.
 3. **Receivables and Payables join Cash** as views; the chase is Billing's (CX6: with the role that acts).
 4. **The Pack for any period**, closed months final and the open one marked Draft; the Weekly Flash is the Pack for a week.
 5. **One "ours"**: Safe to Spend. Client funds and spend ahead of payment are its parts, never a second figure (CX2).
@@ -131,3 +132,10 @@ Mock-ups: `JobProfit` + `DeskJobProfit`, `Cash` + `DeskCash`, `Statements`, `Bui
 | Report Builder | pass | pass | pass | pass | n/a | pass | pass | pass | partial: building is desktop | pass |
 
 Revised during review: WIP folded into Job Profitability (Q10); Receivables and Payables folded into Cash; "Open the P&L" made a 48px row; the chart's scale written; the client-funds claim made a placeholder. Phone screens rendered at 390px: nothing sideways, every target 44px or more.
+
+## 8. Chief of staff review, 11-03 (night)
+
+Decided, reversible, logged in `docs/DECISIONS.md`: Financial Statements joins the owner's Reports menu; Work in Progress is a view of Job Profitability and a named Standard report. Fixed in the mock-ups: At Risk replaces Needs You on Job Profitability and Cash, each row naming whose it is; the $33,500 row opens the bill, where Alan decides, not Banking; Safe to Spend shows the corrected definition with placeholders; Client Funds sit inside the set-aside; the WIP posting reads one figure on Financial Statements and Job Profitability; the tie card adds the $14,841 not yet coded, so cost by bank line, by hand and uncoded sums to the P&L's $148,089; Report Builder's Standard list adds the WIP Schedule and the Client Statement; the owner's rail matches the approved menu.
+
+Must fix before build (BACKLOG §1.35): one job cost (121 State's WIP earned, $122,626 at 25%, does not follow from the Margin view's own $105,084 of $388,888, which gives 27%; the [REASON] for $4,589 must be a reason, not a placeholder); Safe to Spend recomputed by the definition above; the WIP adjustment at the close equal to the WIP schedule; one to-bill figure for the windows.
+

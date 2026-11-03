@@ -27,9 +27,9 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 **Billing** (billing's home).
 1. What: the client's documents for every job, what to bill next and what is still owed.
 2. Label: "Billing", the billing person's word; Collections is a card, not a page.
-3. Holds estimates, change orders, invoices, payments, the same records as each job's Contract and Billing, filtered by job; home stays the job (and Sales for estimates). Collections reads the same open invoices as Cash > Receivables.
+3. Holds signed estimates (the contracts billed against), change orders, invoices, payments, the same records as each job's Contract and Billing, filtered by job; home stays the job. Estimates still being priced or sent live only in Sales and Clients, Estimates, linked at the foot of the list, so the firm has one estimates list. Collections reads the same open invoices as Cash > Receivables.
 4. Billing: "what do I bill and chase today?" Controller: deposits and recorded-not-banked. Owner: almost never (his signal is the Cash line on Today).
-5. With a job picked, every row, count and the + are that job's.
+5. With a job picked, every row, count, the aging, the retainage and the + are that job's.
 6. Needs You (4: $17,080 Cranberry milestone; $12,651 measured on 121 State with $66,470 Billed Ahead of the Work and the $10,170 windows billback held; $2,600 Prospect hours; $21,350 Rivera not in the bank), Collections (aging $92,265 current, retainage $15,668 its own bucket, reminders at due/7/15/30), then Documents.
 7. Needs You 4 = the rail's 4 = its rows. Chips carry no counts: nothing in them waits.
 8. One + (Progress Application, Deposit Invoice, Invoice, Change Order), tied to the job filter or asking the job first.
@@ -43,7 +43,7 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 4. Controller: "what left or reached the bank that nothing explains?" Billing: Money In. Owner: never; exceptions reach his Today.
 5. A line opened is that line: what it would link to, why, and the safe step.
 6. Needs You: 15 lines, $67,272 at stake, oldest 19 days, August's 7 lines that block the close; then To Review sorted by risk; then Accounts with statement and reconciled-through dates.
-7. To Review 15 = the rail's 15; Money In 2 and Receipts 2 are their rows.
+7. To Review 15 = the rail's 15. Money In and Receipts carry no count: Money In is billing's chase (Billing's Needs You row), and a crew receipt is approved by the job's PM on his Approvals, never by the person who bought.
 8. One + (Import a Statement, Connect a Bank, Bank Rule, Receipt, Typed Line flagged as not from the bank).
 9. Phone: no Confirm on a list row; the line's sheet names the target and the warning first (S1). Typed lines say so on the row.
 10. One page; the account tabs become the Accounts card and a filter.
@@ -55,7 +55,7 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 4. Controller: "what do I approve, split and pay?" Owner: what waits on him (WW-2026-118).
 5. A bill opened shows its PO, receipt and bank line.
 6. Needs You 4 (payroll 8/17-8/28, $16,040, 2 days late, 88% unallocated: split it first; 4 time entries, 30.1 h, 2 flagged; AMP-311 held as possibly paid; CM-0091 paid with no lien waiver), With Others (WW-2026-118 with Alan), then chips.
-7. Needs You 4; To Approve 3 = its rows. "Due This Week 0" is not shown.
+7. Needs You 4; To Approve 3 = its rows (the payroll run, the 4 time entries, AMP-311): what waits on the controller. WW-2026-118 sits under With Others, not in his count. The payroll run he builds is approved by Alan. "Due This Week 0" is not shown.
 8. One + (Vendor Bill, Payroll Run, Time Entry).
 9. Phone: the owner's approve-with-dispute stays the bill sheet; 44px.
 10. One page: payroll and time join bills (one approval, one pay run, the split checked before pay day, Alan 10-26 decision 3).
@@ -66,8 +66,8 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 3. Holds journals, accounts, trial balance, the close checklist and its postings, the control rules, the operating budget, 1099 and sales tax. Statements move to Reports > Financial Statements.
 4. Controller: "can I close August, and is anything posted wrong?" Owner: almost never: journals to post and the close sign-off reach his Approvals.
 5. Inside an entity filter, everything is that entity.
-6. Needs You 5 (close 15 of 24 open; INV-2026-031's $97,000 deposit booked as a draw; Over-Billed (WIP) against Billed Ahead of the Work, $64,587 apart on 121 State; Amex $365.64 apart; $0.16 short-paid), then Close, Ledger, Controls, Budget, Tax and 1099.
-7. Needs You 5 = the rail's 5.
+6. Needs You 4 (close 15 of 24 open, with Amex's $365.64 inside it as a close check, not a second row; INV-2026-031's $97,000 deposit booked as a draw; Over-Billed (WIP) against Billed Ahead of the Work, $64,587 apart on 121 State; $0.16 short-paid), then Close, Ledger, Controls, Operating Budget, Tax and 1099. The WIP adjustment that posts at the close is the WIP schedule's Over-Billed (WIP), job by job: one figure with Job Profitability (BACKLOG §1.35.3).
+7. Needs You 4 = the rail's 4.
 8. One + (Journal Entry, drafted by the controller and posted by Alan).
 9. Phone: readable; the close is done on the desktop.
 10. One page with five chips, down from Ledger, Controls and Budget (3 pages, 15 screens).
@@ -100,7 +100,7 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 | Controls Verification, Open Exceptions, All Transactions | the lines: Banking; the check and "never run": Books Controls |
 | Controls Approvals (the ladder), Terms and Early Payment | Books Controls; the discount also on the bill in To Pay |
 | Controls Reconciled Through; Unassigned Cost | Books Close and Banking Accounts; Banking To Review |
-| Budget (operating) | Books Budget |
+| Budget (operating) | Books Operating Budget (renamed: the job's Budget is a different noun) |
 | Payables' lien-waiver and 1099 registers | Bills and Payroll (waiver on the sub's bill); Books Tax and 1099 |
 
 ## 4. Who sees what
@@ -108,8 +108,8 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 | Role | Accounting menu | Lands on |
 |---|---|---|
 | Billing | Billing 4, Banking (Money In first) | Billing |
-| Controller | Billing, Banking 15, Bills and Payroll 4, Books 5 | Banking |
-| Owner | Billing, Banking, Bills and Payroll 1 (approved menu, unchanged) | Today; Bills and Payroll for what waits on him |
+| Controller | Billing, Banking 15, Bills and Payroll 4, Books 4 | Banking |
+| Owner | Billing, Banking, Bills and Payroll, with no badges (approved menu, unchanged) | Today; what waits on him (WW-2026-118, the payroll run, journals, the close sign-off) is on Today, counted once |
 | PM | none: he works the job's Contract and Billing and Budget; bills he recommends sit on his Approvals | the job |
 
 ## 5. Decisions made here, and why
@@ -142,3 +142,10 @@ Mock-ups: `Menu` (by role), `Billing` + `DeskBilling`, `Banking` + `DeskBanking`
 | Books | pass | pass | pass | pass: owner's signal moved to Today | pass | pass | pass | pass | partial: the close is a desktop job; phone reads it | pass |
 
 Revised during review: Payroll and Time folded in (Q10); Receipt added to Banking's +; the client-funds claim and the Window Works date made placeholders instead of guesses. Desktop chips are 34 to 36px, as in the approved desktop mock-ups; the phone screens measure 44px or more on every target and 390px wide with nothing sideways (rendered and measured).
+
+## 8. Chief of staff review, 11-03 (night)
+
+Decided, reversible, logged in `docs/DECISIONS.md`: Books stays off the owner's menu (his sign-offs reach Today and Approvals; read access by link and Cmd-K stays). Fixed in the mock-ups: the owner's menu and rails match the approved menu (no Tasks 12, no Bills and Payroll badge); Billing's aging and retainage follow the job filter and the firm keeps one estimates list (Sales); the billing role's desktop rail no longer shows Bills and Payroll; Banking's Money In and Receipts carry no count; Bills and Payroll's To Approve holds what waits on the controller and names Alan as the payroll approver; Books' Needs You is 4 (Amex folded into the close), its budget chip is Operating Budget, and the WIP adjustment row reads the WIP schedule's figure.
+
+Must fix before build: the four money definitions in BACKLOG §1.35 (Safe to Spend's set-aside, one job cost, one WIP figure at the close, one billed-ahead and one to-bill), and the bank-detail change's date from its own record. Not rendered by the reviewer (no support.js in the folder); the logic blocks were syntax-checked and run.
+

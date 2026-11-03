@@ -91,9 +91,10 @@ class Component extends DCLogic {
     const tables = { 'Profit and Loss': pl[P], 'Budget vs Actual': bva, 'Balance Sheet': bs, 'Cash Flow': cf };
     const heads = { 'Profit and Loss': 'PROFIT AND LOSS · ' + P.toUpperCase(), 'Budget vs Actual': 'BUDGET VS ACTUAL · YEAR TO DATE', 'Balance Sheet': 'BALANCE SHEET · AT THU, SEP 3', 'Cash Flow': 'CASH FLOW · YEAR TO DATE' };
     const truth = [
-      { k: 'Income backed by a bank or card line', v: '$169,750', tone: G },
+      { k: 'Client payments backed by a bank line', v: '$169,750', tone: G },
       { k: 'Cost backed by a bank or card line', v: '$123,598', tone: G },
       { k: 'Cost by hand, no bank line (flagged)', v: '$9,650', tone: A },
+      { k: 'Cost not yet coded to an account (Needs Category)', v: '$14,841', tone: A },
       { k: 'Entries not from a document: 1 opening entry', v: '$172,503', tone: A },
       { k: 'Manual journal entries', v: '0', tone: G }
     ];
