@@ -89,7 +89,8 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
                     'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants',
-                    'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money'}.get(
+                    'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
+                    'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -98,7 +99,8 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
          'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
-         'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE'}
+         'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
+         'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -898,12 +900,65 @@ INV_MONEY2_JS = """
   }
   return out;"""
 
+# the chief of staff's review (11-03): reading never writes; a deposit has one home at the close; the old figure is gone
+INV_MONEY3_JS = """
+  const out = { readonly: [], closeinc: [], oldword: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  // 1. reading any money figure leaves the data, the audit trail included, byte for byte as it was: below the audit
+  // trail's 5,000-row cap and at it (where a splice-back once dropped a real row and left a preview row)
+  const reads = () => { safeToSpend(); stsSafe(); companyBalance(); cashForecast(); setAside(); jobCostTie(['2026-01-01', today()]);
+    DB.projects.forEach(p => { jobCostPosted(p); billedAhead(p.id); toBill(p.id); }); wipAtClose(); wipPlanAtClose(fin2CloseYm());
+    acBillNeeds(''); acApNeeds(); acBooksNeeds(); acBankReview(); acCollections(''); PRED.safeToSpend.rows(); stsWhy(); };
+  for (const cap of [false, true]) {
+    if (cap) { DB.audit = DB.audit || []; while (DB.audit.length < 5000) DB.audit.push({ id: 'fx' + DB.audit.length, kind: 'fixture', action: 'fill', note: 'finance_xcheck: the audit cap' }); }
+    reads();   // once, so anything a first read derives (the ledger's own sync) is in place
+    const before = JSON.stringify(DB);
+    reads();
+    const after = JSON.stringify(DB);
+    let at = -1; if (before !== after) { at = [...before].findIndex((ch, i) => ch !== after[i]); }
+    say('readonly', before === after, `${cap ? 'at' : 'below'} the audit cap (${DB.audit.length} rows): ${before === after ? 'unchanged' : 'changed near ' + before.slice(Math.max(0, at - 80), at + 80)}`, 'the data byte for byte as it was');
+  }
+  // 2. after a close, ledger income by job equals the management view (one home for a deposit: 140 Prospect's $24,000
+  // retainer sits in 2400; the close never posts it again into 2500)
+  appSetDay('2026-10-02'); signIn('u_owner'); render(); await sleep(150);
+  const keepB = fin2CloseBlockers; fin2CloseBlockers = () => [];
+  const runs = [];
+  try { for (const ym of ['2026-08', '2026-09']) { const r = fin2RunClose(ym, 'finance_xcheck: a deposit has one home at the close'); runs.push([ym, r.ok, r.why || '']); } }
+  finally { fin2CloseBlockers = keepB; }
+  say('closeinc', runs.every(x => x[1]), `the August and September closes: ${JSON.stringify(runs)}`, 'both run');
+  const end = '2026-09-30', T = {}; glAccounts().forEach(a => T[a.id] = a.type);
+  const S = rpPL(['2026-01-01', end]);
+  DB.projects.forEach(p => {
+    const led = r2(glLines({ entityId: 'all', projectId: p.id, to: end }).filter(l => T[l.acct] === 'revenue').reduce((a, l) => a + (+l.cr || 0) - (+l.dr || 0), 0));
+    const row = (S.rows || []).find(x => x.id === p.id), mg = r2(row ? row.income : 0);
+    if (!led && !mg) return;
+    say('closeinc', Math.abs(led - mg) < 1, `${p.project.name}: ledger income ${led}`, `the management view's ${mg}`);
+  });
+  // 3. the old Safe to Spend wording and figure are gone from every screen and Ask answer that names cash
+  appSetDay('2026-09-03'); render(); await sleep(100);
+  const OLD = /Truly ours =|billed ahead of work \\$|over-billed \\(WIP, cost-to-cost: client money|lower of truly ours|[\\u2212-]\\$4,151\\b|[\\u2212-]\\$4,150\\.74/;
+  for (const u of ['u_owner', 'u_controller']) {
+    signIn(u); render(); await sleep(100);
+    for (const v of ['home', 'dashboard', 'bank', 'ap', 'gl', 'billing', 'reports']) {
+      try { setView(v); await sleep(200); } catch (e) { continue; }
+      const t = (document.querySelector('.view.on') || {}).innerText || '';
+      const m = t.match(OLD);
+      say('oldword', !m, `${u} ${v}: ${m ? '"' + t.slice(Math.max(0, m.index - 80), m.index + 80) + '"' : 'clear'}`, 'no old Safe to Spend wording or figure');
+    }
+    for (const q of ['how much is safe to spend', 'what is our cash position', 'how much cash do we have', 'what is our runway']) {
+      let a = ''; try { const r = await paAsk(q); a = typeof r === 'string' ? r : JSON.stringify(r); } catch (e) { a = String(e); }
+      const m = a.match(OLD);
+      say('oldword', !m, `${u} Ask "${q}": ${m ? a.slice(Math.max(0, m.index - 80), m.index + 80) : 'clear'}`, 'no old Safe to Spend wording or figure');
+    }
+  }
+  return out;"""
+
 async def check_money(p, R):
     """BACKLOG §1.35: one figure per question, recomputed from the records, the same everywhere."""
-    keys = ['inv_safe', 'inv_jobcost', 'inv_ahead', 'inv_tobill', 'inv_bankdate', 'inv_close']
+    keys = ['inv_safe', 'inv_jobcost', 'inv_ahead', 'inv_tobill', 'inv_bankdate', 'inv_close', 'inv_readonly', 'inv_closeinc', 'inv_oldword']
     if not any(R.want(k) for k in keys): return
     js = lambda body: "async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); try { " + body + " } catch (e) { return { error: String(e && e.stack || e) }; } }"
-    for body in (INV_MONEY_JS, INV_MONEY2_JS):
+    for body in (INV_MONEY_JS, INV_MONEY2_JS, INV_MONEY3_JS):
         b, pg, errs = await open_app(p)
         await sign_in(pg, 'u_controller')
         res = await pg.evaluate(js(body))
@@ -913,7 +968,7 @@ async def check_money(p, R):
             if not isinstance(rows, list): continue
             key = 'inv_' + k
             if not R.want(key): continue
-            if not rows and k in ('ahead', 'close', 'safe', 'jobcost'):
+            if not rows and k in ('ahead', 'close', 'safe', 'jobcost', 'readonly', 'closeinc', 'oldword'):
                 R.flag(key, 'nothing read', 'no rows', 'at least one reading'); continue
             for ok, seen, want in rows:
                 R.readings.append({'figure': key, 'surface': seen[:120], 'raw': seen, 'value': None, 'expected': want, 'ok': ok})

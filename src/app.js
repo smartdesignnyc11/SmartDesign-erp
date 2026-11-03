@@ -46575,7 +46575,7 @@ function ptRunway() {
     300,
     34,
     cls,
-  )}<div class="small muted">Truly ours = bank + undeposited − client funds held − cards − unpaid bills − payroll due. Red under 30 days or a negative low; amber under 60. Reports shows the wider figure — all cash in the bank against net burn.</div>`;
+  )}<div class="small muted">${esc(METRIC_DEFS.safe)} ${esc(METRIC_DEFS.trulyOurs)} Red under 30 days or a negative low; amber under 60. Reports shows the wider figure: all cash in the bank against net burn.</div>`;
 }
 function ptWIP() {
   const rows = activeJobs()
@@ -125289,7 +125289,7 @@ function finAnswer(raw) {
       );
     return out(
       `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `Safe to spend today: ${money(S.safe)}`}. ${stsWhy(S)} The 13-week low after the set-aside is ${money(S.low)} in the week of ${fmtL(low.start)}.`,
-      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
+      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, ${money(B.undeposited || 0)} recorded, not yet in the bank (not counted), client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, set aside ${money(B.setAside || 0)} (cash received for work not yet done, job by job; billed and unpaid is never set aside). Ours today ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
@@ -133152,22 +133152,28 @@ const fin2Closes = () => ((DB.periods || {}).closes || []).filter((c) => "close"
 // posts $64,333.74 (45 Cranberry's labor moves to the run's burden: $5,998 -> $6,323).
 // The plan itself (fin2WipPlan's shape), read the way the close reads it: with the month's accrued wages in. The Close
 // page's WIP step reads this, so its "to post" is the figure the close posts.
+// Reading never writes (CLAUDE.md, Financial truth: posted money is append-only). The wages are posted into a copy of the
+// ledger and a copy of the audit trail that stand in for the real ones during the reading; the real objects are never
+// touched (before, the entries were posted to the real ledger and spliced off again, and at the audit trail's 5,000-row
+// cap the splice dropped a real row and left a preview row). Nothing is saved while the copies stand in.
 function wipPlanAtClose(ym) {
   let P = null;
-  const G = DB.gl || {},
-    n0 = (G.journals || []).length,
-    seq0 = G.seq,
-    a0 = (DB.audit || []).length,
+  const G0 = DB.gl,
+    A0 = DB.audit,
+    sv = [typeof save == "function" ? save : null, typeof saveNow == "function" ? saveNow : null],
     // inside a draw the job figures are memoised (speed.js): the reading must see the wages, as the close does
     spd = "undefined" != typeof SPD ? SPD.on : 0;
   try {
     "undefined" != typeof SPD && (SPD.on = 0);
+    sv[0] && (save = () => {}), sv[1] && (saveNow = () => {});
+    (DB.gl = JSON.parse(JSON.stringify(G0 || {}))), (DB.audit = (A0 || []).slice());
     "function" == typeof fin3PostWages && "function" == typeof fin2WagePlan && fin3PostWages(ym, fin2WagePlan(ym), "preview");
     P = fin2WipPlan(ym);
   } catch (e) {
     P = null;
   } finally {
-    G.journals && G.journals.length > n0 && G.journals.splice(n0), (G.seq = seq0), DB.audit && DB.audit.length > a0 && DB.audit.splice(a0);
+    (DB.gl = G0), (DB.audit = A0);
+    sv[0] && (save = sv[0]), sv[1] && (saveNow = sv[1]);
     "undefined" != typeof SPD && (SPD.on = spd);
   }
   return P;
@@ -133184,7 +133190,7 @@ function wipAtClose(ym) {
     schedule: P.net,
     onLedger: P.onLedger,
     toPost: P.toPost,
-    rows: P.rows.map((r) => ({ p: r.p, over: r.over, under: r.under, schedule: r2(r.over - r.under), onLedger: r2(r.onOver - r.onUnder), toPost: r2(r.dOver - r.dUnder) })),
+    rows: P.rows.map((r) => ({ p: r.p, over: r.over, under: r.under, schedule: r2(r.over - r.under), onLedger: r2(r.onOver - r.onUnder + (r.held || 0)), held: r.held || 0, toPost: r2(r.dOver - r.dUnder) })),
   };
 }
 function fin2RevAcct(p) {
@@ -133225,9 +133231,19 @@ function fin2WipPlan(ym) {
           under: r2(J.under || 0),
           onOver: bal("2500"),
           onUnder: bal("1200"),
+          // a deposit or retainer not yet applied sits in 2400 (deposits held): its one home on the ledger
+          held: r2(bal("2400")),
         };
-      (r.dOver = r2(r.over - r.onOver)),
-        (r.dUnder = r2(r.under - r.onUnder)),
+      // One home for a deposit (the chief of staff's review, 11-03): the schedule's billings include deposits and
+      // retainers, which the ledger never took as revenue (they sit in 2400). So what the close posts to 2500 and 1200 is
+      // the schedule's position less what 2400 already holds for the job; it reclasses, never posts the deposit again.
+      // Before, 140 Prospect's $24,000 retainer (earned $1,488) would have put $22,512 in 2500 on top of the $24,000 in
+      // 2400, and its ledger income would read $22,512 negative against the management view's $1,488.
+      const T = r2(r.over - r.under - r.held);
+      (r.tOver = r2(Math.max(0, T))),
+        (r.tUnder = r2(Math.max(0, -T))),
+        (r.dOver = r2(r.tOver - r.onOver)),
+        (r.dUnder = r2(r.tUnder - r.onUnder)),
         (r.over || r.under || r.onOver || r.onUnder) && rows.push(r);
     }),
     {
@@ -133235,7 +133251,7 @@ function fin2WipPlan(ym) {
       end: end,
       rows: rows,
       net: r2(rows.reduce((a, r) => a + r.over - r.under, 0)),
-      onLedger: r2(rows.reduce((a, r) => a + r.onOver - r.onUnder, 0)),
+      onLedger: r2(rows.reduce((a, r) => a + r.onOver - r.onUnder + (r.held || 0), 0)),
       toPost: r2(rows.reduce((a, r) => a + r.dOver - r.dUnder, 0)),
     }
   );
@@ -133704,8 +133720,10 @@ function ctWipTieRows(ym) {
       } catch (e) {
         return;
       }
+      // the ledger's side of the schedule: 2500 less 1200, plus the deposits 2400 holds for the job (one home for a
+      // deposit: the close posts the schedule less what 2400 already holds)
       const schedule = r2((J.over || 0) - (J.under || 0)),
-        ledger = r2(bal("2500", p.id) - bal("1200", p.id));
+        ledger = r2(bal("2500", p.id) - bal("1200", p.id) + bal("2400", p.id));
       (schedule || ledger) &&
         rows.push({
           projectId: p.id,
@@ -133768,7 +133786,7 @@ function fin2ClosePageHtml() {
     wip = ("function" == typeof wipPlanAtClose && wipPlanAtClose(ym)) || fin2WipPlan(ym),
     wages = fin2WagePlan(ym),
     nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
-  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change. The close posts the accrued wages below first and plans this entry after them: an accrued run moves a job's labor to the run's burden, so the entry can differ from this preview by that much, and the close ties the result to 2500/1200 job by job before it locks anything.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
+  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder + (r.held || 0)))}${r.held ? `<div class="small muted">${money(r.held)} deposits held (2400)</div>` : ""}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change. The close posts the accrued wages below first and plans this entry after them: an accrued run moves a job's labor to the run's burden, so the entry can differ from this preview by that much, and the close ties the result to 2500/1200 job by job before it locks anything.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
     wages.rows.length
       ? `<div class="tw"><table class="t fin2-wages"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Burdened Cost</th><th>Days</th></tr></thead><tbody>${wages.rows
           .map((o) => {
