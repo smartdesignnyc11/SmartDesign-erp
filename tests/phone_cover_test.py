@@ -233,15 +233,23 @@ async def main():
         # ---------------------------------------------------------------- 3. New Estimate on the job's Estimates tab
         await sign_in(pg, 'u_alan')
         await pg.evaluate("() => { try { mbCloseModal() } catch (e) {} }")
-        await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
-        # the 11-03 menu: Projects opens on its name
-        await pg.locator('#nav-groups [data-mnhead=jobs]').first.tap(); await pg.wait_for_timeout(400)
+        # the 11-03 menu and job structure: Projects opens on its name and lists the jobs; the job's estimates are its
+        # Contract and Billing (the Estimates chip), and a new one starts from the job's one + (New for this job)
         job = await pg.evaluate("() => (DB.projects.find(p => p.clientId && /State/.test(p.name || p.address || '')) || DB.projects.find(p => p.clientId)).id")
-        await pg.evaluate("j => { setCurrent(j); setView('dash'); }", job); await pg.wait_for_timeout(400)
-        await pg.locator('#subnav button[data-subtab=estimates]').first.tap(); await pg.wait_for_timeout(500)
-        c.ok(await pg.evaluate("() => view === 'billing' && billTab === 'estimates'"), '3: the job strip opens Billing > Estimates')
-        nb = pg.locator('#v-billing #bill-newest')
-        c.ok(await nb.count() == 1 and await nb.is_visible(), '3: the job\'s Estimates tab carries New Estimate'); await pg.screenshot(path=os.path.join(SHOTS, 'pm_job_estimates_new.png'))
+        await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
+        await pg.locator('#nav-groups [data-mnhead=jobs]').first.tap(); await pg.wait_for_timeout(400)
+        await pg.locator(f'#nav-groups [data-mngr=jobs] button[data-pid="{job}"]').first.tap(); await pg.wait_for_timeout(500)
+        c.ok(await pg.evaluate("j => S.id === j && view === 'dash'", job), f'3: the job in the menu opens that job: {await pg.evaluate("() => [S.id, view]")}')
+        await pg.locator('.view.on [data-jpsec=jbill]').first.tap(); await pg.wait_for_timeout(500)
+        c.ok(await pg.evaluate("() => view === 'jbill'"), "3: the job's Contract and Billing opens from its Overview")
+        await pg.locator('.view.on [data-jbchip=Estimates]').first.tap(); await pg.wait_for_timeout(400)
+        ests = await pg.evaluate("j => { const p = DB.projects.find(x => x.id === j), c = DB.clients.find(x => x.id === p.clientId);"
+                                 " const want = (c.estimates || []).filter(e => e.projectId === j).map(e => e.number);"
+                                 " const shown = want.filter(n => (document.querySelector('.view.on') || {}).innerText.includes(n)); return { want, shown }; }", job)
+        c.ok(ests['want'] and ests['shown'] == ests['want'], f"3: the Estimates chip lists the job's estimates {ests}")
+        await pg.locator('#jp-new').first.tap(); await pg.wait_for_timeout(300)
+        nb = pg.locator('#jp-newmenu [data-jpnew=est]')
+        c.ok(await nb.count() == 1 and await nb.is_visible(), '3: the job\'s + offers Estimate'); await pg.screenshot(path=os.path.join(SHOTS, 'pm_job_estimates_new.png'))
         if await nb.count():
             await nb.tap(); await pg.wait_for_timeout(400)
             await pg.locator('#mbm button', has_text=re.compile('Start', re.I)).first.tap(); await pg.wait_for_timeout(600)

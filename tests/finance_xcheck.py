@@ -161,11 +161,13 @@ async def click_js(pg, sel):
 
 async def nav(pg, grp, sub=None, tabs=()):
     """Open a view the way a person does: rail button, then the sub-nav button, then each tab in turn."""
-    target = sub or grp
-    ok = await click_js(pg, f'#nav [data-grp="{grp}"]')
-    if sub and ok:
-        cur = await pg.evaluate('view')
-        if cur != sub: ok = await click_js(pg, f'[data-sub="{sub}"]')
+    # the 11-03 menu lists each page under its group, which opens on its name (no sub-nav strip): the group, then the page
+    target = sub or {'jobs': 'ovjobs'}.get(grp, grp)
+    await pg.evaluate("""v => { const b = document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`); if (!b) return false;
+      const k = b.closest('[data-mngr]'), h = k && document.querySelector(`#nav-groups [data-mnhead="${k.dataset.mngr}"]`);
+      h && h.getAttribute('aria-expanded') !== 'true' && h.click();
+      document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`).click(); return true; }""", target)
+    await pg.wait_for_timeout(200)
     cur = await pg.evaluate('view')
     if cur != target:   # fall back to the app's own navigation when there is no button for it
         await go(pg, target)

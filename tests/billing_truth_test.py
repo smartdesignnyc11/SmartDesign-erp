@@ -40,11 +40,26 @@ async def fresh(p, uid, phone=False):
     return b, pg, errs
 
 
-async def nav(pg, phone, grp):
-    """the person's own tap on the menu: the phone's bar, or the desktop's rail"""
-    sel = f'#mtabs button[data-mv="{grp}"]' if phone else f'#nav-groups button[data-grp="{grp}"]'
-    await pg.locator(sel).first.click()
+async def menu_tap(pg, v):
+    """the 11-03 menu, as a person taps it: the page's entry, its group opened by its name first; False if no entry"""
+    head = await pg.evaluate("""v => { const b = document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`);
+      if (!b) return null; const k = b.closest('[data-mngr]'); return k ? k.dataset.mngr : ''; }""", v)
+    if head is None: return False
+    if head:
+        h = pg.locator(f'#nav-groups [data-mnhead="{head}"]').first
+        if await h.get_attribute('aria-expanded') != 'true': await h.click(); await pg.wait_for_timeout(200)
+    await pg.locator(f'#nav-groups button[data-v="{v}"]:not([data-tab]):not([data-pid])').first.click()
     await pg.wait_for_timeout(400)
+    return True
+
+
+async def nav(pg, phone, grp):
+    """the person's own tap: the phone's bar, or the desktop's menu (the 11-03 menu: Accounting > Billing)"""
+    if phone:
+        await pg.locator(f'#mtabs button[data-mv="{grp}"]').first.click()
+        await pg.wait_for_timeout(400)
+    elif not await menu_tap(pg, grp):
+        raise SystemExit(f'no menu entry for {grp}')
 
 
 async def tap_text(pg, sel, text):
@@ -201,9 +216,11 @@ async def click_js(pg, sel):
 async def nav_to(pg, grp, sub=None, tabs=()):
     """the rail button, the sub-nav button, then each tab (finance_xcheck's way); the app's own navigation only when
     there is no button for it"""
-    target = sub or grp
-    ok = await click_js(pg, f'#nav [data-grp="{grp}"]')
-    if sub and ok and await pg.evaluate('view') != sub: await click_js(pg, f'[data-sub="{sub}"]')
+    # the 11-03 menu lists each page under its group (no sub-nav strip): the page's own entry
+    target = sub or {'jobs': 'ovjobs'}.get(grp, grp)
+    if await pg.evaluate("() => innerWidth <= 760 && !document.querySelector('.rail.open')"):
+        await click_js(pg, '#menu-btn')   # the phone: the menu first
+    await menu_tap(pg, target)
     if await pg.evaluate('view') != target: await go(pg, target)
     for t in tabs: await click_js(pg, t)
 
