@@ -121,7 +121,8 @@ function pdSelRow(it) {
     subm = p && (p.submittals || []).find((s) => ["revise", "review", "submitted"].includes(s.status) && (s.items || []).some((x) => "sel" === x.kind && x.id === it.id)),
     dec = it.decId && p && (p.decisions || []).find((d) => d.id === it.decId && "open" === d.status),
     price = selClientPriceStale(it),
-    fund = C.find((k) => "funding" === k.field),
+    // bought on no line: the funding check, while the item's funding (selFunding, the link included) still says so
+    fund = C.find((k) => "funding" === k.field) && "not-billable" === selFunding(it).state,
     spec = C.find((k) => "spec" === k.field);
   let b = "rest",
     who = "",
@@ -342,7 +343,8 @@ function pdOvJobs() {
 // the client for work the estimate holds); only when no line does is the change order drafted
 function pdLinkOrBill(it) {
   const p = pdProj(it.projectId);
-  if (!p || "function" != typeof bbLinkLine) return pdBillBack(it);
+  // drafted already: its change order opens (pdBillBack opens one it finds)
+  if (!p || "function" != typeof bbLinkLine || it.billBackCo) return pdBillBack(it);
   return bbLinkLine(
     { kind: "ffe", it: it, p: p, name: it.name, qty: `${+it.qty || 1} ${it.unit || "ea"}`, id: "sel:" + it.id },
     { why: "If no line in the contract covers it, draft the change order for the PM instead.", alt: { label: "No Line: Draft the Bill-Back", run: () => setTimeout(() => pdBillBack(it), 0) } },
@@ -358,7 +360,7 @@ function pdNoLine() {
     const p = pdProj(it.projectId),
       c = p && (DB.clients || []).find((x) => x.id === p.clientId),
       co = it.billBackCo && c && (c.changeOrders || []).find((x) => x.id === it.billBackCo && "void" !== x.status);
-    return !co && selOpenChecks(it).some((k) => "funding" === k.field && /not on any approved estimate line/i.test(k.msg));
+    return !co && selOpenChecks(it).some((k) => "funding" === k.field && /not on any approved estimate line/i.test(k.msg)) && "not-billable" === selFunding(it).state;
   });
 }
 if ("function" == typeof mApprovals) {
