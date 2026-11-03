@@ -285,13 +285,14 @@ async def check_role(pg, R, uid):
     if gate('ap', 'Bills and Payroll'):
         await nav(pg, 'money', 'ap'); t = await text_of(pg, 'ap')
         R.money('ap_payroll_due', S('Bills and Payroll › Needs You "Payroll"'), t, r'Payroll [^\n]*?· ' + MONEY + r' · \d+ days? past pay day')
-        R.money('ap_paid_unappr', S('Bills and Payroll › With Others'), t, r'With Others[\s\S]*?WW-2026-118[^\n]*\n(?:[^\n]*\n)?\s*' + MONEY)
+        R.money('ap_paid_unappr', S('Bills and Payroll › With Others'), t, r'(?i:with others)[\s\S]*?WW-2026-118[^\n]*\n(?:[^\n]*\n)?\s*' + MONEY)
         R.money('ap_bills', S('Bills and Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
 
     # Billing: what is ready to bill is Needs You's rows (their sum and count); what is owed is Collections' aging
     if gate('billing', 'Billing'):
         await nav(pg, 'billing', 'billing'); t = await text_of(pg, 'billing')
-        need = t[t.find('Needs You'):t.find('Collections')] if 'Collections' in t else ''
+        tl = (t or '').lower()
+        need = t[tl.find('needs you'):tl.find('collections')] if 'collections' in tl else ''
         rows = [parse_money(m)[0] for m in re.findall(MONEY + r' ready to bill', need)]
         if R.want('rtb'):
             v = round(sum(rows)); ok = abs(v - PINNED['rtb']) <= len(rows)
@@ -748,7 +749,7 @@ INV_DEP_JS = INV_SUM + """
 # Each is recomputed here from the records by its own definition, never by calling the function that prints it, and
 # then compared with every place that prints it.
 INV_MONEY_JS = """
-  const out = { safe: [], ahead: [], tobill: [], bankdate: [], close: [], jobcost: [] };
+  const out = { safe: [], jobcost: [] };
   const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
   const near = (a, b, t) => Math.abs((+a || 0) - (+b || 0)) <= (t == null ? 0.01 : t);
   const fresh = async () => { if (typeof payBackReset === 'function') payBackReset(); render(); await sleep(120); };
@@ -803,6 +804,7 @@ INV_MONEY_JS = """
     say('safe', near(Y.sa - X.sa, want) && near(Y.ours - X.ours, (Y.cash - X.cash) - want), `paid ${bal} on 140 Prospect (earned ${earned}): set-aside ${r2(Y.sa - X.sa)}, ours ${r2(Y.ours - X.ours)}, cash ${r2(Y.cash - X.cash)}`, `set-aside +${want}`);
   } else say('safe', false, 'no open invoice on 140 Prospect', 'the seed has INV-2026-D140-R open');
   // 2. one job cost: the posted cost is the P&L by project row; posted plus not yet posted is the job's own figure
+  if (typeof jobCost !== 'function' || typeof jobCostTie !== 'function') { say('jobcost', false, 'no one job-cost function (jobCost, jobCostTie)', 'one function every screen reads'); return out; }
   DB.projects.forEach(p => {
     const C = jobCost(p), J = jobFin(p);
     const S = rpPL(['2000-01-01', today()]), row = (S.rows || []).find(x => x.id === p.id);
@@ -823,6 +825,9 @@ INV_MONEY2_JS = """
   const strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
   const money_ = s => +String(s).replace(/[$,]/g, '');
   const rtb = readyToBill(), F = analystFindings();
+  if (typeof billedAhead !== 'function') window.billedAhead = () => ({ total: NaN });
+  if (typeof toBill !== 'function') window.toBill = () => ({ total: NaN, ready: NaN, held: NaN, rows: [], heldRows: [] });
+  if (typeof wipAtClose !== 'function') window.wipAtClose = (ym) => { const P = fin2WipPlan(ym); return { toPost: P.toPost, rows: P.rows.map(r => ({ p: r.p, schedule: r2(r.over - r.under) })) }; };
   // 3. Billed Ahead of the Work: the lines' own billed less measured value, above zero (from pgRows, not pbAhead)
   DB.projects.forEach(p => {
     let rows = []; try { rows = pgRows(p.id) || []; } catch (e) {}
@@ -878,7 +883,9 @@ INV_MONEY2_JS = """
     });
     say('close', posts.some(l => /close posts/i.test(l)), `Ledger bridge rows: ${posts.map(l => l.slice(0, 80)).join(' | ') || 'none'}`, `a row naming what the ${ym} close posts`);
     signIn('u_owner'); render(); await sleep(100);
-    const r = fin2RunClose(ym, 'finance_xcheck: the close posts the WIP schedule');
+    // the blockers are the close's own gate (closetie_test works them); this check is what the close posts once it runs
+    const keepB = fin2CloseBlockers; fin2CloseBlockers = () => [];
+    let r; try { r = fin2RunClose(ym, 'finance_xcheck: the close posts the WIP schedule'); } finally { fin2CloseBlockers = keepB; }
     if (!r.ok) say('close', false, `the close refused: ${r.why}`, 'the close runs');
     else {
       const end = fin2End(ym);

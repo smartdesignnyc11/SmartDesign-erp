@@ -574,12 +574,14 @@ function acBooksHtml() {
 // A hosted page keeps its own tools (Build Payroll from Approved Time, Run Verification) as plain buttons: the front's is
 // the one blue.
 const AC_HIDE = {
-    bank: ["#v-bank > .ph", "#bank-accts", "#txn-filter"],
-    ap: ["#v-ap > .ph", "#ap-kpis", "#ap-filter"],
+    // the old tiles and cards that stated the same counts the front states once (To Review 15, Not Matched 15, Paid
+    // Before Approval beside With Others, Journals to Approve, the second "Books" heading)
+    bank: ["#v-bank > .ph", "#bank-accts", "#txn-filter", "#tl-bank", "#tr-unm"],
+    ap: ["#v-ap > .ph", "#ap-kpis", "#ap-filter", "#fin-pbu"],
     time: ["#v-time > .ph > div:first-child", "#time-kpis"],
-    gl: [],
+    gl: ["#v-gl > .glance", "#gl-body > .ph"],
     verify: ["#v-verify > .ph > div:first-child", "#vf-kpis"],
-    budget: [],
+    budget: ["#budget-body > .ph"],
   },
   AC_PLAIN = { bank: "#v-bank #txn-props .btn.primary, #v-bank #txn-table .btn.primary", time: "#v-time > .ph .btn.primary", verify: "#v-verify > .ph .btn.primary", budget: "#v-budget .btn.primary:not(.ac-front .btn)", gl: "#v-gl .btn.primary:not(.ac-front .btn)" };
 function acMount() {
@@ -662,8 +664,11 @@ function acGoChip(pg, k) {
       acPrep();
     } catch (e) {}
     const r = base.apply(this, arguments);
+    // the page's renderer mounted the front (later layers, the billing Preview among them, drew onto it); mount here
+    // only where none is on screen, and clear one left on a page that is no longer an Accounting page
     try {
-      acMount();
+      const on = document.querySelector(".view.on");
+      (!on || !on.querySelector(":scope > .ac-front") || !acPageOf()) && acMount();
     } catch (e) {
       console.warn("accounting front", e);
     }
@@ -674,6 +679,77 @@ function acGoChip(pg, k) {
 // and Budget and approves bills on his Approvals; the owner's Books, Controls and operating Budget reach him as
 // sign-offs on Today and Approvals; billing's Bills and Payroll is the controller's. Each still opens by link and Cmd-K.
 const MN_LINK = { pm: ["bank", "ap", "time", "spend", "verify", "ovmoney"], owner: ["gl", "verify", "budget"], billing: ["ap", "time"] };
+// a page's own renderer may draw again outside render (a held draw, a tab inside the page): the front follows it
+if ("function" == typeof renderBilling) {
+  const base = renderBilling;
+  renderBilling = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderBank) {
+  const base = renderBank;
+  renderBank = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderAP) {
+  const base = renderAP;
+  renderAP = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderTime) {
+  const base = renderTime;
+  renderTime = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderGL) {
+  const base = renderGL;
+  renderGL = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderVerify) {
+  const base = renderVerify;
+  renderVerify = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderBudget) {
+  const base = renderBudget;
+  renderBudget = function () {
+    const r = base.apply(this, arguments);
+    try {
+      acMount();
+    } catch (e) {}
+    return r;
+  };
+}
 // a page reached under another page's name lights that page in the menu
 "object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { time: "ap", verify: "gl", budget: "gl", spend: "bank", ovmoney: "bank" });
 // the menu's numbers: only where something waits on the person in that seat (SPEC §4: billing's Billing, the

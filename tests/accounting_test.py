@@ -59,7 +59,7 @@ async def go_entry(pg, label, phone):
         exp = await head.get_attribute('aria-expanded')
         if exp != 'true':
             await head.evaluate('e => e.click()'); await pg.wait_for_timeout(150)
-    kid = pg.locator('#nav-groups [data-mnkid]').filter(has_text=re.compile('^' + re.escape(label) + r'\s*\d*$'))
+    kid = pg.locator(f'#nav-groups [data-mngr="money"] button[data-v="{label}"]')
     if not await kid.count():
         return False
     await kid.first.evaluate('e => e.click()')
@@ -80,7 +80,7 @@ async def run(c, pg, u, phone):
         else: c.ok(x['n'] == 0, f"MENU {u} {dev}: {x['l']} carries a number ({x['n']}) where nothing waits on this seat")
     for x in M:
         v, label = x['v'], x['l']
-        ok = await go_entry(pg, label, phone)
+        ok = await go_entry(pg, v, phone)
         c.ok(ok, f'OPEN {u} {dev}: the menu entry {label} is there to tap')
         if not ok: continue
         F = await pg.evaluate(FRONT)
@@ -110,9 +110,10 @@ async def run(c, pg, u, phone):
             c.ok(any(re.match(r'To Review 15$', ch) for ch in F['chips']), f"FIGURES {tag}: To Review 15 chip: {F['chips']}")
             if phone: c.ok(F['confirm'] == 0, f"PHONE {tag}: {F['confirm']} Confirm buttons on bank list rows (the line's sheet confirms)")
         if v == 'ap':
-            for s in ('$16,040', 'Split it by job', 'AMP-311', 'CM-0091', 'With Others', 'WW-2026-118'):
-                c.ok(s in t, f'FIGURES {tag}: {s!r} on the first screen')
-            c.ok(F['cap'] == 4 and any(re.match(r'To Approve 3$', ch) for ch in F['chips']), f"FIGURES {tag}: Needs You 4, To Approve 3: {F['cap']} {F['chips']}")
+            for s in ('$16,040', 'Split it by job', 'AMP-311', 'CM-0091', 'WITH OTHERS', 'WW-2026-118'):
+                c.ok(s.lower() in t.lower(), f'FIGURES {tag}: {s!r} on the first screen')
+            # To Approve carries no count until it equals its rows (the coordinator's decision, 11-03)
+            c.ok(F['cap'] == 4 and 'To Approve' in F['chips'], f"FIGURES {tag}: Needs You 4, a To Approve chip with no count: {F['cap']} {F['chips']}")
         if v == 'gl':
             W = await pg.evaluate("() => { const w = wipAtClose(); return w && { toPost: w.toPost, label: w.label }; }")
             c.ok(F['cap'] == 4, f"FIGURES {tag}: Books' Needs You 4, got {F['cap']}")
@@ -128,6 +129,8 @@ async def run(c, pg, u, phone):
             if chip and F: c.ok(F['heading'] == NAME[page], f"FOLDED {u} {dev}: {old}'s heading is {NAME[page]} ({F['heading']!r})")
         # the Payroll chip, tapped, is Time and Crew's records under Bills and Payroll
         await pg.evaluate("() => setView('ap')"); await pg.wait_for_timeout(200)
+        if not await pg.locator('.view.on [data-acchip="ap:payroll"]').count():
+            c.ok(False, f'FOLDED {u} {dev}: Bills and Payroll has a Payroll chip'); return
         await pg.locator('.view.on [data-acchip="ap:payroll"]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(300)
         F = await pg.evaluate(FRONT)
         c.ok(F['view'] == 'time' and F['heading'] == 'Bills and Payroll' and 'Build payroll from approved time'.lower() in F['text'].lower(),
@@ -135,6 +138,8 @@ async def run(c, pg, u, phone):
     if u == 'u_billing':
         # the job filter scopes everything on Billing to the job
         await pg.evaluate("() => setView('billing')"); await pg.wait_for_timeout(200)
+        if not await pg.locator('.view.on [data-acjob]').count():
+            c.ok(False, f'JOB {dev}: Billing has a job filter'); return
         await pg.locator('.view.on [data-acjob]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(150)
         await pg.locator('.view.on [data-acjobpick="p140"]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(300)
         F = await pg.evaluate(FRONT)

@@ -4182,3 +4182,13 @@ body.td2-fm #ftoday-body .f-card{border-radius:14px;box-shadow:0 0 0 1px #ECEEF2
   .ac-go .btn{width:100%}
   .ac-menu{max-width:none}
 }
+
+/* the old page's own head, tiles and repeated counts give way to the front, however late a layer redraws them */
+.ac-front .ac-top{display:flex !important} .ac-front .ac-top h2{display:block !important}
+#v-billing.ac-host #billing-body > .bl-ph,#v-billing.ac-host #billing-body > .ctabs,#v-billing.ac-host #billing-body > #bl-tiles,#v-billing.ac-host #billing-body > #bl-list,#v-billing.ac-host #billing-body > .ov-tiles{display:none !important}
+#v-bank.ac-host > .ph,#v-bank.ac-host #bank-accts,#v-bank.ac-host #txn-filter,#v-bank.ac-host #tl-bank,#v-bank.ac-host #tr-unm{display:none !important}
+#v-ap.ac-host > .ph,#v-ap.ac-host #ap-kpis,#v-ap.ac-host #ap-filter,#v-ap.ac-host #fin-pbu{display:none !important}
+#v-time.ac-host > .ph > div:first-child,#v-time.ac-host #time-kpis{display:none !important}
+#v-gl.ac-host > .glance,#v-gl.ac-host #gl-body > .ph{display:none !important}
+#v-verify.ac-host > .ph > div:first-child,#v-verify.ac-host #vf-kpis{display:none !important}
+#v-budget.ac-host #budget-body > .ph{display:none !important}
