@@ -359,13 +359,23 @@ async def run(c, p, phone):
     await js(pg, "setCurrent('p121'); mnLastGrp = 'jobs'; view = 'costs'; render(); await sleep(250);")
     bud = await pg.evaluate("""() => [...document.querySelectorAll('#jp-budget [data-jpline]')].filter(e => e.getClientRects().length).map(e => ({ key: e.dataset.jpline, budget: +e.dataset.budget, actual: +e.dataset.actual, committed: +e.dataset.committed, txt: e.innerText }))""")
     lp = {x['key']: x for x in base['lp']}
-    c.ok(len(bud) == len(lp), f'{dev} BUDGET: one row per estimate and change-order line ({len(bud)} of {len(lp)})')
-    bad = [x['key'] for x in bud if x['key'] not in lp or abs(x['budget'] - lp[x['key']]['budget']) > .01 or abs(x['actual'] - lp[x['key']]['actual']) > .01 or abs(x['committed'] - lp[x['key']]['committed']) > .01]
+    lines = [x for x in bud if x['key'] != '__noline']
+    c.ok(len(lines) == len(lp), f'{dev} BUDGET: one row per estimate and change-order line ({len(lines)} of {len(lp)})')
+    bad = [x['key'] for x in lines if x['key'] not in lp or abs(x['budget'] - lp[x['key']]['budget']) > .01 or abs(x['actual'] - lp[x['key']]['actual']) > .01 or abs(x['committed'] - lp[x['key']]['committed']) > .01]
     c.ok(not bad, f'{dev} BUDGET: budget, actual and committed equal the Costs line figures ({bad[:3]})')
     win = next((x for x in bud if 'Windows' in x['txt']), None)
     c.ok(win and '$29,700' in win['txt'] and '$33,500' in win['txt'], f'{dev} BUDGET: Windows reads $29,700 budget and $33,500 actual, as Costs did ({win and win["txt"][:160]})')
     # $33,500 on $29,700 is 13% over its budget: "113%" read as 113% over (one wording, the row, the card, the Overview)
     c.ok(win and '13% over' in win['txt'] and '113%' not in win['txt'], f'{dev} BUDGET: Windows says 13% over, never 113% ({win and win["txt"][:160]})')
+    # TIE: the rows, with the cost on no estimate line as a row of its own, sum to Cost to Date (jobFin's actual)
+    tie = (await js(pg, """const J = jobFin(S), R = [...document.querySelectorAll('#jp-budget [data-jpline]')].filter(e => e.getClientRects().length);
+      const k = [...document.querySelectorAll('#jp-budget .jp-kpi')].find(e => /Cost to Date/.test(e.innerText));
+      const nl = R.find(e => e.dataset.jpline === '__noline');
+      return { sum: Math.round(R.reduce((a, e) => a + (+e.dataset.actual || 0), 0) * 100) / 100, com: Math.round(R.reduce((a, e) => a + (+e.dataset.committed || 0), 0) * 100) / 100,
+        actual: J.actual, committed: J.committed, tile: k ? k.querySelector('b').innerText : null, money: money(J.actual), nl: nl ? nl.innerText.replace(/\\s+/g, ' ') : '' };""")) or {}
+    c.ok(tie and abs(tie['sum'] - tie['actual']) < 0.01 and abs(tie['com'] - tie['committed']) < 0.01, f'{dev} TIES: Budget rows sum to Cost to Date (actual {tie.get("sum")} of {tie.get("actual")}, committed {tie.get("com")} of {tie.get("committed")})')
+    if not phone: c.ok(tie.get('tile') == tie.get('money'), f'{dev} TIES: the Cost to Date tile reads the rows\' sum ({tie.get("tile")} vs {tie.get("money")})')
+    c.ok('Not on an Estimate Line' in tie.get('nl', '') and 'no estimate line' in tie.get('nl', '').lower().replace('not on an estimate line', ''), f'{dev} TIES: cost on no estimate line is its own row, flagged ({tie.get("nl", "")[:120]})')
     ov = await js(pg, "view = 'dash'; jpSub = ''; render(); await sleep(150); const t = (document.getElementById('jp-ov') || {}).innerText || ''; view = 'costs'; render(); await sleep(150); return t;")
     c.ok('113%' not in (ov or '') and '13% over' in (ov or ''), f'{dev} BUDGET: the Overview says Windows 13% over, the same words ({[l for l in (ov or "").splitlines() if "over" in l][:3]})')
     if phone:

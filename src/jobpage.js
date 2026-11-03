@@ -754,7 +754,32 @@ function jpLines() {
 // How far over its budget a line is, said one way everywhere (the card, the row, the tile, the This Job list, the margin
 // panel): "13% over", never the share spent ("113%" read as 113% over).
 const jpOverWord = (l) => `${Math.max(1, Math.round(l.spentPct - 100))}% over`;
+// Cost on the job that sits on no estimate line (a bill, a card line or labour coded to the job but not to a line): the
+// lines alone summed short of Cost to Date ($100,044 under $105,084). It is a row of its own, flagged: money with no line
+// cannot be held to a budget or billed back.
+function jpNoLine(J, L) {
+  const a = r2((+J.actual || 0) - L.reduce((x, l) => x + l.actual, 0)),
+    c = r2((+J.committed || 0) - L.reduce((x, l) => x + l.committed, 0));
+  return Math.abs(a) < 0.5 && Math.abs(c) < 0.5
+    ? null
+    : { key: "__noline", noline: !0, name: "Not on an Estimate Line", doc: "", budget: 0, committed: c, actual: a, forecast: r2(a + c), variance: r2(a + c), spentPct: 0, done: null, billed: null };
+}
+function jpNoLineDetail(l) {
+  const p = S,
+    out = [],
+    live = (b) => !["void", "rejected"].includes(b.status);
+  (DB.bills || [])
+    .filter((b) => b.projectId === p.id && !b.line && live(b))
+    .forEach((b) => out.push([`${b.vendor || "Bill"}${b.number ? " " + b.number : ""} · ${fmt(b.date)}`, money("function" == typeof billCost ? billCost(b) : +b.amount || 0)]));
+  (DB.txns || [])
+    .filter((t) => t.projectId === p.id && !t.line && !t.billId && +t.amt < 0)
+    .forEach((t) => out.push([`Card or bank: ${String(t.desc || t.vendor || "").slice(0, 40)} · ${fmt(t.date)}`, money(-t.amt)]));
+  out.push(["Total with no estimate line (the rest is crew time and stock coded to the job only)", money(l.actual)]);
+  out.push(["Put each on its line: cost with no line cannot be held to a budget or billed back. Money that leaks here cannot go to raises, bonuses, more staff, charity or extra value for the client.", ""]);
+  return out;
+}
 function jpLineFlag(l) {
+  if (l.noline) return [l.actual || l.committed ? "No estimate line" : "", "bad"];
   if (l.variance > 0.5) return [jpOverWord(l), "bad"];
   if (null != l.done && null != l.billed && l.done - l.billed > 5) return ["Billed behind", "warn"];
   if (null != l.done && null != l.billed && l.billed - l.done > 5) return ["Billed ahead", "warn"];
@@ -762,6 +787,7 @@ function jpLineFlag(l) {
 }
 const jpPct = (n) => (null == n ? "—" : n + "%");
 function jpLineDetail(l) {
+  if (l.noline) return jpNoLineDetail(l);
   const out = [];
   (DB.pos || [])
     .filter((po) => !["void", "cancelled"].includes(po.status) && ((po.lines || []).some((x) => x.line === l.key || x.lineKey === l.key) || po.line === l.key))
@@ -820,8 +846,10 @@ function jpBudget() {
   lead && (lead.textContent = "What the job costs us, line by line: the budget with approved changes, what is committed, what is spent and the forecast to finish.");
   const p = S,
     J = jobFin(p),
-    L = jpLines(),
-    O = L.filter((l) => l.variance > 0.5),
+    L0 = jpLines(),
+    NL = jpNoLine(J, L0),
+    L = NL ? L0.concat([NL]) : L0,
+    O = L0.filter((l) => l.variance > 0.5),
     A = "function" == typeof pbAhead ? pbAhead(p.id) : { total: 0 },
     phone = jpPhone(),
     U = ("function" == typeof spUnbilled ? spUnbilled(p.id) : []).filter((r) => ["reimbursable", "floated"].includes(r.kind)),
@@ -861,7 +889,7 @@ function jpBudget() {
       : `<table class="jp-bt" id="jp-btable"><thead><tr><th>Line</th><th class="n">Budget</th><th class="n">Committed</th><th class="n">Actual</th><th class="n">Forecast</th><th class="n">Variance</th><th class="n">% Done</th><th class="n">% Billed</th></tr></thead><tbody>${L.map((l) => {
           const f = jpLineFlag(l),
             open = jpBudOpen === l.key;
-          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? `${f[0]} budget` : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
+          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? (l.noline ? "cost with no estimate line" : `${f[0]} budget`) : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
         }).join("")}</tbody><tfoot><tr><td>Total</td>${["budget", "committed", "actual", "forecast", "variance"].map((k) => `<td class="n">${money(r2(L.reduce((a, l) => a + l[k], 0)))}</td>`).join("")}<td></td><td></td></tr></tfoot></table>`,
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
