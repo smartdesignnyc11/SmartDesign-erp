@@ -1066,6 +1066,16 @@ if ("function" == typeof tdyModel) {
     return M;
   };
 }
+// The late promise is its own thing on Today (a part of the model, M.promise, beside the approvals, the inbox, the tasks,
+// the orders and the minutes): a supplier's date the PM decides about, which is neither a Buy Board need (it is
+// ordered) nor an approval. Each is listed once; it ranks with the work the site waits on.
+"function" == typeof tdScore &&
+  (() => {
+    const base = tdScore;
+    tdScore = function (it) {
+      return it && "tdyPromise" === it.kind ? 40 : base.apply(this, arguments);
+    };
+  })();
 if ("function" == typeof tdCard) {
   const base = tdCard;
   tdCard = function (it) {

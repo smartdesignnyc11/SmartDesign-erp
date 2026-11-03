@@ -33,7 +33,7 @@ MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id, held
            // detector caught that is the person's one tap (today2.js TD2_CATCH_ROWS: billing's past-due chases, the
            // owner's over-PO decisions and follow-ups), each once
            catchRows: (M.catch || []).map(k),
-           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k), (M.catch || []).map(k)) }; }"""
+           allWant: M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), (M.promise || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k), (M.catch || []).map(k)) }; }"""
 
 # every row of the current filter, opened in full ("N more" expands in place, or names the full page)
 ROWS = """async () => { const v = document.querySelector('.view.on'); const sec = v.querySelector('.td-do');

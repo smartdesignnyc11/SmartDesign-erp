@@ -142,9 +142,10 @@ async def main():
             await pulse_checks(c, pg, f'{tag} phone')
             # (the owner's Today may open on Approvals when something waits on him, Alan 2026-10-25: All is read from its chip)
             # Today is one queue (lane "today"): All holds each thing once: Approvals, Inbox, what is offered, the tasks
-            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1)
+            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1), and the
+            # PM's orders promised after their need date (M.promise, the 11-03 Purchasing decision 3: its own thing, once)
             al = await pg.evaluate("""() => { const M = tdyModel(), k = it => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
-              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
+              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), (M.promise || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
               return [+document.querySelector('.view.on [data-tdytabbtn="all"] .n').textContent, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
             c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
             # the Approvals filter's count = its source = the Approvals page's Everything chip (the owner's chip; the PM's

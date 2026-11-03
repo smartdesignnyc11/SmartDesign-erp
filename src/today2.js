@@ -94,7 +94,7 @@ function td2Icon(it) {
     nk = (it.nyh && it.nyh.kind) || "";
   if ("tdyMail" === k || "draft" === k || "promise" === nk || "mail" === nk) return "mail";
   if ("tdyChat" === k || "clientq" === k) return "chat";
-  if ("tdyBuy" === k || "req" === k) return "cart";
+  if ("tdyBuy" === k || "req" === k || "tdyPromise" === k) return "cart";
   if ("tdyMinutes" === k || "meeting" === k) return "clipboard";
   if ("tdyTask" === k) return "tasks";
   if ("bill" === k) return "receipt";
@@ -121,7 +121,7 @@ function td2Amount(it, c) {
 }
 // the date a row is due, from the record behind it (the Standard's clocks for mail and client messages)
 function td2DueOf(it) {
-  if ("tdyTask" === it.kind || "tdyBuy" === it.kind) return String(it.due || "").slice(0, 10);
+  if ("tdyTask" === it.kind || "tdyBuy" === it.kind || "tdyPromise" === it.kind) return String(it.due || "").slice(0, 10);
   if ("tdyMail" === it.kind) return String((it.c && it.c.date) || "").slice(0, 10) || today();
   if ("tdyChat" === it.kind) return today();
   if ("tdyMinutes" === it.kind) return "";
