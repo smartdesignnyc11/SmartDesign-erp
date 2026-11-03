@@ -94,7 +94,9 @@ async def desktop(c, p):
           view = 'recv'; render();
           const row = [...document.querySelectorAll('#v-recv [data-pusec="mine"] [data-purow]')].find(e => /White oak/.test(e.innerText));
           return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: row ? [...row.querySelectorAll('button.btn')].map(b => b.innerText.trim()) : [], ask: paAsk("what's backordered").headline }; }""")
-        c.ok(bo and '10/23' in bo['why'] and bo['today'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Do Now: a backorder to 10/23 on a 10/2 need is late, on Today, with the fix choices, and in Ask {bo}')
+        # the 11-03 design (docs/mockups/purchasing, decision 3): an ordered need lives on Deliveries, whose Needs You holds the
+        # late promise with Expedite (the menu's Deliveries number); Today's Buy Board items are the Buy Board's Needs You
+        c.ok(bo and '10/23' in bo['why'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Deliveries: a backorder to 10/23 on a 10/2 need is late, on the Deliveries Needs You with Expedite, and in Ask {bo}')
         # ---- LINKS: a request gets its line from the picker, ranked by match, never guessed
         lk = await pg.evaluate("""() => { const r = buyList('').find(x => x.kind === 'request' && x.q.id === 'rq2'); const before = r.q.line;
           bbLinkLine(r); const opts = [...document.querySelectorAll('#mbm [data-bbl]')].map(i => i.dataset.bbl);
