@@ -35740,6 +35740,54 @@ function setAsideWeeks(weeks) {
     return { end: w.end, total: r2(by.reduce((a, x) => a + x.amt, 0)), by: by.filter((x) => x.amt > 0.005) };
   });
 }
+// One job cost (BACKLOG §1.35 item 2). The posted cost is what the ledger carries on the job's cost rows to the date:
+// the P&L by project's row (rpPL: bills once approved or paid, payroll runs, bank and card lines, stock), by kind. What
+// the job carries that is not posted yet is its own labelled line, never mixed into the posted figure: hours clocked at
+// burdened rates that no posted payroll run has put on the job (they post when the run is split to jobs, or as accrued
+// wages at the close). jobFin's actual is posted plus not yet posted, and the parts add up to it to the cent: 121 State
+// $101,693.94 posted plus $3,390.01 clocked is the job's $105,083.95. Bills are a labelled part, never called job cost.
+function jobCost(p, range) {
+  const R = range || ["", today()],
+    J = jobFin(p, R);
+  let rows = [];
+  try {
+    const S = rpPL(R[0] ? R : ["2000-01-01", R[1]]);
+    rows = ((S.rows || []).find((x) => x.id === p.id) || {}).costRows || [];
+  } catch (e) {}
+  const amt = (r) => ("function" == typeof rpRowAmt ? rpRowAmt(r) : +r.amt || 0),
+    of = (k) => r2(rows.filter((r) => k.includes(r.kind)).reduce((a, r) => a + amt(r), 0)),
+    posted = r2(rows.reduce((a, r) => a + amt(r), 0)),
+    parts = [
+      { id: "bills", label: "Bills", amt: of(["bill"]) },
+      { id: "payroll", label: "Payroll", amt: of(["payroll", "accrual"]) },
+      { id: "lines", label: "Card and bank lines", amt: of(["txn"]) },
+      { id: "stock", label: "Stock", amt: of(["stock"]) },
+    ],
+    other = r2(posted - parts.reduce((a, x) => a + x.amt, 0)),
+    onJob = r2(+J.actual || 0),
+    notPosted = r2(onJob - posted);
+  other && parts.push({ id: "other", label: "Other", amt: other });
+  return {
+    p: p,
+    posted: posted,
+    parts: parts.filter((x) => Math.abs(x.amt) >= 0.005),
+    notPosted: notPosted,
+    notPostedLabel: Math.abs(notPosted) < 0.005 ? "" : notPosted > 0 ? "Hours clocked, not yet posted (posts when the payroll run is split to the job, or at the close)" : "Posted, not yet on the job's own figures",
+    onJob: onJob,
+  };
+}
+// The P&L's job cost against the jobs' own (BACKLOG §1.35 item 2): the jobs' posted cost plus cost on no job is the
+// P&L's job cost; the jobs' figures differ from it by what is not yet posted, job by job, never by an unnamed amount.
+function jobCostTie(range) {
+  const R = range || ["2026-01-01", today()],
+    S = rpPL(R),
+    list = (DB.projects || []).map((p) => jobCost(p, R)).filter((x) => Math.abs(x.onJob) >= 0.005 || Math.abs(x.posted) >= 0.005),
+    plCost = r2((S.rows || []).reduce((a, r) => a + (+r.cost || 0), 0) + (+(S.none || {}).cost || 0)),
+    noJob = r2(+(S.none || {}).cost || 0),
+    jobs = r2(list.reduce((a, x) => a + x.onJob, 0)),
+    notPosted = r2(list.reduce((a, x) => a + x.notPosted, 0));
+  return { rows: list, plCost: plCost, noJob: noJob, jobs: jobs, posted: r2(list.reduce((a, x) => a + x.posted, 0)), notPosted: notPosted, diff: r2(plCost - jobs), why: `the jobs carry ${money(notPosted)} not yet posted (${list.filter((x) => Math.abs(x.notPosted) >= 0.005).map((x) => `${shortName(x.p)} ${money(x.notPosted)}`).join(", ")}); the P&L carries ${money(noJob)} of job cost on no job` };
+}
 // Safe to Spend is one figure, read by every screen that names it (Today reads PRED.safeToSpend, which reads this):
 // the lower of ours today (cash today less the set-aside) and the 13-week low after the same set-aside comes off each
 // week (BACKLOG §1.35 item 1). low is that low; cashLow the forecast's own low before the set-aside. Screens that
@@ -133098,15 +133146,31 @@ const fin2Closes = () => ((DB.periods || {}).closes || []).filter((c) => "close"
 // 1200 already hold (fin2WipPlan, which the close posts). One function for every screen that names a figure "posts at
 // the close": Books' close row, the ledger bridge, Job Profitability. The schedule as of today is a different date: its
 // movement past the month end posts at the close after.
+// The close posts the month's accrued wages first and plans the WIP with them in (fin2RunClose), so the figure is read
+// the same way: the wages are posted for the reading and taken off again (nothing is saved or audited), and the plan is
+// what the close would post now. Read from the plan before the wages, it said $64,008 for August where the close posts
+// $69,519 (121 State $62,627, 45 Cranberry $6,892).
 function wipAtClose(ym) {
   ym = ym || fin2CloseYm();
   if (!ym) return null;
   let P;
+  const G = DB.gl || {},
+    n0 = (G.journals || []).length,
+    seq0 = G.seq,
+    a0 = (DB.audit || []).length,
+    // inside a draw the job figures are memoised (speed.js): the reading must see the wages, as the close does
+    spd = "undefined" != typeof SPD ? SPD.on : 0;
   try {
+    "undefined" != typeof SPD && (SPD.on = 0);
+    "function" == typeof fin3PostWages && "function" == typeof fin2WagePlan && fin3PostWages(ym, fin2WagePlan(ym), "preview");
     P = fin2WipPlan(ym);
   } catch (e) {
-    return null;
+    P = null;
+  } finally {
+    G.journals && G.journals.length > n0 && G.journals.splice(n0), (G.seq = seq0), DB.audit && DB.audit.length > a0 && DB.audit.splice(a0);
+    "undefined" != typeof SPD && (SPD.on = spd);
   }
+  if (!P) return null;
   return {
     ym: ym,
     end: P.end,
