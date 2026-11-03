@@ -311,7 +311,9 @@ async def s2_done_not_billed(p, S):
         needles = await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002', 'Sand & stain', 'Electrical', '121 State'])", [1850, el_amt])
         kw = r'ready to bill|not (yet )?billed|unbilled|bill it|draft the|application'
         surf(S, await scan(pg, 'u_billing', 'billing', await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002','Sand & stain'])", [1850]), kw), 'Billing Queue: approved CO-2026-002 done and unbilled')
-        surf(S, await scan(pg, 'u_alan', 'dash', needles, kw, setup_js="() => setCurrent('p121')"), 'Job page (PM, 121 State)')
+        # on 121 State's own page its name is in the header and on every row, so the job's name is not a needle there
+        jneedles = [n for n in needles if n != '121 State']
+        surf(S, await scan(pg, 'u_alan', 'dash', jneedles, kw, setup_js="() => setCurrent('p121')"), 'Job page (PM, 121 State)')
         for q in ["what work is done but not billed on 121 State", "has CO-2026-002 been billed"]:
             ask_check(S, await ask(pg, q), q, await pg.evaluate("v => __lkNeedles(v, ['CO-2026-002','Electrical','electrical'])", [1850, el_amt]),
                       r'not (yet )?billed|unbilled|ready|bill')
