@@ -258,16 +258,27 @@ function jpHead() {
 }
 
 // ---- New for <job>: every kind starts on this job, for this job's client --------------------------------------------
+// Each kind is offered only to a person who may open the page its record lives on (ROLE_VIEWS, the gate setView uses):
+// an estimate, a change order and an invoice live on Billing; an order on Orders or the Buy Board; a task on Tasks; a
+// decision on Decisions; a site note or photo on the job's Site, Field or Photos; a document on Documents. A hard-coded
+// role list offered the designer an invoice she could not open.
+const JP_NEW_LIVES = {
+  est: ["billing"],
+  co: ["billing"],
+  inv: ["billing"],
+  po: ["po", "proc"],
+  task: ["tkall", "tasks"],
+  dec: ["dec", "jdec"],
+  note: ["field", "jsite", "photos"],
+  doc: ["files"],
+};
 function jpNewItems() {
-  const r = role(),
-    money = ["owner", "pm", "billing", "designer", "design_mgr", "controller"].includes(r);
   return [
-    ["est", "Estimate", money, () => docNewEstimate(S.clientId, S.id)],
-    ["co", "Change Order", money, () => (newChangeOrderDialog({ clientId: S.clientId, projectId: S.id }), jpFixFor())],
+    ["est", "Estimate", () => docNewEstimate(S.clientId, S.id)],
+    ["co", "Change Order", () => (newChangeOrderDialog({ clientId: S.clientId, projectId: S.id }), jpFixFor())],
     [
       "inv",
       "Invoice",
-      jpMay("billing") || jpMay("clients"),
       () => {
         const c = jpClient();
         if (!c) return toast("This job has no client yet");
@@ -278,12 +289,14 @@ function jpNewItems() {
         crNewInvoice(c);
       },
     ],
-    ["po", "Purchase Order", jpMay("po") || jpMay("proc"), () => newPODialog()],
-    ["task", "Task", !0, () => newTaskDialog({ projectId: S.id })],
-    ["dec", "Decision", jpMay("dec") || jpMay("jdec"), () => crQuick("decision")],
-    ["note", "Site Note or Photo", !0, () => crQuick("note")],
-    ["doc", "Document", jpMay("files"), () => jpUploadDoc()],
-  ].filter((x) => x[2] && x[1]);
+    ["po", "Purchase Order", () => newPODialog()],
+    ["task", "Task", () => newTaskDialog({ projectId: S.id })],
+    ["dec", "Decision", () => crQuick("decision")],
+    ["note", "Site Note or Photo", () => crQuick("note")],
+    ["doc", "Document", () => jpUploadDoc()],
+  ]
+    .filter(([k]) => (JP_NEW_LIVES[k] || []).some(jpMay))
+    .map(([k, l, run]) => [k, l, !0, run]);
 }
 function jpNewMenuHtml() {
   return `<div class="jp-menu" id="jp-newmenu" role="menu"><span class="jp-nh">New for ${esc(jpName())}</span>${jpNewItems()

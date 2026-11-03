@@ -292,6 +292,43 @@ async def run(c, p, phone):
     c.ok(made.get('noteOpen'), f'{dev} NEW: Site Note or Photo opens its sheet on this job')
     c.ok(made.get('docView') == 'files' and made.get('docJob') == 'p121', f'{dev} NEW: Document opens this job\'s Documents to upload ({made.get("docView")})')
 
+    # ---- ROLES: the + offers each role only what it can open where it lives, and each item opens a sheet it can save
+    for uid, rl, never in (('u_owner', 'owner', []), ('u_chen', 'coord', ['Estimate', 'Change Order', 'Invoice']), ('u_billing', 'billing', ['Purchase Order', 'Decision', 'Site Note or Photo']),
+                           ('u_sarah', 'designer', ['Estimate', 'Change Order', 'Invoice', 'Purchase Order']), ('u_alan', 'pm', [])):
+        await sign_in(pg, uid)
+        rr = (await js(pg, """const LIVES = { Estimate: ['billing'], 'Change Order': ['billing'], Invoice: ['billing'], 'Purchase Order': ['po', 'proc'], Task: ['tkall', 'tasks'], Decision: ['dec', 'jdec'], 'Site Note or Photo': ['field', 'jsite', 'photos'], Document: ['files'] };
+          const RV = ROLE_VIEWS[role()] || [], vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+          const close = () => { try { mbCloseModal(); } catch (x) {} try { closeDrawer(); } catch (x) {} document.querySelectorAll('#mbm, .msheet, .m-sheet, #msheet, .m-scrim').forEach(e => e.remove()); docOpen = null; };
+          setCurrent('p121'); mnLastGrp = 'jobs'; jpOpenJob('p121'); await sleep(200);
+          if (!jpOn()) return { on: false, view };
+          const home = view;
+          jpMenuOpen = false; render(); document.getElementById('jp-new').click(); await sleep(100);
+          const items = [...document.querySelectorAll('#jp-newmenu [data-jpnew]')].map(b => [b.dataset.jpnew, b.innerText.trim()]);
+          const res = [];
+          for (const [k, lab] of items) {
+            close(); setCurrent('p121'); mnLastGrp = 'jobs'; view = home; jpSub = ''; jpMenuOpen = false; render(); await sleep(80);
+            document.getElementById('jp-new').click(); await sleep(80);
+            const b = document.querySelector('#jp-newmenu [data-jpnew="' + k + '"]'); if (!b) { res.push({ lab, ok: false, why: 'gone' }); continue; }
+            b.click(); await sleep(400);
+            // the sheet it opened, and a save in it the role can press
+            const sheet = [...document.querySelectorAll('#mbm, .msheet, .m-sheet, #msheet, #drawer.on')].find(vis);
+            const save = sheet && [...sheet.querySelectorAll('button, .btn')].find(x => vis(x) && !x.disabled && (x.classList.contains('primary') || /^(Save|Create|Start|Add|Send|Log|Post|Upload|Record|Done)/i.test((x.innerText || '').trim())));
+            // or the record itself, opened where it lives (an invoice), or the page the upload lives on (a document)
+            const landed = view, mayLand = landed === home || RV.includes(landed) || (jpUnder(landed) && RV.includes(jpUnder(landed)));
+            const openedDoc = !!docOpen && RV.includes('billing');
+            const upload = landed === 'files' && [...document.querySelectorAll('.view.on input[type=file], .view.on label.btn, .view.on [data-upload]')].some(x => x.type === 'file' || vis(x));
+            res.push({ lab, ok: mayLand && (LIVES[lab] || []).some(x => RV.includes(x)) && (!!save || openedDoc || upload), sheet: !!sheet, save: save ? save.innerText.trim().slice(0, 24) : '', landed, mayLand });
+            close();
+          }
+          return { on: true, role: role(), items: items.map(x => x[1]), res };""")) or {}
+        if rl == 'pm' or not rr.get('on'):
+            c.ok(rr.get('on'), f'{dev} ROLES: {rl} opens 121 State Street\'s page ({rr})')
+        if not rr.get('on'): continue
+        c.ok(not [x for x in never if x in rr['items']], f'{dev} ROLES: the {rl}\'s + offers nothing it cannot open where it lives ({[x for x in never if x in rr["items"]]} of {rr["items"]})')
+        badr = [x for x in rr['res'] if not x['ok']]
+        c.ok(rr['res'] and not badr, f'{dev} ROLES: every + item the {rl} sees opens a sheet it can save ({badr[:3]})')
+    await sign_in(pg, 'u_alan')
+
     # ---- LOST: every old destination is reachable from the new tabs
     if not phone:
         print('  old tab              -> its home now')
