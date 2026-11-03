@@ -104905,15 +104905,19 @@ function bhHeader(root) {
     }),
     acts && !acts.querySelector(".btn.primary, .hb-btn.primary") && null !== reg.primary)
   ) {
-    const blues = [...root.querySelectorAll(".btn.primary, .hb-btn.primary")].filter(
-      (b) => vis(b) && !b.closest(".ph"),
-    );
+    // a record's own blue stays in the record: lifted into the page header above it (which the record view then hides,
+    // rxRecordRoute), the estimate's Add Line vanished when the estimate was opened straight from a job's +
+    const inRec = (b) => {
+        const r = b.closest(".docwrap, #po-doc");
+        return !r || r.contains(ph);
+      },
+      blues = [...root.querySelectorAll(".btn.primary, .hb-btn.primary")].filter((b) => vis(b) && !b.closest(".ph") && inRec(b));
     let pick = null;
     "string" == typeof reg.primary
       ? (pick =
           blues.find((b) => b.textContent.trim().startsWith(reg.primary)) ||
           [...root.querySelectorAll(".btn, .hb-btn")].find(
-            (b) => vis(b) && b.textContent.trim().startsWith(reg.primary) && !b.closest(".ph"),
+            (b) => vis(b) && b.textContent.trim().startsWith(reg.primary) && !b.closest(".ph") && inRec(b),
           ))
       : "number" == typeof reg.primary && (pick = blues[reg.primary]),
       pick && (pick.classList.add("primary"), acts.appendChild(pick));

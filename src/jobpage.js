@@ -232,7 +232,8 @@ function jpHeadHtml() {
   return `<div class="jp-row">${phone ? `<button type="button" class="jp-back jp-ib" data-jpback aria-label="${ov ? "Back to Projects" : "Back to " + esc(jpName(p))}">${JP_IC.back}</button>` : ""}${
     sect ? `<b class="jp-sect">${esc(title)}</b>` : `<span class="jp-name"><span class="jp-sw"></span><span class="jp-chev">${JP_IC.down}</span></span>`
   }<span class="jp-grow"></span>${phone ? "" : `<button type="button" class="btn jp-ask" id="jp-ask">Ask About This Job</button>`}${
-    sect ? "" : `<span class="jp-newwrap"><button type="button" class="jp-plus jp-ib" id="jp-new" aria-label="New for this job" aria-haspopup="menu" aria-expanded="${jpMenuOpen}">${JP_IC.plus}</button>${jpMenuOpen ? jpNewMenuHtml() : ""}</span>`
+    // the + is on every page of the job, the phone's sections too: anything new on a job starts where the person is
+    `<span class="jp-newwrap"><button type="button" class="jp-plus jp-ib" id="jp-new" aria-label="New for this job" aria-haspopup="menu" aria-expanded="${jpMenuOpen}">${JP_IC.plus}</button>${jpMenuOpen ? jpNewMenuHtml() : ""}</span>`
   }</div><div class="jp-sub">${esc(line)}</div>`;
 }
 function jpHead() {
