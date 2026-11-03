@@ -268,6 +268,9 @@ PAGE_JS = r"""
     }
     const out = [], seen = Object.create(null), disabled = [];
     C.byKey = new Map();
+    // a page the person left keeps its DOM (hidden): an index from an earlier listing left on it would be found first
+    // by [data-cr-i=N], a hidden copy with no box, and the press read as covered ("every point of it is another control")
+    document.querySelectorAll('[data-cr-i]').forEach(x => x.removeAttribute('data-cr-i'));
     let i = 0;
     for (const e of cand) {
       if (e.closest('#toast, script, style, select, option, #signin:not(.on)')) continue;
