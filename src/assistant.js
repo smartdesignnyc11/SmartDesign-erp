@@ -1389,7 +1389,7 @@ paSend = function (text, opts) {
         })
         .catch((e) => {
           if (((paStreamHooks = null), stopped)) return;
-          (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback);
+          (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback); // wall clock: when the model last answered
         });
     };
   setTimeout(() => {

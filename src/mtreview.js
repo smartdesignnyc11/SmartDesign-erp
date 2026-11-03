@@ -752,7 +752,7 @@ function mrvSweep() {
     (DB.meetings || []).forEach((m) => {
       const R = m.review;
       if (!R || !mrvCanRead(m)) return;
-      const stale = "reading" === R.state && R.at && Date.now() - new Date(R.at).getTime() > 20 * 60 * 1e3;
+      const stale = "reading" === R.state && R.at && appNowMs() - new Date(R.at).getTime() > 20 * 60 * 1e3; // R.at is an app-clock stamp: compare it with the app clock
       if ("new" === R.state || stale) mrvBuild(m), n++;
     });
     n && save();

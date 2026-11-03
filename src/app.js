@@ -2737,7 +2737,10 @@ function holidayName(d) {
   const l = (S.project.holidays || "").split("\n").find((l) => l.trim().startsWith(d));
   return l ? l.trim().split(/\s+/).slice(1).join(" ") : "";
 }
-const today = () => (S && S.project && S.project.today) || tzToday(),
+// One clock (BACKLOG section 9 item 1): before a job is current (the first boot's seeds run then), the day is the app's day
+// (appDay: the company's as-of, else the jobs' pinned day), never the wall clock's. A seed that read the wall clock here
+// stamped the range's claim and the selection checks 10-29 to 11-02 on a 9/3 demo day.
+const today = () => (S && S.project && S.project.today) || appDay(),
   task = (id) => S.tasks.find((t) => t.id === id),
   mat = (id) => S.materials.find((m) => m.id === id);
 function log(msg, src = "manual", by) {
@@ -8198,7 +8201,7 @@ function routeEmail(e) {
 async function checkEmail(onlyProjectId) {
   const st = $("#mail-status");
   st && (st.textContent = "Reading recent mail…"), toast("Checking email…");
-  const since = DB.lastMail ? DB.lastMail.slice(0, 10) : iso(addDays(new Date(), -14)),
+  const since = DB.lastMail ? DB.lastMail.slice(0, 10) : iso(addDays(new Date(), -14)), // wall clock: the real mailbox is read since this day
     projSummary = DB.projects
       .filter((p) => !onlyProjectId || p.id === onlyProjectId)
       .map((p) => ({
@@ -8308,7 +8311,7 @@ async function checkEmail(onlyProjectId) {
       ),
         held++;
   }
-  (DB.lastMail = new Date().toISOString()),
+  (DB.lastMail = new Date().toISOString()), // wall clock: the real mailbox's cursor
     save(),
     render(),
     st &&
@@ -22604,7 +22607,7 @@ function askTake(msg) {
 function askReplay(msg, val) {
   askMem.set(askKey(msg), { v: val });
   const el = askEl;
-  (askOn = Date.now()),
+  (askOn = Date.now()), // wall clock: a timer
     setTimeout(() => {
       try {
         el && el.isConnected && el.click();
@@ -41615,7 +41618,7 @@ async function jvPolishRun(F, key) {
     r = await ai(
       `You are the company's operations assistant — calm, specific, no hype, no emoji. Rewrite these facts as a spoken morning brief for the ${ROLE_NAMES[role()] || role()} in 4–6 short paragraphs, keep every number and name exactly, keep the greeting, end with one suggested first move. Plain text, paragraphs separated by blank lines.\n\n${lines.join("\n")}`,
     );
-  if (r.startsWith("__ERR")) return (jvPolishFail[key] = Date.now()), void console.warn("brief polish", r);
+  if (r.startsWith("__ERR")) return (jvPolishFail[key] = Date.now()), void console.warn("brief polish", r); // wall clock: a retry back-off
   (DB.company.briefCache[key] = { text: r.trim(), t: nowStamp() }), save(), "home" === view && render();
 }
 function aiReady() {
@@ -51762,7 +51765,7 @@ load = async function (opts = {}) {
       (DB.txns = DB.txns || []))),
     // an empty team workspace starts from an empty firm, never from this device's stored copy (the demo)
     !remote && teamWs && (DB = twsSkeleton(window.__sdWs)),
-    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }),
+    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }), // wall clock: when the real team workspace was joined
     await loadBase_cl({ skipStorage: !!remote || teamWs });
   try {
     const pr = await Cloud.profile(),
@@ -93203,7 +93206,7 @@ const TB_PROJECT_VIEWS = [
   ],
   TB_CROSS = ["studio", "sday", "proc", "sel", "port", "vendors", "inv", "req", "route", "po", "recv", "rfq"];
 function tbRealToday() {
-  return tzToday();
+  return tzToday(); // wall clock: the real day, by name
 }
 function tbIsClient() {
   return "client" === role();
@@ -106187,7 +106190,7 @@ const RP_KEY = "sdp:reports",
   RP_KEEP_DAYS = 60;
 let rpTrail = [],
   rpErrors = [],
-  rpStart = Date.now(),
+  rpStart = Date.now(), // wall clock: the session's length
   rpFrozen = null;
 const RP_PRIVATE =
     ".rp-private, .money, .amt, .num, #v-bank, #v-gl, #v-time, #v-payroll, #v-vendors, #v-clients, #v-ap, #v-verify, #v-mbown, #v-mbraise, .trail, .appr, .bank-row, .ct-body, .doc-body, input, textarea, select, [contenteditable]",
@@ -107800,7 +107803,7 @@ function spdBegin() {
   try {
     min = appNowIso().slice(0, 16);
   } catch (e) {
-    min = String(Date.now());
+    min = String(Date.now()); // wall clock: a cache key only
   }
   null === s || s !== SPD.snap || min !== SPD.min
     ? (SPD.ver++, (SPD.snap = s || ""), (SPD.min = min), (SPD.memo = new Map()))
@@ -112240,7 +112243,7 @@ const csEv = (label, text, go, ref) => ({
   ];
 function csRun() {
   csInit();
-  const t0 = "object" == typeof performance && performance.now ? performance.now() : Date.now(),
+  const t0 = "object" == typeof performance && performance.now ? performance.now() : Date.now(), // wall clock: a timer
     X = csCtx(),
     facts = csScan(),
     findings = [],
@@ -112255,7 +112258,7 @@ function csRun() {
     ran.push({ id: c.id, chain: c.chain, title: c.title, rule: c.rule, n: got.length }),
       got.forEach((f) => findings.push(Object.assign({ check: c.id, chain: c.chain, rule: c.rule }, f)));
   });
-  const t1 = "object" == typeof performance && performance.now ? performance.now() : Date.now();
+  const t1 = "object" == typeof performance && performance.now ? performance.now() : Date.now(); // wall clock: a timer
   return (
     findings.sort((a, b) => (b.sev || 0) - (a.sev || 0) || String(a.chain).localeCompare(String(b.chain))),
     {
@@ -120366,7 +120369,7 @@ if ("function" == typeof mindTool) {
               : finish(a),
           )
           .catch((e) => {
-            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a);
+            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a); // wall clock: when the model last answered
           });
       });
     }, 120);
@@ -132268,7 +132271,7 @@ if (
 }
 function lkPinned() {
   try {
-    return today() !== tzToday();
+    return today() !== tzToday(); // wall clock: is the day pinned
   } catch (x) {
     return !1;
   }
@@ -150363,7 +150366,7 @@ if (
         ok.addEventListener(
           "click",
           () => {
-            const n0 = Date.now(),
+            const n0 = Date.now(), // wall clock: a timer
               tryFocus = () => {
                 const t = document.querySelector('.view.on .docwrap [data-d="title"]');
                 if (t) {
@@ -199398,18 +199401,17 @@ const MN_JOBS = () => [
   MN_WORK = [
     // the person's jobs come first (mnJobItems), then All Projects
     MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1 }]], { proj: 1, jobs: 1 }),
-    // procurement P1 (docs/PROCUREMENT_PLAN.md section 4); Requests and Route (a request is a need on the Buy Board, the
-    // store run the driver's) sat under More. The controller cannot open the Buy Board: the Purchasing overview is his.
+    // Purchasing (docs/mockups/purchasing/SPEC.md, 11-03): six pages in Alan's order, no tab rows (src/purchasing.js).
+    // Stock is the coordinator's and the driver's register (decision 1); every other role sees the five. A field request
+    // is a need on the Buy Board and the store run is on Deliveries, so Requests and Route forward there (MN_ALIAS); the
+    // controller's Purchasing opens on Orders (the old overview forwards to the role's first page).
     MN_G("buy", "Purchasing", "buy", [
       ["proc", "Buy Board"],
       ["po", "Orders"],
       ["rfq", "Quotes"],
       ["recv", "Deliveries"],
       ["vendors", "Vendors"],
-      ["inv", "Stock"],
-      ["req", "Requests"],
-      ["route", "Route"],
-      ["ovbuy", "Purchasing Overview", null, { head: 1, unless: "proc" }],
+      ["inv", "Stock", null, { roles: ["coord", "driver"] }],
     ]),
     MN_G("sales", "Sales and Clients", "sales", MN_SALES),
     // the mockup: Billing, Banking, Bills and Payroll first; Billing is the firm's list, with its client filter
@@ -199424,12 +199426,12 @@ const MN_JOBS = () => [
       ["budget", "Budget"],
       ["ovmoney", "Accounting Overview", null, { head: 1 }],
     ]),
+    // Design (docs/mockups/design/SPEC.md, 11-03): Selections and Drawings (src/design.js). The studio overview is the In
+    // Design filter of All Projects; Project Board and Filings live on the job and in Drawings (MN_ALIAS). No Design menu
+    // for the PM or the coordinator: they reach a selection from a decision or a Buy Board row, drawings from the job.
     MN_G("studio", "Design", "studio", [
-      ["sel", "Selections"],
-      ["plans", "Drawings"],
-      ["sboard", "Project Board"],
-      ["sfile", "Filings"],
-      ["ovstudio", "Design Overview", null, { head: 1 }],
+      ["sel", "Selections", null, { not: ["pm", "coord"] }],
+      ["plans", "Drawings", null, { not: ["pm", "coord"] }],
     ], { proj: 1 }),
     MN_G("reports", "Reports", "reports", [
       ["reports", "All Reports", null, { head: 1 }],
@@ -199562,7 +199564,8 @@ const MN_JOBS = () => [
         ["time", "Clock", "clock"],
         ["files", "Receipts", "camera"],
       ],
-      rest: [["req", "Requests", "box"]],
+      // Stock: the driver picks for the route from it (Purchasing, decision 1, 11-03)
+      rest: [["req", "Requests", "box"], ["inv", "Stock", "box"]],
     },
   };
 // the design manager (no seat in the pilot) runs the designer's menu; Approvals is a filter of Today
@@ -199603,7 +199606,8 @@ function mnKnow(v, l) {
 // an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless, head}
 function mnItem(x, sec) {
   const o = x[3] || {};
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip };
+  // opts.roles: listed only for these roles; opts.not: never for these (a page they may still open from a record)
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip, roles: o.roles || null, not: o.not || null };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -199719,7 +199723,8 @@ function mnBuild(r) {
   if (!M) return null;
   const rv = ROLE_VIEWS[r] || [],
     has = (v) => rv.includes(v),
-    may = (it) => has(it.v) && !(it.unless && has(it.unless)),
+    rk = "design_mgr" === r ? "designer" : r,
+    may = (it) => has(it.v) && !(it.unless && has(it.unless)) && !(it.roles && !it.roles.includes(rk)) && !(it.not && it.not.includes(rk)),
     shown = (it) => !it.quiet || it.v === view,
     G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),
@@ -200924,7 +200929,7 @@ let msgVoicePtr = 0;
   document.addEventListener("pointerdown", (e) => {
     const b = e.target && e.target.closest && e.target.closest("#msg-voice");
     if (!b || (e.button && 0 !== e.button)) return;
-    e.preventDefault(), (downAt = msgVoicePtr = Date.now());
+    e.preventDefault(), (downAt = msgVoicePtr = Date.now()); // wall clock: a press timer
     msgRecState ? msgRecState.stop() : msgVoiceToggle();
   });
   document.addEventListener("pointerup", () => {

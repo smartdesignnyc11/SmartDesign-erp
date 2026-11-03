@@ -609,7 +609,7 @@ function fbsFinish(title) {
   const S_ = fbsLive;
   if (!S_) return;
   fbsAdd("finish");
-  const end = Date.now(),
+  const end = Date.now(), // wall clock: the recording's length
     first = S_.events.find((e) => "nav" === e.k) || {};
   const r = {
     id: S_.id,
