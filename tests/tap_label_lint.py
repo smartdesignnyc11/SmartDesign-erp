@@ -122,9 +122,11 @@ LINK_PAGES = r"""() => { const L = (typeof MN_LINK === 'object' && MN_LINK[role(
 # [selector, label, kind]; drafts_test walks each as a page of its own.
 DOORS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return [];
   const vis = e => e.getClientRects().length, out = [], t = b => (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 40);
-  V.querySelectorAll('[data-pufull][aria-expanded="false"]').forEach(b => vis(b) && out.push(['[data-pufull="' + b.dataset.pufull + '"]', t(b), 'foot']));
+  // each selector matches only while the door is shut, so opening the page again (the round trip's return) never
+  // taps it shut: the foot's tools fold on a second tap
+  V.querySelectorAll('[data-pufull][aria-expanded="false"]').forEach(b => vis(b) && out.push(['[data-pufull="' + b.dataset.pufull + '"][aria-expanded="false"]', t(b), 'foot']));
   const m = V.querySelector('#bb-more'); m && vis(m) && out.push(['#bb-more', t(m), 'foot']);
-  const p = V.querySelector('[data-bbpick][aria-pressed="false"]'); p && vis(p) && out.push(['[data-bbpick]', 'Pick a line', 'pick']);
+  const p = V.querySelector('.bb:not(.bb-picking) [data-bbpick]'); p && vis(p) && out.push(['.bb:not(.bb-picking) [data-bbpick]', 'Pick a line', 'pick']);
   const seen = new Set(); V.querySelectorAll('.ac-chips [data-acchip]').forEach(b => { const k = b.dataset.acchip; if (!vis(b) || seen.has(k)) return; seen.add(k); out.push(['[data-acchip="' + k + '"]', t(b), 'chip']); });
   return out; }"""
 # A page's own New menu (Accounting's, Purchasing's, Design's): the opener, then each of its items, two taps a person
