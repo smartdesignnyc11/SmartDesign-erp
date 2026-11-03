@@ -240,6 +240,15 @@ def unit():
     Cr = CY.Cycle(out['right'][0].db, B, out['right'][0].w, rv, '2026-09-08')
     Cr2 = CY.Cycle(out['right'][0].db, B, out['right'][0].w, rv[:7], '2026-09-08')
     check(Cr.s_C41()[0] == 'right' and Cr2.s_C41()[0] == 'wrong' and 'pA' in Cr2.s_C41()[1], f"the PM's Friday review: both jobs' pages read right; one job half done reads wrong ({Cr2.s_C41()[1][:80]})")
+    # the job's eight tabs (11-03): change orders on Contract and Billing's Change Orders chip, decisions and submittals on
+    # Decisions (its Submittals chip for the submittals); the default chips alone do not stand for the change orders or
+    # the submittals
+    nw = lambda v, t, j: {'uid': 'u_alan', 'where': {'view': v, 'tab': t, 'cur': j}}
+    rv8 = [nw(v, t, j) for j in ('p121', 'pA') for v, t in (('sched', ''), ('costs', ''), ('jbill', 'All'), ('jbill', 'Change Orders'), ('jdec', 'All'), ('jdec', 'Submittals'))]
+    rv8b = [nw(v, t, j) for j in ('p121', 'pA') for v, t in (('sched', ''), ('costs', ''), ('jbill', 'All'), ('jdec', 'All'))]
+    C8, C8b = CY.Cycle(out['right'][0].db, B, out['right'][0].w, rv8, '2026-09-08'), CY.Cycle(out['right'][0].db, B, out['right'][0].w, rv8b, '2026-09-08')
+    check(C8.s_C41()[0] == 'right' and C8b.s_C41()[0] == 'wrong' and 'billing:co' in C8b.s_C41()[1] and 'subm' in C8b.s_C41()[1] and 'dec' not in C8b.s_C41()[1].replace('subm', ''),
+          f"the Friday review on the job's tabs: the Change Orders and Submittals chips read right; the default chips alone miss them ({C8b.s_C41()[1][:100]})")
     # ---- the realism judge: its file format and the discount
     import tempfile
     d = tempfile.mkdtemp(prefix='judge_')

@@ -1005,7 +1005,8 @@ def match_deposit(p, inv, dep):
         prop = sc.text[i: i + 400]
         p.expect(inv in prop, f'the app proposes the transfer for {inv}', prop[:200])
         c = next((x for x in sc.ctls if x.pos > i and x.action), None)
-        if c is None or not re.match(r'^(confirm|match|record|apply)', norm(c.label)):
+        # the 11-03 Banking page: on the phone a line is confirmed in its sheet, never from the list (Review opens it)
+        if c is None or not re.match(r'^(confirm|match|record|apply|review)', norm(c.label)):
             raise Stuck('match the Ashbys\' transfer', f'a Confirm or Match to {inv} on the bank line', sc, c.label if c else '')
         p.tap_ctl(c)
         sc = p.look()
@@ -1333,7 +1334,9 @@ def card_blocks(text):
     """the phone's Budget: a card per line, every figure under its own label; each card is the text from one line's
     name to the next"""
     L = text.split('\n')
-    idx = [i for i, l in enumerate(L) if re.search(r'\bEST-\d{4}-\d+', l) and '|' not in l]
+    # the document number may follow the name with no space between them in the reader's text ("supplyEST-2026-016":
+    # on the card they are two lines), so it is found without a word boundary
+    idx = [i for i, l in enumerate(L) if re.search(r'EST-\d{4}-\d+', l) and '|' not in l]
     # the name is on the line with the document number (the card's first line), or on the line just above it
     own = lambda l: re.sub(r'^(\[\d+\]\s*)+', '', l).strip()
     return [(L[i] if re.match(r'^\s*(\[\d+[^\]]*\]\s*)*[^\s\[]', own(L[i])) and not own(L[i]).startswith('EST-') else
@@ -1392,6 +1395,12 @@ def j4_friday_review(p):
                 [r for r in cost_cards(sc.text) if r['over']]
             p.expect(not over or len(flagged) >= len(over), 'Budget flags the estimate lines over budget (committed or actual above the budget cost)',
                      f'{len(over)} over by the columns ({"; ".join(over)}), {len(flagged)} flagged')
+        # the job's change orders and its submittals are a chip each on their tab (11-03): the PM opens each list
+        for tab, chip in (('Contract and Billing', 'Change Orders'), ('Decisions', 'Submittals')):
+            if page != tab: continue
+            c = sc.find(chip)
+            p.expect(c is not None, f'{tab} lists the job\'s {chip.lower()} on their own', sc.excerpt(tab, 6))
+            if c is not None: p.tap_ctl(c); p.look()
     sc = open_job(p, 'Overview')
     c = next((x for x in sc.ctls if x.action and re.search(r'^(draft|send|write|prepare)\b.{0,20}\bupdate', x.label, re.I)), None)
     p.expect(c is not None, 'the app drafts the client update from the week (schedule, logs, decisions, money)', 'no update to draft on the job')
@@ -1399,7 +1408,9 @@ def j4_friday_review(p):
         p.tap_ctl(c)
         sc = p.look()
         body = next((x for x in sc.ctls if x.kind == 'text'), None)
-        if body and over: p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+        if body and over:
+            p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+            sc = p.look()   # the sheet as it is now: the controls are numbered afresh after typing
         b = next((x for x in (sc.actions('sheet') if sc.sheet else sc.actions()) if re.match(r'^send', norm(x.label))), None)
         if b is None: raise Stuck('send the client update', 'a Send on the update', sc, c.label)
         p.tap_ctl(b)
@@ -1791,15 +1802,19 @@ def j10_week_money(p):
         c = None
         for m in re.finditer(r'(?m)^(?:\[\d+\] )?9/[3-8] · ', sc.text):   # the phone's cards carry their number in front
             x = next((y for y in sc.ctls if y.pos > m.start() and y.action), None)
-            if x is not None and norm(x.label) == 'confirm' and x.pos - m.start() < 700: c = x; break
+            # the 11-03 Banking page: on the phone the row's Review opens the line's sheet, where Confirm is
+            if x is not None and norm(x.label) in ('confirm', 'review') and x.pos - m.start() < 700: c = x; break
         if c is None: break
         p.tap_ctl(c)
-        if p.look().sheet:   # a confirmation that asks why (a payment before its bill)
+        stop = False
+        for _s in range(2):   # the line's sheet (the phone), then a confirmation that asks why (a payment before its bill)
+            if not p.look().sheet: break
             w = next((x for x in p.scr.ctls if not x.action and x.kind in ('input', 'text')), None)
             b = next((x for x in p.scr.actions('sheet') if re.match(r'^(confirm|save|match|yes)', norm(x.label))), None)
             if w is not None and b is not None: p.do_ctls([('type', w, 'Confirmed against the statement (controller, weekly close)'), ('tap', b)])
             elif b is not None: p.tap_ctl(b)
-            else: p._act('back'); break
+            else: p._act('back'); stop = True; break
+        if stop: break
     # the week's lines that need a category: the app's own suggestion accepted; a line the app cannot place is coded from what
     # the firm knows about it (KNOWN: the PM's pendants for the Ashbys; the designer's pendants for the Kleins, world_book E058)
     for _ in range(10):
@@ -1819,6 +1834,8 @@ def j10_week_money(p):
             c = next((c for c in sc.ctls if c.action and words in c.label and 'statement' in norm(c.label)), None)
             if c is None: continue
             p.tap_ctl(c)
+            # the 11-03 Banking page: on the phone a row opens the line's review sheet; Edit the Line is the form
+            if not p.scr.find('Category', field=True, exact=True) and p.look().find('Edit the Line', exact=True): p.tap('Edit the Line', exact=True)
             if not (p.scr.find('Category', field=True, exact=True) and p.scr.find('Job', field=True, exact=True)): p._act('back'); continue
             for verb, lab, val in (('pick', 'Category', cat_name), ('pick', 'Job', job_name)):   # the sheet may change under a pick
                 p.look(); p.do([(verb, lab, val)])
@@ -1837,7 +1854,9 @@ def j10_week_money(p):
     left = [l[:40] for l in re.findall(r'(?m)^9/[3-8] · [^\n]*', sc.text[k:end if end > k else len(sc.text)])] if k >= 0 else []
     p.expect(not left, 'every line of the week is matched or coded from its own proposal', f'{len(left)} of the week\'s lines still need a category: ' + '; '.join(left))
     # 2. the payroll from approved hours, for the owner
-    p.go('Accounting > Time and Crew', expect_menu=False)   # the 11-03 menu: Time and Crew under Accounting
+    # the 11-03 Accounting pages (docs/mockups/accounting/): Time and Crew is Bills and Payroll's Payroll chip
+    p.go('Accounting > Bills and Payroll', expect_menu=False)
+    p.tap('Payroll', exact=True)
     p.tap('Build Payroll from Approved Time', exact=True)
     sc = p.scr
     if sc.sheet:
@@ -2342,6 +2361,10 @@ def selftest():
     cards = ('By Estimate Line\n[60] Drywall & cement board: supply EST-2026-016 120% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
              '[61] Framing lumber: supply EST-2026-016 On budget\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
     check(over_lines(cards) == ['Drywall & cement board: supply $369 over'] and [r['over'] for r in cost_cards(cards)] == [True, False], f'reader: the phone\'s Budget cards are read by their labels ({over_lines(cards)}, {cost_cards(cards)})')
+    # the card's name and its document number on two lines read as one with no space between them ("supplyEST-...")
+    cards2 = ('By Estimate Line\n[17] [18]\nDrywall & cement board: supplyEST-2026-016\n21% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\n'
+              '[19] [20]\nDrywall hang, tape & prime (SD crew)EST-2026-016\nOn budget\nBudget\n$5,200\nCommitted\n—\nActual\n—\n')
+    check(over_lines(cards2) == ['Drywall & cement board: supply $369 over'], f'reader: a card whose name runs into its document number is still read ({over_lines(cards2)}, {cost_cards(cards2)})')
     # the pass rule and where a journey stops
     base = {'journey': 'J8', 'device': 'desktop', 'taps': 10, 'budget': 12, 'minutes': 5.0, 'budget_min': 6, 'stuck': None, 'soft': [], 'grades': [{'step': 'C30', 'status': 'right', 'detail': ''}]}
     check(not failures_of(base) and stops_at(base) == 'passes', 'pass rule: no stop, no failed expectation, the records right and the budget kept is a pass')

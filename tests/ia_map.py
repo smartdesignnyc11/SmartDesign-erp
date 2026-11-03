@@ -45,7 +45,8 @@ ORDER = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_alberto', 'u_alex', 'u_sar
 NOUN = {'task': 'tasks (to-dos)', 'sched': 'schedule tasks', 'approval': 'approvals', 'inbox': 'inbox mail', 'decision': 'decisions',
         'material': 'materials to buy', 'request': 'field requests', 'submittal': 'submittals', 'inspection': 'inspections',
         'siteq': 'site questions / RFIs', 'coi': 'COI lapses', 'invoice': 'invoices', 'bill': 'bills', 'po': 'purchase orders',
-        'flag': 'money flags', 'finding': 'specialist findings', 'subconfirm': 'subs to confirm'}
+        'flag': 'money flags', 'finding': 'specialist findings', 'subconfirm': 'subs to confirm',
+        'bankline': 'bank and card lines to review', 'journal': 'journals to post'}
 # The questions a person asks of the app, and the nouns that answer each (clusters of "similar information")
 QUESTIONS = {
     'What do I owe today?': ['task', 'approval', 'inbox', 'siteq'],
@@ -557,6 +558,9 @@ ONE_PLACE = {
     'request': {'req', 'mapprove', 'dash'}, 'bill': {'ap', 'mapprove'}, 'coi': {'vendors', 'mapprove'},
     'material': {'proc', 'mat', 'dash'},   # Materials stays only as the Buy Board filtered to the job
     'inspection': {'insp', 'dash'}, 'invoice': {'billing', 'clacct'}, 'po': {'po', 'recv'},
+    # the Accounting pages (11-03, docs/mockups/accounting/SPEC.md §9): the one money-in-and-out queue is Banking; the
+    # experts found the same lines in five queues, so a sixth list of bank lines fails here. Journals live on Books.
+    'bankline': {'bank'}, 'journal': {'gl'},
     'flag': set(), 'finding': set(),       # Caught for You on the first page is their one place
     'sched': {'sched', 'dash', 'fsite'},   # the schedule and the job's look-ahead; the foreman's Site
     'subconfirm': {'fsite', 'sched'},

@@ -233,7 +233,10 @@ S.landing = () => {
 };
 // where the person is (Pilot 3's coverage, sim/cycle.py): the view, the in-page tab where a page has one (Billing's
 // billTab), and the job open (DB.currentId)
-S.where = () => { let tab = ''; try { if (typeof view !== 'undefined' && view === 'billing' && typeof billTab !== 'undefined') tab = String(billTab || ''); } catch (e) {}
+S.where = () => { let tab = ''; try { if (typeof view !== 'undefined' && view === 'billing' && typeof billTab !== 'undefined') tab = String(billTab || '');
+    // the job's Contract and Billing and Decisions (11-03): the chip on screen is the list the person has open
+    if (typeof view !== 'undefined' && view === 'jbill' && typeof jpDocKind !== 'undefined') tab = String(jpDocKind || '');
+    if (typeof view !== 'undefined' && view === 'jdec' && typeof jpDecKind !== 'undefined') tab = String(jpDecKind || ''); } catch (e) {}
   let cur = ''; try { cur = String(DB.currentId || ''); } catch (e) {}
   return { view: typeof view !== 'undefined' ? String(view) : '', tab, cur, title: S.title() }; };
 S.visibleText = () => { const parts = [S.viewRoot(), ...S.overlays(), document.getElementById('toast')].filter(Boolean).map(e => norm(e.innerText)); return parts.join(' \n '); };

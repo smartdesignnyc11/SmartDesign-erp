@@ -356,7 +356,7 @@ const RS_SRC = {
     try {
       v = tdPulseValue((TD_PULSE.owner || []).find((t) => "safe" === t.k));
     } catch (e) {}
-    return null != v && v < 0 ? [{ key: "cash:safe", what: `Safe to spend is ${tdMoney(v)}`, sub: "cash less what is owed and over-billed; the 13-week low is on the cash forecast", amount: -v, run: () => setView("reports"), rec: {} }] : [];
+    return null != v && v < 0 ? [{ key: "cash:safe", what: `Safe to spend is ${tdMoney(v)}`, sub: "cash less what is owed and the cash received for work not yet done; the 13-week low is on the cash forecast", amount: -v, run: () => setView("reports"), rec: {} }] : [];
   },
   jobsAtRisk: () => PRED.jobsAtRisk.rows().map((x) => ({ key: "risk:" + x.p.id, what: `At risk: ${rsJob(x.p)}`, sub: (x.why || []).join("; ").slice(0, 120), amount: 0, run: () => (setCurrent(x.p.id), setView("dash")), rec: { p: x.p } })),
   cashNeg: () => PRED.jobsCashNegative.rows().map((x) => ({ key: x.key, what: x.what, sub: x.sub, amount: x.amount, run: () => (setCurrent(x.p.id), setView("costs")), rec: { p: x.p, cash: x } })),
@@ -1210,7 +1210,7 @@ function rsOneHtml(r) {
     }
     // the follow-up re-reads open findings at most once a minute while the app is in use
     try {
-      const now = Date.now();
+      const now = Date.now(); // wall clock: a timer on this device, never stored as a date
       (!rsSweepAt || now - rsSweepAt > 6e4) && ((rsSweepAt = now), Object.values(rsInit().cases).some((c) => "open" === c.status) && setTimeout(() => rsSweep() && "pa" === view && render(), 0));
     } catch (e) {}
     return r;
