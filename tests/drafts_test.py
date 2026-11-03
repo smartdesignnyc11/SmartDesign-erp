@@ -129,14 +129,15 @@ class DraftWalk(TapLint):
             # the page's buttons (one of each kind), then its first rows and cards: a sheet opens from one or the other.
             # A row is a card, a link, or a plain button that carries a record's text (the 11-03 pages' rows)
             plan = [c for c in await self.buttons_of(lst['cands']) if not crawl.DESTRUCT_RE.match(c['label'])]
-            fam, rows = Counter(), []
+            fam, rows, rowb = Counter(), [], []
             for c in lst['cands']:
                 if c['scope'] != 'view' or any(x['key'] == c['key'] for x in plan): continue
-                if not (c['kind'] in ('card', 'link') or (c['kind'] == 'button' and c.get('rowText') and len(c['label']) >= 12)): continue
+                card = c['kind'] in ('card', 'link')
+                if not (card or (c['kind'] == 'button' and c.get('rowText') and len(c['label']) >= 12)): continue
                 fam[c['family']] += 1
                 if fam[c['family']] > 1 or crawl.DESTRUCT_RE.match(c['label']): continue
-                rows.append(c)
-            plan = plan[:30] + rows[:3]
+                (rows if card else rowb).append(c)
+            plan = plan[:30] + rows[:2] + rowb[:2]
             dirty = None
             for c in plan:
                 await self.fresh(dirty, u)
@@ -145,6 +146,12 @@ class DraftWalk(TapLint):
                 dirty = 'full' if (r['keys'] or r['viewChanged'] or r.get('reloaded') or self.navigated) else ('light' if (r['overlays'] or r['sigChanged'] or r['toasts']) else None)
                 if r.get('reloaded') or self.navigated: continue
                 s = await self.pg.evaluate(SHEET_NOW)
+                if s and not s.get('field') and await self.tap_ok(phone):
+                    # a sheet that only asks (the phone's Confirm the Match before a bank line's Confirm) opens the
+                    # sheet that takes typing on its OK: a person goes on through it
+                    dirty = 'full'
+                    s2 = await self.pg.evaluate(SHEET_NOW)
+                    if s2 and s2.get('field') and s2['title'] != s['title']: s, c = s2, dict(c, then='#mbm-ok')
                 if not s or not s.get('field'): continue
                 k = re.sub(r'\d', '#', s['title'] or s['key'])[:60]
                 if k in seen: continue
@@ -187,6 +194,16 @@ class DraftWalk(TapLint):
             await self.fresh('full', u)
         return out
 
+    async def tap_ok(self, phone):
+        """the open sheet's own OK (#mbm-ok), tapped as a person would; False when it has none"""
+        pt = await self.pg.evaluate("() => { const e = document.querySelector('#mbm #mbm-ok'); if (!e || !e.getClientRects().length) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }")
+        if not pt: return False
+        if phone: await self.pg.touchscreen.tap(pt['x'], pt['y'])
+        else: await self.pg.mouse.click(pt['x'], pt['y'])
+        await self.settle(150, 1500)
+        await self.pg.wait_for_timeout(120)
+        return True
+
     async def press_plus(self, entry, k, phone):
         """the page, its New (the job's +, or the page's own New), then the kind: two taps a person makes"""
         await self.open_entry(entry)
@@ -217,6 +234,9 @@ class DraftWalk(TapLint):
         else: await self.pg.mouse.click(pt['x'], pt['y'])
         await self.settle(150, 1500)
         await self.pg.wait_for_timeout(120)
+        # the sheet reached through an asking sheet's OK (discover): the person goes on through it again
+        if f['c'].get('then') and not await self.tap_ok(phone):
+            self.why = 'the asking sheet has no OK'; return False
         return True
 
     async def leave(self, how, phone, depth=0):

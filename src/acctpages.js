@@ -696,7 +696,9 @@ function acSheetOnly(sec) {
   [...sec.querySelectorAll("button")]
     .filter((b) => /^confirm$/i.test((b.textContent || "").trim()) && !b.closest(".ac-front, #mbm") && !b.dataset.acsheet)
     .forEach((b, i) => {
-      const id = "acs" + Date.now().toString(36) + i;
+      // the same Confirm keeps the same id on every draw (the bank line it confirms, else its place), so a Review
+      // found on one draw is the same Review on the next
+      const id = "acs" + i + (b.dataset.mconfirm ? "-" + b.dataset.mconfirm : "");
       (b.dataset.acsheet = id), (b.hidden = !0);
       const r = document.createElement("button");
       (r.type = "button"), (r.className = "btn sm"), (r.textContent = "Review"), (r.dataset.acreview = id), b.parentNode.insertBefore(r, b);

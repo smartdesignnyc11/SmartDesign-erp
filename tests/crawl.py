@@ -245,7 +245,8 @@ PAGE_JS = r"""
     const out = [];
     for (const at of e.attributes) {
       const n = at.name;
-      if (n.startsWith('data-cr') || n.startsWith('data-dw') || n === 'data-tip') continue;
+      // data-flow-demoted: the one-blue-button pass's own mark, set and cleared on each draw (not what the control does)
+      if (n.startsWith('data-cr') || n.startsWith('data-dw') || n === 'data-tip' || n === 'data-flow-demoted') continue;
       if (n.startsWith('data-') || n === 'onclick' || n === 'href') out.push(n + '=' + String(at.value).slice(0, 40));
     }
     return out.sort().join(' ');
