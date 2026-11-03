@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Brain: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1500px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Company.dc.html" aria-label="Back to Company and Settings" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">The Brain</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">What the firm learned from what happened, and what it proposes to change. Only the owner approves.</span>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="2">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">{{c.label}}<span style="font-weight: 700">{{c.n}}</span></button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{isAppr}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <div style="display: flex; flex-direction: column">
+          <div style="padding: 12px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578; display: flex; gap: 6px"><span>{{g.title}}</span><span>{{g.n}}</span><span style="flex: 1"></span><span style="text-transform: none; letter-spacing: 0">{{g.note}}</span></div>
+          <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+            <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="4">
+              <div style="padding: 12px 14px; border-top: {{r.line}}; display: flex; flex-direction: column; gap: 6px">
+                <b style="font-size: 15px; line-height: 1.35">{{r.title}}</b>
+                <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{r.what}}</span>
+                <span style="font-size: 12px; color: #5b6578; line-height: 1.4">{{r.from}}</span>
+                <div style="display: flex; gap: 8px; margin-top: 4px">
+                  <button type="button" style="flex: 1; min-height: 44px; border-radius: 10px; border: {{r.aBorder}}; background: {{r.aBg}}; color: {{r.aColor}}; font: inherit; font-size: 14px; font-weight: 700">Approve</button>
+                  <button type="button" style="flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Decline</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isRead}}" hint-placeholder-val="{{false}}">
+    <div style="margin: 12px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+      <sc-for list="{{read}}" as="r" hint-placeholder-count="6">
+        <div style="display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-top: {{r.line}}">
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">{{r.k}}</span><span style="font-size: 12px; color: #5b6578; line-height: 1.35">{{r.sub}}</span></span>
+          <b style="font-size: 15px">{{r.v}}</b>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'appr' }; }
+  renderVals() {
+    const L = (title, what, from) => ({ title, what, from });
+    const lessons = [
+      L('A bill is approved at the PO amount and the difference is disputed', 'A rule for the owner: Approve stops at the PO balance.', 'From WW-2026-118, $3,800 over PO-2026-044 · Every dollar matters'),
+      L('Every sub is confirmed by text the day before their date', 'A reminder for the coordinator; the reply is kept.', 'From 1 event: the restoration crew (Tomas) did not show at 121 State Street on 9/3'),
+      L('A change order goes out before the extra work starts, photos first', 'A process step for the PM.', 'From 1 event: the garden bath joist notched by the old plumber, sistered with no CO'),
+      L('A vendor’s certificate of insurance is on file before the first PO', 'A rule for the coordinator.', 'From 1 event: Tino holds PO-2026-047 with no COI on file'),
+      L('Finish and quantity are confirmed on the PO line before it is issued', 'A checklist item for the coordinator.', 'From 4 events: 24 sq ft of surplus porcelain back to Bedrosians'),
+      L('The duplicate check runs on every bank and card import', 'A rule for the controller.', 'From 1 event: Roll Off Dumpster $1,650 on 8/21 and again 8/22'),
+      L('A vendor credit is matched to its charge within 90 days', 'A reminder for the controller.', 'From 2 events: a Bedrosians credit memo of $215 on 8/25 matched to nothing'),
+      L('A step carried twice becomes a dated task with an owner', 'A process step for the PM, and the rule in the meeting reader that does it (drafted twice today; shown once).', 'From 2 events: Finalize Layout (Chen Biron) carried twice across schedule reviews'),
+      L('A pre-issue checklist on every drawing set', 'A checklist item for the designer: sets most often disagree after LPC or DOB comments.', 'From 5 events: 3 of 5 on the presentation set; the structural consultant asked most')
+    ];
+    const changes = [
+      L('Weekly check-in from the ERP, not a spreadsheet', 'A build: the Monday and Thursday meeting opens on Tasks with the same task numbers.', 'From 3 meetings that spent time on CSVs and task lists'),
+      L('Tell everyone that chats are company records the owner can read', 'A setting, with the notice New York’s Civil Rights Law section 52-c asks for.', 'The owner can read every conversation; nobody has been told')
+    ];
+    const steps = [
+      L('Millshop samples approved by the client in design', '121 State Street · Sarah Davis · by 9/15', 'Door style, finish and hardware'),
+      L('Committed dates from the outside designer or consultant, on the schedule', '121 State Street · Alan · at kickoff', ''),
+      L('Filing prerequisites collected 10 working days before the first filing', '121 State Street · Chen Biron · by 8/24', 'Account and meter numbers, owner signatures, prior approvals'),
+      L('Issued purchase orders carry a delivery window and site cutoff', '121 State Street · as soon as it matches', ''),
+      L('Scope sent and confirmed before design hours run', '140 Prospect Place · at kickoff', ''),
+      L('Scope sent and confirmed before design hours run', '45 Cranberry St · at kickoff', '')
+    ];
+    let first = true;
+    const prep = (rows) => rows.map((r, i) => { const blue = first; first = false; return Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', aBg: blue ? '#2563eb' : '#fff', aColor: blue ? '#fff' : '#172033', aBorder: blue ? '0' : '1px solid #c9d1e0' }); });
+    const groups = [
+      { title: 'Lessons for the Firm', n: 9, note: 'each from what happened', rows: prep(lessons) },
+      { title: 'Changes to the ERP', n: 2, note: 'a build and a setting', rows: prep(changes) },
+      { title: 'Job Checklist Steps', n: 6, note: 'added to one job', rows: prep(steps) }
+    ];
+    const read = [
+      { k: 'Events Read Today', sub: 'Every sync, closed field issue, dispute, delivery and close', v: '18' },
+      { k: 'Lessons Proposed Today', sub: 'All 9 are in To Approve', v: '9' },
+      { k: 'Changes Drafted Today', sub: '1 is the same as a lesson, so 2 are in To Approve', v: '3' },
+      { k: 'Rules Fired Today', sub: 'No approved rule fired today', v: '0' },
+      { k: 'Watching', sub: 'Materials it checks on every sync', v: '1' },
+      { k: 'Learned From Meetings', sub: 'Decisions and steps read from 2 meetings; the notes are in Messages', v: '2' }
+    ].map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, r));
+    const T = this.state.tab;
+    const defs = [{ id: 'appr', label: 'To Approve', n: 17 }, { id: 'read', label: 'What It Read', n: '' }];
+    const chips = defs.map((c) => Object.assign({}, c, {
+      pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: c.id })
+    }));
+    return { chips, groups, read, isAppr: T === 'appr', isRead: T === 'read' };
+  }
+}
+</script>
+</body>
+</html>

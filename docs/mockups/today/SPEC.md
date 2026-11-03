@@ -102,7 +102,8 @@ The badge on Today is always the rows Today opens on, for every role.
 - **Payroll is first, and its button is Review Payroll, not Approve.** 88% of the $16,040 is not split by job, so Approve
   cannot work (owner finding 16). The build should send it back to Chen to split before it reaches the owner.
 - **Brain rows leave Today.** Lessons and rule changes are owner approvals of a different kind (they change the system), so
-  they gather in The Brain with one count; the count is `[PLACEHOLDER]` because the build reads 9, 8 and 6 today.
+  they gather in The Brain with one count, 17 (9 lessons, 2 changes, 6 job steps). The build reads 9, 8 and 6 today because
+  each screen counts a different part, and one item is drafted twice.
 - **Rank by when the consequence lands, then by the Standard's order.** The LLC filing (lapses 9/28) stays in Now because it
   is late, but below wages, money paid before approval and a client waiting; it no longer takes the blue button.
 - **Cash is one figure with its parts**, from `safeToSpend()`, with each account's reconciled date. The Rivera $21,350 shows
@@ -123,8 +124,9 @@ The badge on Today is always the rows Today opens on, for every role.
 | Today | pass | pass | pass | pass | n/a | pass | pass, see below | pass | pass | pass |
 | Tasks | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
 | Messages | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
-- Revised in review: the first draft counted Coming Up in the badge (18), which broke question 7 against the rows Today opens
-  on; the badge is now 12. The first draft kept a "Team" chip on Messages; it was the same threads as All, so it went.
+- Revised in review: Where the Firm Stands first carried a placeholder for the lessons count; reading The Brain showed 9
+  lessons, 3 changes (one the same as a lesson) and 6 job steps, so it reads 17. Coming Up is kept out of the badge so that
+  the badge equals the rows Today opens on (question 7).
 - Today question 1 needs two clauses (what needs you, and the brief). Kept: the brief is three lines that explain the rows,
-  and Alan asked for the brief on Today (owner finding 19). Where the Firm Stands carries a `[PLACEHOLDER]` until The Brain's
-  count is one number. Tasks' Team chip has no count, by design (it waits on nobody in particular).
+  and Alan asked for the brief on Today (owner finding 19). Tasks' Team chip has no count, by design (it waits on nobody in
+  particular). Where the Firm Stands' "Deals That Need You 3" was 4 in the first draft; it now uses the Pipeline's one rule.

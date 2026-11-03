@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The SmartDesign Standard: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1450px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Company.dc.html" aria-label="Back to Company and Settings" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">The SmartDesign Standard</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">Version 1 · Alan Mishali · Thu, Sep 3 · every person, agent and assistant acts by it</span>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 16px 4px">
+    <sc-for list="{{chips}}" as="c" hint-placeholder-count="2">
+      <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer">{{c.label}}<span style="font-weight: 700">{{c.n}}</span></button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{isWatch}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column">
+      <span style="padding: 6px 16px 10px; font-size: 13px; color: #5b6578; line-height: 1.4">Each measurable line, who owns it, and how many rows break it today. Each row also sits on its owner’s Today.</span>
+      <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <sc-for list="{{watch}}" as="w" hint-placeholder-count="14">
+          <a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 14px; border-top: {{w.line}}; text-decoration: none; color: #172033">
+            <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600; line-height: 1.35">{{w.k}}</span><span style="font-size: 12px; color: #5b6578">{{w.who}}</span></span>
+            <b style="font-size: 15px; color: #b91c1c">{{w.n}}</b>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+          </a>
+        </sc-for>
+      </div>
+      <span style="padding: 10px 16px 0; font-size: 13px; color: #5b6578; line-height: 1.4">Not measured yet, so not passing: budget against actual reviewed weekly, and the rest listed at the foot of the document. The 2-hour client acknowledgement reads 0 only because nobody’s mail is connected.</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isDoc}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; flex-direction: column">
+      <div style="margin: 6px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <sc-for list="{{doc}}" as="d" hint-placeholder-count="12">
+          <a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 14px; border-top: {{d.line}}; text-decoration: none; color: #172033">
+            <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">{{d.k}}</span><span style="font-size: 12px; color: #5b6578">{{d.sub}}</span></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+          </a>
+        </sc-for>
+      </div>
+      <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+        <b style="font-size: 15px">Change the Standard</b>
+        <span style="font-size: 13px; color: #5b6578; line-height: 1.4">Only the owner edits. Every edit records who, when and why, and is chained to the version before it. The assistants read the new version on their next turn.</span>
+        <div style="display: flex"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 14px; font-weight: 600">Edit the Standard</button></div>
+      </div>
+    </div>
+  </sc-if>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1450}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'watch' }; }
+  renderVals() {
+    const W = [
+      ['Long-lead items released at design approval', 'Procurement playbook · Coordinator', 13],
+      ['Daily log with photos', 'Foreman playbook · Foreman', 6],
+      ['Weekly client update every Friday', 'Communication standard · PM', 4],
+      ['Three quotes on any purchase over $2,500', 'Procurement playbook · Coordinator', 4],
+      ['Invoices within 2 business days of a billing milestone', 'Office playbook · Billing', 3],
+      ['Direct to the source, or through a middleman (two lines)', 'Procurement playbook · Coordinator', 4],
+      ['Internal messages answered the same business day', 'Communication standard · PM', 2],
+      ['Material requests five working days ahead', 'Foreman playbook · Foreman', 2],
+      ['No purchase without a PO', 'Money standard · Coordinator', 1],
+      ['Three-way match before paying any vendor', 'Office playbook · Controller', 1],
+      ['Books reconciled by the 10th of the next month', 'Office playbook · Controller', 1],
+      ['Field questions answered within 2 business days', 'Designer playbook · Designer', 1],
+      ['Cost impact over $1,000 not in the budget: PM, same day', 'Escalation table · Owner', 1]
+    ];
+    const watch = W.map((w, i) => ({ k: w[0], who: w[1], n: w[2], line: i ? '1px solid #eef1f6' : '0' }));
+    const D = [
+      ['How to Use This Document', 'Who it binds, and when to decide or escalate'],
+      ['Who We Are', ''],
+      ['Core Values', 'Own it · The client comes first · Craft without compromise · Think ahead · Every dollar matters · Truth, early · One team'],
+      ['Decision Principles', 'Safety, law and landmarks, integrity, quality, client experience, schedule, cost'],
+      ['The Four Tests', ''],
+      ['Decide or Escalate', ''],
+      ['Company-Wide Standards', 'Communication, money, documentation'],
+      ['The Escalation Table', 'What goes to whom, how fast'],
+      ['Playbooks by Role', 'Owner, PM, coordinator, foreman, designer, billing, controller, sales'],
+      ['Rules for AI Agents and Assistants', 'What every assistant may do alone, and never'],
+      ['Not Measured Yet', 'Lines with no data behind them'],
+      ['Versions', 'Version 1, Alan Mishali, Thu Sep 3']
+    ];
+    const doc = D.map((d, i) => ({ k: d[0], sub: d[1], line: i ? '1px solid #eef1f6' : '0' }));
+    const T = this.state.tab;
+    const defs = [{ id: 'watch', label: 'Open Today', n: 13 }, { id: 'doc', label: 'The Document', n: '' }];
+    const chips = defs.map((c) => Object.assign({}, c, {
+      pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
+      pick: () => this.setState({ tab: c.id })
+    }));
+    return { chips, watch, doc, isWatch: T === 'watch', isDoc: T === 'doc' };
+  }
+}
+</script>
+</body>
+</html>

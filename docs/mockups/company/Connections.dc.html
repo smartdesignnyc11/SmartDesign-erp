@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Connections: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Company.dc.html" aria-label="Back to Company and Settings" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Connections</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">What the ERP reads, and how fresh it is. Each person connects their own account.</span>
+  </div>
+
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 700; color: #5b6578">YOUR ACCOUNT</span>
+    <b style="font-size: 16px">Google: mail, calendar and drive</b>
+    <span style="font-size: 13px; color: #5b6578; line-height: 1.4">Not connected. Your assistant reads the records only, so it cannot link a client’s reply or hold time on your calendar. It writes drafts; it sends only when you press Send. Your mail stays yours.</span>
+    <button type="button" style="min-height: 48px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">Connect My Google Account</button>
+    <span style="font-size: 12px; color: #5b6578">Needs the firm’s one-time Google setup first (below).</span>
+  </div>
+
+  <sc-for list="{{sections}}" as="s" hint-placeholder-count="2">
+    <div style="display: flex; flex-direction: column">
+      <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">{{s.title}}</div>
+      <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <sc-for list="{{s.rows}}" as="r" hint-placeholder-count="4">
+          <a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 8px 14px; border-top: {{r.line}}; text-decoration: none; color: #172033">
+            <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">{{r.k}}</span><span style="font-size: 13px; color: #5b6578; line-height: 1.35">{{r.sub}}</span></span>
+            <span style="font-size: 13px; font-weight: 700; color: {{r.tone}}; text-align: right; max-width: 120px">{{r.v}}</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+          </a>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
+    const S = [
+      { title: 'The Firm’s Banks and Cards', rows: [
+        { k: 'Chase Business Checking ····4471', sub: 'From statements; reconcile in Accounting › Banking', v: 'Through 6/30', tone: RED },
+        { k: 'Amex Business Platinum ····1009', sub: 'From statements', v: 'Through 7/31', tone: INK },
+        { k: 'Home Depot Pro Xtra ····7720', sub: 'From statements', v: 'Never reconciled', tone: RED },
+        { k: 'Live bank feed', sub: 'On the hosted site only; this copy opens from a file', v: 'Not here', tone: MUTE }
+      ] },
+      { title: 'The Firm’s Mail and Books', rows: [
+        { k: 'Purchasing mailbox', sub: 'procurement@smartdesign.nyc sends RFQs and POs, the sender in CC (Alan, 10-26)', v: '[PLACEHOLDER]', tone: MUTE },
+        { k: 'Meeting notes from Gemini', sub: 'Read from mail; 2 meetings read so far', v: 'Reading', tone: INK },
+        { k: 'QuickBooks, for comparison', sub: 'A bridge, never the truth: shows where QuickBooks, the bank and the ERP disagree', v: 'Needs re-authorising', tone: RED }
+      ] },
+      { title: 'Set Up Once, by the Owner', rows: [
+        { k: 'Google for the whole firm', sub: 'A ten-minute setup in the Google Cloud console, internal to the firm’s Workspace; then each person connects', v: 'Not set up', tone: RED },
+        { k: 'How often to check for new mail and events', sub: 'Every 2, 5, 10, 15 or 30 minutes', v: '[PLACEHOLDER]', tone: MUTE }
+      ] }
+    ];
+    const sections = S.map((s) => Object.assign({}, s, { rows: s.rows.map((r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0' })) }));
+    return { sections };
+  }
+}
+</script>
+</body>
+</html>

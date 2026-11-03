@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Company Settings: Proposed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1250px; box-sizing: border-box; background: #f4f6fa; color: #172033; display: flex; flex-direction: column">
+  <div style="background: #111a2e; color: #fff; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <a href="Company.dc.html" aria-label="Back to Company and Settings" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      </a>
+      <b style="flex: 1; font-size: 19px">Company Settings</b>
+    </div>
+    <span style="font-size: 13px; color: #b9c3d8">SmartDesign · set once, changed rarely · every change is in the log with who and why</span>
+  </div>
+
+  <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column">
+      <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">{{g.title}}</div>
+      <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
+        <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="4">
+          <div style="border-top: {{r.line}}; display: flex; flex-direction: column">
+            <button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.expanded}}" style="display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 14px; border: 0; background: transparent; font: inherit; color: #172033; text-align: left; cursor: pointer">
+              <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">{{r.k}}</span><span style="font-size: 12px; color: #5b6578; line-height: 1.35">{{r.sub}}</span></span>
+              <span style="font-size: 13px; font-weight: 600; color: {{r.tone}}; text-align: right; max-width: 110px">{{r.v}}</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8a94a8" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="{{r.chev}}"></path></svg>
+            </button>
+            <sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+              <div style="padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px">
+                <sc-for list="{{r.lines}}" as="l" hint-placeholder-count="3"><span style="font-size: 13px; line-height: 1.4">{{l}}</span></sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+  <div style="height: 24px"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1250}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: 'Approval Checks' }; }
+  renderVals() {
+    const RED = '#b91c1c', MUTE = '#5b6578';
+    const G = [
+      { title: 'The Firm', rows: [
+        ['The Company Block', 'Name, address, phone, terms printed on documents', '', MUTE, ['The licence number is held under Insurance and Licences; documents print it from there.']],
+        ['Legal Entities', 'SmartDesign Group LLC, SD Plumbing LLC, SD Electric LLC, 206 Lenox LLC', '4', MUTE, ['Each job, bill and bank account belongs to one entity.']],
+        ['The Firm’s Clock', 'The app’s day; demo pinned to Thu, Sep 3', 'Locked', MUTE, ['Today it is editable on this page (“As Of”). Proposed: only the admin changes it, behind a confirm.']],
+        ['Client Documents', 'Letterhead, how to pay, terms and conditions', '', MUTE, ['Every proposal, change order, invoice, pay application and statement prints from here.']]
+      ] },
+      { title: 'Money and Buying', rows: [
+        ['Accounting Defaults', 'Payment terms, retainage %, sales tax on materials, number prefixes', '', MUTE, ['Budget flags: a line over budget by a set %, a margin under a set %.']],
+        ['Approval Checks', 'Match tolerance, receipts, round-dollar and split-purchase flags', '', MUTE, ['Who approves what moved to Team: limits per role, set on each person.', 'Today’s “owner approval for payments above $0” is replaced by the exceptions Alan decided on 10-26.']],
+        ['Item Library', 'Every item’s words for the client and the vendor, cost code, unit, price, last paid', '7 proposed', MUTE, ['7 changes learned from use wait for approval; documents already sent keep their own words.']]
+      ] },
+      { title: 'Sales', rows: [
+        ['Pipelines and Stages', 'Design-Build, Construction Only, Design Only; stages and win odds', 'Add Signed', RED, ['Proposed stages: Lead, Qualified, Site Visit, Design Agreement, Proposal Out, Job Set Up, Signed (Won), Lost.', 'Every stage has a name; none can be deleted with deals in it.']]
+      ] },
+      { title: 'Data', rows: [
+        ['Your Data', 'Import from Asana or a spreadsheet, back up, take the demo out', '4 demo jobs', MUTE, ['Projects 4, clients 6, vendors and subs 12, people 9 are the demo.', 'Clear Everything and Turn the Demo On ask for the owner and a typed confirm.']],
+        ['Problem Reports', 'What the team flagged with Report a Problem', 'None open', MUTE, ['Nothing reported yet.']],
+        ['Change Log', 'Every setting changed, by whom, and why', '', MUTE, ['9/3: purchase tax corrected on PO-2026-041, PO-2026-044 and PO-2026-047.']],
+        ['Appearance', 'Color or mono', '', MUTE, ['']]
+      ] }
+    ];
+    const groups = G.map((g) => Object.assign({}, g, { rows: g.rows.map((r, i) => {
+      const open = this.state.open === r[0];
+      return { k: r[0], sub: r[1], v: r[2], tone: r[3], lines: r[4], open, expanded: open ? 'true' : 'false', chev: open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6', line: i ? '1px solid #eef1f6' : '0', toggle: () => this.setState({ open: open ? '' : r[0] }) };
+    }) }));
+    return { groups };
+  }
+}
+</script>
+</body>
+</html>

@@ -45,7 +45,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       </sc-if>
       <sc-if value="{{cashClosed}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; color: #5b6578">$184,231 in the bank, less cards, payroll due and money billed ahead. Tap for the parts.</span></sc-if>
     </button>
-    <span style="font-size: 14px; line-height: 1.45"><a href="#">121 State Street</a> is slipping: rough plumbing starts 9/10, held by a late material, about 7 working days behind.</span>
+    <a href="../job-structure/Job.dc.html" style="display: block; min-height: 44px; font-size: 14px; line-height: 1.45; color: #172033; text-decoration: none"><span style="color: #1d4ed8; font-weight: 600">121 State Street</span> is slipping: rough plumbing starts 9/10, held by a late material, about 7 working days behind.</a>
     <span style="font-size: 14px; line-height: 1.45">Aliya Chen wrote on 8/30 about the work at 374 Washington Avenue and has had no answer for 4 days.</span>
   </div>
 
@@ -103,7 +103,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1240}}'>
 class Component extends DCLogic {
-  constructor(p) { super(p); this.state = { tab: 'today', cash: true, firm: false }; }
+  constructor(p) { super(p); this.state = { tab: 'today', cash: false, firm: false }; }
   renderVals() {
     const I = {
       pay: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20a6 6 0 0 1 12 0M17 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6',
@@ -156,8 +156,7 @@ class Component extends DCLogic {
       { k: 'In Chase ····4471', v: '$184,231' },
       { k: 'Less owed on cards', v: '−$16,067' },
       { k: 'Less payroll due', v: '−$16,040' },
-      { k: 'Less billed ahead of the work', v: '−$156,274' },
-      { k: 'Safe to spend', v: '−$4,150.74' }
+      { k: 'Less billed ahead of the work', v: '−$156,274' }
     ];
     const firm = [
       { k: 'Jobs at Risk', sub: '121 State Street: 19 late, 1 sub no-show · 206 Lenox: 3 late', v: '2', tone: RED },
@@ -165,7 +164,7 @@ class Component extends DCLogic {
       { k: 'Deals That Need You', sub: 'Same 3 as the Pipeline: 2 past their date, 1 quiet 14 days', v: '3', tone: '#172033' },
       { k: 'Compliance', sub: 'Tino: open PO, no insurance on file · the LLC filing', v: '2', tone: RED },
       { k: 'People Overloaded', sub: 'You: 15 open, 3 overdue · Alan: 10 open', v: '2', tone: '#172033' },
-      { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 3 changes to the ERP, 6 job checklist steps', v: '18', tone: '#172033' },
+      { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 2 changes to the ERP, 6 job checklist steps', v: '17', tone: '#172033' },
       { k: 'Saved This Year', sub: '5 savings on record · $222 this month', v: '$877', tone: '#172033' }
     ];
     const cashOpen = !!this.state.cash, firmOpen = !!this.state.firm;

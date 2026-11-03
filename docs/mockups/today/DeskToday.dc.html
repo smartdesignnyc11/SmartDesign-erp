@@ -94,7 +94,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <aside style="width: 360px; flex: none; display: flex; flex-direction: column; gap: 16px">
           <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
             <b style="font-size: 15px">Your Brief</b>
-            <span style="font-size: 14px; line-height: 1.45"><a href="#">121 State Street</a> is slipping: rough plumbing starts 9/10, held by a late material, about 7 working days behind.</span>
+            <a href="../job-structure/Job.dc.html" style="display: block; min-height: 44px; font-size: 14px; line-height: 1.45; color: #172033; text-decoration: none"><span style="color: #1d4ed8; font-weight: 600">121 State Street</span> is slipping: rough plumbing starts 9/10, held by a late material, about 7 working days behind.</a>
             <span style="font-size: 14px; line-height: 1.45">Window Works’ insurance expired 8/15, and they are booked at 121 State Street on 9/9. Chen is chasing the certificate.</span>
             <span style="font-size: 14px; line-height: 1.45">Aliya Chen wrote on 8/30 about 374 Washington Avenue and has had no answer for 4 days.</span>
           </div>
@@ -181,7 +181,7 @@ class Component extends DCLogic {
       { k: 'Deals That Need You', sub: 'The Pipeline’s 3: 2 past their date, 1 quiet 14 days', v: '3', tone: INK },
       { k: 'Compliance', sub: 'Tino: open PO, no insurance · the LLC filing', v: '2', tone: RED },
       { k: 'People Overloaded', sub: 'You: 15 open, 3 overdue · Alan: 10 open', v: '2', tone: INK },
-      { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 3 changes, 6 job steps', v: '18', tone: INK },
+      { k: 'Lessons and Changes to Approve', sub: 'In The Brain: 9 lessons, 2 changes, 6 job steps', v: '17', tone: INK },
       { k: 'Saved This Year', sub: '5 savings on record', v: '$877', tone: INK }
     ].map((f, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, f));
     const newOpen = !!this.state.newOpen;
