@@ -75,9 +75,16 @@ function acBillNeeds(pid) {
     .filter((r) => r.needs)
     .forEach((r) => {
       const p = r.job || null;
-      let why = r.what && r.kind !== "draft" ? `${r.what}.` : "";
-      if ("draft" === r.kind) why = `${r.what}: written, not sent. The client has not seen it.`;
-      else if (p) {
+      let why = r.what && r.kind !== "draft" ? `${r.what}.` : "",
+        // one basis on every row: the work billed, before retainage (what Ready to Bill counts and what the application
+        // bills); what the client pays after retainage is said beside it. The draft row printed its total after
+        // retainage ($35,112) beside a ready row's work ($35,426): two bases for one question.
+        amount = r.amount;
+      if ("draft" === r.kind) {
+        const T = r.inv ? docTotal(r.inv) : null;
+        T && T.ret > 0.005 && (amount = r2(T.sub - T.disc + (T.tax || 0)));
+        why = `${r.what}: written, not sent. The client has not seen it.${T && T.ret > 0.005 ? ` ${money(T.ret)} held as retainage; ${money(T.total)} due.` : ""}`;
+      } else if (p) {
         // the row's own reason is the queue's (readyToBill: what the application bills and what it holds, with the one
         // billed-ahead figure); Needs You never composes a second sentence with its own figures. What else is held on
         // the job is toBill's held rows, named by their own reasons.
@@ -85,12 +92,19 @@ function acBillNeeds(pid) {
           extra = TB.heldRows.filter((h) => !(r.rtb && r.rtb.key && h.hid && h.hid.endsWith(r.rtb.key)));
         r.why && (why += ` ${r.why.charAt(0).toUpperCase() + r.why.slice(1)}.`);
         extra.length && TB.held > 0.005 && (why += ` Held with it: ${extra.map((h) => String(h.why || "").replace(/\.$/, "")).join("; ")}.`);
+        // an application holds the contract's retainage: say what the client will pay on it
+        if (r.rtb && "application" === r.rtb.kind && r.c) {
+          const sov = (r.c.invoices || []).filter((i) => i.projectId === p.id && "sov" === i.mode && "void" !== i.status).pop(),
+            est = (r.c.estimates || []).find((e) => e.projectId === p.id && ["converted", "approved"].includes(e.status)),
+            pct = +((sov && sov.retainagePct) ?? (est && est.retainagePct) ?? 0) || 0;
+          pct > 0 && (why += ` ${pct}% retainage holds ${money(r2((r.amount * pct) / 100))}; ${money(r2(r.amount - (r.amount * pct) / 100))} due.`);
+        }
       }
       out.push({
         id: r.id,
         pid: p ? p.id : "",
-        amount: r.amount,
-        title: "draft" === r.kind ? `${money(r.amount)} drafted, not sent · ${p ? shortName(p) : r.client ? r.client.name : ""}` : `${money(r.amount)} ready to bill · ${p ? shortName(p) : r.client ? r.client.name : ""}`,
+        amount: amount,
+        title: "draft" === r.kind ? `${money(amount)} drafted, not sent · ${p ? shortName(p) : r.client ? r.client.name : ""}` : `${money(r.amount)} ready to bill · ${p ? shortName(p) : r.client ? r.client.name : ""}`,
         why: why.trim(),
         act: blActLabel(r),
         blact: r.id,

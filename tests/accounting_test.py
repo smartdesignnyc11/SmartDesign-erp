@@ -186,6 +186,36 @@ async def run(c, pg, u, phone):
         await pg.locator('.view.on [data-acjob]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(150)
         await pg.locator('.view.on [data-acjobpick=""]').first.evaluate('e => e.click()'); await pg.wait_for_timeout(200)
 
+async def drafted_equals_queue(c, p):
+    """One question, one number on money the client is billed: the foreman measures, the client approves CO-2026-002,
+    billing presses Draft on Needs You; the application bills, to the cent, the work the row said was ready, and the
+    drafted row then states the same work (before retainage) with what is held and due beside it."""
+    b, pg, errs = await open_app(p, False)
+    await sign_in(pg, 'u_billing')
+    r = await pg.evaluate(r"""async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); appConfirm = () => true;
+      const p = DB.projects.find(x => x.id === 'p121'), c = DB.clients.find(x => x.id === 'cl121');
+      prgSet(p, p.tasks.find(t => t.id === 'relec'), { pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Rough electrical complete' });
+      await docAction(c, c.changeOrders.find(x => x.number === 'CO-2026-002'), 'approve');
+      prgSet(p, p.tasks.find(t => t.id === 'sand'), { pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Treads done' });
+      save(); setView('billing'); billTab = 'billable'; docOpen = null; render(); await sleep(250);
+      const tr = document.querySelector('.view.on .ac-needs tr[data-edit="bl:rtb:app:p121"]');
+      if (!tr) return { err: 'no 121 State application on Needs You' };
+      const shown = +((tr.innerText.match(/^\$([\d,]+) ready to bill/) || [0, '0'])[1].replace(/,/g, ''));
+      const row = readyToBill().rows.find(x => x.p && x.p.id === 'p121' && x.kind === 'application');
+      tr.querySelector('[data-blact]').click(); await sleep(250);
+      const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await sleep(300);
+      const inv = c.invoices.filter(i => i.mode === 'sov' && i.status === 'draft').pop(); if (!inv) return { err: 'no draft' };
+      const T = docTotal(inv);
+      docOpen = null; setView('billing'); billTab = 'billable'; render(); await sleep(250);
+      const dr = [...document.querySelectorAll('.view.on .ac-needs tr')].find(x => x.innerText.includes(inv.number));
+      const drShown = dr ? +((dr.innerText.match(/^\$([\d,]+) drafted/) || [0, '0'])[1].replace(/,/g, '')) : null;
+      return { queue: row ? row.amount : null, shown, work: r2(T.sub - T.disc), ret: T.ret, total: T.total, drShown, drText: dr ? dr.innerText.replace(/\s+/g, ' ').slice(0, 300) : '' }; }""")
+    ok = r and not r.get('err') and abs(r['work'] - r['queue']) < 0.005 and r['shown'] == round(r['queue']) and r['drShown'] == round(r['work'])
+    c.ok(ok, f"ONE NUMBER desktop: after Draft the application bills the queue row's work to the cent, and the drafted row states the same: {r}")
+    c.ok(r and not r.get('err') and ('due' in r.get('drText', '')) == (r.get('ret', 0) > 0.005), f"ONE NUMBER desktop: the drafted row names what retainage holds and what is due: {r and r.get('drText')}")
+    c.ok(not errs, f'ONE NUMBER: page errors {errs[:3]}')
+    await b.close()
+
 def money_fmt(v):
     s = f'${abs(v):,.0f}'
     return s
@@ -202,6 +232,8 @@ async def main():
                 await run(c, pg, u, phone)
             c.ok(not errs, f"{'phone' if phone else 'desktop'}: page errors {errs[:3]}")
             await b.close()
+        if False in devs and 'u_billing' in users:
+            await drafted_equals_queue(c, p)
     sys.exit(c.done())
 
 asyncio.run(main())
