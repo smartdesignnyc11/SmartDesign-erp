@@ -410,7 +410,7 @@ function jpRowsHtml(rows, empty) {
     ? `<div class="jp-cards">${rows
         .map(
           (r) =>
-            `<div class="jp-card ${r.tone || ""}" data-jprow="${esc(r.key)}" role="button" tabindex="0"><span class="jp-ck"><b class="${r.tone || ""}">${esc(r.kind)}</b>${r.when ? ` · ${esc(r.when)}` : ""}</span><div class="jp-ct"><b>${esc(r.title)}</b>${r.amt ? `<b>${esc(r.amt)}</b>` : ""}</div><span class="jp-cw">${esc(r.why || "")}</span>${r.act ? `<div class="jp-ca"><button type="button" class="btn jp-tap" data-jpact="${esc(r.key)}">${esc(r.act)}</button></div>` : ""}</div>`,
+            `<div class="jp-card" data-jprow="${esc(r.key)}" role="button" tabindex="0"><span class="jp-ck"><b class="${r.tone || ""}">${esc(r.kind)}</b>${r.when ? ` · ${esc(r.when)}` : ""}</span><div class="jp-ct"><b>${esc(r.title)}</b>${r.amt ? `<b>${esc(r.amt)}</b>` : ""}</div><span class="jp-cw">${esc(r.why || "")}</span>${r.act ? `<div class="jp-ca"><button type="button" class="btn jp-tap" data-jpact="${esc(r.key)}">${esc(r.act)}</button></div>` : ""}</div>`,
         )
         .join("")}</div>`
     : `<table class="jp-rows"><tbody>${rows
@@ -1238,7 +1238,9 @@ table.jp-rows td{padding:12px 18px;border-top:1px solid var(--rule-2);vertical-a
 .jp-click{cursor:pointer} tr.jp-click:hover td,.jp-drow.jp-click:hover,.jp-q.jp-click:hover{background:var(--paper-2)} table.jp-bt tr[data-jpline]{cursor:pointer}
 table.jp-rows tr:first-child td{border-top:0}
 .jp-rk{width:130px;font-size:12px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.03em}
-.jp-rk.bad,.bad{color:var(--bad)} .jp-rk.warn,.warn{color:var(--warn)} .ok{color:var(--ok)}
+.jp-keep .bad:not(.pill),#jp-head .bad{color:var(--bad)} .jp-keep .warn:not(.pill):not(.note),#jp-head .warn{color:var(--warn)} .jp-keep .ok:not(.pill),#jp-head .ok{color:var(--ok)}
+.jp-keep .btn.bad,.jp-keep .jp-card.bad,.jp-keep .jp-card.warn{color:var(--ink)}
+.jp-keep .jp-billback.ok,#jp-ov .jp-tile.bad,#jp-ov .jp-tile.warn{color:var(--ink-2)}
 .jp-rt b{display:block;font-size:15px} .jp-rt span{display:block;font-size:13px;color:var(--ink-3);margin-top:2px}
 .jp-ra{text-align:right;font-weight:700;white-space:nowrap} .jp-rb{text-align:right;white-space:nowrap;width:1%}
 .jp-pf{padding:10px 18px;border-top:1px solid var(--rule-2)}
