@@ -39,7 +39,7 @@ async def main():
         c.ok(not pick, 'Projects: the job picker is hidden on the list of every job')
         await pg.locator('.view.on .pr-row').first.click(); await pg.wait_for_timeout(400)
         c.ok(await pg.evaluate("() => view") != 'ovjobs', 'Projects: a tap on a row opens the job')
-        # ---- #8 Bills & Payroll, as the controller
+        # ---- #8 Bills and Payroll, as the controller
         await sign_in(pg, 'u_controller'); await go(pg, 'ap'); await pg.evaluate("() => scrollTo(0, 0)")
         blue = await pg.evaluate(BLUE)
         c.ok(blue == ['Review'], f'Bills: the one blue button is the paid-before-approval Review ({blue})')
@@ -141,7 +141,7 @@ async def main():
         await sign_in(pg, 'u_alan'); await go(pg, 'ovjobs')
         c.ok(await pg.evaluate("() => document.querySelectorAll('.view.on .pr-row, .view.on .pr-tbl').length") == 0, 'Desktop: Projects keeps its table')
         await sign_in(pg, 'u_controller'); await go(pg, 'ap')
-        c.ok('New Vendor Bill' in await pg.evaluate(BLUE), 'Desktop: Bills & Payroll keeps its own blue button')
+        c.ok('New Vendor Bill' in await pg.evaluate(BLUE), 'Desktop: Bills and Payroll keeps its own blue button')
         c.ok(await pg.evaluate("() => { const r = document.querySelector('#ap-filter'); return !!r && r.getClientRects().length > 0; }"), 'Desktop: the filter segment stays')
         await pg.evaluate("() => openPal()"); await pg.fill('#pal-q', 'tile'); await pg.wait_for_timeout(200)
         c.ok(not await pg.evaluate("() => document.getElementById('pal').classList.contains('pr-pal')") and await pg.evaluate("() => document.querySelectorAll('#pal .pr-pal-g').length") == 0, 'Desktop: the palette stays the palette')

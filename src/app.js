@@ -4086,9 +4086,9 @@ function render() {
     reports: "Reports",
     clients: "Clients",
     bank: "Banking & transactions",
-    ap: "Bills & payroll",
+    ap: "Bills and payroll",
     verify: "Verification",
-    time: ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time & crew",
+    time: ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time and crew",
     req: "Requests",
     route: "Route",
     vendors: "Vendors",
@@ -9953,9 +9953,9 @@ function palIndex() {
       po: "Purchasing",
       files: "Documents",
       mat: "Materials",
-      ap: "Bills & payroll",
+      ap: "Bills and payroll",
       verify: "Verification",
-      time: ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time & crew",
+      time: ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time and crew",
       req: "Requests",
       route: "Route",
       vendors: "Vendors",
@@ -15001,7 +15001,7 @@ function renderTime() {
     .join("")),
     renderDaySheet(emp);
   const tt = $("#time-title");
-  tt && (tt.textContent = ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time & Crew"),
+  tt && (tt.textContent = ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time and Crew"),
     ($("#clock-card").innerHTML =
       `<div class="clock"><div><div class="big">${open ? `Clocked in · ${stampTime(open.in)}` : emp ? `Hi ${esc(emp.name.split(" ")[0])}` : currentUser() ? `Hi ${esc(currentUser().name.split(" ")[0])}` : "Who are you?"}</div><div class="s">${emp ? `${esc(S.project.name)} · site hours ${siteHours().start}–${siteHours().end}${open ? ` · ${Math.max(0, hoursOf({ in: open.in, out: appNowIso(), breakMin: 0 })).toFixed(1)} h so far` : ""} ` : currentUser() ? "Your user isn't linked to an employee record yet — ask the office (Settings → Users) so you can clock in." : "Pick your name once; this phone remembers it."}</div>${
         emp || currentUser()
@@ -16629,7 +16629,7 @@ function planDriverDay(driverName) {
         s.p.project.name,
         s.geo,
         lines,
-        s.geo ? "" : "No site location set — set it under Time & crew.",
+        s.geo ? "" : "No site location set — set it under Time and crew.",
       ),
       // each drop line carries its request, so the stop closes where the driver stands (dropRefs: one per line)
       (stops[stops.length - 1].dropRefs = lines.map((_, k) => {
@@ -18484,7 +18484,7 @@ function assistantRequestSend() {
     render(),
     (arState = null),
     ($("#ar-out").innerHTML =
-      `<div class="note">Sent. ${made.length} request${1 === made.length ? "" : "s"} filed — you'll see status on your Time & crew screen. ${made.flatMap((r) => reqItems(r)).some((i) => i.invId) ? "Inventory items are on the driver's pickup list; consumable counts update when they're delivered." : ""}</div>`),
+      `<div class="note">Sent. ${made.length} request${1 === made.length ? "" : "s"} filed — you'll see status on your Time and crew screen. ${made.flatMap((r) => reqItems(r)).some((i) => i.invId) ? "Inventory items are on the driver's pickup list; consumable counts update when they're delivered." : ""}</div>`),
     ($("#ar-text").value = ""),
     toast("Request sent");
 }
@@ -28377,10 +28377,10 @@ function renderPortlet(p) {
       ["reports:custom", "Custom report"],
       ["clients", "Clients & billing"],
       ["po", "Purchasing"],
-      ["ap", "Bills & payroll"],
+      ["ap", "Bills and payroll"],
       ["bank", "Banking"],
       ["costs", "Costs"],
-      ["time", "Time & crew"],
+      ["time", "Time and crew"],
     ]
       .filter(([k]) => ROLE_VIEWS[role()].includes(k.split(":")[0]))
       .map(([k, l]) => `<button data-shortcut="${k}">${l}</button>`)
@@ -30497,9 +30497,9 @@ const NAV_GROUPS = [
     vendors: "Vendors",
     inv: "Inventory & tools",
     bank: "Banking",
-    ap: "Bills & payroll",
+    ap: "Bills and payroll",
     verify: "Verification",
-    time: "Time & crew",
+    time: "Time and crew",
     req: "Requests",
     route: "Route",
     reports: "Reports",
@@ -66257,8 +66257,8 @@ const IA_GROUPS = [
     vendors: "Vendors",
     inv: "Inventory",
     spend: "Spend",
-    ap: "Bills & Payroll",
-    time: "Time & Crew",
+    ap: "Bills and Payroll",
+    time: "Time and Crew",
     bank: "Banking",
     verify: "Controls",
     reports: "Reports",
@@ -66933,9 +66933,9 @@ renderClients = function () {
 const IA_OLD_TITLES = {
     port: "Company overview",
     bank: "Banking & transactions",
-    ap: "Bills & payroll",
+    ap: "Bills and payroll",
     verify: "Verification",
-    time: "Time & crew",
+    time: "Time and crew",
     inv: "Inventory & tools",
     proc: "Procurement",
     sday: "My day",
@@ -92775,7 +92775,7 @@ if (
             s: missing.length
               ? `working day${1 === missing.length ? "" : "s"} with no time entry · ${fmtL(oldest)} the oldest — the day sheet remembers`
               : "every working day this week has hours",
-            // the designer logs hours on the day sheet (My Day), not in Time & Crew, which the role cannot open
+            // the designer logs hours on the day sheet (My Day), not in Time and Crew, which the role cannot open
             go: () => {
               (view = flowCan("sday") ? "sday" : flowCan("time") ? "time" : roleHome(role())),
                 setTimeout(() => {
@@ -104442,7 +104442,7 @@ const BP_ICON = {
     [/^Check email$/, "Check Email"],
     [/^Copy as ICS$/, "Copy as ICS"],
     [/^Survey checklist ›?$/, "Survey Checklist"],
-    [/^Time & crew$/, "Time & Crew"],
+    [/^Time and crew$/, "Time and Crew"],
     [/^Add report$/, "Add Report"],
     [/^Manage queues$/, "Manage Queues"],
     [/^Create task$/, "Create Task"],
@@ -117264,7 +117264,7 @@ function eqPeople() {
       );
     return {
       _id: e.id,
-      _module: "Time & Crew",
+      _module: "Time and Crew",
       _label: e.name,
       _go: eqGo("time"),
       name: e.name,
@@ -117297,7 +117297,7 @@ function eqTime() {
     }
     return {
       _id: t.id,
-      _module: "Time & Crew",
+      _module: "Time and Crew",
       _label: `${e ? e.name : ""} ${t.date}`,
       _go: eqGo("time"),
       employee: e ? e.name : "",
@@ -125134,7 +125134,7 @@ function finAnswer(raw) {
         `${"payroll" === i.kind ? "Payroll " + i.number : i.who + " " + i.number} · ${money(i.amt)} · due ${fmtL(i.due)} · ${i.status}${"overdue" === i.bucket ? ` · ${i.days} days past due` : ""}`;
     return out(
       `${week.length ? `${money(A.week)} falls due in the next seven days (${week.length} item${1 === week.length ? "" : "s"})` : "Nothing falls due in the next seven days"}${over.length ? `; ${money(A.overdue)} is already past due — ${over.map((i) => ("payroll" === i.kind ? `payroll ${i.number}` : `${i.who} ${i.number}`)).join(", ")}` : "; nothing is past due"}.`,
-      `Bills and payroll runs together, by due date, through ${fmtL(A.through)}${companyBalance().paidBeforeApprovalAmt ? `. ${money(companyBalance().paidBeforeApprovalAmt)} of bills the bank already paid before approval are not due — they need a signature, not a payment` : ""}. The same function feeds the Bills & Payroll tiles and the Banking cash tile.`,
+      `Bills and payroll runs together, by due date, through ${fmtL(A.through)}${companyBalance().paidBeforeApprovalAmt ? `. ${money(companyBalance().paidBeforeApprovalAmt)} of bills the bank already paid before approval are not due — they need a signature, not a payment` : ""}. The same function feeds the Bills and Payroll tiles and the Banking cash tile.`,
       over.concat(week).map(line),
       finCan("ap") ? { view: "ap" } : finGoRep("company"),
     );
@@ -125541,7 +125541,7 @@ function eqPayroll() {
       due = ("function" == typeof runDue && runDue(r)) || r.payDate || r.to || "";
     return {
       _id: r.id,
-      _module: "Bills & Payroll",
+      _module: "Bills and Payroll",
       _label: `Payroll ${r.period || r.id}`,
       _go: eqGo("ap"),
       period: r.period || "",
@@ -128854,7 +128854,7 @@ function vendorPageHtml(v) {
             return `<tr data-vbill="${esc(b.id)}"><td><b>${esc(b.number || "—")}</b><div class="small muted">${esc(projName(b.projectId))}${b.poId ? ` · ${esc((DB.pos.find((x) => x.id === b.poId) || {}).number || "")}` : ""}</div></td><td>${b.date ? fmt(b.date) : "—"}</td><td>${b.due ? `${fmt(b.due)}${["paid", "verified"].includes(b.status) ? "" : ` <span class="small">${flowWhen(b.due)}</span>`}` : "—"}</td><td>${pill(st.text, st.cls)}</td><td class="n"><b>${money(billTotal(b))}</b></td></tr>`;
           })
           .join("")}</tbody></table>`
-      : `<div class="empty">No bills from ${esc(v.name)} yet. A bill against an open order lands here from Bills & Payroll.</div>`
+      : `<div class="empty">No bills from ${esc(v.name)} yet. A bill against an open order lands here from Bills and Payroll.</div>`
   }</div>\n    <div class="card"><div class="hd"><h3>Compliance</h3><span class="small muted">what has to be on file before money moves</span></div>\n      <div class="vr-comp">${comp.map(([k, val]) => `<div><span>${k}</span><b>${val}</b></div>`).join("")}</div>\n      ${v.notes ? `<div class="small muted" style="margin-top:8px;white-space:pre-line">${esc(v.notes)}</div>` : ""}</div>\n  </div>`;
 }
 function flowVendorsPass(v) {
@@ -144051,7 +144051,7 @@ ASK_INTENTS.push({
                     .join(", ")}`
             }${most ? `; ${P[/\bleast\b/.test(l) ? P.length - 1 : 0].e.name} logged the ${/\bleast\b/.test(l) ? "least" : "most"}` : ""}.`
           : `No hours logged ${scope}${where} ${when}.`,
-      note: `Added up from ${askN(T.length, "time entry", "time entries")} (clock-in to clock-out less breaks), the rows Time & Crew totals${w && /this week/.test(w.label) ? "; the week runs Monday to today" : ""}.${wait ? ` ${wait} of them ${1 === wait ? "is" : "are"} still waiting for approval.` : ""}${status ? " Only entries waiting for approval are counted." : ""}`,
+      note: `Added up from ${askN(T.length, "time entry", "time entries")} (clock-in to clock-out less breaks), the rows Time and Crew totals${w && /this week/.test(w.label) ? "; the week runs Monday to today" : ""}.${wait ? ` ${wait} of them ${1 === wait ? "is" : "are"} still waiting for approval.` : ""}${status ? " Only entries waiting for approval are counted." : ""}`,
       work: who
         ? T.slice()
             .sort((a, b) => String(b.date).localeCompare(String(a.date)))
@@ -168239,7 +168239,7 @@ if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.transactions)
   };
 }
 /* ---------------------------------------------------------------------------
-   closetie (BACKLOG §1.1): the close, read back. What Ask, the Close page, Bills & Payroll and the
+   closetie (BACKLOG §1.1): the close, read back. What Ask, the Close page, Bills and Payroll and the
    Report Builder need to answer "is August closed", "does the WIP tie", "what was accrued at the close"
    and "which accrued wages have no payroll run". Read-only, except the two orphan-accrual actions,
    which a person runs from a button.
@@ -168593,7 +168593,7 @@ function ctOrphanReverseDialog(jid) {
       },
     );
 }
-// The orphan-accrual card, the same on the Close page and on Bills & Payroll.
+// The orphan-accrual card, the same on the Close page and on Bills and Payroll.
 function ctOrphanHtml() {
   const O = ctOrphanAccruals().filter((o) => o.flagged);
   if (!O.length) return "";
@@ -170467,7 +170467,7 @@ predDef("contactsFollowUp", {
   },
 });
 // Accrued wages with no payroll run (BACKLOG §1.1 #9): approved time a close accrued on days no run covers,
-// once the next pay date after those days has passed. The Close page, Bills & Payroll, the close checklist
+// once the next pay date after those days has passed. The Close page, Bills and Payroll, the close checklist
 // and Ask count these rows.
 predDef("orphanAccruals", {
   label: "Accrued Wages with No Payroll Run",
@@ -187413,7 +187413,7 @@ const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a ch
 // The reader's proposal kinds, and whose hand each needs (DELEGATION.hand reads `route` off the row).
 const NYH_MAIL = {
   // A vendor invoice is entered by accounts payable: the Controller, PO or not, whichever mailbox it landed in. The
-  // Standard puts the three-way match with the office (STD_ROLE_PLAYBOOKS controller: office; Bills & Payroll is the
+  // Standard puts the three-way match with the office (STD_ROLE_PLAYBOOKS controller: office; Bills and Payroll is the
   // Controller's); the coordinator's part of the match is the PO and the receipt, the PM's is the review. One owner
   // per proposal: pilot day 1 routed CM-0102 by whose mailbox held it, so the same kind of bill went to the
   // controller, billing or the coordinator depending on who was copied (and the chain's mailed bills to Chen).
@@ -197127,7 +197127,7 @@ function billHoldSheet(b, kind) {
     },
   );
 }
-// A held bill reads "Held by who: why" on every list that prints a bill's state (Bills & Payroll, Paid Before
+// A held bill reads "Held by who: why" on every list that prints a bill's state (Bills and Payroll, Paid Before
 // Approval, Approvals, the Payment Check), not only inside its drawer (S1 fix, owner review 2026-10-21).
 function billHeld(b) {
   return !!(b && b.onHold && "open" === b.onHold.state);
@@ -199449,8 +199449,8 @@ const MN_JOBS = (o) =>
     MN_G("money", "Accounting", "money", [
       ["billing", "Billing"],
       ["bank", "Banking"],
-      ["ap", "Bills & Payroll"],
-      ["time", "Time & Crew"],
+      ["ap", "Bills and Payroll"],
+      ["time", "Time and Crew"],
       ["spend", "Spend"],
       ["gl", "Ledger"],
       ["verify", "Controls"],
@@ -199534,7 +199534,7 @@ const MN_JOBS = (o) =>
         ["bank", "Banking", "money"],
         ["home", "Today", "today"],
         ["chat", "Chat", "chat"],
-        ["ap", "Bills & Payroll", "billing"],
+        ["ap", "Bills and Payroll", "billing"],
       ],
     },
     designer: {

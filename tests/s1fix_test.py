@@ -128,7 +128,7 @@ async def hold_run_checks(c, pg, tag):
       return { run: run ? run.innerText : '', pbu: pbu ? pbu.innerText : '', all: v.innerText }; }""")
     c.ok('CM-S1' not in r['run'] and 'WW-2026-118' not in r['run'] and 'AMP-311' not in r['run'], f'{tag}: the Payment Run holds no held or already-paid bill ({r["run"][:300]})')
     c.ok('Held by Owner' in r['pbu'], f'{tag}: the paid-before-approval list shows the owner\'s hold on its row ({r["pbu"][:300]})')
-    c.ok(await pg.evaluate("() => !document.documentElement.scrollWidth || document.documentElement.scrollWidth <= innerWidth + 1"), f'{tag}: Bills & Payroll does not scroll sideways')
+    c.ok(await pg.evaluate("() => !document.documentElement.scrollWidth || document.documentElement.scrollWidth <= innerWidth + 1"), f'{tag}: Bills and Payroll does not scroll sideways')
     await pg.evaluate("() => { DB.bills = DB.bills.filter(b => b.id !== 'b_s1run'); const W = DB.bills.find(x => x.number === 'WW-2026-118'); delete W.onHold; save(); }")
 
 async def controls_checks(c, pg, tag):

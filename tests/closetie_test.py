@@ -388,7 +388,7 @@ async def part_close(p, c):
     c.ok(len(r) == 1 and abs(r[0]['amt'] - 3699) < 0.01 and r[0]['from'] == '2026-08-04' and r[0]['to'] == '2026-08-13' and r[0]['flagged'], f"#9 ctOrphanAccruals {r}")
     c.ok(re.search(r'no payroll run', t) and '3,699' in t and 'Record the Run' in t and 'Reverse' in t, '#9 the orphan accrual is not flagged on the Close page with Record the Run and Reverse')
     t2 = await view_text(pg, 'ap')
-    c.ok('3,699' in t2 and 'Record the Run' in t2, '#9 the orphan accrual is not on Bills & Payroll')
+    c.ok('3,699' in t2 and 'Record the Run' in t2, '#9 the orphan accrual is not on Bills and Payroll')
     r = await pg.evaluate("() => closeChecklist('2026-09').map(i => [i.label, i.n])")
     c.ok(any(re.search(r'no payroll run', x[0]) and x[1] == 1 for x in r), f"#9 the close checklist does not list the orphan accrual: {r}")
     r = await pg.evaluate("() => { const j = ctOrphanAccruals()[0]; return ctOrphanReverse(j.id, '') }")

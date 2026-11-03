@@ -23,7 +23,8 @@ Done as the person, for every staff role, on the phone (390x844, touch, the menu
            Projects and its group stays open.
   PHONE    at 390: the open menu never scrolls sideways; every entry is at least 44px tall.
   LABELS   Title Case on captions, groups and entries (job names are data, not labels); each top entry and group has a
-           line icon; no glyphs standing in for icons.
+           line icon; no glyphs standing in for icons; no "&" in a menu label or in the heading of any page the menu or
+           a job's tab opens ("Bills and Payroll", "Time and Crew", as the mock spells them; the chief of staff, 11-03).
 Screenshots per role and device: review/menu_order/ (the menu open, one group open; the desktop on a job).
 Usage: python3 menu_order_test.py [--user u_owner,...] [--desktop|--phone] [--no-reach]
 """
@@ -196,6 +197,8 @@ MENU_JS = r"""() => {
 OPEN_JS = "() => { const r = document.querySelector('.rail'); return !!(r && r.classList.contains('open')); }"
 STATE_JS = r"""() => ({ view, folded: typeof paMenuView === 'function' ? paMenuView() : '', billTab: typeof billTab !== 'undefined' ? billTab : '',
   pid: (typeof S !== 'undefined' && S) ? S.id : '', sw: document.documentElement.scrollWidth, w: innerWidth,
+  heading: (() => { const vis = e => !!e && e.getClientRects().length > 0, v = document.querySelector('.view.on');
+    const h = v && ([...v.querySelectorAll('h1')].find(vis) || [...v.querySelectorAll('h2')].find(vis)); return h ? h.textContent.replace(/\s+/g, ' ').trim() : ''; })(),
   open: !!(document.querySelector('.rail') || {classList: {contains: () => false}}).classList.contains('open') })"""
 # what the page it opens shows: the number the page states for the same question
 PAGE_N = r"""v => { const vis = e => !!e && e.getClientRects().length > 0;
@@ -290,6 +293,7 @@ async def run_role(c, pg, u, phone, errs, reach, table):
     for e in M:
         if e['kind'] in ('cap', 'top', 'head', 'kid', 'fbs') and not e['pid']:
             c.ok(title_case(e['label']), f'{tag}: "{e["label"]}" is not in Title Case')
+            c.ok('&' not in e['label'], f'{tag}: "{e["label"]}": "&" in a menu label (write "and")')
             c.ok(not re.search(r'[←-⇿✀-➿■-◿›‹\U0001F300-\U0001FAFF]', e['label']), f'{tag}: "{e["label"]}" carries a glyph')
         if e['kind'] in ('top', 'head') and e['vis']:
             c.ok(e['svgs'] == 1 and e['svgFirst'], f'{tag}: "{e["label"]}" has {e["svgs"]} icons (want one line icon before the name)')
@@ -416,6 +420,9 @@ async def run_role(c, pg, u, phone, errs, reach, table):
                         row['ok'] = (st['view'] == v or st['view'] == alias.get(v)) and (not tb or st['billTab'] == tb)
                         row['got'] = st['view'] + (':' + st['billTab'] if tb else '')
             c.ok(row['ok'], f"{tag}: old entry {row['old']} -> {row['new'] or 'NOWHERE'} (landed {row.get('got', '-')})")
+            if row['ok']:
+                hd = (await pg.evaluate(STATE_JS))['heading']
+                c.ok('&' not in hd, f'{tag}: the heading of {row["new"]} is "{hd}": "&" in a page heading (write "and")')
             table.append(row)
             M = await pg.evaluate(MENU_JS) if not phone else M
         if phone:

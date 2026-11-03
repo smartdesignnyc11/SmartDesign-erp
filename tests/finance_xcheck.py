@@ -263,13 +263,13 @@ async def check_role(pg, R, uid):
         R.money('unmatched_amt', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*\d+\s*\n\s*' + MONEY)
         R.money('ap_payroll_due', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n[^\n]*\n[^\n]*?' + MONEY + r' past due', required=False)
 
-    # Bills & Payroll
-    if gate('ap', 'Bills & Payroll'):
+    # Bills and Payroll
+    if gate('ap', 'Bills and Payroll'):
         await nav(pg, 'money', 'ap'); t = await text_of(pg, 'ap')
-        R.money('ap_payroll_due', S('Bills & Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_paid_unappr', S('Bills & Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
+        R.money('ap_payroll_due', S('Bills and Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
+        R.money('ap_paid_unappr', S('Bills and Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
         # owed bills: approved and unpaid. The page counts them as "Due This Week" + overdue bills; nothing else is owed.
-        R.money('ap_bills', S('Bills & Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
+        R.money('ap_bills', S('Bills and Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
 
     # Billing
     if gate('billing', 'Billing'):

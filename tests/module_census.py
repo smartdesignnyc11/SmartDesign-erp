@@ -6,7 +6,7 @@ extends it to every other module, in the same format, so the loop's experts (own
 the client expert walk every page of their modules with it in hand (docs/IMPROVEMENT_LOOP.md, round one).
 
 A page belongs to the module whose menu group holds it (the running menu, mnMap(), not the source's MENU: later
-sections add groups). The few pages a menu group shares are placed by noun: Time & Crew is Time and Payroll wherever it
+sections add groups). The few pages a menu group shares are placed by noun: Time and Crew is Time and Payroll wherever it
 sits, Billing (with no tab) is Billing, Tasks, Meetings and Messages are Tasks and Messages, and More and Settings
 place each page by its noun (MOD_OF_VIEW). Field roles' menus place their own pages under Field and Site.
 
@@ -99,7 +99,7 @@ NOTES = {
     'field': "The PM's, owner's and coordinator's field pages (Field, Photos, Deliveries, Drawings, Daily Log) sit in the Projects menu group and are in the Projects census; here those roles reach Requests and Route through More. The foreman, crew and driver reach their field pages from their own menus.",
     'design': "The PM's Drawings sits in the Projects menu group (the Projects census); the PM reaches Project Board, Filings, Selections and Design through More. The coordinator reaches Selections through More.",
     'billing': "Billing is one page. Its tabs hold the queue (Ready to Bill), Progress Billing, Estimates, Change Orders, Invoices, Schedule of Values, Payments and Client Funds. The owner reaches it under Accounting, the PM under Projects, billing and the controller from their own Billing entry; the Projects census walks the Change Orders and Estimates strip entries that open the same page on a tab.",
-    'timepay': "Time and Payroll is one page (`time`): Time & Crew for the office, Clock for the crew and the driver. Payroll runs are made and approved on Bills & Payroll (its New Payroll Run button and tabs), which sits in the Accounting menu and is in the Accounting census.",
+    'timepay': "Time and Payroll is one page (`time`): Time and Crew for the office, Clock for the crew and the driver. Payroll runs are made and approved on Bills and Payroll (its New Payroll Run button and tabs), which sits in the Accounting menu and is in the Accounting census.",
     'tasks': "Tasks (`tkall`) has its own rail entry and is also under Today for the office roles; Messages (`chat`) has its own rail entry, and its Mail tab opens the Inbox (`comms`, in the Today census). Meetings sit in the Company menu group and are walked here.",
     'company': "Settings' Company Settings tile opens the job's settings page in its company mode (users, entities, approval rules, the company block); it is walked here as Company Settings, read as it opens (its rows of buttons are settings and are never pressed). The Brain opens the Ask page (`pa`), the page More calls Chief of Staff.",
     'client': "The client sees their own job only (121 State Street) and has no menu groups: five entries on the rail and the phone bar.",

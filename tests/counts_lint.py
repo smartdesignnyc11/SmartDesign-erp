@@ -274,7 +274,7 @@ async def run_role(pg, lint, tag, uid, phone):
         seen = [f"{o['n']} on the {'phone tab' if o.get('phone') else 'rail'}"]
         nums = {o['n']}
         # needs(gid) is the overview's number. When the role cannot open that overview, the rail shows the one
-        # view it can open under that view's own name ("Time & Crew"), and needs(gid) is not what it claims.
+        # view it can open under that view's own name ("Time and Crew"), and needs(gid) is not what it claims.
         if g['needs'] is not None and (g['ov'] or (g.get('own') and not o.get('phone'))):
             nums.add(g['needs']); seen.append(f"{g['needs']} from needs()")
         if g['ov']:

@@ -11,7 +11,7 @@
 //  N4  One Clients directory (Clients, People, Companies as tabs of one page) and a Team page of every staff member
 //      with phone and email, which Messages and every mail To and Cc field use to find a colleague.
 //  N5  The foreman's bar gets Requests; (the owner's Today opening on Approvals is superseded by the Today mockups); the
-//      coordinator's Time & Crew shows the payroll run's status read-only (the run is built in Bills & Payroll).
+//      coordinator's Time and Crew shows the payroll run's status read-only (the run is built in Bills and Payroll).
 //
 // Design gate (BACKLOG §1.16). Nouns, lists and queues extended, nothing duplicated:
 //  - Messages is the existing thread store (DB.threads and each job's p.chat, msgThreadsFor), the existing mail list
@@ -25,7 +25,7 @@
 //  - Read marks on a team thread extend the direct thread's shared read row (t.read) to group threads, and to a job's
 //    team thread through DB.msgReads[thread key][uid] (kept out of the job row, so reading never rewrites a job).
 //  - Today's Inbox filter gains the chat lines addressed to the person (tdyModel().inbox): no new filter.
-//  - Payroll: no new record. Time & Crew reads DB.payroll's latest run.
+//  - Payroll: no new record. Time and Crew reads DB.payroll's latest run.
 // =====================================================================================================================
 const P2N_SPARK =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>';
@@ -860,9 +860,9 @@ if ("function" == typeof signIn) {
   };
 }
 
-// ---- N5 payroll: one run record, in Bills & Payroll ----------------------------------------------------------------
-// The coordinator built a payroll run from Time & Crew that was not the controller's. The run is built and approved in
-// Bills & Payroll; her Time & Crew shows the entries and the latest run's status and who holds it, read-only.
+// ---- N5 payroll: one run record, in Bills and Payroll ----------------------------------------------------------------
+// The coordinator built a payroll run from Time and Crew that was not the controller's. The run is built and approved in
+// Bills and Payroll; her Time and Crew shows the entries and the latest run's status and who holds it, read-only.
 function p2nPayrollStatus() {
   if ("time" !== view || "coord" !== role()) return;
   const b = document.getElementById("btn-payrollfromtime");
@@ -872,14 +872,14 @@ function p2nPayrollStatus() {
   let c = document.getElementById("p2n-payrun");
   const R = (DB.payroll || []).slice().sort((a, b2) => String(b2.to || b2.payDate || "").localeCompare(String(a.to || a.payDate || "")))[0],
     held = !R
-      ? "No payroll run yet. The controller builds it in Bills & Payroll from the approved hours."
+      ? "No payroll run yet. The controller builds it in Bills and Payroll from the approved hours."
       : "approved" === R.status || "paid" === R.status
         ? `Approved${R.approvedBy ? ` by ${R.approvedBy}` : ""}${R.payDate ? `, paid ${fmt(R.payDate)}` : ""}.`
         : `${"draft" === R.status ? "Being prepared by the controller" : "Waiting on the owner's approval"}${R.payDate ? `, to be paid ${fmt(R.payDate)}` : ""}.`,
     open = (DB.time || []).filter((t) => "approved" === t.status && !t.payrollId).length,
     sub = (DB.time || []).filter((t) => "submitted" === t.status).length;
   c || ((c = document.createElement("div")), (c.id = "p2n-payrun"), (c.className = "card p2n-payrun"), (document.getElementById("time-kpis") || v.querySelector(".ph") || v).after(c));
-  c.innerHTML = `<div class="hd"><h3>Payroll Run</h3></div><p style="margin:0 0 4px"><b>${R ? esc(R.period || `${fmt(R.from)} to ${fmt(R.to)}`) : "None yet"}</b> · ${esc(held)}</p><p class="small muted" style="margin:0">${sub} entr${1 === sub ? "y" : "ies"} to approve · ${open} approved and not in a run yet. The run is built and approved in Bills & Payroll, not here.</p>`;
+  c.innerHTML = `<div class="hd"><h3>Payroll Run</h3></div><p style="margin:0 0 4px"><b>${R ? esc(R.period || `${fmt(R.from)} to ${fmt(R.to)}`) : "None yet"}</b> · ${esc(held)}</p><p class="small muted" style="margin:0">${sub} entr${1 === sub ? "y" : "ies"} to approve · ${open} approved and not in a run yet. The run is built and approved in Bills and Payroll, not here.</p>`;
 }
 
 // ---- boot ---------------------------------------------------------------------------------------------------------

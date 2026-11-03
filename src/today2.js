@@ -1139,7 +1139,7 @@ function td2Chrome() {
   set("controller", [
     ["home", "Today", "today"],
     ["bank", "Banking", "money"],
-    ["ap", "Bills & Payroll", "billing"],
+    ["ap", "Bills and Payroll", "billing"],
     ["chat", "Messages", "chat"],
   ]);
   ["billing", "controller"].forEach((r) => MENU[r] && ((MENU[r].home = "home"), "object" == typeof IA_HOME && (IA_HOME[r] = "home")));

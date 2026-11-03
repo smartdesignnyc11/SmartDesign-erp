@@ -1458,9 +1458,9 @@ def enter_bill(p, po, two_lines=False):
 def approve_what_arrived(p, inv, po, less, why):
     """the three-way match: the bill approved at what arrived and the rest held in dispute (the claim). Only the Owner
     approves part of a bill: the coordinator hands it over"""
-    p.go('Accounting > Bills & Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
+    p.go('Accounting > Bills and Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
     c = p.look().find('Review', after=inv, exact=True) or p.scr.row(inv)   # the bill's own row (its control comes before its words)
-    if c is None: raise Stuck(f'hold {inv}', f'{inv} among the bills to approve', p.scr, 'Bills & Payroll')
+    if c is None: raise Stuck(f'hold {inv}', f'{inv} among the bills to approve', p.scr, 'Bills and Payroll')
     p.tap_ctl(c)
     sc = p.look()
     b = next((x for x in sc.ctls if x.action and re.match(r'^(approve part|approve po amount|short)', norm(x.label))), None)
@@ -1761,8 +1761,7 @@ def j10_week_money(p):
     left = [l[:40] for l in re.findall(r'(?m)^9/[3-8] · [^\n]*', sc.text[k:end if end > k else len(sc.text)])] if k >= 0 else []
     p.expect(not left, 'every line of the week is matched or coded from its own proposal', f'{len(left)} of the week\'s lines still need a category: ' + '; '.join(left))
     # 2. the payroll from approved hours, for the owner
-    p.go('Bills & Payroll', expect_menu=False)
-    p.tap('Time & Crew', exact=True)
+    p.go('Accounting > Time and Crew', expect_menu=False)   # the 11-03 menu: Time and Crew under Accounting
     p.tap('Build Payroll from Approved Time', exact=True)
     sc = p.scr
     if sc.sheet:
@@ -2057,7 +2056,7 @@ def button_findings(sc, rec, where, ctx, page=False):
 # where each role looks for these records: menu label, then the tabs under it (as each role's menu holds them)
 DANGER_SCREENS = {
     # the 11-03 menu: the firm's Estimates under Sales and Clients, Billing under Accounting, Obligations in the foot
-    'u_owner': [('Today',), ('Accounting', 'Bills & Payroll'), ('Sales and Clients', 'Estimates'), ('Company and Settings', 'Obligations'), ('Purchasing', 'Orders')],
+    'u_owner': [('Today',), ('Accounting', 'Bills and Payroll'), ('Sales and Clients', 'Estimates'), ('Company and Settings', 'Obligations'), ('Purchasing', 'Orders')],
     'u_alan': [('Today',), ('Sales and Clients', 'Estimates'), ('Accounting', 'Billing'), ('Purchasing', 'Orders')],
     'u_chen': [('Today',), ('Purchasing', 'Orders')],
     'u_billing': [('Today',), ('Billing', 'Estimates'), ('Billing', 'Invoices'), ('Billing',)],
@@ -2067,7 +2066,7 @@ HOLD = ('WW-2026-118', 'Paid on the Amex before approval and $3,800 over PO-2026
 
 def hold_bill(p, number, why, who):
     """the owner puts the bill on hold through its own Hold (Pilot 3 day 1: "the tap I fear most" came after this)"""
-    p.go('Accounting > Bills & Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
+    p.go('Accounting > Bills and Payroll', expect_menu=False)   # the 11-03 menu: the page under its group
     c = p.scr.find('Review', after=number, exact=True) or p.scr.next_action(number)
     if not c: return False
     p.tap_ctl(c)

@@ -191,7 +191,7 @@ async def sec_nyh(p, c):
           bills: [...new Set(R.filter(r => r.pkind === 'bill').map(r => r.route))], amex: c.map(x => x.proposals.filter(p => p.kind === 'statement').map(p => !!p.alreadyHere)).flat(),
           amexRow: R.some(r => r.pkind === 'statement' && c.some(x => x.id === r.commId)) } }""")
     # one owner per proposal: the vendor bill is accounts payable's (the Standard's office playbook holds the three-way
-    # match; the Controller holds Bills & Payroll), whichever mailboxes it landed in (CM-0102 sits in three)
+    # match; the Controller holds Bills and Payroll), whichever mailboxes it landed in (CM-0102 sits in three)
     c.ok(allr['n'] == allr['keys'] and allr['carlos'] == ['controller'] and allr['bills'] == ['controller'], f'one proposal, one row, one person (CM-0102, and every mailed bill: the Controller): {allr}')
     c.ok(allr['amex'] and not any(allr['amex']) and allr['amexRow'], f'the seed\'s August Amex statement is offered (its 9/1-9/2 lines are typed by hand), not already here: {allr}')
     # Controller: one tap on Home applies the Satish bill; the row leaves

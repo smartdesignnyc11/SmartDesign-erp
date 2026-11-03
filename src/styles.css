@@ -2573,9 +2573,9 @@ tr.fin2-needs td{color:var(--bad)}
 tr.fin2-needs .pill{margin-left:6px}
 /* payables.js */
 .pay3-needs .pay3-needs-hd{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline} .pay3-needs .pay3-needs-hd h3{margin:0} .pay3-needs .pay3-needs-hd .btn{margin-left:auto} .pay3-row{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--rule)} .pay3-main{flex:1;min-width:0;overflow-wrap:anywhere} .pay3-acts{display:flex;gap:6px;flex-shrink:0} .pay3-kv td{padding:4px 8px 4px 0;vertical-align:top} .pay3-kv td:first-child{white-space:nowrap;width:1%} .pay3-bill{margin-bottom:10px} @media (max-width:640px){.pay3-row{flex-wrap:wrap}.pay3-main{flex-basis:100%}.pay3-needs .pay3-needs-hd .btn{margin-left:0}}
-/* payables.js: Bills & Payroll fits at 1440 — the controls column wraps instead of pushing the table sideways */
+/* payables.js: Bills and Payroll fits at 1440 — the controls column wraps instead of pushing the table sideways */
 #ap-table td{white-space:normal} #ap-table td.dim{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #ap-table th{white-space:nowrap}
-/* the same fix on the two neighbouring Accounting registers: Banking's inline pickers size to their column, Time & Crew's work and flags wrap */
+/* the same fix on the two neighbouring Accounting registers: Banking's inline pickers size to their column, Time and Crew's work and flags wrap */
 #v-bank .dg-t select.inl{min-width:118px;max-width:132px;width:100%} #v-bank .dg-t td.name{white-space:normal;min-width:150px} #v-time .dg-t td{white-space:normal}
 /* onecount: the Sales board, the moved Studio cards, the Ready to Bill line, More without a number */
 .oc-salesbar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
@@ -3854,7 +3854,7 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
   .pc-run th:nth-child(3),.pc-run td:nth-child(3){display:none}
 }
 /* One blue button per screen: with a record's drawer or a sheet open, that is the screen, so the page behind it keeps
-   its main button but not its blue (Bills & Payroll's New Vendor Bill read blue beside the open bill's Pay). */
+   its main button but not its blue (Bills and Payroll's New Vendor Bill read blue beside the open bill's Pay). */
 body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.primary{background:var(--paper);border-color:var(--rule);color:inherit}
 /* the improvement loop (src/loop.js): Meetings › Changes, the ranked problems and the measures */
 .lp-measure{margin-bottom:10px}

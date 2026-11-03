@@ -533,7 +533,7 @@ async def approvals_yes(C, uid, needle, why=None, dispute=None):
 
 
 async def pay_bill(C, number, acct, date, amount, method, ref):
-    """Bills & Payroll > the bill > Pay… > Record Payment (from the account, date, amount, method, reference)."""
+    """Bills and Payroll > the bill > Pay… > Record Payment (from the account, date, amount, method, reference)."""
     await C.as_('u_controller', 'ap')
     await C.js("n => openBill(DB.bills.find(b => b.number === n).id)", number)
     await C.wait(400)
@@ -774,8 +774,8 @@ async def s4_pay(C):
         await C.day(date)
         m, st = await pay_bill(C, num, 'ac1', date, amt, meth, ref)
         C.ok(m and m['title'] == 'Pay Bill' and st['status'] == 'paid', f'{num} > Pay… > Record Payment {fmtm(amt)} {meth} {ref}', st)
-        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {st['status']}")
-    # Friday: the PM enters the week's hours (Time & Crew > New Time Entry) and approves them
+        C.t(f"Controller > Bills and Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {st['status']}")
+    # Friday: the PM enters the week's hours (Time and Crew > New Time Entry) and approves them
     await C.day('2026-09-18')
     for emp, d, code, note in TIME:
         await C.as_('u_alan', 'time', f"setCurrent('{pid}');")
@@ -786,8 +786,8 @@ async def s4_pay(C):
         await C.fill('#e-notes', note)
         await C.click('#d-save', 300)
     te = await C.js("() => DB.time.filter(t => t.date >= '2026-09-14' && t.date <= '2026-09-18' && t.source === 'manual').map(t => ({id: t.id, empId: t.empId, date: t.date, projectId: t.projectId || '', code: t.code || '', status: t.status}))")
-    C.ok(len(te) == len(TIME), f'Time & Crew > New Time Entry ×{len(TIME)}: the week is on file', te)
-    C.t(f"PM > Time & Crew > New Time Entry ×{len(TIME)} (employee, date, 7:00–15:30, 30 min break, job or Overhead, cost code, notes) → "
+    C.ok(len(te) == len(TIME), f'Time and Crew > New Time Entry ×{len(TIME)}: the week is on file', te)
+    C.t(f"PM > Time and Crew > New Time Entry ×{len(TIME)} (employee, date, 7:00–15:30, 30 min break, job or Overhead, cost code, notes) → "
         f"{sum(1 for x in te if x['projectId'])} on {JOB}, {sum(1 for x in te if not x['projectId'])} office (overhead)")
     await C.as_('u_alan', 'time', "")
     await C.click('section.view.on [data-f=pending]', 300)
@@ -804,7 +804,7 @@ async def s4_pay(C):
         await C.day(date)
         m, stp = await pay_bill(C, num, 'ac1', date, amt, meth, ref)
         C.ok(m and m['title'] == 'Pay Bill' and stp['status'] == 'paid', f'{num} > Pay… > Record Payment {fmtm(amt)} {meth} {ref}', stp)
-        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {stp['status']}")
+        C.t(f"Controller > Bills and Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {stp['status']}")
     C.rec('payments', 'bills', PAY)
     # the card statement through 9/24: Import Statement (CSV), then code each line
     label, imp = await import_statement(C, 'ac2', 'Amex_1009_Sep2026_to0924.csv', csv([(d, desc, amt, ref) for d, desc, amt, ref, _, _ in CARD]))
@@ -832,8 +832,8 @@ async def s4_pay(C):
     n0 = await C.js("() => DB.payroll.length")
     await C.click('#btn-payrollfromtime', 700)
     run = await C.js("n0 => { const r = DB.payroll.slice(n0)[0]; return r && {id: r.id, period: r.period, from: r.from, to: r.to, payDate: r.payDate, status: r.status, gross: r.gross, taxes: r.taxes, total: r.total, alloc: r.alloc, entries: DB.time.filter(t => t.payrollId === r.id).length}; }", n0)
-    C.ok(run and run['entries'] == len(TIME), f'Time & Crew > Build Payroll from Approved Time: one run holds the {len(TIME)} entries', run)
-    C.t(f"Controller > Time & Crew > Build Payroll from Approved Time → run `{run and run['id']}` {run and run['period']} {fmtm(run and run['total'])} "
+    C.ok(run and run['entries'] == len(TIME), f'Time and Crew > Build Payroll from Approved Time: one run holds the {len(TIME)} entries', run)
+    C.t(f"Controller > Time and Crew > Build Payroll from Approved Time → run `{run and run['id']}` {run and run['period']} {fmtm(run and run['total'])} "
         f"(gross {fmtm(run and run['gross'])}, taxes {fmtm(run and run['taxes'])}), alloc {run and run['alloc']} ({await C.toast()})")
     v, said = await approvals_yes(C, 'u_owner', run['period'] if run else 'Payroll', 'Hours checked against the daily logs')
     m = await C.modal()

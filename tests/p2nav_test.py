@@ -14,7 +14,7 @@ done as each person, on the desktop (1440) and the phone (390), every office rol
             name; New Email saves a draft to the named colleague's address.
   FIELD     the foreman's bar: Today, Daily Log, Site, Requests, Messages (the approved TodayForeman board, 2026-10-25).
   OWNER     the owner's Today opens on All with an Approvals chip (the approved Today mockup supersedes the Approvals landing).
-  PAYROLL   the coordinator's Time & Crew shows the run's status read-only and no Build Payroll; the controller's keeps it.
+  PAYROLL   the coordinator's Time and Crew shows the run's status read-only and no Build Payroll; the controller's keeps it.
   PHONE     no sideways scroll on any screen visited at 390.
 Run: python3 p2nav_test.py [--desktop|--phone] [--user u_owner,...]   Screenshots: review/p2nav/ (not committed)."""
 import asyncio, os, sys
@@ -281,8 +281,8 @@ async def payroll_checks(c, pg, tag):
     if await pg.evaluate("() => (ROLE_VIEWS.coord || []).includes('time')"):
         await go(pg, 'time')
         r = await pg.evaluate("() => { const b = document.getElementById('btn-payrollfromtime'); const c = document.getElementById('p2n-payrun'); return { btn: !!b && b.getClientRects().length > 0, card: c ? c.innerText : '' }; }")
-        c.ok(not r['btn'], f"{tag}: the coordinator's Time & Crew has no Build Payroll")
-        c.ok('Payroll Run' in r['card'] and 'Bills & Payroll' in r['card'] and '$' not in r['card'], f"{tag}: it shows the run's status read-only, no amounts ({r['card'][:140]})")
+        c.ok(not r['btn'], f"{tag}: the coordinator's Time and Crew has no Build Payroll")
+        c.ok('Payroll Run' in r['card'] and 'Bills and Payroll' in r['card'] and '$' not in r['card'], f"{tag}: it shows the run's status read-only, no amounts ({r['card'][:140]})")
         await shot(pg, f'coord_{tag}_time_payroll')
     await sign_in(pg, 'u_controller'); await go(pg, 'time')
     c.ok(await pg.evaluate("() => { const b = document.getElementById('btn-payrollfromtime'); return !!b && b.getClientRects().length > 0; }"), f"{tag}: the controller keeps Build Payroll")
