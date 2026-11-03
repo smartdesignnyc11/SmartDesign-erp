@@ -412,7 +412,7 @@ function jpTiles(p) {
   const parts = Object.entries(kinds).map(([k, n]) => `${n} ${k}${1 === n ? "" : "s"}`);
   return [
     jpTileHtml("risk", "At Risk", String(R.length), parts.join(", ") || "nothing urgent on this job", R.length ? "bad" : ""),
-    jpTileHtml("margin", "Margin at Completion", `${Math.round(J.estGPPct || 0)}%`, `Plan ${Math.round(J.plannedGPPct || 0)}%${O.length ? ` · ${O[0].name.split(/ [—–-] /)[0]} over` : " · this job"}`, (J.estGPPct || 0) < (J.plannedGPPct || 0) - 0.5 ? "warn" : ""),
+    jpTileHtml("margin", "Margin at Completion", `${Math.round(J.estGPPct || 0)}%`, `Plan ${Math.round(J.plannedGPPct || 0)}%${O.length ? ` · ${O[0].name.split(/ [—–-] /)[0]} ${jpOverWord(O[0])}` : " · this job"}`, (J.estGPPct || 0) < (J.plannedGPPct || 0) - 0.5 ? "warn" : ""),
     jpTileHtml("appr", "Approvals", String(A.length), A.length ? "For you, on this job" : "nothing waiting on you here", ""),
     jpTileHtml("mat", "Materials", `${M.length} late`, M.slice(0, 2).map((r) => r.name.split(/[,(]/)[0].trim()).join(", ") || "nothing late to order or arrive", M.length ? "warn" : ""),
   ].join("");
@@ -468,7 +468,7 @@ function jpPanelRows(id, p) {
       { key: "m:billed", kind: "Billed", title: "Billed to date", why: J.over ? `Billed ahead of the work by ${money(J.over)} (Over-Billed, WIP)` : "In step with the work", amt: money(J.billed) },
       { key: "m:cost", kind: "Cost", title: "Cost to date", why: "Bills, bank and card lines, stock and labor on this job", amt: money(J.actual) },
     ]
-      .concat(O.map((o, i) => ({ key: `m:o${i}`, kind: "Over Budget", tone: "bad", title: `${o.name}: ${Math.round(o.spentPct)}% of its budget`, why: `${money(o.forecast)} on a ${money(o.budget)} budget`, amt: "+" + money(r2(o.variance)) })))
+      .concat(O.map((o, i) => ({ key: `m:o${i}`, kind: "Over Budget", tone: "bad", title: `${o.name}: ${jpOverWord(o)} its budget`, why: `${money(o.forecast)} on a ${money(o.budget)} budget`, amt: "+" + money(r2(o.variance)) })))
       .concat([{ key: "m:contract", kind: "Contract", title: "Contract with approved changes", why: `Base ${money(J.base)}${J.coAmt ? ` plus ${money(J.coAmt)} of approved change orders` : ""}`, amt: money(J.contract) }]);
   }
   return [];
@@ -520,7 +520,7 @@ function jpSectionsHtml(p) {
         }
       },
       jbill: () => (R.amt ? `${money(R.amt)} ready to bill` : "Nothing ready to bill"),
-      costs: () => (O.length ? `${O[0].name.split(/ [—–-] /)[0]} ${Math.round(O[0].spentPct)}%` : "On budget"),
+      costs: () => (O.length ? `${O[0].name.split(/ [—–-] /)[0]} ${jpOverWord(O[0])}` : "On budget"),
       proc: () => (M.length ? `${M.length} late` : "Nothing late"),
       jdec: () => {
         const n = jpDecRows(p).filter((r) => r.overdue).length;
@@ -751,8 +751,11 @@ function jpLines() {
     };
   });
 }
+// How far over its budget a line is, said one way everywhere (the card, the row, the tile, the This Job list, the margin
+// panel): "13% over", never the share spent ("113%" read as 113% over).
+const jpOverWord = (l) => `${Math.max(1, Math.round(l.spentPct - 100))}% over`;
 function jpLineFlag(l) {
-  if (l.variance > 0.5) return [`${Math.round(l.spentPct)}% over`, "bad"];
+  if (l.variance > 0.5) return [jpOverWord(l), "bad"];
   if (null != l.done && null != l.billed && l.done - l.billed > 5) return ["Billed behind", "warn"];
   if (null != l.done && null != l.billed && l.billed - l.done > 5) return ["Billed ahead", "warn"];
   return ["On budget", "ok"];
@@ -858,7 +861,7 @@ function jpBudget() {
       : `<table class="jp-bt" id="jp-btable"><thead><tr><th>Line</th><th class="n">Budget</th><th class="n">Committed</th><th class="n">Actual</th><th class="n">Forecast</th><th class="n">Variance</th><th class="n">% Done</th><th class="n">% Billed</th></tr></thead><tbody>${L.map((l) => {
           const f = jpLineFlag(l),
             open = jpBudOpen === l.key;
-          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? "over budget, " + f[0].replace(" over", "") + " of it" : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
+          return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? `${f[0]} budget` : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
         }).join("")}</tbody><tfoot><tr><td>Total</td>${["budget", "committed", "actual", "forecast", "variance"].map((k) => `<td class="n">${money(r2(L.reduce((a, l) => a + l[k], 0)))}</td>`).join("")}<td></td><td></td></tr></tfoot></table>`,
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`

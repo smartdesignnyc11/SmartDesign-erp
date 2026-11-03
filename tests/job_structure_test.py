@@ -364,6 +364,10 @@ async def run(c, p, phone):
     c.ok(not bad, f'{dev} BUDGET: budget, actual and committed equal the Costs line figures ({bad[:3]})')
     win = next((x for x in bud if 'Windows' in x['txt']), None)
     c.ok(win and '$29,700' in win['txt'] and '$33,500' in win['txt'], f'{dev} BUDGET: Windows reads $29,700 budget and $33,500 actual, as Costs did ({win and win["txt"][:160]})')
+    # $33,500 on $29,700 is 13% over its budget: "113%" read as 113% over (one wording, the row, the card, the Overview)
+    c.ok(win and '13% over' in win['txt'] and '113%' not in win['txt'], f'{dev} BUDGET: Windows says 13% over, never 113% ({win and win["txt"][:160]})')
+    ov = await js(pg, "view = 'dash'; jpSub = ''; render(); await sleep(150); const t = (document.getElementById('jp-ov') || {}).innerText || ''; view = 'costs'; render(); await sleep(150); return t;")
+    c.ok('113%' not in (ov or '') and '13% over' in (ov or ''), f'{dev} BUDGET: the Overview says Windows 13% over, the same words ({[l for l in (ov or "").splitlines() if "over" in l][:3]})')
     if phone:
         lab = await pg.evaluate("() => { const e = document.querySelector('#jp-budget [data-jpline]'); return e ? [...e.querySelectorAll('.jp-bk')].map(x => x.innerText.trim()) : []; }")
         c.ok(lab[:6] == ['Budget', 'Committed', 'Actual', 'Forecast', 'Variance', 'Done'] or set(['Budget', 'Committed', 'Actual', 'Forecast', 'Variance', 'Done', 'Billed']) <= set(lab), f'{dev} BUDGET: every figure on a line card is labelled ({lab})')
