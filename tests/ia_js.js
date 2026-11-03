@@ -70,6 +70,9 @@
     (DB.clients || []).forEach((c) => (c.invoices || []).filter((i) => !["paid", "void"].includes(i.status)).forEach((i) => i.number && add("invoice", c.id + ":" + i.id, i.number, { status: i.status, due: i.due || "" })));
     (DB.bills || []).filter((b) => b.status !== "paid" && b.status !== "void").forEach((b) => b.number && add("bill", b.id, b.number, { status: b.status, due: b.due || "" }));
     (DB.pos || []).filter((x) => !["closed", "void", "received", "cancelled"].includes(x.status)).forEach((x) => x.number && add("po", x.id, x.number, { status: x.status }));
+    // bank and card lines nothing explains yet (Banking's To Review), by the bank's own text; journals waiting to post
+    safe(() => bankUnmatched().rows, []).forEach((t) => t.desc && add("bankline", t.id, t.desc, { due: t.date || "" }));
+    safe(() => DB.gl.journals, []).filter((j) => j.status === "pending").forEach((j) => j.memo && add("journal", j.id, j.memo, { status: j.status }));
     // the approval queue (everyone's): an approval about a decision, request, bill, submittal or site question is
     // that record shown again; its approval title becomes a second needle of the same record
     const K = byKey();

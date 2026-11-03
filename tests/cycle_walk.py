@@ -1806,7 +1806,9 @@ def j10_week_money(p):
     left = [l[:40] for l in re.findall(r'(?m)^9/[3-8] · [^\n]*', sc.text[k:end if end > k else len(sc.text)])] if k >= 0 else []
     p.expect(not left, 'every line of the week is matched or coded from its own proposal', f'{len(left)} of the week\'s lines still need a category: ' + '; '.join(left))
     # 2. the payroll from approved hours, for the owner
-    p.go('Accounting > Time and Crew', expect_menu=False)   # the 11-03 menu: Time and Crew under Accounting
+    # the 11-03 Accounting pages (docs/mockups/accounting/): Time and Crew is Bills and Payroll's Payroll chip
+    p.go('Accounting > Bills and Payroll', expect_menu=False)
+    p.tap('Payroll', exact=True)
     p.tap('Build Payroll from Approved Time', exact=True)
     sc = p.scr
     if sc.sheet:

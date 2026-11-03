@@ -41,7 +41,8 @@ W6 = ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Design', 'Re
 # The approved order, filtered by what each role may open (ROLE_VIEWS on master; this lane adds no page to any role).
 ORDER = {
     'u_owner': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
-    'u_alan': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
+    # the PM has no Accounting group (the 11-03 Accounting pages, docs/mockups/accounting/SPEC.md §4, an approved design)
+    'u_alan': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Design', 'Reports'] + FOOT,
     'u_chen': [DAY, 'Today', 'Tasks', 'Messages', WORK] + W6 + FOOT,
     # billing and the controller open no design page; the designer no purchasing or accounting page
     'u_billing': [DAY, 'Today', 'Tasks', 'Messages', WORK, 'Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
@@ -207,7 +208,10 @@ PAGE_N = r"""v => { const vis = e => !!e && e.getClientRects().length > 0;
   if (v === 'home') { const c = [...V.querySelectorAll('.td-tabs [data-tdytabbtn="late"] .n, .td-tabs [data-tdytabbtn="late"]')].find(vis); return c ? { n: first(c.textContent), how: 'the Late chip' } : null; }
   if (v === 'chat') { const T = [...V.querySelectorAll('[data-p2nmt]')].filter(vis); if (!T.length) return null;
     return { n: T.reduce((a, b) => a + first((b.querySelector('.n') || b).textContent.replace(/^[^\d]*/, '')), 0), how: 'the sum of the Team, Mail and Field tabs' }; }
-  if (v === 'billing') { const m = V.innerText.match(/(\d+) to bill or send/); return m ? { n: +m[1], how: '"N to bill or send"' } : null; }
+  if (v === 'billing' && !V.querySelector('.ac-front')) { const m = V.innerText.match(/(\d+) to bill or send/); return m ? { n: +m[1], how: '"N to bill or send"' } : null; }
+  // the 11-03 Accounting pages: the number is Needs You's (Banking's: its To Review chip)
+  if (V.querySelector('.ac-front')) { if (v === 'bank') { const ch = [...V.querySelectorAll('.ac-front [data-acchip="bank:review"] .n')].find(vis); return ch ? { n: first(ch.textContent), how: 'the To Review chip' } : null; }
+    const el = [...V.querySelectorAll(`.ac-front [data-ocbadge="${v}"]`)].find(vis); return el ? { n: first(el.textContent), how: 'Needs You' } : null; }
   // the phone's Tasks page states its Due Soon on the chip (the marked line is the desktop's)
   if (v === 'tkall' && ![...V.querySelectorAll('[data-ocbadge="tkall"]')].some(vis)) { const q = [...V.querySelectorAll('.tv-qchips [data-tvqv="week"]')].find(vis);
     return q ? { n: first(q.textContent), how: 'the Due Soon chip' } : null; }
@@ -381,14 +385,15 @@ async def run_role(c, pg, u, phone, errs, reach, table):
         await open_menu(pg, phone)
         M = await pg.evaluate(MENU_JS)
         alias = await pg.evaluate("() => (typeof MN_ALIAS !== 'undefined' ? MN_ALIAS : {})")
+        link = set(await pg.evaluate("() => (typeof MN_LINK === 'object' ? (MN_LINK[role()] || []) : [])"))
         for place, s in OLD[u]:
             k, label = s.split('=', 1)
             v, _, tb = k.partition(':')
             row = {'role': u, 'dev': dev, 'old': f'{place} > {label}', 'new': '', 'ok': False}
-            hit = [e for e in M if e['kind'] in ('top', 'kid') and not e['pid'] and e['v'] == v and e['tab'] == tb]
+            hit = [e for e in M if e['kind'] in ('top', 'kid') and not e['pid'] and e['v'] == v and e['tab'] == tb] if v not in link else []
             # Approvals lights Today (an alias for the menu's light) but is reached through Today's link, checked below
             al = alias.get(v) if v != 'mapprove' else None
-            if not hit and al: hit = [e for e in M if e['kind'] in ('top', 'kid') and not e['pid'] and e['v'] == al and not e['tab']]
+            if not hit and al and v not in link: hit = [e for e in M if e['kind'] in ('top', 'kid') and not e['pid'] and e['v'] == al and not e['tab']]
             if hit:
                 e = hit[0]
                 g = next((x['label'] for x in M if x['kind'] == 'head' and x['grp'] == e['grp']), '')
@@ -397,6 +402,13 @@ async def run_role(c, pg, u, phone, errs, reach, table):
                 st = await pg.evaluate(STATE_JS)
                 row['ok'] = (st['view'] in (v, al) or st['folded'] == v) and (not tb or st['billTab'] == tb)
                 row['got'] = st['view'] + (':' + st['billTab'] if tb else '')
+            elif v in link:
+                # the 11-03 Accounting pages: by design this seat opens the page by link (Cmd-K, Approvals), not the menu
+                row['new'] = 'by link (Cmd-K, Approvals)'
+                await pg.evaluate("v => setView(v)", v)
+                st = await pg.evaluate(STATE_JS)
+                row['ok'] = st['view'] in (v, alias.get(v, v)) or bool(await pg.evaluate("v => typeof AC_FWD === 'object' && AC_FWD[v] && view === AC_FWD[v][0]", v))
+                row['got'] = st['view']
             elif v == 'mapprove':
                 row['new'] = 'Today > Open the Approvals Page'
                 tod = next((e for e in M if e['kind'] == 'top' and e['v'] in ('home', 'sday')), None)

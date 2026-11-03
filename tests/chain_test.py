@@ -704,7 +704,11 @@ def csv(rows):
 async def import_statement(C, acct, name, text):
     """Banking > Import Statement: the real dialog, the file handed to its file input, then Import."""
     await C.as_('u_controller', 'bank')
-    await C.click('#bf-import', 500)
+    # the 11-03 Banking page (docs/mockups/accounting/): Import a Statement is on the page's New
+    if await C.pg.locator('#bf-import:visible').count(): await C.click('#bf-import', 500)
+    else:
+        await C.click('.view.on [data-acnew="bank"]', 200)
+        await C.click('.view.on [data-acnewpick="bank:import"]', 500)
     sel = C.pg.locator('#mbm select').first
     try:
         await C.pg.select_option('#bfi-acct', acct)

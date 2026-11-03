@@ -199644,17 +199644,19 @@ const MN_JOBS = () => [
       ["ovbuy", "Purchasing Overview", null, { head: 1, unless: "proc" }],
     ]),
     MN_G("sales", "Sales and Clients", "sales", MN_SALES),
-    // the mockup: Billing, Banking, Bills and Payroll first; Billing is the firm's list, with its client filter
+    // The Accounting pages (Alan, 11-03: docs/mockups/accounting/, src/acctpages.js): four pages, each for the seats
+    // that act there. Billing and Banking for the owner, billing and the controller; Bills and Payroll for the owner and
+    // the controller; Books for the controller only (the owner's sign-offs reach Today and Approvals; Books opens by
+    // link). The PM works the job's Contract and Billing and Budget. The old pages fold in and stay reachable by link:
+    // Spend and the Accounting overview forward to Banking, Time and Crew is Bills and Payroll's Payroll chip, Controls
+    // and the operating Budget are Books' chips (MN_ALIAS lights the page that hosts them). A role with the hours page
+    // and no Bills and Payroll (the coordinator) keeps Time and Crew.
     MN_G("money", "Accounting", "money", [
-      ["billing", "Billing"],
-      ["bank", "Banking"],
-      ["ap", "Bills and Payroll"],
-      ["time", "Time and Crew"],
-      ["spend", "Spend"],
-      ["gl", "Ledger"],
-      ["verify", "Controls"],
-      ["budget", "Budget"],
-      ["ovmoney", "Accounting Overview", null, { head: 1 }],
+      ["billing", "Billing", null, { roles: ["owner", "controller", "billing"] }],
+      ["bank", "Banking", null, { roles: ["owner", "controller", "billing"] }],
+      ["ap", "Bills and Payroll", null, { roles: ["owner", "controller"] }],
+      ["gl", "Books", null, { roles: ["controller"] }],
+      ["time", "Time and Crew", null, { unless: "ap", roles: ["coord"] }],
     ]),
     MN_G("studio", "Design", "studio", [
       ["sel", "Selections"],
@@ -199835,7 +199837,7 @@ function mnKnow(v, l) {
 // an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless, head}
 function mnItem(x, sec) {
   const o = x[3] || {};
-  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip };
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!o.quiet, unless: o.unless || "", head: !!o.head, nostrip: !!o.nostrip, roles: o.roles || null };
 }
 function mnGroupItems(g) {
   let sec = "";
@@ -199951,7 +199953,8 @@ function mnBuild(r) {
   if (!M) return null;
   const rv = ROLE_VIEWS[r] || [],
     has = (v) => rv.includes(v),
-    may = (it) => has(it.v) && !(it.unless && has(it.unless)),
+    // opts.roles: the seats an entry is for (the Accounting pages); a role outside them opens the page by link only
+    may = (it) => has(it.v) && !(it.unless && has(it.unless)) && (!it.roles || it.roles.includes(r)),
     shown = (it) => !it.quiet || it.v === view,
     G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),

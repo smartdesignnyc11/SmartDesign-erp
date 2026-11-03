@@ -4118,3 +4118,67 @@ body.td2-fm #ftoday-body .f-hero.td2-clock .btn.primary{width:100%;height:56px;m
 body.td2-fm #ftoday-body .f-hero.td2-clock > .row{width:100%}
 body.td2-fm #ftoday-body .f-card > .hd h3{font-size:13px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#1A1D23}
 body.td2-fm #ftoday-body .f-card{border-radius:14px;box-shadow:0 0 0 1px #ECEEF2;border:0}
+
+/* The Accounting pages (src/acctpages.js, Alan 11-03): Needs You, where things stand, then the records under chips */
+.ac-front{display:flex;flex-direction:column;gap:12px;margin-bottom:14px;max-width:100%;min-width:0}
+.ac-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.ac-top h2{margin:0;font-size:22px}
+.ac-lead{margin:-6px 0 0;color:var(--ink-3)}
+.ac-newbtn,.ac-jobbtn{display:inline-flex;align-items:center;gap:6px;min-height:40px}
+.ac-newbtn svg,.ac-jobbtn svg{flex:none}
+.ac-menu{display:flex;flex-direction:column;gap:2px;padding:6px;background:var(--paper);border:1px solid var(--rule);border-radius:12px;box-shadow:0 8px 24px rgba(16,24,40,.12);max-width:420px}
+.ac-mh{padding:6px 10px}
+.ac-mi{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ink)}
+.ac-mi:hover,.ac-mi.on{background:var(--paper-3)}
+.ac-needs,.ac-stand,.ac-accts{padding:14px 16px;margin:0}
+.ac-cap{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.ac-cap b{color:var(--ink);font-size:13px}
+.ac-cap .small{text-transform:none;letter-spacing:0;font-weight:400}
+.ac-rows{width:100%;border-collapse:collapse;table-layout:auto}
+.ac-row td{padding:10px 6px;border-top:1px solid var(--rule-2);vertical-align:top}
+.ac-row:first-child td{border-top:0}
+.ac-row[data-acopen]{cursor:pointer}
+.ac-row[data-acopen]:hover td{background:var(--paper-2)}
+.ac-what{min-width:0;overflow-wrap:anywhere}
+.ac-what b{display:block;font-size:14px}
+.ac-sub{display:block;font-size:13px;color:var(--ink-2);margin-top:2px}
+.ac-amt{text-align:right;white-space:nowrap}
+.ac-amt b{display:block;font-variant-numeric:tabular-nums}
+.ac-st{display:block;font-size:12px;color:var(--ink-3)}
+.ac-st.ac-bad{color:var(--bad)} .ac-st.ac-warn{color:var(--warn)} .ac-st.ac-ok{color:var(--ok)}
+.ac-row.ac-bad .ac-what b{color:var(--bad)}
+.ac-act{text-align:right;white-space:nowrap;width:1%}
+.ac-act .btn{min-height:36px}
+.ac-go{display:flex;justify-content:flex-end;margin-top:10px}
+.ac-go .btn{min-height:44px}
+.ac-aging{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:4px 0 8px}
+.ac-age{display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:var(--paper-2);border-radius:8px;min-width:0}
+.ac-age span{font-size:12px;color:var(--ink-3)}
+.ac-age b{font-variant-numeric:tabular-nums}
+.ac-age.bad b{color:var(--bad)}
+.ac-ret{margin:0 0 6px;color:var(--ink-2)}
+.ac-chips{display:flex;flex-wrap:wrap;gap:8px}
+.ac-chip{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid #C9D1E0;background:var(--paper);color:var(--ink);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.ac-chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.ac-chip .n{font-weight:700;margin-left:2px}
+.ac-chiplead{margin:0}
+.ac-list{background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:6px 12px}
+.ac-foot{margin:8px 0 4px}
+.ac-empty{margin:8px 0}
+@media (max-width:760px){
+  .ac-front{gap:10px}
+  .ac-top h2{font-size:20px}
+  .ac-newbtn,.ac-jobbtn{min-height:44px}
+  .ac-chip{min-height:44px}
+  .ac-act .btn{min-height:44px}
+  .ac-aging{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ac-rows,.ac-rows tbody{display:block}
+  .ac-row{display:flex;flex-wrap:wrap;gap:4px 10px;border-top:1px solid var(--rule-2);padding:10px 0;min-height:44px}
+  .ac-row:first-child{border-top:0}
+  .ac-row td{display:block;border:0;padding:0}
+  .ac-what{flex:1 1 60%}
+  .ac-amt{flex:0 0 auto}
+  .ac-act{flex:1 1 100%;text-align:left;width:auto}
+  .ac-go .btn{width:100%}
+  .ac-menu{max-width:none}
+}

@@ -33,7 +33,8 @@ FOOT = ['Company and Settings']
 # has the entries ROLE_VIEWS lets it open.
 RAIL = {
     'u_owner': DAY3 + W_ALL + FOOT,
-    'u_alan': DAY3 + W_ALL + FOOT,
+    # the PM has no Accounting group (the 11-03 Accounting pages, SPEC §4): he works the job's Contract and Billing
+    'u_alan': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Design', 'Reports'] + FOOT,
     'u_chen': DAY3 + W_ALL + FOOT,
     'u_billing': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     'u_controller': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
@@ -51,22 +52,23 @@ SETTINGS = ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Repo
 KIDS = {
     ('u_owner', 'buy'): BUY,
     ('u_owner', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
-    ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
+    # the 11-03 Accounting pages (docs/mockups/accounting/SPEC.md §4, an approved design): four pages, each for its seats
+    ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll'],
     ('u_owner', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
     ('u_owner', 'reports'): ['All Reports', 'Dashboard'],
     ('u_owner', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Your Own Data', 'Sales Settings'],
     ('u_alan', 'buy'): BUY,
     ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
-    ('u_alan', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Controls', 'Accounting Overview'],
+    # ('u_alan', 'money'): none, the PM has no Accounting group (11-03)
     ('u_alan', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Sales Settings'],
     ('u_chen', 'buy'): BUY,
     ('u_chen', 'sales'): ['Pipeline', 'Clients', 'Forecast', 'Sales Dashboard', 'Partners', 'Playbook'],
     ('u_chen', 'money'): ['Time and Crew'],
     ('u_chen', 'studio'): ['Selections', 'Drawings'],
     ('u_billing', 'buy'): ['Vendors'],
-    ('u_billing', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Spend', 'Accounting Overview'],
+    ('u_billing', 'money'): ['Billing', 'Banking'],
     ('u_controller', 'buy'): ['Orders', 'Vendors', 'Purchasing Overview'],
-    ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
+    ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Books'],
     ('u_sarah', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
     ('u_sarah', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
     ('u_angel', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
@@ -131,6 +133,7 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
   rv.forEach(v => { if (mb.includes(v) || placed.has(v) || MN_BUTTON.has(v) || ['client', 'clacct'].includes(v)) return;
     for (let a = MN_ALIAS[v], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed.has(a)) return;   // an alias may lead to an alias
     if (MN_QUIET.has(v)) return;   // retired: listed while open, under its group
+    if (typeof MN_LINK === 'object' && (MN_LINK[role()] || []).includes(v)) return;   // by design opened by link only (the Accounting pages, 11-03)
     out.push(v); });
   return { orphans: out, home: m.home }; }"""
 # an entry's number against what its page counts for the person; a group's name carries none
@@ -142,6 +145,7 @@ BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups bu
   if (v === 'home') want = (typeof TD2_SPEC === 'object' && TD2_SPEC[role()]) ? td2LateN() : 0;
   else if (v === 'tkall') want = tkTasksN();
   else if (v === 'chat') want = p2nMsgN().n;
+  else if (typeof AC_PAGES === 'object' && AC_PAGES[v]) want = AC_PAGES[v].badge.includes(role()) ? acCount(v) : 0;   // the Accounting pages: the seat's own
   else if (v === 'billing') want = billingNeeds();
   else if (MENU[role()] && MENU[role()].field) want = 0;   // the field's menu: Messages only (its tab bar carries its own)
   else { const k = ocBadgeN(v); want = k == null ? 0 : k; }
