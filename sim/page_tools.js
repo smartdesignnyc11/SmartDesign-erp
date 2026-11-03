@@ -169,7 +169,7 @@ S.menu = () => {
   const mb = document.getElementById('menu-btn');
   if (!items.length && mb && vis(mb)) {
     items.push(...[...document.querySelectorAll('#mtabs button')].filter(vis).map(txt).filter(Boolean));
-    items.push(...[...document.querySelectorAll('#nav-groups button[data-grp]')].map(el => {
+    items.push(...[...document.querySelectorAll('#nav-groups button[data-grp], #nav-groups [data-mnhead]')].map(el => {
       const n = norm((el.querySelector('.n') || {}).textContent || ''), c = el.cloneNode(true);
       c.querySelectorAll('.n, svg').forEach(x => x.remove());
       return norm(c.textContent || el.title || '') + (n ? ' ' + n : '');
@@ -303,7 +303,9 @@ S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav butt
   .filter(el => !el.closest('section.view'));
 S.go = label => {
   const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
-  const C = S.navCandidates().map(el => ({ el, t: norm(el.innerText || el.getAttribute('aria-label') || el.title || '').toLowerCase().replace(/\s+\d+$/, ''), v: vis(el) }));
+  // a hidden menu (the phone's closed drawer is visibility:hidden) has no innerText: its words are its text, less its number
+  const words = el => { const c = el.cloneNode(true); c.querySelectorAll('.n, svg').forEach(x => x.remove()); return c.textContent; };
+  const C = S.navCandidates().map(el => ({ el, t: norm(el.innerText || el.getAttribute('aria-label') || el.title || words(el) || '').toLowerCase().replace(/\s+\d+$/, ''), v: vis(el) }));
   let hit = C.find(c => c.v && c.t === want) || C.find(c => c.t === want) || C.find(c => c.v && c.t.startsWith(want)) || C.find(c => c.t.startsWith(want)) || C.find(c => c.v && c.t.includes(want));
   // a button a person can see outside the page and the menu (the menu's footer: Switch User; the header's own buttons)
   // is reached by its exact words too (the live journeys check could not sign out, 10-26)
