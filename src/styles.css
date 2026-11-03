@@ -3495,7 +3495,7 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   #nav-groups .mn-head svg,#nav-groups button svg{width:20px;height:20px}
   #nav-groups .n{min-width:24px;height:24px;border-radius:12px;font-size:13px}
   /* Sales Settings is now one tap from the menu's foot, so the phone walks reach it: its tabs are full tap targets */
-  .hb-page.hb-settings .hb-set-rail button{height:44px;min-height:44px}
+  .view.on .hb-page.hb-settings .hb-set-rail button{height:44px !important;min-height:44px !important}
 }
 @media (min-width:761px){
   body.rail-min #nav-groups .mn-cap,body.rail-min #nav-groups .mn-kids,body.rail-min #nav-groups .mn-l,body.rail-min #nav-groups #fbs-rail span{display:none}
