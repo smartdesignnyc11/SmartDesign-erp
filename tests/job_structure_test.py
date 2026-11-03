@@ -378,6 +378,12 @@ async def run(c, p, phone):
         small = await js(pg, """const out = []; for (const v of ['dash', 'jbill', 'costs', 'jdec', 'jsite']) { view = v; jpSub = ''; render(); await sleep(150);
           document.querySelectorAll('#jp-head button, #jp-head select, #jp-head a, .view.on .jp-tap').forEach(e => { const r = e.getBoundingClientRect(); if (r.width && (r.height < 43.5 || r.width < 43.5)) out.push(v + ': ' + (e.innerText || e.getAttribute('aria-label') || e.id).trim().slice(0, 30) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height)); }); } return out;""")
         c.ok(small == [], f'{dev} PHONE: tap targets under 44px {small}')
+        # nothing of the job's own pages runs past the screen's right edge, even inside a strip that scrolls on its own
+        # (the page itself never scrolls sideways, so the sideways check above cannot see a card cut off in a strip)
+        cut = await js(pg, """const out = []; for (const v of ['dash', 'jbill', 'costs', 'jdec', 'jsite']) { view = v; jpSub = ''; render(); await sleep(150);
+          document.querySelectorAll('#jp-head, #jp-ov *, #jp-budget *, #jbill-body *, #jdec-body *, #jsite-body *').forEach(e => { const r = e.getBoundingClientRect();
+            if (r.width && r.height && r.right > innerWidth + 1 && !e.closest('select')) out.push(v + ': ' + (e.className || e.tagName) + ' ' + Math.round(r.right)); }); } return out.slice(0, 8);""")
+        c.ok(cut == [], f'{dev} PHONE: parts of the job pages run past the right edge {cut}')
     c.ok(not errs, f'{dev}: page errors {errs[:3]}')
     await b.close()
 

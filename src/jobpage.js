@@ -246,7 +246,7 @@ function jpHead() {
     nav && nav._projsel && H && H.contains(nav._projsel) && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0));
     return;
   }
-  H || ((H = document.createElement("div")), (H.id = "jp-head"), (H.className = "jp-head no-print"));
+  H || ((H = document.createElement("div")), (H.id = "jp-head"), (H.className = "jp-head jp-keep no-print"));
   sub && sub.parentNode ? H.nextSibling !== sub && sub.parentNode.insertBefore(H, sub) : H.isConnected || (document.querySelector(".main") || document.body).prepend(H);
   (H.hidden = !1), (H.innerHTML = jpHeadHtml());
   const slot = H.querySelector(".jp-sw");
@@ -428,7 +428,7 @@ function jpPanelRows(id, p) {
     return jpRisks().map((a, i) => {
       const [k, rid] = a.go,
         key = act(`risk:${i}`, () => ("view" === k ? jpGo(rid) : openEditor(k, rid)));
-      return { key: key, kind: JP_RISK_KIND[k] || "Item", when: a.when ? fmt(a.when) : "", tone: "bad", title: a.t.replace(/^Decision: /, ""), why: [a.why, a.act].filter(Boolean).join(" "), act: JP_RISK_VERB[k] || "Open" };
+      return { key: key, kind: JP_RISK_KIND[k] || "Item", when: a.when ? fmt(a.when) : "", tone: "bad", title: a.t.replace(/^Decision: /, ""), why: [a.why, a.act].filter(Boolean).map((s) => String(s).trim().replace(/[^.!?]$/, "$&.")).join(" "), act: JP_RISK_VERB[k] || "Open" };
     });
   if ("appr" === id)
     return jpApprovals(p.id).map((a, i) => ({
@@ -527,7 +527,7 @@ function jpOverview() {
   if (!v || "dash" !== view) return;
   let host = document.getElementById("jp-ov");
   if (!jpOn()) return void (host && host.remove());
-  host || ((host = document.createElement("div")), (host.id = "jp-ov"), (host.className = "jp-ov"));
+  host || ((host = document.createElement("div")), (host.id = "jp-ov"), (host.className = "jp-ov jp-keep"));
   v.firstElementChild !== host && v.prepend(host);
   const p = S,
     phone = jpPhone();
@@ -735,7 +735,7 @@ function jpBudget() {
   const v = document.getElementById("v-costs");
   if (!v || "costs" !== view || !S) return;
   let host = document.getElementById("jp-budget");
-  host || ((host = document.createElement("div")), (host.id = "jp-budget"), (host.className = "jp-budget"));
+  host || ((host = document.createElement("div")), (host.id = "jp-budget"), (host.className = "jp-budget jp-keep"));
   const ph = v.querySelector(":scope > .ph");
   ph ? ph.nextElementSibling !== host && ph.after(host) : v.firstElementChild !== host && v.prepend(host);
   // the old line table and tiles are this page's rows and figures now; the cost-code table, WIP and transactions stay
