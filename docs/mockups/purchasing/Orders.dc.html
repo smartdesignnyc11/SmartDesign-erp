@@ -24,7 +24,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
       </button>
     </div>
-    <span style="font-size: 13px; color: #b9c3d8">Every order and store run, from issue to paid, and the money owed back</span>
+    <span style="font-size: 13px; color: #b9c3d8">Every purchase order, from draft to paid, and the money owed back · store runs join with P5</span>
   </div>
 
   <div style="margin: 16px 16px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
@@ -61,7 +61,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   <div style="display: flex; gap: 8px; padding: 20px 16px 8px; align-items: center">
     <span style="flex: 1; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Orders</span>
   </div>
-  <div style="display: flex; gap: 8px; padding: 0 16px 10px">
+  <div style="display: flex; gap: 8px; padding: 0 16px 10px; flex-wrap: wrap">
     <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
       <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
     </sc-for>
@@ -81,6 +81,13 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
     </sc-for>
   </div>
 
+  <sc-if value="{{noOrders}}" hint-placeholder-val="{{false}}">
+    <span style="margin: 0 16px; font-size: 14px; color: #5b6578; line-height: 1.45">{{emptyText}}</span>
+  </sc-if>
+  <div style="margin: 16px 16px 0; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+    <b style="font-size: 14px">Store Runs Are Not Orders Yet</b>
+    <span style="font-size: 13px; line-height: 1.45; color: #5b6578">Until store runs become orders (P5), their receipts sit in Quotes › Prices We Know and a card claim has no order to hang on.</span>
+  </div>
   <div style="margin: 16px 16px 24px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
     <b style="font-size: 14px">Papers the Assistant Is Chasing</b>
     <span style="font-size: 13px; line-height: 1.45; color: #5b6578">14 bills with no invoice copy on file. The assistant asks the vendors from procurement@ (delegated); nothing here waits on you.</span>
@@ -118,12 +125,12 @@ class Component extends DCLogic {
       { po: 'PO-2026-041', vendor: 'Nemo Tile', items: 'Calacatta porcelain 12x24', job: '121 State Street', issued: '8/10', total: '$4,250', paid: '$4,250', exp: '8/24', status: 'RECEIVED AND PAID', tone: '#15803d', open: false }
     ];
     const F = this.state.filter;
-    const orders = O.filter((o) => F === 'All' || (F === 'Open' ? o.open : !o.open));
-    const chips = ['Open', 'Received', 'All'].map((label) => {
+    const orders = O.filter((o) => F === 'All' || (F === 'Draft' ? o.draft : F === 'Open' ? o.open : !o.open && !o.draft));
+    const chips = ['Draft', 'Open', 'Received', 'All'].map((label) => {
       const on = F === label;
       return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ filter: label }) };
     });
-    return { needs: N, needCount: N.length, orders, chips };
+    return { needs: N.map((n) => Object.assign({ alt: '' }, n)), needCount: N.length, orders, chips, noOrders: !orders.length, emptyText: F === 'Draft' ? 'No orders in draft. A draft is an order not yet sent to the vendor (the old Not Issued tile).' : 'Nothing here.' };
   }
 }
 </script>

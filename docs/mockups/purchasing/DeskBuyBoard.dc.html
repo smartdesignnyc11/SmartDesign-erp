@@ -13,7 +13,7 @@ body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
 a{color:#1d4ed8}a:hover{color:#1e3a8a}
 </style>
 </helmet>
-<div style="width: 1440px; height: 1180px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033; overflow: hidden">
+<div style="width: 1440px; min-height: 1180px; box-sizing: border-box; display: flex; background: #f4f6fa; color: #172033">
 
   <nav aria-label="Main" style="width: 248px; flex: none; background: #111a2e; color: #e5e9f2; display: flex; flex-direction: column">
     <div style="display: flex; align-items: center; gap: 10px; padding: 18px 16px 12px">
@@ -79,8 +79,20 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       </div>
     </div>
 
-    <div style="padding: 20px 32px; display: flex; gap: 20px; align-items: flex-start; overflow: hidden">
+    <div style="padding: 20px 32px; display: flex; gap: 20px; align-items: flex-start">
       <section style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <sc-if value="{{hasPicked}}" hint-placeholder-val="{{false}}">
+          <div role="region" aria-label="Picked lines" style="position: sticky; top: 0; z-index: 4; background: #fff; border: 2px solid #172033; border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; box-shadow: 0 8px 24px rgba(17,26,46,.12)">
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+              <b style="font-size: 15px">{{pickedHead}}</b>
+              <span style="font-size: 13px; color: #5b6578; line-height: 1.4">{{pickedSub}}</span>
+            </div>
+            <button type="button" onClick="{{clearPicks}}" style="height: 40px; padding: 0 14px; border-radius: 10px; border: 0; background: transparent; color: #1d4ed8; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">Clear</button>
+            <sc-for list="{{barActs}}" as="ba" hint-placeholder-count="2">
+              <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: {{ba.border}}; background: {{ba.bg}}; color: {{ba.color}}; font: inherit; font-size: 14px; font-weight: {{ba.fw}}">{{ba.label}}</button>
+            </sc-for>
+          </div>
+        </sc-if>
         <sc-for list="{{sections}}" as="sec" hint-placeholder-count="2">
           <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
             <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 10px">
@@ -94,7 +106,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
             </div>
             <sc-for list="{{sec.rows}}" as="r" hint-placeholder-count="5">
               <div onClick="{{r.open}}" style="display: grid; grid-template-columns: 32px minmax(0, 2.2fr) 56px 52px 92px minmax(0, 2fr) 132px; gap: 10px; padding: 10px 14px; border-top: {{r.line}}; align-items: center; font-size: 14px; background: {{r.bg}}; cursor: pointer">
-                <span style="width: 20px; height: 20px; border-radius: 5px; border: 2px solid #9aa6bd; background: #fff"></span>
+                <sc-if value="{{r.canPick}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}" aria-label="Pick this line: {{r.name}}" style="width: 32px; height: 32px; margin: -6px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 5px; border: 2px solid {{r.boxBorder}}; background: {{r.boxBg}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center"><sc-if value="{{r.picked}}" hint-placeholder-val="{{false}}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 12l4 4 8-8"></path></svg></sc-if></span></button></sc-if><sc-if value="{{r.noPick}}" hint-placeholder-val="{{false}}"><span></span></sc-if>
                 <span style="display: flex; flex-direction: column; gap: 2px"><b style="line-height: 1.3">{{r.name}}</b><span style="font-size: 12px; color: #5b6578; line-height: 1.35">{{r.job}} · {{r.src}}</span></span>
                 <span>{{r.qty}}</span>
                 <span>{{r.site}}</span>
@@ -124,7 +136,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
           </div>
         </sc-for>
         <div style="padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px">
-          <button type="button" style="min-height: 44px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; font: inherit; font-size: 15px; font-weight: 700">{{panel.primary}}</button>
+          <button type="button" style="min-height: 44px; border-radius: 10px; border: {{panel.pBorder}}; background: {{panel.pBg}}; color: {{panel.pColor}}; font: inherit; font-size: 15px; font-weight: 700">{{panel.primary}}</button>
           <button type="button" style="min-height: 44px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; font: inherit; font-size: 15px; font-weight: 600">{{panel.secondary}}</button>
           <span style="font-size: 12px; color: #5b6578; line-height: 1.4">{{panel.note}}</span>
         </div>
@@ -135,24 +147,27 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
 class Component extends DCLogic {
-  constructor(p) { super(p); this.state = { job: 'All Jobs', sel: 'studs', newOpen: false }; }
+  constructor(p) { super(p); this.state = { job: 'All Jobs', sel: 'studs', newOpen: false, picked: {} }; }
   renderVals() {
     const S = this.state;
     const sub = (label, n, href, on) => ({ label, n, has: n > 0, href, bg: on ? '#2a3a5e' : 'transparent', color: on ? '#fff' : '#c5cde0', fw: on ? '600' : '400' });
     const rail = {
       top: [{ label: 'Today', n: 14 }, { label: 'Tasks', n: 3 }, { label: 'Messages', n: 2 }],
-      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html', true), sub('Orders', 8, 'DeskOrders.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html')]
+      sub: [sub('Buy Board', 8, 'DeskBuyBoard.dc.html', true), sub('Orders', 8, 'DeskOrders.dc.html'), sub('Quotes', 0, 'Quotes.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html')]
     };
     const MINE = [
-      { id: 'studs', name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto · Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: '9/4', tone: '#b45309', why: 'Not acknowledged in 26 hours.', know: 'Price book $3.98 each, Brooklyn Lumber — Red Hook, 9/2', act: 'Acknowledge' },
-      { id: 'tape', name: '1 case Blue tape + 4 mil plastic', job: '121 State Street', src: 'Request from Angel', qty: '1 case', site: '9/4', by: 'Today', tone: '#b45309', why: 'On today’s store run.', know: 'At the warehouse: 18 rolls of 1.5" blue tape', act: 'Pick From Stock' },
-      { id: 'demo', name: 'Demolition & disposal', job: '121 State Street', src: 'EST-2026-014 · subcontract · $19,850', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
-      { id: 'ext', name: 'Exterior — scaffold, brick mold, paint', job: '121 State Street', src: 'EST-2026-014 · subcontract · $12,300', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
-      { id: 'appl', name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/25.', know: '', act: 'Find the Order' },
-      { id: 'ins', name: 'Insulation', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/16.', know: '', act: 'Find the Order' },
-      { id: 'paint', name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
-      { id: 'slab', name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/1, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
-      { id: 'bath', name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/15', by: '9/1, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' }
+      { id: 'studs', amt: 159.2, name: '40 ea 2x4x8 KD studs', job: '121 State Street', src: 'Request from Alberto · Framing & blocking – garden bedroom', qty: '40 ea', site: '9/8', by: '9/4', tone: '#b45309', why: 'Not acknowledged in 26 hours.', know: 'Price book $3.98 each, Brooklyn Lumber — Red Hook, 9/2', act: 'Acknowledge' },
+      { id: 'demo', amt: 19850, name: 'Demolition & disposal', job: '121 State Street', src: 'EST-2026-014 · subcontract · $19,850', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
+      { id: 'ext', amt: 12300, name: 'Exterior — scaffold, brick mold, paint', job: '121 State Street', src: 'EST-2026-014 · subcontract · $12,300', qty: '1 ls', site: '9/3', by: '8/20, passed', tone: '#b91c1c', why: 'No sub contracted. Three bids over $2,500.', know: '', act: 'Ask for Bids' },
+      { id: 'appl', amt: null, name: 'Appliances – parlor kitchen', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/10', by: '8/26, passed', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/25.', know: '', act: 'Find the Order' },
+      { id: 'ins', amt: null, name: 'Insulation', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/8', tone: '#b91c1c', why: 'Marked ordered, no order behind it. Promised 9/16.', know: '', act: 'Find the Order' },
+      { id: 'paint', amt: null, name: 'Paint — 3rd floor walls, trim and ceilings', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '14 gal', site: '8/31', by: '8/26, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'slab', amt: null, name: 'Parlor kitchen countertop slab', job: '121 State Street', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/11', by: '9/1, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' },
+      { id: 'bath', amt: null, name: 'Bath faucet, shower trim and kitchen hardware', job: '206 Lenox', src: 'Material · [ESTIMATE LINE]', qty: '[QTY]', site: '9/15', by: '9/1, passed', tone: '#b91c1c', why: 'No price yet.', know: '', act: 'Ask for Quotes' }
+    ];
+    // Counted once, in the route approval on Deliveries (one decision, one count); shown here with no number.
+    const ROUTE = [
+      { id: 'tape', name: '1 case Blue tape + 4 mil plastic', job: '121 State Street', src: 'Request from Angel', qty: '1 case', site: '9/4', by: 'Today', tone: '#5b6578', why: 'On today’s route: the approval on Deliveries picks the tape from stock and buys only the plastic.', know: 'At the warehouse: 18 rolls of 1.5" blue tape', act: 'Open the Route' }
     ];
     const OTHERS = [
       { id: 'faucet', name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', src: 'Selection, Primary bath · Ferguson · $2,360', qty: '2 ea', site: '11/16', by: '8/13, passed', tone: '#b45309', why: 'Waiting on Alberto M Plumbing: submittal 22 40 00-001, Revise and Resubmit.', know: '' },
@@ -164,12 +179,31 @@ class Component extends DCLogic {
       { id: 'mats', name: 'Radiant heat mats & thermostat', job: '121 State Street', src: 'CO-2026-001 · $2,890', qty: '1 ls', site: '9/10', by: '9/2, passed', tone: '#b45309', why: 'Waiting on the PM: material portion not set.', know: '' }
     ];
     const ok = (r) => S.job === 'All Jobs' || r.job === S.job;
-    const row = (r, i, act) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', hasKnow: !!r.know, hasAct: act, bg: S.sel === r.id ? '#eff6ff' : '#fff', open: () => this.setState({ sel: r.id }) });
-    const mine = MINE.filter(ok), others = OTHERS.filter(ok);
+    const money = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+    const row = (r, i, act, can) => {
+      const picked = !!S.picked[r.id];
+      return Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', hasKnow: !!r.know, hasAct: act, bg: picked ? '#f1f5ff' : S.sel === r.id ? '#eff6ff' : '#fff', open: () => this.setState({ sel: r.id }),
+        canPick: can, noPick: !can, picked, pressed: picked ? 'true' : 'false', boxBorder: picked ? '#172033' : '#9aa6bd', boxBg: picked ? '#172033' : '#fff',
+        pick: () => { const p = Object.assign({}, S.picked); if (p[r.id]) delete p[r.id]; else p[r.id] = true; this.setState({ picked: p, sel: r.id }); } });
+    };
+    const mine = MINE.filter(ok), others = OTHERS.filter(ok), route = ROUTE.filter(ok);
     const sections = [
-      { title: 'Needs You', n: mine.length, hasN: true, sub: 'Your next tap moves each one', rows: mine.map((r, i) => row(r, i, true)) },
-      { title: 'Waiting on Someone Else', n: 0, hasN: false, sub: 'Each names who, and you can chase', rows: others.map((r, i) => row(r, i, false)) }
-    ];
+      { title: 'Needs You', n: mine.length, hasN: true, sub: 'Your next tap moves each one · pick lines to ask or order together', rows: mine.map((r, i) => row(r, i, true, true)) },
+      { title: 'On Today’s Route', n: 0, hasN: false, sub: 'Counted in the route approval on Deliveries', rows: route.map((r, i) => row(r, i, true, false)) },
+      { title: 'Waiting on Someone Else', n: 0, hasN: false, sub: 'Each names who, and you can chase', rows: others.map((r, i) => row(r, i, false, false)) }
+    ].filter((x) => x.rows.length);
+    // The picked-lines bar: count and total; one blue, the safe next step. Ask for Quotes is blue when a line has no price or the
+    // total is over $2,500 (the Standard's three quotes); otherwise Order is. Order makes one purchase order per vendor and job.
+    const pickedRows = MINE.filter((r) => S.picked[r.id]);
+    const priced = pickedRows.filter((r) => r.amt != null), unpriced = pickedRows.length - priced.length;
+    const total = priced.reduce((a, r) => a + r.amt, 0);
+    const askFirst = unpriced > 0 || total > 2500;
+    const pjobs = Array.from(new Set(pickedRows.map((r) => r.job)));
+    const pickedHead = pickedRows.length + (pickedRows.length === 1 ? ' line picked' : ' lines picked') + ' · ' + money(total) + (unpriced ? ' priced, ' + unpriced + ' with no price yet' : '');
+    const pickedSub = 'At the line budget or the best recent price · ' + pjobs.join(', ') + ' · ' + (askFirst ? (unpriced ? 'a line has no price: ask first' : 'over $2,500: three quotes, or a reason') : 'under $2,500 with prices on file: order') + ' · each line stays linked to its estimate line';
+    const btn = (label, blue) => ({ label, bg: blue ? '#2563eb' : '#fff', color: blue ? '#fff' : '#172033', border: blue ? '0' : '1px solid #c9d1e0', fw: blue ? '700' : '600' });
+    const barActs = askFirst ? [btn('Order, With a Reason', false), btn('Ask for Quotes', true)] : [btn('Ask for Quotes', false), btn('Order ' + pickedRows.length + (pickedRows.length === 1 ? ' Line' : ' Lines'), true)];
+    const hasPicked = pickedRows.length > 0;
     const P = {
       studs: { kicker: 'Request from Alberto · 121 State Street · Framing & blocking – garden bedroom', name: '40 ea 2x4x8 KD studs', alertBg: '#fffbeb', alertBorder: '#fde68a', alertTone: '#78350f',
         alert: 'Asked from the site 26 hours ago and not acknowledged. Needed on site 9/8; Alex’s suggested route buys it at Brooklyn Lumber — Red Hook.',
@@ -180,14 +214,17 @@ class Component extends DCLogic {
         facts: [['Line budget', '$2,360'], ['Committed', '$0'], ['Last 3 buys', 'none on file'], ['At the warehouse', 'none'], ['Also owed', 'A chrome pair goes back to Ferguson, RMA-44812, by 9/14']],
         primary: 'Chase Alberto for the Resubmittal', secondary: 'Open the Submittal', note: 'The PO cannot issue until the submittal is approved.' }
     };
-    const pick = P[S.sel] || { kicker: '121 State Street', name: (MINE.concat(OTHERS).find((r) => r.id === S.sel) || {}).name || '', alertBg: '#f8fafc', alertBorder: '#dfe4ee', alertTone: '#172033', alert: '[DETAIL FROM THE LINE]', facts: [['Line budget', '[BUDGET]'], ['Committed', '[COMMITTED]'], ['Last 3 buys', '[PRICES]'], ['At the warehouse', '[STOCK]']], primary: 'Order', secondary: 'Ask for Quotes', note: '' };
-    const panel = Object.assign({}, pick, { facts: pick.facts.map((f, i) => ({ k: f[0], v: f[1], line: i ? '1px solid #eef1f6' : '1px solid #eef1f6' })) });
+    P.tape = { kicker: 'Request from Angel · 121 State Street · on today’s route', name: '1 case Blue tape + 4 mil plastic', alertBg: '#f0fdf4', alertBorder: '#bbf7d0', alertTone: '#14532d',
+      alert: '18 rolls of 1.5" blue tape are at the warehouse. The route approval on Deliveries picks the tape from stock and buys only the plastic; it is counted there, once.',
+      facts: [['At the warehouse', '18 rolls of 1.5" blue tape'], ['To buy', '4 mil plastic only'], ['Route', 'Alex, today: warehouse, then Lowe’s — Gowanus']], primary: 'Open the Route on Deliveries', secondary: 'Open the Stock Item', note: 'Approving the route adds the warehouse stop.' };
+    const pick = P[S.sel] || { kicker: '121 State Street', name: (MINE.concat(OTHERS).find((r) => r.id === S.sel) || {}).name || '', alertBg: '#f8fafc', alertBorder: '#dfe4ee', alertTone: '#172033', alert: '[DETAIL FROM THE LINE]', facts: [['Line budget', '[BUDGET]'], ['Committed', '[COMMITTED]'], ['Last 3 buys', '[PRICES]'], ['At the warehouse', '[STOCK]']], primary: 'Ask for Quotes', secondary: 'Order', note: 'No price on file: ask first; an order over $2,500 needs three quotes or a reason.' };
+    const panel = Object.assign({}, pick, { pBg: hasPicked ? '#fff' : '#2563eb', pColor: hasPicked ? '#172033' : '#fff', pBorder: hasPicked ? '1px solid #c9d1e0' : '0', facts: pick.facts.map((f, i) => ({ k: f[0], v: f[1], line: i ? '1px solid #eef1f6' : '1px solid #eef1f6' })) });
     const chips = ['All Jobs', '121 State Street', '206 Lenox'].map((label) => {
       const on = S.job === label;
       return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ job: label }) };
     });
     const newOpen = !!S.newOpen;
-    return { rail, chips, sections, panel, newOpen, newItems: ['Buy From an Estimate or Invoice', 'Restock the Warehouse', 'Blank Need'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
+    return { rail, chips, sections, panel, hasPicked, pickedHead, pickedSub, barActs, clearPicks: () => this.setState({ picked: {} }), newOpen, newItems: ['Buy From an Estimate or Invoice', 'Restock the Warehouse', 'Blank Need'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#eef2ff' : '#fff', toggleNew: () => this.setState({ newOpen: !newOpen }) };
   }
 }
 </script>

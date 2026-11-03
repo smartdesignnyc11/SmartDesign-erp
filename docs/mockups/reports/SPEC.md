@@ -139,3 +139,23 @@ Decided, reversible, logged in `docs/DECISIONS.md`: Financial Statements joins t
 
 Must fix before build (BACKLOG §1.35): one job cost (121 State's WIP earned, $122,626 at 25%, does not follow from the Margin view's own $105,084 of $388,888, which gives 27%; the [REASON] for $4,589 must be a reason, not a placeholder); Safe to Spend recomputed by the definition above; the WIP adjustment at the close equal to the WIP schedule; one to-bill figure for the windows.
 
+**Must fix before build, status (11-03 overnight pass).** All are build-lane items (BACKLOG §1.35 items 1 to 5): one function
+per figure, read by every screen, the Pack and Ask, with the finance cross-check failing on any disagreement; the mock-ups keep
+their placeholders until then. Done in the mock-ups tonight: the owner's rail on `DeskCash` and `DeskJobProfit` reads Today 16
+and Messages 5, the same as Your Day. The logic blocks were run with a stand-in renderer and every chip pressed (no errors).
+
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`. Reports holds no
+queue: each At Risk line links to where it is acted on. `reports` stays in `CONTEXT_OK`.
+
+| Page | Noun it reads | Its home | Counts | New? |
+|---|---|---|---|---|
+| Job Profitability | project (the job's Budget and Contract and Billing roll up) | `reports`, a saved standard report (`erpQuery` / `EQ_TABLES`) | At Risk names whose each row is; no queue | No. WIP Schedule is its view; Studio, Cost Library, Submittal Log and Daily Log Summary go to their records |
+| Cash | bank balance, open invoices and bills, client funds | `reports` (Cash, with Receivables and Payables) | Safe to Spend from `safeToSpend()` (`PRED.safeToSpend`), the one function | No. Billing's Client Funds tab moves here |
+| Financial Statements | journal and account (read from `gl`) | `reports` | none | No. Books' Statements and the Monthly Pack move here |
+| Report Builder | every entity in `EQ_TABLES` | `reports` | none | No. `dashboard` folds in as saved reports |
+
+Reasons recorded: none needed. The finance cross-check, not the structure lint, is the guard here: two figures for one
+question fail it (BACKLOG §1.35).
+
+

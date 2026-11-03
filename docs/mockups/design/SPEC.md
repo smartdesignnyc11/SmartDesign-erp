@@ -32,13 +32,13 @@ meetings and the client profile go to the job and the client, where 11-03 put th
 - The +: Clip From a Web Page, From a Spec Sheet or Photo, Choose From Past Jobs, already tied to the job in the filter.
 - Phone: card with a line-drawn image, labelled Quantity, Cost Each, On Site, Status, the reasons, one action; "See This Job as the Client Does".
 
-**Drawings** (Needs You 8)
+**Drawings** (Needs You 3)
 - What: every job's current sheets, and what the field and the agencies are waiting on.
 - Label: Drawings (one register per job, 10-19 call 6; the job's Documents shows the same register filtered).
 - Holds: sheets, revisions, sets, field acknowledgments, the Set Check and its lessons, rooms (from Project Board) and filings at the agency (a link to the job's permit record).
 - Who and why: the designer ("what is the field building from, and what do they need from me?"); the foreman reads current sheets from Site.
 - First screen: Angel's question on A-301 (3" or 2" drop, answer by 9/4, holds framing); 6 sheets to re-issue on 45 Cranberry (rear wall 14'-6" to 13'-6"); 140 Prospect's 11 unmeasured rooms. Then At the Agency: LPC Certificate of Appropriateness, 6 days.
-- Numbers: 8 = 1 + 6 + 1 rows; today's designer Today shows To Re-Issue 6, the same rows.
+- Numbers: 3, one row per thing that waits, in one unit (a thing to do): the field question, one re-issue (it names its 6 sheets), one survey (it names its 11 rooms). Computed from the rows; the rail reads the same 3. The designer's Today shows the re-issue as one row with "6 sheets" in its words, never as a count of 6.
 - The +: New Revision, Issue a Set, Upload a Consultant Sheet, New Room, for the job in the filter.
 - Phone: sheet rows with sheet, revision, title, status and date, what changed and the field's acknowledgment; By Room groups the same sheets under rooms.
 
@@ -122,18 +122,25 @@ either, and the Purchasing menu mock no longer shows one for Chen.
 Building); the selection prices read "2 each at $1,180", not "2 each, $1,180"; this spec's first-screen line (six lack a spec sheet,
 not five) and the PM's path to field questions.
 
-**Must fix before build:**
-1. The estimate line on every selection. The card shows job and room but not the allowance or estimate line it buys against, or
-   what is left on it. Purchasing starts from the line; a selection with no line is the shower drain's leak. Show the line and
-   what is left; a selection on no line is a Needs You reason before it is bought, not after.
-2. The bill-back is a proposal with a button, not a hand-off. "Send to the PM to Bill" should open a drafted change order (or a
-   Bill Back line on the next invoice) for the PM to approve; absorbing it needs his reason. Neither reaches the Kleins without him.
-3. The picture light's client approval waits on a stale price ($385 vs $412). Block sending the decision to the Kleins until the
-   price is updated, so they never approve a number we will not charge.
-4. Drawings' Needs You 8 is hard-coded and mixes units (6 sheets counted one by one, 11 rooms counted as one). Count rows the
-   page shows, computed, and say the unit on each card.
-5. In Design cards carry figures where nothing waits on you (hours, sheets, filings). Keep the one that waits (over the
-   proposal) red; make the rest plain text. The Projects lane owns the filter.
-6. The phone Selections has no room filter (the desktop has one); the spec promises job and room filters on both.
-7. The 45 Cranberry and 140 Prospect registers are placeholders. Read them before the build is judged.
+**Must fix before build** (11-03 overnight pass: done in the mock-up or left for the build lane)
+1. **Left for the build lane.** The estimate line (or allowance) and what is left on it on every selection card; a selection on
+   no line is a Needs You reason before it is bought. Needs the records' line links, which the mock does not have.
+2. **Partly done in mock-up, 11-03.** The drain's button reads "Draft the Bill-Back for the PM" (phone and desktop). The build
+   makes it open a drafted change order or Bill Back line for the PM to approve, or absorb with his reason (BACKLOG §9 item 6).
+3. **Left for the build lane.** Block sending the picture light's decision to the Kleins until the price is updated ($385 to $412).
+4. **Done in mock-up, 11-03.** Drawings' Needs You is 3, computed from the rows, one unit (a thing to do), each row naming what it
+   covers (6 sheets, 11 rooms); the desktop rows fold the six sheets into one; the rails read 3.
+5. **Done in mock-up, 11-03.** In Design: only "over the proposal" stays red; sheets, the survey and filings are plain text.
+6. **Done in mock-up, 11-03.** The phone Selections has the room filter (the desktop's chips, wrapping, 44px).
+7. **Left for the build lane.** Read the 45 Cranberry and 140 Prospect registers before the build is judged.
 
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`. Two pages and a filter.
+
+| Page | Noun (registry key) | Its one list | Queue and counts | New? |
+|---|---|---|---|---|
+| Selections | selection (`DB.sel`); its client approval is a `decision` | `sel`; the job's Decisions shows the approval, counted there once (`decision: {'dec', ...}`) | Needs You 6, the rows; ordering it is the Buy Board's `material` row | No. Project Board's FF&E tab and FF&E Buying Tools' Everything fold in |
+| Drawings | sheet and revision (`p.files` / the plan register), filings as links to the job's permit record | `plans`; the job's Documents is its filter | Needs You 3 | No. `sdraw` and Project Board's Rooms fold in; `sfile` becomes links on the sheet and the permit |
+| In Design | project (the job), in a design phase | a filter of Projects (`ovjobs`), owned by the Projects lane | no count but "over the proposal" | No. `ovstudio` and `sboard` fold into the filter and the job's pages |
+
+Reasons recorded: none needed. The lint should add `selection: {'sel'}` and `sheet: {'plans'}` to `ONE_PLACE`.

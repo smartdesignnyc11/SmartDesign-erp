@@ -37,7 +37,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 
   <div style="display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px">
     <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You · every job</span>
-    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">8</span>
+    <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{needN}}</span>
   </div>
 
   <div style="margin: 0 16px; background: #fff; border: 1px solid #fecaca; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
@@ -53,7 +53,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 
   <div style="margin: 10px 16px 0; background: #fff; border: 1px solid #fde68a; border-radius: 12px; overflow: hidden">
     <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
-      <span style="font-size: 12px; font-weight: 700; color: #b45309">TO RE-ISSUE · 45 CRANBERRY ST — DESIGN</span>
+      <span style="font-size: 12px; font-weight: 700; color: #b45309">TO RE-ISSUE · 6 SHEETS, ONE RE-ISSUE · 45 CRANBERRY ST</span>
       <b style="font-size: 15px">Kitchen rear wall moved 14'-6" to 13'-6"</b>
       <span style="font-size: 13px; color: #5b6578">These sheets show the old wall; the field builds from them until they are re-issued.</span>
     </div>
@@ -66,7 +66,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
   </div>
 
   <div style="margin: 10px 16px 0; background: #fff; border: 1px solid #fde68a; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
-    <span style="font-size: 12px; font-weight: 700; color: #b45309">ROOMS NOT MEASURED · 140 PROSPECT PLACE — DESIGN</span>
+    <span style="font-size: 12px; font-weight: 700; color: #b45309">ONE SURVEY · 11 ROOMS NOT MEASURED · 140 PROSPECT PLACE</span>
     <b style="font-size: 15px">11 rooms still on listing dimensions</b>
     <span style="font-size: 14px; line-height: 1.45">Design development, the set issue and fabrication orders wait for the existing-conditions survey, scheduled 9/22.</span>
     <div style="display: flex; gap: 8px; margin-top: 4px"><button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Open the Survey Checklist</button></div>
@@ -150,7 +150,9 @@ class Component extends DCLogic {
     const jobChips = ['121 State Street', '45 Cranberry St — design', '140 Prospect Place — design'].map(chip);
     const views = [['sheet', 'By Sheet'], ['room', 'By Room']].map(([id, label]) => ({ label, pressed: S.view === id ? 'true' : 'false', bg: S.view === id ? '#fff' : 'transparent', pick: () => this.setState({ view: id }) }));
     const newOpen = !!S.newOpen;
-    return { reissue, jobChips, views, sheets: is121 ? SH : other, rooms: is121 ? rooms : [{ room: '[ROOMS]', floor: '[FLOOR]', phase: '[PHASE]', sheets: '[SHEETS]', line: '0' }],
+    // Needs You: the three cards below (a field question, one re-issue, one survey), counted as cards, never as sheets or rooms.
+    const needN = 3;
+    return { needN, reissue, jobChips, views, sheets: is121 ? SH : other, rooms: is121 ? rooms : [{ room: '[ROOMS]', floor: '[FLOOR]', phase: '[PHASE]', sheets: '[SHEETS]', line: '0' }],
       bySheet: S.view === 'sheet', byRoom: S.view === 'room', job: S.job,
       newOpen, newItems: ['New Revision', 'Issue a Set', 'Upload a Consultant Sheet', 'New Room'], newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
   }

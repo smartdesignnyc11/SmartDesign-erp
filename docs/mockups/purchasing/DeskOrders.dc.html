@@ -49,7 +49,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
     <div style="background: #fff; border-bottom: 1px solid #dfe4ee; padding: 18px 32px 16px; display: flex; align-items: center; gap: 16px">
       <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
         <b style="font-size: 26px">Orders</b>
-        <span style="font-size: 14px; color: #5b6578">Every purchase order and store run, from issue to paid; claims, returns and credits sit on the order they came from</span>
+        <span style="font-size: 14px; color: #5b6578">Every purchase order, from draft to paid; claims, returns and credits sit on the order they came from. Store runs join as orders with P5; until then their receipts are in Quotes</span>
       </div>
       <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #172033">Ask About Orders</button>
       <button type="button" aria-label="New purchase order" style="width: 44px; height: 40px; border-radius: 10px; border: 1px solid #c9d1e0; background: #fff; color: #172033; display: flex; align-items: center; justify-content: center">
@@ -83,7 +83,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <section style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
         <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 12px">
           <b style="flex: 1; font-size: 17px">Orders</b>
-          <span style="font-size: 13px; color: #5b6578">Job: All · Vendor: All · Open and received</span>
+          <span style="font-size: 13px; color: #5b6578">Job: All · Vendor: All · Draft, Open, Received, All</span>
         </div>
         <div style="display: grid; grid-template-columns: 110px 130px minmax(0, 1.9fr) 120px 56px 70px 84px 84px 150px; gap: 10px; padding: 8px 18px; font-size: 12px; color: #5b6578; border-bottom: 1px solid #eef1f6">
           <span>Order</span><span>Vendor</span><span>Items and Estimate Line</span><span>Job</span><span>Issued</span><span>Expected</span><span style="text-align: right">Total</span><span style="text-align: right">Paid</span><span>Status</span>
@@ -106,7 +106,7 @@ class Component extends DCLogic {
     const P = this.state.panel;
     const sub = (label, n, href, on) => ({ label, n, has: n > 0, href, bg: on ? '#2a3a5e' : 'transparent', color: on ? '#fff' : '#c5cde0', fw: on ? '600' : '400' });
     const rail = { top: [{ label: 'Today', n: 14 }, { label: 'Tasks', n: 3 }, { label: 'Messages', n: 2 }],
-      sub: [sub('Buy Board', 9, 'DeskBuyBoard.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html', true), sub('Quotes', 0, 'Quotes.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html')] };
+      sub: [sub('Buy Board', 8, 'DeskBuyBoard.dc.html'), sub('Orders', 8, 'DeskOrders.dc.html', true), sub('Quotes', 0, 'Quotes.dc.html'), sub('Deliveries', 3, 'Deliveries.dc.html'), sub('Vendors', 4, 'Vendors.dc.html'), sub('Stock', 1, 'Stock.dc.html')] };
     const R = '#b91c1c', A = '#b45309', G = '#15803d';
     const ln = (rows) => rows.map((r, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0', hasAct: !!r.act }, r));
     const needs = [

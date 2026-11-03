@@ -24,17 +24,17 @@ Buy Board, Quotes, Orders, Deliveries, Vendors, Stock. Each opens on **Needs You
 to the rows), then **Waiting on Someone Else** (each row names who; no number), then the rest one tap down. Job, vendor, trade and document
 are filters, never tabs. Inside a record (a need, an order, a vendor) everything is that record; firm-wide lists are a link at the foot.
 
-**Buy Board** (Needs You 9)
+**Buy Board** (Needs You 8)
 - What: every need not yet ordered (estimate and change-order lines, approved selections, site requests), by the date it must be ordered.
 - Label: Buy Board, the coordinator's word since 10-19.
 - Holds: needs only. Ordered needs move to Deliveries; FF&E's own board, the controller's overview and the job's Materials are this list filtered.
 - Who and why: Chen, many times a day ("what must I buy, and what stops me?"); the PM sees it inside the job's Purchasing tab.
-- First screen: Needs You (acknowledge 1, order today 1, bids 2, marked ordered with no order 2, no price 3); Waiting on Someone Else (submittal 2, decision 1, the PM's material split 4); Later folded.
-- Numbers: 9 = its rows. Today's badge 17 counted late rows that wait on others; those now name who instead.
+- First screen: Needs You (acknowledge 1, bids 2, marked ordered with no order 2, no price 3); On Today's Route (the blue tape, no count: counted once, in the route approval on Deliveries); Waiting on Someone Else (submittal 2, decision 1, the PM's material split 4); Later folded.
+- Numbers: 8 = its rows (9 before the 11-03 pass counted the tape here and on Deliveries). Today's badge 17 counted late rows that wait on others; those now name who instead.
 - The +: Buy From an Estimate or Invoice (job, document, lines), Restock the Warehouse, Blank Need (last, and it asks for the line before approval).
 - From the document too: the estimate's, change order's and invoice's own lines carry Buy These Lines (single or multi-select, phone too; PROCUREMENT_PLAN §6), which opens the same order sheet with every line linked. One order path, two doors.
 - Every row names its estimate or change-order line. A need with none says so as its reason ("No estimate line: link one"); `[ESTIMATE LINE]` in the mock marks the five rows where the build showed only "Material".
-- Phone: cards with labelled Quantity, On Site, Order By; stock and last price on the row; pick lines, then one sticky bar with Ask for Quotes or Order.
+- Phone and desktop: pick lines (check boxes on Needs You rows), then one bar with the count and total of the picked lines and Ask for Quotes or Order. One blue, the safe next step: Ask for Quotes when a picked line has no price or the total is over $2,500 (the Standard's three quotes), the other then reads "Order, With a Reason"; otherwise Order. Order makes one purchase order per vendor and job, each line linked to its estimate line. While the bar shows, the side panel's button is not blue. Phone cards keep labelled Quantity, On Site, Order By; stock and last price on the row.
 
 **Quotes** (Needs You 0 today)
 - What: what things cost: requests out to vendors and subs, and the prices we already know.
@@ -126,7 +126,7 @@ are filters, never tabs. Inside a record (a need, an order, a vendor) everything
 ## 5. Calls I made, and why
 1. **Six pages, not the five on the 11-03 phone menu.** Stock is a different noun (what we own), with its own count-and-move work. Its signals reach the Buy Board row and the Route, but the register needs a home. Fold it if Alan prefers five.
 2. **Issues & Credits folds into Orders** (PROCUREMENT_PLAN §4 had a seventh page). A claim belongs to an order and a vendor; one home.
-3. **Needs You counts only your next taps.** Rows waiting on others say who, with no number (question 7). Hence 9, not today's 17.
+3. **Needs You counts only your next taps.** Rows waiting on others say who, with no number (question 7). Hence 8, not today's 17.
 4. **An ordered need leaves the Buy Board.** Late promises (PO-2026-047, PO-2026-048) live on Deliveries, so one record has one list.
 5. **The price book sits under Quotes,** the page about what things cost, and on every row.
 6. **Menu groups carry no number;** each page does (one style, equal to its rows).
@@ -172,18 +172,32 @@ its rows' sum, not $39K; the W-9 column now agrees with "11 of 12" and the foote
 Order By shows dates, not weekdays ("Tue, passed"); the five "Material" rows are marked `[ESTIMATE LINE]`; "Move the Task" is now
 "Ask the PM to Move It" (the schedule is the PM's); approving tape from stock adds the warehouse stop.
 
-**Must fix before build:**
-1. Desktop multi-select. The desktop Buy Board's check boxes do nothing and there is no picked-lines bar. Build it as on the phone:
-   pick lines, one bar, Ask for Quotes or Order, one order per vendor and job.
-2. One decision, one count. Today's blue tape is counted on the Buy Board (Pick From Stock) and again in the route approval on
-   Deliveries. Rule: an item already on a route counts once, in the route approval; its Buy Board row reads "On today's route"
-   with no count. Re-count the Buy Board and the menu after.
-3. The estimate line on every need. Five needs show only "Material". The build must carry the line or show "No estimate line" as
-   the row's reason (it is a back-end gap, not a label).
-4. Vendors' Paid column. Window Works, Tino, Nemo Tile and Satish show money paid with no W-9; Alberto M Plumbing shows $9,800
-   paid on a bill that "cannot be paid". Re-read the build: if paid, it is a 1099 and backup-withholding gap for the controller's
-   Needs You; if billed, the column is mislabelled.
-5. Committed, Not Yet Billed is computed from payments in the mock. Use bills, through the one "paid" (PROCUREMENT_PLAN P5).
-6. Orders' Draft filter (the old Not Issued tile's home) is missing from the chips.
-7. Store runs as orders do not exist yet; Orders' "every order and store run" is not true until P5. Say so on the page until then.
+**Must fix before build** (11-03 overnight pass: done in the mock-up or left for the build lane)
+1. **Done in mock-up, 11-03.** Desktop multi-select: the check boxes work (state), the picked-lines bar shows the count and the
+   total (at the line budget or the best recent price, with lines that have no price named), Clear, and Ask for Quotes or Order
+   with one blue by the rule above. The phone bar now shows the total and follows the same rule.
+2. **Done in mock-up, 11-03.** The blue tape is counted once, in the route approval on Deliveries. Its Buy Board row sits under
+   On Today's Route with no count (phone and desktop). Buy Board Needs You is 8; the menu, the desktop rails and Orders' rail
+   read 8. Chen's Today (14) was not recounted: whether the build's 14 holds the tape once or twice is for the lane to read.
+3. **Left for the build lane.** The estimate line on every need (back end): five rows still show `[ESTIMATE LINE]`.
+4. **Left for the build lane.** Vendors' Paid column: re-read the build (paid with no W-9 is a 1099 gap for the controller).
+5. **Left for the build lane.** Committed, Not Yet Billed from bills through the one "paid" (PROCUREMENT_PLAN P5).
+6. **Done in mock-up, 11-03.** Orders' Draft filter: Draft, Open, Received, All on the phone (with its empty state, the old Not
+   Issued tile's home) and named on the desktop list's filter line.
+7. **Done in mock-up, 11-03.** Orders says store runs join as orders with P5 (header, and a card on the phone saying where their
+   receipts sit until then).
 
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`. Six pages, no new store.
+
+| Page | Noun (registry key) | Its one list | Queue and counts | New? |
+|---|---|---|---|---|
+| Buy Board | `material` (needs from estimate, CO and selection lines, site requests) | `proc`; `mat` is its job filter | `PRED.toBuy` / `buyNeeds`; Needs You 8; the pick bar is a selection, not a list | No. FF&E's own board, `ovbuy` and the job's Materials fold in as filters |
+| Quotes | RFQ (`DB.rfqs`, `DB.rfqProspects` move to Vendors' Suggested) and the price book (`DB.priceWatch`) | `rfq` | `PRED.rfqPurchasing`, `rfqNoReply`, `rfqLeveledNoNeg` | No |
+| Orders | `po` (`DB.pos`), with claims, returns and credits on the order; store runs (`DB.storeRuns`) join at P5 | `po` | Needs You 8; Owed Back and Over the Order are sums of its rows | No. Issues & Credits (PROCUREMENT_PLAN §4) folds in; no seventh page |
+| Deliveries | `po` lines on their way, promises (`DB.promises`), returns going back, the route | `recv` (`po: {'po', 'recv'}` already) | Needs You 3, the route approval counted here once | No. Projects › Deliveries becomes the job's filter |
+| Vendors | vendor and `coi` (`DB.vendors`) | `vendors` | Needs You 4 | No. Prospects and Sourcing Research become its Suggested filter |
+| Stock | stock item (`DB.stock`, `DB.inventory`) | `inv` | Needs You 1 (reorder point only) | No: an existing noun given its menu home for the coordinator and driver (call 1); add `stock: {'inv'}` to `ONE_PLACE` |
+
+Reasons recorded: Stock keeps its own page because "buying what is in stock" is a named leak and the register needs one home;
+its signal reaches every buying row with no count. The lint should add `stock` and `rfq` to `ONE_PLACE`.

@@ -149,3 +149,22 @@ Decided, reversible, logged in `docs/DECISIONS.md`: Books stays off the owner's 
 
 Must fix before build: the four money definitions in BACKLOG §1.35 (Safe to Spend's set-aside, one job cost, one WIP figure at the close, one billed-ahead and one to-bill), and the bank-detail change's date from its own record. Not rendered by the reviewer (no support.js in the folder); the logic blocks were syntax-checked and run.
 
+**Must fix before build, status (11-03 overnight pass).** All are build-lane items: each is a figure computed from the records
+by one function (BACKLOG §1.35 items 1 to 6), which a mock-up cannot settle; the mock-ups keep their placeholders until then.
+Done in the mock-ups tonight: the owner's rail on `Menu.dc.html` reads Today 16 and Messages 5, the same as Your Day (one number
+across modules). The logic blocks were run with a stand-in renderer and every chip pressed (no errors).
+
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`. Four pages, no new store.
+
+| Page | Noun (registry key) | Its one list | Queue and counts | New? |
+|---|---|---|---|---|
+| Billing | `invoice`, estimate (signed), change order, payment (`DB.payments`) | `billing` (`invoice: {'billing', 'clacct'}` already); the job's Contract and Billing is its job filter | Needs You; Collections reads the same open invoices as Cash › Receivables | No. Client Funds moves to Reports › Cash |
+| Banking | bank and card line (`DB.txns`, `DB.bankFeeds`, `DB.bankImports`, `DB.bankRecons`, `DB.cards`), receipt | `bank` (the controller's `QUEUE` already holds it) | To Review 15 = the rail; one detector (`CATCH`) feeds every flag | No. `spend`, `ovmoney` (Today's Review) and `verify`'s exceptions fold in |
+| Bills and Payroll | `bill` (`DB.bills`, `DB.inbills`), time entry (`DB.time`), payroll run (`DB.payroll`, `DB.payRuns`) | `ap` (`bill: {'ap', 'mapprove'}`; `mapprove` drops out when Approvals is Today's chip) | Needs You 4, To Approve 3 | No. `time` folds in as its time entries |
+| Books | journal and account (`DB.gl`, `DB.accounts`, `DB.periods`), control rules, operating budget (`DB.budgetPlan`) | `gl` | Needs You 4 = the rail | No. `verify` and `budget` fold in; Statements move to Reports |
+
+Reasons recorded: none needed. The lint should add `bankline: {'bank'}` and `journal: {'gl'}` to `ONE_PLACE`, so a sixth
+money-out queue fails (the experts found five).
+
+

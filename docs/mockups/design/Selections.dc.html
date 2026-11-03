@@ -42,6 +42,12 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.color}}; font: inherit; font-size: 14px; font-weight: 600">{{c.label}}</button>
     </sc-for>
   </div>
+  <div style="display: flex; gap: 8px; padding: 8px 16px 4px; flex-wrap: wrap; align-items: center">
+    <span style="font-size: 13px; color: #5b6578; margin-right: 2px">Room</span>
+    <sc-for list="{{roomChips}}" as="rc" hint-placeholder-count="6">
+      <button type="button" onClick="{{rc.pick}}" aria-pressed="{{rc.pressed}}" style="min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid {{rc.border}}; background: {{rc.bg}}; color: {{rc.color}}; font: inherit; font-size: 13px; font-weight: 600">{{rc.label}}</button>
+    </sc-for>
+  </div>
 
   <div style="display: flex; align-items: center; gap: 8px; padding: 14px 16px 8px">
     <span style="font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578">Needs You</span>
@@ -112,7 +118,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1900}}'>
 class Component extends DCLogic {
-  constructor(p) { super(p); this.state = { job: 'All Jobs', all: false, newOpen: false }; }
+  constructor(p) { super(p); this.state = { job: 'All Jobs', room: 'All Rooms', all: false, newOpen: false }; }
   renderVals() {
     const S = this.state;
     const R = '#b91c1c', A = '#b45309', K = '#172033';
@@ -132,14 +138,18 @@ class Component extends DCLogic {
         reasons: [{ t: spec, tone: A }, { t: 'Likely missing: trim kit, filler panels, duct and make-up air.', tone: K }, { t: 'Arrived damaged; Chen has the claim on Orders.', tone: K }] },
       { name: 'Brass centre post, 4 pieces', job: '121 State Street', room: 'Primary bath', spec: 'HAH · BC-4404 · polished brass · House of Antique Hardware', qty: '4 each', cost: '$95', site: '10/19', status: 'At the office', icon: IC.post, border: '#fde68a', act: 'Attach the Spec Sheet',
         reasons: [{ t: spec, tone: A }, { t: 'Likely missing: mounting brackets and clips.', tone: K }] },
-      { name: 'Shower drain, square', job: '121 State Street', room: 'Guest bath', spec: 'Infinity Drain · RG-2-BR · brass · 4" square · Signature Hardware', qty: '1 each', cost: '$108', site: '10/12', status: 'At the office', icon: IC.drain, border: '#fecaca', act: 'Send to the PM to Bill',
+      { name: 'Shower drain, square', job: '121 State Street', room: 'Guest bath', spec: 'Infinity Drain · RG-2-BR · brass · 4" square · Signature Hardware', qty: '1 each', cost: '$108', site: '10/12', status: 'At the office', icon: IC.drain, border: '#fecaca', act: 'Draft the Bill-Back for the PM',
         reasons: [{ t: 'Bought, and on no approved estimate line: the Kleins have not agreed to pay for it.', tone: R }, { t: spec, tone: A }, { t: 'Likely missing: grout, thinset, waterproofing, trim or edge profile.', tone: K }] }
     ];
     const OTHERS = [
       { name: 'Wall-mount lavatory faucet, cross handles', job: '121 State Street', room: 'Primary bath', money: '2 each at $1,180', who: 'Alberto M Plumbing', why: 'submittal 22 40 00-001 to resubmit; order by 8/13 has passed and the site date is 11/16.' },
       { name: 'Solid brass door knob set, privacy', job: '121 State Street', room: 'Whole house', money: '14 each at $268', who: 'the Kleins', why: 'approval, order by 11/20.' }
     ];
-    const ok = (r) => S.job === 'All Jobs' || r.job === S.job;
+    const ok = (r) => (S.job === 'All Jobs' || r.job === S.job) && (S.room === 'All Rooms' || r.room === S.room);
+    const roomChips = ['All Rooms', 'Kitchen', 'Primary bath', 'Parlor', 'Guest bath', 'Whole house'].map((label) => {
+      const on = S.room === label;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#172033' : '#fff', color: on ? '#fff' : '#172033', border: on ? '#172033' : '#c9d1e0', pick: () => this.setState({ room: label }) };
+    });
     const mineRows = MINE.filter(ok);
     const mine = mineRows.map((s) => Object.assign({}, s));
     const others = OTHERS.filter(ok).map((o, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, o));
@@ -160,7 +170,7 @@ class Component extends DCLogic {
       { t: 'From a Spec Sheet or Photo', s: 'The PDF or photo is read and filed on the item' },
       { t: 'Choose From Past Jobs', s: 'What we specified before, with what it really cost' }
     ];
-    return { chips, mine, mineCount: mineRows.length, hasMine: mineRows.length > 0, noMine: mineRows.length === 0, others, rooms,
+    return { chips, roomChips, mine, mineCount: mineRows.length, hasMine: mineRows.length > 0, noMine: mineRows.length === 0, others, rooms,
       allOpen: !!S.all, allExpanded: S.all ? 'true' : 'false', allLabel: S.all ? 'Hide Every Selection' : 'Show Every Selection, by Room', toggleAll: () => this.setState({ all: !S.all }),
       newOpen, newItems, newFor: S.job === 'All Jobs' ? 'a job you pick first' : S.job, newExpanded: newOpen ? 'true' : 'false', newBg: newOpen ? '#2a3a5e' : 'transparent', toggleNew: () => this.setState({ newOpen: !newOpen }) };
   }

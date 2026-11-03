@@ -29,7 +29,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <div style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: #1b2640; font-size: 15px; font-weight: 600">Design</div>
       <div style="display: flex; flex-direction: column; padding: 2px 0 6px 20px">
         <a href="DeskSelections.dc.html" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; color: #c5cde0; text-decoration: none"><span style="flex: 1">Selections</span><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">6</span></a>
-        <a href="DeskDrawings.dc.html" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: #2a3a5e; font-size: 14px; font-weight: 600; color: #fff; text-decoration: none"><span style="flex: 1">Drawings</span><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">8</span></a>
+        <a href="DeskDrawings.dc.html" style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; background: #2a3a5e; font-size: 14px; font-weight: 600; color: #fff; text-decoration: none"><span style="flex: 1">Drawings</span><span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{needN}}</span></a>
       </div>
       <a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; color: #e5e9f2; text-decoration: none; font-size: 15px">Clients</a>
     </div>
@@ -57,7 +57,7 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <div style="background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
           <div style="padding: 12px 18px; border-bottom: 1px solid #eef1f6; display: flex; align-items: center; gap: 10px">
             <b style="font-size: 17px">Needs You</b>
-            <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">8</span>
+            <span style="min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{needN}}</span>
             <span style="flex: 1"></span><span style="font-size: 13px; color: #5b6578">Every job; what the field is waiting on first</span>
           </div>
           <sc-for list="{{needs}}" as="n" hint-placeholder-count="8">
@@ -118,13 +118,13 @@ class Component extends DCLogic {
     const S = this.state;
     const R = '#b91c1c', A = '#b45309', G = '#15803d', B = '#1d4ed8';
     const sec = (act) => ({ act, hasAct: !!act, btnBorder: '1px solid #c9d1e0', btnBg: '#fff', btnColor: '#172033' });
+    // Needs You counts what waits on you, one row each, in one unit (a thing to do); each row names what it covers.
     const re = (sheet, title) => Object.assign({ kind: 'TO RE-ISSUE · 45 CRANBERRY', tone: A, title: sheet + ' · ' + title, why: 'Kitchen rear wall 14\'-6" to 13\'-6"; the field still has the old sheet' }, sec(''));
     const needs = [
       Object.assign({ kind: 'FIELD QUESTION · BY 9/4', tone: R, title: 'Exposed-beam ceiling: 3" drop or 2"? (121 State Street, A-301 Rev 2)', why: 'Angel, 27 hours ago. Satish needs it to set the cans; holds Framing & blocking – garden bedroom.' },
         { act: 'Answer Angel', hasAct: true, btnBorder: '0', btnBg: '#2563eb', btnColor: '#fff' }),
-      Object.assign(re('L-101', 'Rear elevation — windows'), sec('Re-Issue All 6')),
-      re('A-101', 'Garden floor plan'), re('A-201', 'Kitchen plan & elevations'), re('A-501', 'Millwork elevations — kitchen'), re('FF-01', 'Kitchen appliance & fixture schedule'), re('S-101', 'Framing plan — garden'),
-      Object.assign({ kind: 'ROOMS NOT MEASURED', tone: A, title: '140 Prospect Place — design: 11 rooms on listing dimensions', why: 'DD, the set issue and fabrication orders wait for the survey, 9/22' }, sec('Survey Checklist'))
+      Object.assign({ kind: 'TO RE-ISSUE · 6 SHEETS', tone: A, title: '45 Cranberry St — design: re-issue L-101, A-101, A-201, A-501, FF-01 and S-101', why: 'Kitchen rear wall moved 14\'-6" to 13\'-6"; the field builds from the old sheets until they go out. One re-issue, counted once.' }, sec('Re-Issue the 6 Sheets')),
+      Object.assign({ kind: 'ONE SURVEY · 11 ROOMS', tone: A, title: '140 Prospect Place — design: 11 rooms on listing dimensions', why: 'DD, the set issue and fabrication orders wait for the survey, 9/22' }, sec('Survey Checklist'))
     ].map((n, i) => Object.assign({ line: i ? '1px solid #eef1f6' : '0' }, n));
     const SH = [
       ['SK-3', 'RFI 3 sketch — garden bath joist sistering', 'Construction Documents', 'A', 'ISSUED FOR CONSTRUCTION', '9/3', 'Sister the two notched joists with LVL; no change to the filed plan', 'Angel 9/3, 7:40 AM', G],
@@ -144,7 +144,7 @@ class Component extends DCLogic {
     const jobChips = ['121 State Street', '45 Cranberry St — design', '140 Prospect Place — design'].map(chip);
     const check = (is121 ? [['Found in the field', '1'], ['Days to resolve', '3.8'], ['Open conflicts', '0'], ['Last run', 'not run on this job yet']] : [['Found in the field', '[N]'], ['Days to resolve', '[N]'], ['Open conflicts', '[N]'], ['Last run', '[DATE]']])
       .map((c, i) => ({ k: c[0], v: c[1], line: i ? '1px solid #eef1f6' : '0' }));
-    return { needs, jobChips, sheets, check, job: S.job.replace(' — design', ''), more: is121 ? '9 of the 17 current sheets, newest first. Show All, or group By Room (10 rooms, each with its sheets and whether it is measured).' : '' };
+    return { needs, needN: needs.length, jobChips, sheets, check, job: S.job.replace(' — design', ''), more: is121 ? '9 of the 17 current sheets, newest first. Show All, or group By Room (10 rooms, each with its sheets and whether it is measured).' : '' };
   }
 }
 </script>

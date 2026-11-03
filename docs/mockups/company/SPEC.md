@@ -150,10 +150,36 @@ Verdict: **build after the must-fix list below.**
 Calls made (DECISIONS 11-03): the label is "Insurance and Licenses" (the build's own spelling); the PM gets his own Team entry
 and login; client mail to someone with no login goes to the job's PM.
 
-**Must fix before build**
-1. One headcount: Team, the hub, Tasks › Team and Your Data read the same number of people from one list (14 with the PM).
-2. Every login has a Team record, and no two people share a phone or email (Controller and Alberto share (917) 555-0105, Billing
-   and Angel (917) 555-0104): a text to the crew must never reach the books (BACKLOG §10).
-3. Draw the desktop for Team and the person page (limits and rules are edited at a desk).
-4. Design gate: person, lesson (one Brain list), obligation (renamed, firm-only; vendor certificates stay on the vendor) and
-   assistant rule (four places fold into one, on the person). No new store. Confirm against BACKLOG §1.16.
+**Must fix before build** (11-03 overnight pass: done in the mock-up or left for the build lane)
+1. **Done in mock-up, 11-03.** One headcount, 14, read from the demo (13 on the build's Team page plus Alan, the PM, who has a
+   login and 10 tasks but no Team record): Team's header, the hub row, Your Data in Company Settings and the foot of Tasks ›
+   Team ("14 people with Alan; 10 have open tasks", the other 4 named) all say 14. "4 of 9" is gone with the load column on
+   Tasks. Build: every headcount reads the one people list (BACKLOG §10 item 8).
+2. **Left for the build lane, recorded as a data defect below.** Every login has a Team record; phone and email unique.
+3. **Left open.** The desktop Team and person page are not drawn yet (limits and rules are edited at a desk). Draw before the
+   Company lane starts, or the lane draws them first and the chief of staff reviews.
+4. **Done in the spec, 11-03** (section 9 below); the lane confirms each entry against `tests/ia_map.py` before it starts.
+
+**Data defects in the demo (shown as the records hold them; not fixed in the mock):**
+
+| Defect | Records | Why it matters | Class fix and check |
+|---|---|---|---|
+| Two people share a phone number | Controller and Alberto both (917) 555-0105; Billing and Angel both (917) 555-0104 | A text to the crew reaches the books, and a call from the controller's phone is matched to Alberto | BACKLOG §10 item 8: phone and email unique across the one people list; a data lint fails on a duplicate |
+| A login with no person | `u_alan` (the PM): login, 10 open tasks, no Team record | Nobody can pick him as an owner or see his phone; the headcount reads 13 or 14 | §10 item 8: every login points at a person |
+| A person with no contact | Design director, Jeanette, Maya, Lena: no phone or email; Satish no email | Client mail to Jeanette reaches the owner; nobody can text four of them | Team's Needs You row (drawn); the build adds Jeanette's login or routes her mail to the PM (DECISIONS 11-03) |
+
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`. No new store.
+
+| Page | Noun (registry key) | Its one list | Queue and counts | New? |
+|---|---|---|---|---|
+| Hub | none: rows link to the pages below | the Company and Settings menu entry (`MENU`, `ROLE_VIEWS`) | each row's count is its page's Needs You | No. `ovoffice` folds into the hub; `setup` too |
+| Team, a person | person (`DB.users` and `DB.employees` read as one list; add `person: {'team'}`) | `team`; the person page is a record page | load per person shows here only (Tasks › Team carries none) | No. Assistant rules (four places today: The Brain, `conn`, `proj`, Plugins) fold into the person, read from `DB.asst[uid]` |
+| The Brain | lesson and system change (`DB.lessons`, `DB.changes`, `DB.brainQueue`; add `lesson: {'pa'}`) | `pa`, as The Brain | To Approve 17 equals its rows, the hub and Today's line; a proposal keyed by its events (BACKLOG §10 item 2) | No. Meetings' Changes and What We Are Learning fold in |
+| Insurance and Licenses | obligation (`DB.obligations`), firm-only | `obligations`, renamed | Needs You 4; vendor certificates stay `coi: {'vendors', ...}` | No: a rename and a filter |
+| Connections | integration (`DB.integrations`, `DB.conn`, `DB.bankFeeds`) | `conn` | no badge; reconciling stays in `bank` | No |
+| The SmartDesign Standard | the Standard (`DB.company.standard`) | `standard` | Open Today 14 equals its rows | No. The Sales playbook folds in as a role section |
+| Company Settings | company settings (`DB.company`) | `proj` | none | No. `hbsettings`, `rdata`, `rpbox` fold in as rows |
+
+Reasons recorded: none needed. The lint should add `person`, `lesson` and `obligation` to `ONE_PLACE` so a second people list
+or lessons list fails.

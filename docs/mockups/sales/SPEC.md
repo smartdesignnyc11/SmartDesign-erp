@@ -32,8 +32,10 @@ Next Step 3" reads "3 past their date"; Stalled 1 (14 days) against "Gone Quiet 
 3. Each deal lives here once; Today shows its next step, the client page shows the client's deals.
 4. The owner (he sells); the PM and coordinator see it read-only. "Which deal is slipping, and what do I do next?"
 5. Not a record page; each row opens the deal.
-6. Need You (next step past its date, or no touch in 14 days), then On Track; How Sales Is Going one tap down.
-7. Need You 3 equals its rows and Today's "Deals That Need You"; the menu group shows no badge, as approved 11-03.
+6. Need You (next step past its date, no touch in 14 days, or signed with no job set up), then On Track; How Sales Is
+   Going one tap down.
+7. Need You 4 equals its rows and Today's "Deals That Need You" (and each is a row on Today); the menu group shows no badge,
+   as approved 11-03.
 8. One + : Lead from a Mail (filled, duplicate check shown) or Lead, Typed In.
 9. One row per deal, the value labelled by its stage, 44px buttons; the desktop board is not drawn on the phone.
 10. One page with three chips (Need You, All Open, Won and Lost) and a fold, replacing Sales, Numbers, Forecast, Dashboard
@@ -146,12 +148,28 @@ CO-2026-002 and INV-2026-038, not "INV-003"; the deal's Set Up the Job copy no l
 
 Calls made (DECISIONS 11-03): Estimates leaves the Sales menu, reversibly, flagged for Alan in the morning.
 
-**Must fix before build**
-1. Need You adds "signed, no job set up": the Nakamuras signed 7/25, 40 days ago; whether their deposit invoice went is not read.
-   Pipeline, Today's Deals That Need You and Today's rows all move to 4.
-2. Billed gross, retainage and net tie to the cent ($238,015 + $15,668 = $253,683, not $253,684), from one function (BACKLOG §10).
-3. The "Design Agreement" stage reads as signed; the Lindqvists' next step is to write the design proposal. Rename the stage
-   "Design Proposal" (Alan's "add Proposals") so no stage name implies a signature before Signed.
-4. Old `billing` links from Sales land on Pipeline › Proposals Out, which lists each estimate with its deal.
-5. Design gate: deal, client and contact are existing nouns; People and Companies fold into the client, partner or vendor they
-   belong to (no second contact list); a partner is a kind of company, not a new store. Confirm against BACKLOG §1.16.
+**Must fix before build** (11-03 overnight pass: done in the mock-up or left for the build lane)
+1. **Done in mock-up, 11-03.** Need You adds "signed, no job set up": the Nakamuras (signed 7/25, 40 days) are the first row
+   on the Pipeline (phone and desktop, blue Set Up the Job), a row on Today, and Today's Deals That Need You reads 4; the
+   Pipeline, the tile and Today move together. Whether their deposit invoice went is still not read: the build reads it.
+2. **Left for the build lane.** Billed gross, retainage and net tie to the cent from one function (BACKLOG §10 item 5); the mock
+   cannot say whether gross is $253,683 or $253,684 until the records are summed.
+3. **Done in mock-up, 11-03.** The stage is "Design Proposal" on the Pipeline, the desktop board, the Clients row and Company
+   Settings' proposed stages. The build renames the stage in the pipeline's settings and its stored deals.
+4. **Left for the build lane** (routing): old `billing` links from Sales land on Pipeline › Proposals Out (drawn on
+   `DeskPipeline.dc.html`), each estimate with its deal.
+5. **Done in the spec, 11-03** (section 9 below); the lane confirms each entry against `tests/ia_map.py` before it starts.
+
+## 9. Registry (BACKLOG §1.16): what each page extends
+The registry is `ONE_PLACE`, `QUEUE` and `CONTEXT_OK` in `tests/ia_map.py`, with counts named in `PRED`.
+
+| Page | Noun (registry key) | Its one list | Queue and counts | New? |
+|---|---|---|---|---|
+| Pipeline | deal (`DB.deals`, `DB.leads`; add `deal: {'ovsales'}` to `ONE_PLACE`) | `ovsales`, renamed Pipeline | Need You is one predicate read by the Pipeline, its tile and Today's Deals That Need You (BACKLOG §10 item 1(b)); a deal's next step is a link to its open `task`, never a copied date | No. `salesnum`, `hbforecast`, `hbdash` fold into its How Sales Is Going fold; `partners`' figures too |
+| Clients | client (`DB.clients`) and partner (a kind of company, `DB.partners` read as a filter) | `clients` | Need You: a client waiting on us, money past due, a stranger writing as a client (§10 item 4's "Who Is This?") | No. `hbcontacts` and `hbcompanies` fold into the record each person belongs to; ⌘K finds anyone |
+| A client | client | the record page `openclient:<id>`; its tabs are filters of `invoice` (`billing`, `clacct`), `inbox` / message thread, `decision` (`dec`) | Waiting on Us, Waiting on Them, They Owe, Left to Bill: each equals its rows | No |
+| A deal | deal | the record page; the close plan is the deal's `task` rows | its next step | No |
+| Estimates | estimate | stays in `billing` (the job's Contract and Billing) and the deal; Proposals Out is a filter, not a list | Proposals Out tile | No: the menu item leaves (reversible, flagged for Alan) |
+
+Reasons recorded: none needed, nothing new. The structure lint should add `deal` and `client` to `ONE_PLACE`; today they
+are unregistered, so a second deal list would not fail.

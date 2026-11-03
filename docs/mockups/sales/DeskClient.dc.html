@@ -135,7 +135,7 @@ class Component extends DCLogic {
   constructor(p) { super(p); this.state = { tab: 'Overview', newOpen: false }; }
   renderVals() {
     const RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033', T = this.state.tab;
-    const rail = { top: [{ label: 'Today', n: 12, has: true }, { label: 'Tasks', n: 0, has: false }, { label: 'Messages', n: 5, has: true }], work: ['Accounting', 'Design', 'Reports'] };
+    const rail = { top: [{ label: 'Today', n: 16, has: true }, { label: 'Tasks', n: 0, has: false }, { label: 'Messages', n: 5, has: true }], work: ['Accounting', 'Design', 'Reports'] };
     const tabs = ['Overview', 'Contract and Billing', 'Messages'].map((l) => ({ label: l, sel: T === l ? 'true' : 'false', color: T === l ? INK : MUTE, fw: T === l ? '700' : '500', line: T === l ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
     const tiles = [
       { k: 'Waiting on Us', v: '2', sub: 'Sarah’s mail of 9/2 · the agent’s call about Friday’s delivery', tone: RED, border: '#fecaca' },
