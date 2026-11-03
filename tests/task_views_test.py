@@ -696,7 +696,8 @@ async def polish(c, p):
                     c.ok(not r['has'], f'{uid}: the field menu has no Tasks entry')
                 else:
                     c.ok(r['under'] and r['label'] == 'Tasks' and r['view'] == 'tkall' and r['lit'], f'{uid}: Tasks sits under Today and opens the one list ({r})')
-                    c.ok(r['n'] == r['want'], f'{uid}: the Tasks badge is the one Tasks number, their Due Soon ({r["n"]} vs {r["want"]})')
+                    # the Your Day mock-up (11-03): Tasks carries no number in the menu; Today counts what is due
+                    c.ok(r['n'] == 0, f'{uid}: the Tasks entry carries no number (Today counts what is due) ({r["n"]})')
         await b.close()
     # the phone: Tasks in the menu drawer, and Meeting Mode's eight actions on the first screen with the toast above Next
     b, pg, errs = await open_app(p, True)
@@ -798,7 +799,8 @@ async def match(c, p):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
           return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")
-        c.ok(t['i'] == at and t['n'] == t['want'], f'mockup 390: {uid} has Tasks in the bar at {at} with the one Tasks badge ({t})')
+        # (the Your Day mock-up: the bar's Tasks carries no number either, as the menu's)
+        c.ok(t['i'] == at and t['n'] == 0, f'mockup 390: {uid} has Tasks in the bar at {at}, with no number ({t})')
     # the quick add: invented sentences, filled in by the rules; the fourth names its job by part of its address (the
     # whole phrase leaves the title: taskfix #13)
     await sign_in(pg, 'u_chen'); await go(pg, 'tkall')

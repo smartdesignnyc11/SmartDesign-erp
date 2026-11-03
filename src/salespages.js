@@ -187,7 +187,9 @@ function slDealRow(l, sec, o) {
     late: o.late != null ? o.late : late,
     act: slMayEdit() ? o.act || "Open" : "",
     primary: !!o.primary,
-    run: o.run || (() => slOpenDeal(l.id)),
+    // a lead not yet qualified opens as the lead it is (its own record: Convert to Opportunity, Unqualify); a deal opens
+    // its page
+    run: o.run || (() => ("inquiry" === l.stage && "function" == typeof scOpen ? scOpen(l.id) : slOpenDeal(l.id))),
   };
 }
 function slPipelineRows() {
@@ -225,7 +227,8 @@ function slPipelineRows() {
   return rows;
 }
 function slPipelineRender() {
-  const on = "ovsales" === view && ydOffice();
+  // a deal's or a lead's full record open on the page (hbOpen) is shown as it is: the Pipeline steps aside until it closes
+  const on = "ovsales" === view && ydOffice() && !("undefined" != typeof hbOpenId && hbOpenId && hbOpenId.deal);
   const h = ydHost("ovsales", on);
   if (!on || !h) return;
   try {
@@ -377,8 +380,11 @@ function slClientsRender() {
 // ---- a client's page -----------------------------------------------------------------------------------------------
 let slClTab = "overview",
   slClNewOpen = !1;
+// the client's billing record as it was (its Billing tab: New Invoice, progress and deposit invoices, change orders),
+// one tap from Contract and Billing
+let slClOld = !1;
 function slOpenClient(id) {
-  (clientOpen = id), (docOpen = null), (slClNewOpen = !1);
+  (clientOpen = id), (docOpen = null), (slClNewOpen = !1), (slClOld = !1);
   slClTab = "billing" === role() ? "billing" : "overview";
   setView("clients");
 }
@@ -432,7 +438,7 @@ function slClientParts(c) {
   return { P: P, us: us, them: them };
 }
 function slClientRender() {
-  const on = "clients" === view && ydOffice() && !!clientOpen && !docOpen;
+  const on = "clients" === view && ydOffice() && !!clientOpen && !docOpen && !slClOld;
   if (!on) return;
   const c = (DB.clients || []).find((x) => x.id === clientOpen);
   if (!c) return;
@@ -500,7 +506,7 @@ function slClientRender() {
     });
     (c.payments || []).forEach((p) => docs.push({ id: "d:pay:" + p.id, sec: "doc", title: `Payment${p.method ? `, ${p.method}` : ""}`, meta: p.date ? fmt(p.date) : "", amt: ydMoney0(p.amount), act: "", run: () => null }));
     docs.forEach((r) => ydAct(r.id, r.run));
-    body = `<section class="yd-card"><div class="yd-sh"><h3>The Contract</h3></div>${kv.map(([k, v, s]) => ydKv(k, v, s)).join("")}</section>${ydSectionHtml("Documents", docs.length, "estimates, change orders, invoices and payments", docs, "No documents yet.")}`;
+    body = `<div class="yd-ph"><button type="button" class="btn" data-ydclold>Billing Record</button><span class="small muted">new invoices, progress and deposit invoices, change orders and payments start there</span></div><section class="yd-card"><div class="yd-sh"><h3>The Contract</h3></div>${kv.map(([k, v, s]) => ydKv(k, v, s)).join("")}</section>${ydSectionHtml("Documents", docs.length, "estimates, change orders, invoices and payments", docs, "No documents yet.")}`;
     void pay;
   } else {
     const mine = (DB.comms || []).filter((m) => {
@@ -590,6 +596,7 @@ function slDealRender() {
   const late = n.due && n.due < td;
   const body = `<div class="yd-host"><div class="yd-ph"><button type="button" class="yd-back" data-ydgo="ovsales" aria-label="Back to the Pipeline">${ydSvg("back")}${phone ? "" : "Pipeline"}</button></div>
   <div class="yd-ph"><div class="grow"><h2>${esc(l.name)}</h2><div class="yd-sub">${esc([SL_LABEL[l.stage] || l.stage, ydMoney0(l.value || 0), l.addr, l.source].filter(Boolean).join(" · "))}</div></div></div>
+  ${edit ? `<div class="yd-ph"><button type="button" class="btn" data-ydrecord="${esc(l.id)}">Open the Full Record</button><span class="small muted">notes, stage, close as won or lost</span></div>` : ""}
   <section class="yd-card"><div class="yd-sh"><h3>Next Step</h3></div><div class="yd-row" data-ydrow="next"><span class="yd-t"><b>${esc("won" === l.stage && !job ? "Set up the job: nothing can be bought or billed until it exists" : n.title)}</b><span>${esc(n.task ? `${n.task.code ? n.task.code + " · " : ""}due ${fmt(n.due)}${n.task.owner ? " · " + n.task.owner : ""}` : slIsOpen(l) ? "No open task on this deal" : "")}</span></span>${n.due ? `<span class="yd-when${late ? " late" : ""}">${esc(late ? `${dayDiff(n.due, td)} days late` : ydWhen(n.due))}</span>` : ""}${act && edit ? `<button type="button" class="btn primary" data-ydact="next">${esc(act)}</button>` : ""}</div></section>
   <section class="yd-card"><div class="yd-sh"><h3>Road to Signed</h3><span class="note">Set Up the Job comes before Won</span></div>${road.map((x) => ydKv(`${x.done ? "Done: " : ""}${x.k}`, x.at ? fmt(String(x.at).slice(0, 10)) : "", x.who ? `by ${x.who}` : "")).join("")}</section>
   <section class="yd-card"><div class="yd-sh"><h3>The Proposal</h3></div>${l.proposal && l.proposal.sentAt ? ydKv("Sent", fmt(l.proposal.sentAt)) : ydKv("Not sent yet", "")}${ydKv("Estimate", c && (c.estimates || []).length ? (c.estimates || []).map((e) => e.number).join(", ") : "No estimate linked yet")}${c ? ydKv("Client record", c.name) : ydKv("Client record", "none on file yet")}</section>
@@ -620,10 +627,15 @@ function slForward() {
   if (!ydOffice()) return;
   const v = view;
   if (["salesnum", "hbforecast", "hbdash"].includes(v) && ydMay("ovsales")) return (view = "ovsales"), (slChip = "need"), (slNumsOpen = !0);
+  // a record opened on purpose (a deal's or a lead's full record, a person's, a company's) stays; the old lists land here
+  const rec = (o) => "undefined" != typeof hbOpenId && hbOpenId && hbOpenId[o];
+  if ("hbdeals" === v && rec("deal")) return;
+  if ("scleads" === v && "undefined" != typeof scOpenId && scOpenId) return;
   if (["hbdeals", "hbquotes", "hbsequences", "hbworkspace", "hbplaybooks", "scleads"].includes(v) && ydMay("ovsales")) return (view = "ovsales");
   // the Playbook is the Standard's Sales playbook section: the document, under the Standard
   if ("playbook" === v && ydMay("standard")) return (view = "standard"), (ydStdChip = "doc");
   if ("partners" === v && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "partners");
+  if (("hbcontacts" === v && rec("contact")) || ("hbcompanies" === v && rec("company"))) return;
   if (["hbcontacts", "hbcompanies"].includes(v) && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "all");
   if ("billing" === v && !YD_ESTIMATES_IN_MENU && "sales" === mnLastGrp && ydMay("ovsales")) return (view = "ovsales"), (slChip = "props"), (mnLastGrp = "sales");
 }
@@ -643,7 +655,8 @@ function slForward() {
       slClientRender();
       slDealRender();
       // a client's page and the Clients list share the view: the host belongs to whichever is on
-      "clients" === view && docOpen && ydHost("clients", !1);
+      "clients" === view && (docOpen || (clientOpen && slClOld)) && ydHost("clients", !1);
+      ("clients" !== view || !clientOpen) && (slClOld = !1);
       document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === "v-" + view));
     } catch (e) {
       console.warn("sales", e);
@@ -687,9 +700,15 @@ document.addEventListener(
       const nc = document.getElementById("btn-newclient");
       return void (nc ? nc.click() : "function" == typeof openClientEditor ? openClientEditor("client") : null);
     }
-    if ((b = at("[data-ydclback]"))) return e.preventDefault(), (clientOpen = null), (docOpen = null), void render();
+    if ((b = at("[data-ydclback]"))) return e.preventDefault(), (clientOpen = null), (docOpen = null), (slClOld = !1), void render();
+    if ((b = at("[data-ydclold]"))) return e.preventDefault(), (slClOld = !0), (clientTab = "fin"), (finTab = "invoices"), void render();
     if ((b = at("#yd-clients [data-ydtab]"))) return e.preventDefault(), (slClTab = b.dataset.ydtab), void render();
     if ((b = at("[data-ydgo]"))) return e.preventDefault(), void setView(b.dataset.ydgo);
+    if ((b = at("[data-ydrecord]"))) {
+      e.preventDefault();
+      const l = (DB.leads || []).find((x) => x.id === b.dataset.ydrecord);
+      return void (l && ("inquiry" === l.stage && "function" == typeof scOpen ? scOpen(l.id) : "function" == typeof hbOpen ? (hbOpen("deal", l.id), render()) : null));
+    }
     if ((b = at("[data-ydtile]"))) {
       e.preventDefault();
       const k = b.dataset.ydtile;

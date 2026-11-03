@@ -105,14 +105,16 @@ async def sec_fold(p, c):
     nav = await pg.evaluate("() => ({ ia: IA_GROUPS.flatMap(g => g.views), nav: (typeof NAV_GROUPS !== 'undefined' ? NAV_GROUPS : []).flatMap(g => g.views), rv: ['cos', 'brain', 'pa'].map(v => ROLE_VIEWS.owner.includes(v)) })")
     c.ok('cos' not in nav['ia'] and 'brain' not in nav['ia'] and 'cos' not in nav['nav'] and 'brain' not in nav['nav'], 'the nav has no Chief of Staff or The Brain entries of their own')
     c.ok(all(nav['rv']), f"the old ids stay openable (they redirect): {nav['rv']}")
+    # the Your Day and Company mock-ups (11-03): the Chief of Staff is no page of its own; its findings are Today's rows,
+    # so an old link lands on Today, and Every Chain stays a part of Ask's Findings tab, under Ask's heading
     await go(pg, 'cos')
+    c.ok(await pg.evaluate("() => view") == 'home', "'cos' lands on Today (the Chief of Staff's findings are Today's rows)")
+    await pg.evaluate("() => paOpen('findings', 'chains')"); await pg.wait_for_timeout(250)
     r = await pg.evaluate("() => ({ view, tab: paTab, seg: paFindSeg, h: document.querySelector('.view.on h2').textContent, t: document.querySelector('.view.on').innerText, n: document.querySelectorAll('#cos-body').length, inPa: !!document.querySelector('#v-pa #cos-body') })")
-    c.ok(r['view'] == 'pa' and r['tab'] == 'findings' and r['seg'] == 'chains', f"'cos' opens the assistant's Findings › Every Chain: {r['view']} {r['tab']} {r['seg']}")
+    c.ok(r['view'] == 'pa' and r['tab'] == 'findings' and r['seg'] == 'chains', f"Ask's Findings › Every Chain opens: {r['view']} {r['tab']} {r['seg']}")
     c.ok(r['n'] == 1 and r['inPa'] and 'bank items not yet matched' in r['t'], "the Chief of Staff's pass draws inside the tab, once")
-    # the Company mock-up (11-03): the menu has no Chief of Staff entry (its findings are Today's rows); the tab under Ask
-    # keeps its heading and lights no other entry
-    want = await pg.evaluate("() => { const b = document.querySelector('#subnav .sub-tabs button.on') || document.querySelector('#nav-groups button.on'); return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : ''; }")
-    c.ok(r['h'] == 'Chief of Staff' and want in ('', 'Chief of Staff'), f"one page heading, no other lit entry: {r['h']!r} vs {want!r}")
+    lit = await pg.evaluate("() => !!document.querySelector('#tb-ask.on')")
+    c.ok(r['h'] == await pg.evaluate("() => IA_LABELS.pa || 'Ask'") and lit, f"one page heading, Ask's, with Ask lit: {r['h']!r} (Ask lit {lit})")
     # The Brain is its own page under Company and Settings (the Company mock-up); Brain Settings stays a tab of Ask
     await go(pg, 'brain')
     r = await pg.evaluate("() => ({ view, page: !!document.querySelector('#yd-brain [data-ydchip=\"need\"]') })")

@@ -506,6 +506,9 @@ function ydHubRender() {
   } catch (e) {}
   // The Brain is its own page again (the assistant opened it as a tab of Ask)
   "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.brain;
+  // the Chief of Staff is no menu entry: its old link lands on Today (src/yourday.js), and Ask's Findings tab keeps
+  // Every Chain under Ask's own heading
+  "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.cos;
   // Messages to Clients never act alone (DECISIONS 11-03)
   try {
     const t = paType("clientMessages");

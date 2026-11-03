@@ -638,7 +638,8 @@ def inquiry_to_won(p, subject, client, value, close, note=None):
     """the owner: an inquiry mail becomes a lead (the app's own proposal from the mail), an opportunity (with the walk-through
     noted on it, when there is one), then won"""
     p.go('Messages')
-    p.tap('Mail', kinds=('tab',))
+    # the Your Day mock-up (11-03): Messages is one list (Needs an Answer, All, Meetings); a mail is a row of All
+    p.tap('All', exact=True)
     p.tap_row(subject, expect='New lead')
     p.tap('Apply', after='New lead', expect='New Lead from This Message')
     p.do([('type', 'Name', client), ('pick', 'Building', 'Townhouse'), ('type', 'Due', '2026-09-04'), ('tap', 'New Lead')])
@@ -731,8 +732,12 @@ def x1_owner_proposal_first(p):
              f'Project = "{f.value if f else ""}", options {{{"|".join(f.opts) if f else ""}}}')
     num = (re.findall(r'EST-\d{4}-\d+', p.scr.text) or [''])[0]
     new_project(p, PROBE['job'], PROBE['addr'], JOB['start'], PROBE['client'])
-    p.go('Sales and Clients > Estimates')   # the 11-03 menu: the firm's Estimates under Sales and Clients
-    p.tap_row(num or PROBE['client'], after='Search', expect='Estimate EST-')
+    # the Sales mock-up (11-03, Estimates off the Sales menu, flagged for Alan): a proposal is found on the Pipeline's
+    # Proposals Out, each estimate with its deal, one fold down under How Sales Is Going
+    p.go('Sales and Clients > Pipeline')
+    p.tap('How Sales Is Going', exact=True)
+    p.tap('Proposals Out', exact=True)
+    p.tap_row(num or PROBE['client'], expect='Estimate EST-')
     f = header_field(p, 'Project')
     p.expect(f is not None and norm(f.value) == norm(PROBE['job']), f'{num} shows its job, {PROBE["job"]}, once the job is open', f'Project = "{f.value if f else ""}"')
 
@@ -755,8 +760,10 @@ def probe_tied(w, p=None):
 def open_estimate(p, menu_check=False, create=False):
     """where the PM looks for the Ashbys' estimate: Estimates in the menu; else the job's own Estimates"""
     if menu_check:
-        p.expect(any(norm(re.sub(r'\s+\d+$', '', m)) == 'estimates' for m in p.scr.menu),
-                 'Estimates in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
+        # the Sales mock-up (11-03, flagged for Alan, YD_ESTIMATES_IN_MENU restores it): Estimates leaves the menu; an
+        # estimate lives on its deal (the Pipeline's Proposals Out, under Sales and Clients) and on its job
+        p.expect(any(norm(re.sub(r'\s+\d+$', '', m)) == 'sales and clients' for m in p.scr.menu),
+                 'Sales and Clients (the Pipeline\'s Proposals Out) in the PM\'s menu', 'the menu has: ' + ' · '.join(p.scr.menu))
     open_job(p, 'Contract and Billing')
     p.tap('Estimates', exact=True)
     row = p.look().row('EST-20', after='Documents')
@@ -918,14 +925,15 @@ def record_signature(p):
     """The owner: the Ashbys' signed copy (the world's reply to the estimate that reached them) recorded on the estimate
     with who and when; the contract and the schedule of values from the estimate."""
     p.go('Messages')
-    p.tap('Mail', kinds=('tab',))
+    p.tap('All', exact=True)   # the Your Day mock-up: one list of every conversation
     p.tap_row(': signed', expect='accept it as written')
     num = (re.findall(r'EST-\d{4}-\d+', p.scr.text) or [''])[0]
     p.expect(bool(re.search(r'record (the )?(client )?approval|approved|signed .*EST-|mark .*approved', p.scr.text[p.scr.text.find('accept it as written'):], re.I)),
              f'the signed copy is read as {num} approved, with a proposal to record it (not only a note)',
              p.scr.excerpt('accept it as written', 10))
-    p.go('Sales and Clients > Estimates')   # the 11-03 menu: the firm's Estimates under Sales and Clients
-    p.tap_row(num, after='Search', expect='Estimate EST-')
+    # the Sales mock-up (11-03): an estimate on a job lives on the job's Contract and Billing (Estimates is off the menu)
+    open_job(p, 'Contract and Billing')
+    p.tap_row(num, expect='Estimate EST-')
     if not p.scr.find('Record Client Approval'):
         p.tap('More', exact=True, after='Bill to')
     p.tap('Record Client Approval', expect='How They Approved')
@@ -955,8 +963,12 @@ def deposit_invoice(p):
     p.expect(p.scr.has('Wren & Julian Ashby') or p.scr.has('214 Lincoln'), 'the signed contract\'s deposit waits in Billing\'s queue (Ready to Bill)',
              p.scr.excerpt('Ready', 6))
     p.go('Clients', expect_menu=False)
-    p.tap_row(JOB['client'], after='Search')
-    p.tap('Billing', after=JOB['client'], exact=True)
+    # the Sales mock-up (11-03): Clients opens on Need You; every client is under All; the client's page has Contract
+    # and Billing, and its Billing Record holds the new invoices
+    p.tap('All', exact=True)
+    p.tap_row(JOB['client'])
+    p.tap('Contract and Billing', exact=True)
+    p.tap('Billing Record', exact=True)
     p.expect(bool(p.look().find('Deposit Invoice') or p.scr.find('New Deposit Invoice') or p.scr.find('Bill the Deposit')),
              'a Deposit Invoice from the signed contract (25%, no retainage)', 'only New Invoice: the deposit is typed by hand')
     p.tap('New Invoice', exact=True)
@@ -1006,8 +1018,9 @@ def match_deposit(p, inv, dep):
         return
     # no line on Banking: the invoice's own payment, and whether it offers the bank line
     p.go('Clients', expect_menu=False)
-    p.tap_row(JOB['client'], after='Search')
-    p.tap('Billing', after=JOB['client'], exact=True)
+    p.tap('All', exact=True)   # the Sales mock-up: every client under All
+    p.tap_row(JOB['client'])
+    p.tap('Contract and Billing', exact=True)
     p.tap_row(inv)
     c = p.look().find('Find in Bank') or p.scr.find('Match Payment') or p.scr.find('Record Payment')
     if c is None: raise Stuck(f'record the payment on {inv}', 'Find in Bank or Record Payment on the invoice', p.scr, inv)
@@ -1612,8 +1625,9 @@ JOIST = {'amount': 2400, 'cost': 1600, 'days': 1, 'to_foreman': 'Sister both joi
 def open_co(p, number):
     """the change order's own page: Clients > the Ashbys > Billing > Change Orders > its row"""
     p.go('Clients', expect_menu=False)
-    p.tap_row(JOB['client'], after='Search')
-    p.tap('Billing', after=JOB['client'], exact=True)
+    p.tap('All', exact=True)   # the Sales mock-up: every client under All
+    p.tap_row(JOB['client'])
+    p.tap('Contract and Billing', exact=True)
     c = p.look().find('Change Orders', exact=True)
     if c: p.tap_ctl(c)
     r = p.look().row(number, after='Search') or p.scr.row(number)
@@ -1624,7 +1638,7 @@ def open_co(p, number):
 def open_mail(p, rx, what):
     """a message in the person's Mail, the way they find it: the Mail tab, then Everything when the tab's filter hides it"""
     p.go('Messages')
-    p.tap('Mail', kinds=('tab',))
+    p.tap('All', exact=True)   # the Your Day mock-up: one list of every conversation
     find = lambda: next((p.scr.row(l.strip()) for l in p.scr.text.split('\n') if re.search(rx, l) and not l.strip().startswith('[')), None)
     r = find() if p.look() else None
     if r is None:
@@ -1695,8 +1709,10 @@ def client_billing(p):
     sc = p.go('Clients', expect_menu=False)
     l = sc.find(JOB['client'], kinds=('link',))   # inside one of the Ashbys' documents: its trail leads back to them
     if l: p.tap_ctl(l)
-    elif not (sc.find('Overview', exact=True) and sc.has(JOB['client'])): p.tap_row(JOB['client'], after='Search')
-    p.tap('Billing', after='Overview', exact=True)
+    elif not (sc.find('Overview', exact=True) and sc.has(JOB['client'])): p.tap('All', exact=True); p.tap_row(JOB['client'])
+    # the Sales mock-up (11-03): Contract and Billing, then its Billing Record for a new invoice
+    p.tap('Contract and Billing', exact=True)
+    p.tap('Billing Record', exact=True)
     return p.look()
 
 
@@ -2116,8 +2132,9 @@ def button_findings(sc, rec, where, ctx, page=False):
 # where each role looks for these records: menu label, then the tabs under it (as each role's menu holds them)
 DANGER_SCREENS = {
     # the 11-03 menu: the firm's Estimates under Sales and Clients, Billing under Accounting, Obligations in the foot
-    'u_owner': [('Today',), ('Accounting', 'Bills and Payroll'), ('Sales and Clients', 'Estimates'), ('Company and Settings', 'Obligations'), ('Purchasing', 'Orders')],
-    'u_alan': [('Today',), ('Sales and Clients', 'Estimates'), ('Accounting', 'Billing'), ('Purchasing', 'Orders')],
+    # (the Sales and Company mock-ups, 11-03: Proposals live on the Pipeline; Obligations is Insurance and Licenses)
+    'u_owner': [('Today',), ('Accounting', 'Bills and Payroll'), ('Sales and Clients', 'Pipeline'), ('Company and Settings', 'Insurance and Licenses'), ('Purchasing', 'Orders')],
+    'u_alan': [('Today',), ('Sales and Clients', 'Pipeline'), ('Accounting', 'Billing'), ('Purchasing', 'Orders')],
     'u_chen': [('Today',), ('Purchasing', 'Orders')],
     'u_billing': [('Today',), ('Billing', 'Estimates'), ('Billing', 'Invoices'), ('Billing',)],
 }

@@ -638,7 +638,10 @@ td2Model = function () {
     wk = iso(addDays(parse(td), 7)),
     rows = td2Rows(M)
       .map((x) => {
-        const sec = x.appr ? "appr" : "now" === x.sec || x.late || (x.due && x.due <= td) ? "now" : !x.due || x.due <= wk ? "coming" : "";
+        // everything else of the person's is Coming Up (the queue holds the next 7 days of tasks; an order or a decision
+        // dated later still waits on them and is never dropped)
+        const sec = x.appr ? "appr" : "now" === x.sec || x.late || (x.due && x.due <= td) ? "now" : "coming";
+        void wk;
         return Object.assign(x, { sec: sec });
       })
       .filter((x) => x.sec),
@@ -783,12 +786,21 @@ if ("function" == typeof tvBuiltIns) {
 const ydTeamOn = () => {
   try {
     // the Team list by person is the List's and the phone's; the Table and the Board keep their own layout of the same rows
-    return "tkall" === view && tvIsOn(tvBuiltIns()[2]) && ("cards" === (tkMode || "cards") || ydPhone());
+    return "tkall" === view && ydTeamPick && tvIsOn(tvBuiltIns()[2]) && ("cards" === (tkMode || "cards") || ydPhone());
   } catch (e) {
     return !1;
   }
 };
-let ydTkFirst = "";
+let ydTkFirst = "",
+  // the person picked the Team chip (the Team list by person); any other pick leaves it
+  ydTeamPick = !1;
+if ("function" == typeof tvApply) {
+  const base = tvApply;
+  tvApply = function (id) {
+    ydTeamPick = "b:all" === id;
+    return base.apply(this, arguments);
+  };
+}
 // the first draw for a person opens on Mine (every open task of theirs), not on what is due this week
 {
   const base = renderTkAll;
@@ -867,6 +879,8 @@ function ydForward() {
   if (!ydOffice()) return;
   const v = view;
   if ("mapprove" === v) return (view = "home"), tdyTabSet("appr"), (ydTdMemo.k = "");
+  // the Chief of Staff's findings are Today's rows (its Every Chain stays a part of Ask's Findings tab)
+  if ("cos" === v && ydMay("home")) return (view = "home");
   if ("comms" === v && !ydMsgKeep && !("undefined" != typeof cmOpen && cmOpen)) return (view = "chat"), (ydMsg.chip = "need"), (ydMsg.thread = !1);
   if ("meetings" === v && !ydMsgKeep && !("undefined" != typeof mtOpen && mtOpen) && ydMay("chat")) return (view = "chat"), (ydMsg.chip = "meet"), (ydMsg.thread = !1);
   if ("calendar" === v && ydMay("tkall")) return (view = "tkall"), (tkMode = "cal");
@@ -903,6 +917,8 @@ function ydForward() {
     }
     const r = base.apply(this, arguments);
     try {
+      // a person's page is opened on purpose: any other page (or another person signing in) leaves it
+      "team" !== view && "undefined" != typeof ydPersonId && (ydPersonId = "");
       ydOffice() && document.querySelectorAll('#mtabs [data-mv="tkall"] i.n').forEach((i) => i.remove());
       ydMsgRender();
       ydTodayAfter();
@@ -971,11 +987,9 @@ document.addEventListener(
     }
     if ((b = at("#yd-chat [data-ydmrow]")) && !at("button")) {
       e.preventDefault();
-      if (ydPhone()) {
-        const f = ydActs[b.dataset.ydmrow];
-        return void (f && f());
-      }
-      return (ydMsg.sel = b.dataset.ydmrow), void render();
+      // a row is its conversation: it opens (the reader holds the reply, the proposals read from it and the record)
+      const f = ydActs[b.dataset.ydmrow];
+      return void (f && f());
     }
     if ((b = at("#v-home [data-ydcash]"))) return e.preventDefault(), e.stopPropagation(), (ydCashOpen = !ydCashOpen), void render();
     if ((b = at("#v-home [data-ydfirm]"))) return e.preventDefault(), e.stopPropagation(), (ydFirmOpen = !ydFirmOpen), void render();
