@@ -8,7 +8,7 @@
 //  - mCardTables (app.js), the one place a table became a phone card, now makes phone rows (prTable). The label/value
 //    card and its "+ N More" are gone; a row whose record has no page of its own opens in place (the same cells).
 //  - Card lists the phone opens (Approvals, Deliveries) fold to the same row (prCards); a tap opens the card.
-//  - A page's own row content (Projects, Decisions, Bills & Payroll, Clients, Invoices, Estimates, Change Orders,
+//  - A page's own row content (Projects, Decisions, Bills and Payroll, Clients, Invoices, Estimates, Change Orders,
 //    Vendors) is a spec in PR_SPECS, read off the row's own record.
 //  - Phone search is the existing palette (#pal) as a full-height sheet with grouped two-line rows (prSearch).
 //  - The foreman's Today keeps its cards and orders them (prFieldToday): Clock In, Today's Work, Arriving Today,
@@ -302,7 +302,7 @@ const PR_SPECS = {
     late ? bits.unshift(`${late} day${1 === late ? "" : "s"} late`) : due && bits.push("due " + fmt(due));
     return { title: prTxt(what), meta: bits.join(" · "), late: !!late, actEl: act, label: "Decide" };
   },
-  // Bills & Payroll (finding 8): the vendor and bill number, amount and due, the one status
+  // Bills and Payroll (finding 8): the vendor and bill number, amount and due, the one status
   ap: (tr, get) => {
     const item = get(/^(item|bill)$/i);
     if (!item) return null;
@@ -403,7 +403,7 @@ function prPage() {
 }
 // what a page does beyond its rows: its one blue button and its filters
 const PR_PAGE = {
-  // Bills & Payroll: the paid-before-approval Review is the blue button; the filter segment rides with the chips
+  // Bills and Payroll: the paid-before-approval Review is the blue button; the filter segment rides with the chips
   ap: (v) => {
     const rev = v.querySelector("#fin-pbu [data-finbill]");
     if (rev) {

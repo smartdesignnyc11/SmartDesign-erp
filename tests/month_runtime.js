@@ -495,9 +495,9 @@ M.extras.controller = async (uid, cap, did) => {
     const before = DB.payroll.length, t0 = M.toasts.length;
     try { view = 'ap'; render(); payrollFromTime(); await sleep(20); await M.drive(SAY.controller); } catch (e) {}
     const made = DB.payroll.slice(before); n++;
-    did('Bills & Payroll', 'payroll from approved time', 'fn:Build Payroll from Approved Time', { steps: [made.length + ' run(s) built: ' + made.map(r => r.period + ' $' + r.total).join(', ')], toast: M.toasts.slice(t0).join(' | ') });
+    did('Bills and Payroll', 'payroll from approved time', 'fn:Build Payroll from Approved Time', { steps: [made.length + ' run(s) built: ' + made.map(r => r.period + ' $' + r.total).join(', ')], toast: M.toasts.slice(t0).join(' | ') });
     for (const r of made) { try { const t1 = M.toasts.length; payrollAction(r, 'approve'); await M.drive(SAY.controller);
-      did('Bills & Payroll', 'approve run ' + r.period, 'fn:Approve Payroll', { steps: [r.status], toast: M.toasts.slice(t1).join(' | ') }); n++; } catch (e) {} }
+      did('Bills and Payroll', 'approve run ' + r.period, 'fn:Approve Payroll', { steps: [r.status], toast: M.toasts.slice(t1).join(' | ') }); n++; } catch (e) {} }
   }
   // code what the suggestions did not reach, from the description on the line (the transaction drawer)
   const bank = M.open('bank');

@@ -11,7 +11,7 @@
 //  N4  One Clients directory (Clients, People, Companies as tabs of one page) and a Team page of every staff member
 //      with phone and email, which Messages and every mail To and Cc field use to find a colleague.
 //  N5  The foreman's bar gets Requests; (the owner's Today opening on Approvals is superseded by the Today mockups); the
-//      coordinator's Time & Crew shows the payroll run's status read-only (the run is built in Bills & Payroll).
+//      coordinator's Time and Crew shows the payroll run's status read-only (the run is built in Bills and Payroll).
 //
 // Design gate (BACKLOG §1.16). Nouns, lists and queues extended, nothing duplicated:
 //  - Messages is the existing thread store (DB.threads and each job's p.chat, msgThreadsFor), the existing mail list
@@ -25,7 +25,7 @@
 //  - Read marks on a team thread extend the direct thread's shared read row (t.read) to group threads, and to a job's
 //    team thread through DB.msgReads[thread key][uid] (kept out of the job row, so reading never rewrites a job).
 //  - Today's Inbox filter gains the chat lines addressed to the person (tdyModel().inbox): no new filter.
-//  - Payroll: no new record. Time & Crew reads DB.payroll's latest run.
+//  - Payroll: no new record. Time and Crew reads DB.payroll's latest run.
 // =====================================================================================================================
 const P2N_SPARK =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>';
@@ -410,14 +410,7 @@ if ("function" == typeof mnChat) {
     return r;
   };
 }
-// the menu's Messages entry carries the same number
-if ("function" == typeof mnItemN) {
-  const base = mnItemN;
-  mnItemN = function (it) {
-    if (it && !it.tab && "chat" === it.v) return p2nMsgN().n;
-    return base.apply(this, arguments);
-  };
-}
+// the menu's Messages entry carries the same number (mnItemN reads p2nMsgN, src/app.js, the menu section)
 
 // ---- N3 read marks on a team thread: "Seen by Chen, Angel", else Sent ---------------------------------------------
 // A direct thread already said Read. A group or a job's team thread said nothing, so the sender chased by phone what
@@ -792,7 +785,6 @@ function p2nTeamViews() {
   "object" == typeof NAV_LABELS && (NAV_LABELS.chat = "Messages");
   "object" == typeof IA_LABELS && (IA_LABELS.chat = "Messages");
   "function" == typeof mnKnow && (mnKnow("team", "Team"), mnKnow("chat", "Messages"), mnKnow("chat", "Chat"), mnKnow("comms", "Inbox"), mnKnow("comms", "Messages"));
-  "object" == typeof MN_HOMEGROUP && ((MN_HOMEGROUP.team = "Company"), (MN_HOMEGROUP.chat = "Messages"));
   // the query layer's People (eqPeople, Ask's "what is Chen's phone") reads the team's phone and email from here
   if ("function" == typeof eqPeople) {
     const base = eqPeople;
@@ -811,30 +803,17 @@ function p2nTeamViews() {
 })();
 
 // ---- N3/N4/N5 the menus ---------------------------------------------------------------------------------------------
-// Messages after Tasks for every office role; Inbox leaves Today's group (it is Messages > Mail); People and Companies
-// leave Sales (they are Clients' tabs); Team joins Company; the foreman's bar takes Requests; Chat reads Messages.
+// Messages after Tasks for every office role, Inbox out of Today (it is Messages > Mail), People and Companies out of
+// Sales (they are Clients' tabs), Team in Company: the 11-03 menu declares all of that itself (src/app.js, the menu
+// section: MN_DAY, MN_SALES, MN_FOOT). Here: the bars' Chat reads Messages, and the foreman's bar takes Requests.
 (() => {
-  // the rail's mark for Messages: the two square bubbles of the header's and the bar's Messages (never Ask's sparkle)
-  "object" == typeof MN_ICON && (MN_ICON.chat = '<path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/>');
-  const MSG_G = () => MN_G("msgs", "Messages", "chat", [["chat", "Messages"]]);
-  const office = ["owner", "pm", "coord", "billing", "controller", "designer", "design_mgr"];
-  office.forEach((r) => {
+  ["owner", "pm", "coord", "billing", "controller", "designer", "design_mgr"].forEach((r) => {
     const M = MENU[r];
-    if (!M || !M.groups) return;
-    M.groups = M.groups.map((g) => {
-      const items = g.items.filter((x) => !(Array.isArray(x) && ("home" === g.id ? "comms" === x[0] : "sales" === g.id && ["hbcontacts", "hbcompanies"].includes(x[0]))));
-      "office" === g.id && !items.some((x) => Array.isArray(x) && "team" === x[0]) && items.splice(Math.min(2, items.length), 0, ["team", "Team"]);
-      return Object.assign({}, g, { items: items });
-    });
-    const i = M.groups.findIndex((g) => "mytasks" === g.id);
-    M.groups.some((g) => "msgs" === g.id) || M.groups.splice(i < 0 ? 1 : i + 1, 0, MSG_G());
-    (M.phone || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
+    M && (M.phone || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
   });
   ["foreman", "crew", "driver"].forEach((r) => {
     const M = MENU[r];
     M && (M.bar || []).forEach((x) => "chat" === x[0] && (x[1] = "Messages"));
-    // Team is placed at the foot of the field menu (the colleague to call), not left to fall under More
-    M && M.rest && !M.rest.some((x) => "team" === x[0]) && M.rest.push(["team", "Team", "people"]);
   });
   // the foreman: Requests on the bar (Today shows his hours to approve; Crew stays under the rest). The bar keeps four
   // shortcuts (Alan, 2026-10-19: "a max of 4"), so Site, the one the synthesis ranks below Daily Log, leads the rest.
@@ -851,7 +830,6 @@ function p2nTeamViews() {
   "undefined" != typeof MN_BUTTON && MN_BUTTON.delete && MN_BUTTON.delete("chat");
   try {
     "function" == typeof mnKnowAll && mnKnowAll();
-    "function" == typeof mnHomeGroups && mnHomeGroups();
   } catch (e) {}
 })();
 
@@ -882,9 +860,9 @@ if ("function" == typeof signIn) {
   };
 }
 
-// ---- N5 payroll: one run record, in Bills & Payroll ----------------------------------------------------------------
-// The coordinator built a payroll run from Time & Crew that was not the controller's. The run is built and approved in
-// Bills & Payroll; her Time & Crew shows the entries and the latest run's status and who holds it, read-only.
+// ---- N5 payroll: one run record, in Bills and Payroll ----------------------------------------------------------------
+// The coordinator built a payroll run from Time and Crew that was not the controller's. The run is built and approved in
+// Bills and Payroll; her Time and Crew shows the entries and the latest run's status and who holds it, read-only.
 function p2nPayrollStatus() {
   if ("time" !== view || "coord" !== role()) return;
   const b = document.getElementById("btn-payrollfromtime");
@@ -894,14 +872,14 @@ function p2nPayrollStatus() {
   let c = document.getElementById("p2n-payrun");
   const R = (DB.payroll || []).slice().sort((a, b2) => String(b2.to || b2.payDate || "").localeCompare(String(a.to || a.payDate || "")))[0],
     held = !R
-      ? "No payroll run yet. The controller builds it in Bills & Payroll from the approved hours."
+      ? "No payroll run yet. The controller builds it in Bills and Payroll from the approved hours."
       : "approved" === R.status || "paid" === R.status
         ? `Approved${R.approvedBy ? ` by ${R.approvedBy}` : ""}${R.payDate ? `, paid ${fmt(R.payDate)}` : ""}.`
         : `${"draft" === R.status ? "Being prepared by the controller" : "Waiting on the owner's approval"}${R.payDate ? `, to be paid ${fmt(R.payDate)}` : ""}.`,
     open = (DB.time || []).filter((t) => "approved" === t.status && !t.payrollId).length,
     sub = (DB.time || []).filter((t) => "submitted" === t.status).length;
   c || ((c = document.createElement("div")), (c.id = "p2n-payrun"), (c.className = "card p2n-payrun"), (document.getElementById("time-kpis") || v.querySelector(".ph") || v).after(c));
-  c.innerHTML = `<div class="hd"><h3>Payroll Run</h3></div><p style="margin:0 0 4px"><b>${R ? esc(R.period || `${fmt(R.from)} to ${fmt(R.to)}`) : "None yet"}</b> · ${esc(held)}</p><p class="small muted" style="margin:0">${sub} entr${1 === sub ? "y" : "ies"} to approve · ${open} approved and not in a run yet. The run is built and approved in Bills & Payroll, not here.</p>`;
+  c.innerHTML = `<div class="hd"><h3>Payroll Run</h3></div><p style="margin:0 0 4px"><b>${R ? esc(R.period || `${fmt(R.from)} to ${fmt(R.to)}`) : "None yet"}</b> · ${esc(held)}</p><p class="small muted" style="margin:0">${sub} entr${1 === sub ? "y" : "ies"} to approve · ${open} approved and not in a run yet. The run is built and approved in Bills and Payroll, not here.</p>`;
 }
 
 // ---- boot ---------------------------------------------------------------------------------------------------------

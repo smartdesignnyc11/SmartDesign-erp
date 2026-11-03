@@ -155,7 +155,7 @@ function vbGate(b, root, okSel) {
   } catch (e) {}
   return !1;
 }
-// the bill form (Bills & Payroll > New Vendor Bill): the check runs on the typed vendor, number, amount and date
+// the bill form (Bills and Payroll > New Vendor Bill): the check runs on the typed vendor, number, amount and date
 {
   const base = saveBill;
   saveBill = function () {
@@ -366,7 +366,7 @@ function vbReview(pre, after) {
       const ob = W.querySelector("[data-vbopen]");
       ob && (ob.onclick = () => (mbCloseModal(), flowGo.bill(hit.bill)()));
       ok && (ok.textContent = hit && hit.exact ? (vbPlaceholder(hit.bill) ? `Put ${val("number") || "the Number"} on ${hit.bill.number}` : `Open ${hit.bill.number || "the Bill"}`) : hit ? "It Is a Different Invoice: Enter It" : "Enter the Bill");
-      m.querySelector("#vb-route").textContent = `${t ? `Paid ${fmtL(t.date)} from ${truthAcctWords(t)} before anyone approved it: it waits under Paid Before Approval for ` : "It waits in Bills & Payroll for "}${vbRouteWords(amt)}. Whoever enters a bill cannot approve it.`;
+      m.querySelector("#vb-route").textContent = `${t ? `Paid ${fmtL(t.date)} from ${truthAcctWords(t)} before anyone approved it: it waits under Paid Before Approval for ` : "It waits in Bills and Payroll for "}${vbRouteWords(amt)}. Whoever enters a bill cannot approve it.`;
     };
   m.addEventListener("input", paint);
   m.addEventListener("change", (e) => {
@@ -451,7 +451,7 @@ function vbPost(x, f, m, after) {
   const did = `bill ${b.number || ""} entered after review`.replace(/\s+/g, " ");
   after && after(b, did);
   save(), mbCloseModal(), render();
-  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}. It waits ${paid ? "under Paid Before Approval" : "in Bills & Payroll"} for ${vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }]);
+  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}. It waits ${paid ? "under Paid Before Approval" : "in Bills and Payroll"} for ${vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }]);
   return !1;
 }
 

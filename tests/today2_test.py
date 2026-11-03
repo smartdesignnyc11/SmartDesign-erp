@@ -24,7 +24,7 @@ BOARD = {  # the mockups' chips, sections (in order) and bars
     'u_alan': (['All', 'Late', 'Waiting'], ['Now', 'For You', 'You Promised'], ['Today', 'Projects', 'Clients', 'Tasks', 'Messages']),
     'u_chen': (['All', 'Late', 'Waiting'], ['Now', 'For You', 'You Promised'], ['Today', 'Messages', 'Tasks', 'Buy Board']),
     'u_billing': (['All', 'Late', 'Waiting'], ['Now', 'Waiting on Others', 'This Week'], ['Today', 'Billing', 'Clients', 'Messages']),
-    'u_controller': (['All', 'Late', 'Approvals'], ['Now', 'Approvals', 'Waiting on Others', 'This Week'], ['Today', 'Banking', 'Bills & Payroll', 'Messages']),
+    'u_controller': (['All', 'Late', 'Approvals'], ['Now', 'Approvals', 'Waiting on Others', 'This Week'], ['Today', 'Banking', 'Bills and Payroll', 'Messages']),
 }
 VIS = "el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'"
 

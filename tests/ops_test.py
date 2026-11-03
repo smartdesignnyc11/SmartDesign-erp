@@ -99,12 +99,14 @@ async def sec_sched(p, c):
     c.ok(st['open'] is False and st['end'] == '2026-09-10', f'after Pull In the give-back is closed and Framing ends 9/10: {st}')
     # leaving the approved, read-only record by the rail asks nothing and changes nothing (it used to prompt
     # "Save changes?" and, through the modal's first answer, revert the record to its snapshot, reopening the give-back)
-    await pg.click('#nav-groups button:has-text("Projects")'); await pg.wait_for_timeout(400)
+    # the 11-03 menu: Projects opens on its name, then All Projects
+    await pg.evaluate("() => { const h = document.querySelector('#nav-groups [data-mnhead=jobs]'); if (h && h.getAttribute('aria-expanded') !== 'true') h.click(); }")
+    await pg.click('#nav-groups [data-mngr=jobs] button[data-v=ovjobs]'); await pg.wait_for_timeout(400)
     m = await modal(pg)
     c.ok('save changes' not in m.lower() and 'confirm' not in m.lower(), f'leaving the approved CO asks nothing: {m[:80]!r}')
     st = await pg.evaluate(f"() => {{ const c = {KLEIN}, d = c.changeOrders.find(x => x.czGive); return {{ open: d.czGive.open, pulled: d.czGive.pulled, end: S.tasks.find(t => t.id === 'frame').end, live: typeof czGiveOpen === 'function' ? czGiveOpen(c, d) : null }} }}")
     c.ok(st['open'] is False and st['live'] is False and st['end'] == '2026-09-10', f'after leaving the record the give-back stays closed: {st}')
-    # the three readers agree: no give-back note on Changes, no Pull In on the forecast card or the Today tile
+    # the three readers agree: no give-back note on Changes, no Pull In on the forecast card or the job Overview's forecast
     await pg.evaluate("() => { view = 'sched'; schedView = 'changes'; render() }"); await pg.wait_for_timeout(400)
     note = await pg.evaluate("() => [...document.querySelectorAll('.cz-givenote')].map(x => x.innerText)")
     card = await pg.evaluate("() => { const t = document.querySelector('#track-cards .ops-fc'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
@@ -112,7 +114,7 @@ async def sec_sched(p, c):
     c.ok('Pull In' not in card, f'the forecast card offers no Pull In after Pull In: {card!r}')
     c.ok(await pg.locator('[data-czpull]').count() == 0, 'no Pull In button anywhere on Schedule after Pull In')
     await go(pg, 'dash'); await pg.wait_for_timeout(300)
-    tile = await pg.evaluate("() => { const t = document.querySelector('#kpis .gl[data-gl=\"sched\"]'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
+    tile = await pg.evaluate("() => { const t = document.getElementById('jp-forecast'); return t && t.getClientRects().length ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     c.ok('Pull In' not in tile and 'still on' not in tile, f'the Today forecast tile reads the live history: {tile!r}')
     # the no-show slip: +5 on Framing, reason no-show
     end = await pg.evaluate(SLIP, ['frame', 5, 'noshow'])
@@ -120,7 +122,7 @@ async def sec_sched(p, c):
     c.ok(why['late'] == 5 and re.search(r'no-show|could not be on site', why['text'], re.I) and 'Framing' in why['text'] and '+5' in why['text'],
          f"the forecast names the live cause (the no-show +5 on Framing): {why['text']!r}")
     await go(pg, 'dash'); await pg.wait_for_timeout(300)
-    tile = await pg.evaluate("() => { const t = document.querySelector('#kpis .gl[data-gl=\"sched\"]'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
+    tile = await pg.evaluate("() => { const t = document.getElementById('jp-forecast'); return t && t.getClientRects().length ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     await go(pg, 'sched'); await pg.wait_for_timeout(300)
     card = await pg.evaluate("() => { const t = document.querySelector('#track-cards .ops-fc'); return t ? t.innerText.replace(/\\n/g, ' | ') : '' }")
     c.ok(why['text'] in tile and why['text'] in card, f"the tile and the card read the same cause: tile {tile!r} card {card!r}")
@@ -414,7 +416,9 @@ async def sec_polish(p, c):
     b, pg, errs = await fresh(p)
     # leaving an approved, read-only CO asks nothing
     await pg.evaluate(f"() => {{ const c = {KLEIN}, d = c.changeOrders.find(x => x.status === 'approved'); flowGo.doc(c, 'co', d)() }}"); await pg.wait_for_timeout(400)
-    await pg.click('#nav-groups button:has-text("Projects")'); await pg.wait_for_timeout(300)
+    # the 11-03 menu: Projects opens on its name, then All Projects
+    await pg.evaluate("() => { const h = document.querySelector('#nav-groups [data-mnhead=jobs]'); if (h && h.getAttribute('aria-expanded') !== 'true') h.click(); }")
+    await pg.click('#nav-groups [data-mngr=jobs] button[data-v=ovjobs]'); await pg.wait_for_timeout(300)
     m = await modal(pg)
     c.ok('save changes' not in m.lower(), f'leaving an approved CO asks nothing: {m[:80]!r}')
     # the CO toast cuts on a word

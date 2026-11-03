@@ -99,7 +99,10 @@ async def main():
         c.ok(not [v for v in money if v in ov], f'the money pages are out of the owner\'s menu: {[v for v in money if v in ov]}')
         c.ok(all(v in ov for v in ('home', 'tkall', 'port', 'dash', 'sched', 'proj', 'vendors', 'hbcontacts', 'meetings', 'calendar', 'rdata')), 'tasks, projects, people and contacts are in it')
         nt = await nav_text(pg)
-        c.ok('Projects' in nt and not re.search(r'\b(Billing|Accounting|Reports|Purchasing|Banking)\b|Mercer', nt), f'the menu on screen: projects in; money and the investment arm out: {nt[:300]}')
+        c.ok('Projects' in nt and not re.search(r'\b(Billing|Accounting|Reports|Banking)\b|Mercer', nt), f'the menu on screen: projects in; money and the investment arm out: {nt[:300]}')
+        # the 11-03 menu draws a group by its name: Purchasing stays for its one contact list, Vendors, and holds no money page
+        buy = await pg.evaluate("() => [...document.querySelectorAll('#nav-groups [data-mngr=\"buy\"] button')].map(b => b.dataset.v)")
+        c.ok(buy in ([], ['vendors']), f'Purchasing holds only Vendors in the pilot, no order, quote or Buy Board: {buy}')
         await pg.evaluate("view = 'billing'; render();")
         c.ok(await pg.evaluate("view") != 'billing', 'a money page asked for directly lands on Home')
         # the screens read today, never the demo's day

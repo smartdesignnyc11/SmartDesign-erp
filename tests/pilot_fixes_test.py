@@ -275,16 +275,20 @@ async def t_payment_check(c, p):
 async def t_documents(c, p):
     b, pg, errs = await fresh(p, 'u_alan', phone=True)
     r = await js(pg, """
-      setCurrent('p121'); view = 'dash'; render(); await sleep(300);
-      const btns = [...document.querySelectorAll('#v-dash .doc-jobacts button')].map(b => b.innerText.trim());
-      document.querySelector('#v-dash [data-jobnew="co"]').click(); await sleep(250);
+      // the job's New Change Order and New Estimate are on its + (New for <job>; the job structure, Alan 11-03)
+      jpOpenJob('p121'); await sleep(300);
+      const plus = async k => { jpMenuOpen = false; render(); document.getElementById('jp-new').click(); await sleep(120); document.querySelector('#jp-newmenu [data-jpnew="' + k + '"]').click(); await sleep(250); };
+      document.getElementById('jp-new').click(); await sleep(120);
+      const btns = [...document.querySelectorAll('#jp-newmenu [data-jpnew]')].map(b => b.innerText.trim()).filter(t => ['Change Order', 'Estimate'].includes(t)).map(t => 'New ' + t).reverse();
+      jpMenuOpen = false;
+      await plus('co');
       const co = { title: (document.querySelector('#mbm h3') || {}).innerText || '', client: (document.querySelector('#mbm [data-f="clientId"]') || {}).value, proj: (document.querySelector('#mbm [data-f="projectId"]') || {}).value };
       mbCloseModal();
-      document.querySelector('#v-dash [data-jobnew="est"]').click(); await sleep(250);
+      await plus('est');
       const pick = document.querySelector('#mbm input[name="ne-t"][value=""]'); pick && (pick.checked = true); document.querySelector('#mbm-ok').click(); await sleep(400);
       const cl = DB.clients.find(x => x.id === S.clientId), d = cl.estimates[cl.estimates.length - 1];
       return { btns, co, est: { lines: d.lines.length, pid: d.projectId, status: d.status, total: docTotal(d).total }, scope: ['scope', 'inclusions', 'exclusions'].every(k => !!document.querySelector('[data-d="' + k + '"]')) };""")
-    c.ok(r['btns'] == ['New Change Order', 'New Estimate'], f"pm: the job's page offers New Change Order and New Estimate ({r['btns']})")
+    c.ok(r['btns'] == ['New Change Order', 'New Estimate'], f"pm: the job's + offers New Change Order and New Estimate ({r['btns']})")
     c.ok(r['co']['title'] == 'New Change Order' and r['co']['client'] == 'cl121' and r['co']['proj'] == 'p121', f"pm: New Change Order from the job starts for its client and job ({r['co']})")
     c.ok(r['est']['pid'] == 'p121' and r['est']['lines'] <= 1 and r['est']['total'] == 0, f"pm: New Estimate starts blank on the job, not a copy of the contract ({r['est']})")
     c.ok(r['scope'], 'pm: the new estimate has Scope, Inclusions and Exclusions')

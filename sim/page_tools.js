@@ -169,12 +169,18 @@ S.menu = () => {
   const mb = document.getElementById('menu-btn');
   if (!items.length && mb && vis(mb)) {
     items.push(...[...document.querySelectorAll('#mtabs button')].filter(vis).map(txt).filter(Boolean));
-    items.push(...[...document.querySelectorAll('#nav-groups button[data-grp]')].map(el => {
+    items.push(...[...document.querySelectorAll('#nav-groups button[data-grp], #nav-groups [data-mnhead]')].map(el => {
       const n = norm((el.querySelector('.n') || {}).textContent || ''), c = el.cloneNode(true);
       c.querySelectorAll('.n, svg').forEach(x => x.remove());
       return norm(c.textContent || el.title || '') + (n ? ' ' + n : '');
     }).filter(Boolean));
   }
+  // the 11-03 menu: a closed group's pages are one tap away (its name opens it), so they are read as the menu's too
+  items.push(...[...document.querySelectorAll('#nav-groups .mn-kids button')].map(el => {
+    const n = norm((el.querySelector('.n') || {}).textContent || ''), c = el.cloneNode(true);
+    c.querySelectorAll('.n, svg').forEach(x => x.remove());
+    return norm(c.textContent || '') + (n ? ' ' + n : '');
+  }).filter(Boolean));
   return [...new Set(items)];
 };
 S.title = () => { const r = S.viewRoot(); const h = r.querySelector('h1, h2, .ph h2, .f-hero b'); return norm(h ? h.innerText : (r.id || '')).slice(0, 80); };
@@ -196,15 +202,16 @@ S.screen = (marks) => {
   const files = root => [...root.querySelectorAll('input[type=file]')].filter(f => !f.hasAttribute('data-simn') && !f.disabled)
     .map(f => { const n = reg(f, 'file'); const lab = fieldLabel(f) || norm((f.closest('label, .f, .drop, div') || {}).innerText || '').slice(0, 50) || (f.accept || 'a file');
       return `[${n} file "${lab}"${f.accept ? ' (' + f.accept + ')' : ''}${f.multiple ? ' multiple' : ''}]`; });
+  // the job's header (src/jobpage.js: its name and switcher, Ask About This Job, the +) sits above its tabs, outside the page
   const pageWalk = () => { const p = []; S._fold = false;
-    ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
+    ['#jp-head', '#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); return [...tidy(p), ...files(S.viewRoot())]; };
   if (ov.length) {
     ov.forEach(o => { const p = ['\n']; S._fold = false; walk(o, p); out.push('== Open on top ==', ...tidy(p), ...files(o)); });
     if (ov.some(S.modal)) out.push(`== Behind it: ${S.title()} (close the sheet to use it) ==`);
     else out.push(`== Under it, still usable: ${S.title()} ==`, ...pageWalk());   // a floating composer leaves the page usable
   } else { const p = []; S._fold = false;
-    ['#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
+    ['#jp-head', '#subnav', '#mtabs'].map(q => document.querySelector(q)).filter(e => e && vis(e) && !e.closest('section.view')).forEach(e => { walk(e, p); p.push('\n'); });
     walk(S.viewRoot(), p); out.push(...tidy(p), ...files(S.viewRoot())); }
   if (toastOn) { const p = []; walk(t, p); out.push('== Toast ==', ...tidy(p)); }
   S.lastScreen = out.join('\n');
@@ -282,7 +289,7 @@ S.matchLabel = (label, C) => {
 };
 S.markByLabel = (label, want) => {
   document.querySelectorAll('[data-simlab]').forEach(e => e.removeAttribute('data-simlab'));
-  const ov = S.overlays(), page = [document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
+  const ov = S.overlays(), page = [document.querySelector('#jp-head'), document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
   const roots = ov.length ? (ov.some(S.modal) ? ov : ov.concat(page)) : page, C = [];
   roots.forEach(r => r.querySelectorAll('*').forEach(el => { if (!isCtl(el)) return; const k = kindOf(el);
     const act = k === 'button' || k === 'link' || k === 'tab'; if ((want === 'field') === act) return;
@@ -294,17 +301,38 @@ S.markByLabel = (label, want) => {
   return { ok: true, sig: { k: m.hit.k, label: (want === 'field' ? fieldLabel(m.hit.el) : ctlLabel(m.hit.el)).slice(0, 80), tag: m.hit.el.tagName } }; };
 // navigation by the label a person sees in their menu (the rail on a desktop, the tab bar and More on a phone)
 S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav button, #mtabs button, .m-sheet-list button, .m-sheet-list a, .more-sheet button')]
-  .filter(el => !el.closest('section.view'));
+  // the old nav kept hidden for older layers (#nav-legacy) is no menu a person sees: its "Purchasing" is the PO list
+  .filter(el => !el.closest('section.view') && !el.closest('#nav-legacy'));
 S.go = label => {
   const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
-  const C = S.navCandidates().map(el => ({ el, t: norm(el.innerText || el.getAttribute('aria-label') || el.title || '').toLowerCase().replace(/\s+\d+$/, ''), v: vis(el) }));
+  // a hidden menu (the phone's closed drawer is visibility:hidden) has no innerText: its words are its text, less its number
+  const words = el => { const c = el.cloneNode(true); c.querySelectorAll('.n, svg').forEach(x => x.remove()); return c.textContent; };
+  const C = S.navCandidates().map(el => ({ el, t: norm(el.innerText || el.getAttribute('aria-label') || el.title || words(el) || '').toLowerCase().replace(/\s+\d+$/, ''), v: vis(el) }));
   let hit = C.find(c => c.v && c.t === want) || C.find(c => c.t === want) || C.find(c => c.v && c.t.startsWith(want)) || C.find(c => c.t.startsWith(want)) || C.find(c => c.v && c.t.includes(want));
   // a button a person can see outside the page and the menu (the menu's footer: Switch User; the header's own buttons)
   // is reached by its exact words too (the live journeys check could not sign out, 10-26)
   if (!hit) { const B = [...document.querySelectorAll('button, a')].filter(el => vis(el) && !el.closest('section.view') && norm(el.innerText || el.getAttribute('aria-label') || '').toLowerCase() === want);
     if (B.length) hit = { el: B[0], t: want }; }
   if (!hit) return { ok: false, why: `no "${label}" in your menu; it has: ${S.menu().join(' · ')}` };
+  // the 11-03 menu: a group opens on its name and lists its pages; going to a group is its name, then its own page
+  // (All Projects, an overview, else its first page), two taps as a person makes them
+  if (hit.el.matches && hit.el.matches('[data-mnhead]')) {
+    const g = hit.el.dataset.mnhead;
+    if (hit.el.getAttribute('aria-expanded') !== 'true') hit.el.click();
+    const m = document.querySelector(`#nav-groups [data-mngr="${g}"] [data-mnmain]`);
+    if (m) m.click();
+    return { ok: true, label: hit.t };
+  }
   hit.el.click(); return { ok: true, label: hit.t };
+};
+// "Group > Page": the page under the open group (the 11-03 menu lists a group's pages under its name)
+S.goKid = label => {
+  const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
+  const K = [...document.querySelectorAll('#nav-groups .mn-kids:not([hidden]) button')];
+  const t = el => { const c = el.cloneNode(true); c.querySelectorAll('.n, svg').forEach(x => x.remove()); return norm(c.textContent || '').toLowerCase(); };
+  const hit = K.find(el => t(el) === want);
+  if (!hit) return false;
+  hit.click(); return true;
 };
 S.closeTop = () => { const ov = S.overlays(); if (!ov.length) return false; const o = ov[ov.length - 1];
   const B = [...o.querySelectorAll('button, a')].filter(vis);

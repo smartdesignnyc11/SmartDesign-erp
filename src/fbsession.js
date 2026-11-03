@@ -787,17 +787,21 @@ function fbsWireStart(root) {
     };
   });
 }
+// the start sits at the foot of the menu, after Company and Settings (the 11-03 menu's slot, .mn-fbs); where the
+// workspace draws no such menu (Mercer & Bond), at the foot of the rail
 function fbsMountRail() {
-  const who = document.getElementById("whoami");
-  if (!who || !fbsStaff()) return void (who && who.querySelector("#fbs-rail") && who.querySelector("#fbs-rail").remove());
-  let b = who.querySelector("#fbs-rail");
+  const who = document.getElementById("whoami"),
+    host = document.querySelector("#nav-groups .mn-fbs") || who;
+  let b = document.getElementById("fbs-rail");
+  if (!host || !fbsStaff()) return void (b && b.remove());
+  b && b.parentElement !== host && host.appendChild(b);
   if (!b) {
-    who.insertAdjacentHTML("beforeend", fbsStartBtn("sm fbs-railbtn", "fbs-rail"));
-    b = who.querySelector("#fbs-rail");
+    host.insertAdjacentHTML("beforeend", fbsStartBtn("sm fbs-railbtn", "fbs-rail"));
+    b = host.querySelector("#fbs-rail");
   }
   const on = !!fbsLive;
   b.querySelector("span").textContent = on ? "Finish the Feedback Session" : "Record a Feedback Session";
-  fbsWireStart(who);
+  fbsWireStart(host);
 }
 if ("function" == typeof rpOpen) {
   const base = rpOpen;

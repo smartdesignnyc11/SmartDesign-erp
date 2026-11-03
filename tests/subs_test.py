@@ -314,7 +314,7 @@ async def s3_waiver(p, C):
         card = await pg.evaluate("() => { const c = document.querySelector('#d-body .pc-card'); return c ? {text: c.innerText.replace(/\\s+/g, ' '), acts: [...c.querySelectorAll('[data-pcact]')].map(b => b.innerText)} : null; }")
         C.ok(card and 'Held · 2' in card['text'] and card['acts'].count('Record the Waiver') == 2, f'[3] the bill shows the check held, each hold with Record the Waiver: {card}')
         await shot(pg, 'waiver_held_desktop')
-        # the bill's drawer sits beside Bills & Payroll, whose New Vendor Bill stays blue behind it (the drawer's Pay is
+        # the bill's drawer sits beside Bills and Payroll, whose New Vendor Bill stays blue behind it (the drawer's Pay is
         # the safe next step): reported, not this lane's to change
         await screen_lint(pg, C, '3 the bill with its Payment Check', skip=('PRIMARY_MULTI',))
         # prior payment's unconditional waiver, then this payment's conditional one, from the hold buttons
@@ -596,7 +596,7 @@ async def s10_run(p, C):
             return {text: c.innerText.replace(/\\s+/g, ' '), boxes: [...c.querySelectorAll('[data-pcrun]')].map(x => [x.dataset.pcrun, x.checked, x.disabled])}; }""")
         C.ok(run and 'Payment Run' in run['text'] and 'Held · 1' in run['text'] and 'No W-9 on file for Invented Hardware Co' in run['text'], f'[10] the run lists both, the held one with why: {run and run["text"][:300]}')
         C.ok(run and ['bnow9', False, True] in run['boxes'], f'[10] the held bill cannot be ticked: {run and run["boxes"]}')
-        await screen_lint(pg, C, '10 Bills & Payroll with the Payment Run')
+        await screen_lint(pg, C, '10 Bills and Payroll with the Payment Run')
         await shot(pg, 'payment_run_desktop')
         await pg.evaluate("() => document.getElementById('pc-run-go').click()")
         await pg.wait_for_timeout(150)

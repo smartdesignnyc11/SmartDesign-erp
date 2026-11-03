@@ -161,11 +161,13 @@ async def click_js(pg, sel):
 
 async def nav(pg, grp, sub=None, tabs=()):
     """Open a view the way a person does: rail button, then the sub-nav button, then each tab in turn."""
-    target = sub or grp
-    ok = await click_js(pg, f'#nav [data-grp="{grp}"]')
-    if sub and ok:
-        cur = await pg.evaluate('view')
-        if cur != sub: ok = await click_js(pg, f'[data-sub="{sub}"]')
+    # the 11-03 menu lists each page under its group, which opens on its name (no sub-nav strip): the group, then the page
+    target = sub or {'jobs': 'ovjobs'}.get(grp, grp)
+    await pg.evaluate("""v => { const b = document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`); if (!b) return false;
+      const k = b.closest('[data-mngr]'), h = k && document.querySelector(`#nav-groups [data-mnhead="${k.dataset.mngr}"]`);
+      h && h.getAttribute('aria-expanded') !== 'true' && h.click();
+      document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`).click(); return true; }""", target)
+    await pg.wait_for_timeout(200)
     cur = await pg.evaluate('view')
     if cur != target:   # fall back to the app's own navigation when there is no button for it
         await go(pg, target)
@@ -263,13 +265,13 @@ async def check_role(pg, R, uid):
         R.money('unmatched_amt', S('Banking › tile "To Review"'), t, r'To Review\s*\n\s*\d+\s*\n\s*' + MONEY)
         R.money('ap_payroll_due', S('Banking › tile "Cash in Bank"'), t, r'Cash in Bank\s*\n[^\n]*\n[^\n]*?' + MONEY + r' past due', required=False)
 
-    # Bills & Payroll
-    if gate('ap', 'Bills & Payroll'):
+    # Bills and Payroll
+    if gate('ap', 'Bills and Payroll'):
         await nav(pg, 'money', 'ap'); t = await text_of(pg, 'ap')
-        R.money('ap_payroll_due', S('Bills & Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
-        R.money('ap_paid_unappr', S('Bills & Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
+        R.money('ap_payroll_due', S('Bills and Payroll › tile "Overdue to Pay"'), t, r'Overdue to Pay\s*\n\s*\d+\s*\n\s*' + MONEY)
+        R.money('ap_paid_unappr', S('Bills and Payroll › tile "Flagged Bills"'), t, r'paid from the bank before approval \(' + MONEY + r'\)')
         # owed bills: approved and unpaid. The page counts them as "Due This Week" + overdue bills; nothing else is owed.
-        R.money('ap_bills', S('Bills & Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
+        R.money('ap_bills', S('Bills and Payroll › "Approved · To Pay"'), t, r'Approved bills to pay[^\n]*' + MONEY, required=False)
 
     # Billing
     if gate('billing', 'Billing'):
