@@ -40,11 +40,11 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
         <span style="flex: 1; font-size: 14px; line-height: 1.4">{{l.k}}</span><span style="font-size: 13px; font-weight: 600; color: #5b6578">{{l.v}}</span>
       </div>
     </sc-for>
-    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578; line-height: 1.4">Everything else goes to its owner: hours to the PM, bills under the PO to the controller, billing drafts to billing. Today’s setting, “owner approval for payments above $0”, sends you every payment.</div>
+    <div style="padding: 10px 14px; border-top: 1px solid #eef1f6; font-size: 13px; color: #5b6578; line-height: 1.4">Everything else goes to its owner: hours to the PM, bills under the PO to the controller, billing drafts to billing. Today’s setting, “owner approval for payments above $0”, sends you every payment. Only the owner changes a limit, and each change is logged with who and why.</div>
   </div>
 
   <div style="padding: 16px 16px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #5b6578; display: flex"><span style="flex: 1">Your Assistant</span><span style="text-transform: none; letter-spacing: 0">defaults from the Standard</span></div>
-  <span style="padding: 0 16px 8px; font-size: 13px; color: #5b6578; line-height: 1.4">Act Alone: it does it and logs it below. Ask First: it proposes and you press the button. Hand It to Me: it tells you, and drafts nothing. Money, client commitments and the books never act alone.</span>
+  <span style="padding: 0 16px 8px; font-size: 13px; color: #5b6578; line-height: 1.4">Act Alone: it does it and logs it below. Ask First: it proposes and you press the button. Hand It to Me: it tells you, and drafts nothing. Money, anything that reaches a client, and the books never act alone.</span>
   <div style="margin: 0 16px; background: #fff; border: 1px solid #dfe4ee; border-radius: 12px; overflow: hidden">
     <sc-for list="{{rules}}" as="r" hint-placeholder-count="14">
       <div style="border-top: {{r.line}}; display: flex; flex-direction: column">
@@ -88,7 +88,7 @@ class Component extends DCLogic {
       ['Order Follow-Ups', 'to vendors: confirm, track, reconfirm 48 hours ahead', 'Ask First', false],
       ['RFQ Chases', 'to vendors, the day before a quote is due', 'Ask First', false],
       ['Follow-Ups When Someone Goes Quiet', 'to a vendor, consultant or colleague; never a client', 'Ask First', false],
-      ['Messages to Clients', 'updates, answers, reminders', 'Ask First', false],
+      ['Messages to Clients', 'updates, answers, reminders: a person sends', 'Ask First', true],
       ['Meetings With Others', 'invites that reach someone else’s calendar', 'Ask First', false],
       ['Drafts in My Mailbox', 'nothing leaves until you press Send', 'Act Alone', false],
       ['Tasks for Me', 'a dated task on your own list', 'Ask First', false],

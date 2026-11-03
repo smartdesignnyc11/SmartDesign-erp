@@ -138,7 +138,7 @@ class Component extends DCLogic {
     const rail = { top: [{ label: 'Today', n: 12, has: true }, { label: 'Tasks', n: 0, has: false }, { label: 'Messages', n: 5, has: true }], work: ['Accounting', 'Design', 'Reports'] };
     const tabs = ['Overview', 'Contract and Billing', 'Messages'].map((l) => ({ label: l, sel: T === l ? 'true' : 'false', color: T === l ? INK : MUTE, fw: T === l ? '700' : '500', line: T === l ? '#2563eb' : 'transparent', pick: () => this.setState({ tab: l }) }));
     const tiles = [
-      { k: 'Waiting on Us', v: '1', sub: 'Sarah’s mail of 9/2', tone: RED, border: '#fecaca' },
+      { k: 'Waiting on Us', v: '2', sub: 'Sarah’s mail of 9/2 · the agent’s call about Friday’s delivery', tone: RED, border: '#fecaca' },
       { k: 'Waiting on Them', v: '6', sub: '5 decisions, 1 overdue · 1 change order to sign', tone: INK, border: '#dfe4ee' },
       { k: 'They Owe', v: '$68,265', sub: 'INV-2026-038, due 9/15, current', tone: INK, border: '#dfe4ee' },
       { k: 'Contract', v: '$491,200', sub: '$485,000 base + $6,200 approved · $237,516 left to bill', tone: INK, border: '#dfe4ee' }
@@ -147,6 +147,7 @@ class Component extends DCLogic {
     const panels = {
       'Overview': { title: 'What Needs You With the Kleins', sub: 'Most urgent first', foot: 'Their earlier history (the schedule published 7/28, CO-2026-001 approved on site 8/28) is under Messages.', rows: deco([
         { kind: 'MAIL · SINCE 9/2', tone: RED, title: 'Sarah: Fwd: 121 State St alteration agreement', why: 'The building wants a COI and a detailed scope of work; the attachment is not read yet', act: 'Reply' },
+        { kind: 'CALL · 9/2', tone: RED, title: 'R. Torres, Halstead: book the elevator for Friday’s millwork delivery', why: 'The managing agent called; no call back logged, and the delivery is tomorrow', act: 'Call Back' },
         { kind: 'DECISION · 9/2', tone: RED, title: '2nd floor bathroom finishes', why: 'Overdue, blocking rough plumbing on 9/10. Batch it into Friday’s call, as she prefers', act: 'Ask Sarah' },
         { kind: 'CHANGE ORDER', tone: MUTE, title: 'CO-2026-002: sand and stain the 3rd floor treads', why: 'Sent 9/3 for signature', amt: '$1,850', act: 'Remind' },
         { kind: 'DECISIONS · 9/16 TO 9/30', tone: MUTE, title: 'Tile in stock, exterior sheen, backsplash, lighting layout', why: '4 more decisions, each with the work it holds', act: 'Open' },
@@ -163,9 +164,10 @@ class Component extends DCLogic {
         { kind: 'CONTRACT · 7/28', tone: MUTE, title: 'Signed contract, from EST-2026-014', why: 'Garden unit + 3rd floor renovation', amt: '$485,000', act: 'Open' },
         { kind: 'ESTIMATE · DRAFT', tone: RED, title: 'EST-13881 · Full renovation, 121 State Street', why: 'A draft from 3/16, never sent; the contract came from EST-2026-014', act: 'Archive' }
       ]) },
-      'Messages': { title: 'Messages With the Kleins', sub: 'Mail, texts, calls, portal chat and meeting notes about their job', foot: 'The portal chat with the Kleins has no messages yet.', rows: deco([
+      'Messages': { title: 'Messages With the Kleins', sub: 'Mail, texts, calls, portal chat and meeting notes about their job and building', foot: 'The portal chat with the Kleins has no messages yet.', rows: deco([
         { kind: 'MAIL · 9/2', tone: RED, title: 'Sarah: Fwd: 121 State St alteration agreement', why: 'Waiting on us · Alteration Agreement 2024.pdf', act: 'Reply' },
-        { kind: 'SENT · 9/3', tone: MUTE, title: 'INV-003 and CO-2026-002 sent for signature', why: 'By Chen', act: 'Open' },
+        { kind: 'CALL · 9/2', tone: RED, title: 'R. Torres, Halstead: the elevator for Friday’s millwork delivery', why: 'Waiting on us · by the answering service, no call back logged', act: 'Call Back' },
+        { kind: 'SENT · 9/3', tone: MUTE, title: 'CO-2026-002 sent for signature, with INV-2026-038', why: 'By Chen · the invoice itself went 9/1', act: 'Open' },
         { kind: 'MEETING · 8/28', tone: MUTE, title: 'Team Catch Up (notes from Gemini)', why: 'The hall light fixture is now expected mid-September', act: 'Open' },
         { kind: 'TEXT · 8/29', tone: MUTE, title: 'Luis, the super: no deliveries Saturday', why: 'Board rule; Monday 9am is fine, service entrance', act: 'Open' },
         { kind: 'ON SITE · 8/28', tone: MUTE, title: 'CO-2026-001 approved by Sarah on site', why: 'Logged by Chen', act: 'Open' },

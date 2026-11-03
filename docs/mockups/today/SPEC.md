@@ -106,7 +106,9 @@ The badge on Today is always the rows Today opens on, for every role.
   each screen counts a different part, and one item is drafted twice.
 - **Rank by when the consequence lands, then by the Standard's order.** The LLC filing (lapses 9/28) stays in Now because it
   is late, but below wages, money paid before approval and a client waiting; it no longer takes the blue button.
-- **Cash is one figure with its parts**, from `safeToSpend()`, with each account's reconciled date. The Rivera $21,350 shows
+- **Cash is one figure with its parts**, from `safeToSpend()`, with each account's reconciled date. The $156,274 part
+  is labelled "Over-Billed (WIP), cost to cost", never "billed ahead of the work" (that label is the field measure,
+  $66,470; DECISIONS 10-25). The set-aside itself follows BACKLOG §1.35 item 1, so the figure will move. The Rivera $21,350 shows
   as "not counted". Every place that prints Safe to Spend reads the same function (triage class 1).
 - **Messages opens on Needs an Answer.** Today's Messages opens on an empty job thread. The count rises from 1 to 5 because
   mail to the owner with a question and no reply (Sarah Klein 9/2, Samantha Field 8/31, Jeanette 8/31, the Torres call 9/2)
@@ -130,3 +132,34 @@ The badge on Today is always the rows Today opens on, for every role.
 - Today question 1 needs two clauses (what needs you, and the brief). Kept: the brief is three lines that explain the rows,
   and Alan asked for the brief on Today (owner finding 19). Tasks' Team chip has no count, by design (it waits on nobody in
   particular). Where the Firm Stands' "Deals That Need You 3" was 4 in the first draft; it now uses the Pipeline's one rule.
+
+## 8. Chief of staff review (11-03, overnight)
+Verdict: **build after the must-fix list below**; the shape (3 pages, Approvals as a chip, Ask as a button) is right.
+
+| Page | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Grade |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Today | pass | pass | pass | pass | n/a | pass | **gap**: 3 of the 5 messages waiting on you are not on Today | pass | pass | pass | 8 |
+| Tasks | pass | pass | **gap**: Team chip lists people by load, a second list beside Team | pass | pass | pass | **gap**: Mine 12 vs "15 open" on the person page and Team | pass | pass | **gap**: Board not drawn, Table dropped silently | 7 |
+| Messages | pass | pass | pass | pass | fixed: the Torres call now names 121 State | fixed: oldest first | pass (new rule, below) | pass | pass | pass; desktop not drawn | 8.5 |
+
+Fixed in the mock tonight: the $156,274 part reads Over-Billed (WIP), not "billed ahead of the work"; Compliance reads 6 (Window
+Works on site 9/9 with lapsed insurance, Tino, and the 4 firm records now in Insurance and Licenses), and the phone brief carries
+the Window Works line the desktop had; Needs an Answer is oldest first; R. Torres is the Kleins' managing agent calling about
+Friday's elevator booking, not a client.
+
+Calls made (DECISIONS 11-03): the Needs an Answer rule stands (5 is the truth; the old 1 hid two clients past the 2-hour
+acknowledgement). A bill with no PO counts as "over the PO"; a card charge made twice counts as "paid before approval".
+
+**Must fix before build**
+1. Today shows every message Messages counts for that person (Sarah Klein, R. Torres, Jeanette's 344 or 464 design hours), ranked
+   by the 10-20 order; the badge is recomputed from the rows (15 on the demo if each is a row).
+2. Tasks: "Mine" is every open task of yours (15, with a Later group), or every place says "this week"; one number.
+3. Tasks: draw the desktop with Board and Table (the Monday and Thursday meeting walks the board; Alan said Board and Table are
+   the views he uses). Table is restyled, not dropped.
+4. Tasks › Team shows the team's tasks grouped by person; load per person lives once, on Team.
+5. Draw the desktop Messages (list and the open thread side by side).
+6. The brief and the client page give one cause for 121 State slipping (a late material, or the overdue bathroom finishes
+   blocking rough plumbing 9/10, or both, named from the schedule's blocker).
+7. Design gate: no new noun. Today is a view over approval, task, message and alert; Tasks is the one task list (Calendar is
+   its view, `calendar` folds in); Messages is the one message list (`chat`, `comms`, `meetings` fold in). The build lane
+   confirms each against the noun registry (BACKLOG §1.16) before it starts.

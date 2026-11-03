@@ -38,7 +38,7 @@ The hub (`Company.dc.html`) is the menu entry at the foot of the approved menu: 
 | Connections | Connections (`Connections.dc.html`) | Your account first, then the firm's banks, mail and books, then the one-time setup |
 | Team | Team (`Team.dc.html`) | Every person, most loaded first |
 | Company settings | Company Settings (`Settings.dc.html`) | The firm, money and buying, sales stages, data |
-| The firm's insurance, licences, filings | Insurance and Licences (`Insurance.dc.html`) | Records that renew, not settings |
+| The firm's insurance, licenses, filings | Insurance and Licenses (`Insurance.dc.html`) | Records that renew, not settings |
 
 **Team.** 1 Every person and their load. 2 "Team". 3 A person lives once; tasks and approvals link to them. 4 Owner and
 managers: "who is overloaded, who is missing?". 5 Inside a person, all theirs. 6 Needs You (the PM is not on the page; five
@@ -46,7 +46,8 @@ with no phone or email), then most loaded first. 7 Counts are per person and ope
 9 One row per person, 60px. 10 One page; the person page holds limits, assistant and activity.
 
 **A person (you).** Open tasks 15 (3 late), room to hand off; What Reaches You for Approval (the exceptions of 10-26); Your
-Assistant (14 rules, Act Alone / Ask First / Hand It to Me, the three money and books rules cannot be set to Act Alone); What
+Assistant (14 rules, Act Alone / Ask First / Hand It to Me; money, client commitments, messages to clients and the books cannot be set
+to Act Alone); What
 It Did on Its Own; Your Accounts. Every count is this person's.
 
 **The Brain.** 1 What the firm learned and wants to change. 2 "The Brain" (Alan's word). 3 Each lesson once; Today shows
@@ -54,18 +55,19 @@ one line with the count. 4 The owner, a few times a week: "what should change?".
 Changes to the ERP 2, Job Checklist Steps 6; What It Read one tap. 7 To Approve 17 equals its rows, the hub badge and
 Today's line. 8 None: lessons come from what happened. 9 Approve and Decline, 44px each. 10 One page, two chips.
 
-**Insurance and Licences.** 1 The firm's own policies, licences and filings, and what lapses. 2 The words in the seat
+**Insurance and Licenses.** 1 The firm's own policies, licenses and filings, and what lapses. 2 The words in the seat
 (the app says "Obligations"). 3 Vendor certificates live on the vendor; permits and warranties on the job; this page links.
-4 Owner and controller, at renewal. 6 Needs You 2 (the LLC filing, the blank licence number), On File 2, Not on File Yet.
-7 2 equals its rows and the hub. 8 One + (policy, licence or filing). 9 One column. 10 One page.
+4 Owner and controller, at renewal. 6 Needs You 4 (the LLC filing, the blank license number, workers' comp and disability, the trade licenses: a
+required record not on file is law, the second decision principle), On File 2, Kept With Their Record.
+7 4 equals its rows and the hub. 8 One + (policy, license or filing). 9 One column. 10 One page.
 
 **Connections.** 1 What the ERP reads and how fresh it is. 3 Each account once. 4 Everyone once; owner and controller when
 a statement is stale. 6 Your Google account first (blue), then banks with their reconciled-through dates, mail and books,
 setup. 7 No badge. 8 None. 9 Rows 60px. 10 One page.
 
 **The SmartDesign Standard.** 1 Alan's operating document and how the firm measures against it. 3 The live versioned copy;
-code reads it. 4 Everyone to read; the owner to edit. 6 Open Today (13 measured lines with rows) then The Document. 7 13
-equals its rows and the hub. 8 Edit, owner only, recorded. 10 One page, two chips; the Sales playbook folds in as a role.
+code reads it. 4 Everyone to read; the owner to edit. 6 Open Today (14 measured lines with rows, the 2-hour client acknowledgement among them: Aliya Chen and Sarah
+Klein) then The Document. 7 14 equals its rows and the hub. 8 Edit, owner only, recorded. 10 One page, two chips; the Sales playbook folds in as a role.
 
 **Company Settings.** 1 How the firm is set up. 4 Owner and controller, rarely. 6 Four groups of rows, each opening in
 place. 7 Text, no badge. 9 Rows 56px. 10 One page; Sales Settings, Your Own Data and Problem Reports fold in as rows.
@@ -82,7 +84,7 @@ place. 7 Text, no badge. 9 Rows 56px. 10 One page; Sales Settings, Your Own Data
 | The Brain › Approval Rules; Connections › What My Assistant May Do; Company Settings › What the Assistant May Do; Plugins | The person › Your Assistant (one place) |
 | The Brain › Lessons, Proposed, Watching | The Brain › To Approve, What It Read |
 | The Brain › Workload, Hands | Team (load per person); the person's rules |
-| Obligations (firm rows) | Insurance and Licences |
+| Obligations (firm rows) | Insurance and Licenses |
 | Obligations (vendor certificates, permits, warranties) | The vendor (Purchasing); the job's Documents |
 | Settings hub; Live Jobs Demo switch | The Company and Settings hub; the demo switch under Your Data, owner and typed confirm |
 | Connections › bank feeds, Reconcile buttons | Connections shows each account's date; reconciling is Accounting › Banking |
@@ -96,7 +98,7 @@ Old 13 pages and 41 desktop screens; new hub plus 6 pages (about 10 screens), th
 | Role | Hub rows |
 |---|---|
 | Owner | All six; edits everything; sees anyone's assistant rules |
-| Controller | Team (read), Insurance and Licences, Connections, the Standard, Company Settings (money rows) |
+| Controller | Team (read), Insurance and Licenses, Connections, the Standard, Company Settings (money rows) |
 | PM, coordinator | Team (read, their own page), Connections, the Standard |
 | Billing, designer | Their own page, Connections, the Standard |
 | Foreman, crew, driver | Their own page and the Standard (Spanish once reviewed) |
@@ -106,14 +108,14 @@ Old 13 pages and 41 desktop screens; new hub plus 6 pages (about 10 screens), th
   that page, and the owner opens anyone's from Team. The hub's note says so, so nobody hunts for "Assistant Settings".
 - **Approval limits move from one firm number to the person**: "payments above $0" becomes the exceptions decided 10-26.
 - **The Brain counts 17, not 18:** "A step carried twice becomes a dated task" is drafted as a lesson and as a rule; shown once.
-- **Insurance and Licences replaces Obligations**, the firm's own only; the blank licence number is a row there (the
+- **Insurance and Licenses replaces Obligations**, the firm's own only; the blank license number is a row there (the
   documents print it), so the fault shows in one place.
 - **"As Of", Clear Everything and Turn the Demo On** go behind the owner and a typed confirm (owner finding 21).
 - **Bank reconciling leaves Connections** for Accounting › Banking, per the owner's verdict and CX5.
 
 ## 6. Unsure, or for Alan
 - The purchasing mailbox's state and the mail-check interval were not read (`[PLACEHOLDER]`); workers' comp and the trade
-  licences are not in the records at all.
+  licenses are not in the records at all.
 - Alan, the PM, is missing from Team in the demo; is he the same person as the owner (alan@smartdesign.nyc)?
 
 ## 7. Self-review against the ten questions
@@ -122,10 +124,36 @@ Old 13 pages and 41 desktop screens; new hub plus 6 pages (about 10 screens), th
 | Hub | pass | pass | pass | pass | n/a | pass | pass | n/a | pass | pass |
 | Team, a person | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
 | The Brain | pass | pass | pass | pass | n/a | pass | pass | n/a | pass | pass |
-| Insurance and Licences | pass | pass, see below | pass | pass | n/a | pass | pass | pass | pass | pass |
+| Insurance and Licenses | pass | pass, see below | pass | pass | n/a | pass | pass | pass | pass | pass |
 | Connections, Standard, Settings | pass | pass | pass | pass | n/a | pass | pass | n/a | pass | pass |
 - Revised in review: The Brain first read 18, counting one item twice; the Standard's hub line read 14 lines against 13
-  rows (two "Direct to the source" lines are one row); both now agree. Company Settings printed "Licence # missing" as well as
-  Insurance and Licences; it now shows once.
+  rows (two "Direct to the source" lines are one row); both now agree. Company Settings printed "License # missing" as well as
+  Insurance and Licenses; it now shows once.
 - The person page is long (14 rules). Kept: it is visited rarely, and each rule is one 52px row that opens in place.
-- "Licences": the label is Alan's to confirm (he may say "Insurance and Licenses", or keep "Obligations").
+- "Licenses": decided by the chief of staff 11-03: the app's house spelling is American ("License" 46 times in the
+  build, "license" in the Standard), so the label is "Insurance and Licenses".
+
+## 8. Chief of staff review (11-03, overnight)
+Verdict: **build after the must-fix list below.**
+
+| Page | Gaps against the ten questions | Grade |
+|---|---|---|
+| Hub | none | 9 |
+| Team | 7: the headcount reads 13, 14 and "4 of 9"; the PM is missing; two pairs of people share a phone number | 7.5 |
+| A person | fixed: Messages to Clients can no longer be set to Act Alone; only the owner changes a limit | 9 |
+| The Brain | none (17 = 9 + 2 + 6, one item shown once) | 9 |
+| Insurance and Licenses | fixed: workers' comp and the trade licenses not on file are Needs You (law ranks second), 4 | 9 |
+| Connections | fixed: the blue button was Connect My Google Account, which cannot work before the firm's setup | 9 |
+| The Standard | fixed: the 2-hour client acknowledgement read 0 while Messages shows two clients past it; 14 lines | 9 |
+| Company Settings | "people 9" under Your Data is a third headcount; the clock read "the admin" (now the owner) | 8.5 |
+
+Calls made (DECISIONS 11-03): the label is "Insurance and Licenses" (the build's own spelling); the PM gets his own Team entry
+and login; client mail to someone with no login goes to the job's PM.
+
+**Must fix before build**
+1. One headcount: Team, the hub, Tasks › Team and Your Data read the same number of people from one list (14 with the PM).
+2. Every login has a Team record, and no two people share a phone or email (Controller and Alberto share (917) 555-0105, Billing
+   and Angel (917) 555-0104): a text to the crew must never reach the books (BACKLOG §10).
+3. Draw the desktop for Team and the person page (limits and rules are edited at a desk).
+4. Design gate: person, lesson (one Brain list), obligation (renamed, firm-only; vendor certificates stay on the vendor) and
+   assistant rule (four places fold into one, on the person). No new store. Confirm against BACKLOG §1.16.

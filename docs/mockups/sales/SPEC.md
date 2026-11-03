@@ -51,8 +51,9 @@ Next Step 3" reads "3 past their date"; Stalled 1 (14 days) against "Gone Quiet 
 1. What: the Kleins: their job, what waits on whom, their contract and billing, every message. 2. Their name.
 3. Records live in their homes (the job, the invoice, the mail); the page lists them filtered to the client.
 4. PM and owner before a call; billing before a reminder. "Where do we stand with them?"
-5. Every tile, count and row is theirs: Waiting on Us 1, Waiting on Them 6, They Owe $68,265, Left to Bill $237,516.
-6. What waits on us first (Sarah's 9/2 mail), then what waits on them, then the sections.
+5. Every tile, count and row is theirs: Waiting on Us 2 (Sarah's 9/2 mail; the managing agent's 9/2 call about
+   Friday's elevator booking, which the answering service logged as a client), Waiting on Them 6, They Owe $68,265, Left to Bill $237,516.
+6. What waits on us first (Sarah's 9/2 mail, the agent's call), then what waits on them, then the sections.
 7. Each tile equals its rows (6 = 5 decisions + 1 change order to sign). 8. One + "New for the Kleins": Message, Task,
    Note or Call, Meeting, Estimate, Change Order, Invoice, Job, each with the client (and the job, when there is one) filled.
 9. Tiles two across, labelled; rows 52px. 10. Three tabs on the desktop (Overview, Contract and Billing, Messages),
@@ -111,7 +112,8 @@ Old 11 pages and 46 desktop screens; new 2 pages (about 6 chip screens) plus the
 - Ana Petrova is a repeat client with no client record, and Aliya Chen writes as a client (374 Washington Ave) with none:
   the page offers "Add Her as a Client". Is 374 Washington Avenue real work in the demo, or a stray mail?
 - No estimate is linked to Marcus Bell's or Ana Petrova's proposals (`[PLACEHOLDER]`).
-- The activity log says "Sent INV-003" where the invoice is INV-2026-038: a naming slip to fix in the build.
+- The activity log says "Sent INV-003" where the invoice is INV-2026-038: a naming slip to fix in the build (BACKLOG §10).
+  The mock now shows the record's own number.
 - Bank lines behind the Kleins' two payments were not read for this mock-up (`[PLACEHOLDER]`).
 
 ## 7. Self-review against the ten questions
@@ -127,3 +129,29 @@ Old 11 pages and 46 desktop screens; new 2 pages (about 6 chip screens) plus the
   cadence; if Alan reads "Clients" as clients only, Partners moves to a chip on the Pipeline.
 - The desktop Pipeline's "Open Pipeline $1.3M" tile is not something waiting on you (question 7). Kept as the one "where
   things stand" figure, as the approved job page keeps Margin at Completion.
+
+## 8. Chief of staff review (11-03, overnight)
+Verdict: **build after the must-fix list below.**
+
+| Page | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Grade |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Pipeline | pass | pass | pass (Estimates decided, below) | pass | n/a | pass | **gap**: a signed deal with no job is not in Need You | pass | pass | pass | 8 |
+| Clients | pass (partners kept) | pass | pass | pass | n/a | pass | fixed: All and Partners carry no count | pass | pass | pass | 8.5 |
+| A client | pass | pass | pass | pass | fixed: the managing agent's call is the Kleins' | pass | fixed: Waiting on Us 2 | pass | pass | pass | 8.5 |
+| A deal | pass | pass | pass | pass | pass | pass | pass | pass | pass | n/a | 9 |
+
+Fixed in the mock tonight: counts off the All Open, All and Partners chips (nothing waits there; the approved job page's chips
+carry none); the Kleins' Waiting on Us is 2 with R. Torres's call about Friday's delivery; the activity row names
+CO-2026-002 and INV-2026-038, not "INV-003"; the deal's Set Up the Job copy no longer claims a client record that is not on file.
+
+Calls made (DECISIONS 11-03): Estimates leaves the Sales menu, reversibly, flagged for Alan in the morning.
+
+**Must fix before build**
+1. Need You adds "signed, no job set up": the Nakamuras signed 7/25, 40 days ago; whether their deposit invoice went is not read.
+   Pipeline, Today's Deals That Need You and Today's rows all move to 4.
+2. Billed gross, retainage and net tie to the cent ($238,015 + $15,668 = $253,683, not $253,684), from one function (BACKLOG §10).
+3. The "Design Agreement" stage reads as signed; the Lindqvists' next step is to write the design proposal. Rename the stage
+   "Design Proposal" (Alan's "add Proposals") so no stage name implies a signature before Signed.
+4. Old `billing` links from Sales land on Pipeline › Proposals Out, which lists each estimate with its deal.
+5. Design gate: deal, client and contact are existing nouns; People and Companies fold into the client, partner or vendor they
+   belong to (no second contact list); a partner is a kind of company, not a new store. Confirm against BACKLOG §1.16.

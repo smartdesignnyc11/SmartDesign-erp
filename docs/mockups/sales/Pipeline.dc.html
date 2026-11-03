@@ -109,7 +109,7 @@ class Component extends DCLogic {
       open: [{ title: 'All Open, by Stage', n: 6, rows: prep([need[1], rest[2], need[0], rest[0], need[2], rest[1]], false) }],
       closed: [{ title: 'Won and Lost This Quarter', n: 2, rows: prep(closed, false) }]
     };
-    const defs = [{ id: 'need', label: 'Need You', n: 3 }, { id: 'open', label: 'All Open', n: 6 }, { id: 'closed', label: 'Won and Lost', n: '' }];
+    const defs = [{ id: 'need', label: 'Need You', n: 3 }, { id: 'open', label: 'All Open', n: '' }, { id: 'closed', label: 'Won and Lost', n: '' }];
     const chips = defs.map((c) => Object.assign({}, c, {
       pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: c.id })

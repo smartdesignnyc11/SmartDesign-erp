@@ -1246,3 +1246,51 @@ the checks go in through the main session.
    W-9, and Alberto M Plumbing $9,800 "paid" on a bill that cannot be paid (verify against the build). Class fix: a payment to a vendor with
    no W-9 on file is a Needs You row for the controller (backup withholding, the year-end 1099). Check: the payment-run suite asserts the
    Payment Check holds it, and the finance cross-check lists any vendor paid without one.
+
+## §10 Mock-up review: Your Day, Sales and Clients, Company and Settings (chief of staff, 2026-11-03)
+Defects the mock-up authors and the review found in the live build (census bd3180c27e33, demo day 9/3), written as class fixes,
+each with the check that makes it fail loudly next time. Specs: docs/mockups/today/, sales/ and company/ SPEC.md, section 8.
+Owner: the Your Day, Sales and Company build lanes; the checks go in through the main session.
+
+1. **One record, one date.** Ana Petrova's next step reads 9/2 on the deal and 9/4 on her task and close plan, so Need You counts
+   4 in the build and 3 in the mock. Class fix: a deal's next step is a link to its open task, never a copied date; the deal shows
+   the task's due date. Checks: (a) data invariant in the net: every deal's next-step date equals its linked open task's due date,
+   and a deal with no open task shows "No Next Step"; (b) counts lint: Pipeline's Need You and Today's Deals That Need You are
+   computed by one function and equal.
+2. **One lesson, one proposal.** "A step carried twice becomes a dated task" is drafted as a lesson and as a meeting-reader rule,
+   so The Brain reads 18 against 17 rows, and lessons read 9, 8 and 6 on three screens. Class fix: a brain proposal is keyed by
+   the events behind it; a second path that drafts from the same events attaches to the first. Check: learn_test plants one event
+   that fires both paths and asserts one To Approve row, and the hub, Today's line and The Brain's chip equal the rows.
+3. **A record is named by its own number everywhere.** The activity log says "Sent INV-003" for INV-2026-038. Class fix: log entries
+   store the record id and render its current number at display. Check: lint walks every activity, toast and brief line that names
+   an invoice, change order, PO or estimate and asserts the printed number resolves to a live record with that exact number.
+4. **Every person who writes or calls resolves to who they are.** Ana Petrova is a "repeat client" with no client record; Aliya
+   Chen writes as a client with none; the answering service logged R. Torres as "existing client" when he is the Kleins' managing
+   agent on file; Jeanette's mail exists though Team says she has no email. Class fix: inbound mail, calls and texts match by email
+   and phone to a client, partner, vendor, building contact or team member, and link to their job; "repeat client" requires a client
+   record with a past job; no match is a Needs You row ("Who Is This?"), never a silent stranger. Checks: (a) invariant: a deal marked
+   repeat has a client with at least one job; (b) the day walk plants an answering-service call from a known building contact's
+   number and asserts it lands on that job's Messages and the PM's Today, not the owner's as a client.
+5. **Billed is gross or net, labelled, and ties to the cent.** The Kleins read $253,684 billed (gross) and $238,015 invoiced (net of
+   $15,668 retainage) with no label, and $238,015 + $15,668 is $253,683. Class fix: one function returns billed gross, retainage
+   held and net per job and client, to the cent; every "Billed" label says gross or net. Checks: finance_xcheck asserts the sum of
+   invoice totals equals net, net plus retainage equals gross to the cent; the screen-standard lint fails a "Billed" figure with no
+   "gross" or "net" beside it on the client, job and portal pages.
+6. **Every bill sits in exactly one approval queue.** AMP-311 ($9,800, no PO, with an unmatched $9,800 Chase payment on 8/15) is
+   missing from Approvals › Bills, while "owner approval for payments above $0" sends him everything else. Class fix: the owner's
+   Approvals is computed from the exceptions Alan decided 10-26 (paid before approval, over the PO or with none, a bank-detail
+   change, a first payment to a new vendor, a PO over $10,000, payroll not split by job); every other bill goes to its owner's queue.
+   Checks: invariant: every unpaid bill, and every payment with no approved bill, is in exactly one person's queue; the approvals
+   suite plants a no-PO bill with an unmatched bank payment and asserts it on the owner's Approvals.
+7. **"Waits on you" is one list per person.** Messages' Needs an Answer holds 5 for the owner; Today shows 2 of them. Class fix:
+   Today is the union of every waits-on-you list for that person (approvals, tasks due, messages needing an answer, alerts), so
+   anything counted elsewhere as yours is a row or a folded line on Today. Check: counts lint asserts, for each role, that every
+   record id in Messages' Needs an Answer, Tasks' late and today, and the Pipeline's Need You appears on that role's Today.
+8. **People are unique, and every login is a person.** The PM has a login and tasks but no Team record; the controller and Alberto
+   share (917) 555-0105, billing and Angel (917) 555-0104; the headcount reads 13, 14, "4 of 9" and 9. Class fix: one people list;
+   phone and email unique across it; every login points at a person. Checks: a data lint fails on a duplicate phone or email and on
+   a login with no person; counts lint: every headcount reads the one list.
+9. **A required firm record not on file is a Needs You row.** Workers' comp and disability (a crew is on payroll) and the trade
+   licenses are not in the records at all, and the screen listed them with no count. Class fix: the firm's required records are a
+   checklist from the Standard (law ranks second); one missing or lapsed is Needs You for the owner and controller and counts in
+   Today's Compliance. Check: the compliance suite removes a required record and asserts the row, the hub count and Compliance move.

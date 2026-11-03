@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Insurance and Licences: Proposed</title>
+<title>Insurance and Licenses: Proposed</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -19,12 +19,12 @@ a{color:#1d4ed8}a:hover{color:#1e3a8a}
       <a href="Company.dc.html" aria-label="Back to Company and Settings" style="width: 44px; height: 44px; margin-left: -12px; display: flex; align-items: center; justify-content: center; color: #fff">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
       </a>
-      <b style="flex: 1; font-size: 19px">Insurance and Licences</b>
-      <button type="button" aria-label="New policy, licence or filing" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
+      <b style="flex: 1; font-size: 19px">Insurance and Licenses</b>
+      <button type="button" aria-label="New policy, license or filing" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid #3a4866; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
       </button>
     </div>
-    <span style="font-size: 13px; color: #b9c3d8">The firm’s own policies, licences and filings · renewals reach Today 30 days ahead</span>
+    <span style="font-size: 13px; color: #b9c3d8">The firm’s own policies, licenses and filings · renewals reach Today 30 days ahead</span>
   </div>
 
   <sc-for list="{{sections}}" as="s" hint-placeholder-count="3">
@@ -52,17 +52,15 @@ class Component extends DCLogic {
   renderVals() {
     const RED = '#b91c1c', MUTE = '#5b6578', INK = '#172033';
     const S = [
-      { title: 'Needs You', n: 2, tone: RED, rows: [
+      { title: 'Needs You', n: 4, tone: RED, rows: [
         { k: 'LLC biennial statement, SmartDesign Group LLC', sub: 'NYS Department of State · the filing was due 8/29', v: 'Lapses 9/28', tone: RED, act: 'Draft the Renewal', primary: true },
-        { k: 'Home improvement contractor licence', sub: 'The licence number is blank, and it prints on every estimate and invoice; a NYC home-improvement contract needs it', v: 'Missing', tone: RED, act: 'Add the Licence', side: true }
+        { k: 'Home improvement contractor license', sub: 'The license number is blank, and it prints on every estimate and invoice; a NYC home-improvement contract needs it', v: 'Missing', tone: RED, act: 'Add the License', side: true },
+        { k: 'Workers’ compensation and disability', sub: 'New York requires both for a crew on payroll (6 on this run); none is on file: [PLACEHOLDER] policy and dates', v: 'Not on file', tone: RED, act: 'Add', side: true },
+        { k: 'DOB and trade licenses (plumbing, electric)', sub: 'SD Plumbing LLC and SD Electric LLC file permits under them: [PLACEHOLDER] numbers and dates', v: 'Not on file', tone: RED, act: 'Add', side: true }
       ] },
       { title: 'On File', n: 2, tone: MUTE, rows: [
         { k: 'General liability · GL-4471-2026', sub: 'Hartford · the company', v: '5 months', tone: INK },
         { k: 'Builder’s risk · BR-91022', sub: 'Zurich · 121 State Street', v: '6 months', tone: INK }
-      ] },
-      { title: 'Not on File Yet', n: '', tone: MUTE, rows: [
-        { k: 'Workers’ compensation and disability', sub: 'Required for a crew on payroll: [PLACEHOLDER] policy and dates', v: 'None', tone: MUTE, act: 'Add', side: true },
-        { k: 'DOB and trade licences (plumbing, electric)', sub: 'SD Plumbing LLC and SD Electric LLC: [PLACEHOLDER] numbers and dates', v: 'None', tone: MUTE, act: 'Add', side: true }
       ] },
       { title: 'Kept With Their Record', n: '', tone: MUTE, rows: [
         { k: 'Vendors’ insurance certificates', sub: 'Window Works lapsed 8/15 · Tino has an open PO and none on file · 4 current. Each lives on its vendor; the coordinator chases.', v: 'Purchasing', tone: MUTE, act: 'Open Vendors', side: true },

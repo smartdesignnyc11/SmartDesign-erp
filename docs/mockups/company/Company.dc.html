@@ -50,11 +50,11 @@ class Component extends DCLogic {
       gear: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4.4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z'
     };
     const R = [
-      { label: 'Team', sub: '13 people · who approves what · each person’s assistant', icon: I.team, href: 'Team.dc.html', n: 0 },
+      { label: 'Team', sub: '13 people, and the PM to add · who approves what · each person’s assistant', icon: I.team, href: 'Team.dc.html', n: 0 },
       { label: 'The Brain', sub: 'What the firm learned: lessons and changes to approve', icon: I.brain, href: 'Brain.dc.html', n: 17 },
-      { label: 'Insurance and Licences', sub: 'The LLC filing is late · the licence number is missing', icon: I.shield, href: 'Insurance.dc.html', n: 2 },
+      { label: 'Insurance and Licenses', sub: 'The LLC filing is late · the license number, workers’ comp and trade licenses are not on file', icon: I.shield, href: 'Insurance.dc.html', n: 4 },
       { label: 'Connections', sub: 'Your Google account is not connected · banks and cards', icon: I.link, href: 'Connections.dc.html', n: 0 },
-      { label: 'The SmartDesign Standard', sub: 'Version 1, Alan Mishali · 13 measured lines open today', icon: I.book, href: 'Standard.dc.html', n: 0 },
+      { label: 'The SmartDesign Standard', sub: 'Version 1, Alan Mishali · 14 measured lines open today', icon: I.book, href: 'Standard.dc.html', n: 0 },
       { label: 'Company Settings', sub: 'Entities, documents, accounting, items, sales stages, your data', icon: I.gear, href: 'Settings.dc.html', n: 0 }
     ];
     return { rows: R.map((r, i) => Object.assign({}, r, { has: r.n > 0, line: i ? '1px solid #eef1f6' : '0' })) };

@@ -62,7 +62,7 @@ class Component extends DCLogic {
   constructor(p) { super(p); this.state = { tab: 'need' }; }
   renderVals() {
     const C = {
-      klein: { name: 'Sarah & David Klein', money: 'owes $68,265', href: 'Client.dc.html', sub: '121 State Street, 14% done · INV-2026-038 due 9/15', wait: 'Sarah’s 9/2 mail waits on us: alteration agreement, COI and scope', act: 'Reply to Sarah' },
+      klein: { name: 'Sarah & David Klein', money: 'owes $68,265', href: 'Client.dc.html', sub: '121 State Street, 14% done · INV-2026-038 due 9/15', wait: 'Sarah’s 9/2 mail (alteration agreement, COI, scope) and the agent’s call about Friday’s delivery wait on us', act: 'Reply to Sarah' },
       aliya: { name: 'Aliya Chen', money: '', href: '#', sub: '374 Washington Avenue · not on file as a client', wait: 'Her 8/30 mail has no answer, 4 days', act: 'Add Her as a Client' },
       jessop: { name: 'Jessop family', money: 'owes $24,000', href: '#', sub: '140 Prospect Place, design · design retainer sent 9/3, due 9/15', wait: '', act: '' },
       rivera: { name: 'Rivera family', money: '', href: '#', sub: '45 Cranberry St, design · $21,350 recorded as paid, not seen at the bank', wait: '', act: '' },
@@ -77,7 +77,7 @@ class Component extends DCLogic {
     const T = this.state.tab;
     const L = { need: [C.klein, C.aliya], all: [C.klein, C.jessop, C.rivera, C.lind, C.naka], partners: P }[T];
     const rows = L.map((r, i) => Object.assign({}, r, { line: i ? '1px solid #eef1f6' : '0', hasWait: !!r.wait, primary: T === 'need' && i === 0, side: !!r.act && !(T === 'need' && i === 0) }));
-    const defs = [{ id: 'need', label: 'Need You', n: 2 }, { id: 'all', label: 'All', n: 5 }, { id: 'partners', label: 'Partners', n: 3 }];
+    const defs = [{ id: 'need', label: 'Need You', n: 2 }, { id: 'all', label: 'All', n: '' }, { id: 'partners', label: 'Partners', n: '' }];
     const chips = defs.map((c) => Object.assign({}, c, {
       pressed: T === c.id ? 'true' : 'false', bg: T === c.id ? '#172033' : '#fff', color: T === c.id ? '#fff' : '#172033', border: T === c.id ? '#172033' : '#c9d1e0',
       pick: () => this.setState({ tab: c.id })
