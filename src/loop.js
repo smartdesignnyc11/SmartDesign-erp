@@ -252,7 +252,7 @@ if ("function" == typeof render) {
     const r = base.apply(this, arguments);
     try {
       const v = lpView(),
-        t = Date.now(),
+        t = Date.now(), // wall clock: a timer on this device, never stored as a date
         last = lpTrack[lpTrack.length - 1];
       if (v && (!last || last.v !== v)) {
         lpTrack.push({ v: v, t: t }), lpTrack.length > 6 && lpTrack.shift();
@@ -271,7 +271,7 @@ document.addEventListener(
     try {
       const el = e.target.closest("button, a, [role=button], .btn, .gl, .kpi, tr");
       if (!el || el.closest("#rp-panel")) return;
-      const t = Date.now();
+      const t = Date.now(); // wall clock: a timer on this device, never stored as a date
       el === lpTaps.el && t - lpTaps.t < 1200 ? lpTaps.n++ : ((lpTaps.el = el), (lpTaps.n = 1)), (lpTaps.t = t);
       3 === lpTaps.n && lpUsage(lpView(), "rage");
     } catch (er) {}
@@ -328,7 +328,7 @@ document.addEventListener(
       try {
         M = JSON.parse(localStorage.getItem(LP_TYPED) || "{}");
       } catch (er) {}
-      const now = Date.now(),
+      const now = Date.now(), // wall clock: a timer on this device, never stored as a date
         cut = now - 14 * 864e5;
       Object.keys(M).forEach((k) => (M[k] = (M[k] || []).filter((t) => t > cut)));
       (M[h] = M[h] || []).push(now);

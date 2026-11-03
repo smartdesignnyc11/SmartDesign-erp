@@ -3954,7 +3954,7 @@ function toast(msg, go, ms) {
     "mousedown",
     (e) => {
       const el = e.target && e.target.closest ? e.target.closest(sel) : null;
-      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null;
+      press = el ? { el: el, key: keyOf(el), t: Date.now(), x: e.clientX, y: e.clientY } : null; // wall clock: a timer on this device, never stored as a date
     },
     !0,
   );
@@ -4032,7 +4032,7 @@ document.addEventListener(
   "click",
   (e) => {
     const t = e.target && e.target.closest && e.target.closest(NAV_TAB_SEL);
-    t && (navTabAt = Date.now());
+    t && (navTabAt = Date.now()); // wall clock: a timer on this device, never stored as a date
   },
   !0,
 );
@@ -11387,7 +11387,7 @@ const AI_REGISTRY = [
 async function testAI() {
   const el = $("#ai-test-out");
   el.textContent = "Testing…";
-  const t0 = Date.now(),
+  const t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     r = await ai("Reply with exactly: OK", 50, 6e4);
   el.innerHTML = r.startsWith("__ERR")
     ? `<span style="color:var(--bad)">Failed: ${esc(r.slice(6))}</span><div class="small muted">Copy this line when reporting. Everything that does not use the assistant keeps working.</div>`
@@ -43230,7 +43230,7 @@ function timerToggle(id, label, projectId) {
     }
     localStorage.setItem(
       "studio-timer",
-      JSON.stringify({ id: id, label: label, projectId: projectId, start: Date.now() }),
+      JSON.stringify({ id: id, label: label, projectId: projectId, start: Date.now() }), // wall clock: a timer on this device, never stored as a date
     ),
       toast(`Timer started — ${label}`);
   }
@@ -88801,7 +88801,7 @@ if (
         mOn() &&
         (mPendingCall = {
           name: (a.textContent || "").replace(/^Call\s+/i, "").trim(),
-          at: Date.now(),
+          at: Date.now(), // wall clock: a timer on this device, never stored as a date
           view: view,
           hbObj: void 0 !== hbObj ? hbObj : null,
           hbId: void 0 !== hbOpenId && void 0 !== hbObj ? hbOpenId[hbObj] : null,
@@ -106232,9 +106232,9 @@ function rpWhere(el) {
 function rpPush(kind, what, where) {
   const last = rpTrail[rpTrail.length - 1];
   if (last && last.kind === kind && last.what === what && last.where === where)
-    return (last.n = (last.n || 1) + 1), void (last.t = Date.now());
+    return (last.n = (last.n || 1) + 1), void (last.t = Date.now()); // wall clock: the problem report records when it happened on this device
   rpTrail.push({
-    t: Date.now(),
+    t: Date.now(), // wall clock: the problem report records when it happened on this device
     kind: kind,
     what: String(what || "").slice(0, 48),
     where: String(where || "").slice(0, 30),
@@ -106261,7 +106261,7 @@ if (
   ),
   window.addEventListener("error", (e) => {
     rpErrors.push({
-      t: Date.now(),
+      t: Date.now(), // wall clock: the problem report records when it happened on this device
       m: String(e.message || "").slice(0, 140),
       at: `${String(e.filename || "")
         .split("/")
@@ -106274,7 +106274,7 @@ if (
   }),
   window.addEventListener("unhandledrejection", (e) => {
     const m = String((e.reason && e.reason.message) || e.reason || "").slice(0, 140);
-    rpErrors.push({ t: Date.now(), m: m, at: "promise" }),
+    rpErrors.push({ t: Date.now(), m: m, at: "promise" }), // wall clock: the problem report records when it happened on this device
       rpErrors.length > 5 && rpErrors.shift(),
       rpPush("broke", m.slice(0, 48), view),
       (rpFrozen = rpTrail.slice()),
@@ -115573,7 +115573,7 @@ async function gsRun(opts) {
   const g = gsMine();
   if (!g || !gcOn()) return null;
   gsRunning = !0;
-  const t0 = Date.now(),
+  const t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [], first: !!o.first };
   for (const [k, fn] of [
     ["mail", gsGmail],
@@ -121848,7 +121848,7 @@ window.addEventListener("popstate", (e) => {
 try {
   new MutationObserver(() => {
     const d = document.getElementById("drawer");
-    d && d.classList.contains("on") && (rxDrawerAt = Date.now());
+    d && d.classList.contains("on") && (rxDrawerAt = Date.now()); // wall clock: a timer on this device, never stored as a date
   }).observe(document.getElementById("drawer"), { attributes: !0, attributeFilter: ["class"] });
 } catch (e) {}
 function rxMigrateCO() {
@@ -132031,7 +132031,7 @@ if (
       pend = null,
       force = !1;
     (cl.add = function (...a) {
-      return a.includes("on") && ((shownAt = Date.now()), clearTimeout(pend), (pend = null)), add(...a);
+      return a.includes("on") && ((shownAt = Date.now()), clearTimeout(pend), (pend = null)), add(...a); // wall clock: a timer on this device, never stored as a date
     }),
       (cl.remove = function (...a) {
         if (force || !a.includes("on") || !t.querySelector("a, button")) return rm(...a);
@@ -132154,7 +132154,7 @@ if (
     "click",
     (e) => {
       const b = e.target.closest && e.target.closest("button, .btn, [role=button]");
-      lkPress = b ? { b: b, at: Date.now() } : null;
+      lkPress = b ? { b: b, at: Date.now() } : null; // wall clock: a timer on this device, never stored as a date
     },
     !0,
   ),
@@ -132165,7 +132165,7 @@ if (
         e.target &&
         e.target.matches &&
         e.target.matches("input, select") &&
-        (lkPress = { b: e.target, at: Date.now() });
+        (lkPress = { b: e.target, at: Date.now() }); // wall clock: a timer on this device, never stored as a date
     },
     !0,
   ),
@@ -148043,7 +148043,7 @@ let rcToastAt = 0;
 if ("function" == typeof toast) {
   const base = toast;
   toast = function () {
-    return (rcToastAt = Date.now()), base.apply(this, arguments);
+    return (rcToastAt = Date.now()), base.apply(this, arguments); // wall clock: a timer on this device, never stored as a date
   };
 }
 if ("function" == typeof thCoBar) {
@@ -150332,7 +150332,7 @@ function rcPressed(e) {
   )
     return;
   if (rcPress && Date.now() - rcPress.at < 50) return;
-  const at = Date.now(),
+  const at = Date.now(), // wall clock: a timer on this device, never stored as a date
     snap = rcSnap();
   (rcPress = { at: at }),
     setTimeout(() => {
@@ -154328,7 +154328,7 @@ if ("function" == typeof hbDateWindow) {
   const base = toast;
   toast = function () {
     try {
-      rcToastAt = Date.now();
+      rcToastAt = Date.now(); // wall clock: a timer on this device, never stored as a date
     } catch (e) {}
     return base.apply(this, arguments);
   };
@@ -154337,7 +154337,7 @@ if ("function" == typeof hbDateWindow) {
   const base = toastDone;
   toastDone = function () {
     try {
-      rcToastAt = Date.now();
+      rcToastAt = Date.now(); // wall clock: a timer on this device, never stored as a date
     } catch (e) {}
     return base.apply(this, arguments);
   };
@@ -165400,7 +165400,7 @@ function dlDraft(p, d) {
       (c.subsOn || []).forEach((x) => (x.touched = !0)),
       (c.step = 0),
       (c.editing = "submitted" === ex.status),
-      (c.startedMs = Date.now()),
+      (c.startedMs = Date.now()), // wall clock: a timer on this device, never stored as a date
       (DB.field.dlDraft[key] = c);
     return dlSyncSite(c, p);
   }
@@ -165454,7 +165454,7 @@ function dlDraft(p, d) {
       date: d,
       v: 2,
       step: 0,
-      startedMs: Date.now(),
+      startedMs: Date.now(), // wall clock: a timer on this device, never stored as a date
       weather: "",
       temp: "",
       weatherSrc: "manual",
@@ -167761,7 +167761,7 @@ function igFindByText(msg) {
           igPressRx.test(el.textContent || el.value || ""))
       )
         try {
-          igPress = { at: Date.now(), snap: igSigSnap() };
+          igPress = { at: Date.now(), snap: igSigSnap() }; // wall clock: a timer on this device, never stored as a date
         } catch (err) {
           igPress = null;
         }
@@ -167852,7 +167852,7 @@ let igPay = null;
       }
     } catch (e) {}
     const r = base.apply(this, arguments),
-      at = Date.now();
+      at = Date.now(); // wall clock: a timer on this device, never stored as a date
     return (
       setTimeout(() => {
         try {
@@ -173711,7 +173711,7 @@ AG_FIN.unshift(
     re: /\bverif(y|ies|ied|ication)\b|\btamper(ed|ing)?\b|\bchain (intact|sealed|ok)\b/,
     kind: "money",
     run(P) {
-      const t0 = Date.now();
+      const t0 = Date.now(); // wall clock: a timer on this device, never stored as a date
       let V = [];
       try {
         V = truthVerifyAll();
@@ -197733,7 +197733,7 @@ function fndFlash(name, sel, quiet) {
 // a highlight outlives the render that follows a save (the next tap's render used to wipe it)
 let fndHot = [];
 function fndRehot() {
-  const t = Date.now();
+  const t = Date.now(); // wall clock: a timer on this device, never stored as a date
   (fndHot = fndHot.filter((h) => h.until > t)),
     fndHot.forEach((h) => {
       const root = fndRoot();
@@ -197814,7 +197814,7 @@ function fndArm(soft) {
     // staff only: the client's portal shows what a client does on it, and these lists are not theirs to open
     if (!DB || !fndUid() || "client" === role()) return void (fndBase = null);
     const now = fndKeys(),
-      t = Date.now();
+      t = Date.now(); // wall clock: a timer on this device, never stored as a date
     // what the last tap made before its toast (a sheet's second tap comes first) is carried, not dropped
     fndBase && now.forEach((k) => fndBase.has(k) || fndPending.set(k, t));
     (fndBase = now), (fndArmAt = t);
@@ -197828,7 +197828,7 @@ const fndFocusEl = (root) =>
 function fndSettle() {
   if (!fndBase || !DB) return;
   const now = fndKeys(),
-    t0 = Date.now(),
+    t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     fresh = [...new Set([...now].filter((k) => !fndBase.has(k)).concat([...fndPending].filter(([k, t]) => t0 - t < 1e4 && now.has(k)).map(([k]) => k)))];
   fndPending.clear();
   if (!fresh.length) return;
@@ -197836,7 +197836,7 @@ function fndSettle() {
   fresh.forEach((k) => fndBase.add(k));
   const root = fndRoot(),
     L = fndLoad(),
-    at = Date.now();
+    at = Date.now(); // wall clock: a timer on this device, never stored as a date
   let add = 0;
   fresh.forEach((k) => {
     const x = fndFind(k),
@@ -200894,7 +200894,7 @@ async function msgVoiceToggle() {
   }
   const rec = new MediaRecorder(stream),
     parts = [],
-    t0 = Date.now(),
+    t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
     key = T.key;
   rec.ondataavailable = (e) => e.data && e.data.size && parts.push(e.data);
   const st = (msgRecState = {

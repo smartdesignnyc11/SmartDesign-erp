@@ -380,7 +380,7 @@ function w1Snap(el) {
     v === d0 ? delete fields[sig] : (fields[sig] = { v, d0 });
   });
   if (!Object.keys(fields).length) return void (prev && w1Put(st.key, null));
-  w1Put(st.key, { title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" });
+  w1Put(st.key, { title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" }); // wall clock: how old a draft is on this device, for its retention
 }
 // after a tap inside the sheet: still open, what is typed now is the draft
 function w1AfterAct(el) {
@@ -494,7 +494,7 @@ function w1PageType(f) {
     v = w1Val(f),
     d0 = x ? x.d0 : w1Before(f);
   v === d0 ? delete d.fields[sig] : (d.fields[sig] = { v, d0 });
-  (d.at = appNowIso()), (d.wall = Date.now()), (d.screen = w1Screen());
+  (d.at = appNowIso()), (d.wall = Date.now()), (d.screen = w1Screen()); // wall clock: how old a draft is on this device, for its retention
   w1Put(key, Object.keys(d.fields).length ? d : null);
 }
 // a tap that read a typed field used it (its Send, its Save, its Add): that field's draft goes once the tap has run

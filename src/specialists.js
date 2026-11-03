@@ -1210,7 +1210,7 @@ function rsOneHtml(r) {
     }
     // the follow-up re-reads open findings at most once a minute while the app is in use
     try {
-      const now = Date.now();
+      const now = Date.now(); // wall clock: a timer on this device, never stored as a date
       (!rsSweepAt || now - rsSweepAt > 6e4) && ((rsSweepAt = now), Object.values(rsInit().cases).some((c) => "open" === c.status) && setTimeout(() => rsSweep() && "pa" === view && render(), 0));
     } catch (e) {}
     return r;

@@ -885,7 +885,7 @@ function tdRender() {
     k = (tdyMe() || {}).id || r;
   if (!td2Entered) {
     td2Entered = !0;
-    td2EnteredMs = Date.now();
+    td2EnteredMs = Date.now(); // wall clock: a timer on this device, never stored as a date
     td2Look().open = appNowIso();
   }
   const B = td2Brief(T),
