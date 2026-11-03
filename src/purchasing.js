@@ -355,8 +355,8 @@ function puQuoteRows() {
 const PU_ROWS = {
   // the menu's Buy Board is every job's; the page's own heading counts the rows its filters show
   proc: () => puNeeds("").filter((x) => "mine" === x.b),
-  po: () => puOrderRows(puInJob()).filter((x) => x.actor === puMe()),
-  recv: () => puDelivRows(puInJob()).filter((x) => x.actor === puMe()),
+  po: () => puOrderRows("").filter((x) => x.actor === puMe()),
+  recv: () => puDelivRows("").filter((x) => x.actor === puMe()),
   vendors: () => puVendorRows().filter((x) => "mine" === x.b),
   inv: () => puStockRows().filter((x) => "mine" === x.b),
   rfq: () => puQuoteRows().filter((x) => "mine" === x.b && "coord" === puMe()),
@@ -400,7 +400,8 @@ function puRowHtml(x, o) {
 function puSecHtml(key, title, rows, o) {
   o = o || {};
   if (!rows.length && !o.empty) return "";
-  const n = o.count ? `<span class="n" data-ocbadge="${esc(o.count)}">${rows.length}</span>` : "";
+  // the count is the menu badge's source only on the firm's page; inside a job it counts the job (the menu counts the firm)
+  const n = o.count ? `<span class="n"${puInJob() || o.scoped ? "" : ` data-ocbadge="${esc(o.count)}"`}>${rows.length}</span>` : "";
   return `<section class="pu-sec" data-pusec="${key}"><div class="pu-sh"><h3>${esc(title)}</h3>${n}${o.note ? `<span class="pu-note" data-nocase>${esc(o.note)}</span>` : ""}</div>${rows.length ? `<div class="pu-rows">${rows.map((x) => puRowHtml(x, o)).join("")}</div>` : `<p class="pu-empty" data-nocase>${esc(o.empty)}</p>`}${o.foot || ""}</section>`;
 }
 function puPlusItems(v) {
@@ -540,7 +541,7 @@ function puBuyRender() {
     laterLast = later.length && later[later.length - 1].r.orderBy,
     laterBtn = later.length ? `<button type="button" class="pu-link pu-laterb" data-pulater="1" aria-expanded="${puLaterOpen}">${puLaterOpen ? "Hide the Later Needs" : `Show the Later Needs${laterFirst ? `, Order by ${fmt(laterFirst)}${laterLast && laterLast !== laterFirst ? ` to ${fmt(laterLast)}` : ""}` : ""}`}${puLaterOpen ? PU_IC.up : PU_IC.down}</button>` : "",
     list =
-      puSecHtml("mine", "Needs You", mine, { count: "proc", pick: 1, sel: bbSel, empty: "Nothing waits on you. Every due need is ordered, asked for or with someone else." }) +
+      puSecHtml("mine", "Needs You", mine, { count: "proc", scoped: !!(bbProj || bbVendor || bbTrade), pick: 1, sel: bbSel, empty: "Nothing waits on you. Every due need is ordered, asked for or with someone else." }) +
       puSecHtml("route", "On Today's Route", route, { quiet: 1, note: "Counted once, in the route approval on Deliveries" }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1, sel: bbSel }) +
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
