@@ -998,6 +998,9 @@ function puStockGate(R, go) {
   // the driver picks for the route from Stock (decision 1, 11-03): the register is his too
   ROLE_VIEWS.driver && !ROLE_VIEWS.driver.includes("inv") && ROLE_VIEWS.driver.push("inv");
 })();
+// a page's sections (Needs You, Waiting on Someone Else, Later) group records; they are not records (the phone row pass
+// and tests/phone_rows_lint.py read them as sections, as the old board's bb-sec)
+"undefined" != typeof PR_SECTIONS && !PR_SECTIONS.includes("pu-sec") && PR_SECTIONS.push("pu-sec");
 // the old Purchasing overview opens the role's first Purchasing page
 {
   const base = render;
@@ -1089,10 +1092,14 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
   .pu-ph .acts{width:100%}
   .pu-menu{position:fixed;left:16px;right:16px;top:auto;width:auto}
   .pu-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .pu-row{flex-wrap:wrap;padding:12px}
-  .pu-row .pu-rb{flex-basis:calc(100% - 56px)}
-  .pu-act{min-height:44px;margin-left:auto}
-  .pu-link,.pu-chip,.pu-plusb{min-height:44px}
+  /* a phone row is one record, four or more to a screen (tests/phone_rows_lint.py): the words clamp, the action sits beside */
+  .pu-row{flex-wrap:nowrap;align-items:center;padding:10px 12px;gap:8px}
+  .pu-row .pu-rb{flex:1 1 auto;min-width:0}
+  .pu-sub,.pu-when{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .pu-why{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pu-rb b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pu-act{min-height:44px !important;max-width:38%;flex:none;white-space:normal;line-height:1.15;font-size:13px;padding:4px 10px}
+  .pu-link,.pu-chip,.pu-plusb{min-height:44px !important}
   .pu-chip{padding:0 14px;font-size:14px}
   .pu-sel{min-height:44px;flex:1 1 140px}
   .pu-bar{position:fixed;left:8px;right:8px;bottom:calc(var(--bb-tabs, 64px) + 8px)}
