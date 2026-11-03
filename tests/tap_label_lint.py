@@ -84,9 +84,25 @@ PAGES = r"""() => { const B = mnBuild(role());
   if (!B) return [...new Set(ROLE_VIEWS[role()] || [])].map(v => ({ g: '', v, tab: '', l: (typeof mnLabel === 'function' && mnLabel(v)) || v }));
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const out = [], seen = new Set();
-  groups.forEach(g => g.items.forEach(it => { const k = it.v + ':' + (it.tab || ''); if (seen.has(k)) return; seen.add(k); out.push({ g: g.id, v: it.v, tab: it.tab || '', l: it.l }); }));
+  groups.forEach(g => g.items.forEach(it => { if (it.job) return; const k = it.v + ':' + (it.tab || ''); if (seen.has(k)) return; seen.add(k); out.push({ g: g.id, v: it.v, tab: it.tab || '', l: it.l }); }));
+  // the job (the 11-03 job structure): its tabs and the pages that open under them, opened inside a job (group "job");
+  // its Overview first, where the job's + is
+  if (!B.field && typeof mnJobLanding === 'function' && mnJobLanding(role())) {
+    const rv = ROLE_VIEWS[role()] || [], J = [{ v: mnJobLanding(role()), tab: '', l: 'Overview' }];
+    mnJobStrip(role()).filter(it => !it.nostrip).forEach(it => J.push({ v: it.v, tab: it.tab || '', l: it.l }));
+    if (typeof JP_UNDER === 'object') Object.keys(JP_UNDER).filter(v => rv.includes(v)).forEach(v => J.push({ v, tab: '', l: mnLabel(v) }));
+    J.forEach(it => { const k = it.v + ':' + it.tab; if (seen.has(k) && it.v !== J[0].v) return; seen.add(k); out.push({ g: 'job', v: it.v, tab: it.tab, l: it.l }); });
+  }
   return out; }"""
 OPEN = r"""([gid, v, tab]) => { const B = mnBuild(role()) || { groups: [], more: [] };
+  if (gid === 'job') {   // a job's page: the job opened (jpOpenJob, the one way in), then its tab or the page under it
+    document.querySelectorAll('#mbm, #mbm-held').forEach(x => x.remove());
+    try { typeof closeEditor === 'function' && document.querySelector('#drawer.on') && closeEditor(); } catch (e) {}
+    if (typeof docOpen !== 'undefined') docOpen = null;
+    const pid = (S && (DB.projects || []).some(p => p.id === S.id)) ? S.id : (DB.currentId || DB.projects[0].id);
+    jpOpenJob(pid);
+    if (view !== v || tab) jpGo(tab ? v + ':' + tab : v);
+    window.scrollTo(0, 0); return view; }
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   document.querySelectorAll('#mbm, #mbm-held').forEach(x => x.remove());
