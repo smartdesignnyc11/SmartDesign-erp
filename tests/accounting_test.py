@@ -108,7 +108,17 @@ async def run(c, pg, u, phone):
         if v == 'bank':
             c.ok('15 lines to match' in t and '$67,272 at stake' in t, f'FIGURES {tag}: 15 lines to match, $67,272 at stake')
             c.ok(any(re.match(r'To Review 15$', ch) for ch in F['chips']), f"FIGURES {tag}: To Review 15 chip: {F['chips']}")
-            if phone: c.ok(F['confirm'] == 0, f"PHONE {tag}: {F['confirm']} Confirm buttons on bank list rows (the line's sheet confirms)")
+            if phone:
+                c.ok(F['confirm'] == 0, f"PHONE {tag}: {F['confirm']} Confirm buttons on bank list rows (the line's sheet confirms)")
+                if u == 'u_controller':
+                    rv = pg.locator('.view.on [data-acreview]')
+                    c.ok(await rv.count() > 0, f'PHONE {tag}: each proposed match has Review, which opens its sheet')
+                    if await rv.count():
+                        await rv.first.evaluate('e => e.click()'); await pg.wait_for_timeout(250)
+                        m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? m.innerText : ''; }")
+                        c.ok('Confirm the Match' in m and 'It links to' in m and re.search(r'\bConfirm\b', m.split('Confirm the Match', 1)[-1]),
+                             f'PHONE {tag}: the sheet names what the line links to, then Confirm: {m[:200]!r}')
+                        await pg.evaluate("() => typeof mbCloseModal === 'function' && mbCloseModal()")
         if v == 'ap':
             for s in ('$16,040', 'Split it by job', 'AMP-311', 'CM-0091', 'WITH OTHERS', 'WW-2026-118'):
                 c.ok(s.lower() in t.lower(), f'FIGURES {tag}: {s!r} on the first screen')

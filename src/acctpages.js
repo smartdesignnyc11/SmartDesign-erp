@@ -627,6 +627,36 @@ function acMount() {
     const B = sec.querySelector("#gl-body");
     B && (B.hidden = "tax" === acChip.gl);
   }
+  "bank" === pg && acPhone() && acSheetOnly(sec);
+}
+// On the phone a bank line is never confirmed from the list (SPEC §2 Banking, 9: "no Confirm on a list row; the line's
+// sheet names the target and the warning first", the experts' S1: a phone Confirm that hid what it linked to). Each row's
+// Confirm gives way to Review, which opens the line's sheet: the warning, what it would link to, the line, then Confirm.
+// Confirm in the sheet presses the row's own Confirm, so the match, its reason sheet and its toast are the existing ones.
+function acSheetOnly(sec) {
+  [...sec.querySelectorAll("button")]
+    .filter((b) => /^confirm$/i.test((b.textContent || "").trim()) && !b.closest(".ac-front, #mbm") && !b.dataset.acsheet)
+    .forEach((b, i) => {
+      const id = "acs" + Date.now().toString(36) + i;
+      (b.dataset.acsheet = id), (b.hidden = !0);
+      const r = document.createElement("button");
+      (r.type = "button"), (r.className = "btn sm"), (r.textContent = "Review"), (r.dataset.acreview = id), b.parentNode.insertBefore(r, b);
+    });
+}
+function acReviewSheet(id) {
+  const b = document.querySelector(`[data-acsheet="${id}"]`);
+  if (!b) return;
+  const row = b.closest(".prop-row, tr, .pay3-row, .pr-row, .rem-row, .card, li") || b.parentNode,
+    txt = (e) => (e ? e.innerText || e.textContent || "" : "").replace(/\s+/g, " ").trim(),
+    warn = [...row.querySelectorAll(".bad-t, .warn-t, .bad, .warn")].map(txt).filter(Boolean),
+    lines = (row.innerText || "").split("\n").map((s) => s.trim()).filter((s) => s && !/^(Review|Confirm|Not This|Not this)$/.test(s)),
+    target = lines.find((s) => /^→|^->/.test(s)) || "",
+    head = lines[0] || "";
+  mbModal(
+    "Confirm the Match",
+    `${warn.length ? `<div class="note warn small">${[...new Set(warn)].map((w) => `<div>${esc(w)}</div>`).join("")}</div>` : ""}${target ? `<p><b>It links to</b><br>${esc(target.replace(/^(→|->)\s*/, ""))}</p>` : ""}<p><b>The line</b><br>${esc(head)}</p>${lines.slice(1).filter((s) => s !== target && !warn.includes(s)).map((s) => `<p class="small muted" style="margin:4px 0">${esc(s)}</p>`).join("")}`,
+    { submit: "Confirm", onSubmit: () => void setTimeout(() => b.click(), 0) },
+  );
 }
 // the chip's records: the old page's own filter, set before it draws
 function acPrep() {
@@ -867,6 +897,15 @@ document.addEventListener(
       return (billTab = tab), (docOpen = null), void render();
     }
     if ((b = at("tr[data-acopen]")) && !at("button, a, input, select")) return e.preventDefault(), void acOpen(b.dataset.acopen);
+  },
+  !0,
+);
+// the phone's Review on a bank line (outside the front: the rows are the page's own)
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest("[data-acreview]");
+    b && (e.preventDefault(), e.stopPropagation(), acReviewSheet(b.dataset.acreview));
   },
   !0,
 );
