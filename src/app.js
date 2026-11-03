@@ -199400,7 +199400,7 @@ const MN_JOBS = () => [
   // heading is the group's name, as All Projects is Projects); opts.unless: hidden for a role that has that page.
   MN_WORK = [
     // the person's jobs come first (mnJobItems), then All Projects
-    MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1 }]], { proj: 1, jobs: 1 }),
+    MN_G("jobs", "Projects", "jobs", [["ovjobs", "All Projects", null, { head: 1, nostrip: 1 }]], { proj: 1, jobs: 1 }),
     // Purchasing (docs/mockups/purchasing/SPEC.md, 11-03): six pages in Alan's order, no tab rows (src/purchasing.js).
     // Stock is the coordinator's and the driver's register (decision 1); every other role sees the five. A field request
     // is a need on the Buy Board and the store run is on Deliveries, so Requests and Route forward there (MN_ALIAS); the

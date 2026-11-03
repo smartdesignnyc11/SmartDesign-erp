@@ -301,7 +301,8 @@ S.markByLabel = (label, want) => {
   return { ok: true, sig: { k: m.hit.k, label: (want === 'field' ? fieldLabel(m.hit.el) : ctlLabel(m.hit.el)).slice(0, 80), tag: m.hit.el.tagName } }; };
 // navigation by the label a person sees in their menu (the rail on a desktop, the tab bar and More on a phone)
 S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav button, #mtabs button, .m-sheet-list button, .m-sheet-list a, .more-sheet button')]
-  .filter(el => !el.closest('section.view'));
+  // the old nav kept hidden for older layers (#nav-legacy) is no menu a person sees: its "Purchasing" is the PO list
+  .filter(el => !el.closest('section.view') && !el.closest('#nav-legacy'));
 S.go = label => {
   const want = norm(label).toLowerCase().replace(/\s+\d+$/, '');
   // a hidden menu (the phone's closed drawer is visibility:hidden) has no innerText: its words are its text, less its number
