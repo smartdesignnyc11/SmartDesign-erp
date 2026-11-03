@@ -991,6 +991,29 @@ Measured against an independent full extraction, it caught about a third of what
 
 **Usage.** 8–12% of a week for the map and the experts; 15–20% for the build round.
 
+### 1.35 One question, one number: the money figures the Accounting and Reports mock-ups found twice (chief of staff, 2026-11-03)
+From the review of `docs/mockups/accounting/` and `docs/mockups/reports/` against `docs/mockups/QUESTIONS.md`. Each is a class: one function computes the figure, every screen, the Pack, Ask and the Analyst read it, and a check fails loudly when two places disagree. Ruled by definition, reversible; the build lane recomputes every figure from the records.
+
+1. **Safe to Spend sets aside money the client never paid.** Today it subtracts all of Over-Billed (WIP), $156,274, though $92,265 of what was billed is open and $15,668 is retainage, so cash that never arrived is "set aside" and Safe to Spend reads −$4,151.
+   - Right by definition: the set-aside is client money for work not done, job by job: cash received with a bank line, less revenue earned, never below $0. Billed and unpaid is never set aside, and one job's unpaid invoice never offsets another job's cash. Client funds (deposits, retainers, collected-not-yet-bought) sit inside it, never added. On the demo's figures that is about $47,124 (121 State: $169,750 collected less $122,626 earned) and ours today about $105,000. It holds whether INV-2026-031 stays a draw or becomes the deposit.
+   - The same set-aside, as it unwinds with the work, comes off every week of the 13-week forecast, so "the lower of ours today and the low" compares like with like.
+   - Check (finance_xcheck): recompute Safe to Spend from the records to the cent; sending an invoice that is not paid moves Safe to Spend by $0; a payment with a bank line on an over-billed job moves it by the collected-ahead amount only; the Weekly Flash, Cash, Today and Ask read the same value.
+2. **Job cost has several numbers for one job.** 121 State reads $105,084 on the job, $101,694 on P&L by project and $75,750 from bills; the WIP view's earned ($122,626, 25%) implies about $97,100, while the Margin view's own $105,084 of $388,888 is 27%. The P&L's job cost $108,494 is $4,589 below the jobs' $113,083 with no reason.
+   - Right by definition: job cost is the ledger's posted cost on the job's cost accounts to the as-of date (bills, payroll, card and receipt lines). Approved cost not yet posted shows as its own labelled line ("Approved, not yet posted") and posts at the close. "Bills" is a labelled part, never called job cost. WIP's percent complete uses the same job cost and the same projected cost as the Margin view.
+   - Check (counts lint and finance_xcheck): for every job, job page = P&L by project row = WIP cost = Job Profitability, to the cent; the sum of jobs plus "No Job" = the P&L's job cost; each part (bills, labour, cards, receipts, not yet posted) sums to its total.
+3. **The WIP adjustment posted at the close is not the WIP schedule.** Books' close row and the balance sheet say $64,008 (121 State $58,011, 45 Cranberry $5,998, nothing for 140 Prospect's $22,512); the ledger bridge and Job Profitability say $156,274.27. This is the §1.1 closetie class again.
+   - Right by definition: the close posts each job's over-billing (billed less earned, regardless of what was collected) to 2500 and under-billing to 1200, less what is already posted: the WIP schedule's figure, job by job. The collected-ahead view is item 1's, for cash only.
+   - Check (closetie_test, finance_xcheck): after the close, 2500 and 1200 by job equal the WIP schedule by job; the ledger's net income equals the management view's; no screen prints a "posts at the close" figure other than the schedule's.
+4. **Two billed-ahead figures for 121 State** ($53,819 "net, not counting the deposit", and $66,470).
+   - Right by definition: Billed Ahead of the Work is per schedule line, billed to date less measured value, counting only lines above zero: $66,470 on 7 lines. The deposit is its own invoice and is never on the lines. $53,819 is $66,470 less the $12,651 ready to bill on the under-billed lines, netting two questions into one; it goes.
+   - Check (counts lint): the Billing queue row, the job's Contract and Billing, Books' WIP gap row and Job Profitability's WIP view print the same Billed Ahead figure; no "net" variant exists.
+5. **"To bill" means two things.** The Analyst says windows "$20,270, bill it"; Billing says $10,170.
+   - Right by definition: to bill is billable cost not yet on an invoice under the contract's terms (reimbursables, selections over allowance, approved change orders): $10,170. $20,270 is spend ahead of what the client paid, a cash question, shown on Cash > Client Funds as "spent ahead of what the client has paid" and never phrased as "bill it".
+   - Check (Ask question bank, leak_test): every finding, row or answer that says bill or billable reads the one unbilled-billable function per job and line; a finding whose figure differs from Billing's for the same line fails.
+6. **One event, two dates.** Window Works' bank-detail change reads 8/20 on the Analyst and "4 days ago" (8/30) on Controls.
+   - Right by definition: the date is the change's own record (who changed it, when, stamped with the app clock), shown as a date. The hold's date, if different, is labelled as the hold's. Relative dates count from `today()`, never the wall clock.
+   - Check (lint): no "N days ago" without `today()`; the Controls row and the Analyst finding read the same field; a bank-detail change on a vendor with a payment in the next run holds the run until a call-back on a known number is logged.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
