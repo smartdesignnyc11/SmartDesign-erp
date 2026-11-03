@@ -69,11 +69,13 @@ async def today_as(p, uid, phone):
     ids = {(x['kind'], x['id']) for x in m['rows']}
     text = ' '.join(x['text'] for x in m['rows'])
     # section 10 item 7: everything that waits on this person elsewhere is a row here
-    need = await pg.evaluate("() => (typeof cmNeedsAnswer === 'function' ? cmNeedsAnswer() : []).map(x => x.id)")
-    miss = [i for i in need if ('tdyMail', i) not in ids]
+    need = await pg.evaluate("() => (typeof ydMsgNeeds === 'function' ? ydMsgNeeds() : (typeof cmNeedsAnswer === 'function' ? cmNeedsAnswer().map(c => ({kind: 'tdyMail', id: c.id})) : [])).map(x => [x.kind, String(x.id)])")
+    miss = [i for k, i in need if (k, i) not in ids]
     c.ok(not miss, f'{who}: {len(miss)} of the {len(need)} messages Messages counts as yours are not on Today')
-    tasks = await pg.evaluate("""() => { const td = today(); try { return openTasks('me').filter(t => t.due && t.due <= td).map(t => tdyShape(t).key); } catch (e) { return []; } }""")
-    tmiss = [k for k in tasks if ('tdyTask', k) not in ids]
+    # a late or today task is on Today as its own row, or as the row that stands for it (an obligation's renewal)
+    tmiss = await pg.evaluate("""() => { const td = today(); const rows = (td2Cur && td2Cur.T.rows) || [];
+      const keys = new Set(rows.filter(x => x.it.kind === 'tdyTask').map(x => x.it.id)), held = new Set(rows.flatMap(x => { try { return tdyApprRefs(x.it); } catch (e) { return []; } }));
+      try { return openTasks('me').filter(t => t.due && t.due <= td).map(t => tdyShape(t)).filter(s => !keys.has(s.key) && !(s.refs || []).some(r => held.has(r))).map(s => s.key); } catch (e) { return ['error ' + e]; } }""")
     c.ok(not tmiss, f'{who}: late or today tasks not on Today: {tmiss[:3]}')
     if uid == 'u_owner':
         deals = await pg.evaluate("() => typeof slNeedYou === 'function' ? slNeedYou().map(x => x.l.id) : null")
@@ -104,9 +106,9 @@ async def today_as(p, uid, phone):
     await b.close()
 
 
-MSGS = """() => { const h = document.getElementById('yd-msgs');
-  const chips = [...document.querySelectorAll('#yd-msgs [data-ydchip]')].map(b => ({ k: b.dataset.ydchip, label: b.childNodes[0].textContent.trim(), n: ((b.querySelector('.n') || {}).textContent || '').trim(), on: b.classList.contains('on') }));
-  const rows = [...document.querySelectorAll('#yd-msgs [data-ydmrow]')].filter(e => e.getClientRects().length).map(e => ({ id: e.dataset.ydmrow, at: e.dataset.at || '', text: e.innerText }));
+MSGS = """() => { const h = document.getElementById('yd-chat');
+  const chips = [...document.querySelectorAll('#yd-chat [data-ydchip]')].map(b => ({ k: b.dataset.ydchip, label: b.childNodes[0].textContent.trim(), n: ((b.querySelector('.n') || {}).textContent || '').trim(), on: b.classList.contains('on') }));
+  const rows = [...document.querySelectorAll('#yd-chat [data-ydmrow]')].filter(e => e.getClientRects().length).map(e => ({ id: e.dataset.ydmrow, at: e.dataset.at || '', text: e.innerText }));
   return { on: !!(h && h.getClientRects().length), chips, rows }; }"""
 
 
@@ -116,12 +118,12 @@ async def messages_as(p, uid, phone):
     await sign_in(pg, uid)
     await go(pg, 'chat')
     m = await pg.evaluate(MSGS)
-    c.ok(m['on'], f'{who}: Messages is not the one list (#yd-msgs)')
+    c.ok(m['on'], f'{who}: Messages is not the one list (#yd-chat)')
     labels = [x['label'] for x in m['chips']]
     c.ok(labels == ['Needs an Answer', 'All', 'Meetings'], f'{who}: Messages chips {labels}')
     on = [x['label'] for x in m['chips'] if x['on']]
     c.ok(on == ['Needs an Answer'], f'{who}: Messages opens on {on}')
-    need = await pg.evaluate("() => cmNeedsAnswer().length")
+    need = await pg.evaluate("() => typeof ydMsgNeeds === 'function' ? ydMsgNeeds().length : cmNeedsAnswer().length")
     n = next((x['n'] for x in m['chips'] if x['k'] == 'need'), '')
     c.ok(str(need) == (n or '0') and len(m['rows']) == need, f'{who}: Needs an Answer chip {n!r}, rows {len(m["rows"])}, the rule {need}')
     badge = await pg.evaluate(MENU_N, 'chat')
@@ -133,7 +135,7 @@ async def messages_as(p, uid, phone):
         for name in ('Torres', 'Aliya Chen', 'Sarah Klein', 'Jeanette', 'Samantha Field'):
             c.ok(name in text, f'{who}: {name} waits on the owner and is not in Needs an Answer')
         for k in ('all', 'meet'):
-            await pg.evaluate("k => document.querySelector('#yd-msgs [data-ydchip=\"' + k + '\"]').click()", k)
+            await pg.evaluate("k => document.querySelector('#yd-chat [data-ydchip=\"' + k + '\"]').click()", k)
             await pg.wait_for_timeout(150)
             mk = await pg.evaluate(MSGS)
             c.ok(mk['rows'], f'{who}: Messages {k} shows no rows')
@@ -143,7 +145,7 @@ async def messages_as(p, uid, phone):
     for old, chip in (('comms', 'need'), ('meetings', 'meet')):
         await pg.evaluate("v => { cmOpen = null; setView(v); }", old)
         await pg.wait_for_timeout(150)
-        st = await pg.evaluate("() => [view, (document.querySelector('#yd-msgs [data-ydchip].on') || {}).dataset ? document.querySelector('#yd-msgs [data-ydchip].on').dataset.ydchip : '']")
+        st = await pg.evaluate("() => [view, (document.querySelector('#yd-chat [data-ydchip].on') || {}).dataset ? document.querySelector('#yd-chat [data-ydchip].on').dataset.ydchip : '']")
         c.ok(st == ['chat', chip], f'{who}: {old} lands on {st}, want Messages {chip}')
     if phone:
         await go(pg, 'chat')
@@ -156,7 +158,7 @@ TASKS = """() => {
   const chips = [...document.querySelectorAll('#tkall-body [data-tvview], #tkall-body [data-ydchip]')].filter(b => b.getClientRects().length).map(b => ({ k: b.dataset.tvview || b.dataset.ydchip,
      label: b.childNodes[0].textContent.trim(), n: ((b.querySelector('.n') || {}).textContent || '').trim(), on: b.classList.contains('on') }));
   const modes = [...document.querySelectorAll('#tkall-body [data-tkmode]')].filter(b => b.getClientRects().length).map(b => b.textContent.trim());
-  const cols = [...document.querySelectorAll('#tkall-body table th')].filter(e => e.getClientRects().length).map(e => e.innerText.trim().toUpperCase()).filter(Boolean);
+  const cols = [...document.querySelectorAll('#tkall-body [role=columnheader]')].filter(e => e.getClientRects().length).map(e => e.innerText.trim().toUpperCase()).filter(Boolean);
   return { chips, modes, mode: tkMode, cols }; }"""
 
 
@@ -179,9 +181,9 @@ async def tasks_as(p, uid, phone):
         want = ['KEY', 'TASK', 'PROJECT', 'OWNER', 'DUE', 'PRIORITY', 'NEW OR CARRIED', 'STATUS', 'WAITING ON']
         c.ok(all(x in m['cols'] for x in want), f'{who}: Table columns {m["cols"]}')
         # click-to-sort: Due ascending, descending, back
-        s = await pg.evaluate("""async () => { const th = [...document.querySelectorAll('#tkall-body table th')].find(e => /^due/i.test(e.innerText.trim()));
-          if (!th) return null; const read = () => [...document.querySelectorAll('#tkall-body table tbody tr')].length; th.click(); await new Promise(r => setTimeout(r, 150));
-          const a = (tvSorts()[0] || {}); return [a.k, a.dir, read()]; }""")
+        s = await pg.evaluate("""async () => { const th = document.querySelector('#tkall-body [data-tvsort="due"]');
+          if (!th) return null; th.click(); await new Promise(r => setTimeout(r, 150));
+          const a = (tvSorts()[0] || {}); return [a.k, a.dir]; }""")
         c.ok(s and s[0] == 'due', f'{who}: clicking Due does not sort by it ({s})')
     # Team: grouped by person, no load figures, everyone else named at the foot
     await pg.evaluate("() => { const b = [...document.querySelectorAll('#tkall-body [data-tvview], #tkall-body [data-ydchip]')].find(x => /^Team/.test(x.textContent.trim())); b && b.click(); }")

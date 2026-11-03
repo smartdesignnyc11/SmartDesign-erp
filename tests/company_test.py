@@ -33,7 +33,7 @@ async def hub_as(p, uid, phone):
     who = f'{uid} {"phone" if phone else "desktop"}'
     b, pg, errs = await open_app(p, phone)
     await sign_in(pg, uid)
-    items = await pg.evaluate("() => (mnBuild(role()).bottom || {items: []}).items.map(i => i.l)")
+    items = await pg.evaluate("() => (mnBuild(role()).bottom || {items: []}).items.filter(i => !i.head).map(i => i.l)")
     if uid == 'u_owner':
         c.ok(items == ['Team', 'The Brain', 'Insurance and Licenses', 'Connections', 'The SmartDesign Standard', 'Company Settings'], f'{who}: Company and Settings holds {items}')
     else:

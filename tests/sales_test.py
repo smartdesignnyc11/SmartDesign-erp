@@ -47,7 +47,7 @@ async def pipeline_as(p, uid, phone):
     rule = await pg.evaluate("() => typeof slNeedYou === 'function' ? slNeedYou().map(x => x.l.name) : null")
     c.ok(rule is not None and len(rule) == len(need), f'{who}: Need You rows {len(need)} vs the one rule {rule}')
     t = ' '.join(x['text'] for x in need)
-    c.ok('Nakamura' in t and 'Set Up the Job' in t, f'{who}: the signed Nakamuras with no job are not in Need You with Set Up the Job')
+    c.ok('Nakamura' in t and ('Set Up the Job' in t or uid != 'u_owner') and 'no job set up' in t, f'{who}: the signed Nakamuras with no job are not in Need You with Set Up the Job')
     c.ok('Ana Petrova' not in t, f'{who}: Ana Petrova is in Need You: her deal and her task disagree on the date')
     c.ok(any(x['sec'] == 'track' for x in m['rows']), f'{who}: no On Track rows under Need You')
     c.ok('How Sales Is Going' in m['text'], f'{who}: no How Sales Is Going fold')
@@ -145,10 +145,15 @@ async def clients_as(p, uid, phone):
     # the Kleins
     await pg.evaluate("() => slOpenClient('cl121')")
     await pg.wait_for_timeout(250)
+    money = uid != 'u_sarah'   # the designer reads a client's decisions, not its money (SPEC section 4)
+    first = await pg.evaluate("() => (document.querySelector('.view.on [data-ydtab].on') || {}).textContent || ''")
+    c.ok(first == ('Contract and Billing' if uid == 'u_billing' else 'Overview'), f'{who}: the client page opens on {first!r}')
+    await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on [data-ydtab]')].find(e => /Overview/.test(e.textContent)); b && b.click(); }")
+    await pg.wait_for_timeout(150)
     m = await pg.evaluate(PAGE)
-    c.ok(m['tabs'] == ['Overview', 'Contract and Billing', 'Messages'], f'{who}: the client page tabs {m["tabs"]}')
+    c.ok(m['tabs'] == (['Overview', 'Contract and Billing', 'Messages'] if money else ['Overview', 'Messages']), f'{who}: the client page tabs {m["tabs"]}')
     tiles = {x['k']: x for x in m['tiles']}
-    for k in ('us', 'them', 'owe', 'left'):
+    for k in (('us', 'them', 'owe', 'left') if money else ('us', 'them')):
         c.ok(k in tiles, f'{who}: the client page has no {k} tile')
     rows = {}
     for x in m['rows']: rows.setdefault(x['sec'], []).append(x)
@@ -159,6 +164,10 @@ async def clients_as(p, uid, phone):
     tx = ' '.join(x['text'] for x in rows.get('us', []))
     c.ok('Torres' in tx, f"{who}: the managing agent's call (R. Torres, 121 State) is not the Kleins' Waiting on Us")
     # section 10 item 5: billed gross and net, labelled, tied to the cent by one function
+    if not money:
+        c.ok(not re.search(r'\$\d', m['text']), f'{who}: the designer sees money on the client page')
+        c.ok(not errs, f'{who} Clients: errors {errs[:2]}')
+        await b.close(); return
     tie = await pg.evaluate("() => { const B = slBilled('cl121'); return [B.gross, B.ret, B.net, Math.round((B.net + B.ret - B.gross) * 100)]; }")
     c.ok(tie[3] == 0, f'{who}: billed net {tie[2]} plus retainage {tie[1]} is not gross {tie[0]} to the cent')
     await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on [data-ydtab]')].find(e => /Contract/.test(e.textContent)); b && b.click(); }")
