@@ -1280,7 +1280,7 @@ table.jp-bt td{padding:10px 14px;border-top:1px solid var(--rule-2);vertical-ali
 table.jp-bt .n{text-align:right;white-space:nowrap}
 table.jp-bt tr.over td{background:var(--bad-2)}
 table.jp-bt tfoot td{font-weight:700}
-.jp-lbtn{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.jp-lbtn{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;display:inline-flex;flex-direction:column;gap:2px}
 .jp-bdoc{font-size:12px;color:var(--ink-3)}
 .jp-detail{margin-top:8px;display:flex;flex-direction:column;gap:2px;font-size:13px}
 .jp-detail>div{display:flex;gap:12px;justify-content:space-between;padding:4px 0;border-top:1px dashed var(--rule)}
