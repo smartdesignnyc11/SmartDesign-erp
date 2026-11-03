@@ -434,6 +434,8 @@ function puHeadHtml(v, extra) {
     items = job ? [] : puPlusItems(v),
     name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
     lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
+  // on the phone the job's header names the section (src/jobpage.js): no second heading under it
+  if (job && puPhone()) return "";
   return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
 }
 // the old page's tools, one tap down, until their records move here (P4, P5)

@@ -42,7 +42,7 @@ async def kids(pg, phone, gid):
     if not await ensure_open(pg, gid, phone): return []
     out = [(e['label'], e['v'], e['n']) for e in await menu(pg) if e['kind'] == 'kid' and e['grp'] == gid and e['vis']]
     # the phone's menu is a drawer over the page: closed again once read, as the person closes it
-    if phone: await pg.evaluate("() => { document.querySelector('.rail')?.classList.remove('open'); }")
+    if phone: await pg.evaluate("() => { const s = document.getElementById('railscrim'); if (s && s.classList.contains('on')) s.click(); document.querySelector('.rail')?.classList.remove('open'); }")
     return out
 
 
@@ -59,7 +59,7 @@ async def open_entry(pg, phone, gid, label):
 async def groups(pg, phone):
     await open_menu(pg, phone)
     out = [e['label'] for e in await menu(pg) if e['kind'] == 'head' and e['vis']]
-    if phone: await pg.evaluate("() => { document.querySelector('.rail')?.classList.remove('open'); }")
+    if phone: await pg.evaluate("() => { const s = document.getElementById('railscrim'); if (s && s.classList.contains('on')) s.click(); document.querySelector('.rail')?.classList.remove('open'); }")
     return out
 
 
