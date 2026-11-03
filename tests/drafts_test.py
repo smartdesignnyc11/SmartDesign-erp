@@ -129,15 +129,18 @@ class DraftWalk(TapLint):
             # the page's buttons (one of each kind), then its first rows and cards: a sheet opens from one or the other.
             # A row is a card, a link, or a plain button that carries a record's text (the 11-03 pages' rows)
             plan = [c for c in await self.buttons_of(lst['cands']) if not crawl.DESTRUCT_RE.match(c['label'])]
-            fam, rows, rowb = Counter(), [], []
+            fam, B = Counter(), {'card': [], 'link': [], 'button': []}
             for c in lst['cands']:
                 if c['scope'] != 'view' or any(x['key'] == c['key'] for x in plan): continue
-                card = c['kind'] in ('card', 'link')
-                if not (card or (c['kind'] == 'button' and c.get('rowText') and len(c['label']) >= 12)): continue
+                if not (c['kind'] in ('card', 'link') or (c['kind'] == 'button' and c.get('rowText') and len(c['label']) >= 12)): continue
                 fam[c['family']] += 1
                 if fam[c['family']] > 1 or crawl.DESTRUCT_RE.match(c['label']): continue
-                (rows if card else rowb).append(c)
-            plan = plan[:30] + rows[:2] + rowb[:2]
+                B[c['kind']].append(c)
+            # the first two rows and the last (a page's last section is often another kind of record: the permits
+            # under the inspections), then the first two row buttons and the first link, each kind apart so that
+            # one never crowds the other out
+            cards = B['card'][:2] + B['card'][-1:] if len(B['card']) > 2 else B['card']
+            plan = plan[:30] + cards + B['button'][:2] + B['link'][:1]
             dirty = None
             for c in plan:
                 await self.fresh(dirty, u)
