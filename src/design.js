@@ -330,7 +330,7 @@ function pdOvJobs() {
   pdInDesign && ovf.insertAdjacentHTML("afterend", pdInDesignHtml());
   [...host.children].forEach((c) => {
     if (c === ph || c.classList.contains("pd-ovf") || c.classList.contains("pd-indesign")) return;
-    pdInDesign ? (null == c.dataset.pdhid && (c.dataset.pdhid = c.style.display || ""), c.style.setProperty("display", "none", "important")) : null != c.dataset.pdhid && (c.style.removeProperty("display"), c.dataset.pdhid && (c.style.display = c.dataset.pdhid), delete c.dataset.pdhid);
+    uiHideOld(c, pdInDesign, "pdhid");   // src/purchasing.js: a display the old page has written since is kept
   });
   // the email card the overview moves after the list
   const mail = host.nextElementSibling;

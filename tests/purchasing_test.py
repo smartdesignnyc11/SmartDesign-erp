@@ -897,6 +897,46 @@ async def s_lines(p, c):
     finally:
         await b.close()
 
+async def s_rows(p, c):
+    """A row tapped lands on the record it names, as the person taps it (the walk's J6 opened PO-2026-049 from Orders and
+    stayed on the list: the page's unhide put back a display saved before the order opened, 11-04). A draft order opens
+    with its lines' Buy From lists (the award's tile moves to the tile house from there)."""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await fresh(p, phone)
+        try:
+            await sign_in(pg, 'u_chen')
+            # one draft with three lines, made through the app's own record (the demo's drafts were issued by 9/3)
+            num = await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); po.status = 'draft'; save(); return po.number; }")
+            for st, n in (('draft', num), ('received', 'PO-2026-041')):
+                await pd_open(pg, phone, 'buy', 'Orders')
+                row = pg.locator('.view.on [data-pusec="orders"] [data-puopen]').filter(has_text=n).first
+                if not await row.count():
+                    c.ok(False, f'rows {dev}: {n} has a row under Orders'); continue
+                await pd_press(row, 500)
+                S = await pg.evaluate("""n => { const vis = el => !!el && el.getClientRects().length > 0, on = document.querySelector('.view.on');
+                  return { open: typeof poOpen !== 'undefined' ? poOpen : null, doc: vis(document.getElementById('po-doc')), list: vis(document.getElementById('po-table')),
+                    pu: vis(on && on.querySelector(':scope > .pu')), named: vis(document.getElementById('po-doc')) && document.getElementById('po-doc').innerText.includes(n),
+                    moves: [...document.querySelectorAll('#po-doc [data-pomove]')].filter(vis).length,
+                    lines: (DB.pos.find(x => x.number === n).lines || []).length }; }""", n)
+                c.ok(S['doc'] and S['named'] and not S['list'] and not S['pu'], f'rows {dev}: tapping the {st} {n} row opens {n}, the list gone ({S})')
+                if st == 'draft' and not phone:
+                    c.ok(S['moves'] == S['lines'] > 0, f'rows {dev}: the draft {n} opens with a Buy From list on each of its lines ({S["moves"]} of {S["lines"]})')
+                await pg.evaluate("() => { poOpen = null; render(); }")
+            # a vendor's row opens the vendor
+            await pd_open(pg, phone, 'buy', 'Vendors')
+            row = pg.locator('.view.on [data-pusec] [data-puopen^="vend:"]').first
+            if await row.count():
+                nm = (await row.locator('b').first.inner_text()).strip()
+                await pd_press(row, 500)
+                V = await pg.evaluate("nm => { const on = document.querySelector('.view.on'), m = document.querySelector('.modal.on, .sheet.on, .m-sheet.on, dialog[open]');"
+                                      " return { open: typeof vendOpen !== 'undefined' ? vendOpen : null, pu: !!on && !!on.querySelector(':scope > .pu') && on.querySelector(':scope > .pu').getClientRects().length > 0,"
+                                      " text: ((m && m.innerText) || (on && on.innerText) || '').slice(0, 600) }; }", nm)
+                c.ok(nm in V['text'] and (V['open'] or not V['pu']), f'rows {dev}: tapping {nm} on Vendors opens {nm} ({V["open"]}, {V["text"][:120]!r})')
+            c.ok(not errs, f'rows {dev}: page errors {errs[:2]}')
+        finally:
+            await b.close()
+
 async def s_clock(p, c):
     """One clock: nothing is stamped later than the app's day (BACKLOG section 9 item 1)."""
     b, pg, errs = await fresh(p)
@@ -918,7 +958,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('lines', s_lines), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
