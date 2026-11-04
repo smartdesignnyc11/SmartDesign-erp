@@ -646,10 +646,10 @@ function rwCashHtml() {
     const V = rwCashLists(rwS.cash);
     view = `<p class="small muted rw-chiplead">${rwEsc(V.lead)}</p><section class="card rw-list">${rwRowsHtml(V.rows)}</section>`;
   }
-  return `<section class="card rw-safe" aria-label="Safe to Spend"><div class="rw-safe-h"><span>Safe to Spend</span><b class="rw-fig${S.safe < 0 ? " rw-bad" : ""}" data-rwfig="safe">${rwEsc(rwD(S.safe))}</b></div><p class="small muted">The lower of ours today and the 13-week low after the same set-aside.</p>${rwRowsHtml(
+  return `<div class="rw-two"><section class="card rw-safe" aria-label="Safe to Spend"><div class="rw-safe-h"><span>Safe to Spend</span><b class="rw-fig${S.safe < 0 ? " rw-bad" : ""}" data-rwfig="safe">${rwEsc(rwD(S.safe))}</b></div><p class="small muted">The lower of ours today and the 13-week low after the same set-aside.</p>${rwRowsHtml(
     S.rows.map((r) => ({ k: r.k, sub: r.sub, v: rwC(r.v), strong: r.total ? 1 : 0, key: r.total ? (/^Ours/.test(r.k) ? "ours" : "low") : /^In the bank/.test(r.k) ? "bank" : /^Credit/.test(r.k) ? "cards" : /^Payroll/.test(r.k) ? "payroll" : /^Set aside/.test(r.k) ? "setaside" : /bills/i.test(r.k) ? "bills" : "" })),
     "rw-parts",
-  )}${S.notCounted ? `<p class="small rw-nc">${rwEsc(S.notCounted)}</p>` : ""}</section>${rwRiskHtml(risk)}${rwChips("cash", [
+  )}${S.notCounted ? `<p class="small rw-nc">${rwEsc(S.notCounted)}</p>` : ""}</section>${rwRiskHtml(risk)}</div>${rwChips("cash", [
     ["weeks", "Next 13 Weeks"],
     ["funds", "Client Funds"],
     ["ar", "Receivables"],
@@ -665,7 +665,7 @@ function rwStmtHtml() {
     K = rwStmtRows(rwS.kind),
     pc = (k) => rwC(k),
     b = (k, l, v, tone, sub) => `<div class="rw-lrow${rwTone(tone)}" data-k="${k}"><span class="rw-lk"><b>${rwEsc(l)}</b>${sub ? `<span class="rw-ls">${sub}</span>` : ""}</span><b class="rw-lv">${rwEsc(v)}</b></div>`,
-    mj = (m, why) => `<div class="rw-mj" data-rwmj="${rwEsc(m.j.id)}"><b>${rwEsc(m.j.number || "Journal")} · ${rwEsc(fmt(m.j.date))} · ${rwEsc(rwC(m.amt))}</b><span>${rwEsc(why)}: ${rwEsc(m.flag || m.j.memo || "")}</span></div>`;
+    mj = (m, why) => `<div class="rw-mj" data-rwmj="${rwEsc(m.j.id)}"><b>${rwEsc(m.j.number || "Journal")} · ${rwEsc(fmt(m.j.date))} · ${rwEsc(rwC(m.amt))}</b><span>${rwEsc(new RegExp("^" + why + "\\b", "i").test(m.flag || "") ? m.flag : `${why}: ${m.flag || m.j.memo || ""}`)}</span></div>`;
   const behind = `<section class="card rw-behind" aria-label="What Stands Behind These Numbers"><div class="rw-cap">What Stands Behind These Numbers <span class="small">${rwEsc(rwPerLabel(per) || "the period")}</span></div>${b("income", "Client payments backed by a bank line", pc(B.income.collected), "ok")}${b("bank", "Cost backed by a bank or card line", pc(B.cost.bank), "ok")}${
     B.cost.document ? b("document", "Cost backed by an approved document only (accrual)", pc(B.cost.document)) : ""
   }${b("hand", "Cost by hand, no bank line (flagged)", pc(B.cost.hand), B.cost.hand ? "warn" : "ok")}${b("uncoded", "Cost not yet coded to an account (Needs Category)", pc(B.cost.uncoded), B.cost.uncoded ? "warn" : "ok")}${
@@ -839,7 +839,8 @@ function rwMount() {
   const F = on.querySelector(":scope > .rw-front");
   if ("reports" === view) {
     on.querySelectorAll(":scope > .ph, #rep-body > .rep-groups, #rep-body .ov-repsub").forEach((e) => (e.hidden = !0));
-    "stmt" === pg && on.querySelectorAll("#rep-body .rep-frame > .seg").forEach((e) => e.querySelector("[data-repp]") && (e.hidden = !0));
+    // the period is the page's own chips: the old period controls (the desktop's buttons, the phone's select) give way
+    "stmt" === pg && on.querySelectorAll("#rep-body .rep-frame > .seg, #rep-body .rep-frame > .ov-per").forEach((e) => (e.querySelector("[data-repp]") || e.matches(".ov-per")) && ((e.hidden = !0), (e.style.display = "none")));
     // the chips that are the page's own: the old content under them is not drawn twice
     const body = on.querySelector("#rep-body");
     if (body) {
@@ -851,8 +852,9 @@ function rwMount() {
     F && F.querySelector(".btn.primary") && on.querySelectorAll("#rep-body .btn.primary").forEach((b) => b.classList.remove("primary"));
   }
   if ("dashboard" === view) {
-    on.querySelectorAll(".home-bar h2, .home-bar > div > .small.muted, .home-bar .small.muted").forEach((e) => (e.hidden = !0));
-    on.querySelectorAll("#dash-body .dash-tabs, #dash-body [data-dashv]").forEach((e) => e.closest(".seg, .dash-tabs") && (e.closest(".seg, .dash-tabs").hidden = !0));
+    // the Dashboard's own heading and its view tabs give way: it is the Report Builder's Pinned (My Dashboard); the
+    // Owner and Projects views are Today, Cash, Job Profitability and All Projects now (SPEC §3). Customize stays.
+    on.querySelectorAll("#dash-body > .ph h2, #dash-body > .ph .bh-lead, .home-bar h2, .home-bar .small.muted, #dash-body .dash-views").forEach((e) => ((e.hidden = !0), (e.style.display = "none")));
   }
   rwFilter(F);
 }
@@ -876,7 +878,10 @@ function rwFilter(F) {
           return J.contract && (K.pre || K.rc) ? `${p.project.name}: ${money(J.actual)} cost to date less ${K.pre ? `${money(K.pre)} paid ahead` : ""}${K.pre && K.rc ? " and " : ""}${K.rc ? `${money(K.rc)} billed back` : ""} is ${money(K.cost)} of ${money(K.proj)}, ${(100 * K.pct).toFixed(2)}%` : "";
         })
         .filter(Boolean);
-      notes.length && (h = h.replace(/% complete = cost to date ÷ estimated total cost\./, (m) => `% complete = cost to date, less money paid ahead of the work (not progress) and purchases billed back to the client, ÷ estimated total cost (${notes.join("; ")}).`));
+      notes.length &&
+        (h = h
+          .replace(/% complete = cost to date ÷ estimated total cost\./, `% complete = cost to date, less money paid ahead of the work (not progress) and purchases billed back to the client, ÷ estimated total cost (${notes.join("; ")}).`)
+          .replace(/Cost Basis % = cost to date ÷ estimated total cost;/, `Cost Basis % = cost to date, less money paid ahead of the work (not progress) and purchases billed back to the client, ÷ estimated total cost (${notes.join("; ")});`));
     } catch (e) {}
     return h;
   };

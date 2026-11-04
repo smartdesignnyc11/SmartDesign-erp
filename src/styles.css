@@ -4303,3 +4303,5 @@ a.rw-job:hover{border-color:var(--ink-3)}
 @media (max-width:760px){
   .view.on .rw-front button,.view.on .rw-front .rw-chip,.view.on .rw-front .rw-srcb,.view.on .rw-front .rw-wk{min-height:44px !important}
 }
+.rw-two{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+@media (min-width:1100px){.rw-two{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
