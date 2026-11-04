@@ -113,12 +113,74 @@ function ydBrainItems() {
 }
 const YD_BRAIN_GROUP = { learn: "Lessons for the Firm", change: "Changes to the ERP", lesson: "Job Checklist Steps" };
 let ydBrainChip = "need";
+// The old Brain's own tabs (Workload, Lessons, the hands, Watching) live in Ask's Brain tab, as before: a link or a
+// tap that names one (bnTab changed from what this page last saw) opens it there; The Brain page stays this one.
+let ydBrainOld = !1,
+  ydBrainTab = null;
+function ydBrainSeen() {
+  if ("brain" !== view) return void ((ydBrainOld = !1), (ydBrainTab = null));
+  const t = "undefined" != typeof bnTab ? bnTab : "";
+  null !== ydBrainTab && t !== ydBrainTab && (ydBrainOld = !0);
+  ydBrainTab = t;
+}
+if ("function" == typeof renderBrain) {
+  const base = renderBrain;
+  renderBrain = function () {
+    const r = base.apply(this, arguments);
+    try {
+      ydBrainSeen();
+      ydBrainOld && "brain" === view && ydBrainFull();
+    } catch (e) {}
+    return r;
+  };
+}
+// what the brain suggests from what happened (bnSuggestLessons): a lesson to approve or one to teach, each with its
+// button, beside the queue's own proposals (nothing it proposes is only on a hidden page)
+function ydBrainSugs() {
+  try {
+    const have = new Set(ydBrainItems().map((it) => String(it.id)));
+    return ("function" == typeof bnSuggestLessons ? bnSuggestLessons() : []).map((x, i) => Object.assign({ ydI: i }, x)).filter((x) => !(x.learn && have.has(String(x.learn))));
+  } catch (e) {
+    return [];
+  }
+}
+// the full Brain: Ask's Brain tab for the owner, Findings' Brain for anyone else (the assistant's own redirect)
+function ydBrainFull() {
+  ydBrainOld = !1;
+  setTimeout(() => {
+    try {
+      isOwner() ? (paTabWant = "brain") : ((paTabWant = "findings"), (paFindSeg = "brain"));
+      view = "pa";
+      render();
+    } catch (e) {}
+  }, 0);
+}
 function ydBrainRender() {
-  const on = "brain" === view;
+  try {
+    ydBrainSeen();
+  } catch (e) {}
+  const on = "brain" === view && !ydBrainOld;
   const h = ydHost("brain", on);
   if (!on || !h) return;
   const L = ydBrainItems();
+  let ydSugAll = [];
+  try {
+    ydSugAll = isOwner() && "function" == typeof bnSuggestLessons ? bnSuggestLessons() : [];
+  } catch (e) {}
   ydActs = {};
+  const S = ydBrainSugs(),
+    sugRows = S.map((x, i) => {
+      const id = "s" + i;
+      ydAct(id, () => {
+        if (x.learn && isOwner() && "function" == typeof lnApprove) {
+          const l = lnApprove(x.learn);
+          l && (toast(`Lesson approved: ${l.title}`, () => ((bnTab = "lessons"), setView("brain"))), render());
+        } else "function" == typeof bnTeachModal && bnTeachModal(Object.assign({}, x));
+      });
+      return { id: id, sec: "sug", title: String(x.title || "A lesson"), meta: String(x.why || (x.then && x.then.title) || "from what happened").slice(0, 160), act: x.learn && isOwner() ? "Approve" : "Teach It", i: x.ydI };
+    }),
+    sugHtml = sugRows.length ? `<section class="yd-card"><div class="yd-sh"><h3>Suggested From What Happened</h3><span class="n">${sugRows.length}</span><span class="note">${isOwner() ? "lessons the brain drew from the record; a yes makes each a rule" : "lessons the brain drew from the record; teach one and the owner approves it"}</span></div>${sugRows.map((r) => ydRowHtml(r).replace(`data-ydact="${r.id}"`, `data-ydact="${r.id}" data-bnsug="${r.i}"`)).join("")}</section>` : "",
+    full = `<div class="yd-ph"><button type="button" class="btn" data-ydbrainfull>Open the Full Brain</button><span class="small muted">every lesson, the workload by person, what it watches</span></div>`;
   const rows = L.map((it, i) => {
     let c = null;
     try {
@@ -128,13 +190,13 @@ function ydBrainRender() {
     const id = "b" + i;
     ydAct(id, () => c.run());
     const meta = td2Txt ? td2Txt(c.why) : it.detail;
-    return { id: id, sec: "need", kind: it.kind, title: String(td2Txt ? td2Txt(c.line1) : it.title).replace(/^Lesson:\s*/, ""), meta: it.ydTwin ? `drafted from the same events as the row of the same name above; decide each \u00b7 ${meta}`: meta, act: isOwner() ? c.verb || "Open" : "" };
+    return { id: id, sec: "need", kind: it.kind, title: String(td2Txt ? td2Txt(c.line1) : it.title).replace(/^Lesson:\s*/, ""), meta: it.ydTwin ? `drafted from the same events as the row of the same name above; decide each \u00b7 ${meta}`: meta, act: isOwner() ? c.verb || "Open" : "", sug: "learn" === it.kind ? ydSugAll.findIndex((x) => x.learn && String(x.learn) === String(it.id)) : -1 };
   });
   const groups = rows.length
     ? `<section class="yd-card">${["learn", "change", "lesson"]
         .map((k) => {
           const R = rows.filter((r) => r.kind === k);
-          return R.length ? `<div class="yd-sh"><h3>${esc(YD_BRAIN_GROUP[k])}</h3><span class="n">${R.length}</span></div>${R.map(ydRowHtml).join("")}` : "";
+          return R.length ? `<div class="yd-sh"><h3>${esc(YD_BRAIN_GROUP[k])}</h3><span class="n">${R.length}</span></div>${R.map((r) => (r.sug >= 0 && r.act ? ydRowHtml(r).replace(`data-ydact="${r.id}"`, `data-ydact="${r.id}" data-bnsug="${r.sug}"`) : ydRowHtml(r))).join("")}` : "";
         })
         .join("")}</section>`
     : "";
@@ -151,7 +213,7 @@ function ydBrainRender() {
     ],
     ydBrainChip,
     "brain",
-  )}${"need" === ydBrainChip ? groups || '<section class="yd-card"><div class="yd-empty">Nothing waits on your approval.</div></section>' : read}`;
+  )}${"need" === ydBrainChip ? (groups || (sugHtml ? "" : '<section class="yd-card"><div class="yd-empty">Nothing waits on your approval.</div></section>')) + sugHtml : read}${full}`;
 }
 
 // ---- Insurance and Licenses ------------------------------------------------------------------------------------------
@@ -598,6 +660,7 @@ document.addEventListener(
     let b;
     if ((b = at("[data-ydteamback]"))) return e.preventDefault(), (ydPersonId = ""), void render();
     if ((b = at("#yd-brain [data-ydchip]"))) return e.preventDefault(), (ydBrainChip = b.dataset.ydchip), void render();
+    if ((b = at("#yd-brain [data-ydbrainfull]"))) return e.preventDefault(), void ydBrainFull();
     if ((b = at("#yd-standard [data-ydchip]"))) return e.preventDefault(), (ydStdChip = b.dataset.ydchip), void render();
     if ((b = at("[data-ydfold='kept']"))) return e.preventDefault(), (ydKeptOpen = !ydKeptOpen), void render();
     if ((b = at("[data-ydobnew]"))) return e.preventDefault(), void ydObNew();

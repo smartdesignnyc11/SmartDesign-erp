@@ -246,6 +246,17 @@ def r2(x):
     return (math.floor(abs(x) * 100 + 0.5 + 1e-9) / 100) * (1 if x >= 0 else -1)
 
 
+# Approvals is Today's Approvals chip (the Your Day lane, 11-03; the old page forwards there): the card naming `n`, and
+# its yes (on the desktop the selected card's verb is the side panel's button). Marks the button with `mark` and returns
+# its verb, without the amount the panel's button carries ("Approve, $9,740" reads Approve).
+APPR_CARD = """async ([n, mark]) => { try { tdyTabSet('appr'); tdyAllOpen = true; } catch (e) {} view = 'home'; render();
+  await new Promise(r => setTimeout(r, 150)); const vis = e => !!e && e.getClientRects().length > 0;
+  const e = [...document.querySelectorAll('.view.on .td-do .td-card')].find(x => vis(x) && x.innerText.includes(n)); if (!e) return '';
+  let b = e.querySelector('[data-tdverb]');
+  if (!vis(b)) { e.click(); await new Promise(r => setTimeout(r, 200)); b = document.querySelector('.view.on .td2-aside [data-td2lead]'); }
+  if (!vis(b)) return ''; b.setAttribute(mark, '1'); return b.innerText.trim().replace(/,\\s*[\u2212-]?\\$[\\d,.]+$/, ''); }"""
+
+
 # ================================================================ 1. lead > client > project > estimate > signed
 async def s1_client(C):
     C.step('1. Lead, client, project, estimate, signed on the portal, contract and SOV')
@@ -254,6 +265,9 @@ async def s1_client(C):
     await C.as_('u_alan', 'leads', "slOpen = '';")
     C.t(f"PM signs in; Sales > Lead Board opens on {await C.js('() => view')}")
     await C.click_text('section.view.on', r'^New Lead$')
+    # the Pipeline (the Sales mock-up, 11-03): New Lead asks from a mail or typed in; the person types this one in
+    if await C.js("() => !document.querySelector('#mbm') && !!document.querySelector('section.view.on [data-ydnewitem=\"typed\"]')"):
+        await C.click_text('section.view.on', r'^Lead, Typed In$')
     m = await C.modal()
     C.ok(m and m['title'] == 'New Lead', 'Lead Board > New Lead opens the lead sheet', m and m['title'])
     await C.fill('#mbm [data-f=name]', CLIENT)
@@ -301,7 +315,12 @@ async def s1_client(C):
     # the estimate: Construction template, seven lines typed in the line editor
     await C.js("id => { view = 'clients'; clientOpen = id; clientTab = 'overview'; docOpen = null; render(); }", cl['id'])
     await C.wait(300)
-    await C.click('section.view.on [data-newest]')
+    # the client's page (the Sales mock-up, 11-03): New, then Estimate; the old record's New Estimate where it shows
+    if await C.js("() => !!document.querySelector('section.view.on #yd-clients [data-ydnew]')"):
+        await C.click('section.view.on #yd-clients [data-ydnew]')
+        await C.click('section.view.on [data-ydnewitem="est"]')
+    else:
+        await C.click('section.view.on [data-newest]')
     await C.pg.check('#mbm input[value=construction]')
     await C.modal_ok(800)
     await C.fill('section.view.on [data-d=title]', 'Parlor kitchen and primary bath', tab=True)
@@ -336,7 +355,11 @@ async def s1_client(C):
     C.t(f"Mark Sent → {st} ({await C.toast()})")
     # the client's portal user (Settings > Company Settings > Users), then the client signs on the portal
     await C.as_('u_owner', 'setup')
-    await C.click('section.view.on [data-tl=proj]', 500)
+    # the old Settings page is Company Settings (the Company mock-up, 11-03): its The Firm row opens the firm's settings
+    if await C.js("() => view") == 'cosettings':
+        await C.click('section.view.on [data-ydact="firm"]', 500)
+    else:
+        await C.click('section.view.on [data-tl=proj]', 500)
     await C.fill('#u-name', 'Imogen Varga')
     await C.pg.select_option('#u-role', 'client')
     await C.fill('#u-contact', EMAIL)
@@ -392,10 +415,9 @@ async def phone_approve(C, needle, what, dispute=None):
         C.plog(f"Do Now's first five do not include {what} ({needle}); " + (f'"{more}" is under them' if more else 'no link under them'))
         C.findings.append(f"Phone: {what} ({needle}) waiting on the Owner is not in Do Now's first five; it is reached through \"{more or 'Approvals'}\".")
         if more: await C.ptap('#v-home [data-tdall]', more)
-        else: await C.ph.evaluate("() => { view = 'mapprove'; window.mApprKind = 'all'; render(); }")   # the full list, from Today's filter link
+        else: await C.ph.evaluate("() => { view = 'mapprove'; render(); }")   # the full list: Today's Approvals chip
         await C.pcheck('Approvals')
-        ok = await C.ph.evaluate("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
-            const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainyes', '1'); return !!b; }""", needle)
+        ok = bool(await C.ph.evaluate(APPR_CARD, [needle, 'data-chainyes']))
         C.ok(ok, f'phone: Approvals lists {needle} with its yes', needle)
         if not ok: return
         await C.ptap('[data-chainyes]', f'Approve on the Approvals card for {needle}')
@@ -494,9 +516,9 @@ async def s2_buy(C):
     await C.to_desk()
     # the sub commitment from Approvals on the desk
     for po in (sub,):
-        await C.as_('u_owner', 'mapprove', "window.mApprKind = 'all';")
-        got = await C.js("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
-            const b = e && e.querySelector('[data-myes]'); b && b.click(); return b ? b.innerText.trim() : ''; }""", po['number'])
+        await C.as_('u_owner', 'mapprove')
+        got = await C.js(APPR_CARD, [po['number'], 'data-chainpo'])
+        got and await C.js("() => document.querySelector('[data-chainpo]').click()")
         await C.wait(600)
         st = await C.js("n => DB.pos.find(p => p.number === n).status", po['number'])
         C.ok(got == 'Approve' and st == 'issued', f"the Owner's Approvals: {po['number']} > Approve issues it", f'{got} {st}')
@@ -515,9 +537,9 @@ def ws_thread(tid, frm, subject, text, fname, pdf, when):
 async def approvals_yes(C, uid, needle, why=None, dispute=None):
     """The person's Approvals: the card naming `needle`, its yes button; an override asks for a reason, an over-PO
     bill opens Approve PO Amount / Dispute Difference."""
-    await C.as_(uid, 'mapprove', "window.mApprKind = 'all';")
-    verb = await C.js("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
-        const b = e && e.querySelector('[data-myes]'); b && b.click(); return b ? b.innerText.trim() : ''; }""", needle)
+    await C.as_(uid, 'mapprove')
+    verb = await C.js(APPR_CARD, [needle, 'data-chainap'])
+    verb and await C.js("() => { const b = document.querySelector('[data-chainap]'); b.removeAttribute('data-chainap'); b.click(); }")
     await C.wait(600)
     m = await C.modal()
     said = ''
@@ -645,8 +667,11 @@ async def s3_receive(C):
     for num in ('FC-20417', 'HPH-2291', 'KBS-5531'):
         v, said = await approvals_yes(C, 'u_alan', num)
         st = await C.js("n => DB.bills.find(b => b.number === n).status", num)
-        C.ok(v == 'Recommend' and st == 'pm-approved', f'PM > Approvals > {num} > Recommend', f'{v} {st}')
+        # exceptions only (DECISIONS 10-26): the PM's yes approves a clean bill; one that is an exception he recommends
+        C.ok((v == 'Recommend' and st == 'pm-approved') or (v == 'Approve' and st == 'approved'), f'PM > Approvals > {num} > Recommend (or Approve, a clean bill)', f'{v} {st}')
     for num, why in (('FC-20417', 'Bill equals the PO and the receipt'), ('HPH-2291', 'Progress bill on the subcontract; the rough-in is under way')):
+        if await C.js("n => DB.bills.find(b => b.number === n).status", num) == 'approved':
+            C.t(f"PM > Approvals > {num} > Approve → approved (no exception: it does not wait on the Owner)"); continue
         v, said = await approvals_yes(C, 'u_owner', num, why)
         st = await C.js("n => DB.bills.find(b => b.number === n).status", num)
         C.ok(v == 'Approve' and st == 'approved', f'Owner > Approvals > {num} > Approve{said}', st)
@@ -1139,10 +1164,10 @@ async def s7_close(C):
     # that is right: the close never seals a payment nobody approved. The month-end allowlist below approves the seed's
     # other paid-before-approval bills as billed; this one is decided the way the pilot's owner and controller did,
     # through the real sheet: Owner > Approvals > WW-2026-118 > Approve > Approve PO Amount, Dispute Difference.
-    await C.as_('u_owner', 'mapprove', "window.mApprKind = 'all';")
-    yes = await C.js("""() => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes('WW-2026-118'));
-        const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainww', '1'); return b ? b.innerText.trim() : ''; }""")
-    C.ok(yes == 'Approve', 'Owner > Approvals lists WW-2026-118 with Approve', yes)
+    await C.as_('u_owner', 'mapprove')
+    yes = await C.js(APPR_CARD, ['WW-2026-118', 'data-chainww'])
+    # Today's card for a bill over its PO reads Dispute Difference (the short-pay sheet: Approve PO Amount, Dispute Difference)
+    C.ok(yes in ('Approve', 'Dispute Difference'), 'Owner > Approvals lists WW-2026-118 with its yes', yes)
     if yes:
         await C.click('[data-chainww]', 500)
         m = await C.modal()

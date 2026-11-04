@@ -206,7 +206,8 @@ let slChip = "need",
 function slOpenPipeline(chip) {
   (slChip = chip || "need"), setView("ovsales");
 }
-const slMayEdit = () => isOwner();
+// the owner and the PM take inquiries and move deals (the PM starts a lead on the Pipeline, as on the old Lead Board)
+const slMayEdit = () => isOwner() || "pm" === role();
 // money on the client pages: the owner, the PM, billing and the controller (the designer reads decisions, not money)
 const slMoneyOk = () => ["owner", "pm", "billing", "controller"].includes(role()) && !("function" == typeof tdNoMoney && tdNoMoney());
 function slDealRow(l, sec, o) {
@@ -422,14 +423,14 @@ let slClTab = "overview",
 // the client's billing record as it was (its Billing tab: New Invoice, progress and deposit invoices, change orders),
 // one tap from Contract and Billing
 let slClOld = !1;
-// A link to a client's billing record (a toast's Open on a new invoice, a statement, a job's billing link) sets the old
-// page's own tab, clientTab "fin": it lands on the record it names, as before, not on the client's page above it. The
-// client's page itself never sets "fin" except through Billing Record, so a change to "fin" is such a link.
+// A link to a tab of a client's old record (its billing on a toast's Open, a statement, its Projects to start a job) sets the old
+// tab (clientTab): it lands on the record it names, as before, not on the client's page above it. The client's page
+// keeps clientTab at "overview" (its own tabs are slClTab) except through Billing Record, so a change is such a link.
 let slClSeen = { c: null, tab: "overview" };
 function slBillingLink() {
   if ("clients" !== view || !clientOpen) return void (slClSeen = { c: null, tab: "undefined" != typeof clientTab ? clientTab : "" });
   const tab = "undefined" != typeof clientTab ? clientTab : "";
-  "fin" === tab && (slClSeen.tab !== "fin" || slClSeen.c !== clientOpen) && (slClOld = !0);
+  tab && "overview" !== tab && (slClSeen.tab !== tab || slClSeen.c !== clientOpen) && (slClOld = !0);
   slClSeen = { c: clientOpen, tab: tab };
 }
 function slOpenClient(id) {
