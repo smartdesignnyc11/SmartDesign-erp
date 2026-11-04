@@ -1007,10 +1007,14 @@ function scApproveAtMeasured(b) {
   if (!changed.length) return null;
   const diff = r2(claimedGross - billGross(b));
   b.payApp.revised = { by: scMe(), role: role(), at: appNowIso(), claimed: claimedGross, approved: billGross(b), diff: diff, lines: changed };
-  (b.approvals = b.approvals || []).push({ t: nowStamp(), ts: appNowIso(), by: scMe(), role: role(), action: `pay application approved at measured: ${money(billGross(b))} of ${money(claimedGross)} claimed`, note: `${money(diff)} ahead of the work goes to the next application` });
-  try {
-    audit("bill", b.id, "payapp-at-measured", money(claimedGross), money(billGross(b)), changed.map((c) => `${c.desc} ${c.claimed}% to ${c.approved}%`).join("; "));
-  } catch (e) {}
+  // the stamp and its audit row in one step (apStamp, BACKLOG §1.36)
+  apStamp("bill", b, `pay application approved at measured: ${money(billGross(b))} of ${money(claimedGross)} claimed`, "payapp-approved-at-measured", {
+    by: scMe(),
+    before: money(claimedGross),
+    after: money(billGross(b)),
+    note: changed.map((c) => `${c.desc} ${c.claimed}% to ${c.approved}%`).join("; "),
+    extra: { note: `${money(diff)} ahead of the work goes to the next application` },
+  });
   // the conditional waiver that came in at the claimed amount still covers the smaller payment
   return b.payApp.revised;
 }

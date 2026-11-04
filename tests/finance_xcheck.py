@@ -26,6 +26,9 @@ later lane: each one walks all clients and every invoice and payment, the Live J
   INV ONE ANSWER    one record's "is it a deposit" has one answer across the ledger (2400 vs 4xxx), the line
                     figures (sovBilled, lineFin's deposit share), the printout (cxKind) and invIsDeposit; a sent
                     document whose print and books differ is allowed only when a Controller finding names it
+  INV STAMP BACKED  every approval stamp on every bill, payroll run, card spend, PO, change order and payment has an
+                    audit row by the same person on the same record at or before it, as seeded and after the PM
+                    recommends and the owner approves a bill, a payroll run and a PO (BACKLOG §1.36)
 
 The money definitions (the Accounting lane, 11-03; BACKLOG §1.35). Each figure is recomputed from the records by its
 definition and compared with what prints it (--figure money):
@@ -102,7 +105,7 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants',
+                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports'}.get(
@@ -112,7 +115,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
@@ -763,6 +766,50 @@ INV_DEP_JS = INV_SUM + """
   });
   return out;"""
 
+# ---- INV STAMP BACKED (BACKLOG §1.36, 11-04): every approval stamp on every bill, payroll run, card spend, PO, change
+# order and payment ("recommended by PM", "approved for payment by Owner", a routing step, a short-pay, approvedBy) has an
+# audit row by the same person, on the same record, at or before the stamp. A stamp with no person or no moment fails
+# too. "built from approved hours" names where a figure came from, not an approval, and is not a stamp.
+INV_STAMP_FN = """
+  const STAMP = /\\b(recommended|approved|verified|signed off)\\b/i, NOT = /\\bfrom approved\\b/i, lc = s => String(s || '').trim().toLowerCase();
+  const stampsUnbacked = () => {
+    const out = [];
+    const name = r => r.number || r.period || r.title || r.id;
+    const backed = (kind, r, by, ts, what) => {
+      if (!lc(by)) return out.push({ kind, rec: name(r), what, why: 'a stamp with no person' });
+      const A = (DB.audit || []).filter(a => a.refId === r.id && lc(a.by) === lc(by) && (!ts || (a.ts && a.ts <= ts)));
+      if (!A.length) out.push({ kind, rec: name(r), what, by, ts: ts || '', why: `no audit row by ${by} on it at or before the stamp` });
+    };
+    const walk = (kind, L) => (L || []).forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      (r.approvals || []).forEach(a => {
+        const w = String(a.action || '');
+        if (!STAMP.test(w) || NOT.test(w)) return;
+        if (!a.ts) return out.push({ kind, rec: name(r), what: w, by: a.by, why: 'a stamp with no moment (ts)' });
+        backed(kind, r, a.by, a.ts, w);
+      });
+      if (r.approvedBy && (kind === 'po' || kind === 'co' || kind === 'spend')) backed(kind, r, r.approvedBy, '', 'approvedBy ' + r.approvedBy);
+    });
+    walk('bill', DB.bills); walk('payroll', DB.payroll); walk('spend', DB.spend); walk('po', DB.pos);
+    (DB.clients || []).forEach(c => { walk('co', c.changeOrders); walk('payment', c.payments); });
+    return out;
+  };"""
+INV_STAMP_JS = INV_STAMP_FN + """
+  const seeded = stampsUnbacked();
+  // each approval path, done by its person through the app's own action: the PM recommends AMP-311, the owner approves
+  // it (with the reason its flags ask for), the owner approves the payroll run, the owner approves a PO waiting on him
+  const as = u => { signIn(u); render(); };
+  const amp = DB.bills.find(b => b.number === 'AMP-311'), pr = (DB.payroll || []).find(r => r.status === 'submitted');
+  const did = [];
+  try { as('u_alan'); if (amp) { billAction(amp, 'pmok'); did.push('pmok ' + amp.status); } } catch (e) { did.push('pmok threw ' + e.message); }
+  try { as('u_owner'); if (amp) { billAction(amp, 'approve', 'the stamp check: approved with its flags read'); did.push('approve ' + amp.status); } } catch (e) { did.push('approve threw ' + e.message); }
+  try { if (pr) { const k = appConfirm; appConfirm = () => true; try { payrollAction(pr, 'approve'); } finally { appConfirm = k; } did.push('payroll ' + pr.status); } } catch (e) { did.push('payroll threw ' + e.message); }
+  try { const po = (DB.pos || []).find(p => p.status === 'pending'); if (po) { poAction(po, 'approve'); did.push('po ' + po.number + ' ' + (po.approvedBy || '')); } } catch (e) { did.push('po threw ' + e.message); }
+  await sleep(100);
+  const after = stampsUnbacked();
+  const stamps = (DB.bills || []).concat(DB.payroll || []).flatMap(r => (r.approvals || []).filter(a => STAMP.test(a.action || '') && !NOT.test(a.action || ''))).length;
+  return { seeded, after, did, stamps };"""
+
 # ---- the money definitions (BACKLOG §1.35, the Accounting lane, 11-03): one question, one number, from the records ----
 # Each is recomputed here from the records by its own definition, never by calling the function that prints it, and
 # then compared with every place that prints it.
@@ -1224,6 +1271,17 @@ async def check_invariants(p, R):
         ok = abs(x['held']) < 0.01 and x['open'] == 0
         read('inv_dep', f"{x['client']} {x['est']} ({', '.join(x['deposits'])}), every line billed", ok, f"2400 {x['held']:+,.2f}, {x['open']} lines open", '2400 nets to $0.00')
     for e in errs[:3]: R.flag('inv_dep', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # every approval stamp has its person's own action in the audit trail: as seeded, and after each approval path runs
+    b, pg, errs = await page()
+    st = await pg.evaluate(js(INV_STAMP_JS))
+    read('inv_stamp', 'every approval stamp on bills, payroll, card spend, POs, change orders and payments, as seeded', not st['seeded'], st['seeded'][:6],
+         'an audit row by the same person on the same record at or before each stamp')
+    read('inv_stamp', f"after the PM recommends, the owner approves a bill, a payroll run and a PO ({'; '.join(st['did'])})", not st['after'] and len(st['did']) >= 2, st['after'][:6] or st['did'],
+         'each new stamp written with its audit row')
+    read('inv_stamp', 'the instrument: stamps were read', st['stamps'] >= 5, st['stamps'], 'the seeded trails and the new ones are found')
+    for e in errs[:3]: R.flag('inv_stamp', 'page', e[:200], 'no page errors')
     await b.close()
 
 

@@ -1757,6 +1757,34 @@ function seedAP() {
       unit: "",
       extId: "",
     });
+  seedTrail(DB.bills, "bill"), seedTrail(DB.payroll, "payroll");
+}
+// The seeded approval trails are written the way a person's action writes them (apStamp): each line with its audit
+// row, the same person, record and moment (BACKLOG §1.36: NT-88412, CM-0091 and WW-2026-118 read "recommended by PM"
+// and "approved for payment by Owner" with nothing in the audit trail behind them).
+const SEED_AUDIT = { submitted: "submitted", "recommended by PM": "pmok", "approved for payment by Owner": "approved" };
+function seedTs(t) {
+  // "8/10 3:40 PM" in the demo year: the stamp's own moment
+  const m = String(t || "").match(/^(\d{1,2})\/(\d{1,2}) (\d{1,2}):(\d{2}) (AM|PM)$/);
+  if (!m) return appNowIso();
+  const h = (+m[3] % 12) + ("PM" === m[5] ? 12 : 0),
+    p = (n) => String(n).padStart(2, "0");
+  return `${today().slice(0, 4)}-${p(m[1])}-${p(m[2])}T${p(h)}:${m[4]}:00`;
+}
+function seedTrail(L, kind) {
+  (L || []).forEach((r) => {
+    const T = r.approvals || [];
+    (r.approvals = []),
+      T.forEach((a) =>
+        apStamp(kind, r, a.action, SEED_AUDIT[a.action] || (/^payment released/.test(a.action) ? "paid" : a.action), {
+          by: a.by,
+          role: a.role,
+          t: a.t,
+          ts: a.ts || seedTs(a.t),
+          extra: a.note ? { note: a.note } : {},
+        }),
+      );
+  });
 }
 function seedPOs() {
   (DB.pos = [
@@ -13515,13 +13543,13 @@ const AP_DEFAULTS = {
 function entityName(id) {
   return (DB.entities || []).find((e) => e.id === id)?.name || "—";
 }
-function audit(kind, refId, action, before, after, note) {
+function audit(kind, refId, action, before, after, note, who) {
   DB.audit.push({
     id: uid("au"),
-    ts: appNowIso(),
-    t: nowStamp(),
-    by: S?.project?.userName || role(),
-    role: role(),
+    ts: (who && who.ts) || appNowIso(),
+    t: (who && who.t) || nowStamp(),
+    by: (who && who.by) || S?.project?.userName || role(),
+    role: (who && who.role) || role(),
     kind: kind,
     refId: refId,
     action: action,
@@ -13530,6 +13558,25 @@ function audit(kind, refId, action, before, after, note) {
     note: note || "",
   }),
     DB.audit.length > 5e3 && DB.audit.shift();
+}
+// An approval stamp ("recommended by PM", "approved for payment by Owner", a routing step, a short-pay) is written
+// only here: by the person's own action, with its audit row in the same step, the same person, record and moment
+// (BACKLOG §1.36: three seeded bills read "recommended by PM" and "approved by Alan" with nothing in the audit trail
+// behind them). A seed writes its invented history through it too (o.by, o.role, o.ts, o.t), so no stamp shows
+// without its action. Checked: tests/finance_xcheck.py --figure invariants (INV STAMP BACKED) and the walk's danger
+// sweep (stamp).
+function apStamp(kind, rec, action, auditAction, o) {
+  o = o || {};
+  const who = {
+      by: o.by || S?.project?.userName || role(),
+      role: o.role || role(),
+      ts: o.ts || appNowIso(),
+      t: o.t || nowStamp(),
+    },
+    st = Object.assign({ t: who.t, ts: who.ts, by: who.by, role: who.role, action: action }, o.extra || {});
+  (rec.approvals = rec.approvals || []).push(st);
+  audit(kind, rec.id, auditAction || action, void 0 === o.before ? null : o.before, void 0 === o.after ? null : o.after, o.note || "", who);
+  return st;
 }
 const isOwner = () => "owner" === role();
 function canApprove(item) {
@@ -13936,11 +13983,7 @@ function billAction(b, a, why) {
     if (b.createdBy && b.createdBy.toLowerCase() === by.toLowerCase() && !isOwner())
       return void toast("Separation of duties: the person who entered the bill cannot approve it");
     (b.status = needsOwner(billTotal(b)) ? "pm-approved" : "approved"),
-      b.approvals.push({
-        ...stamp,
-        action: "approved" === b.status ? "approved (PM, under Owner threshold)" : "recommended by PM",
-      }),
-      audit("bill", b.id, a, null, { status: b.status });
+      apStamp("bill", b, "approved" === b.status ? "approved (PM, under Owner threshold)" : "recommended by PM", a, { by: by, ts: stamp.ts, t: stamp.t, after: { status: b.status } });
   }
   if ("approve" === a) {
     const vb = DB.vendors.find((x) => x.name.toLowerCase() === b.vendor.toLowerCase());
@@ -13965,12 +14008,7 @@ function billAction(b, a, why) {
       );
     (b.status = "approved"),
       (b.approvedAt = today()),
-      b.approvals.push({
-        ...stamp,
-        action: "approved for payment by Owner",
-        note: fl.length ? `override: ${why} (${fl.join("; ")})` : "",
-      }),
-      audit("bill", b.id, "approved", null, { status: "approved", flags: fl }),
+      apStamp("bill", b, "approved for payment by Owner", "approved", { by: by, ts: stamp.ts, t: stamp.t, after: { status: "approved", flags: fl }, extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" } }),
       log(`Bill approved: ${b.vendor} ${money(billTotal(b))}`);
   }
   if ("reject" === a) {
@@ -14125,11 +14163,7 @@ function payrollAction(r, a) {
     )
       return;
     (r.status = "approved"),
-      r.approvals.push({
-        ...stamp,
-        action: `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`,
-      }),
-      audit("payroll", r.id, "approved"),
+      apStamp("payroll", r, `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`, "approved", { by: by, ts: stamp.ts, t: stamp.t }),
       r.fromTime || prLinkTime(r),
       log(`Payroll approved: ${r.period} ${money(r.total)}`);
   }
@@ -39440,7 +39474,8 @@ poAction = function (po, a) {
       (po.status = "draft"), audit("po", po.id, "sent-back", "pending", "draft", by), save(), void render()
     );
   if (
-    ("issue" === a && owner && poNeedsApproval(po) && ((po.approvedBy = by), (po.approvedAt = today())),
+    // the owner issuing an order that needs approval approves it: the stamp with its audit row (BACKLOG §1.36)
+    ("issue" === a && owner && poNeedsApproval(po) && ((po.approvedBy = by), (po.approvedAt = today()), audit("po", po.id, "approved", po.status, "issued", `${by}, as the owner issued it`)),
     "bill" !== a)
   ) {
     if ("receive" === a || "receivepartial" === a) {
@@ -63321,29 +63356,21 @@ function rtApprove(o, note) {
   const can = rtCan(o);
   if (!can.ok) return toast(can.why), !1;
   const st = rtStep(o);
-  o.approvals = [
-    ...(o.approvals || []),
-    {
-      t: nowStamp(),
-      by: currentUser()?.name || DB.me || "",
-      role: st.next,
-      action:
-        "owner" === st.next
-          ? "approved for payment by Owner"
-          : "pm" === st.next
-            ? "recommended by PM"
-            : "approved by coordinator",
-      note: note || "",
-    },
-  ];
+  // the stamp and its audit row in one step, by the person approving (apStamp); the step it fills is st.next, which
+  // rtCan has just checked is this person's role
+  o.approvals = (o.approvals || []).slice();
+  const stp = apStamp(
+    void 0 !== o.number ? "bill" : "spend",
+    o,
+    "owner" === st.next ? "approved for payment by Owner" : "pm" === st.next ? "recommended by PM" : "approved by coordinator",
+    "approved-step",
+    { by: currentUser()?.name || DB.me || S?.project?.userName || role(), role: st.next, extra: { note: note || "" } },
+  );
   const after = rtStep(o);
   return (
     after.complete ? (o.status = "approved") : "pm" === st.next && (o.status = "pm-approved"),
-    audit(void 0 !== o.number ? "bill" : "spend", o.id, "approved-step", null, {
-      role: st.next,
-      complete: after.complete,
-    }),
-    save(),
+    (DB.audit[DB.audit.length - 1] || {}).refId === o.id && (DB.audit[DB.audit.length - 1].after = { role: st.next, complete: after.complete }),
+    stp && save(),
     !0
   );
 }
@@ -132751,22 +132778,17 @@ function fin2ApproveAsBilled(b, why) {
     (b.paidAt = b.paidAt || (t && t.date) || today()),
     (b.paidBeforeApproval = !0),
     (b.approvedAsBilled = { on: today(), by: st.by, txnId: t ? t.id : "" }),
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, st, {
-        action: "approved as billed by Owner — bank payment confirmed",
-        note: fl.length ? `override: ${why} (${fl.join("; ")})` : "",
-      }),
-    );
-  try {
-    audit(
-      "bill",
-      b.id,
-      "approved-as-billed",
-      "paid before approval",
-      "verified",
-      `${t ? `${money(-t.amt)} from ${a ? a.name : "the bank"} on ${t.date} confirmed as the payment` : "no bank line"}${why ? "; override: " + why : ""}`,
-    );
-  } catch (e) {}
+    // the stamp and its audit row in one step (apStamp)
+    apStamp("bill", b, "approved as billed by Owner — bank payment confirmed", "approved-as-billed", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: "paid before approval",
+      after: "verified",
+      note: `${t ? `${money(-t.amt)} from ${a ? a.name : "the bank"} on ${t.date} confirmed as the payment` : "no bank line"}${why ? "; override: " + why : ""}`,
+      extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" },
+    });
   try {
     log(`Bill approved as billed: ${b.vendor} ${money(billTotal(b))}`);
   } catch (e) {}
@@ -140706,15 +140728,17 @@ function pay3ApproveAsBilled(b, a, why) {
     pay3AsBilled = !1;
   }
   if (["approved", "verified", "paid"].includes(b.status)) {
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, fin2Stamp(), {
-        action: `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`,
-        note: why,
-      }),
-    );
-    try {
-      audit("bill", b.id, "approved-over-po", "", b.status, `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`);
-    } catch (e) {}
+    const st = fin2Stamp();
+    apStamp("bill", b, `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`, "approved-over-po", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: "",
+      after: b.status,
+      note: `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`,
+      extra: { note: why },
+    });
     save();
   }
 }
@@ -140810,22 +140834,17 @@ function pay3ShortPay(b, amt, why, opts) {
         (b.paidAt = b.paidAt || (t && t.date) || today()),
         (b.paidBeforeApproval = !0))
       : (b.status = "approved"),
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, st, {
-        action: `approved at ${money(amt)}${P ? " (" + P.po.number + ")" : ""} by Owner — ${money(held)} disputed`,
-        note: why,
-      }),
-    );
-  try {
-    audit(
-      "bill",
-      b.id,
-      "approved-short",
-      before,
-      b.status,
-      `${money(amt)} approved and costed; ${money(held)} disputed ${paid ? "and held as a vendor receivable (1300)" : "and held back from payment"} — ${why}`,
-    );
-  } catch (e) {}
+    // the stamp and its audit row in one step (apStamp)
+    apStamp("bill", b, `approved at ${money(amt)}${P ? " (" + P.po.number + ")" : ""} by Owner — ${money(held)} disputed`, "approved-short", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: before,
+      after: b.status,
+      note: `${money(amt)} approved and costed; ${money(held)} disputed ${paid ? "and held as a vendor receivable (1300)" : "and held back from payment"} — ${why}`,
+      extra: { note: why },
+    });
   try {
     log(`Bill approved at ${money(amt)}, ${money(held)} disputed: ${b.vendor} ${b.number || ""}`);
   } catch (e) {}
