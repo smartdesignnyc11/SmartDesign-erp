@@ -72196,6 +72196,13 @@ function glSync() {
     // a sync that posted nothing is a read: it leaves the books byte for byte as they were (the Reports lane, 11-04: the
     // stamp moved on every page that read the ledger)
     (posted || reposted || reversed || !DB.gl.lastSync) && (DB.gl.lastSync = appNowIso()),
+    // the speed memo starts a new version after a ledger sync, as it did while every sync stamped lastSync (spdBegin):
+    // a reader memoised before the sync is never served after it (Controls drew "No open exceptions" over 15)
+    (() => {
+      try {
+        SPD.syncs = (SPD.syncs || 0) + 1;
+      } catch (e) {}
+    })(),
     posted || reposted || reversed)
   )
     try {
@@ -107965,6 +107972,8 @@ function spdBegin() {
   } catch (e) {
     min = String(Date.now()); // wall clock: a cache key only
   }
+  // the version also moves with every ledger sync (glSync counts them in SPD.syncs; it no longer writes a stamp)
+  null !== s && (s += "|" + (SPD.syncs || 0));
   null === s || s !== SPD.snap || min !== SPD.min
     ? (SPD.ver++, (SPD.snap = s || ""), (SPD.min = min), (SPD.memo = new Map()))
     : 0,
