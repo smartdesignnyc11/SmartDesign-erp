@@ -25,7 +25,7 @@ import asyncio, json, os, re, sys, time, argparse
 from collections import Counter, defaultdict
 from harness import *
 import crawl
-from tap_label_lint import TapLint, PAGES, OPEN
+from tap_label_lint import TapLint, PAGES, OPEN, LINK_PAGES, DOORS, MENUS
 
 OUT = os.path.join(ROOT, 'review', 'w1trust')
 
@@ -66,12 +66,13 @@ NAV_AWAY = r"""(cur) => {
   if (!(top && b.contains(top))) return null;
   return { x, y, label: (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 30) };
 }"""
-OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u);
-  if (gid === 'job') { jpOpenJob((S && S.id) || DB.currentId); if (view !== v || tab) jpGo(tab ? v + ':' + tab : v); return view; }
+OPEN_KEEP = r"""([u, gid, v, tab, pre]) => { signIn(u);
+  const down = () => { (pre || []).forEach(s => { const b = document.querySelector('.view.on ' + s) || document.querySelector(s); b && b.click(); }); return view; };
+  if (gid === 'job') { jpOpenJob((S && S.id) || DB.currentId); if (view !== v || tab) jpGo(tab ? v + ':' + tab : v); return down(); }
   const B = mnBuild(role()) || { groups: [], more: [] };
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
-  if (it) mnGo(g, it); else { view = v; render(); } return view; }"""
+  if (it) mnGo(g, it); else if (gid === 'link') setView(v); else { view = v; render(); } return down(); }"""
 # The pilot's sheets by name (Q14, Q44), opened the way the person reached them; walked whether or not the menu walk
 # reached them. (person, phone?, name, what opens it, the field typed in). A page form (no sheet) is typed on the page.
 NAMED = [
@@ -100,21 +101,48 @@ class DraftWalk(TapLint):
         info = await self.start_user(u)
         if info['user'] != u: return []
         entries = await self.pg.evaluate(PAGES)
-        seen, out = set(), []
-        for e in entries:
+        # the pages the role opens by link and Cmd-K that its menu does not list (MN_LINK)
+        entries += [e for e in await self.pg.evaluate(LINK_PAGES) if not any(x['v'] == e['v'] for x in entries)]
+        walked = {x['v'] for x in entries}
+        seen, out, menus = set(), [], []
+        i = 0
+        while i < len(entries):
+            e = entries[i]; i += 1
             if self.a.views and e['v'] not in self.a.views: continue
             try: await self.open_entry(e)
             except Exception: continue
+            if e.get('pre'):
+                # a chip walked as a page only when it opens a page of its own (Bills and Payroll's Payroll is Time and
+                # Crew); a chip that filters its page is one of the page's presses
+                if e['door'] == 'chip':
+                    if self.view_v == e['v'] or self.view_v in walked: continue
+                    walked.add(self.view_v)
+            else:
+                # one tap down from the page: its foot's tools, the pages its chips open, the Buy Board's pick bar
+                # (walked as pages of their own, after the menu's), and its New menu's items
+                try:
+                    for sel, lab, kind in await self.pg.evaluate(DOORS):
+                        entries.append(dict(e, pre=[sel], door=kind, l=e['l'] + ' > ' + lab))
+                    menus += [(e, os, items) for os, items in await self.pg.evaluate(MENUS)]
+                except Exception: pass
             lst = await self.pg.evaluate('() => window.__cr.list()')
-            # the page's buttons (one of each kind), then its first rows and cards: a sheet opens from one or the other
+            # the page's buttons (one of each kind), then its first rows and cards: a sheet opens from one or the other.
+            # A row is a card, a link, or a plain button that carries a record's text (the 11-03 pages' rows)
             plan = [c for c in await self.buttons_of(lst['cands']) if not crawl.DESTRUCT_RE.match(c['label'])]
-            fam, rows = Counter(), []
+            # a tab that makes something (Tasks' New View, drawn among the saved views) is a button, not a place
+            maker = [c for c in lst['cands'] if c['scope'] == 'view' and c['kind'] == 'tab' and re.match(r'(New|Add)\b', c['label'])]
+            fam, B = Counter(), {'card': [], 'link': [], 'button': []}
             for c in lst['cands']:
-                if c['scope'] != 'view' or c['kind'] not in ('card', 'link') or any(x['key'] == c['key'] for x in plan): continue
+                if c['scope'] != 'view' or any(x['key'] == c['key'] for x in plan): continue
+                if not (c['kind'] in ('card', 'link') or (c['kind'] == 'button' and c.get('rowText') and len(c['label']) >= 12)): continue
                 fam[c['family']] += 1
                 if fam[c['family']] > 1 or crawl.DESTRUCT_RE.match(c['label']): continue
-                rows.append(c)
-            plan = plan[:30] + rows[:2]
+                B[c['kind']].append(c)
+            # the first two rows and the last (a page's last section is often another kind of record: the permits
+            # under the inspections), then the first two row buttons and the first two links (the calendar's events are
+            # links), each kind apart so that one never crowds the other out
+            cards = B['card'][:2] + B['card'][-1:] if len(B['card']) > 2 else B['card']
+            plan = plan[:30] + maker + cards + B['button'][:2] + B['link'][:2]
             dirty = None
             for c in plan:
                 await self.fresh(dirty, u)
@@ -123,6 +151,12 @@ class DraftWalk(TapLint):
                 dirty = 'full' if (r['keys'] or r['viewChanged'] or r.get('reloaded') or self.navigated) else ('light' if (r['overlays'] or r['sigChanged'] or r['toasts']) else None)
                 if r.get('reloaded') or self.navigated: continue
                 s = await self.pg.evaluate(SHEET_NOW)
+                if s and not s.get('field') and await self.tap_ok(phone):
+                    # a sheet that only asks (the phone's Confirm the Match before a bank line's Confirm) opens the
+                    # sheet that takes typing on its OK: a person goes on through it
+                    dirty = 'full'
+                    s2 = await self.pg.evaluate(SHEET_NOW)
+                    if s2 and s2.get('field') and s2['title'] != s['title']: s, c = s2, dict(c, then='#mbm-ok')
                 if not s or not s.get('field'): continue
                 k = re.sub(r'\d', '#', s['title'] or s['key'])[:60]
                 if k in seen: continue
@@ -149,14 +183,38 @@ class DraftWalk(TapLint):
                 seen.add(t)
                 out.append({'vp': vp, 'user': u, 'entry': job, 'plus': k, 'c': {'key': 'plus:' + k, 'n': 0, 'label': 'New for this job > ' + lab}, 'key': s['key'], 'title': s['title'], 'field': s['field']})
             await self.fresh('full', u)
+        # each page's own New menu (Accounting's, Purchasing's, Design's): every item it offers, pressed as a person would
+        for e, os, items in menus:
+            for isel, lab in items:
+                try:
+                    await self.fresh('full', u)
+                    if not await self.press_plus(e, [os, isel], phone): continue
+                except Exception: continue
+                s = await self.pg.evaluate(SHEET_NOW)
+                if not s or not s.get('field'): continue
+                t = re.sub(r'\d', '#', s['title'] or s['key'])[:60]
+                if t in seen: continue
+                seen.add(t)
+                out.append({'vp': vp, 'user': u, 'entry': e, 'plus': [os, isel], 'c': {'key': 'menu:' + isel, 'n': 0, 'label': 'New > ' + lab}, 'key': s['key'], 'title': s['title'], 'field': s['field']})
+            await self.fresh('full', u)
         return out
 
+    async def tap_ok(self, phone):
+        """the open sheet's own OK (#mbm-ok), tapped as a person would; False when it has none"""
+        pt = await self.pg.evaluate("() => { const e = document.querySelector('#mbm #mbm-ok'); if (!e || !e.getClientRects().length) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }")
+        if not pt: return False
+        if phone: await self.pg.touchscreen.tap(pt['x'], pt['y'])
+        else: await self.pg.mouse.click(pt['x'], pt['y'])
+        await self.settle(150, 1500)
+        await self.pg.wait_for_timeout(120)
+        return True
+
     async def press_plus(self, entry, k, phone):
-        """the job's page, its +, then the kind: two taps a person makes"""
+        """the page, its New (the job's +, or the page's own New), then the kind: two taps a person makes"""
         await self.open_entry(entry)
-        for sel in ('#jp-new', f'#jp-newmenu [data-jpnew="{k}"]'):
-            pt = await self.pg.evaluate("s => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }", sel)
-            if not pt: self.why = 'the job\'s + offers no ' + k; return False
+        for sel in (k if isinstance(k, list) else ('#jp-new', f'#jp-newmenu [data-jpnew="{k}"]')):
+            pt = await self.pg.evaluate("s => { const e = document.querySelector('.view.on ' + s) || document.querySelector(s); if (!e || !e.getClientRects().length) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }", sel)
+            if not pt: self.why = 'the New menu offers no ' + str(k)[-60:]; return False
             if phone: await self.pg.touchscreen.tap(pt['x'], pt['y'])
             else: await self.pg.mouse.click(pt['x'], pt['y'])
             await self.settle(150, 1500)
@@ -181,6 +239,9 @@ class DraftWalk(TapLint):
         else: await self.pg.mouse.click(pt['x'], pt['y'])
         await self.settle(150, 1500)
         await self.pg.wait_for_timeout(120)
+        # the sheet reached through an asking sheet's OK (discover): the person goes on through it again
+        if f['c'].get('then') and not await self.tap_ok(phone):
+            self.why = 'the asking sheet has no OK'; return False
         return True
 
     async def leave(self, how, phone, depth=0):
@@ -212,7 +273,9 @@ class DraftWalk(TapLint):
               // outside to tap (Asana's pane works the same way); the person leaves it by the menu
               if (!h || h.classList.contains('tv-under')) return null; const box = h.querySelector('.mbm-box, .msg-sheet-in, .tv-pop-bd') || h; const r = box.getBoundingClientRect();
               const pts = [[6, 6], [innerWidth - 6, 6], [6, innerHeight - 90], [innerWidth / 2, 4]];
-              for (const [x, y] of pts) { if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue; const t = document.elementFromPoint(x, y); if (t) return { x, y }; } return null; }""")
+              // a sheet with no backdrop of its own (the task panel docked at the right of Today, #mbm.tks-on) is not modal
+              // either: what is beside it is the live page, so there is no outside to tap
+              for (const [x, y] of pts) { if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue; const t = document.elementFromPoint(x, y); if (t && h.id === 'mbm' && !h.contains(t)) return null; if (t) return { x, y }; } return null; }""")
             if pt:
                 if phone: await pg.touchscreen.tap(pt['x'], pt['y'])
                 else: await pg.mouse.click(pt['x'], pt['y'])
@@ -283,7 +346,7 @@ class DraftWalk(TapLint):
                     await pg.evaluate("v => localStorage.setItem('sd-drafts', v)", kept)
                     # the person signs in and is put back on the page they were on (as the app's own reload does): the
                     # sheet comes back by itself
-                    await pg.evaluate(OPEN_KEEP, [f['user'], f['entry']['g'], f['entry']['v'], f['entry']['tab']])
+                    await pg.evaluate(OPEN_KEEP, [f['user'], f['entry']['g'], f['entry']['v'], f['entry']['tab'], f['entry'].get('pre') or []])
                     await self.settle(200, 2500); await pg.wait_for_timeout(500)
                     rv = await pg.evaluate(FIELD_VAL, s2['field'])
                     if not rv.get('open') and os.environ.get('W1_DEBUG'):

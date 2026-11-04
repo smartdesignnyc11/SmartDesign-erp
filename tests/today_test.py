@@ -80,8 +80,10 @@ async def pulse_checks(c, pg, tag):
             want = await pg.evaluate("() => safeToSpend().safe")
             c.ok(abs(t['n'] - want) < 0.005, f'{tag}: Safe to Spend {t["n"]} vs safeToSpend() {want}')
             c.ok(sh['figure'] == t['shown'], f'{tag}: Safe to Spend shows {t["shown"]}, its sheet ends {sh["figure"]}')
-            add = await pg.evaluate("() => { const R = PRED.safeToSpend.rows(); const sum = R.filter(r => !r[2]).reduce((a, r) => a + r[1], 0); return [Math.round(sum * 100) / 100, R.find(r => r[0] === 'Truly ours')[1]]; }")
-            c.ok(abs(add[0] - add[1]) < 0.01, f'{tag}: the Safe to Spend lines add to {add[0]}, truly ours is {add[1]}')
+            # the build-up's subtotal is "Ours today" since the approved set-aside (BACKLOG §1.35 item 1, 11-03; it was
+            # "Truly ours"): the lines above it, set-aside rows included, add to it to the cent
+            add = await pg.evaluate("() => { const R = PRED.safeToSpend.rows(); const sum = R.filter(r => !r[2]).reduce((a, r) => a + r[1], 0); const o = R.find(r => r[0] === 'Ours today'); return [Math.round(sum * 100) / 100, o ? o[1] : null]; }")
+            c.ok(add[1] is not None and abs(add[0] - add[1]) < 0.01, f'{tag}: the Safe to Spend lines add to {add[0]}, ours today is {add[1]}')
         elif t['k'] == 'ar':
             want = await pg.evaluate("() => PRED.overdueAR.figure()")
             c.ok(abs(t['n'] - want) < 0.005, f'{tag}: Overdue AR {t["n"]} vs PRED.overdueAR {want}')
@@ -140,9 +142,10 @@ async def main():
             await pulse_checks(c, pg, f'{tag} phone')
             # (the owner's Today may open on Approvals when something waits on him, Alan 2026-10-25: All is read from its chip)
             # Today is one queue (lane "today"): All holds each thing once: Approvals, Inbox, what is offered, the tasks
-            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1)
+            # no approval already stands for (an obligation's renewal is its approval there), the orders (taskfix #1), and the
+            # PM's orders promised after their need date (M.promise, the 11-03 Purchasing decision 3: its own thing, once)
             al = await pg.evaluate("""() => { const M = tdyModel(), k = it => it.kind + ':' + it.id, held = new Set([].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)));
-              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
+              const want = new Set(M.appr.map(k).concat(M.inbox.map(k), (M.offered || []).map(k), M.tasks.filter(it => !it.t || !it.t.refs.some(r => held.has(r))).map(k), (M.buy || []).map(k), (M.promise || []).map(k), M.all.filter(it => it.kind === 'tdyMinutes').map(k)));
               return [+document.querySelector('.view.on [data-tdytabbtn="all"] .n').textContent, want.size, M.all.length, new Set(M.all.map(k)).size]; }""")
             c.ok(al[0] == al[1] == al[2] == al[3], f'{tag} phone: All {al[0]} vs each thing once {al[1]} (model {al[2]}, distinct {al[3]})')
             # the Approvals filter's count = its source = the Approvals page's Everything chip (the owner's chip; the PM's

@@ -85,9 +85,12 @@ async def one_number(c, pg, phone):
             await go(pg, 'proc')
             # the P1 Buy Board (10-25) groups To Buy into sections (Late, Order This Week, Waiting on Quotes, Later) instead of
             # tiles; its Late plus Order This Week on To Buy are the orders Today shows
-            t = await pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.view.on [data-bbsec]')].filter(s => s.getClientRects().length)
-              .map(s => [s.dataset.bbsec, +((s.querySelector('.bb-sh i') || {}).textContent || 0)]))""")
-            c.ok(t.get('late', 0) + t.get('week', 0) == buy, f'{tag} coord: the Buy Board\'s Late and Order This Week are those {buy} ({t})')
+            # the 11-03 Buy Board (docs/mockups/purchasing) opens on Needs You, the due needs whose next tap is the coordinator's
+            # (PRED.buyNeeds, as Today's orders): its count and its rows name the same needs as Today's Buy Board items
+            t = await pg.evaluate("""() => { const s = [...document.querySelectorAll('.view.on [data-pusec="mine"]')].find(x => x.getClientRects().length); if (!s) return {};
+              const ids = [...s.querySelectorAll('[data-purow]')].map(e => e.dataset.purow).sort(), today = tdyBuyItems().map(i => (i.x && i.x.id) || i.id).sort();
+              return { n: +((s.querySelector('.pu-sh .n') || {}).textContent || 0), rows: ids.length, same: JSON.stringify(ids) === JSON.stringify(today) }; }""")
+            c.ok(t.get('n') == t.get('rows') == buy and t.get('same'), f'{tag} coord: the Buy Board\'s Needs You are those {buy}, the same needs as Today\'s ({t})')
         # the Tasks page says the same number where the person reads it
         await go(pg, 'tkall'); await pg.wait_for_timeout(200)
         page = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
@@ -272,14 +275,16 @@ async def chips(c, pg):
     for uid, v in (('u_owner', 'home'), ('u_billing', 'tkall'), ('u_billing', 'billing'), ('u_billing', 'ap'), ('u_chen', 'home'), ('u_chen', 'proc'), ('u_chen', 'dec')):
         await pg.evaluate(CLOSE); await sign_in(pg, uid); await go(pg, v); await pg.wait_for_timeout(250)
         r = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
-          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, .view.on .glance.tl, .view.on .seg, .view.on .tv-qchips, #subnav')].filter(vis);
+          // the 11-03 pages: .ac-chips (Accounting's chips, where the old tabs were) and .pu-filters (Purchasing and Design's
+          // filters: job, vendor, trade, status; chips and selects, measured alike)
+          const rows = [...document.querySelectorAll('.view.on .td-tabs, .view.on .ctabs, .view.on .glance.tl, .view.on .seg, .view.on .tv-qchips, .view.on .ac-chips, .view.on .pu-filters, #subnav')].filter(vis);
           // the tap area: a touch 3px above or below the chip still lands on it (44px around a 36px pill)
           const hitH = b => { const r = b.getBoundingClientRect(), R = b.parentElement.getBoundingClientRect(), L = Math.max(r.left, R.left), Rt = Math.min(r.right, R.right, innerWidth);
             if (Rt - L < 20) return 99;   // scrolled out of the strip: measured when it is in view
             const x = (L + Rt) / 2;
             const up = document.elementFromPoint(x, r.top - 3), dn = document.elementFromPoint(x, r.bottom + 3);
             return (r.height >= 44 || (up && b.contains(up) && dn && b.contains(dn))) ? Math.max(44, Math.round(r.height)) : Math.round(r.height); };
-          return rows.map(row => { const B = [...row.querySelectorAll(':scope > button, :scope > a, :scope > [data-sub]')].filter(vis);
+          return rows.map(row => { const B = [...row.querySelectorAll(':scope > button, :scope > a, :scope > [data-sub], :scope > select')].filter(vis);
             const gaps = B.slice(1).map((b, i) => Math.round(b.getBoundingClientRect().left - B[i].getBoundingClientRect().right)).filter((g, i) => Math.abs(B[i + 1].getBoundingClientRect().top - B[i].getBoundingClientRect().top) < 4);
             const scrolls = row.scrollWidth > row.clientWidth + 1, cs = getComputedStyle(row), mask = cs.maskImage || cs.webkitMaskImage || 'none';
             return { cls: row.id || row.className, n: B.length, minGap: gaps.length ? Math.min(...gaps) : 99, hit: B.length ? Math.min(...B.map(hitH)) : 99, scrolls, fade: mask !== 'none' };

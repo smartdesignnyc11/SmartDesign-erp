@@ -150,7 +150,15 @@ function fbsTab() {
   const sub = [...document.querySelectorAll("#subnav .on, .sub-tabs .on")].find(fbsVis),
     seg = [...document.querySelectorAll(".view.on .seg .on, .view.on .ctabs .on, .view.on [role=tab][aria-selected=true]")].find(fbsVis),
     t = (el) => fbsTxt(el).replace(/\s*\d+\+?$/, "").trim();
-  return [sub && t(sub), seg && t(seg)].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(" · ").slice(0, 70);
+  // a page with no tab row (the 11-03 pages: job, vendor, room and status are filters) is placed by its filters as they
+  // read: the chips that are on, else each filter's choice ("Job: All")
+  let flt = "";
+  if (!sub && !seg) {
+    const chips = [...document.querySelectorAll(".view.on .pu-chip[aria-pressed=true], .view.on .jp-chip.on, .view.on .ac-chip.on")].filter(fbsVis).map(t),
+      sels = [...document.querySelectorAll(".view.on select.pu-sel")].filter(fbsVis).map((s) => (s.selectedOptions[0] ? s.selectedOptions[0].textContent.trim() : ""));
+    flt = (chips.length ? chips : sels).filter(Boolean).join(" · ");
+  }
+  return [sub && t(sub), seg && t(seg), flt].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(" · ").slice(0, 70);
 }
 const FBS_NO = /\b(?:[A-Z]{1,6}-\d{2,4}(?:-\d{1,5})?|[A-Z]{2,6}\d{2,6})\b/;
 // the record open, as its number and title on screen (type, no, title)
@@ -207,7 +215,7 @@ function fbsAdd(k, o) {
     S_.full || ((S_.full = !0), fbsBar());
     return null;
   }
-  const now = Date.now(),
+  const now = Date.now(), // wall clock: the recording's length
     e = Object.assign({ n: S_.events.length + 1, k: k, at: fbsWallIso(now), t: Math.round(now - S_.startMs) / 1000 }, o || {});
   S_.events.push(e);
   fbsPersist();
@@ -353,7 +361,7 @@ document.addEventListener(
     if (!el || !el.matches || !el.matches("input, textarea, [contenteditable]") || el.matches("input[type=checkbox], input[type=radio], input[type=file]") || el.closest("#fbs-bar, [data-fbs]")) return;
     // the length only: the value itself is never read into the log
     const len = el.isContentEditable ? (el.textContent || "").length : String(el.value || "").length,
-      now = Date.now();
+      now = Date.now(); // wall clock: the recording's length
     if (fbsTyping && fbsTyping.el === el && now - fbsTyping.last < 8000 && fbsLive.events[fbsLive.events.length - 1] === fbsTyping.e) {
       fbsTyping.e.len = len;
       fbsTyping.last = now;
@@ -492,7 +500,7 @@ function fbsStart() {
   if (!fbsStaff()) return toast("Feedback sessions are for the team");
   if (fbsLive && "recording" === fbsLive.status) return void toast("A feedback session is already recording: Finish it first");
   const me = fbsMe(),
-    now = Date.now();
+    now = Date.now(); // wall clock: the recording's length
   let r = "";
   try {
     r = role();
@@ -609,7 +617,7 @@ function fbsFinish(title) {
   const S_ = fbsLive;
   if (!S_) return;
   fbsAdd("finish");
-  const end = Date.now(),
+  const end = Date.now(), // wall clock: the recording's length
     first = S_.events.find((e) => "nav" === e.k) || {};
   const r = {
     id: S_.id,

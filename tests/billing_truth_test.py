@@ -300,8 +300,10 @@ async def t_safe(C, p, phone):
     C.ok(abs(want - truly) > 1000, f'SAFE {dev}: the setup puts the 13-week low under truly ours ({want} against {truly})')
     C.ok(len(seen) >= 2 and all(abs(v - want) < 1 for _, v in seen), f'SAFE {dev}: every screen that names Safe to Spend reads {want}: {seen}')
     why = await js(pg, "return typeof PRED.safeToSpend.setAside === 'function' ? PRED.safeToSpend.setAside() : '';")
-    # the set-aside names the cost-to-cost figure Over-Billed (WIP) (adopted 2026-10-26: two measures, two names)
-    C.ok('in the bank' in why and 'over-billed (WIP' in why and 'not counted' in why, f'SAFE {dev}: one line says what is set aside and what is not counted: {why!r}')
+    # the set-aside is cash received for work not yet done, job by job (BACKLOG §1.35 item 1, the Accounting lane 11-03, an
+    # approved definition; it named Over-Billed (WIP) before, which set aside money billed and never paid)
+    C.ok('in the bank' in why and 'set aside (cash received for work not yet done' in why and 'billed and unpaid is never set aside' in why and 'not counted' in why,
+         f'SAFE {dev}: one line says what is set aside and what is not counted: {why!r}')
     C.ok(not errs, f'SAFE {dev}: no page errors: {errs[:3]}')
     await b.close()
 
@@ -351,7 +353,8 @@ async def t_measured(C, p, phone):
       const r = billingRows().find(x => x.kind === 'ready' && x.job && x.job.id === 'p121' && x.rtb && x.rtb.kind === 'application'), A = pbAhead('p121');
       const btn = r && [...document.querySelectorAll('[data-blact]')].find(x => x.dataset.blact === r.id && x.getClientRects().length);
       return { id: r && r.id, why: r && r.why, amt: r && r.amount, btn: btn ? btn.innerText.trim() : '', ahead: A.lines.map(l => l.svId), n: A.lines.length, net: A.net, svId: svId };""")
-    m = re.search(r'bills \$[\d,.]+ of measured work on \d+ lines?; holds (\d+) lines? billed ahead, net \$[\d,.]+, not counting the 20% deposit', q['why'] or '')
+    # one billed-ahead figure (BACKLOG §1.35 item 4, 11-03): the row names Billed Ahead of the Work, never the net
+    m = re.search(r'bills \$[\d,.]+ of measured work on \d+ lines?; holds the lines billed ahead \(Billed Ahead of the Work \$[\d,.]+ on (\d+) lines?\)', q['why'] or '')
     C.ok(q['id'] and q['net'] > 0 and m and int(m.group(1)) == q['n'] and q['n'] > 0,
          f'MEAS {dev}: 121 State, billed ahead on the whole, still has its application ready; the row says what it bills and what it holds: {q}')
     C.ok(q['btn'], f'MEAS {dev}: the row has its own button in the Billing Queue: {q["btn"]!r}')
@@ -460,9 +463,11 @@ async def t_labels(C, p, phone):
     b, pg, errs = await fresh(p, 'u_billing', phone)
     await nav(pg, phone, 'billing')
     q = await js(pg, "return { held: billingRows().filter(r => r.kind === 'held' && r.job && r.job.id === 'p121').map(r => r.why), A: (() => { const A = pbAhead('p121'); return { net: A.net, total: A.total, dep: A.depPct }; })() };")
-    net = '${:,.0f}'.format(q['A']['net'])
-    C.ok(q['held'] and all(net in w and 'on what was sent' in w and '66,470' not in w and (not q['A']['dep'] or 'not counting the' in w) for w in q['held']),
-         f'LBL {dev}: the held reason quotes what the hold is decided on, the net of what was sent ({net}): {q}')
+    # one billed-ahead figure (BACKLOG §1.35 item 4, the Accounting lane 11-03, an approved definition): the held reason
+    # names Billed Ahead of the Work ($66,470); the net ($53,819) netted two questions into one and is not printed
+    net = '${:,.0f}'.format(q['A']['net']); tot = '${:,.0f}'.format(q['A']['total'])
+    C.ok(q['held'] and all(tot in w and 'on what was sent' in w and net not in w and 'Billed Ahead of the Work' in w for w in q['held']),
+         f'LBL {dev}: the held reason names Billed Ahead of the Work ({tot}), never the net ({net}): {q}')
     win = await js(pg, "return billingRows().filter(r => /Windows/.test(r.what + ' ' + r.why)).map(r => r.held ? r.held.why : r.why).concat(rbRows('p121').filter(x => x.kind === 'floated').map(x => x.why));")
     C.ok(win and not any('dispute' in w for w in win) and any('paid ahead of delivery' in w for w in win), f'LBL {dev}: with no bill held or disputed, the windows overage reads paid ahead of delivery, never in dispute: {win}')
     await js(pg, "const b = DB.bills.find(x => x.number === 'WW-2026-118'); b.dispute = { why: 'over its PO', on: today(), by: 'billing' }; save(); render();")
@@ -475,7 +480,8 @@ async def t_labels(C, p, phone):
     if await pg.evaluate('repTab') != 'cash13': await js(pg, "repTab = 'cash13'; render(); await sleep(300);")
     t = await js(pg, "const e = document.querySelector('#v-reports [data-todeposit]'); return { amt: e ? +e.dataset.todeposit : null, text: e ? e.innerText : '', low: cashForecast().low, safe: PRED.safeToSpend.figure(), w1: cashForecast().weeks[0].inflow };")
     C.ok(t['amt'] is not None and abs(t['amt'] - 21350) < 0.01 and 'Rivera' in t['text'], f'LBL {dev}: the Cash Forecast shows Rivera\'s $21,350 as week one\'s to deposit: {t}')
-    C.ok(abs(t['safe'] + 4150.74) < 0.01, f'LBL {dev}: outside Safe to Spend (still -$4,150.74): {t}')
+    # $104,999.32 since the Accounting lane's set-aside (BACKLOG §1.35 item 1); the check not yet deposited stays outside it
+    C.ok(abs(t['safe'] - 104999.32) < 0.01, f'LBL {dev}: outside Safe to Spend (still $104,999.32): {t}')
     await sign_in(pg, 'u_owner')
     await nav_to(pg, 'jobs', 'ovjobs')
     tt = await pg.evaluate("() => (document.getElementById('v-ovjobs') || document.body).innerText")

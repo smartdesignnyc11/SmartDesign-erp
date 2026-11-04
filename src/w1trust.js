@@ -315,22 +315,41 @@ function w1Register(el) {
 }
 // put back what this person typed in this sheet, field by field, where the field still shows what it showed before
 // and no tap used it since
+// A sheet that keeps its own draft opens showing the typing, and what it draws from that typing (Say It's read of
+// who it goes to) changes its body text, so its key is not the one the draft was kept under. The draft under the same
+// sheet and title whose typing a field of this sheet already shows is this sheet's: it is taken under this key.
+function w1Adopt(el, st) {
+  if (w1Get(st.key)) return;
+  const M = w1Mine(w1Load()),
+    pre = `${st.def.sel}|${st.title}|`,
+    S0 = [...w1Sigs(w1BodyOf(el, st))];
+  const k = Object.keys(M).find((k) => k !== st.key && k.startsWith(pre) && M[k].fields && S0.some(([f, sig]) => { const x = M[k].fields[sig]; return x && x.v !== x.d0 && "" !== x.v && w1Val(f) === x.v; }));
+  if (!k) return;
+  const d = M[k];
+  w1Put(k, null), w1Put(st.key, Object.assign(d, { open: !0, screen: st.screen, opener: st.opener || d.opener }));
+}
 function w1Restore(el) {
   const st = W1.get(el);
   if (!st || st.discarded) return;
+  st.restored || w1Adopt(el, st);
   const d = w1Get(st.key);
   if (!d || !d.fields) return;
-  let put = 0;
+  let put = 0,
+    back = 0;
   w1Sigs(w1BodyOf(el, st)).forEach((sig, f) => {
     const x = d.fields[sig];
     f._w1k = st.key + "::" + sig;
     if (!x || x.v === x.d0 || (f._w1typed && f._w1own) || w1UsedLately(f._w1k)) return;
     const now = w1Val(f);
-    if (now === x.v || now !== x.d0) return;
+    // a sheet that keeps its own draft (the foreman's Say It holds DB.field.draft) opens already showing the typing:
+    // it is the draft back all the same, and gets the same notice and Discard Draft (which empties the sheet's own copy
+    // too, through the field's input event)
+    if (now === x.v) return void ((f._w1d0 = x.d0), back++);
+    if (now !== x.d0) return;
     if ((f._w1n = (f._w1n || 0) + 1) > 3) return;
     w1Set(f, x.v), (f._w1d0 = x.d0), put++;
   });
-  put && !st.restored && ((st.restored = !0), w1Bar(el, st, d));
+  (put || back) && !st.restored && ((st.restored = !0), w1Bar(el, st, d));
 }
 // "Your draft is back", with Discard Draft, which asks first
 function w1Bar(el, st, d) {
@@ -380,7 +399,7 @@ function w1Snap(el) {
     v === d0 ? delete fields[sig] : (fields[sig] = { v, d0 });
   });
   if (!Object.keys(fields).length) return void (prev && w1Put(st.key, null));
-  w1Put(st.key, { title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" });
+  w1Put(st.key, { title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" }); // wall clock: how old a draft is on this device, for its retention
 }
 // after a tap inside the sheet: still open, what is typed now is the draft
 function w1AfterAct(el) {
@@ -494,7 +513,7 @@ function w1PageType(f) {
     v = w1Val(f),
     d0 = x ? x.d0 : w1Before(f);
   v === d0 ? delete d.fields[sig] : (d.fields[sig] = { v, d0 });
-  (d.at = appNowIso()), (d.wall = Date.now()), (d.screen = w1Screen());
+  (d.at = appNowIso()), (d.wall = Date.now()), (d.screen = w1Screen()); // wall clock: how old a draft is on this device, for its retention
   w1Put(key, Object.keys(d.fields).length ? d : null);
 }
 // a tap that read a typed field used it (its Send, its Save, its Add): that field's draft goes once the tap has run

@@ -38,8 +38,8 @@ function twsSkeleton(info) {
     users: [],
     clients: [],
     __liveData: 1,
-    __teamWs: { id: I.id || "", name: I.name || "", at: tzNow() },
-    company: { asOf: "", asOfManual: !1, pilot: { tasksOnly: !0, since: tzToday() } },
+    __teamWs: { id: I.id || "", name: I.name || "", at: tzNow() }, // wall clock: the real team workspace
+    company: { asOf: "", asOfManual: !1, pilot: { tasksOnly: !0, since: tzToday() } }, // wall clock: the real team workspace
   };
 }
 

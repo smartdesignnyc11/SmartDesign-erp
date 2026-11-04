@@ -94,7 +94,9 @@ PAGES = r"""() => { const B = mnBuild(role());
     J.forEach(it => { const k = it.v + ':' + it.tab; if (seen.has(k) && it.v !== J[0].v) return; seen.add(k); out.push({ g: 'job', v: it.v, tab: it.tab, l: it.l }); });
   }
   return out; }"""
-OPEN = r"""([gid, v, tab]) => { const B = mnBuild(role()) || { groups: [], more: [] };
+OPEN = r"""([gid, v, tab, pre]) => { const B = mnBuild(role()) || { groups: [], more: [] };
+  // one tap down from the page (drafts_test's doors): a page-foot tool, a chip that opens a hosted page, a Buy Board pick
+  const down = () => { (pre || []).forEach(s => { const b = document.querySelector('.view.on ' + s) || document.querySelector(s); b && b.click(); }); return view; };
   if (gid === 'job') {   // a job's page: the job opened (jpOpenJob, the one way in), then its tab or the page under it
     document.querySelectorAll('#mbm, #mbm-held').forEach(x => x.remove());
     try { typeof closeEditor === 'function' && document.querySelector('#drawer.on') && closeEditor(); } catch (e) {}
@@ -102,14 +104,42 @@ OPEN = r"""([gid, v, tab]) => { const B = mnBuild(role()) || { groups: [], more:
     const pid = (S && (DB.projects || []).some(p => p.id === S.id)) ? S.id : (DB.currentId || DB.projects[0].id);
     jpOpenJob(pid);
     if (view !== v || tab) jpGo(tab ? v + ':' + tab : v);
-    window.scrollTo(0, 0); return view; }
+    window.scrollTo(0, 0); return down(); }
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   document.querySelectorAll('#mbm, #mbm-held').forEach(x => x.remove());
   try { typeof closeEditor === 'function' && document.querySelector('#drawer.on') && closeEditor(); } catch (e) {}
   if (typeof docOpen !== 'undefined') docOpen = null;
-  if (it) mnGo(g, it); else { view = v; render(); }
-  window.scrollTo(0, 0); return view; }"""
+  if (it) mnGo(g, it); else if (gid === 'link' && typeof setView === 'function') setView(v); else { view = v; render(); }
+  window.scrollTo(0, 0); return down(); }"""
+# Pages a role may open by link and Cmd-K that its menu, by design, does not list (src/acctpages.js MN_LINK: the PM's
+# Banking and Bills and Payroll, the owner's Books). Not in PAGES (the tap lint walks the menu); drafts_test walks them,
+# since a sheet there is typed in all the same. A page that forwards to another (AC_FWD) is that page.
+LINK_PAGES = r"""() => { const L = (typeof MN_LINK === 'object' && MN_LINK[role()]) || [], rv = ROLE_VIEWS[role()] || [];
+  return L.filter(v => rv.includes(v) && !(typeof AC_FWD === 'object' && AC_FWD[v])).map(v => ({ g: 'link', v, tab: '', l: (typeof mnLabel === 'function' && mnLabel(v)) || v })); }"""
+# One tap down from a page: what a person opens on it to reach the rest of its tools (the 11-03 pages keep the old
+# page's tools at the foot, Accounting's chips open the pages they host, the Buy Board's pick bar shows on a pick).
+# [selector, label, kind]; drafts_test walks each as a page of its own.
+DOORS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return [];
+  const vis = e => e.getClientRects().length, out = [], t = b => (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  // each selector matches only while the door is shut, so opening the page again (the round trip's return) never
+  // taps it shut: the foot's tools fold on a second tap
+  V.querySelectorAll('[data-pufull][aria-expanded="false"]').forEach(b => vis(b) && out.push(['[data-pufull="' + b.dataset.pufull + '"][aria-expanded="false"]', t(b), 'foot']));
+  const m = V.querySelector('#bb-more'); m && vis(m) && out.push(['#bb-more', t(m), 'foot']);
+  const p = V.querySelector('.bb:not(.bb-picking) [data-bbpick]'); p && vis(p) && out.push(['.bb:not(.bb-picking) [data-bbpick]', 'Pick a line', 'pick']);
+  const seen = new Set(); V.querySelectorAll('.ac-chips [data-acchip]').forEach(b => { const k = b.dataset.acchip; if (!vis(b) || seen.has(k)) return; seen.add(k); out.push(['[data-acchip="' + k + '"]', t(b), 'chip']); });
+  return out; }"""
+# A page's own New menu (Accounting's, Purchasing's, Design's): the opener, then each of its items, two taps a person
+# makes. [opener selector, [[item selector, label], ...]]; the menu is closed again.
+MENUS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return [];
+  const K = [['data-acnew', '[data-acnewpick]', 'acnewpick'], ['data-puplus', '.pu-menu [data-pumi]', 'pumi'], ['data-pdplus', '.pu-menu [data-pdmi]', 'pdmi']], out = [];
+  K.forEach(([a, item, d]) => [...V.querySelectorAll('[' + a + ']')].filter(b => b.getClientRects().length).forEach(b0 => {
+    const os = '[' + a + '="' + b0.getAttribute(a) + '"]', ob = () => document.querySelector('.view.on ' + os);
+    ob().click();
+    const I = [...document.querySelectorAll('.view.on ' + item)].map(x => ['[data-' + d + '="' + x.dataset[d] + '"]', ((x.querySelector('b') || x).innerText || '').trim()]);
+    const c = ob(); c && c.getAttribute('aria-expanded') === 'true' && c.click();
+    I.length && out.push([os, I]); }));
+  return out; }"""
 # which listed candidates are the page's primary and secondary buttons
 BUTTONS = r"""(ids) => ids.map(i => { const e = document.querySelector(`[data-cr-i="${i}"]`);
   if (!e) return null;
@@ -172,7 +202,7 @@ class TapLint(Crawler):
         self.entry = None
 
     async def open_entry(self, e):
-        await self.pg.evaluate(OPEN, [e['g'], e['v'], e['tab']])
+        await self.pg.evaluate(OPEN, [e['g'], e['v'], e['tab'], e.get('pre') or []])
         await self.settle(200, 2500)
         await self.pg.evaluate("() => { render(); window.scrollTo(0, 0); }")
         await self.settle(150, 2000)
@@ -188,7 +218,7 @@ class TapLint(Crawler):
         await self.pg.evaluate("([db, u]) => { DB = JSON.parse(db); signIn(u); DB = JSON.parse(db); setCurrent(DB.currentId); render(); }", [self.view_db, u])
         await self.settle(200, 2500)
         e = self.entry
-        await self.pg.evaluate(OPEN, [e['g'], e['v'], e['tab']])
+        await self.pg.evaluate(OPEN, [e['g'], e['v'], e['tab'], e.get('pre') or []])
         await self.settle(200, 2500)
         await self.pg.evaluate("() => { const t = document.getElementById('toast'); t && t.classList.remove('on', 'act', 'toast-up'); window.scrollTo(0, 0); }")
         await self.pg.evaluate('() => window.__cr.snap()')

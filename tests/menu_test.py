@@ -33,41 +33,43 @@ FOOT = ['Company and Settings']
 # has the entries ROLE_VIEWS lets it open.
 RAIL = {
     'u_owner': DAY3 + W_ALL + FOOT,
-    'u_alan': DAY3 + W_ALL + FOOT,
-    'u_chen': DAY3 + W_ALL + FOOT,
+    # no Design menu for the PM or the coordinator (design SPEC, 11-03); the PM has no Accounting group (accounting SPEC §4)
+    'u_alan': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Reports'] + FOOT,
+    'u_chen': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     'u_billing': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     'u_controller': DAY3 + ['Projects', 'Purchasing', 'Sales and Clients', 'Accounting', 'Reports'] + FOOT,
     'u_sarah': DAY3 + ['Projects', 'Sales and Clients', 'Design', 'Reports'] + FOOT,
     # field roles: their own day page and Messages, then the rest of the bar and the menu in order, then the foot
     'u_angel': ['Today', 'Messages', 'Daily Log', 'Site', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise'] + FOOT,
     'u_alberto': ['Clock', 'Messages', 'Requests', 'Schedule', 'Photos', 'Deliveries', 'Drawings'] + FOOT,
-    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests'] + FOOT,
+    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests', 'Stock'] + FOOT,
     # the client portal keeps its own menu (out of scope)
     'u_klein': ['Overview', 'Schedule', 'Decisions', 'Account', 'Chat'],
 }
-BUY = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors', 'Stock', 'Requests', 'Route']
+# Purchasing (docs/mockups/purchasing/SPEC.md, 11-03): Alan's five; Stock for the coordinator and the driver only
+BUY = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors']
 SETTINGS = ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Reports']
 # Each group's pages (Projects lists the person's jobs first: checked by name below, then All Projects).
 KIDS = {
     ('u_owner', 'buy'): BUY,
     ('u_owner', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
-    ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
-    ('u_owner', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
+    # the 11-03 Accounting pages (accounting SPEC §4) and Design pages (design SPEC)
+    ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll'],
+    ('u_owner', 'studio'): ['Selections', 'Drawings'],
     ('u_owner', 'reports'): ['All Reports', 'Dashboard'],
     ('u_owner', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Your Own Data', 'Sales Settings'],
     ('u_alan', 'buy'): BUY,
     ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
-    ('u_alan', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Controls', 'Accounting Overview'],
+    # ('u_alan', 'money'): none, the PM has no Accounting group (11-03)
     ('u_alan', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Sales Settings'],
-    ('u_chen', 'buy'): BUY,
+    ('u_chen', 'buy'): BUY + ['Stock'],
     ('u_chen', 'sales'): ['Pipeline', 'Clients', 'Forecast', 'Sales Dashboard', 'Partners', 'Playbook'],
     ('u_chen', 'money'): ['Time and Crew'],
-    ('u_chen', 'studio'): ['Selections', 'Drawings'],
     ('u_billing', 'buy'): ['Vendors'],
-    ('u_billing', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Spend', 'Accounting Overview'],
-    ('u_controller', 'buy'): ['Orders', 'Vendors', 'Purchasing Overview'],
-    ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Time and Crew', 'Spend', 'Ledger', 'Controls', 'Budget', 'Accounting Overview'],
-    ('u_sarah', 'studio'): ['Selections', 'Drawings', 'Project Board', 'Filings', 'Design Overview'],
+    ('u_billing', 'money'): ['Billing', 'Banking'],
+    ('u_controller', 'buy'): ['Orders', 'Vendors'],
+    ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Books'],
+    ('u_sarah', 'studio'): ['Selections', 'Drawings'],
     ('u_sarah', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
     ('u_angel', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
 }
@@ -131,6 +133,7 @@ REACH_JS = r"""() => { const m = mnMap(), rv = (ROLE_VIEWS[role()] || []).filter
   rv.forEach(v => { if (mb.includes(v) || placed.has(v) || MN_BUTTON.has(v) || ['client', 'clacct'].includes(v)) return;
     for (let a = MN_ALIAS[v], k = 0; a && k < 3; a = MN_ALIAS[a], k++) if (placed.has(a)) return;   // an alias may lead to an alias
     if (MN_QUIET.has(v)) return;   // retired: listed while open, under its group
+    if (typeof MN_LINK === 'object' && (MN_LINK[role()] || []).includes(v)) return;   // by design opened by link only (the Accounting pages, 11-03)
     out.push(v); });
   return { orphans: out, home: m.home }; }"""
 # an entry's number against what its page counts for the person; a group's name carries none
@@ -142,6 +145,7 @@ BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups bu
   if (v === 'home') want = (typeof TD2_SPEC === 'object' && TD2_SPEC[role()]) ? td2LateN() : 0;
   else if (v === 'tkall') want = tkTasksN();
   else if (v === 'chat') want = p2nMsgN().n;
+  else if (typeof AC_PAGES === 'object' && AC_PAGES[v]) want = AC_PAGES[v].badge.includes(role()) ? acCount(v) : 0;   // the Accounting pages: the seat's own
   else if (v === 'billing') want = billingNeeds();
   else if (MENU[role()] && MENU[role()].field) want = 0;   // the field's menu: Messages only (its tab bar carries its own)
   else { const k = ocBadgeN(v); want = k == null ? 0 : k; }

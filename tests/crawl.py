@@ -245,7 +245,8 @@ PAGE_JS = r"""
     const out = [];
     for (const at of e.attributes) {
       const n = at.name;
-      if (n.startsWith('data-cr') || n.startsWith('data-dw') || n === 'data-tip') continue;
+      // data-flow-demoted: the one-blue-button pass's own mark, set and cleared on each draw (not what the control does)
+      if (n.startsWith('data-cr') || n.startsWith('data-dw') || n === 'data-tip' || n === 'data-flow-demoted') continue;
       if (n.startsWith('data-') || n === 'onclick' || n === 'href') out.push(n + '=' + String(at.value).slice(0, 40));
     }
     return out.sort().join(' ');
@@ -268,6 +269,9 @@ PAGE_JS = r"""
     }
     const out = [], seen = Object.create(null), disabled = [];
     C.byKey = new Map();
+    // a page the person left keeps its DOM (hidden): an index from an earlier listing left on it would be found first
+    // by [data-cr-i=N], a hidden copy with no box, and the press read as covered ("every point of it is another control")
+    document.querySelectorAll('[data-cr-i]').forEach(x => x.removeAttribute('data-cr-i'));
     let i = 0;
     for (const e of cand) {
       if (e.closest('#toast, script, style, select, option, #signin:not(.on)')) continue;

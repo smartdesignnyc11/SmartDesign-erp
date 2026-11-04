@@ -289,8 +289,12 @@ class Screen:
         # pages there, "Accounting Overview" among them, which an anchor "Overview" would otherwise land on)
         m = re.search(r'^Menu: .*$', self.text, re.M)
         base = m.end() if m and self.text.count('\n', 0, m.start()) < 3 else 0
-        i = self.text.lower().find(anchor.lower(), base)
-        return i if i >= 0 else None
+        # a tuple narrows: each anchor is looked for after the one before (an order's card, then a line inside it)
+        i = base
+        for a in (anchor if isinstance(anchor, tuple) else (anchor,)):
+            i = self.text.lower().find(a.lower(), i)
+            if i < 0: return None
+        return i
 
     def find(self, label, field=False, after=None, nth=1, exact=False, kinds=None):
         """the control a person means by this label: exact first, then starts-with, then contains, optionally the first
@@ -993,7 +997,8 @@ def match_deposit(p, inv, dep):
         prop = sc.text[i: i + 400]
         p.expect(inv in prop, f'the app proposes the transfer for {inv}', prop[:200])
         c = next((x for x in sc.ctls if x.pos > i and x.action), None)
-        if c is None or not re.match(r'^(confirm|match|record|apply)', norm(c.label)):
+        # the 11-03 Banking page: on the phone a line is confirmed in its sheet, never from the list (Review opens it)
+        if c is None or not re.match(r'^(confirm|match|record|apply|review)', norm(c.label)):
             raise Stuck('match the Ashbys\' transfer', f'a Confirm or Match to {inv} on the bank line', sc, c.label if c else '')
         p.tap_ctl(c)
         sc = p.look()
@@ -1038,6 +1043,8 @@ QUOTE_TYPED = {'Atlantic Yard Supply': ['891', '2288', '61']}   # Ray Quint's pr
 def open_rfq(p, rfq):
     """the RFQ's own page: from its card on Quotes, unless Quotes still has it open"""
     if p.look().has('RFQs — ' + rfq): return
+    # the 11-03 Quotes page lists each request as a row (Needs You, or Waiting on Someone Else): the row is the record
+    if p.scr.row(rfq + ' · '): return p.tap_row(rfq + ' · ', expect='RFQs')
     p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
 
 
@@ -1063,7 +1070,10 @@ def j5_three_quotes(p):
         p.tap('New Vendor', expect='Add Vendor')
         p.do([('type', 'Name', name), ('type', 'Trade', 'Lumber & drywall'), ('pick', 'Kind', 'Supplier'), ('type', 'Contact', who), ('type', 'Email', mail), ('tap', 'Add Vendor')])
     p.tap('Quotes', exact=True)
-    p.tap('New RFQ', expect='Which Lines?')
+    # the 11-03 Quotes page (docs/mockups/purchasing): one + for new things; its New Request for Quote starts from the
+    # lines (the same Which Lines? sheet the old page's New RFQ opened)
+    p.tap('New', exact=True)
+    p.tap('New Request for Quote', expect='Which Lines?')
     p.pick('Job', JOB['job'])
     p.look()
     boxes = [p.scr.find(ln, field=True, kinds=('check',)) for ln in RFQ_LINES]
@@ -1222,11 +1232,13 @@ def issue_and_send(p, number):
 
 
 def board_for_job(p):
-    """the Buy Board for 214 Lincoln: its Project list (on the phone, behind "Filter by project, vendor or trade")"""
-    if not p.look().find('Project', field=True):
+    """the Buy Board for 214 Lincoln: its job filter (the 11-03 Buy Board: Job, beside Vendor and Trade; the older board's
+    Project list sat on the phone behind "Filter by project, vendor or trade")"""
+    lab = 'Job' if p.look().find('Job', field=True) else 'Project'
+    if lab == 'Project' and not p.scr.find('Project', field=True):
         f = p.scr.find('Filter by project')
         if f: p.tap_ctl(f)
-    p.pick('Project', JOB['job'])
+    p.pick(lab, JOB['job'])
 
 
 def award_po(p):
@@ -1278,9 +1290,15 @@ def j6_buy_it(p):
         board_for_job(p)
         p.look()
         c = p.scr.find('Pick 11. Plumbing fixture allowance') or p.scr.find('Pick Plumbing fixture allowance')
+        if not c and p.scr.find('Show the Later Needs'):   # a need not yet due waits under Later
+            p.tap('Show the Later Needs'); p.look()
+            c = p.scr.find('Pick 11. Plumbing fixture allowance') or p.scr.find('Pick Plumbing fixture allowance')
         if not c: raise Stuck(f'buy {k + 1} on the plumbing line', 'the plumbing fixture allowance on the Buy Board', p.scr, 'Project')
         p.tap_ctl(c)
-        p.tap('Order 1 Line', exact=True, expect='Supplier')
+        # the pick bar (11-03): a line over $2,500 left makes Ask for Quotes the blue and its order "Order, With a Reason"
+        # (the Standard's three quotes); the reason is the one the sheet asks for below
+        p.look()
+        p.tap('Order 1 Line' if p.scr.find('Order 1 Line', exact=True) else 'Order, With a Reason', exact=True, expect='Supplier')
         left = p.scr.find('Unit Price', field=True)
         if k == 1:
             p.expect(left is not None and CY.num(left.value) == 6500 - PLUMB_BUYS[0][1], 'the second buy starts from what is left on the line',
@@ -1298,6 +1316,8 @@ def j6_buy_it(p):
     p.tap('Buy Board', exact=True)
     board_for_job(p)
     sc = p.look()
+    if sc.text.find('Electrical rough-in') < 0 and sc.find('Show the Later Needs'):   # a need not yet due waits under Later
+        p.tap('Show the Later Needs'); sc = p.look()
     i = sc.text.find('Electrical rough-in')
     near = sc.text[max(0, i - 200): i + 600] if i >= 0 else ''
     p.expect(i >= 0 and bool(re.search(r'(in stock|on hand|at the shop|in the shop|warehouse|from stock)', near, re.I)),
@@ -1320,7 +1340,9 @@ def card_blocks(text):
     """the phone's Budget: a card per line, every figure under its own label; each card is the text from one line's
     name to the next"""
     L = text.split('\n')
-    idx = [i for i, l in enumerate(L) if re.search(r'\bEST-\d{4}-\d+', l) and '|' not in l]
+    # the document number may follow the name with no space between them in the reader's text ("supplyEST-2026-016":
+    # on the card they are two lines), so it is found without a word boundary
+    idx = [i for i, l in enumerate(L) if re.search(r'EST-\d{4}-\d+', l) and '|' not in l]
     # the name is on the line with the document number (the card's first line), or on the line just above it
     own = lambda l: re.sub(r'^(\[\d+\]\s*)+', '', l).strip()
     return [(L[i] if re.match(r'^\s*(\[\d+[^\]]*\]\s*)*[^\s\[]', own(L[i])) and not own(L[i]).startswith('EST-') else
@@ -1379,6 +1401,12 @@ def j4_friday_review(p):
                 [r for r in cost_cards(sc.text) if r['over']]
             p.expect(not over or len(flagged) >= len(over), 'Budget flags the estimate lines over budget (committed or actual above the budget cost)',
                      f'{len(over)} over by the columns ({"; ".join(over)}), {len(flagged)} flagged')
+        # the job's change orders and its submittals are a chip each on their tab (11-03): the PM opens each list
+        for tab, chip in (('Contract and Billing', 'Change Orders'), ('Decisions', 'Submittals')):
+            if page != tab: continue
+            c = sc.find(chip)
+            p.expect(c is not None, f'{tab} lists the job\'s {chip.lower()} on their own', sc.excerpt(tab, 6))
+            if c is not None: p.tap_ctl(c); p.look()
     sc = open_job(p, 'Overview')
     c = next((x for x in sc.ctls if x.action and re.search(r'^(draft|send|write|prepare)\b.{0,20}\bupdate', x.label, re.I)), None)
     p.expect(c is not None, 'the app drafts the client update from the week (schedule, logs, decisions, money)', 'no update to draft on the job')
@@ -1386,7 +1414,9 @@ def j4_friday_review(p):
         p.tap_ctl(c)
         sc = p.look()
         body = next((x for x in sc.ctls if x.kind == 'text'), None)
-        if body and over: p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+        if body and over:
+            p.do_ctls([('type', body, (body.value or '') + '\n\nOver budget this week: ' + '; '.join(over) + '.')])
+            sc = p.look()   # the sheet as it is now: the controls are numbered afresh after typing
         b = next((x for x in (sc.actions('sheet') if sc.sheet else sc.actions()) if re.match(r'^send', norm(x.label))), None)
         if b is None: raise Stuck('send the client update', 'a Send on the update', sc, c.label)
         p.tap_ctl(b)
@@ -1428,9 +1458,17 @@ def po_for(p, words):
     raise Stuck(f'find the order for {words}', f'the 214 Lincoln order with {words} in Orders', p.scr, 'Orders')
 
 
+def card(p, po, *inside):
+    """the order's own delivery card, as the eye finds it: its number heading the card (a link), not the first mention of
+    the number (the 11-03 Deliveries lists the order's late lines under Needs You above the cards), then words inside it"""
+    head = f'link {po}]' if p.scr.where(f'link {po}]') is not None else po
+    return (head,) + inside if inside else head
+
+
 def report_problem(p, po, kind, line, qty, note):
     """Report a Problem on a delivery: what happened, the line, how many, what the driver said"""
-    c = p.look().find('Report a Problem', after=po, exact=True)
+    p.look()
+    c = p.scr.find('Report a Problem', after=card(p, po), exact=True)
     if c is None: raise Stuck(f'report the {kind} on {po}', f'Report a Problem on {po}\'s delivery', p.scr, po)
     p.tap_ctl(c, expect='What happened')
     p.do([('pick', 'What happened', 'Short' if kind == 'short' else 'Damaged'), ('pick', 'Line', line), ('type', 'Quantity affected', str(qty)),
@@ -1455,13 +1493,15 @@ def receive_desktop(p, dw, tile):
     report_problem(p, dw, 'short', 'Drywall & cement board: supply', SHORT_BOARDS, f'{SHORT_BOARDS} cement boards backordered, balance next week (Angel)')
     report_problem(p, tile, 'damaged', 'Porcelain floor tile 12x24 matte: supply', DAMAGED_SF, 'two boxes cracked in the pallet; photo of the boxes (Angel)')
     for line, qty in (('Framing lumber: supply', 1), ('Drywall & cement board: supply', 1)):
-        q = p.look().find('', field=True, after=line)
-        b = p.scr.find('Received', after=line, exact=True)
+        p.look()
+        q = p.scr.find('', field=True, after=card(p, dw, line))
+        b = p.scr.find('Received', after=card(p, dw, line), exact=True)
         if q is None or b is None: raise Stuck(f'receive {line} on {dw}', f'a quantity and Received for {line}', p.scr, dw)
         p.expect(not q.value or CY.num(q.value) == 0, f'the received quantity starts empty, not at the full order ({line})', f'it starts at {q.value}')
         p.do_ctls([('type', q, qty), ('tap', b)])
-    q = p.look().find('', field=True, after='Porcelain floor tile')
-    b = p.scr.find('Received', after='Porcelain floor tile', exact=True)
+    p.look()
+    q = p.scr.find('', field=True, after=card(p, tile, 'Porcelain floor tile'))
+    b = p.scr.find('Received', after=card(p, tile, 'Porcelain floor tile'), exact=True)
     if q is None or b is None: raise Stuck(f'receive the tile on {tile}', 'a quantity and Received for the tile', p.scr, tile)
     p.do_ctls([('type', q, 380 - DAMAGED_SF), ('tap', b)])
 
@@ -1775,15 +1815,19 @@ def j10_week_money(p):
         c = None
         for m in re.finditer(r'(?m)^(?:\[\d+\] )?9/[3-8] · ', sc.text):   # the phone's cards carry their number in front
             x = next((y for y in sc.ctls if y.pos > m.start() and y.action), None)
-            if x is not None and norm(x.label) == 'confirm' and x.pos - m.start() < 700: c = x; break
+            # the 11-03 Banking page: on the phone the row's Review opens the line's sheet, where Confirm is
+            if x is not None and norm(x.label) in ('confirm', 'review') and x.pos - m.start() < 700: c = x; break
         if c is None: break
         p.tap_ctl(c)
-        if p.look().sheet:   # a confirmation that asks why (a payment before its bill)
+        stop = False
+        for _s in range(2):   # the line's sheet (the phone), then a confirmation that asks why (a payment before its bill)
+            if not p.look().sheet: break
             w = next((x for x in p.scr.ctls if not x.action and x.kind in ('input', 'text')), None)
             b = next((x for x in p.scr.actions('sheet') if re.match(r'^(confirm|save|match|yes)', norm(x.label))), None)
             if w is not None and b is not None: p.do_ctls([('type', w, 'Confirmed against the statement (controller, weekly close)'), ('tap', b)])
             elif b is not None: p.tap_ctl(b)
-            else: p._act('back'); break
+            else: p._act('back'); stop = True; break
+        if stop: break
     # the week's lines that need a category: the app's own suggestion accepted; a line the app cannot place is coded from what
     # the firm knows about it (KNOWN: the PM's pendants for the Ashbys; the designer's pendants for the Kleins, world_book E058)
     for _ in range(10):
@@ -1803,6 +1847,8 @@ def j10_week_money(p):
             c = next((c for c in sc.ctls if c.action and words in c.label and 'statement' in norm(c.label)), None)
             if c is None: continue
             p.tap_ctl(c)
+            # the 11-03 Banking page: on the phone a row opens the line's review sheet; Edit the Line is the form
+            if not p.scr.find('Category', field=True, exact=True) and p.look().find('Edit the Line', exact=True): p.tap('Edit the Line', exact=True)
             if not (p.scr.find('Category', field=True, exact=True) and p.scr.find('Job', field=True, exact=True)): p._act('back'); continue
             for verb, lab, val in (('pick', 'Category', cat_name), ('pick', 'Job', job_name)):   # the sheet may change under a pick
                 p.look(); p.do([(verb, lab, val)])
@@ -1821,7 +1867,9 @@ def j10_week_money(p):
     left = [l[:40] for l in re.findall(r'(?m)^9/[3-8] · [^\n]*', sc.text[k:end if end > k else len(sc.text)])] if k >= 0 else []
     p.expect(not left, 'every line of the week is matched or coded from its own proposal', f'{len(left)} of the week\'s lines still need a category: ' + '; '.join(left))
     # 2. the payroll from approved hours, for the owner
-    p.go('Accounting > Time and Crew', expect_menu=False)   # the 11-03 menu: Time and Crew under Accounting
+    # the 11-03 Accounting pages (docs/mockups/accounting/): Time and Crew is Bills and Payroll's Payroll chip
+    p.go('Accounting > Bills and Payroll', expect_menu=False)
+    p.tap('Payroll', exact=True)
     p.tap('Build Payroll from Approved Time', exact=True)
     sc = p.scr
     if sc.sheet:
@@ -2312,6 +2360,13 @@ def selftest():
     po = Screen('Fri Sep 4 13:57 · Chen Biron (coord, phone) · Orders\n[1 link Purchasing] ›FM-1\n[2 input "Search…"]\nPurchase Order FM-1\n[3 Receive All]\n'
                 '== Toast ==\n[4] PO-2026-050 issued to Ferguson — $1,960\n[5 link Open]')
     check(po.row('PO-2026-050', after='Search') is None, 'reader: a toast that names a record is not that record\'s row')
+    # Deliveries (11-03): the order's late lines under Needs You name it above the cards; its own card is the one acted on
+    dl = Screen('Tue Sep 8 10:04 · Chen Biron (coord) · Deliveries\nNeeds You\n[11] PO-2026-049 · Gowanus Building Supply: Framing lumber: supply\n[13 Expedite]\n'
+                'Arriving: Receive Line by Line\n[20] Ferguson\n[21 link PO-2026-050] · expected —\nToilet and vanity faucet\n[22 input "" ="1"]\n[23 Received]\n[25 Report a Problem]\n'
+                '[26] Gowanus Building Supply\n[27 link PO-2026-049] · expected 9/7 Late\nFraming lumber: supply\n[28 input "" ="1"]\n[29 Received]\n[33 Report a Problem]')
+    fake = type('P', (), {'scr': dl})()
+    rp, q = dl.find('Report a Problem', after=card(fake, 'PO-2026-049'), exact=True), dl.find('', field=True, after=card(fake, 'PO-2026-049', 'Framing lumber: supply'))
+    check(rp and rp.n == 33 and q and q.n == 28, f'reader: an order\'s Report a Problem and its line\'s quantity are read in its own card, not after the first mention ({rp and rp.n}, {q and q.n})')
     # the Costs table read as a PM reads it: a line committed over its budget cost is over, flagged or not
     costs = ('[32] Line | Flags | [33 CLIENT PRICE] | [34 BUDGET COST] | [35 ACTUAL TO DATE] | [36 SPENT % OF BUDGET] | [37 PROJECTED MARGIN] | [38 MARGIN %] | [39 BILLED %] | [40 COMMITTED]\n'
              'Framing lumber: supplyEST-2026-016 | — | $1,450 | $1,100 | — | — | $350 | 24% | 0% | $827\n'
@@ -2325,6 +2380,10 @@ def selftest():
     cards = ('By Estimate Line\n[60] Drywall & cement board: supply EST-2026-016 120% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\nForecast\n$2,169\n'
              '[61] Framing lumber: supply EST-2026-016 On budget\nBudget\n$1,100\nCommitted\n$827\nActual\n—\n')
     check(over_lines(cards) == ['Drywall & cement board: supply $369 over'] and [r['over'] for r in cost_cards(cards)] == [True, False], f'reader: the phone\'s Budget cards are read by their labels ({over_lines(cards)}, {cost_cards(cards)})')
+    # the card's name and its document number on two lines read as one with no space between them ("supplyEST-...")
+    cards2 = ('By Estimate Line\n[17] [18]\nDrywall & cement board: supplyEST-2026-016\n21% over\nBudget\n$1,800\nCommitted\n$2,169\nActual\n—\n'
+              '[19] [20]\nDrywall hang, tape & prime (SD crew)EST-2026-016\nOn budget\nBudget\n$5,200\nCommitted\n—\nActual\n—\n')
+    check(over_lines(cards2) == ['Drywall & cement board: supply $369 over'], f'reader: a card whose name runs into its document number is still read ({over_lines(cards2)}, {cost_cards(cards2)})')
     # the pass rule and where a journey stops
     base = {'journey': 'J8', 'device': 'desktop', 'taps': 10, 'budget': 12, 'minutes': 5.0, 'budget_min': 6, 'stuck': None, 'soft': [], 'grades': [{'step': 'C30', 'status': 'right', 'detail': ''}]}
     check(not failures_of(base) and stops_at(base) == 'passes', 'pass rule: no stop, no failed expectation, the records right and the budget kept is a pass')

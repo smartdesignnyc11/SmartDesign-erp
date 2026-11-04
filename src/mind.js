@@ -1866,7 +1866,7 @@ async function mindAsk(q, onStep) {
     const body = { max_tokens: 3e3, system: system, tools: tools, messages: messages, purpose: "mind" };
     hard && (body.output_config = { effort: "high" });
     const j = await mindPost(body, 6e4);
-    mindState = { ok: !0, why: "", model: j.model || "", last: Date.now() };
+    mindState = { ok: !0, why: "", model: j.model || "", last: Date.now() }; // wall clock: when the model last answered
     const blocks = j.content || [],
       calls = blocks.filter((b) => "tool_use" === b.type);
     if (!calls.length) {
