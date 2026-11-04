@@ -4,12 +4,28 @@
 # Usage: tests/drafts_shards.sh [extra drafts_test args, e.g. --quiet]
 cd "$(dirname "$0")"; R=../review/w1trust
 SHARDS=("u_owner,u_klein" "u_alan,u_sarah,u_alex" "u_chen,u_angel,u_alberto" "u_billing,u_controller")
+# A shard passes on its own verdict line (Checks.done: "ALL PASS (n checks)" or "N FAILED (n checks)"), never on the
+# log's last line: drafts_test prints its DRAFTS count after the verdict, so reading the last line called every shard
+# failed (11-04, BACKLOG §1.36). A shard with no verdict line (a crash, the timeout) fails.
+shard_ok() { grep -E '^(ALL PASS|[0-9]+ FAILED)' "$1" | tail -1 | grep -q '^ALL PASS'; }
+# tests/drafts_shards.sh --selftest: the verdict read on three made-up logs, no browser
+if [ "$1" = "--selftest" ]; then
+  T=$(mktemp -d); bad=0
+  printf 'x\nALL PASS (449 checks)\nDRAFTS 146/146 sheets kept their text\n' > "$T/a"
+  shard_ok "$T/a" || { echo "selftest: a passing shard read as failed"; bad=1; }
+  printf 'FAIL y\n1 FAILED (449 checks)\nDRAFTS 145/146 sheets kept their text\n' > "$T/b"
+  shard_ok "$T/b" && { echo "selftest: a failing shard read as passed"; bad=1; }
+  printf 'Traceback\n' > "$T/c"
+  shard_ok "$T/c" && { echo "selftest: a shard with no verdict read as passed"; bad=1; }
+  rm -rf "$T"; [ $bad = 0 ] && echo "DRAFTS SHARDS SELFTEST ALL PASS" || echo "DRAFTS SHARDS SELFTEST FAILED"
+  exit $bad
+fi
 for i in 0 1 2 3; do
   mkdir -p $R/shard$i
   SD_DRAFTS_OUT=$R/shard$i ./slot.sh timeout 5400 python3 -u drafts_test.py --user "${SHARDS[$i]}" "$@" > $R/shard$i/run.log 2>&1 &
 done
 wait
-rc=0; for i in 0 1 2 3; do grep -E "^FAIL" $R/shard$i/run.log; tail -1 $R/shard$i/run.log | grep -q "ALL PASS" || rc=1; done
+rc=0; for i in 0 1 2 3; do grep -E "^FAIL" $R/shard$i/run.log; shard_ok $R/shard$i/run.log || rc=1; done
 for i in 0 1 2 3; do echo "shard$i (${SHARDS[$i]}): $(grep -E '^(ALL PASS|[0-9]+ FAILED)' $R/shard$i/run.log | tail -1) | $(tail -1 $R/shard$i/run.log)"; done
 [ $rc = 0 ] && echo "DRAFTS SHARDS ALL PASS" || echo "DRAFTS SHARDS FAILED"
 exit $rc
