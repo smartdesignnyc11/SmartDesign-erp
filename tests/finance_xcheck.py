@@ -28,7 +28,11 @@ later lane: each one walks all clients and every invoice and payment, the Live J
                     document whose print and books differ is allowed only when a Controller finding names it
   INV STAMP BACKED  every approval stamp on every bill, payroll run, card spend, PO, change order and payment has an
                     audit row by the same person on the same record at or before it, as seeded and after the PM
-                    recommends and the owner approves a bill, a payroll run and a PO (BACKLOG §1.36)
+                    recommends and the owner approves a bill, a payroll run and a PO (BACKLOG §1.36); a held bill takes
+                    no stamp by any path; an unbacked stamp reads "no record of this action" on the trail; journals,
+                    rule changes and client credits name the person who approved, with that person's audit row
+  INV AUDIT CHAIN   the audit trail is hash-chained and keeps every row: an edited, removed or newest-removed row fails
+                    auditVerify, naming the row; 5,100 more rows drop none
 
 The money definitions (the Accounting lane, 11-03; BACKLOG §1.35). Each figure is recomputed from the records by its
 definition and compared with what prints it (--figure money):
@@ -105,7 +109,7 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants',
+                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports'}.get(
@@ -115,7 +119,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
@@ -788,10 +792,19 @@ INV_STAMP_FN = """
         if (!a.ts) return out.push({ kind, rec: name(r), what: w, by: a.by, why: 'a stamp with no moment (ts)' });
         backed(kind, r, a.by, a.ts, w);
       });
-      if (r.approvedBy && (kind === 'po' || kind === 'co' || kind === 'spend')) backed(kind, r, r.approvedBy, '', 'approvedBy ' + r.approvedBy);
+      if (r.approvedBy && ['po', 'co', 'spend', 'change', 'client-credit', 'ledger', 'subchange'].includes(kind)) {
+        // a record that names its approver names a person who acted, never a role (glApprove wrote "owner")
+        // (the demo's owner is a person named "Owner": a name of a user is a person; a lowercase role key is not)
+        if (!(DB.users || []).some(u => u.name === r.approvedBy) && /^(owner|pm|coord|controller|billing|foreman|crew|designer)$/.test(String(r.approvedBy).trim())) out.push({ kind, rec: name(r), what: 'approvedBy ' + r.approvedBy, why: 'names a role, not the person who approved' });
+        else backed(kind, r, r.approvedBy, '', 'approvedBy ' + r.approvedBy);
+      }
     });
     walk('bill', DB.bills); walk('payroll', DB.payroll); walk('spend', DB.spend); walk('po', DB.pos);
     (DB.clients || []).forEach(c => { walk('co', c.changeOrders); walk('payment', c.payments); });
+    // the stamps outside bills and payroll (BACKLOG §1.36): rule and setting changes, client credits, journals, a
+    // subcontract's change orders
+    walk('change', DB.changes); walk('client-credit', DB.clientCredits); walk('ledger', ((DB.gl || {}).journals || []).filter(j => j.status === 'posted'));
+    (DB.pos || []).forEach(po => walk('subchange', (po.sc || {}).changes));
     return out;
   };"""
 INV_STAMP_JS = INV_STAMP_FN + """
@@ -800,12 +813,28 @@ INV_STAMP_JS = INV_STAMP_FN + """
   // it (with the reason its flags ask for), the owner approves the payroll run, the owner approves a PO waiting on him
   const as = u => { signIn(u); render(); };
   const amp = DB.bills.find(b => b.number === 'AMP-311'), pr = (DB.payroll || []).find(r => r.status === 'submitted');
-  const did = [], held = [];
+  const did = [], held = [], same = {};
+  // one safe next step on every surface that offers a bill a verb (review item 4): the bill page's one blue button
+  // leads the bill's Approvals row, and no Approve, Pay or Release is blue there
+  const surfaces = async (num) => {
+    const b = DB.bills.find(x => x.number === num); if (!b) return null;
+    as('u_owner'); openBill(b.id); await sleep(200);
+    const page = [...document.querySelectorAll('#drawer button.primary')].filter(x => x.getClientRects().length).map(x => x.innerText.trim());
+    try { closeEditor(); } catch (e) {}
+    window.mApprKind = 'all'; view = 'mapprove'; render(); await sleep(200);
+    const el = [...document.querySelectorAll('.m-appr')].find(x => x.innerText.includes(num));
+    const appr = el ? [...el.querySelectorAll('.m-appr-a button')].filter(x => x.getClientRects().length).map(x => ({ l: x.innerText.trim(), blue: x.classList.contains('primary') })) : null;
+    // a bill not on Approvals at all (a held bill waits on nobody's yes) offers nothing there to get wrong
+    const ok = page.length === 1 && !/^(approve|pay|release)/i.test(page[0]) && (!appr || (appr[0] && appr[0].l === page[0] && !appr.some(x => x.blue && /^(approve|pay|release|recommend)/i.test(x.l))));
+    return { ok, page, appr };
+  };
+  same.pba = await surfaces('WW-2026-118');
   // a held bill takes no stamp by any path (chief-of-staff review, 11-04): AMP-311 held, then the PM recommends it
   // (billAction, and the routing step rtApprove) and the owner approves it (rtApprove, and billAction); its status and
   // its trail must not move, and nothing is skipped on it
   if (amp) {
     amp.onHold = { why: 'the stamp check: held', by: 'Owner', at: appNowIso(), for: 'Chen Biron', state: 'open' };
+    same.held = await surfaces('AMP-311');
     const s0 = amp.status, n0 = (amp.approvals || []).length;
     const tryAs = (u, what, f) => { try { as(u); f(); } catch (e) { held.push(what + ' threw ' + e.message); } if (amp.status !== s0 || (amp.approvals || []).length !== n0) held.push(`${what} moved the held bill: ${amp.status}, ${(amp.approvals || []).slice(n0).map(a => a.action).join('; ')}`); };
     tryAs('u_alan', 'PM recommend (billAction pmok)', () => billAction(amp, 'pmok'));
@@ -830,10 +859,65 @@ INV_STAMP_JS = INV_STAMP_FN + """
   try { as('u_owner'); if (amp) { billAction(amp, 'approve', 'the stamp check: approved with its flags read'); did.push('approve ' + amp.status); } } catch (e) { did.push('approve threw ' + e.message); }
   try { if (pr) { const k = appConfirm; appConfirm = () => true; try { payrollAction(pr, 'approve'); } finally { appConfirm = k; } did.push('payroll ' + pr.status); } } catch (e) { did.push('payroll threw ' + e.message); }
   try { const po = (DB.pos || []).find(p => p.status === 'pending'); if (po) { poAction(po, 'approve'); did.push('po ' + po.number + ' ' + (po.approvedBy || '')); } } catch (e) { did.push('po threw ' + e.message); }
+  // the stamps outside bills and payroll (BACKLOG §1.36), each by its person through the app's own action:
+  // the owner posts a manual journal (glApprove recorded the role "owner", not the person)
+  try {
+    as('u_owner');
+    const jid = uid('je');
+    DB.gl.journals.push({ id: jid, kind: 'manual', status: 'pending', entityId: 'ent1', date: '2026-09-02', memo: 'The stamp check: van depreciation, August', createdBy: 'Jeanette', createdAt: appNowIso(), lines: [glL('7100', 1200, 0), glL('1500', 0, 1200)] });
+    glApprove(jid, 'the stamp check: straight-line on the van');
+    const j = DB.gl.journals.find(x => x.id === jid);
+    did.push('journal ' + (j && j.status) + ' by ' + (j && j.approvedBy));
+  } catch (e) { did.push('journal threw ' + e.message); }
+  // the owner approves a drafted rule change from Meetings > Changes (it wrote no audit row)
+  try {
+    as('u_owner');
+    const ch = (DB.changes || []).find(c => c.status === 'draft' && c.kind !== 'code' && c.source !== 'loop');
+    if (ch) {
+      mtTab = 'changes'; mtOpen = ''; view = 'meetings'; render(); await sleep(150);
+      const b = document.querySelector(`[data-chok="${ch.id}"]`);
+      b ? b.click() : 0;
+      did.push('change ' + (b ? ch.status + ' by ' + ch.approvedBy : 'no Approve shown'));
+    } else did.push('change: none drafted');
+  } catch (e) { did.push('change threw ' + e.message); }
+  // billing approves a credit the client is owed (its approval wrote no audit row)
+  try {
+    as('u_billing');
+    const p = DB.projects.find(x => x.id === 'p121'), cc = { id: uid('cc'), projectId: p.id, clientId: p.clientId, amount: 140, txnId: '', why: 'The stamp check: Nemo Tile credited $140 for cracked tile billed to the client', status: 'proposed', at: today(), by: 'Chen Biron' };
+    (DB.clientCredits = DB.clientCredits || []).push(cc);
+    const row = blCreditRows().find(r => r.cc && r.cc.id === cc.id);
+    row && blCreditAct(row);
+    did.push('client credit ' + cc.status + ' by ' + cc.approvedBy);
+  } catch (e) { did.push('client credit threw ' + e.message); }
+  as('u_owner');
   await sleep(100);
   const after = stampsUnbacked();
   const stamps = (DB.bills || []).concat(DB.payroll || []).flatMap(r => (r.approvals || []).filter(a => STAMP.test(a.action || '') && !NOT.test(a.action || ''))).length;
-  return { seeded, after, did, stamps, held, ui };"""
+  return { seeded, after, did, stamps, held, ui, same };"""
+
+# ---- INV AUDIT CHAIN (BACKLOG §1.36, S1): the audit trail is hash-chained and append-only. As seeded and after a write
+# it verifies; editing a sealed row's words or its person, removing a row from the middle and removing the newest row
+# each fail verify, naming the row; put back, it verifies again; 5,100 more rows drop none (the store dropped its
+# oldest past 5,000, so a true approval later read as unbacked).
+INV_CHAIN_JS = """
+  if (typeof auditVerify !== 'function') return { missing: true };
+  await sleep(50);
+  const out = {}, A = DB.audit, sum = v => ({ ok: v.ok, rows: v.rows, pending: v.pending, at: v.broken[0] ? v.broken[0].at : -1, why: v.broken[0] ? v.broken[0].why : '' });
+  out.seeded = sum(auditVerify());
+  audit('note', 'chaincheck', 'checked', '', '', 'the chain check');
+  await sleep(30);
+  out.afterWrite = sum(auditVerify());
+  const k = Math.floor(A.length / 2);
+  const was = A[k].note; A[k].note = String(was || '') + ' (edited)'; out.edited = sum(auditVerify()); A[k].note = was;
+  const wb = A[k].by; A[k].by = 'Someone Else'; out.editedBy = sum(auditVerify()); A[k].by = wb;
+  const [rm] = A.splice(k, 1); out.removed = sum(auditVerify()); A.splice(k, 0, rm);
+  const last = A.pop(); out.removedLast = sum(auditVerify()); A.push(last);
+  out.k = k; out.restored = sum(auditVerify());
+  const n0 = A.length, first = A[0].id;
+  for (let i = 0; i < 5100; i++) audit('note', 'chaincheck', 'bulk', '', '', '');
+  await sleep(80);
+  out.bulk = { added: A.length - n0, firstKept: A[0].id === first, v: sum(auditVerify()) };
+  return out;"""
 
 # ---- the money definitions (BACKLOG §1.35, the Accounting lane, 11-03): one question, one number, from the records ----
 # Each is recomputed here from the records by its own definition, never by calling the function that prints it, and
@@ -1306,11 +1390,35 @@ async def check_invariants(p, R):
     read('inv_stamp', f"after the PM recommends, the owner approves a bill, a payroll run and a PO ({'; '.join(st['did'])})", not st['after'] and len(st['did']) >= 2, st['after'][:6] or st['did'],
          'each new stamp written with its audit row')
     read('inv_stamp', 'the instrument: stamps were read', st['stamps'] >= 5, st['stamps'], 'the seeded trails and the new ones are found')
+    for k, what in (('pba', 'WW-2026-118, paid before approval'), ('held', 'AMP-311, held')):
+        s = (st.get('same') or {}).get(k) or {}
+        read('inv_stamp', f'{what}: the bill page and its Approvals row', bool(s.get('ok')), s or 'not read',
+             "the page's one blue button (not Approve, Pay or Release) leads the Approvals row; nothing there that approves or pays is blue")
+    outside = [d for d in st['did'] if re.match(r'^(journal|change|client credit) ', d)]
+    read('inv_stamp', 'the instrument: the owner posts a journal and approves a rule change, billing approves a client credit',
+         any(d.startswith('journal posted') for d in outside) and any(re.match(r'change (live|approved) by', d) for d in outside) and any(d.startswith('client credit approved') for d in outside),
+         outside, 'each path ran and its record names who approved')
     read('inv_stamp', 'a held bill (AMP-311 planted on hold): the PM recommends (billAction, rtApprove), the owner approves (rtApprove, billAction)',
          not st['held'] and any(d.startswith('held ') for d in st['did']), st['held'] or st['did'], 'no path stamps it, skips a review on it or moves its status')
     read('inv_stamp', 'the screen: a stamp planted on NT-88412 with no audit row, on its Approval Trail', 'no record of this action' in st['ui']['planted'].lower() and not st['ui']['clean'],
          st['ui'], 'the planted stamp reads "no record of this action"; the backed ones do not')
     for e in errs[:3]: R.flag('inv_stamp', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # the audit trail is hash-chained and append-only (a fresh page)
+    b, pg, errs = await page()
+    ch = await pg.evaluate(js(INV_CHAIN_JS))
+    if ch.get('missing'):
+        read('inv_chain', 'auditVerify', False, 'no auditVerify in this build', 'the audit trail can be verified')
+    else:
+        read('inv_chain', 'as seeded', ch['seeded']['ok'] and ch['seeded']['pending'] == 0, ch['seeded'], 'every row sealed and the chain verifies')
+        read('inv_chain', 'after a write (sealed at the end of its turn)', ch['afterWrite']['ok'] and ch['afterWrite']['pending'] == 0, ch['afterWrite'], 'verifies')
+        for key, what in (('edited', "a sealed row's note edited"), ('editedBy', "a sealed row's person changed"), ('removed', 'a row removed from the middle'), ('removedLast', 'the newest row removed')):
+            v = ch[key]
+            read('inv_chain', what, not v['ok'] and (key == 'removedLast' or v['at'] == ch['k']), v, f"verify fails, naming row {ch['k']}" if key != 'removedLast' else 'verify fails')
+        read('inv_chain', 'put back as it was', ch['restored']['ok'], ch['restored'], 'verifies again')
+        read('inv_chain', '5,100 more rows', ch['bulk']['added'] == 5100 and ch['bulk']['firstKept'] and ch['bulk']['v']['ok'], ch['bulk'], 'none dropped, the first row kept, the chain verifies')
+    for e in errs[:3]: R.flag('inv_chain', 'page', e[:200], 'no page errors')
     await b.close()
 
 
