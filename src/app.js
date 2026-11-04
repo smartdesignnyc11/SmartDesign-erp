@@ -13603,8 +13603,7 @@ function billFlags(b) {
   } else isJobCat(b.cat) && tot >= 1e3 && f.push("No PO for a job cost over $1,000");
   const v = DB.vendors.find((x) => x.name.toLowerCase() === b.vendor.toLowerCase());
   return (
-    v?.bankChangedAt &&
-      dayDiff(v.bankChangedAt, b.date) <= 14 &&
+    bankChangeRecent(v, b.payOn || "") &&
       f.push(`Vendor banking changed ${fmt(v.bankChangedAt)} — verify by phone before paying`),
     v?.insuranceExp &&
       parse(v.insuranceExp) < parse(today()) &&
@@ -15753,8 +15752,7 @@ function vendorState(v) {
       f.push({ lvl: "bad", m: `License expired ${fmt(v.licenseExp)}` }),
     v.w9 || f.push({ lvl: "warn", m: "No W-9 on file" }),
     v.bankPending && f.push({ lvl: "bad", m: "Bank change awaiting Owner verification" }),
-    v.bankChangedAt &&
-      dayDiff(v.bankChangedAt, td) <= 14 &&
+    bankChangeRecent(v) &&
       f.push({ lvl: "warn", m: `Banking changed ${fmt(v.bankChangedAt)}` }),
     f
   );
@@ -37791,8 +37789,7 @@ const remindersBase10 = reminders;
             extras = [];
           v?.bankPending
             ? extras.push("bank change unverified")
-            : v?.bankChangedAt &&
-              dayDiff(v.bankChangedAt, today()) <= 30 &&
+            : bankChangeRecent(v) &&
               extras.push(`banking changed ${fmt(v.bankChangedAt)}`);
           const pb = DB.bills.filter(
             (b) =>
@@ -63196,6 +63193,27 @@ function rtSubject(o) {
             }
     : null;
 }
+// A recent bank-detail change (the wire-fraud control): the vendor's bank details changed within the watch window
+// before the day the money leaves, and no call-back on a number already on file has confirmed it since. Measured to the
+// payment day (`on`, a scheduled pay date; never earlier than today), not to the bill's date: a bill dated before the
+// change still pays into the new account (chief of staff's probe, 11-04: bank changed 8/28, bill dated 8/20, paid by
+// check, approved without the owner). Every payment method (check, ACH, card, wire). The one test: rtFor's routing,
+// the Payment Check, the bill's and the vendor's flags, the purchase order's warning and the owner's exceptions.
+const bankWatchDays = () => {
+  try {
+    return +rtCfg().controls.bankChanged || 60;
+  } catch (e) {
+    return 60;
+  }
+};
+function bankChangeRecent(v, on) {
+  if (!v || !v.bankChangedAt) return null;
+  if (v.bankVerified && v.bankVerified.on >= v.bankChangedAt) return null;
+  const td = today(),
+    day = on && on > td ? on : td,
+    days = dayDiff(v.bankChangedAt, day);
+  return days >= 0 && days <= bankWatchDays() ? { at: v.bankChangedAt, days: days, on: day } : null;
+}
 function rtFor(o) {
   const cfg = rtCfg(),
     s = rtSubject(o);
@@ -63238,13 +63256,12 @@ function rtFor(o) {
         msg: `First payment to ${s.vendor} — nobody has been paid under this name before`,
       });
   }
-  if (c.bankChanged && vend && vend.bankChangedAt) {
-    // one event, one date (BACKLOG §1.35 item 6): the change's own record, shown as a date; the gap is counted from
-    // this payment's date and says so (it read "4 days ago" on 9/3 for a change made 8/20, counted from 8/24)
-    const days = dayDiff(vend.bankChangedAt, s.date || today());
-    days >= 0 &&
-      days <= c.bankChanged &&
-      why.push({
+  // one event, one date (BACKLOG §1.35 item 6): the change's own record, shown as a date; the gap is counted to the day
+  // the money leaves (bankChangeRecent), whatever the bill's own date
+  const bk = c.bankChanged ? bankChangeRecent(vend, (s.ref && (s.ref.payOn || s.ref.scheduledOn)) || "") : null;
+  if (bk) {
+    const days = bk.days;
+    why.push({
         role: "owner",
         kind: "bank-changed",
         hard: !0,
@@ -107742,12 +107759,13 @@ function rdHtml() {
     counts_projects = (DB.projects || []).length,
     counts_clients = (DB.clients || []).length,
     counts_vendors = (DB.vendors || []).length,
-    counts_employees = (DB.employees || []).length,
+    // one headcount: Team's people list (src/companypages.js ydPeople), not the payroll's employee records
+    counts_employees = "function" == typeof ydPeople ? ydPeople().length : (DB.employees || []).length,
     demoList = (DB.projects || []).filter((p) =>
       /^121 State Street$|^45 Cranberry|^206 Lenox \u2014|^140 Prospect Place/.test(p.project.name || ""),
     ),
     demo = demoList.length > 0;
-  return `<div class="ph"><div><h2>Your Own Data</h2><div class="lead">${demo ? `${demoList.length} of these ${1 === counts_projects ? "is" : "are"} the demo — invented jobs made to show what every screen does. Before the team uses it for real, put your own in and take the demo out.` : `${counts_projects} project${1 === counts_projects ? "" : "s"}, ${counts_clients} client${1 === counts_clients ? "" : "s"}, ${counts_vendors} vendors and ${counts_employees} people on this device.`}</div></div><div class="acts"><button class="btn" id="rd-backup">Save a Backup</button></div></div>\n  <div class="glance tl">\n    <div class="gl static"><span class="gl-k">Projects</span><b class="gl-v">${counts_projects}</b><span class="gl-s">${demo ? (counts_projects > demoList.length ? `${counts_projects - demoList.length} yours · ${demoList.length} still demo` : "all still demo") : "all yours"}</span></div>\n    <div class="gl static"><span class="gl-k">Clients</span><b class="gl-v">${counts_clients}</b><span class="gl-s">people you bill</span></div>\n    <div class="gl static"><span class="gl-k">Vendors and Subs</span><b class="gl-v">${counts_vendors}</b><span class="gl-s">people you pay</span></div>\n    <div class="gl static"><span class="gl-k">People</span><b class="gl-v">${counts_employees}</b><span class="gl-s">on the clock</span></div>\n  </div>\n\n  <div class="card"><h3>Bring in What You Already Have</h3>\n    <p class="small muted">Copy the rows straight out of Excel or Google Sheets and paste them here — with or without a header row. Nothing is saved until you have looked at what came through.</p>\n    <div class="row" style="margin:10px 0"><div class="seg" id="rd-kind">${Object.entries(
+  return `<div class="ph"><div><h2>Your Own Data</h2><div class="lead">${demo ? `${demoList.length} of these ${1 === counts_projects ? "is" : "are"} the demo — invented jobs made to show what every screen does. Before the team uses it for real, put your own in and take the demo out.` : `${counts_projects} project${1 === counts_projects ? "" : "s"}, ${counts_clients} client${1 === counts_clients ? "" : "s"}, ${counts_vendors} vendors and ${counts_employees} people on this device.`}</div></div><div class="acts"><button class="btn" id="rd-backup">Save a Backup</button></div></div>\n  <div class="glance tl">\n    <div class="gl static"><span class="gl-k">Projects</span><b class="gl-v">${counts_projects}</b><span class="gl-s">${demo ? (counts_projects > demoList.length ? `${counts_projects - demoList.length} yours · ${demoList.length} still demo` : "all still demo") : "all yours"}</span></div>\n    <div class="gl static"><span class="gl-k">Clients</span><b class="gl-v">${counts_clients}</b><span class="gl-s">people you bill</span></div>\n    <div class="gl static"><span class="gl-k">Vendors and Subs</span><b class="gl-v">${counts_vendors}</b><span class="gl-s">people you pay</span></div>\n    <div class="gl static"><span class="gl-k">People</span><b class="gl-v">${counts_employees}</b><span class="gl-s">at the firm, as on Team</span></div>\n  </div>\n\n  <div class="card"><h3>Bring in What You Already Have</h3>\n    <p class="small muted">Copy the rows straight out of Excel or Google Sheets and paste them here — with or without a header row. Nothing is saved until you have looked at what came through.</p>\n    <div class="row" style="margin:10px 0"><div class="seg" id="rd-kind">${Object.entries(
     RD_SHEETS,
   )
     .map(([k, v]) => `<button class="${rdKind === k ? "on" : ""}" data-rdk="${k}">${v.n}</button>`)
@@ -168441,7 +168459,7 @@ try {
   lead &&
     /PMs recommend, the Owner approves/.test(lead.textContent) &&
     (lead.textContent =
-      "Nothing is paid without an approved bill or payroll run. PMs recommend bills and the Owner approves them; a payroll run is approved by the Owner or the Controller. Whoever entered an item cannot approve it.");
+      "Nothing is paid without an approved bill or payroll run. The PM approves a bill that matches its PO; the Owner decides only the exceptions (paid before approval, over the PO or with none, a bank-detail change, a first payment to a new vendor, a PO over $10,000) and the payroll run. Whoever entered an item cannot approve it.");
 } catch (e) {}
 {
   const base = budPackTable;
