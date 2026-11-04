@@ -1903,20 +1903,25 @@ def j10_week_money(p):
     finally:
         switch(p, me, dev)
     # 4. the numbers the books hand the owner (Reports): cash, AR, job cost by estimate line on 214 Lincoln, the lines over
-    sc = p.go('Reports', expect_menu=False)
-    m = re.search(r'(\$[\d,]+(?:\.\d\d)?) Cash in bank', sc.text)
-    p.answers['Q1'] = m.group(1) if m else ''
-    m = re.search(r'(\$[\d,]+(?:\.\d\d)?) Receivables', sc.text)
-    p.answers['Q2'] = m.group(1) if m else ''
-    p.tap('Projects', exact=True)
+    # the 11-03 Reports pages (docs/mockups/reports/SPEC.md): cash is Cash's "In the bank", the first part of Safe to
+    # Spend; AR is Cash's Receivables view; job cost by line is the job's own report, opened from Job Profitability
+    sc = p.go('Reports > Cash', expect_menu=False)
+    m = re.search(r'In the bank\b(.{0,200})', sc.text, re.S)
+    m = m and re.search(r'\$[\d,]+(?:\.\d\d)?', m.group(1))
+    p.answers['Q1'] = m.group(0) if m else ''
+    sc = p.tap('Receivables', exact=True)
+    m = re.search(r'\bOpen(?:, all current)?\b(.*?)Retainage held', sc.text, re.S)
+    v = re.findall(r'\$[\d,]+(?:\.\d\d)?', m.group(1)) if m else []
+    p.answers['Q2'] = v[-1] if v else ''
+    p.go('Reports > Job Profitability', expect_menu=False)
     r = p.look().row(JOB['job'])
-    if r is None: raise Stuck('job cost on 214 Lincoln', '214 Lincoln among Reports > Projects', p.scr, 'Projects')
+    if r is None: raise Stuck('job cost on 214 Lincoln', '214 Lincoln on Reports > Job Profitability', p.scr, 'Job Profitability')
     p.tap_ctl(r)
     sc = p.look()
     i = sc.text.find('By Line')
     p.answers['Q3'] = sc.text[i:i + 4000] if i >= 0 else ''
     p.answers['Q4'] = '; '.join(over_lines(sc.text)) or 'none over'
-    p.expect(i >= 0, 'job cost by estimate line on 214 Lincoln (Reports > Projects > the job: By Line)', sc.excerpt('Code', 6))
+    p.expect(i >= 0, 'job cost by estimate line on 214 Lincoln (Reports > Job Profitability > the job: By Line)', sc.excerpt('Code', 6))
     p.expect(all(p.answers.get(q) for q in ('Q1', 'Q2')), 'cash and AR are each one figure the controller can read', str({k: v[:60] for k, v in p.answers.items()}))
 
 

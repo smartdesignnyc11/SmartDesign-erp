@@ -12,6 +12,7 @@ The run ends with `N flags` and exits 1 when N > 0.
                                             net, safe, rtb, job121, ledger, stock); repeatable or comma-separated
   python3 finance_xcheck.py --figure invariants   only the ledger invariants (below)
   python3 finance_xcheck.py --figure money        only the money definitions (BACKLOG §1.35, below)
+  python3 finance_xcheck.py --figure reports      only the Reports pages against their twins (below)
   python3 finance_xcheck.py --json          machine-readable result (flags, every reading, not-shown notes)
   python3 finance_xcheck.py -v              also print every reading that agreed
 
@@ -38,6 +39,19 @@ definition and compared with what prints it (--figure money):
   INV ONE DATE            a vendor's bank-detail change reads as its record's date wherever named, never "N days ago"
   INV CLOSE POSTS THE SCHEDULE  the ledger bridge's "the close posts" is wipAtClose; after the close 2500/1200 by job
                           equal the WIP schedule at the month end as read before it
+
+The Reports pages (the Reports lane, 11-04; docs/mockups/reports/SPEC.md), read off their screens (--figure reports):
+  INV REPORTS TWIN        every Reports figure equals its Accounting or job-page twin: Safe to Spend (Cash, Today's
+                          Pulse, the Statements' week), cash in the bank (Banking's Accounts card), payroll due (Bills
+                          and Payroll), receivables (Billing's Collections), each job's cost to date (jobCostPosted, the
+                          job's Budget), Over-Billed (WIP) and Billed Ahead of the Work (billedAhead), what the close
+                          posts (Books' close row), the management net (Books' ledger bridge)
+  INV REPORTS TIE         the statements tie to the ledger to the cent: what stands behind the numbers adds to the P&L's
+                          cost; the Balance Sheet is glBS's and balances; the Cash Flow ends on the bank register; every
+                          entry not from a document, a manual journal planted here among them, is listed and flagged
+  INV REPORTS WIP         each job's earned follows from its own printed cost-to-cost numbers (cost for progress over
+                          projected cost, times the contract), and the WIP Schedule's note says what it leaves out
+  INV REPORTS READ        opening every Reports page and chip leaves the data byte for byte as it was
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -90,7 +104,8 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
                     'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
-                    'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money'}.get(
+                    'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
+                    'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -100,7 +115,8 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
-         'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE'}
+         'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
+         'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -979,6 +995,194 @@ async def check_money(p, R):
         for e in errs[:3]: R.flag('inv_safe', 'page', e[:200], 'no page errors')
         await b.close()
 
+# ---- the Reports pages (the Reports lane, 11-04): every figure read off the page equals its twin --------------------
+INV_REPORTS_JS = """
+  const out = { rptwin: [], rptie: [], rpwip: [], rpread: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  const num = s => { s = String(s || '').trim(); const m = s.match(/\\$([\\d,]+(?:\\.\\d+)?)/); if (!m) return null; const v = +m[1].replace(/,/g, ''); return /^[\\u2212-]/.test(s) ? -v : v; };
+  const near = (a, b, t) => a != null && b != null && Math.abs(a - b) <= (t == null ? 0.005 : t);
+  const F = () => document.querySelector('.view.on > .rw-front');
+  const open = async (pg, chip) => { if (typeof rwGo !== 'function') return null; rwGo(pg); setView('reports'); await sleep(150); if (chip) { const [g, k] = chip.split(':'); rwChipGo(g, k); await sleep(120); } return F(); };
+  const val = (root, sel) => root ? num((root.querySelector(sel) || {}).textContent) : null;
+  const page = async v => { setView(v); await sleep(200); return (document.querySelector('.view.on') || {}).innerText || ''; };
+  // ---- reading never writes, measured on the very first read (no warm-up: a first read that writes is a write). The
+  // boot's own jobs settle first (the improvement loop's first run stamps company.loopLast), from a page that is not a
+  // report; then every Reports page and chip (the old tabs where there are no pages), then the August Pack
+  for (let i = 0; i < 40 && !(DB.company || {}).loopLast; i++) await sleep(200);
+  setView('team'); await sleep(400);
+  const OLD = ['company', 'financials', 'budget', 'pack', 'tieout', 'portfolio', 'profit', 'wip', 'ar', 'payables', 'cash13', 'flash', 'searches', 'statement', 'costintel', 'submittals', 'dlsum', 'progvp', 'studio', 'library', 'analyst'];
+  const first = JSON.stringify(DB);
+  if (typeof rwGo === 'function') {
+    for (const pg of ['jobs', 'cash', 'stmt', 'builder']) { rwGo(pg); setView('reports'); await sleep(60);
+      for (const b of [...document.querySelectorAll('.view.on > .rw-front [data-rwchip]')].map(b => b.dataset.rwchip)) { if (/^(page|builder:pinned)/.test(b)) continue; const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(40); } }
+    rwGo('stmt'); setView('reports'); rwChipGo('per', 'last'); await sleep(60); (document.querySelector('.view.on [data-rwpack]') || { click() {} }).click(); await sleep(150);
+    rwChipGo('per', 'ytd'); await sleep(40);
+  }
+  for (const t of OLD) { repTab = t; view = 'reports'; render(); await sleep(40); }
+  const second = JSON.stringify(DB);
+  let at = -1; if (first !== second) at = [...first].findIndex((ch, i) => ch !== second[i]);
+  say('rpread', first === second, first === second ? 'the first read of every page, chip and old tab: unchanged' : 'the first read changed the data near ' + first.slice(Math.max(0, at - 100), at + 100), 'the data byte for byte as it was');
+  // ---- Ask's as-of figures never read the Reports period: each answer is the same whichever period a person picked,
+  // and the over-billed headline is its own rows' sum (it read $90,787 beside rows adding to $156,274 after This Week)
+  const QS = ['how much are we over-billed', 'how much is safe to spend', 'how much cash do we have', 'what is our AR'];
+  const ask = async () => { const o = {}; for (const q of QS) { const r = await paAsk(q); o[q] = (r && r.headline) || ''; if (/over-billed/.test(q)) o.rows = r2(DB.projects.reduce((a, p) => a + Math.max(0, jobFin(p).over || 0), 0)); } return o; };
+  const keepREP = JSON.stringify(REP);
+  const base = await ask();
+  const ob = num((base[QS[0]].match(/\\$[\\d,]+/) || [''])[0]);
+  say('rptwin', near(ob, Math.round(base.rows), 0.5), `Ask "${QS[0]}": ${base[QS[0]].slice(0, 80)}`, `its rows add to ${base.rows}`);
+  const weekStart = (() => { const d = parse(today()); return iso(addDays(d, -((d.getDay() + 6) % 7))); })();
+  for (const [per, set] of [['week', () => { REP.preset = 'custom'; REP.from = weekStart; REP.to = today(); }], ['last', () => { REP.preset = 'lm'; }], ['month', () => { REP.preset = 'tm'; }], ['ytd', () => { REP.preset = 'ty'; }]]) {
+    if (typeof rwGo === 'function') { rwGo('stmt'); setView('reports'); await sleep(60); rwChipGo('per', per); await sleep(80); }
+    else { set(); repTab = 'company'; view = 'reports'; render(); await sleep(80); }
+    const A = await ask();
+    QS.forEach(q => say('rptwin', A[q] === base[q], `period ${per}: Ask "${q}": ${A[q].slice(0, 90)}`, `the same as before any period was picked: ${base[q].slice(0, 90)}`));
+  }
+  Object.assign(REP, JSON.parse(keepREP)); setView('home'); await sleep(60);
+  // the WIP Schedule (the named standard report for the bank and the surety): each row's % complete follows from the
+  // figures it prints, or its note names what the cost-to-cost basis leaves out (the review: 121 State at 25% beside
+  // $105,084 of $388,888, which is 27%)
+  view = 'reports'; repTab = 'wip'; render(); await sleep(200);
+  const wsched = (document.getElementById('rep-print-area') || {}).innerText || '';
+  const T = document.querySelector('#rep-print-area table.wip');
+  // the schedule's rows: job, contract, cost to date, % complete over its cost basis %, earned; the projected cost is
+  // the Margin view's (jobFin's eac, the same job). A cost basis that is not cost to date over it is named in the note.
+  [...(T ? T.tBodies[0].rows : [])].forEach(tr => {
+    const c = [...tr.cells].map(x => x.innerText.trim()), name = (c[0] || '').split('\\n')[0];
+    const p = DB.projects.find(x => x.project.name === name); if (!p || /^Total/.test(name)) return;
+    const J = jobFin(p), con = num(c[1]), cost = num(c[2]), earned = num(c[4]), bm = (c[3] || '').match(/([\\d.]+)% cost basis/);
+    if (!(J.eac > 0) || con == null || !bm) return;
+    const pct = parseFloat(bm[1]), at = wsched.indexOf(name + ': '), seg = at < 0 ? '' : wsched.slice(at, at + 300).split(/[;)]/)[0];
+    const m = seg.match(/ is (\\$[\\d,]+) of (\\$[\\d,]+), ([\\d.]+)%/);
+    const basis = m ? num(m[1]) : cost, why = m ? `the note: ${m[0]}` : `${c[2]} cost to date of ${money(J.eac)} projected`;
+    say('rpwip', Math.abs(Math.round(100 * basis / J.eac) - pct) < 0.5 && near(earned, con * basis / J.eac, 3), `WIP Schedule ${name}: ${pct}% cost basis, earned ${c[4]}, on ${why}`, `the cost basis % and earned follow from the printed cost (${Math.round(100 * basis / J.eac)}%)`);
+  });
+
+  if (typeof rwGo !== 'function') { ['rptwin', 'rptie'].forEach(k => say(k, false, 'no Reports pages (rwGo)', 'the four Reports pages')); return out; }
+  // ---- twins
+  const X = safeToSpend(), B = X.B;
+  let f = await open('cash');
+  const safe = f && (f.querySelector('[data-rwfig=safe]') || {}).textContent;
+  say('rptwin', safe && near(num(safe), Math.round(X.safe), 0) && near(num(safe), Math.round(PRED.safeToSpend.figure()), 0), `Cash: Safe to Spend ${safe}`, `safeToSpend ${X.safe}, Today's Pulse ${PRED.safeToSpend.figure()}, whole dollars`);
+  const bank = val(f, '.rw-parts [data-k=bank] .rw-lv'), pay = val(f, '.rw-parts [data-k=payroll] .rw-lv'), sa = val(f, '.rw-parts [data-k=setaside] .rw-lv');
+  const acc = r2((typeof acAccounts === 'function' ? acAccounts() : []).filter(x => x.a.type === 'bank').reduce((a, x) => a + x.bal, 0));
+  say('rptwin', near(bank, acc) && near(bank, B.cash), `Cash: in the bank ${bank}`, `Banking's Accounts card ${acc}, companyBalance ${B.cash}`);
+  const ap = (typeof acApNeeds === 'function' ? acApNeeds() : []).filter(x => x.kind === 'payroll').map(x => num((x.title.match(/\\$[\\d,.]+/) || [''])[0]));
+  say('rptwin', near(-pay, B.payrollAccrued) && ap.some(v => near(v, B.payrollAccrued, 0.5)), `Cash: payroll due ${pay}`, `Bills and Payroll's payroll row ${ap.join(', ')}, payroll accrued ${B.payrollAccrued}`);
+  say('rptwin', near(-sa, setAside().total), `Cash: set aside ${sa}`, `setAside ${setAside().total}`);
+  f = await open('cash', 'cash:ar');
+  const ar = val(f, '[data-k=artotal] .rw-lv');
+  const bt = await page('billing');
+  const aging = [...bt.matchAll(/(?:Current|1 to 30 Days|31 to 60 Days|Over 60 Days)\\s*\\n\\s*(\\$[\\d,]+(?:\\.\\d+)?)/g)].reduce((a, m) => a + num(m[1]), 0);
+  say('rptwin', near(ar, acCollections('').open) && near(ar, aging, 0.5), `Cash, Receivables: open ${ar}`, `Billing's Collections ${acCollections('').open} (its aging on screen ${aging})`);
+  // the jobs: cost to date is the job's own (jobCostPosted), the WIP over and billed ahead are the job's
+  f = await open('jobs');
+  for (const c of [...(f ? f.querySelectorAll('.rw-job[data-rwjob]:not([data-rwjob=""])') : [])]) {
+    const p = DB.projects.find(x => x.id === c.dataset.rwjob), C = jobCostPosted(p), got = val(c, '[data-k=cost] b');
+    say('rptwin', near(got, Math.round(C.onJob), 0.5) && near(C.onJob, jobFin(p).actual), `Job Profitability ${p.project.name}: cost to date ${got}`, `jobCostPosted ${C.onJob} (posted ${C.posted} + not yet posted ${C.notPosted})`);
+  }
+  f = await open('jobs', 'jobs:wip');
+  const all = f && f.querySelector('.rw-alljobs');
+  say('rptwin', all && near(num((all.querySelector('.rw-jv') || {}).textContent), Math.round(B.wip), 0.5), `Job Profitability, Work in Progress: all jobs ${(all && all.querySelector('.rw-jv') || {}).textContent}`, `Over-Billed (WIP) ${B.wip}`);
+  const W = typeof wipAtClose === 'function' ? wipAtClose() : null;
+  const posts = val(f, '[data-k=posts] b');
+  W && say('rptwin', near(posts, W.toPost, 0.5), `Job Profitability, Work in Progress: the ${W.label} close posts ${posts}`, `wipAtClose ${W.toPost}, Books' close row`);
+  for (const c of [...(f ? f.querySelectorAll('.rw-job[data-rwjob]:not([data-rwjob=""])') : [])]) {
+    const id = c.dataset.rwjob, A = billedAhead(id), J = jobFin(DB.projects.find(x => x.id === id));
+    if (A.total > 0.005) say('rptwin', near(val(c, '[data-k=ahead] b'), A.total, 0.5), `${id}: Billed Ahead ${(c.querySelector('[data-k=ahead] b') || {}).textContent}`, `billedAhead ${A.total}`);
+    if (J.contract) say('rptwin', near(val(c, '[data-k=over] b'), J.over > 0.005 ? J.over : J.under, 0.5), `${id}: ${(c.querySelector('[data-k=over] span') || {}).textContent} ${(c.querySelector('[data-k=over] b') || {}).textContent}`, `jobFin ${J.over || J.under}`);
+  }
+  // the closing figure on Books and on Financial Statements
+  if (W && (ROLE_VIEWS[role()] || []).includes('gl')) {
+    acChip.gl = 'close'; glTab = 'periods'; await page('gl');
+    const bk = (document.querySelector('.view.on .ac-front [aria-label="Posts at the close"] .ac-amt b') || {}).textContent;
+    say('rptwin', near(num(bk), W.toPost, 0.5) && near(posts, num(bk), 0.5), `Books' close row ${bk}`, `Job Profitability ${posts}, wipAtClose ${W.toPost}`);
+  }
+  // the management net: Financial Statements' P&L and Books' ledger bridge
+  f = await open('stmt', 'per:ytd'); rwChipGo('kind', 'pl'); await sleep(120); f = F();
+  const net = val(f, '.rw-stmt [data-k=net] .rw-lv');
+  say('rptwin', near(net, Math.round(companyPL(['2026-01-01', today()]).net), 0.5), `Financial Statements: net ${net}`, `companyPL ${companyPL(['2026-01-01', today()]).net}`);
+  if ((ROLE_VIEWS[role()] || []).includes('gl')) {
+    acChip.gl = 'ledger'; glTab = 'overview'; const gt = await page('gl');
+    const m = gt.match(/Net income in the management view[^\\t\\n]*\\t\\s*([\\u2212-]?\\$[\\d,]+(?:\\.\\d+)?)/);
+    m && say('rptwin', near(num(m[1]), net, 1), `Books' ledger bridge: management net ${m[1]}`, `Financial Statements ${net}`);
+  }
+  f = await open('stmt', 'per:week'); rwChipGo('kind', 'pl'); await sleep(120); f = F();
+  say('rptwin', near(val(f, '.rw-stmt [data-k=safe] .rw-lv'), Math.round(X.safe), 0), `Financial Statements, This Week: Safe to Spend ${(f && f.querySelector('.rw-stmt [data-k=safe] .rw-lv') || {}).textContent}`, `Cash's ${Math.round(X.safe)}`);
+  // ---- the statements tie to the ledger, to the cent
+  for (const per of ['ytd', 'last', 'month']) {
+    f = await open('stmt', 'per:' + per); rwChipGo('kind', 'pl'); await sleep(120); f = F();
+    const R = repRangeOf().range, P = companyPL(R), C = truthCoverage(R);
+    const parts = ['bank', 'document', 'hand', 'uncoded', 'other'].map(k => val(f, `.rw-behind [data-k=${k}] .rw-lv`)).filter(v => v != null);
+    const sum = r2(parts.reduce((a, v) => a + v, 0)), tot = val(f, '.rw-behind [data-k=total] .rw-lv');
+    say('rptie', near(sum, r2(P.cogsT + P.ohT)) && near(tot, r2(P.cogsT + P.ohT)) && near(tot, C.cost.total), `${per}: behind the numbers ${parts.join(' + ')} = ${sum}, total ${tot}`, `the P&L's cost ${r2(P.cogsT + P.ohT)} to the cent`);
+    say('rptie', near(val(f, '.rw-behind [data-k=income] .rw-lv'), P.collected), `${per}: payments with a bank line ${(f.querySelector('.rw-behind [data-k=income] .rw-lv') || {}).textContent}`, `collected ${P.collected}`);
+    rwChipGo('kind', 'bs'); await sleep(120); f = F();
+    const S = glBS('all', R[1] > today() ? today() : R[1]), [A, L, E] = ['A', 'L', 'E'].map(k => val(f, `.rw-stmt [data-k=${k}] .rw-lv`));
+    say('rptie', near(A, S.A) && near(L, S.L) && near(E, S.E) && near(A, r2(L + E)), `${per}: Balance Sheet ${A} = ${L} + ${E}`, `glBS ${S.A} = ${S.L} + ${S.E}`);
+    rwChipGo('kind', 'cf'); await sleep(120); f = F();
+    const end = val(f, '.rw-stmt [data-k=end] .rw-lv'), at = R[1] > today() ? today() : R[1];
+    const G = glBalances({ entityId: 'all', to: at }), a1 = (DB.accounts || []).find(a => a.type === 'bank');
+    say('rptie', a1 && near(end, G['acct:' + a1.id] ? G['acct:' + a1.id].bal : null), `${per}: Cash Flow ends on ${end}`, `the ledger's ${a1 && a1.name} at ${at}: ${a1 && G['acct:' + a1.id] && G['acct:' + a1.id].bal}`);
+  }
+  // a manual journal, drafted by the controller and posted by the owner with a reason, is listed and flagged
+  const me = role() === 'owner' ? 'u_owner' : 'u_controller';
+  signIn('u_controller'); setView('gl'); await sleep(150); glTab = 'entry'; glEnt = 'all'; render(); await sleep(200);
+  const dt = document.getElementById('gle-date'), mm = document.getElementById('gle-memo'), rows = document.querySelectorAll('#gle-lines tbody tr');
+  if (dt && mm && rows.length >= 2) {
+    dt.value = '2026-08-31'; mm.value = 'finance_xcheck: a manual journal on the van';
+    rows[0].querySelector('[data-l=acct]').value = '8000'; rows[0].querySelector('[data-l=dr]').value = '1200';
+    rows[1].querySelector('[data-l=acct]').value = '1590'; rows[1].querySelector('[data-l=cr]').value = '1200';
+    document.getElementById('gle-save').click(); await sleep(200);
+    signIn('u_owner'); render(); await sleep(100);
+    const j = DB.gl.journals.find(x => x.kind === 'manual' && /a manual journal on the van/.test(x.memo));
+    try { mbCloseModal(); } catch (e) {}
+    j && glApprove(j.id, 'finance_xcheck: straight-line on the van');
+    signIn(me); render(); await sleep(100);
+    for (const per of ['ytd', 'last']) {
+      f = await open('stmt', 'per:' + per); rwChipGo('kind', 'pl'); await sleep(120); f = F();
+      const M = truthManual(repRangeOf().range, { entityId: 'all' }).rows.map(m => m.j.id);
+      const shown = [...(f ? f.querySelectorAll('.rw-behind [data-rwmj]') : [])].map(e => e.dataset.rwmj);
+      const flagged = [...(f ? f.querySelectorAll('.rw-behind .rw-mj') : [])].map(e => e.innerText);
+      say('rptie', j && j.status === 'posted' && M.includes(j.id) && M.every(id => shown.includes(id)) && flagged.some(t => /Manual/.test(t) && /van/.test(t)), `${per}: entries not from a document on the page ${shown.join(', ')} (${flagged.map(t => t.slice(0, 60)).join(' | ')})`, `every truthManual row ${M.join(', ')} flagged, the planted van journal among them`);
+    }
+  } else say('rptie', false, 'the journal entry form is not there', 'a manual journal to plant');
+  // ---- WIP: earned follows from the page's own numbers
+  f = await open('jobs', 'jobs:wip');
+  for (const c of [...(f ? f.querySelectorAll('.rw-job[data-rwjob]:not([data-rwjob=""])') : [])]) {
+    const g = k => val(c, `[data-k=${k}] b`), pct = parseFloat(((c.querySelector('[data-k=pct] b') || {}).textContent || '').replace(/[^\\d.]/g, ''));
+    const con = g('contract'), cost = g('ctc') != null ? g('ctc') : g('cost'), proj = g('proj'), earned = g('earned');
+    if (earned == null) continue;
+    const J = jobFin(DB.projects.find(x => x.id === c.dataset.rwjob));
+    say('rpwip', proj > 0 && near(earned, con * cost / proj, 3) && near(pct, 100 * cost / proj, 0.01 + 50 / proj) && near(earned, Math.round(J.earned), 0.5), `${c.dataset.rwjob}: earned ${earned} at ${pct}% on ${cost} of ${proj}, contract ${con}`, `contract × cost ÷ projected = ${proj > 0 ? r2(con * cost / proj) : '?'}; jobFin ${J.earned}`);
+  }
+  rwGo('jobs'); rwChipGo('jobs', 'wip'); await sleep(150);
+  const sched = (document.getElementById('rep-print-area') || {}).innerText || '';
+  const pre = DB.projects.filter(p => jobFin(p).contract && (jobFin(p).prepaidNotProgress || 0) > 0.005);
+  say('rpwip', pre.every(p => sched.includes(p.project.name + ': ') && /paid ahead/.test(sched)), `the WIP Schedule's note: ${(sched.match(/% complete = [^\\n]*/) || [''])[0].slice(0, 220)}`, `names the money paid ahead it leaves out for ${pre.map(p => p.project.name).join(', ')}`);
+  return out;"""
+
+async def check_reports(p, R):
+    """The Reports pages (11-04): each figure read off the page equals its Accounting or job-page twin."""
+    keys = ['inv_rptwin', 'inv_rptie', 'inv_rpwip', 'inv_rpread']
+    if not any(R.want(k) for k in keys): return
+    js = "async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); try { " + INV_REPORTS_JS + " } catch (e) { return { error: String(e && e.stack || e) }; } }"
+    for uid in ('u_owner', 'u_controller'):
+        b, pg, errs = await open_app(p)
+        await sign_in(pg, uid)
+        res = await pg.evaluate(js)
+        if 'error' in res:
+            R.flag('inv_rptwin', f'{uid}: the Reports invariants could not run', res['error'][:300], 'they run'); await b.close(); continue
+        for k, rows in res.items():
+            key = 'inv_' + k
+            if not R.want(key): continue
+            if not rows: R.flag(key, f'{uid}: nothing read', 'no rows', 'at least one reading'); continue
+            for ok, seen, want in rows:
+                R.readings.append({'figure': key, 'surface': f'{uid} · {seen[:110]}', 'raw': seen, 'value': None, 'expected': want, 'ok': ok})
+                if not ok: R.flag(key, uid, seen, want)
+                elif R.verbose: print('  ok', label(key), '|', uid, seen[:140])
+        for e in errs[:3]: R.flag('inv_rptwin', f'{uid}: page', e[:200], 'no page errors')
+        await b.close()
+
 async def check_invariants(p, R):
     if not R.want('inv_dep'): return
     def read(key, surface, ok, seen, expected):
@@ -1025,7 +1229,7 @@ async def check_invariants(p, R):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -1042,6 +1246,7 @@ async def main():
         await check_stock(p, R)
         await check_invariants(p, R)
         await check_money(p, R)
+        await check_reports(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

@@ -1139,7 +1139,8 @@ const RP_CHOICES = [
 ];
 function rpChoice(id) {
   const C = RP_CHOICES.find((c) => c.id === id),
-    A = (DB.company.acctChoices = DB.company.acctChoices || {});
+    // a read: the choices are read where they are, never created by reading them (reading never writes, 11-04)
+    A = DB.company.acctChoices || {};
   return C ? (C.read ? C.read() : (A[id] && A[id].value) || C.def) : "";
 }
 function rpChoicesHtml() {
