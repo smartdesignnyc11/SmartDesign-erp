@@ -298,3 +298,4 @@ This supersedes call (1) of 2026-10-18 (the PM's phone bar Home, Approvals, Proj
 | NY rules (§7) | BACKLOG §7 | Later ("I need to better understand this") |
 | Clean up the site: messy and overwhelming on the iPhone | BACKLOG §3, Today redesign | Built (round 5); regrade pending |
 | North star: nothing slips, real-time truth, leaks caught, learns | `CLAUDE.md` | Standing |
+| 2026-11-04 19:15 | Today/Sales/Company batch HELD a second time. The full walk on integ12 regressed J3 (19 taps, live 24/25: stops at Record Client Approval on CO-2026-003) and J7 (38/35, live 65/62: stops at the vendor invoice for PO-2026-049 in the mail). The likely cause is the Inbox fold into Messages › To Decide. Sent back to the lane with the drafts coverage fix (508 vs 603 sheets). Deploys only when both are at least as good as live. | CoS deploy rule: nothing worse than live | lane a2066d4 |
