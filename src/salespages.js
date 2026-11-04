@@ -79,7 +79,9 @@ function slJobOf(l) {
     deals = L.filter((x) => "won" === x.stage && slClientOf(x) === c && !x.projectId && !P.some((p) => p.dealId === x.id)).sort((a, b) => String(a.wonAt || "").localeCompare(String(b.wonAt || "")));
   // pair in order, a job only with a deal signed on or before the job began (a job that started before the deal was
   // signed belongs to an earlier deal: the Kleins' 121 State Street is not their second deal's job)
-  const begun = (p) => String((p.project || {}).start || p.createdAt || "9999-12-31").slice(0, 10),
+  // when the job was signed: its contract date (the job's, else the client's when it has one job), else its start
+  const solo = jobs.length + P.filter((p) => p.clientId === c.id && (claimed.has(p.id) || p.dealId)).length === 1,
+    begun = (p) => String((p.project || {}).contractDate || p.contractDate || (solo && c.contractDate) || (p.project || {}).start || p.createdAt || "9999-12-31").slice(0, 10),
     used = new Set();
   let mine = null;
   deals.forEach((d) => {
@@ -645,6 +647,9 @@ function slDealRender() {
   if ("undefined" == typeof MN_SALES) return;
   const items = [["ovsales", "Pipeline"]].concat(YD_ESTIMATES_IN_MENU ? [["billing", "Estimates", "estimates"]] : [], [["clients", "Clients"]]);
   MN_SALES.splice(0, MN_SALES.length, ...items);
+  // with Estimates off the menu, the PM (who has no Accounting group) opens Billing by link only: from a job's Contract
+  // and Billing and the Pipeline's Proposals Out (the Accounting lane's MN_LINK registry)
+  if (!YD_ESTIMATES_IN_MENU && "undefined" != typeof MN_LINK) (MN_LINK.pm = MN_LINK.pm || []).includes("billing") || MN_LINK.pm.push("billing");
   try {
     // the stage the owner names "Design Proposal" (Sales must-fix 3)
     "undefined" != typeof SL_STAGES && SL_STAGES.forEach((x) => "design" === x[0] && (x[1] = "Design proposal"));

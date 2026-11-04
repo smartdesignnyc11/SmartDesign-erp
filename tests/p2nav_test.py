@@ -271,7 +271,7 @@ async def team_checks(c, pg, uid, tag, phone):
         await pg.fill('#mbm [data-f="to"]', 'Chen'); await pg.fill('#mbm [data-f="cc"]', 'Billing'); await pg.fill('#mbm [data-f="subject"]', 'Nemo Tile PO'); await pg.fill('#mbm [data-f="body"]', 'Please send the signed PO.')
         n0 = await pg.evaluate("() => (DB.outbox || []).length")
         await pg.click('#mbm #mbm-ok'); await pg.wait_for_timeout(300)
-        o = await pg.evaluate("n0 => { const o = (DB.outbox || []).slice(n0)[0]; return o && { to: o.to.email, cc: o.cc, status: o.status, toast: document.getElementById('toast').textContent, appr: mApprovals().some(x => x.kind === 'draft' && x.id === o.id) }; }", n0)
+        o = await pg.evaluate("n0 => { const o = (DB.outbox || []).slice(n0)[0]; return o && { to: o.to.email, cc: o.cc, status: o.status, toast: document.getElementById('toast').textContent, appr: (render(), td2Model().rows.some(x => x.it.kind === 'draft' && x.it.id === o.id)) }; }", n0)
         c.ok(o and o['to'].startswith('chen@') and any(x.startswith('Billing <billing@') for x in o['cc']) and o['status'] == 'draft', f'{tag}: New Email to "Chen" cc "Billing" is a draft to their addresses ({o})')
         c.ok(o and 'Draft to Chen' in o['toast'] and o['appr'], f'{tag}: it toasts and waits on Today to send ({o and o["toast"]})')
         # any other mail To field in a sheet offers the team too

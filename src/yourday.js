@@ -663,7 +663,6 @@ function ydMailRows(M) {
           ordered = standardOrder(rest, stdQueueTie);
         } catch (e) {}
         M.appr = exc;
-        M.tasks = (M.tasks || []).filter((it) => !heldTask(it));
         M.all = ordered.concat(mins);
       } else if ("controller" === r) {
         const have = new Set((M.all || []).filter((it) => "ydPay" === it.kind).map((it) => it.id)),
