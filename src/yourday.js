@@ -495,7 +495,7 @@ const YD_TD_ROLES = ["owner", "pm", "coord", "billing", "controller"];
 // not an exception: under the exceptions rule a clean bill of any size is the PM's. A bill the Payment Check would
 // hold (held, a duplicate invoice number, a PO that has received nothing, papers missing) is not approved by the PM's
 // yes either: the hold is the reason, in its own words. Each reason in the words the row prints.
-const YD_RT_WORDS = { "no-po": "no PO behind it", "new-vendor": "a first payment to a new vendor", "bank-changed": "the vendor's bank details changed", "over-po": "over its PO" };
+const YD_RT_WORDS = { "no-po": "no PO behind it", "new-vendor": "a first payment to a new vendor", "bank-changed": "the vendor's bank details changed", "over-po": "over the PO" };
 const YD_PC_SKIP = ["approval", "self"];
 // one draw asks the same bill many times (the queue, Today, the placement check): the answer is kept for the moment
 // it is asked in, keyed by what it reads, and dropped once the event that asked it is over
@@ -552,8 +552,9 @@ function ydPoAmt(po) {
 const YD_BILL_DONE = ["approved", "paid", "void", "voided", "rejected", "scheduled", "deleted", "verified", "draft"];
 // The owner's Approvals: everything the queue routes to him (DELEGATION and rtFor: a bill once the PM has recommended
 // it, payroll, every PO poNeedsApproval sends him, a credit memo, a journal, a draft written for him), each exception
-// saying why; and a bill that is an exception and sits in nobody's queue. Lessons and changes are The Brain's.
-// Nothing the queue gives him is dropped: an item that is no exception still waits on him, so it stays on his Today.
+// saying why; and every bill that is an exception from the moment it lands, wherever it sits (one at the PM's review
+// says so: the overrun is the owner's to see the day the bill arrives, and his yes may skip the review, logged).
+// Lessons and changes are The Brain's. Nothing the queue gives him is dropped.
 function ydOwnerExc(appr) {
   const out = [],
     seen = new Set();
@@ -564,15 +565,12 @@ function ydOwnerExc(appr) {
     "bill" === it.kind && seen.add(it.id);
     out.push(it);
   });
-  let queued = new Set();
-  try {
-    queued = new Set(ydQueueBase({ everyone: !0 }).filter((it) => "bill" === it.kind).map((it) => it.id));
-  } catch (e) {}
   (DB.bills || []).forEach((b) => {
-    if (seen.has(b.id) || queued.has(b.id) || YD_BILL_DONE.includes(b.status) || !b.status) return;
+    if (seen.has(b.id) || YD_BILL_DONE.includes(b.status) || !b.status) return;
     const why = ydBillExc(b);
     if (!why.length) return;
-    out.push({ kind: "bill", id: b.id, title: `${b.vendor} · bill ${b.number}`, detail: why.join(" · "), open: { view: "ap" }, ydWhy: why, ydExtra: 1, who: "owner", due: b.date || "" });
+    const atPm = "submitted" === b.status;
+    out.push({ kind: "bill", id: b.id, title: `${b.vendor} · bill ${b.number}`, detail: (atPm ? ["with the PM for review"] : []).concat(why).join(" · "), open: { view: "ap" }, ydWhy: (atPm ? ["with the PM for review"] : []).concat(why), ydExtra: 1, who: "owner", due: b.date || "" });
   });
   return out;
 }
@@ -763,7 +761,8 @@ function ydReadyToPay() {
       }
       if (it && it.ydWhy && "bill" === it.kind) {
         const b = (DB.bills || []).find((x) => x.id === it.id);
-        b && ((c.why = esc(it.ydWhy.slice(0, 2).join(" · "))), c.verb === "Open" && (c.verb = "Review"));
+        // its reasons first, then what the row said of it (the overrun against the PO and the budget stays in words)
+        b && ((c.why = esc(it.ydWhy.slice(0, 2).join(" · ")) + (c.why ? " · " + c.why : "")), c.verb === "Open" && (c.verb = "Review"));
       }
       // a clean bill the PM approves is approved (it waits on no one after him): his verb says so
       if (it && "bill" === it.kind && "pm" === role() && "Recommend" === c.verb) {
@@ -804,7 +803,15 @@ td2Model = function () {
     cap = desk ? 14 : 5,
     secsOf = "appr" === tab ? ["appr"] : "coming" === tab ? ["coming"] : ["appr", "now"],
     shown = [];
-  secsOf.forEach((s) => Q.filter((x) => x.sec === s).forEach((x) => (!fold || shown.length < cap) && shown.push(x)));
+  // folded, the approvals never take the whole first screen: the late and today work keeps its places under them
+  // (leak_test 11-04: the PM's 23 approvals hid an overdue follow-up nobody owned)
+  if (fold) {
+    const A = Q.filter((x) => "appr" === x.sec),
+      N = Q.filter((x) => "now" === x.sec),
+      nN = Math.min(N.length, Math.max(desk ? 6 : 2, cap - A.length)),
+      nA = Math.min(A.length, cap - nN);
+    shown.push(...A.slice(0, nA), ...N.slice(0, nN));
+  } else secsOf.forEach((s) => Q.filter((x) => x.sec === s).forEach((x) => shown.push(x)));
   const secs = secsOf.map((s) => ({ k: s, name: TD2_SEC[s], rows: shown.filter((x) => x.sec === s), n: Q.filter((x) => x.sec === s).length })).filter((s) => s.rows.length);
   const T = { M: M, r: r, S: S, rows: rows, chips: chips, tab: tab, Q: Q, shown: shown, secs: secs, hidden: Q.length - shown.length, late: rows.filter((x) => x.late).length, need: chips[0].n };
   return (ydTdMemo = { k: k, T: T }), T;

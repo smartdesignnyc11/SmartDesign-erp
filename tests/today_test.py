@@ -261,17 +261,25 @@ async def main():
         outside = await pg.evaluate(f"() => {{ const A = mApprovals(), K = {KEY}, a = new Set(A.map(K)); return ydQueueBase().map(K).filter(k => !a.has(k)); }}")
         lost = await pg.evaluate("() => ydOwnerPlaced().lost")
         c.ok(not lost, f'owner: {len(lost)} waiting item(s) on no Today and not in The Brain: {lost[:4]}')
-        dup = {k: v for k, v in seen.items() if len(v) > 1}
+        # an exception bill at the PM's review is on the owner's Approvals too, from the day it lands (the overrun is his
+        # to see; the chief of staff's review, 11-04): the one item two people hold on purpose, the PM's step and his
+        await sign_in(pg, 'u_owner')
+        heads = set(await pg.evaluate(f"() => mApprovals().filter(x => x.ydExtra && x.kind === 'bill').map({KEY})"))
+        dup = {k: v for k, v in seen.items() if len(v) > 1 and not (k in heads and sorted(v) == ['owner', 'pm'])}
         orphan = [k for k in every if k not in seen and k not in outside]
         c.ok(not dup, f'{len(dup)} item(s) in two queues: {list(dup.items())[:3]}')
         c.ok(not orphan, f'{len(orphan)} item(s) in nobody\'s queue: {orphan[:4]}')
-        c.ok(sum(counts.values()) + len(outside) == len(every), f'queues {counts} and {len(outside)} on the owner\'s Today or in The Brain add to {sum(counts.values()) + len(outside)}, everyone\'s holds {len(every)}')
+        twice = len([k for k in heads if len(seen.get(k, [])) > 1])
+        c.ok(sum(counts.values()) - twice + len(outside) == len(every), f'queues {counts} ({twice} held by the owner and the PM) and {len(outside)} on the owner\'s Today or in The Brain add to {sum(counts.values()) - twice + len(outside)}, everyone\'s holds {len(every)}')
         print('delegation:', counts)
         # the owner's Approvals is exceptions only (DECISIONS 10-26, the Your Day mock-up): what waits on the others is
         # on their own Today, not on his (the old Approvals page and its "wait on the others" line forward to the chip)
         await sign_in(pg, 'u_owner'); await go(pg, 'home'); await pg.wait_for_timeout(250)
-        ex = await pg.evaluate("() => tdyModel().appr.every(it => it.ydWhy && it.ydWhy.length)")
-        c.ok(ex, "owner: an approval on his Today that is not one of the 10-26 exceptions")
+        # every approval on his Today is an exception (with its reason) or routed to him by the firm's routing (DELEGATION,
+        # rtFor, poNeedsApproval: payroll, a PO over the limits, a credit memo, a journal); nothing else of the others'
+        ex = await pg.evaluate("""() => { const own = new Set(mApprovals({ everyone: true }).filter(x => x.who === 'owner').map(x => x.kind + '|' + x.id));
+          return tdyModel().appr.filter(it => !(it.ydWhy && it.ydWhy.length) && !own.has(it.kind + '|' + it.id)).map(it => it.kind + '|' + it.id); }""")
+        c.ok(not ex, f"owner: approvals on his Today that are neither exceptions nor routed to him: {ex[:4]}")
         c.ok(not errs, f'delegation: errors {errs[:2]}')
         await b.close()
         # ---- every office role's Home is Today (lane "today", 2026-10-19: one Today page per person, MENU_DRAFT

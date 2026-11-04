@@ -244,7 +244,7 @@ PLANT = """() => { window.ydPlant = (id, vendor, amt, o) => { o = o || {};
 # each exception, and each thing the Payment Check would hold, with the words its reason carries
 CASES = [
     ('xpaid', 'Nemo Tile', 500, {'po': 1000, 'recv': True, 'bill': {'paidBeforeApproval': True}}, 'paid before approval'),
-    ('xover', 'Nemo Tile', 120, {'poNumber': 'PO-2026-041'}, 'over its PO'),
+    ('xover', 'Nemo Tile', 120, {'poNumber': 'PO-2026-041'}, 'over the PO'),
     ('xbank', 'Harbor Glass Co', 700, {'po': 1000, 'recv': True, 'vendor': {'bankChangedAt': '2026-08-30'}}, 'bank details changed'),
     ('xnew', 'Kings Stone Supply', 800, {'po': 1000, 'recv': True}, 'first payment'),
     ('xheld', 'Nemo Tile', 300, {'po': 1000, 'recv': True, 'bill': {'onHold': {'state': 'open', 'by': 'Chen', 'why': 'two boxes arrived broken'}}}, 'Held by'),
