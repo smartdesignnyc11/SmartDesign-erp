@@ -199705,7 +199705,8 @@ const MN_JOBS = () => [
     // the Report Builder's Pinned; the coordinator and the designer, who open no Reports page, keep it as their Report
     // Builder (their pinned reports, scoped to what their role may read).
     MN_G("reports", "Reports", "reports", [
-      ["reports", "Job Profitability", "jobs", { roles: ["owner", "controller", "billing", "pm", "designer"] }],
+      // Job Profitability is the view's own entry (no tab): a link or a reader that names the Reports view finds it
+      ["reports", "Job Profitability", null, { roles: ["owner", "controller", "billing", "pm", "designer"] }],
       ["reports", "Cash", "cash", { roles: ["owner", "controller", "billing"] }],
       ["reports", "Financial Statements", "stmt", { roles: ["owner", "controller"] }],
       ["reports", "Report Builder", "builder"],

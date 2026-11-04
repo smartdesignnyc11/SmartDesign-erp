@@ -981,7 +981,7 @@ function rwGo(pg) {
   const base = mnGo;
   mnGo = function (g, it) {
     try {
-      it && "reports" === it.v && it.tab && RW_PAGES[it.tab] && rwGo(it.tab);
+      it && "reports" === it.v && rwGo(it.tab && RW_PAGES[it.tab] ? it.tab : "jobs");
     } catch (e) {}
     return base.apply(this, arguments);
   };
