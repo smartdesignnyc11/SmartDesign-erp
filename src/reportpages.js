@@ -537,6 +537,11 @@ function rwHead(pg, extra) {
 
 // Job Profitability
 function rwJobsHtml() {
+  // one job's own report (a job opened from the list, for a seat with no Budget of its own): inside a record,
+  // everything is that record; the firm's At Risk, tiles and cards are one tap back
+  const one = "profit" === repTab && "undefined" != typeof repProj && repProj && (DB.projects || []).find((p) => p.id === repProj);
+  if (one)
+    return `<div class="rw-stdopen"><a href="#" class="rw-link" data-rwchip="jobs:margin">Job Profitability, every job</a><b>${rwEsc(one.project.name)}</b><span class="small muted">This job's profitability: contract, cost by line, billed and collected, and the bank line behind each figure.</span></div>`;
   const L = rwJobs(),
     pm = "pm" === role(),
     risk = rwJobRisk(),

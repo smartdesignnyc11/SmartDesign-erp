@@ -130941,6 +130941,7 @@ if ("function" == typeof renderReports) {
       if (per && !per.classList.contains("ov-per") && per.querySelectorAll("button").length >= 5) {
         const sel = document.createElement("select");
         (sel.className = "btn sm ov-per"),
+          sel.setAttribute("aria-label", "Period"),
           [...per.querySelectorAll("button")].forEach((b, i) => {
             const o = document.createElement("option");
             (o.textContent = "function" == typeof tcase ? tcase(b.textContent.trim()) : b.textContent.trim()),
