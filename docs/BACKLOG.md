@@ -1305,3 +1305,5 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
 - **The 13-week forecast releases a job's set-aside by calendar**, not as earned (121 State's $47K by 9/23 at 25% done). Needs each job's forecast cost by week.
 - **J10's fourth owner answer varies between runs** (passed once on this build, 3 of 4 the next).
 - **drafts_shards.sh reports FAILED when every shard passes**: it reads the last log line, which is now the DRAFTS count.
+- **A cached ready-to-bill answer differs from a fresh computation** (speed_test, owner/PM/coordinator, live and the Reports batch alike): oc:readyToBill's memo key misses an input. The same class hid Controls' 15 exceptions on the Reports batch (fixed there). Class fix: every memo keyed by a data version that every write moves; speed_test's memo check gates.
+- **Speed budgets over on live** (speed_test 24 failed of 92: screen switches 1.1–1.5 s against 1.1 s; boot near 3.6 s); Reports adds about 0.3 s to the coordinator's boot.
