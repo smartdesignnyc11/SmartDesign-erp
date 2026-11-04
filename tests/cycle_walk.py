@@ -1680,8 +1680,10 @@ def open_mail(p, rx, what):
     p.tap('All', exact=True)   # the Your Day mock-up: one list of every conversation
     # a Messages row reads "who: subject" (the Your Day mock-up): the subject is matched after the sender, as the person
     # reads it; the row itself is what is tapped
-    subj = lambda l: re.sub(r'^[^:\[]{1,60}:\s+', '', l.strip())
-    find = lambda: next((p.scr.row(l.strip()) for l in p.scr.text.split('\n') if (re.search(rx, l) or re.search(rx, subj(l))) and not l.strip().startswith('[')), None)
+    # (a row is itself the control: its line reads "[n] who: subject", the number the row's own, not a button's label)
+    own = lambda l: re.sub(r'^\[\d+\]\s+', '', l.strip())
+    subj = lambda l: re.sub(r'^[^:\[]{1,60}:\s+', '', own(l))
+    find = lambda: next((p.scr.row(own(l)) for l in p.scr.text.split('\n') if (re.search(rx, l) or re.search(rx, subj(l))) and not own(l).startswith('[')), None)
     r = find() if p.look() else None
     if r is None:
         c = p.scr.find('Everything')
@@ -1719,6 +1721,12 @@ def j3_price_change(p):
     o = p.look().find(f'Open {co}') if co else None
     if o: p.tap_ctl(o)
     else: open_co(p, co)
+    # the same Send sheet can open a moment later, over the change order the person just opened: the same finding,
+    # and the person closes it the same way before pricing
+    if p.look().sheet and 'send to client' in norm(p.scr.sheet_title):
+        p.expect(False, f'the change order asks for its cost and days before it can be sent ({co} opened Send to Client at $2,400 with no cost and 0 days)',
+                 p.scr.sheet_title)
+        p.tap('Cancel', exact=True)
     sc = p.look()
     days = sc.find('Schedule Impact', field=True)
     if days is None and p.expand():   # the numbers move once the header is open: read both from the new screen
