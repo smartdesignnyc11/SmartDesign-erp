@@ -1050,8 +1050,9 @@ function ydForward() {
   if (!ydOffice()) return;
   const v = view;
   if ("mapprove" === v) return (view = "home"), tdyTabSet("appr"), (ydTdMemo.k = "");
-  // the Chief of Staff's old link keeps landing on Ask's Findings, Every Chain (the assistant's redirect): the bank lines
-  // to review, the WIP and the money facts are read there, as before
+  // the Chief of Staff's findings are Today's rows (the Your Day and Company mock-ups): its old link lands on Today, and
+  // its pass (Every Chain: the bank lines to review, the WIP, the money facts) stays a part of Ask's Findings tab
+  if ("cos" === v && ydMay("home")) return (view = "home");
   if ("comms" === v && !ydMsgKeep && !("undefined" != typeof cmOpen && cmOpen) && !("undefined" != typeof cmSel && cmSel)) return (view = "chat"), (ydMsg.chip = "need"), (ydMsg.thread = !1);
   // the Changes register (a change proposed to the price book, a rule) keeps its page: its Approve lives there
   if ("meetings" === v && !ydMsgKeep && !("undefined" != typeof mtOpen && mtOpen) && !("undefined" != typeof mtTab && "changes" === mtTab) && ydMay("chat")) return (view = "chat"), (ydMsg.chip = "meet"), (ydMsg.thread = !1);

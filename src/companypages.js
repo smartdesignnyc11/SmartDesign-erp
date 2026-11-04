@@ -179,7 +179,7 @@ function ydBrainRender() {
       });
       return { id: id, sec: "sug", title: String(x.title || "A lesson"), meta: String(x.why || (x.then && x.then.title) || "from what happened").slice(0, 160), act: x.learn && isOwner() ? "Approve" : "Teach It", i: x.ydI };
     }),
-    sugHtml = sugRows.length ? `<section class="yd-card"><div class="yd-sh"><h3>Suggested From What Happened</h3><span class="n">${sugRows.length}</span><span class="note">${isOwner() ? "lessons the brain drew from the record; a yes makes each a rule" : "lessons the brain drew from the record; teach one and the owner approves it"}</span></div>${sugRows.map((r) => ydRowHtml(r).replace(`data-ydact="${r.id}"`, `data-ydact="${r.id}" data-bnsug="${r.i}"`)).join("")}</section>` : "",
+    sugHtml = sugRows.length ? `<section class="yd-card"><div class="yd-sh"><h3>Suggested From What Happened</h3><span class="n">${sugRows.length}</span><span class="note">${isOwner() ? "lessons the brain drew from the record; a yes makes each a rule" : "lessons the brain drew from the record; teach one and the owner approves it"}</span></div>${sugRows.map((r) => ydRowHtml(r).replace(`data-ydact="${r.id}"`, isOwner() ? `data-ydact="${r.id}" data-bnsug="${r.i}"` : `data-ydteach="${r.id}" data-bnsug="${r.i}"`)).join("")}</section>` : "",
     full = `<div class="yd-ph"><button type="button" class="btn" data-ydbrainfull>Open the Full Brain</button><span class="small muted">every lesson, the workload by person, what it watches</span></div>`;
   const rows = L.map((it, i) => {
     let c = null;
@@ -570,7 +570,9 @@ function ydHubRender() {
   } catch (e) {}
   // The Brain is its own page again (the assistant opened it as a tab of Ask)
   "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.brain;
-  // the Chief of Staff is no menu entry: its old link keeps landing on Ask's Findings, Every Chain (PA_REDIRECT.cos)
+  // the Chief of Staff is no menu entry: its old link lands on Today (src/yourday.js), and Ask's Findings tab keeps
+  // Every Chain under Ask's own heading
+  "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.cos;
   // Messages to Clients never act alone (DECISIONS 11-03)
   try {
     const t = paType("clientMessages");
@@ -661,6 +663,12 @@ document.addEventListener(
     if ((b = at("[data-ydteamback]"))) return e.preventDefault(), (ydPersonId = ""), void render();
     if ((b = at("#yd-brain [data-ydchip]"))) return e.preventDefault(), (ydBrainChip = b.dataset.ydchip), void render();
     if ((b = at("#yd-brain [data-ydbrainfull]"))) return e.preventDefault(), void ydBrainFull();
+    // anyone but the owner reads The Brain; Teach It drafts a lesson for the owner's yes (it approves nothing)
+    if ((b = at("#yd-brain [data-ydteach]"))) {
+      e.preventDefault(), e.stopPropagation();
+      const f = ydActs[b.dataset.ydteach];
+      return void (f && f());
+    }
     if ((b = at("#yd-standard [data-ydchip]"))) return e.preventDefault(), (ydStdChip = b.dataset.ydchip), void render();
     if ((b = at("[data-ydfold='kept']"))) return e.preventDefault(), (ydKeptOpen = !ydKeptOpen), void render();
     if ((b = at("[data-ydobnew]"))) return e.preventDefault(), void ydObNew();
