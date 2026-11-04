@@ -70,7 +70,11 @@ async def today_as(p, uid, phone):
     text = ' '.join(x['text'] for x in m['rows'])
     # section 10 item 7: everything that waits on this person elsewhere is a row here
     need = await pg.evaluate("() => (typeof ydMsgNeeds === 'function' ? ydMsgNeeds() : (typeof cmNeedsAnswer === 'function' ? cmNeedsAnswer().map(c => ({kind: 'tdyMail', id: c.id})) : [])).map(x => [x.kind, String(x.id)])")
-    miss = [i for k, i in need if (k, i) not in ids]
+    # a message is on Today as its own row, or as the row that holds it (the bill to enter from it, a hold read from it)
+    held = set(await pg.evaluate("""() => { const rows = (td2Cur && td2Cur.T.rows) || [];
+      return rows.flatMap(x => { try { return tdyApprRefs(x.it).concat(x.it.nyh && x.it.nyh.commId ? ['comm:' + x.it.nyh.commId] : []); } catch (e) { return []; } })
+        .filter(r => /^comm:/.test(r)).map(r => r.slice(5)); }"""))
+    miss = [i for k, i in need if (k, i) not in ids and not (k == 'tdyMail' and i in held)]
     c.ok(not miss, f'{who}: {len(miss)} of the {len(need)} messages Messages counts as yours are not on Today')
     # a late or today task is on Today as its own row, or as the row that stands for it (an obligation's renewal)
     tmiss = await pg.evaluate("""() => { const td = today(); const rows = (td2Cur && td2Cur.T.rows) || [];
@@ -213,17 +217,107 @@ async def tasks_as(p, uid, phone):
 APPR_N = """() => { const vis = e => !!e && e.getClientRects().length > 0; const b = [...document.querySelectorAll('.view.on [data-tdytabbtn="appr"] .n')].find(vis); return b ? +b.textContent : null; }"""
 
 
+# planting a bill as the coordinator enters one: its own PO (received or not, pending or issued), a vendor on file
+PLANT = """() => { window.ydPlant = (id, vendor, amt, o) => { o = o || {};
+    if (!DB.vendors.some(v => v.name === vendor)) DB.vendors.push(Object.assign({ id: 'v_' + id, name: vendor, email: id + '@example.com', insuranceExp: '2027-06-30', w9: true }, o.vendor || {}));
+    const V = DB.vendors.find(v => v.name === vendor); V && !V.w9 && (V.w9 = true);  // its papers are on file
+    let po = o.poNumber ? DB.pos.find(x => x.number === o.poNumber) : null;
+    if (!po && o.po) { po = { id: 'po_' + id, number: 'PO-T-' + id.toUpperCase(), vendor: vendor, projectId: 'p121', entityId: 'ent1', status: o.poStatus || (o.recv ? 'received' : 'issued'), date: today(),
+        lines: [{ id: 'pol_' + id, desc: 'test materials', qty: 1, price: o.po, unit: 'ea', received: o.recv ? 1 : 0 }], tax: 0, shipping: 0, approvals: [] }; DB.pos.push(po); }
+    const b = { id: id, vendor: vendor, number: o.number || ('T-' + id.toUpperCase()), date: today(), due: iso(addDays(parse(today()), 14)), entityId: 'ent1', projectId: 'p121', poId: po ? po.id : '',
+      cat: 'materials', code: '', lines: [{ id: 'bl_' + id, desc: 'test materials', amount: amt, poLineId: po && po.lines[0] ? po.lines[0].id : '' }], payMethod: 'Check', notes: '',
+      status: 'submitted', approvals: [{ t: nowStamp(), by: 'Chen', role: 'coord', action: 'submitted' }], createdBy: 'Chen', terms: 'NET 14' };
+    Object.assign(b, o.bill || {}); DB.bills.push(b); save(); return b.id; }; }"""
+
+# each exception, and each thing the Payment Check would hold, with the words its reason carries
+CASES = [
+    ('xpaid', 'Nemo Tile', 500, {'po': 1000, 'recv': True, 'bill': {'paidBeforeApproval': True}}, 'paid before approval'),
+    ('xover', 'Nemo Tile', 120, {'poNumber': 'PO-2026-041'}, 'over its PO'),
+    ('xbank', 'Harbor Glass Co', 700, {'po': 1000, 'recv': True, 'vendor': {'bankChangedAt': '2026-08-30'}}, 'bank details changed'),
+    ('xnew', 'Kings Stone Supply', 800, {'po': 1000, 'recv': True}, 'first payment'),
+    ('xheld', 'Nemo Tile', 300, {'po': 1000, 'recv': True, 'bill': {'onHold': {'state': 'open', 'by': 'Chen', 'why': 'two boxes arrived broken'}}}, 'Held by'),
+    ('xdup', 'Nemo Tile', 250, {'po': 1000, 'recv': True, 'number': 'NT-88412'}, ''),
+    ('xnorecv', 'Nemo Tile', 400, {'po': 1000, 'recv': False}, 'received'),
+]
+
+
+async def exceptions(p):
+    """The chief of staff's probe (11-04), planted as Chen enters bills, approved by the PM as he would: a clean bill is
+    Approved, To Pay on the controller's Today; each exception (paid before approval, over its PO, a bank change, a first
+    payment to a new vendor) and each bill the Payment Check would hold (held, a duplicate invoice number, a PO that has
+    received nothing) is recommended, not approved, and lands on the owner's Approvals with its reason. A pending PO over
+    $10,000, and every PO poNeedsApproval sends him, is his; payroll is his."""
+    b, pg, errs = await open_app(p, False)
+    await sign_in(pg, 'u_chen')
+    await pg.evaluate(PLANT)
+    await pg.evaluate("() => ydPlant('xclean', 'Nemo Tile', 600, { po: 1000, recv: true })")
+    for cid, v, amt, o, _ in CASES:
+        await pg.evaluate("([i, v, a, o]) => ydPlant(i, v, a, o)", [cid, v, amt, o])
+    # two pending orders: one over $10,000, one under it
+    await pg.evaluate("""() => { DB.pos.push({ id: 'po_big', number: 'PO-T-BIG', vendor: 'Nemo Tile', projectId: 'p121', entityId: 'ent1', status: 'pending', date: today(), lines: [{ id: 'pob1', desc: 'stone slabs', qty: 1, price: 12000, unit: 'ea' }], tax: 0, shipping: 0, submittedBy: 'Chen', submittedAt: today(), approvals: [] });
+      DB.pos.push({ id: 'po_small', number: 'PO-T-SMALL', vendor: 'Nemo Tile', projectId: 'p121', entityId: 'ent1', status: 'pending', date: today(), lines: [{ id: 'pos1', desc: 'grout', qty: 1, price: 3000, unit: 'ea' }], tax: 0, shipping: 0, submittedBy: 'Chen', submittedAt: today(), approvals: [] }); save(); }""")
+    tot = await pg.evaluate("() => DB.bills.filter(b => /^x/.test(b.id)).map(b => [b.id, billTotal(b), ydBillExc(b)])")
+    c.ok(all(t[1] > 0 for t in tot), f'every planted bill carries an amount: {[t[:2] for t in tot]}')
+    c.ok(not tot[0][2], f'the clean bill is no exception: {tot[0][2]}')
+    for (cid, _, _, _, word), t in zip(CASES, tot[1:]):
+        c.ok(t[2] and (not word or any(word in w for w in t[2])), f'{cid}: an exception, saying "{word}": {t[2]}')
+    # the PM's yes on each, from where he works (the clean one from his Today; the rest through the one bill gate)
+    await sign_in(pg, 'u_alan'); await go(pg, 'home')
+    await pg.evaluate("() => openBill('xclean')"); await pg.wait_for_timeout(200)
+    lbl = await pg.evaluate("() => [...document.querySelectorAll('#d-body [data-bact=\"pmok\"]')].map(b => b.innerText.trim())")
+    c.ok(lbl == ['Approve'], f'the bill page reads Approve on a clean bill, not PM: recommend ({lbl})')
+    await pg.evaluate("() => { typeof closeAll === 'function' && closeAll(); }")
+    st = await pg.evaluate("""async () => { tdyTabSet('appr'); tdyAllOpen = true; render(); await new Promise(r => setTimeout(r, 150));
+      const row = [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.id === 'xclean'); if (!row) return 'no row on the PM\\'s Approvals';
+      const v = row.querySelector('[data-tdverb]'); if (!v) return 'no button'; const label = v.innerText.trim(); v.click(); await new Promise(r => setTimeout(r, 200));
+      const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await new Promise(r => setTimeout(r, 200)); return label; }""")
+    c.ok(st == 'Approve', f'pm: the clean bill on his Approvals reads Approve ({st})')
+    pmq = await pg.evaluate("() => mApprovals().filter(x => x.kind === 'bill').map(x => x.id)")
+    c.ok(all(x[0] in pmq for x in CASES), f'pm: every exception bill is on his Approvals first (his review): {[x[0] for x in CASES if x[0] not in pmq]}')
+    await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'xnew'); openBill(b.id); }")
+    await pg.wait_for_timeout(200)
+    lbl = await pg.evaluate("() => [...document.querySelectorAll('#d-body [data-bact=\"pmok\"]')].map(b => b.innerText.trim())")
+    c.ok(lbl and all(x == 'Recommend to the Owner' for x in lbl), f'the bill page reads Recommend to the Owner on an exception ({lbl})')
+    await pg.evaluate("() => { typeof closeAll === 'function' && closeAll(); }")
+    for cid, *_ in CASES:
+        await pg.evaluate("i => { const b = DB.bills.find(x => x.id === i); billAction(b, 'pmok'); document.querySelectorAll('#mbm').forEach(m => m.remove()); }", cid)
+    S = await pg.evaluate("() => Object.fromEntries(DB.bills.filter(b => /^x/.test(b.id)).map(b => [b.id, b.status]))")
+    c.ok(S['xclean'] == 'approved', f'the clean bill is Approved, To Pay ({S["xclean"]})')
+    c.ok(all(S[x[0]] != 'approved' for x in CASES), f'no exception or held bill is approved by the PM yes: {S}')
+    # the owner: each one on his Approvals with its reason, on his Today; the clean one is not his
+    await sign_in(pg, 'u_owner'); await go(pg, 'home')
+    oq = await pg.evaluate("() => Object.fromEntries(mApprovals().map(x => [x.kind + ':' + x.id, (x.ydWhy || []).join('; ')]))")
+    for cid, *_ in CASES:
+        c.ok(('bill:' + cid) in oq and oq['bill:' + cid], f'owner: {cid} on his Approvals with its reason ({oq.get("bill:" + cid)!r})')
+    c.ok('bill:xclean' not in oq, 'owner: the clean bill is not his')
+    c.ok('po:po_big' in oq, 'owner: the pending PO over $10,000 is his')
+    nap = await pg.evaluate("() => DB.pos.filter(po => po.status === 'pending' && poNeedsApproval(po)).map(po => po.id)")
+    c.ok(all(('po:' + x) in oq for x in nap), f'owner: every PO poNeedsApproval sends him is his: {[x for x in nap if "po:" + x not in oq]}')
+    every = await pg.evaluate("() => mApprovals({ everyone: true }).map(x => x.kind + ':' + x.id)")
+    c.ok(all(('po:' + x) in every for x in await pg.evaluate("() => DB.pos.filter(po => po.status === 'pending').map(po => po.id)")), 'every pending PO is in a queue')
+    c.ok(any(k.startswith('payroll:') for k in oq), 'owner: payroll is his')
+    rows = await pg.evaluate("() => td2Model().rows.map(x => x.it.kind + ':' + x.it.id)")
+    c.ok(all(('bill:' + x[0]) in rows for x in CASES), f'owner: every exception is a row of his Today: {[x[0] for x in CASES if "bill:" + x[0] not in rows]}')
+    # the controller: the clean one is his to pay, and nothing else planted is
+    await sign_in(pg, 'u_controller'); await go(pg, 'home')
+    pay = await pg.evaluate("() => td2Model().rows.filter(x => x.it.kind === 'ydPay').map(x => x.it.id)")
+    c.ok('xclean' in pay, f'controller: the clean bill is on his Ready to Pay ({pay})')
+    c.ok(not [x for x in pay if x in [y[0] for y in CASES]], f'controller: nothing unapproved is on his Ready to Pay ({pay})')
+    c.ok(not errs, f'exceptions: errors {errs[:2]}')
+    await b.close()
+
+
 async def approvals(p):
     """The 10-26 rule end to end (chief of staff review, 11-03): a clean bill the PM approves is Approved, To Pay, its record
     naming the rule, and a row of the controller's Today; the owner's Approvals count is one number in the queue, on
     Today and in Ask; every waiting item of the owner's is on his Approvals, his Today or The Brain; The Brain shows every
     proposal it holds (two drafted from the same events are two rows)."""
     b, pg, errs = await open_app(p, True)
-    # the demo has no clean bill: Chen enters one on Tino's PO, $120 inside it
+    # the demo has no clean bill: Chen enters one, $600 on a received $1,000 order from Nemo Tile (paid before)
     await sign_in(pg, 'u_chen')
-    await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); DB.bills.push({ id: 'bclean', vendor: po.vendor, number: 'TN-5001', date: today(), due: iso(addDays(parse(today()), 14)),
-      entityId: 'ent1', projectId: po.projectId, poId: po.id, cat: 'subs', code: '', lines: [{ id: 'blc1', desc: 'Electrical rough, first draw', amount: 120 }], payMethod: 'Check', notes: '',
-      status: 'submitted', approvals: [{ t: nowStamp(), by: 'Chen', role: 'coord', action: 'submitted' }], createdBy: 'Chen', terms: 'NET 14' }); save(); }""")
+    await pg.evaluate(PLANT)
+    await pg.evaluate("() => ydPlant('bclean', 'Nemo Tile', 600, { po: 1000, recv: true })")
+    c.ok(await pg.evaluate("() => billTotal(DB.bills.find(x => x.id === 'bclean'))") == 600, 'the planted clean bill is $600, not $0')
     c.ok(await pg.evaluate("() => typeof ydBillExc !== 'function' || !ydBillExc(DB.bills.find(x => x.id === 'bclean')).length"), 'the planted bill is no exception (inside its PO)')
     # the PM approves it from his Today, as he would
     await sign_in(pg, 'u_alan'); await go(pg, 'home')
@@ -284,6 +378,7 @@ async def forwards(p):
 async def main():
     only = sys.argv[1:]
     async with async_playwright() as p:
+        if not only or 'exceptions' in only: await exceptions(p)
         if not only or 'approvals' in only: await approvals(p)
         if not only or 'forwards' in only: await forwards(p)
         for uid in ROLES:

@@ -462,21 +462,50 @@ const YD_TD_ROLES = ["owner", "pm", "coord", "billing", "controller"];
   ["owner", "billing", "controller"].forEach((r) => TD2_FACTS[r] && (TD2_FACTS[r] = TD2_FACTS[r].filter((k) => "cash" !== k)));
 })();
 // The 10-26 exceptions (DECISIONS 10-26 decision 3; 11-03: a bill with no PO counts as over the PO, a charge made
-// twice as paid before approval). Each reason in the words the row prints.
+// twice as paid before approval). One routing function decides them: rtFor, the firm's approval routing, with the
+// vendor's real records (bankChangedAt, a first payment under the name, the PO's running total). Its amount ladder is
+// not an exception: under the exceptions rule a clean bill of any size is the PM's. A bill the Payment Check would
+// hold (held, a duplicate invoice number, a PO that has received nothing, papers missing) is not approved by the PM's
+// yes either: the hold is the reason, in its own words. Each reason in the words the row prints.
+const YD_RT_WORDS = { "no-po": "no PO behind it", "new-vendor": "a first payment to a new vendor", "bank-changed": "the vendor's bank details changed", "over-po": "over its PO" };
+const YD_PC_SKIP = ["approval", "self"];
+// one draw asks the same bill many times (the queue, Today, the placement check): the answer is kept for the moment
+// it is asked in, keyed by what it reads, and dropped once the event that asked it is over
+let ydExcMemo = null;
 function ydBillExc(b) {
+  if (!b) return [];
+  const k = [b.id, b.status, (b.lines || []).reduce((a, l) => a + (+l.amount || 0), 0), b.vendor, (b.approvals || []).length, b.poId || "", b.onHold ? b.onHold.state : "", b.txnId || "", (DB.bills || []).length, (DB.txns || []).length].join("|");
+  if (!ydExcMemo) (ydExcMemo = new Map()), setTimeout(() => (ydExcMemo = null), 0);
+  if (ydExcMemo.has(k)) return ydExcMemo.get(k).slice();
+  const why = ydBillExcNow(b);
+  ydExcMemo.set(k, why);
+  return why.slice();
+}
+function ydBillExcNow(b) {
   const why = [];
   try {
     "function" == typeof billPaidUnapproved && billPaidUnapproved(b) && why.push("paid before approval");
-    b.poId ? "function" == typeof billOverPO && billOverPO(b) && why.push("over its PO") : why.push("no PO behind it");
-    b.bankChanged && why.push("the vendor's bank details changed");
-    const v = (DB.vendors || []).find((x) => x.name === b.vendor);
-    v && v.newVendor && why.push("a first payment to a new vendor");
+  } catch (e) {}
+  try {
+    const R = "function" == typeof rtFor ? rtFor(b) : { why: [] };
+    (R.why || []).filter((w) => "owner" === w.role && "amount" !== w.kind).forEach((w) => why.push(YD_RT_WORDS[w.kind] || w.msg));
+  } catch (e) {}
+  try {
     if (!b.poId) {
       const t = ydUnmatchedPay(b);
       t && why.push(`a ${money(Math.abs(+t.amt || 0))} ${t.acctName || "bank"} payment on ${fmt(t.date)} is matched to nothing`);
     }
   } catch (e) {}
-  return why;
+  try {
+    ydPcHolds(b).forEach((h) => why.push(h));
+  } catch (e) {}
+  return [...new Set(why)];
+}
+// what the Payment Check would hold this bill for, before anyone approves it (its own words, first clause)
+function ydPcHolds(b) {
+  if ("function" != typeof pcCheck || !b || b.ic || "function" == typeof billTotal && !(billTotal(b) > 0)) return [];
+  const R = pcCheck(b) || {};
+  return (R.holds || []).filter((h) => !YD_PC_SKIP.includes(h.key) && !h.released).map((h) => String(h.what || h.key).split(/[.:;]\s/)[0]);
 }
 // a bank or card line of the bill's amount with nothing matched to it (the payment that may be this bill)
 function ydUnmatchedPay(b) {
@@ -492,28 +521,27 @@ function ydPoAmt(po) {
   const t = "function" == typeof poTotal ? poTotal(po) : null;
   return +(t && "object" == typeof t ? t.total : t) || +po.total || 0;
 }
-const YD_BILL_DONE = ["approved", "paid", "void", "voided", "rejected", "scheduled", "deleted"];
-// The owner's Approvals: the queue's rows that are exceptions, and the bills that are exceptions but sit in another
-// person's queue or in none (AMP-311, submitted with no PO). Every other approval stays with its owner.
+const YD_BILL_DONE = ["approved", "paid", "void", "voided", "rejected", "scheduled", "deleted", "verified", "draft"];
+// The owner's Approvals: everything the queue routes to him (DELEGATION and rtFor: a bill once the PM has recommended
+// it, payroll, every PO poNeedsApproval sends him, a credit memo, a journal, a draft written for him), each exception
+// saying why; and a bill that is an exception and sits in nobody's queue. Lessons and changes are The Brain's.
+// Nothing the queue gives him is dropped: an item that is no exception still waits on him, so it stays on his Today.
 function ydOwnerExc(appr) {
   const out = [],
     seen = new Set();
   (appr || []).forEach((it) => {
-    let why = null;
-    if ("payroll" === it.kind) why = ["payroll is approved before pay day"];
-    else if ("bill" === it.kind) {
-      const b = (DB.bills || []).find((x) => x.id === it.id);
-      const w = b ? ydBillExc(b) : [];
-      w.length && (why = w);
-      b && seen.add(b.id);
-    } else if ("po" === it.kind) {
-      const po = (DB.pos || []).find((x) => x.id === it.id);
-      po && ydPoAmt(po) > 1e4 && (why = ["a purchase order over $10,000"]);
-    } else if ("hand" === it.kind && /^std:unb:/.test(String(it.id))) why = ["a charge on no estimate or change-order line"];
-    why && ((it.ydWhy = why), out.push(it));
+    if (ydBrainKind(it)) return;
+    const w = ydExcWhy(it);
+    w.length && (it.ydWhy = w);
+    "bill" === it.kind && seen.add(it.id);
+    out.push(it);
   });
+  let queued = new Set();
+  try {
+    queued = new Set(ydQueueBase({ everyone: !0 }).filter((it) => "bill" === it.kind).map((it) => it.id));
+  } catch (e) {}
   (DB.bills || []).forEach((b) => {
-    if (seen.has(b.id) || YD_BILL_DONE.includes(b.status) || !b.status) return;
+    if (seen.has(b.id) || queued.has(b.id) || YD_BILL_DONE.includes(b.status) || !b.status) return;
     const why = ydBillExc(b);
     if (!why.length) return;
     out.push({ kind: "bill", id: b.id, title: `${b.vendor} · bill ${b.number}`, detail: why.join(" · "), open: { view: "ap" }, ydWhy: why, ydExtra: 1, who: "owner", due: b.date || "" });
@@ -521,34 +549,37 @@ function ydOwnerExc(appr) {
   return out;
 }
 const ydBrainKind = (it) => ["change", "lesson", "learn"].includes(it && it.kind);
-// The one predicate (DECISIONS 10-26): does this waiting item need the owner? Every surface that counts approvals reads
-// it through the queue itself (mApprovals below): Today's chip, Ask, PRED.waitingOnMe, the bar.
-function ydIsExc(it) {
-  if (!it) return !1;
-  if ("payroll" === it.kind) return !0;
-  if ("bill" === it.kind) {
-    const b = (DB.bills || []).find((x) => x.id === it.id);
-    return !!(b && ydBillExc(b).length);
-  }
+// why a waiting item is an exception, in the row's words ([] when it is not)
+function ydExcWhy(it) {
+  if (!it) return [];
+  if ("payroll" === it.kind) return ["payroll is approved before pay day"];
+  if ("bill" === it.kind) return ydBillExc((DB.bills || []).find((x) => x.id === it.id));
   if ("po" === it.kind) {
     const po = (DB.pos || []).find((x) => x.id === it.id);
-    return !!(po && ydPoAmt(po) > 1e4);
+    if (!po) return [];
+    const w = [];
+    ydPoAmt(po) > 1e4 && w.push("a purchase order over $10,000");
+    try {
+      "function" == typeof poOverTotal && "undefined" != typeof PO_OVER_OK && poOverTotal(po) > PO_OVER_OK && w.push("more than $1,000 over its estimate line");
+    } catch (e) {}
+    !w.length && "function" == typeof poNeedsApproval && poNeedsApproval(po) && w.push("over the PO approval limit");
+    return w;
   }
-  return "hand" === it.kind && /^std:unb:/.test(String(it.id));
+  return "hand" === it.kind && /^std:unb:/.test(String(it.id)) ? ["a charge on no estimate or change-order line"] : [];
 }
-// money another person approves (a clean bill is the PM's, hours the PM's, a payment the controller's): never the
-// owner's own to-do when it is not an exception
-const YD_MONEY_KINDS = ["bill", "po", "payroll", "time", "pay"];
-// The queue, delegated (mApprovals): the owner's approvals are the exceptions (and the bills that are exceptions
-// wherever they sat, AMP-311 among them); everyone else's queue no longer holds an exception. The full queue, lessons
-// and the owner's own to-dos included, is ydQueueBase: The Brain and Today read it for what is not an approval.
+function ydIsExc(it) {
+  return ydExcWhy(it).length > 0;
+}
+// The queue (mApprovals) keeps the firm's routing (DELEGATION, rtFor): a submitted bill is the PM's review, exception
+// or not; once he recommends one that is an exception it is the owner's; a clean one his yes approves (billAction
+// below). The owner's queue loses only lessons and changes (The Brain holds them) and gains the exception bills that
+// sit in nobody's queue. ydQueueBase is the queue as the firm routes it, for The Brain and the placement check.
 const ydQueueBase = mApprovals;
 mApprovals = function (opts) {
   const R = ydQueueBase.apply(this, arguments);
   try {
     if (!Array.isArray(R)) return R;
     if (opts && opts.everyone) {
-      R.forEach((it) => ydIsExc(it) && (it.who = "owner"));
       const have = new Set(R.filter((it) => "bill" === it.kind).map((it) => it.id));
       ydOwnerExc([])
         .filter((it) => !have.has(it.id))
@@ -556,7 +587,7 @@ mApprovals = function (opts) {
       return R;
     }
     if ("owner" === role()) return ydOwnerExc(R);
-    return R.filter((it) => !ydIsExc(it));
+    return R;
   } catch (e) {
     return R;
   }
@@ -593,30 +624,28 @@ function ydDealRows(M) {
     .filter((x) => "signed" === x.why || !x.taskKeys.some((k) => keys.has(k)))
     .map((x) => ({ kind: "ydDeal", id: x.l.id, x: x, title: x.title, detail: x.meta, due: x.due || today() }));
 }
-// Every message Messages counts as the person's is a row on Today (BACKLOG 10.7). One an approval or a hold already
-// stood for (an escalation, a calendar hold read from it) was hidden behind that item: the message is the row, and the
-// reader shows what was proposed from it.
+// Every message Messages counts as the person's is on Today (BACKLOG 10.7): its own row, or the row that already
+// holds it (the bill to enter from it, the escalation, the calendar hold read from it), which opens the same message.
+// A holding row is never removed for a mail row: the bill proposal from a vendor's invoice is the work, and the
+// person who reads only the reply misses the bill (month 11-04: 18 bills never entered).
+const ydHolds = (it, ids) => {
+  try {
+    return tdyApprRefs(it).some((k) => ids.has(k)) || !!(it.nyh && ids.has("comm:" + it.nyh.commId)) || ("tdyMail" === it.kind && ids.has("comm:" + it.id));
+  } catch (e) {
+    return !1;
+  }
+};
 function ydMailRows(M) {
   if (!YD_TD_ROLES.includes(role())) return;
   let need = [];
   try {
     need = ydMsgNeeds().filter((x) => x.c);
   } catch (e) {}
-  const have = new Set((M.all || []).filter((it) => "tdyMail" === it.kind).map((it) => it.id)),
-    add = need.filter((x) => !have.has(x.id)).map((x) => tdyMailItem(x.c));
+  const all0 = M.all || [],
+    add = need.filter((x) => !all0.some((it) => ydHolds(it, new Set(["comm:" + x.id])))).map((x) => tdyMailItem(x.c));
   if (!add.length) return;
-  const ids = new Set(add.map((it) => "comm:" + it.id)),
-    holds = (it) => {
-      try {
-        return tdyApprRefs(it).some((k) => ids.has(k)) || !!(it.nyh && ids.has("comm:" + it.nyh.commId));
-      } catch (e) {
-        return !1;
-      }
-    },
-    gone = new Set((M.all || []).filter((it) => "tdyMail" !== it.kind && holds(it) && "bill" !== it.kind && "payroll" !== it.kind));
   M.inbox = (M.inbox || []).concat(add);
-  M.appr = (M.appr || []).filter((it) => !gone.has(it));
-  let all = (M.all || []).filter((it) => !gone.has(it)).concat(add);
+  let all = all0.concat(add);
   const mins = all.filter((it) => "tdyMinutes" === it.kind);
   all = all.filter((it) => "tdyMinutes" !== it.kind);
   try {
@@ -640,9 +669,7 @@ function ydMailRows(M) {
           mailFrom = new Set((M.inbox || []).filter((it) => "tdyMail" === it.kind).map((it) => String(((it.c || {}).from || {}).email || "").toLowerCase()).filter(Boolean)),
           // a calendar hold read from a mail is that mail's row (Samantha Field: Reply and Hold), not a second one
           dupHold = (it) => "hand" === it.kind && /^flmail:hold:/.test(String(it.id)) && [...mailFrom].some((e) => String(it.id).toLowerCase().includes(e)),
-          // what is his own to do from the full queue (a renewal to file, a draft to send): Now rows, not approvals
-          own = ydQueueBase().filter((it) => !ydIsExc(it) && !ydBrainKind(it) && !YD_MONEY_KINDS.includes(it.kind) && !dupHold(it)),
-          ownRefs = new Set(own.flatMap((it) => {
+          ownRefs = new Set(exc.filter((it) => !["bill", "po", "payroll", "time", "pay"].includes(it.kind)).flatMap((it) => {
             try {
               return tdyApprRefs(it);
             } catch (e) {
@@ -654,10 +681,9 @@ function ydMailRows(M) {
           have = new Set((M.all || []).map((it) => it.kind + ":" + it.id));
         const all = (M.all || []).filter((it) => !ydBrainKind(it) && !dupHold(it) && !heldTask(it)),
           extra = exc.filter((it) => !have.has(it.kind + ":" + it.id)),
-          mine = own.filter((it) => !have.has(it.kind + ":" + it.id)),
           deals = ydDealRows(M),
           mins = all.filter((it) => "tdyMinutes" === it.kind),
-          rest = all.filter((it) => "tdyMinutes" !== it.kind).concat(extra, mine, deals);
+          rest = all.filter((it) => "tdyMinutes" !== it.kind).concat(extra, deals);
         let ordered = rest;
         try {
           ordered = standardOrder(rest, stdQueueTie);
@@ -674,14 +700,6 @@ function ydMailRows(M) {
           } catch (e) {}
           M.all = all;
         }
-      } else if (YD_TD_ROLES.includes(r)) {
-        // a bill that is an exception is the owner's to decide, in his queue only
-        const isOwners = (it) => "bill" === it.kind && (() => {
-          const b = (DB.bills || []).find((x) => x.id === it.id);
-          return !!(b && ydBillExc(b).length);
-        })();
-        const gone = new Set((M.appr || []).filter(isOwners));
-        gone.size && ((M.appr = M.appr.filter((it) => !gone.has(it))), (M.all = (M.all || []).filter((it) => !gone.has(it))));
       }
     } catch (e) {
       console.warn("your day: today's rows", e);
@@ -719,7 +737,6 @@ function ydReadyToPay() {
         const b = (DB.bills || []).find((x) => x.id === it.id);
         b && ((c.why = esc(it.ydWhy.slice(0, 2).join(" · "))), c.verb === "Open" && (c.verb = "Review"));
       }
-      if (it && "payroll" === it.kind && "owner" === role()) c.verb = "Review Payroll";
       // a clean bill the PM approves is approved (it waits on no one after him): his verb says so
       if (it && "bill" === it.kind && "pm" === role() && "Recommend" === c.verb) {
         const b = (DB.bills || []).find((x) => x.id === it.id);
@@ -1075,23 +1092,56 @@ if ("function" == typeof paAsk) {
 }
 // A bill the PM approves that is no exception needs no owner (DECISIONS 10-26): it is Approved, To Pay, and its record
 // says who approved it, when, and under which rule. The controller pays it from his Today; nothing pays itself.
-const YD_EXC_RULE = "Exceptions only (Alan, 10-26): the owner decides a bill paid before approval, over its PO or with none, a bank-detail change, a first payment to a new vendor, a PO over $10,000 and payroll";
+const YD_EXC_RULE = "Exceptions only (Alan, 10-26): the owner decides a bill paid before approval, over its PO or with none, a bank-detail change, a first payment to a new vendor, a PO the approval limits send him and payroll; a bill the Payment Check would hold is not approved until the hold is cleared";
 {
   const base = billAction;
   billAction = function (b, a) {
     const r = base.apply(this, arguments);
     try {
-      if ("pmok" === a && b && "pm-approved" === b.status && !ydBillExc(b).length) {
-        const by = (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
-        b.status = "approved";
-        b.approvedAt = today();
-        b.approvals.push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "approved: no exception, so it does not wait on the Owner", rule: YD_EXC_RULE });
-        audit("bill", b.id, "approved under the exceptions rule", { status: "pm-approved" }, { status: "approved" }, YD_EXC_RULE);
-        save(), render();
-        toast(`${b.number}: approved, to pay. The controller pays it.`, () => ("function" == typeof openBill ? openBill(b.id) : setView("ap")));
+      if ("pmok" === a && b && "pm-approved" === b.status) {
+        const why = ydBillExc(b);
+        if (!why.length) {
+          const by = (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
+          b.status = "approved";
+          b.approvedAt = today();
+          b.approvals.push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "approved: no exception, so it does not wait on the Owner", rule: YD_EXC_RULE });
+          audit("bill", b.id, "approved under the exceptions rule", { status: "pm-approved" }, { status: "approved" }, YD_EXC_RULE);
+          save(), render();
+          toast(`${b.number}: approved, to pay. The controller pays it.`, () => ("function" == typeof openBill ? openBill(b.id) : setView("ap")));
+        } else {
+          // recommended, not approved: it waits on the owner, and the record and the toast say why
+          (b.approvals || []).length && !b.approvals[b.approvals.length - 1].ydWhy && (b.approvals[b.approvals.length - 1].ydWhy = why.slice(0, 4));
+          save();
+          toast(`${b.number}: recommended. It waits on the Owner: ${why.slice(0, 2).join("; ")}.`, () => ("function" == typeof openBill ? openBill(b.id) : setView("ap")));
+        }
       }
     } catch (e) {
       console.warn("bill under the exceptions rule", e);
+    }
+    return r;
+  };
+}
+// the bill's own page: the PM's yes on a clean bill approves it, so it reads Approve; on an exception it is a
+// recommendation to the owner, with the reason
+if ("function" == typeof openBill) {
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (b && body && "owner" !== role() && "submitted" === b.status) {
+        const why = ydBillExc(b);
+        body.querySelectorAll('[data-bact="pmok"]').forEach((btn) => {
+          btn.textContent = why.length ? "Recommend to the Owner" : "Approve";
+          const row = btn.closest(".row") || btn.parentElement;
+          row &&
+            !body.querySelector(".yd-billnote") &&
+            row.insertAdjacentHTML("beforebegin", `<div class="small muted yd-billnote">${esc(why.length ? `The Owner decides it after you: ${why.slice(0, 3).join("; ")}.` : "No exception: your yes approves it to pay, and the controller pays it.")}</div>`);
+        });
+      }
+    } catch (e) {
+      console.warn("bill page under the exceptions rule", e);
     }
     return r;
   };
