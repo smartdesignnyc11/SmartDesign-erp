@@ -497,15 +497,19 @@ function puBtnMove(v, host) {
 // the Receive sheet); Orders keeps the per-line New PO table (buying starts from the line) until Reports' Cash holds it.
 const PU_KEEP = { po: ["po-funds"], recv: ["recv-body"] },
   puKeep = (v, c) => (PU_KEEP[v] || []).includes(c.id) && !("recv" === v && puPhone());
-// the old page's parts are hidden inline (a phone rule with !important on an id would show them otherwise)
+// the old page's parts are hidden inline (a phone rule with !important on an id would show them otherwise).
+// A part's own display is put back only while our hide still holds it (display none, !important): once the old page's
+// render has written the part's display itself (renderPO opening an order shows #po-doc and hides #po-table), that value
+// is the current one, and putting back the one saved before would show the list over the open order (the walk's J6, 11-04).
 function puHideOld(sec, hide0, v) {
-  [...sec.children].forEach((c) => {
-    if (c.classList.contains("pu")) return;
-    const hide = hide0 && !puKeep(v, c);
-    hide
-      ? (null == c.dataset.puhid && (c.dataset.puhid = c.style.display || ""), c.style.setProperty("display", "none", "important"))
-      : null != c.dataset.puhid && (c.style.removeProperty("display"), c.dataset.puhid && (c.style.display = c.dataset.puhid), delete c.dataset.puhid);
-  });
+  [...sec.children].forEach((c) => c.classList.contains("pu") || uiHideOld(c, hide0 && !puKeep(v, c), "puhid"));
+}
+// one part of an old page hidden (hide) or shown again; key is the page's marker (the Design overview has its own)
+function uiHideOld(c, hide, key) {
+  const ours = "important" === c.style.getPropertyPriority("display");
+  hide
+    ? ((null == c.dataset[key] || !ours) && (c.dataset[key] = c.style.display || ""), c.style.setProperty("display", "none", "important"))
+    : null != c.dataset[key] && (ours && (c.style.removeProperty("display"), c.dataset[key] && (c.style.display = c.dataset[key])), delete c.dataset[key]);
 }
 function puDrop(v) {
   const sec = document.getElementById("v-" + v);
