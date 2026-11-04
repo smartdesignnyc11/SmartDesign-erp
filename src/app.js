@@ -13603,8 +13603,7 @@ function billFlags(b) {
   } else isJobCat(b.cat) && tot >= 1e3 && f.push("No PO for a job cost over $1,000");
   const v = DB.vendors.find((x) => x.name.toLowerCase() === b.vendor.toLowerCase());
   return (
-    v?.bankChangedAt &&
-      dayDiff(v.bankChangedAt, b.date) <= 14 &&
+    bankChangeRecent(v, b.payOn || "") &&
       f.push(`Vendor banking changed ${fmt(v.bankChangedAt)} — verify by phone before paying`),
     v?.insuranceExp &&
       parse(v.insuranceExp) < parse(today()) &&
@@ -15753,8 +15752,7 @@ function vendorState(v) {
       f.push({ lvl: "bad", m: `License expired ${fmt(v.licenseExp)}` }),
     v.w9 || f.push({ lvl: "warn", m: "No W-9 on file" }),
     v.bankPending && f.push({ lvl: "bad", m: "Bank change awaiting Owner verification" }),
-    v.bankChangedAt &&
-      dayDiff(v.bankChangedAt, td) <= 14 &&
+    bankChangeRecent(v) &&
       f.push({ lvl: "warn", m: `Banking changed ${fmt(v.bankChangedAt)}` }),
     f
   );
@@ -37784,8 +37782,7 @@ const remindersBase10 = reminders;
             extras = [];
           v?.bankPending
             ? extras.push("bank change unverified")
-            : v?.bankChangedAt &&
-              dayDiff(v.bankChangedAt, today()) <= 30 &&
+            : bankChangeRecent(v) &&
               extras.push(`banking changed ${fmt(v.bankChangedAt)}`);
           const pb = DB.bills.filter(
             (b) =>
@@ -63180,6 +63177,27 @@ function rtSubject(o) {
             }
     : null;
 }
+// A recent bank-detail change (the wire-fraud control): the vendor's bank details changed within the watch window
+// before the day the money leaves, and no call-back on a number already on file has confirmed it since. Measured to the
+// payment day (`on`, a scheduled pay date; never earlier than today), not to the bill's date: a bill dated before the
+// change still pays into the new account (chief of staff's probe, 11-04: bank changed 8/28, bill dated 8/20, paid by
+// check, approved without the owner). Every payment method (check, ACH, card, wire). The one test: rtFor's routing,
+// the Payment Check, the bill's and the vendor's flags, the purchase order's warning and the owner's exceptions.
+const bankWatchDays = () => {
+  try {
+    return +rtCfg().controls.bankChanged || 60;
+  } catch (e) {
+    return 60;
+  }
+};
+function bankChangeRecent(v, on) {
+  if (!v || !v.bankChangedAt) return null;
+  if (v.bankVerified && v.bankVerified.on >= v.bankChangedAt) return null;
+  const td = today(),
+    day = on && on > td ? on : td,
+    days = dayDiff(v.bankChangedAt, day);
+  return days >= 0 && days <= bankWatchDays() ? { at: v.bankChangedAt, days: days, on: day } : null;
+}
 function rtFor(o) {
   const cfg = rtCfg(),
     s = rtSubject(o);
@@ -63222,13 +63240,12 @@ function rtFor(o) {
         msg: `First payment to ${s.vendor} — nobody has been paid under this name before`,
       });
   }
-  if (c.bankChanged && vend && vend.bankChangedAt) {
-    // one event, one date (BACKLOG §1.35 item 6): the change's own record, shown as a date; the gap is counted from
-    // this payment's date and says so (it read "4 days ago" on 9/3 for a change made 8/20, counted from 8/24)
-    const days = dayDiff(vend.bankChangedAt, s.date || today());
-    days >= 0 &&
-      days <= c.bankChanged &&
-      why.push({
+  // one event, one date (BACKLOG §1.35 item 6): the change's own record, shown as a date; the gap is counted to the day
+  // the money leaves (bankChangeRecent), whatever the bill's own date
+  const bk = c.bankChanged ? bankChangeRecent(vend, (s.ref && (s.ref.payOn || s.ref.scheduledOn)) || "") : null;
+  if (bk) {
+    const days = bk.days;
+    why.push({
         role: "owner",
         kind: "bank-changed",
         hard: !0,

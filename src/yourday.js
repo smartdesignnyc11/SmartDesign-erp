@@ -510,13 +510,14 @@ function ydBillExc(b) {
   return why.slice();
 }
 function ydBillExcNow(b) {
-  const why = [];
+  const why = [],
+    said = new Set();
   try {
-    "function" == typeof billPaidUnapproved && billPaidUnapproved(b) && why.push("paid before approval");
+    "function" == typeof billPaidUnapproved && billPaidUnapproved(b) && (why.push("paid before approval"), said.add("paid"));
   } catch (e) {}
   try {
     const R = "function" == typeof rtFor ? rtFor(b) : { why: [] };
-    (R.why || []).filter((w) => "owner" === w.role && "amount" !== w.kind).forEach((w) => why.push(YD_RT_WORDS[w.kind] || w.msg));
+    (R.why || []).filter((w) => "owner" === w.role && "amount" !== w.kind).forEach((w) => (why.push(YD_RT_WORDS[w.kind] || w.msg), said.add(w.kind)));
   } catch (e) {}
   try {
     if (!b.poId) {
@@ -525,15 +526,20 @@ function ydBillExcNow(b) {
     }
   } catch (e) {}
   try {
-    ydPcHolds(b).forEach((h) => why.push(h));
+    ydPcHolds(b, said).forEach((h) => why.push(h));
   } catch (e) {}
   return [...new Set(why)];
 }
+// a Payment Check hold that says again what a reason above already said is not a second reason: its bank hold after
+// the bank change, its "no purchase order" after no PO, its "already paid" after paid before approval
+const YD_PC_SAME = { bank: "bank-changed", paidbank: "paid" };
 // what the Payment Check would hold this bill for, before anyone approves it (its own words, first clause)
-function ydPcHolds(b) {
+function ydPcHolds(b, said) {
   if ("function" != typeof pcCheck || !b || b.ic || "function" == typeof billTotal && !(billTotal(b) > 0)) return [];
-  const R = pcCheck(b) || {};
-  return (R.holds || []).filter((h) => !YD_PC_SKIP.includes(h.key) && !h.released).map((h) => String(h.what || h.key).split(/[.:;]\s/)[0]);
+  const R = pcCheck(b) || {},
+    S = said || new Set(),
+    same = (h) => (YD_PC_SAME[h.key] && S.has(YD_PC_SAME[h.key])) || ("contract" === h.key && S.has("no-po") && /no purchase order/i.test(String(h.what || "")));
+  return (R.holds || []).filter((h) => !YD_PC_SKIP.includes(h.key) && !h.released && !same(h)).map((h) => String(h.what || h.key).split(/[.:;]\s/)[0]);
 }
 // a bank or card line of the bill's amount with nothing matched to it (the payment that may be this bill)
 function ydUnmatchedPay(b) {

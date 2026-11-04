@@ -233,10 +233,12 @@ APPR_N = """() => { const vis = e => !!e && e.getClientRects().length > 0; const
 PLANT = """() => { window.ydPlant = (id, vendor, amt, o) => { o = o || {};
     if (!DB.vendors.some(v => v.name === vendor)) DB.vendors.push(Object.assign({ id: 'v_' + id, name: vendor, email: id + '@example.com', insuranceExp: '2027-06-30', w9: true }, o.vendor || {}));
     const V = DB.vendors.find(v => v.name === vendor); V && !V.w9 && (V.w9 = true);  // its papers are on file
+    // a vendor paid before (so no first-payment reason stands in for the one under test)
+    o.paidBefore && !DB.bills.some(x => x.id === 'pb_' + id) && DB.bills.push({ id: 'pb_' + id, vendor: vendor, number: 'PB-' + id.toUpperCase(), date: '2026-07-01', lines: [{ id: 'pbl_' + id, amount: 100 }], status: 'paid', approvals: [] });
     let po = o.poNumber ? DB.pos.find(x => x.number === o.poNumber) : null;
     if (!po && o.po) { po = { id: 'po_' + id, number: 'PO-T-' + id.toUpperCase(), vendor: vendor, projectId: 'p121', entityId: 'ent1', status: o.poStatus || (o.recv ? 'received' : 'issued'), date: today(),
         lines: [{ id: 'pol_' + id, desc: 'test materials', qty: 1, price: o.po, unit: 'ea', received: o.recv ? 1 : 0 }], tax: 0, shipping: 0, approvals: [] }; DB.pos.push(po); }
-    const b = { id: id, vendor: vendor, number: o.number || ('T-' + id.toUpperCase()), date: today(), due: iso(addDays(parse(today()), 14)), entityId: 'ent1', projectId: 'p121', poId: po ? po.id : '',
+    const b = { id: id, vendor: vendor, number: o.number || ('T-' + id.toUpperCase()), date: o.date || today(), due: iso(addDays(parse(today()), 14)), entityId: 'ent1', projectId: 'p121', poId: po ? po.id : '',
       cat: 'materials', code: '', lines: [{ id: 'bl_' + id, desc: 'test materials', amount: amt, poLineId: po && po.lines[0] ? po.lines[0].id : '' }], payMethod: 'Check', notes: '',
       status: 'submitted', approvals: [{ t: nowStamp(), by: 'Chen', role: 'coord', action: 'submitted' }], createdBy: 'Chen', terms: 'NET 14' };
     Object.assign(b, o.bill || {}); DB.bills.push(b); save(); return b.id; }; }"""
@@ -250,6 +252,10 @@ CASES = [
     ('xheld', 'Nemo Tile', 300, {'po': 1000, 'recv': True, 'bill': {'onHold': {'state': 'open', 'by': 'Chen', 'why': 'two boxes arrived broken'}}}, 'Held by'),
     ('xdup', 'Nemo Tile', 250, {'po': 1000, 'recv': True, 'number': 'NT-88412'}, ''),
     ('xnorecv', 'Nemo Tile', 400, {'po': 1000, 'recv': False}, 'received'),
+    # the chief of staff's re-probe (11-04): the bank changed 8/28, the bill is dated 8/20, the vendor was paid before;
+    # the change is measured to the day the money leaves, for a check as for ACH
+    ('xbkchk', 'Gowanus Glass Works', 900, {'po': 2000, 'recv': True, 'date': '2026-08-20', 'paidBefore': True, 'vendor': {'bankChangedAt': '2026-08-28'}, 'bill': {'payMethod': 'Check'}}, 'bank details changed'),
+    ('xbkach', 'Gowanus Glass Works', 950, {'po': 2000, 'recv': True, 'date': '2026-08-20', 'paidBefore': True, 'bill': {'payMethod': 'ACH'}}, 'bank details changed'),
 ]
 
 
@@ -273,6 +279,10 @@ async def exceptions(p):
     c.ok(not tot[0][2], f'the clean bill is no exception: {tot[0][2]}')
     for (cid, _, _, _, word), t in zip(CASES, tot[1:]):
         c.ok(t[2] and (not word or any(word in w for w in t[2])), f'{cid}: an exception, saying "{word}": {t[2]}')
+    for t in tot:
+        if t[0] in ('xbkchk', 'xbkach'):
+            c.ok(not any('first payment' in w for w in t[2]), f'{t[0]}: the vendor was paid before, so the bank change alone sends it to the owner: {t[2]}')
+        c.ok(len(t[2]) == len(set(t[2])) and not (any('no PO' in w for w in t[2]) and any('No purchase order' in w for w in t[2])), f'{t[0]}: no reason said twice: {t[2]}')
     # the PM's yes on each, from where he works (the clean one from his Today; the rest through the one bill gate)
     await sign_in(pg, 'u_alan'); await go(pg, 'home')
     await pg.evaluate("() => openBill('xclean')"); await pg.wait_for_timeout(200)
