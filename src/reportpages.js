@@ -61,7 +61,6 @@ const RW_PAGES = {
     analyst: "builder",
   },
   // where each seat lands when it opens Reports without naming a page (SPEC §4)
-  RW_LAND = { owner: "cash", controller: "stmt", billing: "cash", pm: "jobs", design_mgr: "jobs" },
   // the standard reports: each lives with the role that acts on it and is kept here too, so nothing is lost and
   // Cmd-K finds it. [key, name, where it lives, how it opens, the page a role must open for it to be listed]
   RW_STD = [
@@ -85,7 +84,7 @@ const RW_PAGES = {
   ];
 // the page's state. `tab` is the repTab this state was set for: a link that sets repTab itself (Books' "Open the WIP
 // Schedule", a test, the old tab buttons) is honoured by reading the page from it
-const rwS = { page: "", jobs: "margin", cash: "weeks", kind: "pl", pack: !1, detail: "", builder: "saved", std: "", wk: -1, q: "", tab: null, landed: !1 };
+const rwS = { page: "", jobs: "margin", cash: "weeks", kind: "pl", pack: !1, detail: "", builder: "saved", std: "", wk: -1, q: "", tab: null, landed: !1, packYm: "" };
 const rwMay = (v) => (ROLE_VIEWS[role()] || []).includes(v),
   rwPhone = () => ("function" == typeof isMobile ? isMobile() : innerWidth <= 760),
   rwWho = (seat) => {
@@ -106,9 +105,16 @@ function rwPageNow() {
   if ("reports" !== view) return "";
   return rwS.page || RW_TAB_PAGE[repTab] || rwLand();
 }
+// a seat's Reports page with no page named is its first Reports entry (the chief of staff, 11-04): never a page its menu
+// does not list (the PM and billing landed on the firm's P&L and the Pack)
 function rwLand() {
-  const r = role();
-  return RW_LAND[r] || "jobs";
+  try {
+    const g = (mnBuild(role()) || { work: [] }).work.find((x) => "reports" === x.id),
+      it = g && g.items.find((x) => "reports" === x.v);
+    return it ? (it.tab && RW_PAGES[it.tab] ? it.tab : "jobs") : "jobs";
+  } catch (e) {
+    return "jobs";
+  }
 }
 
 // ---- the state follows repTab, and repTab follows the state ---------------------------------------------------------
@@ -137,7 +143,8 @@ function rwTabOf() {
 function rwSync() {
   if ("reports" !== view) return;
   // Billing's old Client Funds tab and Reports' old "funds" are Cash's Client Funds (SPEC §3)
-  if (rwS.tab !== repTab) rwFromTab("dash" === repTab ? "" : repTab);
+  if ("dash" === repTab) rwGo(rwLand());
+  else if (rwS.tab !== repTab) rwFromTab(repTab);
   const t = rwTabOf();
   repTab = t;
   rwS.tab = t;
@@ -173,7 +180,7 @@ function rwSetPer(k, quiet) {
   if ("week" === k) (REP.preset = "custom"), (REP.from = rwWeekStart()), (REP.to = today());
   else REP.preset = { last: "lm", month: "tm", ytd: "ty" }[k] || "ty";
   // the Pack follows the period: last month (a Draft until it is closed), the open month, the week's Flash
-  "undefined" != typeof packMonth && (packMonth = "last" === k ? rwPrevYm() : "");
+  rwS.packYm = "last" === k ? rwPrevYm() : "";
   quiet || (rwS.tab = null);
 }
 function rwRange() {
@@ -479,7 +486,7 @@ function rwBehind() {
     manual = man.filter((m) => !opening.includes(m)),
     amtOf = (m) => r2((m.j.lines || []).reduce((a, l) => a + (+l.dr || 0), 0));
   return {
-    cost: { bank: k.bank, document: k.document, hand: k.hand, uncoded: uncoded, other: other, total: k.total },
+    cost: { bank: k.bank, document: k.document, hand: k.hand, uncoded: uncoded, other: other, total: k.total, rows: k.rows },
     income: { bank: C.income.bank, total: P.income, collected: P.collected },
     opening: opening.map((m) => ({ j: m.j, amt: amtOf(m), flag: (m.flag && m.flag.text) || "" })),
     manual: manual.map((m) => ({ j: m.j, amt: amtOf(m), flag: (m.flag && m.flag.text) || "" })),
@@ -675,7 +682,7 @@ function rwStmtHtml() {
     mj = (m, why) => `<div class="rw-mj" data-rwmj="${rwEsc(m.j.id)}"><b>${rwEsc(m.j.number || "Journal")} · ${rwEsc(fmt(m.j.date))} · ${rwEsc(rwC(m.amt))}</b><span>${rwEsc(new RegExp("^" + why + "\\b", "i").test(m.flag || "") ? m.flag : `${why}: ${m.flag || m.j.memo || ""}`)}</span></div>`;
   const behind = `<section class="card rw-behind" aria-label="What Stands Behind These Numbers"><div class="rw-cap">What Stands Behind These Numbers <span class="small">${rwEsc(rwPerLabel(per) || "the period")}</span></div>${b("income", "Client payments backed by a bank line", pc(B.income.collected), "ok")}${b("bank", "Cost backed by a bank or card line", pc(B.cost.bank), "ok")}${
     B.cost.document ? b("document", "Cost backed by an approved document only (accrual)", pc(B.cost.document)) : ""
-  }${b("hand", "Cost by hand, no bank line (flagged)", pc(B.cost.hand), B.cost.hand ? "warn" : "ok")}${b("uncoded", "Cost not yet coded to an account (Needs Category)", pc(B.cost.uncoded), B.cost.uncoded ? "warn" : "ok")}${
+  }${b("hand", "Cost typed in, not yet on the card or bank statement (flagged)", pc(B.cost.hand), B.cost.hand ? "warn" : "ok")}${"function" == typeof truthHandList ? truthHandList(B.cost) : ""}${b("uncoded", "Cost not yet coded to an account (Needs Category)", pc(B.cost.uncoded), B.cost.uncoded ? "warn" : "ok")}${
     Math.abs(B.cost.other) >= 0.005 ? b("other", "Adjustments the P&L makes outside these rows", pc(B.cost.other), "warn") : ""
   }${b("total", "The P&L's cost: job cost and overhead", pc(B.cost.total), "", "")}${b("opening", `Entries not from a document: ${B.opening.length} opening entr${1 === B.opening.length ? "y" : "ies"}`, pc(B.opening.reduce((a, m) => a + m.amt, 0)), B.opening.length ? "warn" : "ok")}${B.opening.map((m) => mj(m, "Opening")).join("")}${b("manual", "Manual journal entries", String(B.manual.length), B.manual.length ? "warn" : "ok")}${B.manual
     .map((m) => mj(m, "Manual"))
@@ -812,9 +819,8 @@ const RW_DUE_WEEK = {
   },
   key: (r) => r.number,
 };
+"object" == typeof PRED && (PRED.invoicesDueThisWeek = PRED.invoicesDueThisWeek || RW_DUE_WEEK);
 function rwFixSaved() {
-  if ("object" != typeof PRED) return;
-  PRED.invoicesDueThisWeek || (PRED.invoicesDueThisWeek = RW_DUE_WEEK);
   (DB.searches || []).forEach((s) => {
     "Invoices due this week" === s.name && "invoices" === s.ds && !s.pred && (s.pred = "invoicesDueThisWeek");
   });
@@ -920,13 +926,29 @@ function rwFilter(F) {
   const base = renderReports;
   renderReports = function () {
     try {
-      rwFixSaved();
       rwSync();
+      // the Pack's month: a choice on its own month list is the page's; packMonth holds it only while the Pack draws,
+      // because the as-of readers (companyBalance, Ask's cash and AR) read it (they read August after a person picked
+      // August, the chief of staff, 11-04)
+      "undefined" != typeof packMonth && packMonth && packMonth !== rwS.packYm && (rwS.packYm = packMonth);
+      "undefined" != typeof packMonth && (packMonth = "reports" === view && "pack" === repTab ? rwS.packYm || "" : "");
     } catch (e) {
       console.warn("reports sync", e);
     }
-    // the old renderer sends "funds" to Billing; Cash's Client Funds draws its own rows over the forecast's detail
-    const r = base.apply(this, arguments);
+    // a month's Pack reads that month (the old Pack's period follows REP, which meant July once the day is August's
+    // last): its period is the month while it draws, and the person's period is put back after
+    const packOf = "reports" === view && "pack" === repTab && rwS.packYm,
+      keep = packOf ? { preset: REP.preset, from: REP.from, to: REP.to, rf: "undefined" != typeof repFrom ? repFrom : "", rt: "undefined" != typeof repTo ? repTo : "" } : null;
+    packOf && ((REP.preset = "custom"), (REP.from = rwS.packYm + "-01"), (REP.to = fin2End(rwS.packYm)));
+    let r;
+    try {
+      r = base.apply(this, arguments);
+    } finally {
+      "undefined" != typeof packMonth && (packMonth = "");
+      keep && ((REP.preset = keep.preset), (REP.from = keep.from), (REP.to = keep.to), "undefined" != typeof repFrom && ((repFrom = keep.rf), (repTo = keep.rt)));
+    }
+    // a month picked on the Pack's own list is the page's month (the list's own handler sets packMonth and draws)
+    document.getElementById("pack-month")?.addEventListener("change", (e) => (rwS.packYm = e.target.value || ""));
     try {
       "reports" === view && rwMount();
     } catch (e) {
@@ -955,19 +977,9 @@ function rwFilter(F) {
     return r;
   };
 }
-// The first time a person opens Reports with no page named, it lands on the seat's page (SPEC §4); after that it opens
-// where they left it, and a link that set repTab keeps its page.
-const RW_TAB0 = "undefined" != typeof repTab ? repTab : "";
-{
-  const base = setView;
-  setView = function (v) {
-    try {
-      "reports" === v && "reports" !== view && !rwS.landed && null === rwS.tab && repTab === RW_TAB0 && rwGo(rwLand());
-      "reports" === v && (rwS.landed = !0);
-    } catch (e) {}
-    return base.apply(this, arguments);
-  };
-}
+// Reports opened with no page named lands on the seat's first Reports entry: the old renderer's default tab ("dash",
+// read as P&L Detail) is the sign that no page was named, however Reports was reached (setView, a link, a test)
+"undefined" != typeof repTab && "company" === repTab && (repTab = "dash");
 // a menu entry opens its page on its first chip
 function rwGo(pg) {
   rwS.page = pg;
@@ -1093,8 +1105,7 @@ document.addEventListener(
       e.preventDefault();
       rwS.pack = "week" === rwPer() ? "flash" : "pack";
       rwS.detail = "";
-      "last" === rwPer() && "undefined" != typeof packMonth && (packMonth = rwPrevYm());
-      ["month", "ytd"].includes(rwPer()) && "undefined" != typeof packMonth && (packMonth = "");
+      rwS.packYm = "last" === rwPer() ? rwPrevYm() : "";
       repTab = rwTabOf();
       rwS.tab = repTab;
       render();
@@ -1103,6 +1114,17 @@ document.addEventListener(
     if ((b = at("[data-rwsrc]"))) return e.preventDefault(), void rwNewReport(b.dataset.rwsrc);
     if ((b = at("[data-rwnew]"))) return e.preventDefault(), void rwNewReport("");
     if ((b = at("[data-rwprint]"))) return e.preventDefault(), void document.getElementById("rep-print")?.click();
+  },
+  !0,
+);
+// a typed-in card or bank line (Financial Statements, the Pack's coverage) opens the line itself
+document.addEventListener(
+  "click",
+  (e) => {
+    const a = e.target && e.target.closest && e.target.closest("[data-trtxn]");
+    if (!a) return;
+    e.preventDefault(), e.stopPropagation();
+    "function" == typeof txnDialog ? txnDialog(a.dataset.trtxn) : setView("bank");
   },
   !0,
 );

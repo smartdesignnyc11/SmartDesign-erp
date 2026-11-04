@@ -216,7 +216,9 @@ async def part_stmt(c, pg, uid, phone, errs, dev):
     c.ok('Draft' in pk and f'{want[1]} of {want[0]}' in pk, f'{tag}: August\'s Pack does not say Draft and {want[1]} of {want[0]} checks open: "{pk[:160]}"')
     await tap(pg, pg.locator('.view.on > .rw-front [data-rwpack]').first, phone)
     t = await pg.evaluate("() => (document.getElementById('rep-print-area') || {}).innerText || ''")
-    c.ok(re.search(r'August 2026', t) and 'Draft' in t, f'{tag}: the August Pack opens on "{t[:160]}"')
+    c.ok(re.search(r'Monthly Management Report\s*\n\s*August 2026', t) and 'Draft' in t, f'{tag}: the August Pack opens on "{t[:240]}"')
+    hand = await pg.evaluate("() => [...document.querySelectorAll('#rep-print-area .tr-hand li')].map(e => [e.innerText, !!e.querySelector('[data-trtxn]')])")
+    c.ok(hand and all(x[1] and re.search(r'typed in by \w+ on \d+/\d+', x[0]) for x in hand) and any('Roll Off' in x[0] for x in hand), f'{tag}: the August Pack does not list each line typed in, with who, when and a link: {hand}')
     st = await pg.evaluate(STATE)
     screen_ok(c, f'{tag} August Pack', st, phone, errs, 'Financial Statements')
     # Year to Date: the P&L reads companyPL; what stands behind the numbers adds to its cost to the cent
@@ -232,6 +234,17 @@ async def part_stmt(c, pg, uid, phone, errs, dev):
     c.ok(all(re.search(r'\.\d\d$', x) for x in S['behind'] if x) and abs(sum(parts) - S['cost']) < 0.005 and abs((m2f(S['total']) or 0) - S['cost']) < 0.005,
          f'{tag}: behind the numbers {S["behind"]} add to {round(sum(parts), 2)}, the P&L\'s cost is {S["cost"]} (shown {S["total"]})')
     c.ok(abs((m2f(S['income']) or -1) - S['collected']) < 0.005, f'{tag}: client payments backed by a bank line {S["income"]}, collected {S["collected"]}')
+    T = await pg.evaluate("""() => { const F = document.querySelector('.view.on > .rw-front'); const r = F.querySelector('.rw-behind [data-k=hand]');
+      const C = truthCoverage(['2026-01-01', today()]); return { label: r ? r.innerText : '', items: [...F.querySelectorAll('.rw-behind .tr-hand li')].map(e => [e.innerText, (e.querySelector('[data-trtxn]') || {dataset: {}}).dataset.trtxn || '']),
+        want: C.cost.rows.filter(x => x.backing === 'hand').map(x => x.id) }; }""")
+    c.ok(re.search(r'typed in, not yet on the card or bank statement', T['label']) and 'by hand' not in T['label'], f'{tag}: the typed-in row reads "{T["label"][:90]}"')
+    c.ok(sorted(x[1] for x in T['items']) == sorted(T['want']) and all(re.search(r'typed in by \w+ on \d+/\d+', x[0]) for x in T['items']), f'{tag}: the typed-in lines {T["items"]} are not each listed with who and when ({T["want"]})')
+    if T['items']:
+        await tap(pg, pg.locator('.view.on > .rw-front .rw-behind [data-trtxn]').first, phone)
+        o = await pg.evaluate("id => { const d = document.querySelector('#drawer.on, #mbm'); const t = DB.txns.find(x => x.id === id); return { open: !!d, has: !!(d && t && (d.innerText.includes(t.desc) || [...d.querySelectorAll('input')].some(i => i.value === t.desc || i.value === String(Math.abs(t.amt))))) }; }", T['items'][0][1])
+        c.ok(o['open'] and o['has'], f'{tag}: a typed-in line does not open its own record {o}')
+        await pg.evaluate("() => { try { closeEditor(); } catch (e) {} try { mbCloseModal(); } catch (e) {} }")
+        await open_reports(pg, phone, 'Financial Statements'); await chip(pg, phone, 'per:ytd'); await chip(pg, phone, 'kind:pl')
     c.ok(set(S['manual']) <= set(S['mj']) and all(re.search(r'(Opening|Manual)', t) for t in S['mtext']), f'{tag}: entries not from a document {S["manual"]} not all flagged on the page {S["mj"]} {S["mtext"]}')
     # the Balance Sheet balances
     c.ok(await chip(pg, phone, 'kind:bs'), f'{tag}: no Balance Sheet chip')
@@ -306,14 +319,33 @@ async def part_forward(c, pg, uid, phone, errs, dev):
     c.ok(st['heading'] == 'Report Builder' and st['page'] == 'builder', f'{tag}: the Dashboard lands on "{st["heading"]}" {st["page"]}')
     screen_ok(c, f'{tag} Dashboard', st, phone, errs, 'Report Builder')
 
+async def part_land(c, pg, uid, phone, errs, dev):
+    tag = f'{uid} {dev} lands'
+    first = {'Job Profitability': 'jobs', 'Cash': 'cash', 'Financial Statements': 'stmt', 'Report Builder': 'builder'}[MENU[uid][0]]
+    # a fresh session: a link that sets the view and draws (no setView), then the menu's way back in
+    for how, js in (('a link (view and render)', "() => { view = 'reports'; render(); }"), ('setView, after Today', "() => { setView('home'); setView('reports'); }")):
+        await pg.evaluate(js); await pg.wait_for_timeout(250)
+        st = await pg.evaluate(STATE)
+        c.ok(st['page'] == first and st['heading'] == {'jobs': 'Job Profitability', 'cash': 'Cash', 'stmt': 'Financial Statements', 'builder': 'Report Builder'}[first], f'{tag} by {how}: on {st["page"]} headed "{st["heading"]}", want {first}')
+        if 'Financial Statements' not in MENU[uid]: c.ok(st['page'] != 'stmt', f'{tag} by {how}: lands on Financial Statements, which its menu does not list')
+    # a page opened by link keeps its own name (the PM's Financial Statements read "Job Profitability")
+    for pg_ in ('stmt', 'cash', 'builder', 'jobs'):
+        await pg.evaluate("p => { rwGo(p); setView('reports'); }", pg_); await pg.wait_for_timeout(200)
+        st = await pg.evaluate(STATE)
+        want = {'jobs': 'Job Profitability', 'cash': 'Cash', 'stmt': 'Financial Statements', 'builder': 'Report Builder'}[pg_]
+        c.ok(st['heading'] == want, f'{tag}: {pg_} opened by link is headed "{st["heading"]}", want "{want}"')
+    del errs[:]
+
 READ_JS = """async () => { const sleep = ms => new Promise(r => setTimeout(r, ms));
   const walk = async () => { for (const pg of ['jobs', 'cash', 'stmt', 'builder']) { rwGo(pg); setView('reports'); await sleep(80);
       for (const b of [...document.querySelectorAll('.view.on > .rw-front [data-rwchip]')].map(b => b.dataset.rwchip)) { if (/^(page|builder:pinned)/.test(b)) continue;
         const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(60); } } };
-  // the boot's own jobs (the improvement loop's first run stamps company.loopLast) settle first: they are not a read
+  // the boot's own jobs (the improvement loop's first run stamps company.loopLast) settle first, from a page that is not
+  // a report; then the very first read is measured (no warm-up: a first read that writes is a write), the August Pack in it
   for (let i = 0; i < 40 && !(DB.company || {}).loopLast; i++) await sleep(200);
-  await walk();
+  setView('team'); await sleep(400);
   const before = JSON.stringify(DB);
+  rwGo('stmt'); setView('reports'); rwChipGo('per', 'last'); await sleep(60); (document.querySelector('.view.on [data-rwpack]') || { click() {} }).click(); await sleep(150);
   await walk();
   const after = JSON.stringify(DB);
   let at = -1; if (before !== after) at = [...before].findIndex((ch, i) => ch !== after[i]);
@@ -323,8 +355,8 @@ async def part_read(c, pg, uid, phone, errs, dev):
     d = await pg.evaluate(READ_JS)
     c.ok(d == '', f'{uid} {dev}: reading the Reports pages changed the data near: {d}')
 
-PARTS = {'menu': part_menu, 'jobs': part_jobs, 'cash': part_cash, 'stmt': part_stmt, 'builder': part_builder, 'forward': part_forward, 'read': part_read}
-WHO = {'menu': list(MENU), 'jobs': PERSONS, 'cash': PERSONS, 'stmt': PERSONS, 'builder': PERSONS + ['u_chen', 'u_sarah'], 'forward': ['u_owner', 'u_controller'], 'read': ['u_owner', 'u_controller']}
+PARTS = {'land': part_land, 'menu': part_menu, 'jobs': part_jobs, 'cash': part_cash, 'stmt': part_stmt, 'builder': part_builder, 'forward': part_forward, 'read': part_read}
+WHO = {'land': PERSONS, 'menu': list(MENU), 'jobs': PERSONS, 'cash': PERSONS, 'stmt': PERSONS, 'builder': PERSONS + ['u_chen', 'u_sarah'], 'forward': ['u_owner', 'u_controller'], 'read': ['u_owner', 'u_controller']}
 
 async def main():
     args = sys.argv[1:]

@@ -1005,6 +1005,39 @@ INV_REPORTS_JS = """
   const open = async (pg, chip) => { if (typeof rwGo !== 'function') return null; rwGo(pg); setView('reports'); await sleep(150); if (chip) { const [g, k] = chip.split(':'); rwChipGo(g, k); await sleep(120); } return F(); };
   const val = (root, sel) => root ? num((root.querySelector(sel) || {}).textContent) : null;
   const page = async v => { setView(v); await sleep(200); return (document.querySelector('.view.on') || {}).innerText || ''; };
+  // ---- reading never writes, measured on the very first read (no warm-up: a first read that writes is a write). The
+  // boot's own jobs settle first (the improvement loop's first run stamps company.loopLast), from a page that is not a
+  // report; then every Reports page and chip (the old tabs where there are no pages), then the August Pack
+  for (let i = 0; i < 40 && !(DB.company || {}).loopLast; i++) await sleep(200);
+  setView('team'); await sleep(400);
+  const OLD = ['company', 'financials', 'budget', 'pack', 'tieout', 'portfolio', 'profit', 'wip', 'ar', 'payables', 'cash13', 'flash', 'searches', 'statement', 'costintel', 'submittals', 'dlsum', 'progvp', 'studio', 'library', 'analyst'];
+  const first = JSON.stringify(DB);
+  if (typeof rwGo === 'function') {
+    for (const pg of ['jobs', 'cash', 'stmt', 'builder']) { rwGo(pg); setView('reports'); await sleep(60);
+      for (const b of [...document.querySelectorAll('.view.on > .rw-front [data-rwchip]')].map(b => b.dataset.rwchip)) { if (/^(page|builder:pinned)/.test(b)) continue; const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(40); } }
+    rwGo('stmt'); setView('reports'); rwChipGo('per', 'last'); await sleep(60); (document.querySelector('.view.on [data-rwpack]') || { click() {} }).click(); await sleep(150);
+    rwChipGo('per', 'ytd'); await sleep(40);
+  }
+  for (const t of OLD) { repTab = t; view = 'reports'; render(); await sleep(40); }
+  const second = JSON.stringify(DB);
+  let at = -1; if (first !== second) at = [...first].findIndex((ch, i) => ch !== second[i]);
+  say('rpread', first === second, first === second ? 'the first read of every page, chip and old tab: unchanged' : 'the first read changed the data near ' + first.slice(Math.max(0, at - 100), at + 100), 'the data byte for byte as it was');
+  // ---- Ask's as-of figures never read the Reports period: each answer is the same whichever period a person picked,
+  // and the over-billed headline is its own rows' sum (it read $90,787 beside rows adding to $156,274 after This Week)
+  const QS = ['how much are we over-billed', 'how much is safe to spend', 'how much cash do we have', 'what is our AR'];
+  const ask = async () => { const o = {}; for (const q of QS) { const r = await paAsk(q); o[q] = (r && r.headline) || ''; if (/over-billed/.test(q)) o.rows = r2(DB.projects.reduce((a, p) => a + Math.max(0, jobFin(p).over || 0), 0)); } return o; };
+  const keepREP = JSON.stringify(REP);
+  const base = await ask();
+  const ob = num((base[QS[0]].match(/\\$[\\d,]+/) || [''])[0]);
+  say('rptwin', near(ob, Math.round(base.rows), 0.5), `Ask "${QS[0]}": ${base[QS[0]].slice(0, 80)}`, `its rows add to ${base.rows}`);
+  const weekStart = (() => { const d = parse(today()); return iso(addDays(d, -((d.getDay() + 6) % 7))); })();
+  for (const [per, set] of [['week', () => { REP.preset = 'custom'; REP.from = weekStart; REP.to = today(); }], ['last', () => { REP.preset = 'lm'; }], ['month', () => { REP.preset = 'tm'; }], ['ytd', () => { REP.preset = 'ty'; }]]) {
+    if (typeof rwGo === 'function') { rwGo('stmt'); setView('reports'); await sleep(60); rwChipGo('per', per); await sleep(80); }
+    else { set(); repTab = 'company'; view = 'reports'; render(); await sleep(80); }
+    const A = await ask();
+    QS.forEach(q => say('rptwin', A[q] === base[q], `period ${per}: Ask "${q}": ${A[q].slice(0, 90)}`, `the same as before any period was picked: ${base[q].slice(0, 90)}`));
+  }
+  Object.assign(REP, JSON.parse(keepREP)); setView('home'); await sleep(60);
   // the WIP Schedule (the named standard report for the bank and the surety): each row's % complete follows from the
   // figures it prints, or its note names what the cost-to-cost basis leaves out (the review: 121 State at 25% beside
   // $105,084 of $388,888, which is 27%)
@@ -1024,7 +1057,7 @@ INV_REPORTS_JS = """
     say('rpwip', Math.abs(Math.round(100 * basis / J.eac) - pct) < 0.5 && near(earned, con * basis / J.eac, 3), `WIP Schedule ${name}: ${pct}% cost basis, earned ${c[4]}, on ${why}`, `the cost basis % and earned follow from the printed cost (${Math.round(100 * basis / J.eac)}%)`);
   });
 
-  if (typeof rwGo !== 'function') { ['rptwin', 'rptie', 'rpread'].forEach(k => say(k, false, 'no Reports pages (rwGo)', 'the four Reports pages')); return out; }
+  if (typeof rwGo !== 'function') { ['rptwin', 'rptie'].forEach(k => say(k, false, 'no Reports pages (rwGo)', 'the four Reports pages')); return out; }
   // ---- twins
   const X = safeToSpend(), B = X.B;
   let f = await open('cash');
@@ -1126,16 +1159,6 @@ INV_REPORTS_JS = """
   const sched = (document.getElementById('rep-print-area') || {}).innerText || '';
   const pre = DB.projects.filter(p => jobFin(p).contract && (jobFin(p).prepaidNotProgress || 0) > 0.005);
   say('rpwip', pre.every(p => sched.includes(p.project.name + ': ') && /paid ahead/.test(sched)), `the WIP Schedule's note: ${(sched.match(/% complete = [^\\n]*/) || [''])[0].slice(0, 220)}`, `names the money paid ahead it leaves out for ${pre.map(p => p.project.name).join(', ')}`);
-  // ---- reading never writes
-  const walk = async () => { for (const pg of ['jobs', 'cash', 'stmt', 'builder']) { rwGo(pg); setView('reports'); await sleep(60);
-      for (const b of [...document.querySelectorAll('.view.on > .rw-front [data-rwchip]')].map(b => b.dataset.rwchip)) { if (/^(page|builder:pinned)/.test(b)) continue; const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(40); } }
-  };
-  // the boot's own jobs (the improvement loop's first run stamps company.loopLast) settle first: they are not a read
-  for (let i = 0; i < 40 && !(DB.company || {}).loopLast; i++) await sleep(200);
-  await walk();
-  const before = JSON.stringify(DB); await walk(); const after = JSON.stringify(DB);
-  let at = -1; if (before !== after) at = [...before].findIndex((ch, i) => ch !== after[i]);
-  say('rpread', before === after, before === after ? 'every page and chip, twice: unchanged' : 'changed near ' + before.slice(Math.max(0, at - 80), at + 80), 'the data byte for byte as it was');
   return out;"""
 
 async def check_reports(p, R):

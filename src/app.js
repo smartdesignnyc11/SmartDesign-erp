@@ -26272,7 +26272,9 @@ function companyBalance() {
     ),
     projs = DB.projects.map(projectProfit),
     backlog = r2(projs.reduce((a, r) => a + Math.max(0, r.contract - r.billedGross), 0)),
-    wip = r2(projs.reduce((a, r) => a + r.overUnder, 0)),
+    // the net over-billing is as of today, job by job (jobFin): never the Reports period's (projectProfit reads
+    // repFrom/repTo, so Ask's "$156,274 over-billed" read $90,787 after a person picked This Week; the Reports lane, 11-04)
+    wip = r2(DB.projects.reduce((a, p) => a + (+jobFin(p).overUnder || 0), 0)),
     burn = (() => {
       const m = monthKeys(3),
         out = ledger([m[0] + "-01", today()])
@@ -28596,7 +28598,8 @@ function fadeFor(p, w) {
   };
 }
 function repWIP() {
-  wipSnapshot();
+  // the fade's month-end snapshot is a posted record, taken at the close (fin2RunClose: wipSnapshotFor); opening the
+  // schedule used to write one on every read (the Reports lane, 11-04: reading never writes)
   const rows = DB.projects
       .filter((p) => !repEntity || entityOfProject(p) === repEntity)
       .map((p) => ({ w: wipRow(p), f: fadeFor(p, wipRow(p)) }))
@@ -34546,13 +34549,15 @@ reminders = function () {
     out
   );
 };
+// the studio's bill rates: the firm's own once set (Edit writes them), the default until then; reading never writes it
+// (the Studio report stored the default on its first open; the Reports lane, 11-04)
 const rateSchedule = () =>
-  (DB.company.rateSchedule = DB.company.rateSchedule || [
+  DB.company.rateSchedule || [
     { level: "Principal", rate: 225 },
     { level: "Architect", rate: 175 },
     { level: "Designer", rate: 140 },
     { level: "Drafter", rate: 95 },
-  ]);
+  ];
 function levelRate(level) {
   const s = rateSchedule().find((x) => x.level.toLowerCase() === (level || "").toLowerCase());
   return s ? +s.rate : designRate();
@@ -51698,6 +51703,15 @@ function finishBoot() {
       retInit();
     } catch (e) {
       console.error("returns init", e);
+    }
+    // the firm's saved reports are seeded at boot (they were seeded on the Report Builder's first open: a read that wrote)
+    try {
+      "function" == typeof seedSearches && seedSearches();
+      // the operating budget's versions are seeded at boot too (the first Budget vs Actual read wrote them)
+      "function" == typeof budPlan && budPlan();
+      "function" == typeof rwFixSaved && rwFixSaved();
+    } catch (e) {
+      console.error("saved reports", e);
     }
     // a sent invoice reprints as it was sent: its print kind is kept from the first boot of this build (cxKind)
     try {
@@ -178790,7 +178804,25 @@ function truthCoverage(range, opts) {
   return { range: R, cost: cost, income: income, pct: cost.pct, demo: (DB.txns || []).filter((t) => within(t.date, R) && truthDemo(t)).length };
 }
 const truthCovWords = (K) =>
-  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} ${K.rows.length && "invoice" === K.rows[0].kind ? "of earned-revenue adjustment (invoiced ahead of or behind the work, recognised at month end)" : "in adjustments the P&L makes outside these rows"}` : ""}`;
+  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} ${K.rows && K.rows.some((r) => "invoice" === r.kind) ? "by hand" : "typed in, not yet on a bank or card statement"}${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} ${K.rows.length && "invoice" === K.rows[0].kind ? "of earned-revenue adjustment (invoiced ahead of or behind the work, recognised at month end)" : "in adjustments the P&L makes outside these rows"}` : ""}`;
+// The cost lines typed in and not yet on a bank or card statement, each with who typed it, when, and a link to the line
+// (the chief of staff, 11-04: "$9,650 by hand" read as journals; it is Tino's $8,000 and Roll Off's $1,650 on the Amex)
+function truthHandRows(K) {
+  return ((K && K.rows) || [])
+    .filter((r) => "hand" === r.backing && "txn" === r.kind)
+    .map((r) => {
+      const t = (DB.txns || []).find((x) => x.id === r.id) || {},
+        p = ("function" == typeof bfProv && bfProv(t)) || t.prov || {},
+        by = p.by && "rule" !== p.by ? p.by : t.actor && "rule" !== t.actor ? t.actor : "";
+      return { id: r.id, who: r.vendor || r.desc, amt: r.amt, date: r.date, by: by, at: String(p.at || "").slice(0, 10), how: p.how || "", where: String(r.why || "").replace(/^typed in(?: by [^,]+)?,?\s*/, "") };
+    });
+}
+function truthHandList(K) {
+  const L = truthHandRows(K);
+  return L.length
+    ? `<ul class="tr-hand">${L.map((x) => `<li data-trhand="${esc(x.id)}"><a href="#" data-trtxn="${esc(x.id)}">${esc(x.who)} ${money(x.amt)}, ${fmt(x.date)}</a> <span class="small muted">typed in${x.by ? " by " + esc(x.by) : ""}${x.at ? " on " + fmt(x.at) : ""}${x.how ? ", " + esc(x.how) : ""}; ${esc(x.where || "not yet on a statement")}</span></li>`).join("")}</ul>`
+    : "";
+}
 function truthCovHtml(C, title) {
   const bar = (K) => {
       const T = K.total || 1;
@@ -178799,7 +178831,7 @@ function truthCovHtml(C, title) {
     k = C.cost,
     i = C.income;
   return `<div class="card tr-cov" data-trrange="${esc(C.range[0])}|${esc(C.range[1])}"><h3 class="rep-h" style="margin-top:0">${esc(title || "Coverage")} <span class="small muted">a figure with no bank or card line behind it is shown as such</span></h3>
-    <div class="tr-cov-row"><b>Cost ${money(k.total)}</b> <span class="small">${esc(truthCovWords(k))} · <b>${k.pct}%</b> bank-backed</span>${bar(k)}</div>
+    <div class="tr-cov-row"><b>Cost ${money(k.total)}</b> <span class="small">${esc(truthCovWords(k))} · <b>${k.pct}%</b> bank-backed</span>${bar(k)}</div>${truthHandList(k)}
     <div class="tr-cov-row"><b>Income ${money(i.total)}</b> <span class="small">${esc(truthCovWords(i))} · <b>${i.pct}%</b> bank-backed</span>${bar(i)}</div>
     ${C.demo ? `<p class="small muted">${C.demo} line${1 === C.demo ? "" : "s"} came from the Demo Feed and count as typed by hand: the Demo Feed is not bank evidence.</p>` : ""}</div>`;
 }
@@ -200342,7 +200374,9 @@ function mnCurLabel(cur) {
 function mnHeading() {
   const r = role();
   if (!mnOn(r) || MN_BUTTON.has(view)) return;
-  const want = mnCurLabel(mnCur(mnBuild(r)));
+  // a Reports page is named by the page on screen, not the entry lit for it (a page a seat opens by link, the PM's
+  // Financial Statements, read "Job Profitability"; the chief of staff, 11-04)
+  const want = "reports" === view && "function" == typeof rwPageNow && "object" == typeof RW_PAGES && RW_PAGES[rwPageNow()] ? RW_PAGES[rwPageNow()].name : mnCurLabel(mnCur(mnBuild(r)));
   if (!want) return;
   const known = MN_KNOWN[view] || new Set(),
     v = document.querySelector(".view.on");
