@@ -289,8 +289,12 @@ class Screen:
         # pages there, "Accounting Overview" among them, which an anchor "Overview" would otherwise land on)
         m = re.search(r'^Menu: .*$', self.text, re.M)
         base = m.end() if m and self.text.count('\n', 0, m.start()) < 3 else 0
-        i = self.text.lower().find(anchor.lower(), base)
-        return i if i >= 0 else None
+        # a tuple narrows: each anchor is looked for after the one before (an order's card, then a line inside it)
+        i = base
+        for a in (anchor if isinstance(anchor, tuple) else (anchor,)):
+            i = self.text.lower().find(a.lower(), i)
+            if i < 0: return None
+        return i
 
     def find(self, label, field=False, after=None, nth=1, exact=False, kinds=None):
         """the control a person means by this label: exact first, then starts-with, then contains, optionally the first
@@ -1454,9 +1458,17 @@ def po_for(p, words):
     raise Stuck(f'find the order for {words}', f'the 214 Lincoln order with {words} in Orders', p.scr, 'Orders')
 
 
+def card(p, po, *inside):
+    """the order's own delivery card, as the eye finds it: its number heading the card (a link), not the first mention of
+    the number (the 11-03 Deliveries lists the order's late lines under Needs You above the cards), then words inside it"""
+    head = f'link {po}]' if p.scr.where(f'link {po}]') is not None else po
+    return (head,) + inside if inside else head
+
+
 def report_problem(p, po, kind, line, qty, note):
     """Report a Problem on a delivery: what happened, the line, how many, what the driver said"""
-    c = p.look().find('Report a Problem', after=po, exact=True)
+    p.look()
+    c = p.scr.find('Report a Problem', after=card(p, po), exact=True)
     if c is None: raise Stuck(f'report the {kind} on {po}', f'Report a Problem on {po}\'s delivery', p.scr, po)
     p.tap_ctl(c, expect='What happened')
     p.do([('pick', 'What happened', 'Short' if kind == 'short' else 'Damaged'), ('pick', 'Line', line), ('type', 'Quantity affected', str(qty)),
@@ -1481,13 +1493,15 @@ def receive_desktop(p, dw, tile):
     report_problem(p, dw, 'short', 'Drywall & cement board: supply', SHORT_BOARDS, f'{SHORT_BOARDS} cement boards backordered, balance next week (Angel)')
     report_problem(p, tile, 'damaged', 'Porcelain floor tile 12x24 matte: supply', DAMAGED_SF, 'two boxes cracked in the pallet; photo of the boxes (Angel)')
     for line, qty in (('Framing lumber: supply', 1), ('Drywall & cement board: supply', 1)):
-        q = p.look().find('', field=True, after=line)
-        b = p.scr.find('Received', after=line, exact=True)
+        p.look()
+        q = p.scr.find('', field=True, after=card(p, dw, line))
+        b = p.scr.find('Received', after=card(p, dw, line), exact=True)
         if q is None or b is None: raise Stuck(f'receive {line} on {dw}', f'a quantity and Received for {line}', p.scr, dw)
         p.expect(not q.value or CY.num(q.value) == 0, f'the received quantity starts empty, not at the full order ({line})', f'it starts at {q.value}')
         p.do_ctls([('type', q, qty), ('tap', b)])
-    q = p.look().find('', field=True, after='Porcelain floor tile')
-    b = p.scr.find('Received', after='Porcelain floor tile', exact=True)
+    p.look()
+    q = p.scr.find('', field=True, after=card(p, tile, 'Porcelain floor tile'))
+    b = p.scr.find('Received', after=card(p, tile, 'Porcelain floor tile'), exact=True)
     if q is None or b is None: raise Stuck(f'receive the tile on {tile}', 'a quantity and Received for the tile', p.scr, tile)
     p.do_ctls([('type', q, 380 - DAMAGED_SF), ('tap', b)])
 
@@ -2346,6 +2360,13 @@ def selftest():
     po = Screen('Fri Sep 4 13:57 · Chen Biron (coord, phone) · Orders\n[1 link Purchasing] ›FM-1\n[2 input "Search…"]\nPurchase Order FM-1\n[3 Receive All]\n'
                 '== Toast ==\n[4] PO-2026-050 issued to Ferguson — $1,960\n[5 link Open]')
     check(po.row('PO-2026-050', after='Search') is None, 'reader: a toast that names a record is not that record\'s row')
+    # Deliveries (11-03): the order's late lines under Needs You name it above the cards; its own card is the one acted on
+    dl = Screen('Tue Sep 8 10:04 · Chen Biron (coord) · Deliveries\nNeeds You\n[11] PO-2026-049 · Gowanus Building Supply: Framing lumber: supply\n[13 Expedite]\n'
+                'Arriving: Receive Line by Line\n[20] Ferguson\n[21 link PO-2026-050] · expected —\nToilet and vanity faucet\n[22 input "" ="1"]\n[23 Received]\n[25 Report a Problem]\n'
+                '[26] Gowanus Building Supply\n[27 link PO-2026-049] · expected 9/7 Late\nFraming lumber: supply\n[28 input "" ="1"]\n[29 Received]\n[33 Report a Problem]')
+    fake = type('P', (), {'scr': dl})()
+    rp, q = dl.find('Report a Problem', after=card(fake, 'PO-2026-049'), exact=True), dl.find('', field=True, after=card(fake, 'PO-2026-049', 'Framing lumber: supply'))
+    check(rp and rp.n == 33 and q and q.n == 28, f'reader: an order\'s Report a Problem and its line\'s quantity are read in its own card, not after the first mention ({rp and rp.n}, {q and q.n})')
     # the Costs table read as a PM reads it: a line committed over its budget cost is over, flagged or not
     costs = ('[32] Line | Flags | [33 CLIENT PRICE] | [34 BUDGET COST] | [35 ACTUAL TO DATE] | [36 SPENT % OF BUDGET] | [37 PROJECTED MARGIN] | [38 MARGIN %] | [39 BILLED %] | [40 COMMITTED]\n'
              'Framing lumber: supplyEST-2026-016 | — | $1,450 | $1,100 | — | — | $350 | 24% | 0% | $827\n'
