@@ -155,8 +155,11 @@ async def part_jobs(c, pg, uid, phone, errs, dev):
     first = await pg.evaluate("() => (document.querySelector('.view.on > .rw-front .rw-job[data-rwjob]:not([data-rwjob=\"\"])') || {dataset: {}}).dataset.rwjob")
     if first:
         await tap(pg, pg.locator(f'.view.on > .rw-front .rw-job[data-rwjob="{first}"]').first, phone)
-        st = await pg.evaluate("() => ({ view, pid: S && S.id })")
-        c.ok(st['view'] == 'costs' and st['pid'] == first, f'{tag}: the job card opens {st}, want that job\'s Budget (costs, {first})')
+        # the job's Budget; a seat with no Budget its Contract and Billing; the controller, who opens no job page, that
+        # job's own profitability report
+        st = await pg.evaluate("() => ({ view, pid: S && S.id, tab: repTab, proj: typeof repProj !== 'undefined' ? repProj : '', may: (ROLE_VIEWS[role()] || []).includes('costs') ? 'costs' : (ROLE_VIEWS[role()] || []).includes('jbill') ? 'jbill' : 'profit' })")
+        ok = (st['view'] == st['may'] and st['pid'] == first) if st['may'] != 'profit' else (st['view'] == 'reports' and st['tab'] == 'profit' and st['proj'] == first)
+        c.ok(ok, f'{tag}: the job card opens {st}, want that job\'s own page ({first})')
     del errs[:]
 
 async def part_cash(c, pg, uid, phone, errs, dev):
@@ -186,9 +189,9 @@ async def part_cash(c, pg, uid, phone, errs, dev):
     c.ok(i is not None, f'{tag}: no At Risk row for the bill paid before approval {X["rows"]}')
     if i is not None:
         await tap(pg, pg.locator('.view.on > .rw-front .rw-rrow').nth(i), phone)
-        st = await pg.evaluate("() => ({ view, bill: !!document.querySelector('.drawer.open, .modal, #mb-modal, .sheet.open') && /WW-2026-118/.test((document.querySelector('.drawer.open, .modal, #mb-modal, .sheet.open') || {}).innerText || '') })")
+        st = await pg.evaluate("() => ({ view, bill: /WW-2026-118/.test((document.querySelector('#drawer.on') || {}).innerText || '') || [...document.querySelectorAll('#drawer.on input')].some(i => i.value === 'WW-2026-118') })")
         c.ok(st['view'] != 'bank' and st['bill'], f'{tag}: the $33,500 row opens {st}, want the bill WW-2026-118')
-        await pg.evaluate("() => { document.querySelectorAll('.drawer.open .x, .modal .x').forEach(b => b.click()); if (typeof mbCloseModal === 'function') mbCloseModal(); if (typeof closeDrawer === 'function') closeDrawer(); }")
+        await pg.evaluate("() => { if (typeof closeEditor === 'function') closeEditor(); if (typeof mbCloseModal === 'function') try { mbCloseModal(); } catch (e) {} }")
         await open_reports(pg, phone, 'Cash')
     # the views, and no second "ours" figure anywhere on them
     for k, label in (('funds', 'Client Funds'), ('ar', 'Receivables'), ('ap', 'Payables'), ('weeks', 'Next 13 Weeks')):
@@ -277,6 +280,8 @@ async def part_builder(c, pg, uid, phone, errs, dev):
     if not phone:
         b = pg.locator('.view.on > .rw-front [data-rwsrc][data-rweq~="tasks"]').first
         if await b.count():
+            if not await b.is_visible():   # every other table is one tap down
+                await tap(pg, pg.locator('.view.on > .rw-front .rw-more summary').first, phone)
             n0 = await pg.evaluate("() => searchList().length")
             await tap(pg, b, phone)
             r = await pg.evaluate("() => { const s = searchList().find(x => x.id === ssOpen); const t = [...document.querySelectorAll('.toast, #toast, .toasts > *')].map(e => e.innerText).join(' | '); return s && { ds: s.ds, rows: searchRun(s).rows.length, n: searchList().length, toast: t, open: !!document.querySelector('.toast a, #toast a, .toasts a, .toast button, #toast button') }; }")
@@ -304,7 +309,9 @@ async def part_forward(c, pg, uid, phone, errs, dev):
 READ_JS = """async () => { const sleep = ms => new Promise(r => setTimeout(r, ms));
   const walk = async () => { for (const pg of ['jobs', 'cash', 'stmt', 'builder']) { rwGo(pg); setView('reports'); await sleep(80);
       for (const b of [...document.querySelectorAll('.view.on > .rw-front [data-rwchip]')].map(b => b.dataset.rwchip)) { if (/^(page|builder:pinned)/.test(b)) continue;
-        const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(60); } } setView('dashboard'); await sleep(80); setView('home'); await sleep(60); };
+        const [g, k] = b.split(':'); rwChipGo(g, k); await sleep(60); } } };
+  // the boot's own jobs (the improvement loop's first run stamps company.loopLast) settle first: they are not a read
+  for (let i = 0; i < 40 && !(DB.company || {}).loopLast; i++) await sleep(200);
   await walk();
   const before = JSON.stringify(DB);
   await walk();

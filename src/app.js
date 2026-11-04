@@ -26349,7 +26349,7 @@ function repCompany() {
             `<tr><td>${esc(k)}</td><td class="money">${money(v)}</td><td class="dim">${P.income ? Math.round((v / P.income) * 100) : 0}% of income</td><td style="width:120px"><div class="rep-bar-wrap"><i style="width:${tot ? Math.round((v / tot) * 100) : 0}%;background:var(--ink-4)"></i></div></td></tr>`,
         )
         .join("") || '<tr><td colspan="4" class="muted">Nothing in this period.</td></tr>';
-  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected${P.unbanked ? ` · ${money(P.unbanked)} recorded, not yet in the bank` : ""}`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `available ${money(B.available)} · client funds held ${money(B.clientFunds)}`, B.available < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
+  return `<div class="rep-head"><div><h2 style="margin:0">Company</h2><div class="small muted">${label} · ${"function" == typeof basis && "cash" === basis() ? "cash basis — income = money collected · costs = money actually paid out" : "accrual — income = invoices issued · costs = bills entered, bank items without a bill, payroll runs"}</div></div><div class="seg no-print">${["month", "quarter", "ytd", "all"].map((k) => `<button class="${cfoPeriod === k ? "on" : ""}" data-cfop="${k}">${{ month: "Month", quarter: "Quarter", ytd: "YTD", all: "All" }[k]}</button>`).join("")}</div></div>\n    <h3 class="rep-h">Profit & loss — ${label}</h3><div class="fin rep-kpis">${kpi("Revenue (earned)", P.income, `${money(P.collected)} collected${P.unbanked ? ` · ${money(P.unbanked)} recorded, not yet in the bank` : ""}`)}${kpi("Job cost (COGS)", P.cogsT, `${P.income ? Math.round((P.cogsT / P.income) * 100) : 0}% of income`)}${kpi("Gross profit", P.gross, `${P.grossPct}%`, P.grossPct < 25 ? "warn" : "good")}${kpi("Overhead", P.ohT, `${P.income ? Math.round((P.ohT / P.income) * 100) : 0}% of income`)}${P.propertyNOI ? kpi("Property NOI", P.propertyNOI, "rent less property operating and interest", P.propertyNOI < 0 ? "warn" : "") : ""}${kpi("Net profit", P.net, `${P.netPct}%${P.propertyNOI ? ` · construction ${money(P.opProfit)} + property ${money(P.propertyNOI)}` : ""}`, P.net < 0 ? "warn" : "good")}</div>\n    <div class="fin rep-kpis">${kpi("Payroll (all)", P.payroll, `${money(P.payrollJob)} on jobs · ${money(P.payrollOH)} overhead`)}${kpi("Cash in bank", B.cash, `Safe to Spend ${money(stsSafe())}, as on Cash · client funds held ${money(B.clientFunds)}`, stsSafe() < 0 ? "warn" : "good")}${kpi("Receivables", B.arOut, `${money(B.arOver)} overdue · ${money(B.ret)} retainage`, B.arOver ? "warn" : "")}${kpi("Payables", B.ap, `${money(B.apOver)} overdue · ${money(B.openPO)} open POs`)}${kpi("Backlog", B.backlog, runwayText(B))}</div>\n    <div class="grid2"><div><h3 class="rep-h">Job cost by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.cogs, P.cogsT)}<tr style="font-weight:600"><td>Total job cost</td><td class="money">${money(P.cogsT)}</td><td></td><td></td></tr></tbody></table></div></div>\n    <div><h3 class="rep-h">Overhead by category</h3><div class="tw"><table class="t rep-t"><tbody>${catRows(P.oh, P.ohT)}<tr style="font-weight:600"><td>Total overhead</td><td class="money">${money(P.ohT)}</td><td></td><td></td></tr></tbody></table></div>${
     P.nonT
       ? `<p class="small muted">Excluded from P&L: ${Object.entries(P.non)
           .map(([k, v]) => `${esc(k)} ${money(v)}`)
@@ -26845,15 +26845,17 @@ function analystFindings() {
             );
           })(),
         );
-    const B2 = companyBalance();
-    B2.available < 0 &&
+    // one "ours" figure (BACKLOG 1.35 item 1): Safe to Spend, never bank less client funds
+    const B2 = companyBalance(),
+      sts2 = stsSafe();
+    sts2 < 0 &&
       add(
         "high",
         "Cash",
-        "Available cash is negative",
-        `${money(B2.cash)} in the bank but ${money(B2.clientFunds)} of it belongs to client purchases still to be made`,
-        -B2.available,
-        { view: "reports", tab: "funds" },
+        "Safe to Spend is negative",
+        `${money(B2.cash)} in the bank, less what is owed and the cash received for work not yet done, leaves ${money(sts2)}`,
+        -sts2,
+        { view: "reports", tab: "cash13" },
       );
   }
   const B = companyBalance();
@@ -27299,7 +27301,7 @@ function repDashboard() {
     .map(([k, l]) => `<button class="${dashPeriod === k ? "on" : ""}" data-dashp="${k}">${l}</button>`)
     .join(
       "",
-    )}</div></div>\n    <div class="dtiles">${tile("Income", P.income, delta(P.income, prior.income))}${tile("Expenses", expenses, delta(expenses, expensesPrior), "exp")}${tile("Net profit", P.net, `${P.netPct}% margin · ${delta(P.net, prior.net)}`, P.net >= 0 ? "good" : "bad")}${tile("Cash", bal.cash, `available ${money(bal.available)} after ${money(bal.clientFunds)} client funds`, bal.available < 0 ? "bad" : "")}${tile("Receivables", bal.arOut, `${money(bal.arOver)} overdue`, bal.arOver ? "warn" : "")}${tile("Payables", bal.ap, `${money(bal.apOver)} overdue`)}</div>\n    <div class="dgrid"><div class="card dcard wide"><h3>Profit & loss by ${D.R.buckets}</h3>${pl}</div>\n      <div class="card dcard"><h3>Income vs expense</h3><div class="tw"><table class="t rep-t"><thead><tr><th></th><th class="money">${esc(D.R.label)}</th><th class="money">Prior</th><th class="money">Change</th></tr></thead><tbody>${[
+    )}</div></div>\n    <div class="dtiles">${tile("Income", P.income, delta(P.income, prior.income))}${tile("Expenses", expenses, delta(expenses, expensesPrior), "exp")}${tile("Net profit", P.net, `${P.netPct}% margin · ${delta(P.net, prior.net)}`, P.net >= 0 ? "good" : "bad")}${tile("Cash", bal.cash, `Safe to Spend ${money(stsSafe())}, as on Cash`, stsSafe() < 0 ? "bad" : "")}${tile("Receivables", bal.arOut, `${money(bal.arOver)} overdue`, bal.arOver ? "warn" : "")}${tile("Payables", bal.ap, `${money(bal.apOver)} overdue`)}</div>\n    <div class="dgrid"><div class="card dcard wide"><h3>Profit & loss by ${D.R.buckets}</h3>${pl}</div>\n      <div class="card dcard"><h3>Income vs expense</h3><div class="tw"><table class="t rep-t"><thead><tr><th></th><th class="money">${esc(D.R.label)}</th><th class="money">Prior</th><th class="money">Change</th></tr></thead><tbody>${[
     ["Income", P.income, prior.income],
     ["Job cost", P.cogsT, prior.cogsT],
     ["Gross profit", P.gross, prior.gross],
@@ -29036,7 +29038,7 @@ function repFlash() {
     F = analystFindings().filter((f) => "high" === f.sev),
     ctcFlags = wip.filter((x) => x.w.ctc > x.w.contract - x.w.billed).slice(0, 5),
     li = (k, v, sub = "") => `<div class="flash-row"><span>${k}</span><b>${v}</b><i>${sub}</i></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">CEO weekly flash</h2><div class="small muted">Week ending ${fmtL(today())} · ${entName(repEntity)}</div></div></div>${entityBar()}<div class="flash">\n    <div class="card"><h3>Cash & collections</h3>${li("Cash today", money(B.cash), `available ${money(B.available)} after ${money(B.clientFunds)} client funds held`)}${li("Collected this week", money(coll))}${li("Billed this week", money(billed))}${li("AR over 60 days", money(over60.reduce((a, o) => a + o.bal, 0)), over60.map((o) => o.x.number).join(", "))}${li("Payables past due", money(B.apOver))}${li("Runway", runwayText(B))}</div>\n    <div class="card"><h3>Jobs</h3>${li("Backlog", money(B.backlog), `${wip.length} active contract${1 === wip.length ? "" : "s"}`)}${li("GP fade > 2 pts", fade.length ? fade.map((x) => `${x.w.p.project.name} ${x.f.fadePts} pts`).join("; ") : "none")}${li("Over / under billed", `${money(wip.reduce((a, x) => a + x.w.over, 0))} / ${money(wip.reduce((a, x) => a + x.w.under, 0))}`)}${li("Pending COs", `${pend.length} · ${money(pend.reduce((a, x) => a + docTotal(x.x).total, 0))}`, pend.filter((x) => x.days > 14).length ? `${pend.filter((x) => x.days > 14).length} older than 14 days` : "")}${li("Cost-to-complete flags", ctcFlags.length ? ctcFlags.map((x) => x.w.p.project.name).join("; ") : "none", "cost to complete exceeds remaining billing")}</div>\n    <div class="card"><h3>People & sales</h3>${li("Hours this week", r2(hrs))}${li("Proposals out", `${bids.length} · ${money(bids.reduce((a, e) => a + docTotal(e).total, 0))}`)}${li("Won last 30 days", `${wins.length} · ${money(wins.reduce((a, e) => a + docTotal(e).total, 0))}`)}${li("Bills to approve", DB.bills.filter((b) => ["submitted", "pm-approved"].includes(b.status)).length)}${li("Act now", F.length ? F.map((f) => f.title).join("; ") : "nothing urgent")}</div></div>`;
+  return `<div class="rep-head"><div><h2 style="margin:0">CEO weekly flash</h2><div class="small muted">Week ending ${fmtL(today())} · ${entName(repEntity)}</div></div></div>${entityBar()}<div class="flash">\n    <div class="card"><h3>Cash & collections</h3>${li("Cash today", money(B.cash), `Safe to Spend ${money(stsSafe())}, the same figure as Cash; ${money(B.clientFunds)} of client funds sit inside its set-aside`)}${li("Collected this week", money(coll))}${li("Billed this week", money(billed))}${li("AR over 60 days", money(over60.reduce((a, o) => a + o.bal, 0)), over60.map((o) => o.x.number).join(", "))}${li("Payables past due", money(B.apOver))}${li("Runway", runwayText(B))}</div>\n    <div class="card"><h3>Jobs</h3>${li("Backlog", money(B.backlog), `${wip.length} active contract${1 === wip.length ? "" : "s"}`)}${li("GP fade > 2 pts", fade.length ? fade.map((x) => `${x.w.p.project.name} ${x.f.fadePts} pts`).join("; ") : "none")}${li("Over / under billed", `${money(wip.reduce((a, x) => a + x.w.over, 0))} / ${money(wip.reduce((a, x) => a + x.w.under, 0))}`)}${li("Pending COs", `${pend.length} · ${money(pend.reduce((a, x) => a + docTotal(x.x).total, 0))}`, pend.filter((x) => x.days > 14).length ? `${pend.filter((x) => x.days > 14).length} older than 14 days` : "")}${li("Cost-to-complete flags", ctcFlags.length ? ctcFlags.map((x) => x.w.p.project.name).join("; ") : "none", "cost to complete exceeds remaining billing")}</div>\n    <div class="card"><h3>People & sales</h3>${li("Hours this week", r2(hrs))}${li("Proposals out", `${bids.length} · ${money(bids.reduce((a, e) => a + docTotal(e).total, 0))}`)}${li("Won last 30 days", `${wins.length} · ${money(wins.reduce((a, e) => a + docTotal(e).total, 0))}`)}${li("Bills to approve", DB.bills.filter((b) => ["submitted", "pm-approved"].includes(b.status)).length)}${li("Act now", F.length ? F.map((f) => f.title).join("; ") : "nothing urgent")}</div></div>`;
 }
 companyPL = function (range) {
   const P = companyPLBase(range);
@@ -29793,13 +29795,13 @@ Object.assign(KPIS, {
     fn: () => companyBalance().clientFunds,
   },
   availableCash: {
-    n: "Available cash (bank − client funds)",
+    n: "Safe to Spend",
     g: "Cash",
     fmt: "money",
     good: "up",
     bench: "> 2 months overhead",
-    go: { view: "reports", tab: "funds" },
-    fn: () => companyBalance().available,
+    go: { view: "reports", tab: "cash13" },
+    fn: () => stsSafe(),
   },
   floated: {
     n: "Client purchases floated by us",
@@ -29879,7 +29881,7 @@ function repFunds() {
         (o.floated += r.floated),
         (o.collected += r.collected);
     }),
-    `<div class="rep-head"><div><h2 style="margin:0">Client funds & purchasing obligations</h2><div class="small muted">Cash collected for lines that still have purchasing left is the client's money until it is spent. Bank balance less those funds is what the company can actually use.</div></div></div>\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(B.cash)}</b><span>bank balance</span></div><div class="kpi warn"><b>− ${money(F.reserved)}</b><span>client funds held for purchases · materials ${money(F.materials)} · subs ${money(F.subs)}${F.labor ? ` · (labor billed ahead of work ${money(F.labor)} — ours, not reserved)` : ""}</span></div><div class="kpi ${B.available < 0 ? "warn" : "good"}"><b>${money(B.available)}</b><span>available cash (ours)</span></div><div class="kpi"><b>${money(F.toBuy)}</b><span>still to purchase against budgets (net of open POs)</span></div><div class="kpi ${F.floated ? "warn" : ""}"><b>${money(F.floated)}</b><span>spent ahead of collections — we are floating client purchases</span></div></div>\n    <h3 class="rep-h">By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Collected on lines</th><th class="money">Client funds held</th><th class="money">Still to purchase</th><th class="money">Floated by us</th></tr></thead><tbody>${
+    `<div class="rep-head"><div><h2 style="margin:0">Client funds & purchasing obligations</h2><div class="small muted">Cash collected for lines that still have purchasing left is the client's money until it is spent. They sit inside Safe to Spend's set-aside (Reports, Cash), never a second figure for what is ours.</div></div></div>\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(B.cash)}</b><span>bank balance</span></div><div class="kpi warn"><b>− ${money(F.reserved)}</b><span>client funds held for purchases · materials ${money(F.materials)} · subs ${money(F.subs)}${F.labor ? ` · (labor billed ahead of work ${money(F.labor)} — ours, not reserved)` : ""}</span></div><div class="kpi"><b>${money(F.toBuy)}</b><span>still to purchase against budgets (net of open POs)</span></div><div class="kpi ${F.floated ? "warn" : ""}"><b>${money(F.floated)}</b><span>spent ahead of collections — we are floating client purchases</span></div></div>\n    <h3 class="rep-h">By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Collected on lines</th><th class="money">Client funds held</th><th class="money">Still to purchase</th><th class="money">Floated by us</th></tr></thead><tbody>${
       Object.values(byProj)
         .map(
           (o) =>
@@ -30312,7 +30314,7 @@ function ptCash() {
     lowWk = F.weeks.reduce((a, w) => (w.balance < a.balance ? w : a), F.weeks[0]),
     P = companyPL(kpiRange("tm")),
     burn = r2(P.cogsT + P.ohT);
-  return `<div class="cashb"><div class="cash-row"><span>In the bank</span><b>${money(B.cash)}</b></div><div class="cash-row dim"><span>− client funds held for purchases</span><b>${money(B.clientFunds)}</b></div><div class="cash-row big ${B.available < 0 ? "bad" : ""}"><span>Available (ours)</span><b>${money(B.available)}</b></div>\n    <div class="cash-grid"><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>We owe</span><b>${money(B.ap)}</b><i class="${B.apOver ? "bad" : ""}">${B.apOver ? money(B.apOver) + " past due" : "nothing past due"}</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : F.low < burn ? "warn" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Spend this month</span><b>${money(burn)}</b><i>${B.available && burn ? (B.available / burn).toFixed(1) + " months of spend available" : ""}</i></div></div>\n    <div class="small muted">Available = bank balance less money clients have paid for purchases not yet made. 13-week low comes from open invoices, bills, POs, payroll cadence and recurring overhead.</div></div>`;
+  return `<div class="cashb"><div class="cash-row"><span>In the bank</span><b>${money(B.cash)}</b></div><div class="cash-row dim"><span>client funds held for purchases, inside the set-aside</span><b>${money(B.clientFunds)}</b></div><div class="cash-row big ${stsSafe() < 0 ? "bad" : ""}"><span>Safe to Spend</span><b>${money(stsSafe())}</b></div>\n    <div class="cash-grid"><div><span>Owed to us</span><b>${money(B.arOut)}</b><i class="${B.arOver ? "bad" : ""}">${B.arOver ? money(B.arOver) + " overdue" : "nothing overdue"}</i></div><div><span>We owe</span><b>${money(B.ap)}</b><i class="${B.apOver ? "bad" : ""}">${B.apOver ? money(B.apOver) + " past due" : "nothing past due"}</i></div><div><span>13-week low</span><b class="${F.low < 0 ? "bad" : F.low < burn ? "warn" : ""}">${money(F.low)}</b><i>week of ${fmt(lowWk.start)}</i></div><div><span>Spend this month</span><b>${money(burn)}</b><i>${stsSafe() > 0 && burn ? (stsSafe() / burn).toFixed(1) + " months of spend, safe to spend" : ""}</i></div></div>\n    <div class="small muted">Safe to Spend is the one on Reports, Cash: cash less cards, bills and payroll due and the cash received for work not yet done. 13-week low comes from open invoices, bills, POs, payroll cadence and recurring overhead.</div></div>`;
 }
 function ptJobs() {
   return `<div class="jobcards">${
@@ -72177,7 +72179,9 @@ function glSync() {
         ((DB.accounts || []).some((a) => (a.entityId || "ent1") === e.id) &&
           ((DB.gl.openingProposed[e.id] = 1), glProposeOpening(e.id)));
     }),
-    (DB.gl.lastSync = appNowIso()),
+    // a sync that posted nothing is a read: it leaves the books byte for byte as they were (the Reports lane, 11-04: the
+    // stamp moved on every page that read the ledger)
+    (posted || reposted || reversed || !DB.gl.lastSync) && (DB.gl.lastSync = appNowIso()),
     posted || reposted || reversed)
   )
     try {
@@ -180372,7 +180376,7 @@ function truthTieOut(ym) {
         db = null == bank || null == erp ? null : r2(bank - erp),
         off = (dq && Math.abs(dq) >= 1) || (db && Math.abs(db) >= 1),
         parts = (causes || []).filter(Boolean);
-      rows.push({ group: group, label: label, qbo: qbo, bank: bank, erp: erp, diffQbo: dq, diffBank: db, off: !!off, cause: off ? (parts.length ? parts.join("; ") : "flagged: no cause found — look at the postings") : "agrees", explained: !!(off && parts.length) });
+      rows.push({ group: group, label: label, qbo: qbo, bank: bank, erp: erp, diffQbo: dq, diffBank: db, off: !!off, cause: off ? (parts.length ? parts.join("; ") : "flagged: no cause found — look at the postings") : null == qbo && !(Math.abs(bank || 0) >= 0.005) && !(Math.abs(erp || 0) >= 0.005) ? "nothing to compare" : "agrees", explained: !!(off && parts.length) });
     },
     manualInc = C.income.hand;
   row("income", "Income", hasQ ? Q.income : null, bankIncome, r2(P.income), [
@@ -199696,10 +199700,16 @@ const MN_JOBS = () => [
       ["sel", "Selections", null, { not: ["pm", "coord"] }],
       ["plans", "Drawings", null, { not: ["pm", "coord"], proj: 1 }],
     ]),
+    // Reports (docs/mockups/reports/SPEC.md, 11-03; src/reportpages.js): four pages of the one Reports view, each for
+    // the seats that read it (SPEC §4). Financial Statements is on the owner's menu (decided 11-03). The Dashboard is
+    // the Report Builder's Pinned; the coordinator and the designer, who open no Reports page, keep it as their Report
+    // Builder (their pinned reports, scoped to what their role may read).
     MN_G("reports", "Reports", "reports", [
-      ["reports", "All Reports", null, { head: 1 }],
-      // the Home Dashboard moves into Reports (workshop cut list)
-      ["dashboard", "Dashboard"],
+      ["reports", "Job Profitability", "jobs", { roles: ["owner", "controller", "billing", "pm", "designer"] }],
+      ["reports", "Cash", "cash", { roles: ["owner", "controller", "billing"] }],
+      ["reports", "Financial Statements", "stmt", { roles: ["owner", "controller"] }],
+      ["reports", "Report Builder", "builder"],
+      ["dashboard", "Report Builder", null, { unless: "reports" }],
     ]),
   ],
   // the foot: the firm's own pages, then the settings (out of the daily path, workshop rule). The Brain and the Chief
@@ -200017,7 +200027,7 @@ function mnBuild(r) {
     .concat(out.work, out.bottom ? [out.bottom] : []);
   return out;
 }
-const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "proc" === v && "undefined" != typeof bbProj && bbProj ? "job" : "");
+const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "proc" === v && "undefined" != typeof bbProj && bbProj ? "job" : "reports" === v && "function" == typeof rwPageNow ? rwPageNow() : "");
 // Which entry the page on screen is. Inside a job (the person came through a job, or the page is the job's own) the
 // entry is the job's tab for the page (src/jobpage.js reads it: jpCur), and `job` the job's entry under Projects,
 // which the menu lights. Otherwise: the group the person came through keeps the page when it holds it; then the entry

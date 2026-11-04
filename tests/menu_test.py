@@ -56,7 +56,14 @@ KIDS = {
     # the 11-03 Accounting pages (accounting SPEC §4) and Design pages (design SPEC)
     ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll'],
     ('u_owner', 'studio'): ['Selections', 'Drawings'],
-    ('u_owner', 'reports'): ['All Reports', 'Dashboard'],
+    # the 11-03 Reports pages (reports SPEC §4; Financial Statements on the owner's menu, decided 11-03): All Reports and
+    # the Dashboard fold in (the Dashboard is the Report Builder's Pinned; the coordinator and the designer keep it as theirs)
+    ('u_owner', 'reports'): ['Job Profitability', 'Cash', 'Financial Statements', 'Report Builder'],
+    ('u_controller', 'reports'): ['Job Profitability', 'Cash', 'Financial Statements', 'Report Builder'],
+    ('u_billing', 'reports'): ['Job Profitability', 'Cash', 'Report Builder'],
+    ('u_alan', 'reports'): ['Job Profitability', 'Report Builder'],
+    ('u_chen', 'reports'): ['Report Builder'],
+    ('u_sarah', 'reports'): ['Report Builder'],
     ('u_owner', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Your Own Data', 'Sales Settings'],
     ('u_alan', 'buy'): BUY,
     ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
