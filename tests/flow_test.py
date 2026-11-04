@@ -536,6 +536,22 @@ async def s_owner(p, c):
         c.ok(not errs, f'owner: page errors {errs[:2]}')
     finally:
         await b.close()
+    # the phone (390): the row's Record the Filing is on screen, 44px, and opens the sheet (chief-of-staff review, 11-04:
+    # the phone's row held only Draft the Renewal, so a filing could not be recorded from the phone)
+    b, pg, errs = await open_app(p, phone=True)
+    try:
+        await sign_in(pg, 'u_owner'); await go(pg, 'obligations'); await pg.wait_for_timeout(300)
+        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on [data-bnobrec]')].find(x => /biennial/i.test((x.closest('tr') || {}).innerText || ''));
+          if (!b || !b.getClientRects().length) return { shown: false };
+          const r = b.getBoundingClientRect(); return { shown: true, h: Math.round(r.height), right: Math.round(r.right), w: innerWidth }; }""")
+        c.ok(r.get('shown') and r['h'] >= 44 and r['right'] <= r['w'], f'owner phone: Record the Filing is on the Obligations row, 44px, on screen ({r})')
+        if r.get('shown'):
+            await pg.locator('.view.on [data-bnobrec]:visible').first.click(timeout=4000); await pg.wait_for_timeout(300)
+            m = await modal(pg)
+            c.ok(m and m['title'].startswith('Record the Filing') and m['fields'].get('on') == '', f"owner phone: it opens Record the Filing with Filed On empty ({m and (m['title'], m['fields'])})")
+        c.ok(not errs, f'owner phone: page errors {errs[:2]}')
+    finally:
+        await b.close()
 
 
 # ------------------------------------------------------------------------------------------------ 8. client

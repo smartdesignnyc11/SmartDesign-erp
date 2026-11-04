@@ -800,7 +800,32 @@ INV_STAMP_JS = INV_STAMP_FN + """
   // it (with the reason its flags ask for), the owner approves the payroll run, the owner approves a PO waiting on him
   const as = u => { signIn(u); render(); };
   const amp = DB.bills.find(b => b.number === 'AMP-311'), pr = (DB.payroll || []).find(r => r.status === 'submitted');
-  const did = [];
+  const did = [], held = [];
+  // a held bill takes no stamp by any path (chief-of-staff review, 11-04): AMP-311 held, then the PM recommends it
+  // (billAction, and the routing step rtApprove) and the owner approves it (rtApprove, and billAction); its status and
+  // its trail must not move, and nothing is skipped on it
+  if (amp) {
+    amp.onHold = { why: 'the stamp check: held', by: 'Owner', at: appNowIso(), for: 'Chen Biron', state: 'open' };
+    const s0 = amp.status, n0 = (amp.approvals || []).length;
+    const tryAs = (u, what, f) => { try { as(u); f(); } catch (e) { held.push(what + ' threw ' + e.message); } if (amp.status !== s0 || (amp.approvals || []).length !== n0) held.push(`${what} moved the held bill: ${amp.status}, ${(amp.approvals || []).slice(n0).map(a => a.action).join('; ')}`); };
+    tryAs('u_alan', 'PM recommend (billAction pmok)', () => billAction(amp, 'pmok'));
+    tryAs('u_alan', 'PM step (rtApprove)', () => rtApprove(amp, 'the stamp check'));
+    tryAs('u_owner', 'owner step (rtApprove)', () => rtApprove(amp, 'the stamp check'));
+    tryAs('u_owner', 'owner approve (billAction approve)', () => billAction(amp, 'approve', 'the stamp check: approved with its flags read'));
+    did.push(`held ${amp.number}: ${held.length ? 'moved' : 'unmoved'} by 4 paths`);
+    amp.onHold.state = 'released';
+  }
+  // a stamp with no audit row reads as such where it is shown (the bill's Approval Trail), never as a clean approval
+  const nt = DB.bills.find(b => b.number === 'NT-88412'), ui = { planted: '', clean: '' };
+  if (nt) {
+    nt.approvals.push({ t: '8/12 9:00 AM', ts: '2026-08-12T09:00:00', by: 'Nobody Real', role: 'owner', action: 'approved for payment by Owner' });
+    as('u_owner'); openBill(nt.id); await sleep(200);
+    const lines = [...document.querySelectorAll('#d-body .trail > div')].map(d => d.innerText.replace(/\\s+/g, ' '));
+    ui.planted = lines.find(l => /Nobody Real/.test(l)) || 'not shown';
+    ui.clean = lines.filter(l => !/Nobody Real/.test(l) && /no record of this action/i.test(l)).join(' | ');
+    try { closeEditor(); } catch (e) {}
+    nt.approvals.pop();
+  }
   try { as('u_alan'); if (amp) { billAction(amp, 'pmok'); did.push('pmok ' + amp.status); } } catch (e) { did.push('pmok threw ' + e.message); }
   try { as('u_owner'); if (amp) { billAction(amp, 'approve', 'the stamp check: approved with its flags read'); did.push('approve ' + amp.status); } } catch (e) { did.push('approve threw ' + e.message); }
   try { if (pr) { const k = appConfirm; appConfirm = () => true; try { payrollAction(pr, 'approve'); } finally { appConfirm = k; } did.push('payroll ' + pr.status); } } catch (e) { did.push('payroll threw ' + e.message); }
@@ -808,7 +833,7 @@ INV_STAMP_JS = INV_STAMP_FN + """
   await sleep(100);
   const after = stampsUnbacked();
   const stamps = (DB.bills || []).concat(DB.payroll || []).flatMap(r => (r.approvals || []).filter(a => STAMP.test(a.action || '') && !NOT.test(a.action || ''))).length;
-  return { seeded, after, did, stamps };"""
+  return { seeded, after, did, stamps, held, ui };"""
 
 # ---- the money definitions (BACKLOG §1.35, the Accounting lane, 11-03): one question, one number, from the records ----
 # Each is recomputed here from the records by its own definition, never by calling the function that prints it, and
@@ -1281,6 +1306,10 @@ async def check_invariants(p, R):
     read('inv_stamp', f"after the PM recommends, the owner approves a bill, a payroll run and a PO ({'; '.join(st['did'])})", not st['after'] and len(st['did']) >= 2, st['after'][:6] or st['did'],
          'each new stamp written with its audit row')
     read('inv_stamp', 'the instrument: stamps were read', st['stamps'] >= 5, st['stamps'], 'the seeded trails and the new ones are found')
+    read('inv_stamp', 'a held bill (AMP-311 planted on hold): the PM recommends (billAction, rtApprove), the owner approves (rtApprove, billAction)',
+         not st['held'] and any(d.startswith('held ') for d in st['did']), st['held'] or st['did'], 'no path stamps it, skips a review on it or moves its status')
+    read('inv_stamp', 'the screen: a stamp planted on NT-88412 with no audit row, on its Approval Trail', 'no record of this action' in st['ui']['planted'].lower() and not st['ui']['clean'],
+         st['ui'], 'the planted stamp reads "no record of this action"; the backed ones do not')
     for e in errs[:3]: R.flag('inv_stamp', 'page', e[:200], 'no page errors')
     await b.close()
 

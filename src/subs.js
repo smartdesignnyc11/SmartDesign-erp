@@ -987,6 +987,7 @@ function scRunApproval(b, why) {
 function scApproveAtMeasured(b) {
   const po = scPOOf(b);
   if (!po || !b.payApp) return null;
+  if ("function" == typeof apStampRefused && apStampRefused("bill", b)) return toast(apStampRefused("bill", b)), null;   // held: the claim is not revised or approved
   const tol = scSet().tolPts,
     claimedGross = billGross(b),
     changed = [];

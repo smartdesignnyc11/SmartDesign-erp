@@ -13565,8 +13565,35 @@ function audit(kind, refId, action, before, after, note, who) {
 // behind them). A seed writes its invented history through it too (o.by, o.role, o.ts, o.t), so no stamp shows
 // without its action. Checked: tests/finance_xcheck.py --figure invariants (INV STAMP BACKED) and the walk's danger
 // sweep (stamp).
+// A held bill takes no approval stamp, by any path (chief-of-staff review, 11-04: a planted hold on AMP-311 was
+// recommended by the PM through billAction and approved by the owner through rtApprove). The reason, or "".
+function apStampRefused(kind, rec) {
+  if ("bill" !== kind || !rec) return "";
+  const h = rec.onHold && "open" === rec.onHold.state ? rec.onHold : null;
+  return h
+    ? `${rec.vendor || "The bill"} ${rec.number || ""} is held by ${h.by}: ${h.why}. Nothing is approved while it is held: release the hold first`
+    : ["hold", "on-hold", "held"].includes(rec.status)
+      ? `${rec.vendor || "The bill"} ${rec.number || ""} is on hold. Nothing is approved while it is held`
+      : "";
+}
+// Is this stamp backed by its person's own action in the audit trail (the same test as INV STAMP BACKED)? A line that is
+// not an approval stamp ("submitted", "built from approved hours") is not asked.
+const AP_STAMP_RX = /\b(recommended|approved|verified|signed off)\b/i;
+function apStampBacked(rec, a) {
+  const w = String((a && a.action) || "");
+  if (!rec || !AP_STAMP_RX.test(w) || /\bfrom approved\b/i.test(w)) return !0;
+  const by = String(a.by || "").trim().toLowerCase();
+  return !!by && !!a.ts && (DB.audit || []).some((x) => x.refId === rec.id && String(x.by || "").trim().toLowerCase() === by && x.ts && x.ts <= a.ts);
+}
+// one line of an approval trail: a stamp with no audit row behind it says so in plain words, never reads as approved
+function apTrailLine(rec, a) {
+  const ok = apStampBacked(rec, a);
+  return `<div${ok ? "" : ' class="ap-unbacked"'}><span>${esc(a.t || "")}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role || "")}${a.note ? ` — ${esc(a.note)}` : ""}${ok ? "" : ' <span class="pill bad">no record of this action: not counted as an approval</span>'}</div>`;
+}
 function apStamp(kind, rec, action, auditAction, o) {
   o = o || {};
+  const no = apStampRefused(kind, rec);
+  if (no) return toast(no), null;
   const who = {
       by: o.by || S?.project?.userName || role(),
       role: o.role || role(),
@@ -13871,7 +13898,7 @@ function openBill(id) {
       .map((f) => `<option value="${f.id}" ${b.fileId === f.id ? "selected" : ""}>${esc(f.name)}</option>`)
       .join(
         "",
-      )}</select></div></div>\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(b.notes)}</textarea></div>\n    ${id ? `<div class="card" style="margin-top:6px"><h4>Approval trail</h4><div class="trail">${b.approvals.length ? b.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">Created by ' + esc(b.createdBy || "—") + ". No approvals yet.</div>"}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px;flex-wrap:wrap">${"draft" === b.status ? '<button class="btn sm primary" data-bact="submit">Submit for approval</button>' : ""}${"submitted" !== b.status || ("pm" !== role() && !isOwner()) ? "" : '<button class="btn sm primary" data-bact="pmok">PM: recommend</button><button class="btn sm danger" data-bact="reject">Reject</button>'}${("pm-approved" === b.status || ("submitted" === b.status && !needsOwner(tot))) && isOwner() ? '<button class="btn sm primary" data-bact="approve">Owner: approve for payment</button><button class="btn sm danger" data-bact="reject">Reject</button>' : ""}${"pm-approved" !== b.status || isOwner() ? "" : '<span class="small muted">Waiting for the Owner.</span>'}${"approved" === b.status ? '<button class="btn sm primary" data-bact="paid">Mark paid (record payment)</button>' : ""}${"exception" === b.status && isOwner() ? '<button class="btn sm" data-bact="clear">Owner: clear exception</button>' : ""}${["void", "paid", "verified"].includes(b.status) ? "" : '<button class="btn sm" data-bact="void">Void</button>'}</div>` : ""}`),
+      )}</select></div></div>\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(b.notes)}</textarea></div>\n    ${id ? `<div class="card" style="margin-top:6px"><h4>Approval trail</h4><div class="trail">${b.approvals.length ? b.approvals.map((a) => apTrailLine(b, a)).join("") : '<div class="muted">Created by ' + esc(b.createdBy || "—") + ". No approvals yet.</div>"}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px;flex-wrap:wrap">${"draft" === b.status ? '<button class="btn sm primary" data-bact="submit">Submit for approval</button>' : ""}${"submitted" !== b.status || ("pm" !== role() && !isOwner()) ? "" : '<button class="btn sm primary" data-bact="pmok">PM: recommend</button><button class="btn sm danger" data-bact="reject">Reject</button>'}${("pm-approved" === b.status || ("submitted" === b.status && !needsOwner(tot))) && isOwner() ? '<button class="btn sm primary" data-bact="approve">Owner: approve for payment</button><button class="btn sm danger" data-bact="reject">Reject</button>' : ""}${"pm-approved" !== b.status || isOwner() ? "" : '<span class="small muted">Waiting for the Owner.</span>'}${"approved" === b.status ? '<button class="btn sm primary" data-bact="paid">Mark paid (record payment)</button>' : ""}${"exception" === b.status && isOwner() ? '<button class="btn sm" data-bact="clear">Owner: clear exception</button>' : ""}${["void", "paid", "verified"].includes(b.status) ? "" : '<button class="btn sm" data-bact="void">Void</button>'}</div>` : ""}`),
     ro ||
       $("#e-addbl")?.addEventListener("click", () => {
         b.lines.push({ id: uid("bl"), desc: "", amount: 0 }),
@@ -13982,8 +14009,10 @@ function billAction(b, a, why) {
   if ("pmok" === a) {
     if (b.createdBy && b.createdBy.toLowerCase() === by.toLowerCase() && !isOwner())
       return void toast("Separation of duties: the person who entered the bill cannot approve it");
-    (b.status = needsOwner(billTotal(b)) ? "pm-approved" : "approved"),
-      apStamp("bill", b, "approved" === b.status ? "approved (PM, under Owner threshold)" : "recommended by PM", a, { by: by, ts: stamp.ts, t: stamp.t, after: { status: b.status } });
+    // the stamp first: a held bill refuses it (apStamp), and then nothing about the bill changes
+    const to = needsOwner(billTotal(b)) ? "pm-approved" : "approved";
+    if (!apStamp("bill", b, "approved" === to ? "approved (PM, under Owner threshold)" : "recommended by PM", a, { by: by, ts: stamp.ts, t: stamp.t, after: { status: to } })) return;
+    b.status = to;
   }
   if ("approve" === a) {
     const vb = DB.vendors.find((x) => x.name.toLowerCase() === b.vendor.toLowerCase());
@@ -14006,10 +14035,8 @@ function billAction(b, a, why) {
         "e.g. COI renewal received by email, filing tomorrow",
         (w) => billAction(b, "approve", w),
       );
-    (b.status = "approved"),
-      (b.approvedAt = today()),
-      apStamp("bill", b, "approved for payment by Owner", "approved", { by: by, ts: stamp.ts, t: stamp.t, after: { status: "approved", flags: fl }, extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" } }),
-      log(`Bill approved: ${b.vendor} ${money(billTotal(b))}`);
+    if (!apStamp("bill", b, "approved for payment by Owner", "approved", { by: by, ts: stamp.ts, t: stamp.t, after: { status: "approved", flags: fl }, extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" } })) return;
+    (b.status = "approved"), (b.approvedAt = today()), log(`Bill approved: ${b.vendor} ${money(billTotal(b))}`);
   }
   if ("reject" === a) {
     if (!why)
@@ -14081,7 +14108,7 @@ function openPayroll(id) {
     flow = ["draft", "submitted", "pm-approved", "approved", "paid", "verified"],
     fi = flow.indexOf(r.status);
   ($("#d-body").innerHTML =
-    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
+    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => apTrailLine(r, a)).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
     $("#e-addalloc")?.addEventListener("click", () => {
       r.alloc.push({ projectId: "", pct: 0 });
       const i = r.alloc.length - 1;
@@ -63371,11 +63398,13 @@ function rtApprove(o, note) {
     "approved-step",
     { by: currentUser()?.name || DB.me || S?.project?.userName || role(), role: st.next, extra: { note: note || "" } },
   );
+  // refused (a held bill): no step, no status
+  if (!stp) return !1;
   const after = rtStep(o);
   return (
     after.complete ? (o.status = "approved") : "pm" === st.next && (o.status = "pm-approved"),
     (DB.audit[DB.audit.length - 1] || {}).refId === o.id && (DB.audit[DB.audit.length - 1].after = { role: st.next, complete: after.complete }),
-    stp && save(),
+    save(),
     !0
   );
 }
@@ -132729,6 +132758,7 @@ const fin2Who = () => (void 0 !== S && S && S.project && S.project.userName) || 
   fin2Stamp = () => ({ t: nowStamp(), ts: appNowIso(), by: fin2Who(), role: role() });
 function fin2ApproveAsBilled(b, why) {
   if (!b) return !1;
+  if (apStampRefused("bill", b)) return toast(apStampRefused("bill", b)), !1;   // held: nothing is approved, nothing changes
   if (!billPaidUnapproved(b)) return toast(`${b.number || "This bill"} is not waiting on an approval`), !1;
   if (!isOwner()) return toast("Only the Owner approves a bill the bank already paid"), !1;
   if (!canApprove(b))
@@ -148188,6 +148218,9 @@ if ("function" == typeof rtCan) {
 if ("function" == typeof rtApprove) {
   const rtApproveBase_bl = rtApprove;
   rtApprove = function (o, note) {
+    // a held bill: no review is skipped and no step is stamped (apStampRefused, the same rule apStamp keeps)
+    const held = "function" == typeof apStampRefused ? apStampRefused(void 0 !== o.number ? "bill" : "spend", o) : "";
+    if (held) return toast(held), !1;
     try {
       const st = rtStep(o),
         my = role();
@@ -197599,7 +197632,7 @@ function billPapersHtml(b) {
 {
   const base = billAction;
   billAction = function (b, a) {
-    if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pm-approve"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
+    if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pmok", "approvebilled", "short"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
     return base.apply(this, arguments);
   };
 }
