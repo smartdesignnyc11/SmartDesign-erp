@@ -271,8 +271,13 @@ function ydInsRender() {
   const kept = O.filter((o) => !ydObFirm(o)).map((o) => {
     const v = (o.covers || []).includes("vendor") || /certificate of insurance/i.test(ydObName(o)),
       p = (DB.projects || []).find((x) => (o.covers || []).includes(x.id));
-    return { id: "k:" + o.id, sec: "kept", title: ydObName(o), meta: v ? "kept with the vendor" : p ? `kept with ${shortName(p)}` : "kept with its record", when: o.expires ? fmt(o.expires) : "", act: "Open", run: () => (v ? setView("vendors") : p ? ("function" == typeof jpOpenJob ? jpOpenJob(p.id, "files") : setView("files")) : bnObModal(o.id)) };
+    const vend = v && (DB.vendors || []).find((x) => (o.covers || []).includes("vendor") && (o.party === x.name || String(o.name || "").includes(x.name)));
+    return { id: "k:" + o.id, sec: "kept", title: ydObName(o), meta: v ? "kept with the vendor" : p ? `kept with ${shortName(p)}` : "kept with its record", when: o.expires ? fmt(o.expires) : "", act: vend ? "Open Vendor" : "Open", run: () => (vend && "function" == typeof openVendor ? (setView("vendors"), setTimeout(() => openVendor(vend.id), 60)) : v ? setView("vendors") : p ? ("function" == typeof jpOpenJob ? jpOpenJob(p.id, "files") : setView("files")) : bnObModal(o.id)) };
   });
+  // each vendor's certificate is kept on the vendor (the old page listed them with Open Vendor): one tap to its record
+  (DB.vendors || [])
+    .filter((v) => v && v.insuranceExp)
+    .forEach((v) => kept.push({ id: "kv:" + v.id, sec: "kept", title: `${v.name}: certificate of insurance`, meta: "kept with the vendor", when: v.insuranceExp < today() ? `lapsed ${fmt(v.insuranceExp)}` : `to ${fmt(v.insuranceExp)}`, late: v.insuranceExp < today(), act: "Open Vendor", run: () => (setView("vendors"), "function" == typeof openVendor && setTimeout(() => openVendor(v.id), 60)) }));
   file.concat(kept).forEach((r) => ydAct(r.id, r.run));
   h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Insurance and Licenses</h2><div class="yd-sub">The firm's own policies, licenses and filings, and what lapses</div></div>${isOwner() || "controller" === role() ? `<button type="button" class="btn" data-ydobnew>New Policy, License or Filing</button>` : ""}</div>${ydSectionHtml("Needs You", need.length, "missing, lapsed or inside its renewal", need, "Everything required is on file and current.")}${ydSectionHtml("On File", file.length, "", file, "Nothing else on file.")}${ydFoldHtml("kept", "Kept With Their Record", ydKeptOpen, kept.map(ydRowHtml).join("") || '<div class="yd-empty">Nothing.</div>', kept.length)}`;
 }
@@ -354,7 +359,7 @@ function ydPersonRender(h) {
   } catch (e) {}
   const rules = p.uid && "function" == typeof paRulesHtml && (self || owner) ? paRulesHtml(p.uid) : '<div class="yd-empty">No login, so no assistant yet.</div>';
   h.innerHTML = `<div class="yd-ph"><button type="button" class="yd-back" data-ydteamback aria-label="Back to Team">${ydSvg("back")}${phone ? "" : "Team"}</button></div>
-  <div class="yd-ph"><div class="grow"><h2>${esc(p.name)}${self ? " (you)" : ""}</h2><div class="yd-sub">${esc([p.title, p.phone || "no phone on file", p.email || "no email on file"].join(" · "))}</div></div>${p.uid && !self && ydMay("chat") ? `<button type="button" class="btn" data-p2nmsg="${esc(p.uid)}">Message</button>` : ""}</div>
+  <div class="yd-ph"><div class="grow"><h2>${esc(p.name)}${self ? " (you)" : ""}</h2><div class="yd-sub">${esc([p.title, p.phone || "no phone on file", p.email || "no email on file"].join(" · "))}</div></div>${p.uid && !self && ydMay("chat") ? `<button type="button" class="btn" data-p2nmsg="${esc(p.uid)}">Message</button>` : ""}${p.email && !self && "function" == typeof p2nCompose && (ydMay("comms") || ydMay("chat")) ? `<button type="button" class="btn" data-ydmail="${esc(p.id)}">Email</button>` : ""}</div>
   <section class="yd-card"><div class="yd-sh"><h3>Open Tasks</h3></div><div class="yd-row" data-ydrow="tasks" role="button" tabindex="0"><span class="yd-t"><b>${T.length} open${late ? `, ${late} late` : ""}</b><span>${esc(self ? "the same list as your Tasks' Mine" : `the same list as Tasks' Team chip, under ${p.name}`)}</span></span><button type="button" class="btn" data-ydgo="tkall">Open Tasks</button></div></section>
   <section class="yd-card"><div class="yd-sh"><h3>${self ? "What Reaches You for Approval" : "What Reaches Them for Approval"}</h3><span class="note">${owner ? "you change a limit; nobody else can" : "only the owner changes a limit"}</span></div>${lim
     .map(([k, v, edit]) => (edit ? `<div class="yd-kv"><span>${esc(k)}</span><label class="small"><span class="muted">$</span><input type="number" min="0" step="500" data-ydlimit="${esc(edit)}" value="${+((DB.company || {}).poApprovalOver || 1e4)}" style="width:110px;min-height:44px"${owner ? "" : " disabled"} aria-label="${esc(k)}"></label></div>` : ydKv(k, v)))
@@ -591,6 +596,9 @@ function ydGrant() {
     // Reports finds them there (their rows only)
     (["owner", "controller"].includes(r) || ["hbsettings", "rdata", "rpbox"].some((v) => rv.includes(v))) && push("cosettings");
     rv.includes("ovsales") && push("deal");
+    // Sales Settings, Your Own Data and Problem Reports keep their pages, opened from Company Settings' rows: pages by
+    // design reached by link and not listed in the menu (the Accounting lane's MN_LINK registry)
+    "object" == typeof MN_LINK && ["hbsettings", "rdata", "rpbox"].filter((v) => rv.includes(v)).forEach((v) => ((MN_LINK[r] = MN_LINK[r] || []).includes(v) || MN_LINK[r].push(v)));
   });
 }
 function ydCoForward() {
@@ -662,6 +670,11 @@ document.addEventListener(
     let b;
     if ((b = at("[data-ydteamback]"))) return e.preventDefault(), (ydPersonId = ""), void render();
     if ((b = at("#yd-brain [data-ydchip]"))) return e.preventDefault(), (ydBrainChip = b.dataset.ydchip), void render();
+    if ((b = at("[data-ydmail]"))) {
+      e.preventDefault(), e.stopPropagation();
+      const P = ydPeople().find((x) => x.id === b.dataset.ydmail);
+      return void (P && p2nCompose({ to: `${P.name} <${P.email}>` }));
+    }
     if ((b = at("#yd-brain [data-ydbrainfull]"))) return e.preventDefault(), void ydBrainFull();
     // anyone but the owner reads The Brain; Teach It drafts a lesson for the owner's yes (it approves nothing)
     if ((b = at("#yd-brain [data-ydteach]"))) {

@@ -465,10 +465,12 @@ function ydMsgRender() {
     ydMsg.chip,
     "msgs",
   );
+  // the Meetings page's tools stay one tap away on its chip: notes pasted in, a transcript read (drafts crawl, 11-04)
+  const meetTools = "meet" === ydMsg.chip ? `<div class="yd-ph"><button type="button" class="btn" data-ydmtpaste>Paste Notes</button>${"function" == typeof mrvPasteSheet ? '<button type="button" class="btn" data-ydmtread>Read a Transcript</button>' : ""}</div>` : "";
   const head = `<div class="yd-ph"><div class="grow"><h2>Messages</h2><div class="yd-sub">${needN ? `${ydPlural(needN, "person waits", "people wait")} on an answer from you, the longest first` : "Nobody waits on an answer from you"}</div></div><button type="button" class="btn" data-ydnewmsg>New Message</button></div>`;
   h.innerHTML = phone
-    ? `${head}${chips}<section class="yd-card">${list}</section>`
-    : `${head}${chips}<div class="yd-two"><section class="yd-card">${list}</section><div>${ydMsgPane(sel)}</div></div>`;
+    ? `${head}${chips}${meetTools}<section class="yd-card">${list}</section>`
+    : `${head}${chips}${meetTools}<div class="yd-two"><section class="yd-card">${list}</section><div>${ydMsgPane(sel)}</div></div>`;
 }
 // opening a conversation from the list, a notification or a link is the thread; the list is one tap back
 if ("function" == typeof msgOpen) {
@@ -1201,6 +1203,14 @@ document.addEventListener(
     const at = (s) => t.closest(s);
     let b;
     if ((b = at("#yd-chat [data-ydchip]"))) return e.preventDefault(), (ydMsg.chip = b.dataset.ydchip), (ydMsg.sel = ""), void render();
+    if ((b = at("#yd-chat [data-ydmtread]"))) return e.preventDefault(), void mrvPasteSheet(null);
+    if ((b = at("#yd-chat [data-ydmtpaste]"))) {
+      // the Meetings page's own Paste Notes sheet, over its list
+      e.preventDefault();
+      "undefined" != typeof mtTab && (mtTab = "meetings"), "undefined" != typeof mtOpen && (mtOpen = ""), (ydMsgKeep = !0), setView("meetings");
+      const p = document.querySelector("#v-meetings #mt-paste");
+      return void (p && p.click());
+    }
     if ((b = at("#yd-chat [data-ydnewmsg]"))) {
       e.preventDefault();
       return void ("function" == typeof cmCompose ? cmCompose() : "function" == typeof gcCompose ? gcCompose() : ((ydMsg.thread = !0), render()));

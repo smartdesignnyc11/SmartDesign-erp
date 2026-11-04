@@ -128,11 +128,15 @@ DOORS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return
   const m = V.querySelector('#bb-more'); m && vis(m) && out.push(['#bb-more', t(m), 'foot']);
   const p = V.querySelector('.bb:not(.bb-picking) [data-bbpick]'); p && vis(p) && out.push(['.bb:not(.bb-picking) [data-bbpick]', 'Pick a line', 'pick']);
   const seen = new Set(); V.querySelectorAll('.ac-chips [data-acchip]').forEach(b => { const k = b.dataset.acchip; if (!vis(b) || seen.has(k)) return; seen.add(k); out.push(['[data-acchip="' + k + '"]', t(b), 'chip']); });
+  // the Your Day, Sales and Company pages (11-03): a chip shows another list of the page with its own rows and tools
+  // (Messages' Meetings, Clients' Partners), and a fold opens a section (Insurance and Licenses' Kept With Their Record)
+  V.querySelectorAll('.yd-host [data-ydchip]:not(.on)').forEach(b => vis(b) && out.push(['.yd-host [data-ydchip="' + b.dataset.ydchip + '"]:not(.on)', t(b), 'view']));
+  V.querySelectorAll('.yd-host [data-ydfold][aria-expanded="false"]').forEach(b => vis(b) && out.push(['.yd-host [data-ydfold="' + b.dataset.ydfold + '"][aria-expanded="false"]', t(b), 'foot']));
   return out; }"""
 # A page's own New menu (Accounting's, Purchasing's, Design's): the opener, then each of its items, two taps a person
 # makes. [opener selector, [[item selector, label], ...]]; the menu is closed again.
 MENUS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return [];
-  const K = [['data-acnew', '[data-acnewpick]', 'acnewpick'], ['data-puplus', '.pu-menu [data-pumi]', 'pumi'], ['data-pdplus', '.pu-menu [data-pdmi]', 'pdmi']], out = [];
+  const K = [['data-acnew', '[data-acnewpick]', 'acnewpick'], ['data-puplus', '.pu-menu [data-pumi]', 'pumi'], ['data-pdplus', '.pu-menu [data-pdmi]', 'pdmi'], ['data-ydnew', '.yd-menu [data-ydnewitem]', 'ydnewitem']], out = [];
   K.forEach(([a, item, d]) => [...V.querySelectorAll('[' + a + ']')].filter(b => b.getClientRects().length).forEach(b0 => {
     const os = '[' + a + '="' + b0.getAttribute(a) + '"]', ob = () => document.querySelector('.view.on ' + os);
     ob().click();

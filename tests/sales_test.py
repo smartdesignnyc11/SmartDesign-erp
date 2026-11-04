@@ -63,10 +63,11 @@ async def pipeline_as(p, uid, phone):
     # Today's Deals That Need You reads the same rule
     tn = await pg.evaluate("() => { try { return ydFirmRows().find(r => r.k === 'deals').v; } catch (e) { return null; } }")
     c.ok(str(tn) == n, f"{who}: Today's Deals That Need You {tn} vs the Pipeline's {n}")
-    # roles: the owner and the PM edit (one +: the PM takes inquiries, as on the old Lead Board; chain_test, 11-04); the
-    # coordinator reads
+    # roles: whoever the old Sales page let add a lead (ROLE_VIEWS holds scleads) has the one + (New Lead: from a mail,
+    # typed in, or a list imported); the others read (drafts crawl, 11-04: billing and the coordinator had lost it)
     plus = await pg.evaluate("() => !!document.querySelector('.view.on [data-ydnew]')")
-    c.ok(plus == (uid in ('u_owner', 'u_alan')), f'{who}: the Pipeline + shows {plus}')
+    may = await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('scleads')")
+    c.ok(plus == may, f'{who}: the Pipeline + shows {plus}, the role adds leads {may}')
     # the old pages land here
     for old in ('salesnum', 'hbforecast', 'hbdash'):
         ok = await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old)

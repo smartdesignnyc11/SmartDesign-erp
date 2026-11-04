@@ -207,7 +207,11 @@ function slOpenPipeline(chip) {
   (slChip = chip || "need"), setView("ovsales");
 }
 // the owner and the PM take inquiries and move deals (the PM starts a lead on the Pipeline, as on the old Lead Board)
-const slMayEdit = () => isOwner() || "pm" === role();
+// The roles the old Sales page let add a lead (ocCan("scleads")) keep New Lead and its import here (drafts crawl, 11-04:
+// billing and the coordinator had lost them)
+const slMayEdit = () => ("function" == typeof ocCan ? ocCan("scleads") : isOwner() || "pm" === role()) && ydOffice();
+// New Client for every office role that keeps the client list (the old Clients page offered it to all of them)
+const slMayAddClient = () => ydOffice() && ydMay("clients");
 // money on the client pages: the owner, the PM, billing and the controller (the designer reads decisions, not money)
 const slMoneyOk = () => ["owner", "pm", "billing", "controller"].includes(role()) && !("function" == typeof tdNoMoney && tdNoMoney());
 function slDealRow(l, sec, o) {
@@ -298,7 +302,7 @@ function slPipelineRender() {
   const fold = ydFoldHtml("nums", "How Sales Is Going", slNumsOpen, nums.map((x) => `<div class="yd-kv"${x.go ? ` data-ydnum="${esc(x.k)}" role="button" tabindex="0"` : ""}><span>${esc(x.k)}<i>${esc(x.sub)}</i></span><b>${esc(x.v)}</b></div>`).join(""));
   const plus = slMayEdit()
     ? `<span class="yd-plus"><button type="button" class="btn yd-plusb" data-ydnew aria-haspopup="menu" aria-expanded="${slNewOpen}" aria-label="New Lead">${ydSvg("plus")}${phone ? "" : "New Lead"}</button>${
-        slNewOpen ? `<div class="yd-menu" role="menu"><span class="yd-mh">New lead, for you</span><button type="button" role="menuitem" data-ydnewitem="mail">Lead from a Mail</button><button type="button" role="menuitem" data-ydnewitem="typed">Lead, Typed In</button></div>` : ""
+        slNewOpen ? `<div class="yd-menu" role="menu"><span class="yd-mh">New lead, for you</span><button type="button" role="menuitem" data-ydnewitem="mail">Lead from a Mail</button><button type="button" role="menuitem" data-ydnewitem="typed">Lead, Typed In</button>${"function" == typeof ocSalesImport ? '<button type="button" role="menuitem" data-ydnewitem="import">Import a List</button>' : ""}</div>` : ""
       }</span>`
     : "";
   h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Pipeline</h2><div class="yd-sub">${need.length ? `${ydPlural(need.length, "deal needs", "deals need")} you` : "No deal needs you"} · open pipeline ${esc(ydMoney0(pipe))}${slMayEdit() ? "" : " · read only"}</div></div>${plus}</div>${ydChipsHtml(defs, slChip, "pipe")}${body}${fold}`;
@@ -356,7 +360,7 @@ function slStrangers() {
   return out;
 }
 function slAddClient(name, addr, comm, lead) {
-  if (!slMayEdit() && "pm" !== role()) return toast("The owner or the PM adds a client");
+  if (!slMayAddClient()) return toast("Clients are added from the office");
   const c = blankClient(name);
   Object.assign(c, { type: "Residential owner", propertyAddr: addr || "", billingAddr: addr || "" });
   const email = comm && comm.from && comm.from.email;
@@ -374,7 +378,7 @@ function slClientsRows() {
       const L = (DB.leads || []).filter((l) => l.partnerId === p.id),
         owe = (p.thanks || []).filter((t) => !t.done).length,
         last = (p.touches || []).map((t) => t.at).sort().pop() || "";
-      return { id: "pt:" + p.id, sec: "partners", title: `${p.name}${p.firm ? `, ${p.firm}` : ""}`, meta: `${L.length} referrals${owe ? ` · a thank-you owed` : ""}${last ? ` · last touch ${fmt(String(last).slice(0, 10))}` : " · never touched"}`, act: "Open", run: () => ("function" == typeof slPartnerSheet ? slPartnerSheet(p) : null) };
+      return { id: "pt:" + p.id, sec: "partners", title: `${p.name}${p.firm ? `, ${p.firm}` : ""}`, meta: `${L.length} referrals${owe ? ` · a thank-you owed` : ""}${last ? ` · last touch ${fmt(String(last).slice(0, 10))}` : " · never touched"}`, act: "function" == typeof slPartnerTouch ? "Touch" : "Open", run: () => ("function" == typeof slPartnerTouch ? slPartnerTouch(p) : "function" == typeof slPartnerSheet ? slPartnerSheet(p) : null) };
     });
   const C = DB.clients || [],
     rowOf = (c, sec, o) => {
@@ -406,7 +410,7 @@ function slClientsRender() {
   const owed = (DB.clients || []).reduce((a, c) => a + clientFin(c).outstanding, 0),
     past = (DB.clients || []).reduce((a, c) => a + clientFin(c).overdue, 0);
   const title = { need: "Need You", all: "All Clients", partners: "Partners" }[slClChip];
-  h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Clients</h2><div class="yd-sub">${slMoneyOk() ? `Owed to us ${esc(ydMoney0(owed))}, ${past ? `${esc(ydMoney0(past))} past due` : "none past due"}` : "Everyone the firm works for, and who is waiting on us"}</div></div>${slMayEdit() ? `<button type="button" class="btn" data-ydnewclient>New Client</button>` : ""}</div>${ydChipsHtml(
+  h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Clients</h2><div class="yd-sub">${slMoneyOk() ? `Owed to us ${esc(ydMoney0(owed))}, ${past ? `${esc(ydMoney0(past))} past due` : "none past due"}` : "Everyone the firm works for, and who is waiting on us"}</div></div>${"partners" === slClChip && "function" == typeof slPartnerSheet && slMayAddClient() ? `<button type="button" class="btn" data-ydnewpartner>New Partner</button>` : ""}${slMayAddClient() ? `<button type="button" class="btn" data-ydnewclient>New Client</button>` : ""}</div>${ydChipsHtml(
     [
       { k: "need", label: "Need You", n: needN || "" },
       { k: "all", label: "All", n: "" },
@@ -741,6 +745,7 @@ document.addEventListener(
     if ((b = at("#yd-ovsales [data-ydnewitem]"))) {
       e.preventDefault(), (slNewOpen = !1);
       if ("mail" === b.dataset.ydnewitem) return (ydMsg.chip = "need"), void setView("chat");
+      if ("import" === b.dataset.ydnewitem) return void ocSalesImport();
       const nl = document.getElementById("oc-newlead");
       return void (nl ? nl.click() : "function" == typeof scLeadSheet ? scLeadSheet() : null);
     }
@@ -751,6 +756,7 @@ document.addEventListener(
         it = c && slClientNewItems(c).find((x) => x[0] === b.dataset.ydnewitem);
       return render(), void (it && it[2]());
     }
+    if ((b = at("[data-ydnewpartner]"))) return e.preventDefault(), void slPartnerSheet(null);
     if ((b = at("[data-ydnewclient]"))) {
       e.preventDefault();
       const nc = document.getElementById("btn-newclient");
