@@ -59935,7 +59935,8 @@ function spApprove(s, ok, why) {
     (s.approvedBy = currentUser()?.name || DB.me || ""),
     (s.approvedAt = today()),
     (s.rejectNote = ok ? "" : why || ""),
-    audit("spend", s.id, ok ? "approved" : "rejected", null, { by: s.approvedBy, why: why || "" }),
+    // the audit row names the same person as the stamp (BACKLOG §1.36, INV STAMP BACKED)
+    audit("spend", s.id, ok ? "approved" : "rejected", null, { by: s.approvedBy, why: why || "" }, "", { by: s.approvedBy || void 0 }),
     log(
       `${money(spTotal(s))} at ${s.vendor || "a vendor"} ${ok ? "approved" : "sent back"} by ${s.approvedBy}${why ? " — " + why : ""}`,
     ),
@@ -60515,7 +60516,9 @@ function spSeed() {
     (S3.receipt = spPaperReceipt("NEMO TILE SUPPLY", [["PORCELAIN 12X24 · 340SF", "4,250.00"]], "4,250.00")),
     (S3.status = "approved"),
     (S3.approvedBy = "Alan"),
-    (S3.approvedAt = S3.date);
+    (S3.approvedAt = S3.date),
+    // the seeded approval carries its audit row, by Alan, on its day (BACKLOG §1.36, INV STAMP BACKED)
+    audit("spend", S3.id, "approved", null, { by: "Alan" }, "", { by: "Alan", role: "pm", ts: `${S3.date}T16:00:00`, t: `${fmt(S3.date)} 4:00 PM` });
   const C = DB.accounts.find((a) => "card" === a.type);
   C &&
     !DB.txns.some((t) => "tsp0" === t.id) &&
@@ -60669,6 +60672,8 @@ function labRun() {
           (s.status = "approved"),
           (s.approvedBy = currentUser()?.name || DB.me || ""),
           (s.approvedAt = today()),
+          // the person running labor cost from approved hours approves each line it makes: the stamp's audit row
+          audit("spend", s.id, "approved", null, { from: "approved hours", hours: g.hours }, "labor cost from approved hours", { by: s.approvedBy || void 0 }),
           made.push(s);
       });
       const reim = labReimbursements(),
