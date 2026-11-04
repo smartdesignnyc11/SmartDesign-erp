@@ -1218,6 +1218,20 @@ document.addEventListener(
   !0,
 );
 // a thread opened from Messages has a way back to the list
+// A message opened from Messages: its Back returns to Messages (the list it came from), not to the old Inbox's list
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-ibback]") : null;
+    if (!b || !ydOffice() || !ydMay("chat")) return;
+    setTimeout(() => {
+      try {
+        "comms" === view && !("undefined" != typeof cmSel && cmSel) && ((ydMsg.thread = !1), setView("chat"));
+      } catch (e) {}
+    }, 0);
+  },
+  !0,
+);
 function ydMsgBack() {
   const v = document.getElementById("v-chat");
   if (!v) return;
