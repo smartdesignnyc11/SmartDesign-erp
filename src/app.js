@@ -140691,6 +140691,10 @@ function pay3Can(b) {
     b.ic ||
     b.short ||
     b.dispute ||
+    // a held bill is not waiting on an approval: its hold is reviewed first (BACKLOG §1.36, NEM-5851's Review opened
+    // Approve and Dispute while it was held)
+    ("function" == typeof billHeld && billHeld(b)) ||
+    ["hold", "on-hold", "held", "disputed"].includes(b.status) ||
     (!billPaidUnapproved(b) && !["submitted", "pm-approved"].includes(b.status))
   );
 }
@@ -197575,7 +197579,7 @@ function billPapersHtml(b) {
             (x) =>
               (x.onclick = () => {
                 const k = x.dataset.billhold;
-                if ("release" === k) return (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), save(), closeEditor(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+                if ("release" === k) return (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), (b.onHold.releasedAt = appNowIso()), audit("bill", b.id, "hold-released", "held", b.status, `released by ${b.onHold.releasedBy}; it was held: ${b.onHold.why}`), save(), closeEditor(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
                 billHoldSheet(b, k);
               }),
           );

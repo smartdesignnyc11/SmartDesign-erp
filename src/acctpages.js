@@ -546,7 +546,7 @@ function acApHtml() {
     split = N.find((x) => x.split),
     go = split ? `<button type="button" class="btn primary" data-acneed="${esc(split.id)}">${esc(split.verb)}</button>` : N[0] ? `<button type="button" class="btn primary" data-acneed="${esc(N[0].id)}">${esc(N[0].verb)}</button>` : "";
   return `${acNeedsHtml("ap", N.map((x) => ({ title: x.title, sub: esc(x.why), tone: x.split ? "bad" : "", btn: `<button type="button" class="btn sm" data-acneed="${esc(x.id)}">${x.split ? "Split" : "Open"}</button>` })), go)}
-  ${W.length ? `<section class="card ac-stand" aria-label="With Others"><div class="ac-cap">With Others</div>${acTable(W.map((x) => acRowHtml({ title: x.title, sub: esc(x.why), amt: money(x.amt), open: "bill:" + x.b.id })))}</section>` : ""}
+  ${W.length ? `<section class="card ac-stand" aria-label="With Others"><div class="ac-cap">With Others</div>${acTable(W.map((x) => acRowHtml({ title: x.title, sub: esc(x.why), amt: money(x.amt), open: "bill:" + x.b.id, btn: `<button type="button" class="btn sm" data-acopenbtn="bill:${esc(x.b.id)}">Review</button>` })))}</section>` : ""}
   ${acChipsHtml("ap", [
     ["approve", "To Approve", ""],
     ["pay", "To Pay", ""],
@@ -986,6 +986,9 @@ document.addEventListener(
       const tab = b.dataset.acgo.split(":")[1];
       return (billTab = tab), (docOpen = null), void render();
     }
+    // a row's own Review (With Others): a bill waiting on someone else still opens from its row by a button, where it
+    // can be held (BACKLOG §1.36: WW-2026-118 could not be put on hold from Bills and Payroll; its row had no control)
+    if ((b = at("[data-acopenbtn]"))) return e.preventDefault(), e.stopPropagation(), void acOpen(b.dataset.acopenbtn);
     if ((b = at("tr[data-acopen]")) && !at("button, a, input, select")) return e.preventDefault(), void acOpen(b.dataset.acopen);
   },
   !0,
