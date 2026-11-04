@@ -1228,11 +1228,13 @@ def issue_and_send(p, number):
 
 
 def board_for_job(p):
-    """the Buy Board for 214 Lincoln: its Project list (on the phone, behind "Filter by project, vendor or trade")"""
-    if not p.look().find('Project', field=True):
+    """the Buy Board for 214 Lincoln: its job filter (the 11-03 Buy Board: Job, beside Vendor and Trade; the older board's
+    Project list sat on the phone behind "Filter by project, vendor or trade")"""
+    lab = 'Job' if p.look().find('Job', field=True) else 'Project'
+    if lab == 'Project' and not p.scr.find('Project', field=True):
         f = p.scr.find('Filter by project')
         if f: p.tap_ctl(f)
-    p.pick('Project', JOB['job'])
+    p.pick(lab, JOB['job'])
 
 
 def award_po(p):
@@ -1284,9 +1286,15 @@ def j6_buy_it(p):
         board_for_job(p)
         p.look()
         c = p.scr.find('Pick 11. Plumbing fixture allowance') or p.scr.find('Pick Plumbing fixture allowance')
+        if not c and p.scr.find('Show the Later Needs'):   # a need not yet due waits under Later
+            p.tap('Show the Later Needs'); p.look()
+            c = p.scr.find('Pick 11. Plumbing fixture allowance') or p.scr.find('Pick Plumbing fixture allowance')
         if not c: raise Stuck(f'buy {k + 1} on the plumbing line', 'the plumbing fixture allowance on the Buy Board', p.scr, 'Project')
         p.tap_ctl(c)
-        p.tap('Order 1 Line', exact=True, expect='Supplier')
+        # the pick bar (11-03): a line over $2,500 left makes Ask for Quotes the blue and its order "Order, With a Reason"
+        # (the Standard's three quotes); the reason is the one the sheet asks for below
+        p.look()
+        p.tap('Order 1 Line' if p.scr.find('Order 1 Line', exact=True) else 'Order, With a Reason', exact=True, expect='Supplier')
         left = p.scr.find('Unit Price', field=True)
         if k == 1:
             p.expect(left is not None and CY.num(left.value) == 6500 - PLUMB_BUYS[0][1], 'the second buy starts from what is left on the line',
@@ -1304,6 +1312,8 @@ def j6_buy_it(p):
     p.tap('Buy Board', exact=True)
     board_for_job(p)
     sc = p.look()
+    if sc.text.find('Electrical rough-in') < 0 and sc.find('Show the Later Needs'):   # a need not yet due waits under Later
+        p.tap('Show the Later Needs'); sc = p.look()
     i = sc.text.find('Electrical rough-in')
     near = sc.text[max(0, i - 200): i + 600] if i >= 0 else ''
     p.expect(i >= 0 and bool(re.search(r'(in stock|on hand|at the shop|in the shop|warehouse|from stock)', near, re.I)),
