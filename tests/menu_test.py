@@ -62,7 +62,8 @@ KIDS = {
     # Company and Settings (docs/mockups/company, 11-03): the hub, then six pages
     ('u_owner', 'setup'): COMPANY,
     ('u_alan', 'buy'): BUY,
-    ('u_alan', 'sales'): ['Pipeline', 'Clients'],
+    # the PM writes estimates and has no Accounting group: Estimates stays under Sales and Clients for him (11-04)
+    ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients'],
     # ('u_alan', 'money'): none, the PM has no Accounting group (11-03)
     ('u_alan', 'setup'): COMPANY,
     ('u_chen', 'buy'): BUY + ['Stock'],

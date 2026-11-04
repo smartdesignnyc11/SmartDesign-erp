@@ -52,7 +52,9 @@ async def hub_as(p, uid, phone):
         c.ok(mk['view'] == k and str(len(need)) == n, f'{who}: the hub says {k} {n}, the page shows {len(need)} ({mk["view"]})')
         await go(pg, 'cohub')
     # old pages land on their new homes
-    for old, new in (('ovoffice', 'cohub'), ('setup', 'cohub')):
+    # the old Settings page is Company Settings for whoever has it (its tiles are Company Settings' rows), else the hub
+    cos_ok = await pg.evaluate("() => typeof ydMay === 'function' && ydMay('cosettings')")
+    for old, new in (('ovoffice', 'cohub'), ('setup', 'cosettings' if cos_ok else 'cohub')):
         if not await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old): continue
         await pg.evaluate("v => setView(v)", old)
         await pg.wait_for_timeout(150)

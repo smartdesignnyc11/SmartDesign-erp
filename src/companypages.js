@@ -397,7 +397,7 @@ function ydStdRender() {
   rows.forEach((r) => ydAct(r.id, r.run));
   const s = document.getElementById("v-standard");
   // The Document is the page as it was, under the chips
-  s && s.classList.toggle("yd-own", "open" === ydStdChip);
+  ydOwn(s, "open" === ydStdChip);
   let ver = "";
   try {
     const S0 = standard();
@@ -448,11 +448,10 @@ function ydSettingsRender() {
     ? [
         row("asof", "As Of", DB.company && DB.company.asOf ? `pinned to ${fmtL(DB.company.asOf)}: every screen reads this date` : "today: every screen reads the real date", () => ydAsOf(), "Change"),
         row("wipe", "Clear Everything", "everything but the settings goes; it cannot be undone from inside the app", () => ydConfirm("Clear Everything", "CLEAR", "Everything except your settings goes: jobs, clients, vendors, people, bills, the ledger.", () => rdWipe("all")), "Clear"),
-        row("demo", "Turn the Demo On", "invented live jobs beside the firm's own", () => ydConfirm("Turn the Demo On", "DEMO", "Invented jobs join the firm's records until you turn the demo off.", () => ("function" == typeof ljDemoOn ? (ljDemoOn(), save(), render(), toast("The live jobs demo is on")) : null)), "Turn On"),
       ]
     : [];
   const sec = (t, R) => (R.length ? ydSectionHtml(t, null, "", R) : "");
-  s.innerHTML = `<div class="yd-host"><div class="yd-ph"><button type="button" class="yd-back" data-ydgo="cohub">${ydSvg("back")}Company and Settings</button></div><div class="yd-ph"><div class="grow"><h2>Company Settings</h2><div class="yd-sub">How the firm is set up</div></div></div>${sec("The Firm", firm)}${sec("Money and Buying", money_)}${sec("Sales", sales)}${sec("Your Data", data)}${owner ? sec("The Clock and the Demo", clock).replace('data-ydact="wipe"', 'data-ydact="wipe" data-ydwipe') : ""}</div>`;
+  s.innerHTML = `<div class="yd-host"><div class="yd-ph"><button type="button" class="yd-back" data-ydgo="cohub">${ydSvg("back")}Company and Settings</button></div><div class="yd-ph"><div class="grow"><h2>Company Settings</h2><div class="yd-sub">How the firm is set up</div></div></div>${sec("The Firm", firm)}${sec("Money and Buying", money_)}${sec("Sales", sales)}${sec("Your Data", data)}${owner ? sec("The Clock and the Demo", clock).replace('data-ydact="wipe"', 'data-ydact="wipe" data-ydwipe') : ""}${owner && "function" == typeof ljDemoCard ? ljDemoCard() : ""}</div>`;
 }
 function ydAsOf() {
   const m = ydConfirm("Change As Of", "CHANGE", "Every screen, figure and timestamp reads this date. Leave it blank for today.", (f) => {
@@ -509,9 +508,7 @@ function ydHubRender() {
   } catch (e) {}
   // The Brain is its own page again (the assistant opened it as a tab of Ask)
   "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.brain;
-  // the Chief of Staff is no menu entry: its old link lands on Today (src/yourday.js), and Ask's Findings tab keeps
-  // Every Chain under Ask's own heading
-  "undefined" != typeof PA_REDIRECT && delete PA_REDIRECT.cos;
+  // the Chief of Staff is no menu entry: its old link keeps landing on Ask's Findings, Every Chain (PA_REDIRECT.cos)
   // Messages to Clients never act alone (DECISIONS 11-03)
   try {
     const t = paType("clientMessages");
@@ -535,6 +532,8 @@ function ydGrant() {
 function ydCoForward() {
   if (!ydOffice()) return;
   const v = view;
+  // the old Settings page is Company Settings now (its tiles are Company Settings' rows; the demo switch is there)
+  if ("setup" === v && ydMay("cosettings")) return (view = "cosettings");
   if (("ovoffice" === v || "setup" === v) && ydMay("cohub")) return (view = "cohub");
   // Sales Settings, Your Own Data, Problem Reports and the firm's settings stay their own pages, opened from Company
   // Settings' rows and lit under it (MN_ALIAS, mnCur below): nothing that links to them breaks
@@ -575,7 +574,7 @@ function ydCoForward() {
     return r;
   };
 }
-"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cohub", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", playbook: "standard", cos: "home" });
+"object" == typeof MN_ALIAS && Object.assign(MN_ALIAS, { ovoffice: "cohub", setup: "cosettings", hbsettings: "cosettings", rdata: "cosettings", rpbox: "cosettings", playbook: "standard", cos: "home" });
 // the firm's settings page (the job settings page in company mode) is lit as Company Settings
 if ("function" == typeof mnCur) {
   const base = mnCur;

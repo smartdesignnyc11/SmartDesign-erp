@@ -35,7 +35,7 @@
 // ---- the kit: one look for the lane's pages (drawn by this script so the shared stylesheet is not touched) ----------
 const YD_CSS = `
 .yd-host{max-width:1180px}
-.view.yd-own > :not(.yd-host):not(script){display:none !important}
+.view.yd-own > .yd-hid{display:none !important}
 .yd-ph{display:flex;align-items:flex-start;gap:12px;margin:0 0 12px}
 .yd-ph h2{font-size:20px;line-height:1.2}
 .yd-ph .yd-sub{color:var(--ink-3);font-size:13px;margin-top:2px}
@@ -168,13 +168,20 @@ function ydHost(v, on) {
   if (!s) return null;
   let h = s.querySelector(":scope > .yd-host");
   if (!on) {
-    s.classList.remove("yd-own");
+    ydOwn(s, !1);
     h && (h.hidden = !0);
     return null;
   }
   h || ((h = document.createElement("div")), (h.className = "yd-host"), (h.id = "yd-" + v), s.prepend(h));
-  (h.hidden = !1), s.classList.add("yd-own");
+  (h.hidden = !1), ydOwn(s, !0);
   return h;
+}
+// the page's own content hides behind the host: what the old renderers drew (marked at each draw), never something a
+// person or another layer puts on the page afterwards (a sheet, a banner, a tool's overlay)
+function ydOwn(s, on) {
+  if (!s) return;
+  s.classList.toggle("yd-own", !!on);
+  [...s.children].forEach((ch) => (on ? !ch.classList.contains("yd-host") && "SCRIPT" !== ch.tagName && ch.classList.add("yd-hid") : ch.classList.remove("yd-hid")));
 }
 // a section of its own for a page the lane adds (the deal, the hub, Company Settings)
 function ydSection(v) {
@@ -369,6 +376,14 @@ function ydMsgRows(chip) {
       }
       return { id: String(x.id), at: x.at, title: tdPlain(it.title || "A message"), meta: tdPlain(it.detail || "Team"), when: ydWhen(x.at), late: !0, act: "Reply", run: () => (it.open ? mGo(it.open) : setView("chat")) };
     });
+  // To Decide: the Inbox's own list (cmToDecide), mail with something read from it to apply (a bill to enter, a COI to
+  // file, a delivery date, a permit window): the work a message carries, oldest first. Each opens the message with
+  // its proposals and their Apply buttons.
+  if ("decide" === chip)
+    return ydMsgDecide().map((c) => {
+      const n = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on).length;
+      return { id: c.id, at: String(c.date || ""), title: `${ydMsgWho(c)}: ${ydMsgAbout(c)}`, meta: [`${n} to decide`, ydMsgKind(c), ydMsgWhere(c)].filter(Boolean).join(" · "), when: ydAge(c.date), act: "Open", run: () => ydMsgOpen(c), c: c };
+    });
   if ("meet" === chip)
     return (DB.meetings || [])
       .slice()
@@ -395,10 +410,22 @@ function ydMsgRows(chip) {
   } catch (e) {}
   return mail.concat(threads).sort((a, b) => b.at.localeCompare(a.at));
 }
+function ydMsgDecide() {
+  try {
+    const L = "function" == typeof cmListFor ? cmListFor("decide") : (DB.comms || []).filter((c) => "function" == typeof cmToDecide && cmToDecide(c));
+    return L.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  } catch (e) {
+    return [];
+  }
+}
 function ydMsgPane(r) {
   if (!r) return '<section class="yd-card"><div class="yd-empty">Pick a conversation.</div></section>';
   const c = r.c;
   if (!c) return `<section class="yd-card yd-msg"><h3>${esc(r.title)}</h3><p class="muted">${esc(r.meta)}</p><div style="margin-top:12px"><button type="button" class="btn primary" data-ydact="${esc(r.id)}">${esc(r.act)}</button></div></section>`;
+  if ("decide" === ydMsg.chip) {
+    const P = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on);
+    return `<section class="yd-card yd-msg"><h3>${esc(c.subject || "A message")}</h3><p class="muted small">${esc([ydMsgKind(c), ydMsgWho(c), ydMsgWhere(c), c.date ? fmt(String(c.date).slice(0, 10)) : ""].filter(Boolean).join(" · "))}</p><ul class="small">${P.map((p) => `<li>${esc(tdWords(String(p.summary || p.kind || ""), 24))}</li>`).join("")}</ul><button type="button" class="btn primary" data-ydact="${esc(r.id)}">Open the Message</button></section>`;
+  }
   const text = "function" == typeof cmOwnText ? cmOwnText(c.text || "") : c.text || "",
     who = ydMsgWho(c),
     first = String(who).split(/[\s,]+/)[0];
@@ -427,10 +454,11 @@ function ydMsgRender() {
   const sel = phone ? null : rows.find((r) => r.id === ydMsg.sel) || rows[0];
   const list = rows.length
     ? rows.map((r) => Object.assign({}, r, { sec: ydMsg.chip, primary: !1, sel: sel && r.id === sel.id })).map((r) => ydRowHtml(r).replace('data-ydrow="', 'data-ydmrow="' + esc(r.id) + '" data-ydrow="')).join("")
-    : `<div class="yd-empty">${"need" === ydMsg.chip ? "Nobody is waiting on an answer from you." : "Nothing here yet."}</div>`;
+    : `<div class="yd-empty">${"need" === ydMsg.chip ? "Nobody is waiting on an answer from you." : "decide" === ydMsg.chip ? "Nothing read from your mail waits to be applied." : "Nothing here yet."}</div>`;
   const chips = ydChipsHtml(
     [
       { k: "need", label: "Needs an Answer", n: needN || "" },
+      { k: "decide", label: "To Decide", n: ydMsgDecide().length || "" },
       { k: "all", label: "All", n: "" },
       { k: "meet", label: "Meetings", n: "" },
     ],
@@ -1009,10 +1037,11 @@ function ydForward() {
   if (!ydOffice()) return;
   const v = view;
   if ("mapprove" === v) return (view = "home"), tdyTabSet("appr"), (ydTdMemo.k = "");
-  // the Chief of Staff's findings are Today's rows (its Every Chain stays a part of Ask's Findings tab)
-  if ("cos" === v && ydMay("home")) return (view = "home");
-  if ("comms" === v && !ydMsgKeep && !("undefined" != typeof cmOpen && cmOpen)) return (view = "chat"), (ydMsg.chip = "need"), (ydMsg.thread = !1);
-  if ("meetings" === v && !ydMsgKeep && !("undefined" != typeof mtOpen && mtOpen) && ydMay("chat")) return (view = "chat"), (ydMsg.chip = "meet"), (ydMsg.thread = !1);
+  // the Chief of Staff's old link keeps landing on Ask's Findings, Every Chain (the assistant's redirect): the bank lines
+  // to review, the WIP and the money facts are read there, as before
+  if ("comms" === v && !ydMsgKeep && !("undefined" != typeof cmOpen && cmOpen) && !("undefined" != typeof cmSel && cmSel)) return (view = "chat"), (ydMsg.chip = "need"), (ydMsg.thread = !1);
+  // the Changes register (a change proposed to the price book, a rule) keeps its page: its Approve lives there
+  if ("meetings" === v && !ydMsgKeep && !("undefined" != typeof mtOpen && mtOpen) && !("undefined" != typeof mtTab && "changes" === mtTab) && ydMay("chat")) return (view = "chat"), (ydMsg.chip = "meet"), (ydMsg.thread = !1);
   if ("calendar" === v && ydMay("tkall") && !ydCalKeep) return (view = "tkall"), (tkMode = "cal");
 }
 {
@@ -1022,7 +1051,7 @@ function ydForward() {
     "chat" === v && (ydMsg.thread = !1);
     if (("comms" === v || "meetings" === v) && !ydMsgKeep) {
       try {
-        "comms" === v && (cmOpen = null);
+        "comms" === v && ((cmOpen = null), "undefined" != typeof cmSel && (cmSel = ""));
         "meetings" === v && (mtOpen = "");
       } catch (e) {}
     }

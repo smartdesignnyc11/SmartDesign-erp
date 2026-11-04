@@ -31,6 +31,10 @@
 // Estimates in the Sales menu: off (DECISIONS 11-03, flagged for Alan). Set true and the entry returns, as the
 // Pipeline's Proposals Out filter; old links then open Billing's Estimates as before.
 const YD_ESTIMATES_IN_MENU = !1;
+// The seats whose Accounting group holds Billing (and its Estimates): for them Estimates leaves the Sales menu. Everyone
+// else who writes estimates (the PM above all) keeps Estimates under Sales and Clients, one tap (coordinator, 11-04)
+const YD_EST_VIA_ACCOUNTING = ["owner", "billing", "controller"];
+const ydEstInMenu = (r) => YD_ESTIMATES_IN_MENU || !YD_EST_VIA_ACCOUNTING.includes(r || role());
 const SL_LABEL = { inquiry: "Lead", qualified: "Qualified", "site-visit": "Site Visit", design: "Design Proposal", proposal: "Proposal Out", won: "Signed", lost: "Lost" };
 const slIsOpen = (l) => !["won", "lost"].includes(l.stage);
 const slTd = () => today();
@@ -418,8 +422,19 @@ let slClTab = "overview",
 // the client's billing record as it was (its Billing tab: New Invoice, progress and deposit invoices, change orders),
 // one tap from Contract and Billing
 let slClOld = !1;
+// A link to a client's billing record (a toast's Open on a new invoice, a statement, a job's billing link) sets the old
+// page's own tab, clientTab "fin": it lands on the record it names, as before, not on the client's page above it. The
+// client's page itself never sets "fin" except through Billing Record, so a change to "fin" is such a link.
+let slClSeen = { c: null, tab: "overview" };
+function slBillingLink() {
+  if ("clients" !== view || !clientOpen) return void (slClSeen = { c: null, tab: "undefined" != typeof clientTab ? clientTab : "" });
+  const tab = "undefined" != typeof clientTab ? clientTab : "";
+  "fin" === tab && (slClSeen.tab !== "fin" || slClSeen.c !== clientOpen) && (slClOld = !0);
+  slClSeen = { c: clientOpen, tab: tab };
+}
 function slOpenClient(id) {
   (clientOpen = id), (docOpen = null), (slClNewOpen = !1), (slClOld = !1);
+  "undefined" != typeof clientTab && (clientTab = "overview"), (slClSeen = { c: id, tab: "overview" });
   slClTab = "billing" === role() ? "billing" : "overview";
   setView("clients");
 }
@@ -645,11 +660,11 @@ function slDealRender() {
 // ---- forwards, menu, wiring -----------------------------------------------------------------------------------------
 (function slMenu() {
   if ("undefined" == typeof MN_SALES) return;
-  const items = [["ovsales", "Pipeline"]].concat(YD_ESTIMATES_IN_MENU ? [["billing", "Estimates", "estimates"]] : [], [["clients", "Clients"]]);
+  const items = [["ovsales", "Pipeline"], ["billing", "Estimates", "estimates", YD_ESTIMATES_IN_MENU ? {} : { not: YD_EST_VIA_ACCOUNTING }], ["clients", "Clients"]];
   MN_SALES.splice(0, MN_SALES.length, ...items);
   // with Estimates off the menu, the PM (who has no Accounting group) opens Billing by link only: from a job's Contract
   // and Billing and the Pipeline's Proposals Out (the Accounting lane's MN_LINK registry)
-  if (!YD_ESTIMATES_IN_MENU && "undefined" != typeof MN_LINK) (MN_LINK.pm = MN_LINK.pm || []).includes("billing") || MN_LINK.pm.push("billing");
+
   try {
     // the stage the owner names "Design Proposal" (Sales must-fix 3)
     "undefined" != typeof SL_STAGES && SL_STAGES.forEach((x) => "design" === x[0] && (x[1] = "Design proposal"));
@@ -675,7 +690,7 @@ function slForward() {
   if ("partners" === v && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "partners");
   if (("hbcontacts" === v && rec("contact")) || ("hbcompanies" === v && rec("company"))) return;
   if (["hbcontacts", "hbcompanies"].includes(v) && ydMay("clients")) return (view = "clients"), (clientOpen = null), (docOpen = null), (slClChip = slClChipKeep = "all");
-  if ("billing" === v && !YD_ESTIMATES_IN_MENU && "sales" === mnLastGrp && ydMay("ovsales")) return (view = "ovsales"), (slChip = "props"), (mnLastGrp = "sales");
+  if ("billing" === v && !ydEstInMenu() && "sales" === mnLastGrp && ydMay("ovsales")) return (view = "ovsales"), (slChip = "props"), (mnLastGrp = "sales");
 }
 {
   const base = render;
@@ -684,6 +699,7 @@ function slForward() {
       slForward();
       slRenameStage();
       slTieNewJob();
+      slBillingLink();
     } catch (e) {
       console.warn("sales: forward", e);
     }

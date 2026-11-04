@@ -126,7 +126,7 @@ async def messages_as(p, uid, phone):
     m = await pg.evaluate(MSGS)
     c.ok(m['on'], f'{who}: Messages is not the one list (#yd-chat)')
     labels = [x['label'] for x in m['chips']]
-    c.ok(labels == ['Needs an Answer', 'All', 'Meetings'], f'{who}: Messages chips {labels}')
+    c.ok(labels == ['Needs an Answer', 'To Decide', 'All', 'Meetings'], f'{who}: Messages chips {labels}')
     on = [x['label'] for x in m['chips'] if x['on']]
     c.ok(on == ['Needs an Answer'], f'{who}: Messages opens on {on}')
     need = await pg.evaluate("() => typeof ydMsgNeeds === 'function' ? ydMsgNeeds().length : cmNeedsAnswer().length")
@@ -147,6 +147,18 @@ async def messages_as(p, uid, phone):
             c.ok(mk['rows'], f'{who}: Messages {k} shows no rows')
         mk = await pg.evaluate(MSGS)
         c.ok(any('Notes' in x['text'] or 'Meeting' in x['text'] or 'Schedule Review' in x['text'] for x in mk['rows']), f'{who}: Meetings shows no meeting notes')
+    # To Decide is the Inbox's own list (mail with something read from it to apply); a row opens it with its Apply
+    await pg.evaluate("() => document.querySelector('#yd-chat [data-ydchip=\"decide\"]').click()")
+    await pg.wait_for_timeout(150)
+    mk = await pg.evaluate(MSGS)
+    dn = await pg.evaluate("() => cmListFor('decide').length")
+    n = next((x['n'] for x in mk['chips'] if x['k'] == 'decide'), '')
+    c.ok(len(mk['rows']) == dn and (n or '0') == str(dn), f'{who}: To Decide chip {n!r}, rows {len(mk["rows"])}, the Inbox {dn}')
+    if dn:
+        ap = await pg.evaluate("""async () => { const r = document.querySelector('#yd-chat [data-ydmrow] [data-ydact]'); r.click(); await new Promise(x => setTimeout(x, 200));
+          return [view, document.querySelectorAll('.view.on [data-cmapply]').length]; }""")
+        c.ok(ap[0] == 'comms' and ap[1] > 0, f'{who}: a To Decide row opens the message with its Apply buttons ({ap})')
+        await go(pg, 'chat')
     # the old pages forward here
     for old, chip in (('comms', 'need'), ('meetings', 'meet')):
         await pg.evaluate("v => { cmOpen = null; setView(v); }", old)
