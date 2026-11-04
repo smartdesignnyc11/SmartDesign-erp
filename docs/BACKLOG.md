@@ -1294,3 +1294,14 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
    licenses are not in the records at all, and the screen listed them with no count. Class fix: the firm's required records are a
    checklist from the Standard (law ranks second); one missing or lapsed is Needs You for the owner and controller and counts in
    Today's Compliance. Check: the compliance suite removes a required record and asserts the row, the hub count and Compliance move.
+
+### 1.36 Found while deploying the module batch (11-04)
+- **Approval stamps with no action behind them (S1, books integrity).** Bills NT-88412, CM-0091, WW-2026-118 show "recommended by PM", "approved by Alan" or "approved for payment by Owner" with no matching audit action. A stamp must be written by that person's own action, never inferred. Check: the walk's danger sweep (stamp).
+- **The blue button on a held or paid-before-approval bill is Approve** (NEM-5851, GOW-5482, WW-2026-118); WW-2026-118 cannot be put on hold from its page. Check: danger sweep (danger, stuck).
+- **"Draft the Renewal" records the renewal as done** instead of opening a draft. Check: danger sweep (prefilled).
+- **A line moved to a new vendor is numbered with the vendor's FM prefix** (FM-1), not PO-2026-nnn (`selPONumber`). Check: J6.
+- **Desktop receiving cards start at the full order** instead of empty. Check: J7.
+- **purchasing_test chase (4) and polish (1)** fail since integ8: Tino's typed email is not saved, no draft, no Open link on its toast.
+- **The 13-week forecast releases a job's set-aside by calendar**, not as earned (121 State's $47K by 9/23 at 25% done). Needs each job's forecast cost by week.
+- **J10's fourth owner answer varies between runs** (passed once on this build, 3 of 4 the next).
+- **drafts_shards.sh reports FAILED when every shard passes**: it reads the last log line, which is now the DRAFTS count.
