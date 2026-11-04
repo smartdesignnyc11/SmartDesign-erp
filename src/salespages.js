@@ -77,8 +77,17 @@ function slJobOf(l) {
     claimed = new Set(L.map((x) => x.projectId).concat(P.map((p) => p.dealId && p.id)).filter(Boolean)),
     jobs = P.filter((p) => p.clientId === c.id && !claimed.has(p.id) && !p.dealId).sort((a, b) => String((a.project || {}).start || a.createdAt || "").localeCompare(String((b.project || {}).start || b.createdAt || ""))),
     deals = L.filter((x) => "won" === x.stage && slClientOf(x) === c && !x.projectId && !P.some((p) => p.dealId === x.id)).sort((a, b) => String(a.wonAt || "").localeCompare(String(b.wonAt || "")));
-  const i = deals.indexOf(l);
-  return i >= 0 && i < jobs.length ? jobs[i] : null;
+  // pair in order, a job only with a deal signed on or before the job began (a job that started before the deal was
+  // signed belongs to an earlier deal: the Kleins' 121 State Street is not their second deal's job)
+  const begun = (p) => String((p.project || {}).start || p.createdAt || "9999-12-31").slice(0, 10),
+    used = new Set();
+  let mine = null;
+  deals.forEach((d) => {
+    const j = jobs.find((p) => !used.has(p.id) && begun(p) >= String(d.wonAt || "").slice(0, 10));
+    j && used.add(j.id);
+    d === l && (mine = j || null);
+  });
+  return mine;
 }
 // Set Up the Job ties the job it makes to the deal
 let slSetUpFor = null;

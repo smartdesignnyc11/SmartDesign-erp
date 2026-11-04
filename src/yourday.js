@@ -516,7 +516,7 @@ function ydOwnerExc(appr) {
     if (seen.has(b.id) || YD_BILL_DONE.includes(b.status) || !b.status) return;
     const why = ydBillExc(b);
     if (!why.length) return;
-    out.push({ kind: "bill", id: b.id, title: `${b.vendor} · bill ${b.number}`, detail: why.join(" · "), open: { view: "ap" }, ydWhy: why, ydExtra: 1, due: b.date || "" });
+    out.push({ kind: "bill", id: b.id, title: `${b.vendor} · bill ${b.number}`, detail: why.join(" · "), open: { view: "ap" }, ydWhy: why, ydExtra: 1, who: "owner", due: b.date || "" });
   });
   return out;
 }
