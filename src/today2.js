@@ -277,12 +277,11 @@ if ("function" == typeof tdCard) {
     // approved from the row (BACKLOG §1.36, the danger sweep: held WW-2026-118's card on Today read Approve). Its page
     // opens with the safe next step blue (scBillSafeNext).
     try {
-      if (it && "bill" === it.kind && "function" == typeof scBillState) {
+      if (it && "bill" === it.kind && "function" == typeof scSafeNext) {
+        // the same safe next step as the bill page and Approvals (scSafeNext)
         const b = (DB.bills || []).find((y) => y.id === it.id),
-          st = b ? scBillState(b) : "";
-        "held" === st
-          ? Object.assign(c, { verb: "Review the Hold", run: () => flowGo.bill(b)() })
-          : "pba" === st && /^approve/i.test(String(c.verb || "")) && Object.assign(c, { verb: "Review", run: () => flowGo.bill(b)() });
+          nx = b ? scSafeNext(b) : null;
+        nx && Object.assign(c, { verb: nx.label, run: nx.run });
       }
     } catch (e) {}
     return c;

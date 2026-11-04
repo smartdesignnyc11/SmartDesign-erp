@@ -1871,6 +1871,41 @@ function scHoldReview(b) {
     },
   );
 }
+// The safe next step for a bill's state, the one answer every row that offers a bill a verb reads (the bill page, Today,
+// Approvals): held, Review the Hold; paid before approval, Hold (when this person may hold it; else Review, which opens
+// the bill). null when the state asks for nothing different.
+function scSafeNext(b) {
+  const st = scBillState(b);
+  if ("held" === st) return { label: "Review the Hold", run: () => scHoldReview(b) };
+  if ("pba" === st)
+    return ["client", "crew", "driver", "foreman"].includes(role()) || "function" != typeof billHoldSheet
+      ? { label: "Review", run: () => flowGo.bill(b)() }
+      : { label: "Hold", run: () => billHoldSheet(b, "hold") };
+  return null;
+}
+// Approvals: a held or paid-before-approval bill's row leads with its safe next step, blue; Approve stays on the row,
+// never blue (chief-of-staff review, 11-04: WW-2026-118, paid on the Amex before approval with its bank details changed,
+// its COI expired and $3,800 over its PO, read Approve first on Approvals)
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      document.querySelectorAll('#v-mapprove .m-appr[data-mk="bill"]').forEach((el) => {
+        const b = (DB.bills || []).find((x) => x.id === el.dataset.mid),
+          nx = b ? scSafeNext(b) : null,
+          box = el.querySelector(".m-appr-a");
+        if (!nx || !box || box.querySelector("[data-mysafe]")) return;
+        box.querySelectorAll("button.primary").forEach((x) => x.classList.remove("primary"));
+        box.insertAdjacentHTML("afterbegin", `<button type="button" class="btn primary" data-mysafe>${esc(nx.label)}</button>`);
+        box.querySelector("[data-mysafe]").onclick = (e) => (e.preventDefault(), e.stopPropagation(), nx.run());
+      });
+    } catch (e) {
+      console.warn("approvals safe next", e);
+    }
+    return r;
+  };
+}
 function scBillSafeNext(id) {
   const b = (DB.bills || []).find((x) => x.id === id),
     body = document.getElementById("d-body"),
