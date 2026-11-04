@@ -1277,7 +1277,8 @@ function scApproveChange(po, cid) {
   if (!c || "pending" !== c.status) return;
   if (!["owner", "pm"].includes(role())) return toast("The PM or the owner approves a change");
   if (scLow(c.by) === scLow(scMe())) return toast("A second person approves the change");
-  (c.status = "approved"), (c.approvedBy = scMe()), (c.approvedAt = appNowIso());
+  // the approval and its audit row by the person who approved, in one step (apStamp, BACKLOG §1.36)
+  (c.status = "approved"), apStamp("subchange", c, `approved by ${scMe()}`, "approved", { by: scMe(), approve: !0, approvedAt: appNowIso(), after: c.number });
   try {
     audit("po", po.id, "subcontract-change-approved", "pending", c.number, money(c.amount));
   } catch (e) {}

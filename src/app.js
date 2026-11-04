@@ -13703,6 +13703,9 @@ function apStamp(kind, rec, action, auditAction, o) {
     },
     st = Object.assign({ t: who.t, ts: who.ts, by: who.by, role: who.role, action: action }, o.extra || {});
   (rec.approvals = rec.approvals || []).push(st);
+  // a record that names its approver on itself (a rule change, a client credit, a journal, a PO) names the person who
+  // acted, in the same step as the audit row: never a role, never someone who did not act (BACKLOG §1.36)
+  o.approve && ((rec.approvedBy = who.by), (rec.approvedAt = o.approvedAt || today()));
   audit(kind, rec.id, auditAction || action, void 0 === o.before ? null : o.before, void 0 === o.after ? null : o.after, o.note || "", who);
   return st;
 }
@@ -72627,16 +72630,17 @@ function glApprove(id) {
   if (!j || "pending" !== j.status) return;
   if ("owner" !== role()) return void toast("Only the Owner approves a manual entry");
   if (glLocked(j.date, j.entityId, "gl")) return void toast("That period is locked");
-  (DB.gl.journals = DB.gl.journals.filter((x) => x.id !== id)),
-    (j.approvedBy = role()),
-    (j.approvedAt = appNowIso());
+  // approvedBy names the person who approved (it read "owner", the role), with its audit row by that person (apStamp)
+  const who = (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role(),
+    keep = { by: j.approvedBy, at: j.approvedAt };
+  (DB.gl.journals = DB.gl.journals.filter((x) => x.id !== id)), (j.approvedBy = who), (j.approvedRole = role()), (j.approvedAt = appNowIso());
   const res = glPost(j);
-  if (!res.ok) return toast(res.why), void DB.gl.journals.push(j);
+  if (!res.ok) return (j.approvedBy = keep.by), (j.approvedAt = keep.at), toast(res.why), void DB.gl.journals.push(j);
   if (j.autoReverseOn) {
     glReverse(j, j.autoReverseOn, "auto-reverse").ok && (j.status = "posted");
   }
   try {
-    audit("ledger", j.id, "approve", "", j.memo, "");
+    apStamp("ledger", j, `approved and posted by ${who}`, "approve", { by: who, after: j.memo });
   } catch (e) {}
   save(), render(), toast(`Posted #${j.n}`);
 }
@@ -95391,9 +95395,10 @@ function mtWire(host) {
           // in the drawing, so a button that shows to anyone else still changes nothing
           if ("owner" !== role()) return void toast("Only the owner approves a change");
           const by = (currentUser() || {}).name || "Owner";
+          const was = c.status;
           "code" === c.kind ? (c.status = "approved") : (mtChangeApply(c), (c.status = "live")),
-            (c.approvedBy = by),
-            (c.approvedAt = today()),
+            // the approval names the owner who approved it, with its audit row (apStamp; it wrote none)
+            apStamp("change", c, "code" === c.kind ? "approved for the next build by the Owner" : "approved and published by the Owner", "approved", { by: by, approve: !0, before: was, after: c.status }),
             log(`Change ${c.status}: ${c.title}`, "change", by),
             save(),
             toast("live" === c.status ? "Published" : "Approved for the next build"),
@@ -95982,27 +95987,30 @@ function lsInit() {
       covered.includes(c.delta.path) &&
       ((c.status = "live"),
       (c.liveAt = today()),
-      (c.approvedBy = "Owner"),
-      (c.note = "Already in effect — covered by the changes approved after the meeting read"));
+      (c.note = "Already in effect — covered by the changes approved after the meeting read"),
+      // the system marks it live because it is already in effect: it says so, and never names the Owner, who did not
+      // act on it (BACKLOG §1.36: it read "approved by Owner" with nothing behind it)
+      apStamp("change", c, "marked live by the system: already in effect, covered by changes approved after the meeting read", "covered-live", { by: "system", role: "system", approve: !0, before: "draft", after: "live" }));
   }),
     LS_CHANGES.forEach(([key, kind, title, why, delta]) => {
-      DB.changes.some((c) => c.title === title) ||
-        DB.changes.push({
-          id: uid("ch"),
-          key: key,
-          title: title,
-          why: why,
-          kind: kind,
-          delta: delta,
-          evidence: [],
-          status: "live",
-          at: today(),
-          by: "The assistant",
-          approvedBy: "Owner",
-          approvedAt: today(),
-          liveAt: today(),
-          built: "code" === kind,
-        });
+      if (DB.changes.some((c) => c.title === title)) return;
+      // a change that ships with the build is live because it shipped, not because the Owner approved it here: it says
+      // so, with its audit row (it read "approved by Owner" with no action of his behind it)
+      const c = {
+        id: uid("ch"),
+        key: key,
+        title: title,
+        why: why,
+        kind: kind,
+        delta: delta,
+        evidence: [],
+        status: "live",
+        at: today(),
+        by: "The assistant",
+        liveAt: today(),
+        built: "code" === kind,
+      };
+      DB.changes.push(c), apStamp("change", c, "live as shipped with the build", "shipped", { by: "system", role: "system", approve: !0, after: "live" });
     });
 }
 if ("function" == typeof finishBoot) {
@@ -182102,7 +182110,8 @@ function blCreditAct(row) {
     DB.clientCredits.push(cc));
   const was = cc.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(cc.invoiceLineId) : null;
   if (was) return (clientOpen = was.c.id), (docOpen = { kind: "invoice", id: was.inv.id }), void render();
-  "approved" !== cc.status && ((cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()));
+  // billing's draft is the approval: it names the person, with its audit row in the same step (apStamp; it wrote none)
+  "approved" !== cc.status && ((cc.status = "approved"), apStamp("client-credit", cc, `credit to the client approved by ${by}`, "approved", { by: by, approve: !0, before: "proposed", after: "approved", note: cc.why || "" }));
   row.txn && (row.txn.clientCreditDone = cc.id);
   let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === p.id && "sov" !== i.mode && (i.rebill || i.creditFor));
   inv ||
