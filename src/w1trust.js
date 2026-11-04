@@ -1410,17 +1410,23 @@ document.addEventListener(
   !0,
 );
 
-// One verb, one act: "Draft the Renewal" on Today opens the Renew sheet (record the renewal, or Draft a Request); on
-// Obligations the same words drafted a mail and moved the person to the assistant (the tap lint, the controller's
-// phone: "falls through to Ask"). Obligations opens the same sheet.
+// One verb, one act: "Draft the Renewal" on Today and on Obligations opens the same draft (flRenewDraft: the filing
+// drafted on its task, or the request to the party), never a sheet that records it (BACKLOG §1.36); Record the Filing
+// on Obligations records it. On Obligations the words once drafted a mail and moved the person to the assistant (the
+// tap lint, the controller's phone: "falls through to Ask").
 {
   const base = render;
   render = function () {
     const r = base.apply(this, arguments);
     try {
-      "function" == typeof flRenewDialog &&
+      "function" == typeof flRenewDraft &&
         document.querySelectorAll(".view.on [data-bnobdraft]").forEach((b) => {
           const o = (DB.obligations || []).find((x) => x.id === b.dataset.bnobdraft);
+          o && (b.onclick = () => flRenewDraft(o));
+        });
+      "function" == typeof flRenewDialog &&
+        document.querySelectorAll(".view.on [data-bnobrec]").forEach((b) => {
+          const o = (DB.obligations || []).find((x) => x.id === b.dataset.bnobrec);
           o && (b.onclick = () => flRenewDialog(o));
         });
     } catch (e) {}

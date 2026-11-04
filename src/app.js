@@ -98230,7 +98230,7 @@ function bnObligationsHtml() {
                 : (DB.projects.find((p) => p.id === c) || { project: { name: c } }).project.name,
           )
           .join(", ");
-      return `<tr data-bnob="${o.id}"><td>${esc(BN_OB_KINDS[o.kind] || o.kind)}</td><td><b>${esc(o.name)}</b>${o.number ? `<div class="small muted">${esc(o.number)}</div>` : ""}</td><td>${esc(o.party || "")}</td><td class="small">${esc(cov)}</td><td>${o.expires ? bnY(o.expires) : "—"}</td><td>${esc(o.owner || "")}</td><td>${st}</td><td>${r.ext ? '<span class="small muted">from Vendors</span>' : null !== r.days && r.days <= (o.renewLead || 30) && "active" === o.status ? `<button class="btn sm" data-bnobdraft="${o.id}">Draft the Renewal</button>` : ""}</td></tr>`;
+      return `<tr data-bnob="${o.id}"><td>${esc(BN_OB_KINDS[o.kind] || o.kind)}</td><td><b>${esc(o.name)}</b>${o.number ? `<div class="small muted">${esc(o.number)}</div>` : ""}</td><td>${esc(o.party || "")}</td><td class="small">${esc(cov)}</td><td>${o.expires ? bnY(o.expires) : "—"}</td><td>${esc(o.owner || "")}</td><td>${st}</td><td>${r.ext ? '<span class="small muted">from Vendors</span>' : null !== r.days && r.days <= (o.renewLead || 30) && "active" === o.status ? `<button class="btn sm" data-bnobdraft="${o.id}">Draft the Renewal</button> <button class="btn sm" data-bnobrec="${o.id}">${"filing" === o.kind ? "Record the Filing" : "Record the Renewal"}</button>` : ""}</td></tr>`;
     }).join("") || '<tr><td colspan="8" class="muted">Nothing on the register yet.</td></tr>'
   }</tbody></table></div>\n    <p class="small muted">Everything here lands on the calendar as its expiry and its renewal date, and on the owner's tasks ${DB.company.obLead || 30} days ahead. A policy bound in a meeting goes here the same day, with the carrier's email, so the renewal writes itself.</p>`;
 }
@@ -98927,17 +98927,15 @@ function renderObligations() {
               : void bnObModal(tr.dataset.bnob);
         }),
     ),
+    // Draft the Renewal drafts it (flRenewDraft); Record the Filing / Renewal records it, with the date typed
     host.querySelectorAll("[data-bnobdraft]").forEach(
+      (b) => (b.onclick = () => flRenewDraft(DB.obligations.find((x) => x.id === b.dataset.bnobdraft))),
+    ),
+    host.querySelectorAll("[data-bnobrec]").forEach(
       (b) =>
         (b.onclick = () => {
-          const o = DB.obligations.find((x) => x.id === b.dataset.bnobdraft);
-          o && bnDraftFor({ kind: "obligation", o: o })
-            ? (save(),
-              toast("Renewal request drafted — approve it under The Brain › Hands"),
-              (bnTab = "hands"),
-              (view = "brain"),
-              render())
-            : toast("A draft for this renewal already exists");
+          const o = DB.obligations.find((x) => x.id === b.dataset.bnobrec);
+          o && flRenewDialog(o);
         }),
     );
 }
@@ -190986,16 +190984,85 @@ function flObRole(o) {
   return (u && u.role) || "owner";
 }
 const flObYears = (o) => (/biennial/i.test(o.name || "") ? 2 : 1);
+// "Draft the Renewal" drafts it; it never records it (BACKLOG §1.36, the walk's danger sweep: the button opened Record the
+// Filing with today in Filed On, one tap from marking a filing done that nobody had filed). A filing with an agency is
+// drafted as the filing packet on its renewal task (what to file, where, by when, the fee, the entity), for the person
+// who files it; a policy or license from a party is drafted as the request to that party, approved under The Brain ›
+// Hands before it goes. Recording the filing or the renewal is its own button on Obligations, with the date typed.
+function flRenewDraftText(o) {
+  const filing = "filing" === o.kind,
+    file = flObFile(o),
+    ent = (DB.entities || []).find((e) => (o.covers || []).includes(e.id)) || (DB.entities || [])[0] || {};
+  return filing
+    ? [
+        `File: ${o.name}${o.number ? ` (${o.number})` : ""}`,
+        `With: ${o.party || "the agency"}`,
+        `For: ${ent.name || "the company"}`,
+        `File by: ${fmtL(file || o.expires)} (it expires ${fmtL(o.expires)})`,
+        o.amount ? `Fee: ${money(o.amount)}` : null,
+        o.notes ? `Notes: ${o.notes}` : null,
+        "",
+        "Before filing: check the address of record and the registered agent are current, and that the members or officers listed are right.",
+        "After filing: keep the receipt; record the filing on Obligations with the date it was filed and the receipt number.",
+      ]
+        .filter((x) => null !== x)
+        .join("\n")
+    : bnRenewalText(o).body;
+}
+function flRenewDraft(o) {
+  if (!o) return;
+  const filing = "filing" === o.kind;
+  mbModal(
+    `Draft the Renewal — ${esc(o.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `This drafts the filing for the person who files it, on the renewal task. Nothing is marked filed: once it is filed, record it on Obligations with the date and the receipt.` : `This drafts the request to ${esc(o.party || "them")} for the renewal terms. It waits for your approval under The Brain › Hands before it goes; record the renewal on Obligations once the new ${esc(o.kind)} is in hand.`}</p>${mbF(filing ? "The Filing, Drafted" : "The Request, Drafted", `<textarea data-f="text" rows="9">${esc((o.draft && o.draft.text) || flRenewDraftText(o))}</textarea>`)}`,
+    {
+      submit: filing ? "Save the Draft" : "Draft the Request",
+      onSubmit: (f) => {
+        const text = String(f.text || "").trim();
+        if (!text) return toast("The draft is empty"), !1;
+        const by = (currentUser() || {}).name || role();
+        if (filing) {
+          o.draft = { text: text, by: by, at: appNowIso() };
+          let T = null;
+          try {
+            "function" == typeof bnObligationTasks && bnObligationTasks();
+            T = o.taskId && "function" == typeof bnObTask ? bnObTask(o) : null;
+            T && T.a && ((T.a.draft = text), (T.a.notes = [String(T.a.notes || "").replace(/\n?--- The filing, drafted[\s\S]*$/, ""), `--- The filing, drafted ${fmtL(today())} by ${by} ---\n${text}`].filter(Boolean).join("\n")));
+          } catch (e) {}
+          try {
+            audit("obligation", o.id, "renewal-drafted", "", "", T && T.a ? `on the task ${T.a.title}` : "on the obligation");
+          } catch (e) {}
+          save(), render();
+          rcToast(`${o.name}: the filing is drafted${T && T.a ? " on its renewal task" : ""}. Nothing is marked filed`, [
+            { label: "Open", run: () => (T && T.a && "function" == typeof tkOpen ? tkOpen(`action:${T.a.id}:${T.p.id}`) : ((view = "obligations"), render())) },
+          ]);
+          return;
+        }
+        const ox = "function" == typeof bnDraftFor ? bnDraftFor({ kind: "obligation", o: o }) : null;
+        if (!ox) return toast("A request for this renewal is already drafted: it waits under The Brain › Hands"), !1;
+        (ox.body = text), (ox.by = by);
+        try {
+          audit("obligation", o.id, "renewal-request-drafted", "", "", `to ${o.party || "the party"}`);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Renewal request to ${o.party || "them"} drafted: approve it under The Brain › Hands`, [{ label: "Open", run: () => (("undefined" != typeof bnTab && (bnTab = "hands")), (view = "brain"), render()) }]);
+      },
+    },
+  );
+}
 function flRenewDialog(o) {
   const next = o.expires ? iso(new Date(+o.expires.slice(0, 4) + flObYears(o), +o.expires.slice(5, 7) - 1, +o.expires.slice(8, 10))) : "",
     filing = "filing" === o.kind;
+  // the day it was filed or renewed is typed by the person who did it, never today by default (BACKLOG §1.36)
   mbModal(
-    `Renew — ${esc(o.name)}`,
-    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `File it with ${esc(o.party || "the agency")}${o.notes ? ` (${esc(o.notes)})` : ""}, then record it here: the register moves to the next period and the renewal task closes.` : `Record the renewed period when the new ${esc(o.kind)} is in hand; Draft a Request asks ${esc(o.party || "them")} for it.`}</p><div class="grid2">${mbF(filing ? "Filed On" : "Renewed On", `<input type="date" data-f="on" value="${today()}">`)}${mbF("Next Expiry", `<input type="date" data-f="next" value="${esc(next)}">`)}</div>${mbF("Confirmation or Policy Number", `<input data-f="conf" value="" placeholder="${filing ? "the filing receipt number" : "the new policy number"}">`)}`,
+    `${filing ? "Record the Filing" : "Record the Renewal"} — ${esc(o.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `Once it is filed with ${esc(o.party || "the agency")}${o.notes ? ` (${esc(o.notes)})` : ""}, record it here: the register moves to the next period and the renewal task closes.` : `Record the renewed period when the new ${esc(o.kind)} is in hand; Draft a Request asks ${esc(o.party || "them")} for it.`}</p><div class="grid2">${mbF(filing ? "Filed On" : "Renewed On", `<input type="date" data-f="on" value="" max="${today()}">`)}${mbF("Next Expiry", `<input type="date" data-f="next" value="${esc(next)}">`)}</div>${mbF("Confirmation or Policy Number", `<input data-f="conf" value="" placeholder="${filing ? "the filing receipt number" : "the new policy number"}">`)}`,
     {
       submit: filing ? "Record the Filing" : "Record the Renewal",
-      alt: filing ? null : { label: "Draft a Request", run: () => ("function" == typeof bnDraftFor && bnDraftFor({ kind: "obligation", o: o }) ? (save(), toast(`Renewal request to ${o.party || "them"} drafted — approve it under The Brain › Hands`)) : toast("A request for this renewal is already drafted")) },
+      alt: filing ? null : { label: "Draft a Request", run: () => flRenewDraft(o) },
       onSubmit: (f) => {
+        if (!f.on) return toast(`Say when it was ${filing ? "filed" : "renewed"}`), !1;
+        if (f.on > today()) return toast(`It cannot be ${filing ? "filed" : "renewed"} on a day still to come`), !1;
         if (!f.next || f.next <= (o.expires || "")) return toast("Set the next expiry after the current one"), !1;
         const was = { starts: o.starts, expires: o.expires };
         (o.history = o.history || []).push({ at: today(), by: flMe(), from: was, to: { starts: o.expires, expires: f.next }, conf: f.conf || "", on: f.on || today() }),
@@ -191042,7 +191109,7 @@ function flObRows() {
       amount: 0,
       verb: "Draft the Renewal",
       no: "",
-      run: () => flRenewDialog(o),
+      run: () => flRenewDraft(o),
       open: () => ((view = "obligations"), render()),
       pri: 3,
       score: o.expires <= iso(addDays(td, 7)) ? 50 : 30,
