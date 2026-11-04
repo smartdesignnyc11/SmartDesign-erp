@@ -144,9 +144,10 @@ async def msg_checks(c, pg, uid, tag, phone):
     if field and len(want) > 1:
         c.ok(m['tabs'] == want, f'{tag}: Messages has its tabs {want} ({m["tabs"]})')
     if not field:
-        # the Your Day mock-up (11-03): one list, Needs an Answer, All and Meetings; its number is the menu's
+        # the Your Day mock-up (11-03): one list, Needs an Answer, To Decide (the Inbox's list, 11-04), All and Meetings; its
+        # number is the menu's
         y = await pg.evaluate("() => ({ chips: [...document.querySelectorAll('#yd-chat [data-ydchip]')].map(b => b.dataset.ydchip), n: +((document.querySelector('#yd-chat [data-ydchip=\"need\"] .n') || {}).textContent || 0), rows: document.querySelectorAll('#yd-chat [data-ydmrow]').length })")
-        c.ok(y['chips'] == ['need', 'all', 'meet'] and y['n'] == N == y['rows'], f'{tag}: Messages is one list, Needs an Answer {y["n"]} = the menu {N} = its rows ({y})')
+        c.ok(y['chips'] == ['need', 'decide', 'all', 'meet'] and y['n'] == N == y['rows'], f'{tag}: Messages is one list, Needs an Answer {y["n"]} = the menu {N} = its rows ({y})')
         want = [w for w in want if w not in ('mail', 'field')]
     c.ok('Messages' in m['heading'] and 'Chat' not in m['heading'].split('|'), f'{tag}: the page is headed Messages ({m["heading"]})')
     if uid in ('u_owner', 'u_angel', 'u_chen'): await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_messages_team')

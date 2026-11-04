@@ -63,9 +63,10 @@ async def pipeline_as(p, uid, phone):
     # Today's Deals That Need You reads the same rule
     tn = await pg.evaluate("() => { try { return ydFirmRows().find(r => r.k === 'deals').v; } catch (e) { return null; } }")
     c.ok(str(tn) == n, f"{who}: Today's Deals That Need You {tn} vs the Pipeline's {n}")
-    # roles: the owner edits (one +); the PM and coordinator read
+    # roles: the owner and the PM edit (one +: the PM takes inquiries, as on the old Lead Board; chain_test, 11-04); the
+    # coordinator reads
     plus = await pg.evaluate("() => !!document.querySelector('.view.on [data-ydnew]')")
-    c.ok(plus == (uid == 'u_owner'), f'{who}: the Pipeline + shows {plus}')
+    c.ok(plus == (uid in ('u_owner', 'u_alan')), f'{who}: the Pipeline + shows {plus}')
     # the old pages land here
     for old in ('salesnum', 'hbforecast', 'hbdash'):
         ok = await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old)
