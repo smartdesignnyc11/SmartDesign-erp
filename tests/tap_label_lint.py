@@ -132,6 +132,10 @@ DOORS = r"""() => { const V = document.querySelector('.view.on'); if (!V) return
   // (Messages' Meetings, Clients' Partners), and a fold opens a section (Insurance and Licenses' Kept With Their Record)
   V.querySelectorAll('.yd-host [data-ydchip]:not(.on)').forEach(b => vis(b) && out.push(['.yd-host [data-ydchip="' + b.dataset.ydchip + '"]:not(.on)', t(b), 'view']));
   V.querySelectorAll('.yd-host [data-ydfold][aria-expanded="false"]').forEach(b => vis(b) && out.push(['.yd-host [data-ydfold="' + b.dataset.ydfold + '"][aria-expanded="false"]', t(b), 'foot']));
+  // a person's page in Team, one tap down from the list (their Email, their Message, their approval limits): the first
+  // person who is not the one signed in
+  const pr = [...V.querySelectorAll('#yd-team [data-ydrow][data-sec="all"]')].find(r => vis(r) && !/\(you\)/.test(r.innerText));
+  pr && out.push(['#yd-team [data-ydrow="' + pr.dataset.ydrow + '"]', t(pr), 'view']);
   return out; }"""
 # A page's own New menu (Accounting's, Purchasing's, Design's): the opener, then each of its items, two taps a person
 # makes. [opener selector, [[item selector, label], ...]]; the menu is closed again.

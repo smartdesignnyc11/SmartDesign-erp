@@ -263,7 +263,7 @@ function slPipelineRows() {
       .filter((e) => ["sent", "draft"].includes(e.status))
       .forEach((e) => {
         const deal = (DB.leads || []).find((l) => slClientOf(l) === c);
-        rows.push({ id: "est:" + c.id + ":" + e.id, sec: "props", title: `${e.number} · ${c.name}`, meta: `${e.status === "sent" ? "Sent" : "Draft"} · ${deal ? `deal: ${deal.name}` : "on the job (no open deal)"}`, amt: ydMoney0(docTotal(e).total), when: e.date ? fmt(e.date) : "", act: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "estimate", id: e.id }), setView("clients")) });
+        rows.push({ id: "est:" + c.id + ":" + e.id, sec: "props", title: `${e.number} · ${c.name}`, meta: `${e.status === "sent" ? "Sent" : "Draft"} · ${deal ? `deal: ${deal.name}` : "on the job (no open deal)"}`, amt: ydMoney0(docTotal(e).total), when: e.date ? fmt(e.date) : "", act: "Open", run: () => slOpenDoc(c.id, "estimate", e.id) });
       }),
   );
   return rows;
@@ -437,6 +437,16 @@ function slBillingLink() {
   tab && "overview" !== tab && (slClSeen.tab !== tab || slClSeen.c !== clientOpen) && (slClOld = !0);
   slClSeen = { c: clientOpen, tab: tab };
 }
+// A document opened from the client's page or the Pipeline: the old record draws an open document only on its billing tab
+// (clientTab "fin"), so the document is opened there, as the page's own step (not a link that leaves the page: closing
+// the document comes back to the client's page). The walk's J3 stopped here: CO-2026-003 never opened.
+function slOpenDoc(cid, kind, id) {
+  (clientOpen = cid), (docOpen = { kind: kind, id: id });
+  "undefined" != typeof clientTab && (clientTab = "fin");
+  "undefined" != typeof finTab && (finTab = { estimate: "estimates", co: "co", invoice: "invoices" }[kind] || finTab);
+  slClSeen = { c: cid, tab: "fin" };
+  "clients" === view ? render() : setView("clients");
+}
 function slOpenClient(id) {
   (clientOpen = id), (docOpen = null), (slClNewOpen = !1), (slClOld = !1);
   "undefined" != typeof clientTab && (clientTab = "overview"), (slClSeen = { c: id, tab: "overview" });
@@ -487,7 +497,7 @@ function slClientParts(c) {
     } catch (e) {}
     R.forEach((x, i) => {
       const nm = (x.d && (x.d.name || x.d.number)) || (x.doc && x.doc.number) || "a document";
-      them.push({ id: `w:${p.id}:${i}`, sec: "them", title: "decision" === x.kind ? String(nm).replace(/ — .*$/, "") : `${nm}: to sign`, meta: `${"decision" === x.kind ? "a decision" : "change order" === x.kind ? "a change order to sign" : x.kind} · ${shortName(p)}`, act: "Open", run: () => (setCurrent(p.id), "decision" === x.kind ? setView(ydMay("jdec") ? "jdec" : "dec") : ((clientOpen = c.id), (docOpen = { kind: "co", id: x.d && x.d.id }), setView("clients"))) });
+      them.push({ id: `w:${p.id}:${i}`, sec: "them", title: "decision" === x.kind ? String(nm).replace(/ — .*$/, "") : `${nm}: to sign`, meta: `${"decision" === x.kind ? "a decision" : "change order" === x.kind ? "a change order to sign" : x.kind} · ${shortName(p)}`, act: "Open", run: () => (setCurrent(p.id), "decision" === x.kind ? setView(ydMay("jdec") ? "jdec" : "dec") : slOpenDoc(c.id, "co", x.d && x.d.id)) });
     });
   });
   return { P: P, us: us, them: them };
@@ -553,11 +563,11 @@ function slClientRender() {
       ["Left to bill", money(left), "revised contract less billed, gross"],
     ];
     const docs = [];
-    (c.estimates || []).forEach((d) => docs.push({ id: "d:estimate:" + d.id, sec: "doc", title: `${d.number} · Estimate`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}`, amt: ydMoney0(docTotal(d).total), act: "Open", run: () => ((docOpen = { kind: "estimate", id: d.id }), render()) }));
-    (c.changeOrders || []).forEach((d) => docs.push({ id: "d:co:" + d.id, sec: "doc", title: `${d.number} · Change Order`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}`, amt: ydMoney0(docTotal(d).total), act: "Open", run: () => ((docOpen = { kind: "co", id: d.id }), render()) }));
+    (c.estimates || []).forEach((d) => docs.push({ id: "d:estimate:" + d.id, sec: "doc", title: `${d.number} · Estimate`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}`, amt: ydMoney0(docTotal(d).total), act: "Open", run: () => slOpenDoc(c.id, "estimate", d.id) }));
+    (c.changeOrders || []).forEach((d) => docs.push({ id: "d:co:" + d.id, sec: "doc", title: `${d.number} · Change Order`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}`, amt: ydMoney0(docTotal(d).total), act: "Open", run: () => slOpenDoc(c.id, "co", d.id) }));
     (c.invoices || []).forEach((d) => {
       const t = docTotal(d);
-      docs.push({ id: "d:invoice:" + d.id, sec: "doc", title: `${d.number} · Invoice`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}${t.ret ? ` · ${money(t.sub - (t.disc || 0))} gross, ${money(t.ret)} retainage` : ""}`, amt: ydMoney0(t.total), act: "Open", run: () => ((docOpen = { kind: "invoice", id: d.id }), render()) });
+      docs.push({ id: "d:invoice:" + d.id, sec: "doc", title: `${d.number} · Invoice`, meta: `${d.status}${d.date ? " · " + fmt(d.date) : ""}${t.ret ? ` · ${money(t.sub - (t.disc || 0))} gross, ${money(t.ret)} retainage` : ""}`, amt: ydMoney0(t.total), act: "Open", run: () => slOpenDoc(c.id, "invoice", d.id) });
     });
     (c.payments || []).forEach((p) => docs.push({ id: "d:pay:" + p.id, sec: "doc", title: `Payment${p.method ? `, ${p.method}` : ""}`, meta: p.date ? fmt(p.date) : "", amt: ydMoney0(p.amount), act: "", run: () => null }));
     docs.forEach((r) => ydAct(r.id, r.run));
@@ -744,10 +754,13 @@ document.addEventListener(
     if ((b = at("#yd-ovsales [data-ydnew]"))) return e.preventDefault(), (slNewOpen = !slNewOpen), void render();
     if ((b = at("#yd-ovsales [data-ydnewitem]"))) {
       e.preventDefault(), (slNewOpen = !1);
-      if ("mail" === b.dataset.ydnewitem) return (ydMsg.chip = "need"), void setView("chat");
-      if ("import" === b.dataset.ydnewitem) return void ocSalesImport();
-      const nl = document.getElementById("oc-newlead");
-      return void (nl ? nl.click() : "function" == typeof scLeadSheet ? scLeadSheet() : null);
+      const k = b.dataset.ydnewitem;
+      if ("mail" === k) return (ydMsg.chip = "need"), void setView("chat");
+      // the menu closes before its sheet opens (drafts crawl, 11-04: on the phone the open menu stayed under the
+      // New Lead sheet, and a tap outside the sheet landed on it); the sheet opens as the old page's New Lead did
+      render();
+      if ("import" === k) return void ocSalesImport();
+      return void ("function" == typeof scLeadSheet ? scLeadSheet(null) : null);
     }
     if ((b = at("#yd-clients [data-ydnew]"))) return e.preventDefault(), (slClNewOpen = !slClNewOpen), void render();
     if ((b = at("#yd-clients [data-ydnewitem]"))) {

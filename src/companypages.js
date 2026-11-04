@@ -277,7 +277,7 @@ function ydInsRender() {
   // each vendor's certificate is kept on the vendor (the old page listed them with Open Vendor): one tap to its record
   (DB.vendors || [])
     .filter((v) => v && v.insuranceExp)
-    .forEach((v) => kept.push({ id: "kv:" + v.id, sec: "kept", title: `${v.name}: certificate of insurance`, meta: "kept with the vendor", when: v.insuranceExp < today() ? `lapsed ${fmt(v.insuranceExp)}` : `to ${fmt(v.insuranceExp)}`, late: v.insuranceExp < today(), act: "Open Vendor", run: () => (setView("vendors"), "function" == typeof openVendor && setTimeout(() => openVendor(v.id), 60)) }));
+    .forEach((v) => kept.push({ id: "kv:" + v.id, sec: "kept", title: `${v.name}: certificate of insurance`, meta: "kept with the vendor", when: v.insuranceExp < today() ? `lapsed ${fmt(v.insuranceExp)}` : `to ${fmt(v.insuranceExp)}`, late: v.insuranceExp < today(), act: "Open Vendor", run: () => ("function" == typeof openVendor ? openVendor(v.id) : setView("vendors")) }));
   file.concat(kept).forEach((r) => ydAct(r.id, r.run));
   h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Insurance and Licenses</h2><div class="yd-sub">The firm's own policies, licenses and filings, and what lapses</div></div>${isOwner() || "controller" === role() ? `<button type="button" class="btn" data-ydobnew>New Policy, License or Filing</button>` : ""}</div>${ydSectionHtml("Needs You", need.length, "missing, lapsed or inside its renewal", need, "Everything required is on file and current.")}${ydSectionHtml("On File", file.length, "", file, "Nothing else on file.")}${ydFoldHtml("kept", "Kept With Their Record", ydKeptOpen, kept.map(ydRowHtml).join("") || '<div class="yd-empty">Nothing.</div>', kept.length)}`;
 }

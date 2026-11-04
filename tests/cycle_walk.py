@@ -1678,7 +1678,10 @@ def open_mail(p, rx, what):
     """a message in the person's Mail, the way they find it: the Mail tab, then Everything when the tab's filter hides it"""
     p.go('Messages')
     p.tap('All', exact=True)   # the Your Day mock-up: one list of every conversation
-    find = lambda: next((p.scr.row(l.strip()) for l in p.scr.text.split('\n') if re.search(rx, l) and not l.strip().startswith('[')), None)
+    # a Messages row reads "who: subject" (the Your Day mock-up): the subject is matched after the sender, as the person
+    # reads it; the row itself is what is tapped
+    subj = lambda l: re.sub(r'^[^:\[]{1,60}:\s+', '', l.strip())
+    find = lambda: next((p.scr.row(l.strip()) for l in p.scr.text.split('\n') if (re.search(rx, l) or re.search(rx, subj(l))) and not l.strip().startswith('[')), None)
     r = find() if p.look() else None
     if r is None:
         c = p.scr.find('Everything')
