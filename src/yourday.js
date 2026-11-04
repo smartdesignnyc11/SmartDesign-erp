@@ -113,7 +113,7 @@ const YD_CSS = `
   .yd-chip{flex:none}
   .yd-tabs{overflow-x:auto;scrollbar-width:none}
   .yd-tab{flex:none}
-  .yd-menu{position:fixed;left:12px;right:12px;top:auto;bottom:12px}
+  .yd-menu{position:fixed;left:12px;right:12px;top:auto;bottom:12px;z-index:10002}
 }`;
 (function ydStyle() {
   try {
