@@ -1,7 +1,7 @@
 """Today to the mockups Alan approved on 2026-10-25 (TodayOwner, TodayPM, TodayCoord, TodayForeman, TodayBilling,
 TodayController at 390px; Main and DeskController at 1440px), and the AI update at its top.
 
-Phone, every office role: the header (the menu, Today over its date line "Thu, Sep 3 · N for you, L late", Search,
+Phone, every office role: the header (the menu, Today over its date line "Thu, Sep 3 · N need you today", Search,
 Ask as a labelled button, nothing else), the chips (All, Late, Approvals or All, Late, Waiting; All pressed; each
 chip's count is the rows it shows), the sections in the board's order (Now first), one blue button and it is on the
 first row, one action on every other row, the quiet line at the foot (it opens the Pulse and Caught for You), the bar
@@ -19,12 +19,17 @@ from harness import *
 
 SHOTS = os.path.join(ROOT, 'review', 'today2')
 os.makedirs(SHOTS, exist_ok=True)
-BOARD = {  # the mockups' chips, sections (in order) and bars
-    'u_owner': (['All', 'Late', 'Approvals'], ['Now', 'Approvals', 'You Promised', 'This Week'], ['Today', 'Projects', 'Sales', 'Messages']),
-    'u_alan': (['All', 'Late', 'Waiting'], ['Now', 'For You', 'You Promised'], ['Today', 'Projects', 'Clients', 'Tasks', 'Messages']),
-    'u_chen': (['All', 'Late', 'Waiting'], ['Now', 'For You', 'You Promised'], ['Today', 'Messages', 'Tasks', 'Buy Board']),
-    'u_billing': (['All', 'Late', 'Waiting'], ['Now', 'Waiting on Others', 'This Week'], ['Today', 'Billing', 'Clients', 'Messages']),
-    'u_controller': (['All', 'Late', 'Approvals'], ['Now', 'Approvals', 'Waiting on Others', 'This Week'], ['Today', 'Banking', 'Bills and Payroll', 'Messages']),
+# The Your Day mock-up (docs/mockups/today/SPEC.md, reviewed 11-03; Alan, 11-03 night: build it): every office role's
+# Today has the chips Today, Approvals and Coming Up, opens on Today (Approvals, then Now), and its badge, date line and
+# Today chip are one number, the rows it opens on. The 10-25 boards' All / Late / Waiting chips are superseded.
+CHIPS3 = ['Today', 'Approvals', 'Coming Up']
+SECS3 = ['Approvals', 'Now']
+BOARD = {  # chips, sections (in order) and bars
+    'u_owner': (CHIPS3, SECS3, ['Today', 'Projects', 'Sales', 'Messages']),
+    'u_alan': (CHIPS3, SECS3, ['Today', 'Projects', 'Clients', 'Tasks', 'Messages']),
+    'u_chen': (CHIPS3, SECS3, ['Today', 'Messages', 'Tasks', 'Buy Board']),
+    'u_billing': (CHIPS3, SECS3, ['Today', 'Billing', 'Clients', 'Messages']),
+    'u_controller': (CHIPS3, SECS3, ['Today', 'Banking', 'Bills and Payroll', 'Messages']),
 }
 VIS = "el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'"
 
@@ -74,22 +79,22 @@ async def phone_role(c, p, uid):
     # header: the menu, Today over its date line, Search, Ask; nothing else
     c.ok(m['tb'] == ['menu-btn', 'crumbs', 'td2-hdate', 'btn-search', 'tb-ask'], f"{uid} phone: header holds {m['tb']}")
     c.ok(m['crumbs'].strip() == 'Today', f"{uid} phone: header title {m['crumbs']!r}")
-    allN = next((x['n'] for x in m['chips'] if x['label'] == 'All'), -1); lateN = next((x['n'] for x in m['chips'] if x['label'] == 'Late'), -1)
-    c.ok(re.match(r'^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} · \d+ for you, \d+ late$', m['hdate']) and m['hdate'].endswith(f'{allN} for you, {lateN} late'), f"{uid} phone: date line {m['hdate']!r}, want '... · {allN} for you, {lateN} late'")
+    allN = next((x['n'] for x in m['chips'] if x['label'] == 'Today'), -1); lateN = allN
+    c.ok(re.match(r'^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} · \d+ need you today$', m['hdate']) and m['hdate'].endswith(f'{allN} need you today'), f"{uid} phone: date line {m['hdate']!r}, want '... · {allN} need you today'")
     # chips: the board's, All pressed, each count its rows
     c.ok([x['label'] for x in m['chips']] == chipsW, f"{uid} phone: chips {[x['label'] for x in m['chips']]}, want {chipsW}")
-    c.ok([x['on'] for x in m['chips']] == [True] + [False] * (len(chipsW) - 1), f"{uid} phone: Today opens on {[x['label'] for x in m['chips'] if x['on']]}, want All (the mockup; p2nav's Approvals landing is superseded)")
-    c.ok(m['cardsN'] + m['more'] == allN, f"{uid} phone: All {allN} vs {m['cardsN']} rows + {m['more']} more")
-    # sections in the board's order, Now first
+    c.ok([x['on'] for x in m['chips']] == [True] + [False] * (len(chipsW) - 1), f"{uid} phone: Today opens on {[x['label'] for x in m['chips'] if x['on']]}, want Today (the Your Day mock-up)")
+    c.ok(m['cardsN'] + m['more'] == allN, f"{uid} phone: Today {allN} vs {m['cardsN']} rows + {m['more']} more")
+    # sections in the mock-up's order: Approvals, then Now
     order = [s for s in secsW if s in m['secs']]
-    c.ok(m['secs'] == order and m['secs'] and (m['secs'][0] == 'Now' or 'Now' not in secsW), f"{uid} phone: sections {m['secs']}, want the order {secsW}")
+    c.ok(m['secs'] == order and (m['secs'] or not allN), f"{uid} phone: sections {m['secs']}, want the order {secsW}")
     # one blue button, the first row's; one action on every other row
     c.ok(m['primInFirst'], f"{uid} phone: blue buttons {m['prim']}; want one, on the first row")
     c.ok(all(n == 1 for n in m['others']), f"{uid} phone: actions per row after the first {m['others']}, want one each")
     c.ok(m['quietAfter'] and m['quiet'].strip(), f"{uid} phone: no quiet line at the foot ({m['quiet']!r})")
     # the bar and its Today badge
     c.ok(m['bar'] == barW, f"{uid} phone: bar {m['bar']}, want {barW}")
-    c.ok((m['badge'] or '0') == str(lateN), f"{uid} phone: Today badge {m['badge']!r} vs Late {lateN}")
+    c.ok((m['badge'] or '0') == str(allN), f"{uid} phone: Today badge {m['badge']!r} vs the Today chip {allN}")
     # the phone: no sideways scroll, 44px targets, the budget
     c.ok(m['sw'] <= m['w'], f"{uid} phone: scrolls sideways ({m['sw']}px)")
     c.ok(not m['small'], f"{uid} phone: buttons under 44px: {m['small'][:4]}")
@@ -97,16 +102,17 @@ async def phone_role(c, p, uid):
     gaps = await pg.evaluate("""() => { const B = [...document.querySelectorAll('.view.on .td2 button')].filter(b => b.getClientRects().length).map(b => b.getBoundingClientRect());
       let bad = 0; B.forEach((a, i) => B.forEach((x, j) => { if (j <= i) return; const dx = Math.max(x.left - a.right, a.left - x.right), dy = Math.max(x.top - a.bottom, a.top - x.bottom); if (Math.max(dx, dy) < 8) bad++; })); return bad; }""")
     c.ok(gaps == 0, f'{uid} phone: {gaps} pairs of buttons closer than 8px')
-    # the update: at most two lines on the phone, each with one link, headed "Since ..."
+    # the update: at most three lines on the phone (the job slipping, the client waiting, the rest by the Standard),
+    # each with one link, headed "Since ..."
     if m['brief']:
-        c.ok(len(m['brief']['lines']) <= 2 and all(x['links'] <= 1 for x in m['brief']['lines']), f"{uid} phone: update lines {m['brief']['lines']}")
+        c.ok(len(m['brief']['lines']) <= 3 and all(x['links'] <= 1 for x in m['brief']['lines']), f"{uid} phone: update lines {m['brief']['lines']}")
         c.ok(m['brief']['head'].startswith('Since '), f"{uid} phone: update head {m['brief']['head']!r}")
     c.ok(uid not in ('u_owner', 'u_alan') or m['brief'] and m['brief']['lines'], f'{uid} phone: no AI update on the board that shows one')
     # each chip shows its count in rows
     for x in m['chips'][1:]:
         n = await chip_rows(pg, x['k'])
         c.ok(n == x['n'], f"{uid} phone: chip {x['label']} says {x['n']}, shows {n}")
-    await chip_rows(pg, 'all')
+    await chip_rows(pg, 'today')
     # the quiet line opens the Pulse and Caught for You (their counts are today_test's)
     await pg.click('.view.on .td2-quiet'); await pg.wait_for_timeout(250)
     opened = await pg.evaluate("() => [document.querySelector('.view.on .td2-quiet').getAttribute('aria-expanded'), !!document.querySelector('.view.on .td2-quietbox .td-catch')]")
@@ -139,7 +145,7 @@ async def desktop_role(c, p, uid):
     print(f"{uid} desktop: tabs {m['tabs']}, {m['rows']} rows, aside {m['asideTitle'][:40]!r}")
     c.ok(m['order'][:2] == ['td2-brief', 'ph'] or uid != 'u_owner', f"{uid} desktop: the update leads the page ({m['order']})")
     c.ok(len(m['brief']) <= 3, f"{uid} desktop: {len(m['brief'])} update lines (at most three)")
-    c.ok(m['title'] == 'Today' and re.match(r'^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2} · \d+ for you, \d+ late$', m['date'] or ''), f"{uid} desktop: title {m['title']!r}, date line {m['date']!r}")
+    c.ok(m['title'] == 'Today' and re.match(r'^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2} · \d+ need you today$', m['date'] or ''), f"{uid} desktop: title {m['title']!r}, date line {m['date']!r}")
     c.ok([t.rsplit(' ', 1)[0] for t in m['tabs']] == BOARD[uid][0], f"{uid} desktop: filters {m['tabs']}")
     c.ok(m['cols'] == ['What', 'Amount', 'When'], f"{uid} desktop: columns {m['cols']}")
     c.ok(m['primInAside'], f"{uid} desktop: blue buttons {m['prim']}; want one, in the selected row's panel")

@@ -107717,12 +107717,13 @@ function rdHtml() {
     counts_projects = (DB.projects || []).length,
     counts_clients = (DB.clients || []).length,
     counts_vendors = (DB.vendors || []).length,
-    counts_employees = (DB.employees || []).length,
+    // one headcount: Team's people list (src/companypages.js ydPeople), not the payroll's employee records
+    counts_employees = "function" == typeof ydPeople ? ydPeople().length : (DB.employees || []).length,
     demoList = (DB.projects || []).filter((p) =>
       /^121 State Street$|^45 Cranberry|^206 Lenox \u2014|^140 Prospect Place/.test(p.project.name || ""),
     ),
     demo = demoList.length > 0;
-  return `<div class="ph"><div><h2>Your Own Data</h2><div class="lead">${demo ? `${demoList.length} of these ${1 === counts_projects ? "is" : "are"} the demo — invented jobs made to show what every screen does. Before the team uses it for real, put your own in and take the demo out.` : `${counts_projects} project${1 === counts_projects ? "" : "s"}, ${counts_clients} client${1 === counts_clients ? "" : "s"}, ${counts_vendors} vendors and ${counts_employees} people on this device.`}</div></div><div class="acts"><button class="btn" id="rd-backup">Save a Backup</button></div></div>\n  <div class="glance tl">\n    <div class="gl static"><span class="gl-k">Projects</span><b class="gl-v">${counts_projects}</b><span class="gl-s">${demo ? (counts_projects > demoList.length ? `${counts_projects - demoList.length} yours · ${demoList.length} still demo` : "all still demo") : "all yours"}</span></div>\n    <div class="gl static"><span class="gl-k">Clients</span><b class="gl-v">${counts_clients}</b><span class="gl-s">people you bill</span></div>\n    <div class="gl static"><span class="gl-k">Vendors and Subs</span><b class="gl-v">${counts_vendors}</b><span class="gl-s">people you pay</span></div>\n    <div class="gl static"><span class="gl-k">People</span><b class="gl-v">${counts_employees}</b><span class="gl-s">on the clock</span></div>\n  </div>\n\n  <div class="card"><h3>Bring in What You Already Have</h3>\n    <p class="small muted">Copy the rows straight out of Excel or Google Sheets and paste them here — with or without a header row. Nothing is saved until you have looked at what came through.</p>\n    <div class="row" style="margin:10px 0"><div class="seg" id="rd-kind">${Object.entries(
+  return `<div class="ph"><div><h2>Your Own Data</h2><div class="lead">${demo ? `${demoList.length} of these ${1 === counts_projects ? "is" : "are"} the demo — invented jobs made to show what every screen does. Before the team uses it for real, put your own in and take the demo out.` : `${counts_projects} project${1 === counts_projects ? "" : "s"}, ${counts_clients} client${1 === counts_clients ? "" : "s"}, ${counts_vendors} vendors and ${counts_employees} people on this device.`}</div></div><div class="acts"><button class="btn" id="rd-backup">Save a Backup</button></div></div>\n  <div class="glance tl">\n    <div class="gl static"><span class="gl-k">Projects</span><b class="gl-v">${counts_projects}</b><span class="gl-s">${demo ? (counts_projects > demoList.length ? `${counts_projects - demoList.length} yours · ${demoList.length} still demo` : "all still demo") : "all yours"}</span></div>\n    <div class="gl static"><span class="gl-k">Clients</span><b class="gl-v">${counts_clients}</b><span class="gl-s">people you bill</span></div>\n    <div class="gl static"><span class="gl-k">Vendors and Subs</span><b class="gl-v">${counts_vendors}</b><span class="gl-s">people you pay</span></div>\n    <div class="gl static"><span class="gl-k">People</span><b class="gl-v">${counts_employees}</b><span class="gl-s">at the firm, as on Team</span></div>\n  </div>\n\n  <div class="card"><h3>Bring in What You Already Have</h3>\n    <p class="small muted">Copy the rows straight out of Excel or Google Sheets and paste them here — with or without a header row. Nothing is saved until you have looked at what came through.</p>\n    <div class="row" style="margin:10px 0"><div class="seg" id="rd-kind">${Object.entries(
     RD_SHEETS,
   )
     .map(([k, v]) => `<button class="${rdKind === k ? "on" : ""}" data-rdk="${k}">${v.n}</button>`)
@@ -168413,7 +168414,7 @@ try {
   lead &&
     /PMs recommend, the Owner approves/.test(lead.textContent) &&
     (lead.textContent =
-      "Nothing is paid without an approved bill or payroll run. PMs recommend bills and the Owner approves them; a payroll run is approved by the Owner or the Controller. Whoever entered an item cannot approve it.");
+      "Nothing is paid without an approved bill or payroll run. The PM approves a bill that matches its PO; the Owner decides only the exceptions (paid before approval, over the PO or with none, a bank-detail change, a first payment to a new vendor, a PO over $10,000) and the payroll run. Whoever entered an item cannot approve it.");
 } catch (e) {}
 {
   const base = budPackTable;

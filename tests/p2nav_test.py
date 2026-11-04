@@ -100,8 +100,9 @@ async def tasks_checks(c, pg, uid, tag, phone):
         chip: n('.view.on .td-tabs [data-tdytabbtn="tasks"] .n'), bar: n('#mtabs [data-mv="tkall"] .n'), barShown: vis(document.querySelector('#mtabs [data-mv="tkall"]')),
         rail: n('#nav-groups button[data-grp="mytasks"] .n') }; }""")
     W = r['want']
-    seen = {k: r[k] for k in ('tile', 'chip', 'bar', 'rail') if r[k] is not None}
-    if r['barShown'] and r['bar'] is None and W: seen['bar (no badge)'] = 0
+    # the menu's Tasks carries no number (the Your Day mock-up, 11-03: Today counts what is due)
+    seen = {k: r[k] for k in ('tile', 'chip', 'bar') if r[k] is not None}
+    # (the phone bar's Tasks carries no number either: Today counts what is due)
     await go(pg, 'tkall')
     q = await pg.evaluate("() => { " + VIS + " const e = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv=\"week\"] .n')].find(vis); return e ? +e.textContent : null; }")
     if q is not None: seen['Tasks Due Soon'] = q
@@ -140,8 +141,13 @@ async def msg_checks(c, pg, uid, tag, phone):
     await pg.evaluate("() => { msgEnter(); setView('chat'); }"); await pg.wait_for_timeout(250)
     m = await pg.evaluate(MSG_JS)
     want = await pg.evaluate("() => p2nTabsFor().map(x => x[0])")
-    if len(want) > 1:
+    if field and len(want) > 1:
         c.ok(m['tabs'] == want, f'{tag}: Messages has its tabs {want} ({m["tabs"]})')
+    if not field:
+        # the Your Day mock-up (11-03): one list, Needs an Answer, All and Meetings; its number is the menu's
+        y = await pg.evaluate("() => ({ chips: [...document.querySelectorAll('#yd-chat [data-ydchip]')].map(b => b.dataset.ydchip), n: +((document.querySelector('#yd-chat [data-ydchip=\"need\"] .n') || {}).textContent || 0), rows: document.querySelectorAll('#yd-chat [data-ydmrow]').length })")
+        c.ok(y['chips'] == ['need', 'all', 'meet'] and y['n'] == N == y['rows'], f'{tag}: Messages is one list, Needs an Answer {y["n"]} = the menu {N} = its rows ({y})')
+        want = [w for w in want if w not in ('mail', 'field')]
     c.ok('Messages' in m['heading'] and 'Chat' not in m['heading'].split('|'), f'{tag}: the page is headed Messages ({m["heading"]})')
     if uid in ('u_owner', 'u_angel', 'u_chen'): await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_messages_team')
     if 'mail' in want:
@@ -152,7 +158,7 @@ async def msg_checks(c, pg, uid, tag, phone):
         c.ok(st['chip'] == st['mail'], f"{tag}: the Mail tab's count is the inbox's Needs an Answer ({st})")
         c.ok(st['newMail'], f'{tag}: Mail has New Email')
         if uid == 'u_owner': await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_messages_mail')
-    if 'field' in want:
+    if field and 'field' in want:
         await pg.evaluate("() => document.querySelector('.view.on .p2n-mtabs [data-p2nmt=\"field\"]').click()"); await pg.wait_for_timeout(300)
         f = await pg.evaluate("() => ({ view, rows: document.querySelectorAll('#v-chat .p2n-fieldwrap .p2n-frow').length, want: p2nFieldRows().length, n: p2nMsgN().field })")
         c.ok(f['view'] == 'chat' and f['rows'] == f['want'], f'{tag}: Field lists the questions from the site ({f})')
@@ -212,12 +218,12 @@ async def directory_checks(c, pg, uid, tag, phone):
     t = await pg.evaluate("() => [...document.querySelectorAll('.view.on .p2n-dtabs [data-p2ndir]')].map(b => b.textContent.trim())")
     want = await pg.evaluate("() => [['clients','Clients'],['hbcontacts','People'],['hbcompanies','Companies']].filter(([k]) => (ROLE_VIEWS[role()] || []).includes(k)).map(x => x[1])")
     if len(want) > 1:
-        c.ok(t == want, f'{tag}: Clients has the tabs {want} ({t})')
-        await pg.evaluate("() => document.querySelector('.view.on .p2n-dtabs [data-p2ndir=\"hbcontacts\"]').click()"); await pg.wait_for_timeout(300)
-        st = await pg.evaluate("() => ({ view, tabs: [...document.querySelectorAll('.view.on .p2n-dtabs [data-p2ndir]')].length, lit: (document.querySelector('#nav-groups button.on') || {}).dataset ? document.querySelector('#nav-groups button.on').dataset.grp : '' })")
-        # the 11-03 menu: Clients is a page of Sales and Clients
+        # the Sales mock-up (11-03): People and Companies fold into the records they belong to; an old link lands
+        # on Clients' All, which lights where Clients sits
+        await pg.evaluate("() => setView('hbcontacts')"); await pg.wait_for_timeout(300)
+        st = await pg.evaluate("() => ({ view, chip: (document.querySelector('#yd-clients [data-ydchip].on') || {dataset: {}}).dataset.ydchip, lit: (document.querySelector('#nav-groups button.on') || {}).dataset ? document.querySelector('#nav-groups button.on').dataset.grp : '' })")
         home = await pg.evaluate("() => (mnMap().groups.find(g => g.items.some(i => i.startsWith('clients='))) || {}).id || ''")
-        c.ok(st['view'] == 'hbcontacts' and st['tabs'] == len(want) and (phone or (home and st['lit'] == home)), f'{tag}: People opens as a tab of Clients and lights where Clients sits ({st}, {home})')
+        c.ok(st['view'] == 'clients' and st['chip'] == 'all' and (phone or (home and st['lit'] == home)), f'{tag}: People lands on Clients, All, and lights where Clients sits ({st}, {home})')
         if uid == 'u_owner': await shot(pg, f'{uid}_{"phone" if phone else "desktop"}_clients_people')
         if phone:
             sw = await pg.evaluate(SW)
@@ -230,14 +236,25 @@ async def team_checks(c, pg, uid, tag, phone):
     reach = await pg.evaluate("() => { const m = mnMap(); const L = (m.field ? m.bar.concat(m.rest) : m.groups.flatMap(g => g.items)).concat(m.more, m.foot || []).map(s => s.split('=')[0]); return L.includes('team'); }")
     c.ok(reach, f'{tag}: Team is reachable from the menu')
     await go(pg, 'team')
-    r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#v-team .p2n-person')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
-                          " return { n: rows.length, staff: p2nTeam().length, chen: chen ? chen.textContent : '', msg: !!(chen && chen.querySelector('[data-p2nmsg]')), heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
+    # the Company mock-up (11-03): the office's Team is the one people list (ydPeople), a row per person, Message on their
+    # page; the field keeps its Team list (p2nTeam), with Message on each row
+    office = uid not in FIELD
+    if office:
+        r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#yd-team [data-ydrow][data-sec=\"all\"]')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
+                              " return { n: rows.length, staff: ydPeople().length, chen: chen ? chen.textContent : '', msg: !!chen, heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
+    else:
+        r = await pg.evaluate("() => { const rows = [...document.querySelectorAll('#v-team .p2n-person')]; const chen = rows.find(x => /Chen Biron/.test(x.textContent));"
+                              " return { n: rows.length, staff: p2nTeam().length, chen: chen ? chen.textContent : '', msg: !!(chen && chen.querySelector('[data-p2nmsg]')), heading: (document.querySelector('#v-team h2') || {}).textContent }; }")
     c.ok(r['n'] == r['staff'] and r['n'] >= 8, f"{tag}: Team lists every staff member ({r['n']} of {r['staff']})")
     if uid != 'u_chen':
         c.ok('chen@' in r['chen'] and '555-01' in r['chen'], f"{tag}: Chen's row has his phone and email ({r['chen'][:120]})")
         if await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('chat')"):
             c.ok(r['msg'], f"{tag}: Chen's row has Message")
-            await pg.evaluate("() => [...document.querySelectorAll('#v-team .p2n-person')].find(x => /Chen Biron/.test(x.textContent)).querySelector('[data-p2nmsg]').click()")
+            if office:
+                await pg.evaluate("() => ydOpenPerson('u_chen')"); await pg.wait_for_timeout(250)
+                await pg.evaluate("() => document.querySelector('#yd-team [data-p2nmsg]').click()")
+            else:
+                await pg.evaluate("() => [...document.querySelectorAll('#v-team .p2n-person')].find(x => /Chen Biron/.test(x.textContent)).querySelector('[data-p2nmsg]').click()")
             await pg.wait_for_timeout(300)
             o = await pg.evaluate("() => { const T = msgCur(msgMe()); return { view, direct: !!(T && T.t && T.kind === 'direct' && T.t.members.includes('u_chen')), toast: document.getElementById('toast').textContent }; }")
             c.ok(o['view'] == 'chat' and o['direct'] and 'Chen' in o['toast'], f'{tag}: Message opens a direct chat with Chen and toasts it ({o})')
@@ -254,7 +271,7 @@ async def team_checks(c, pg, uid, tag, phone):
         await pg.fill('#mbm [data-f="to"]', 'Chen'); await pg.fill('#mbm [data-f="cc"]', 'Billing'); await pg.fill('#mbm [data-f="subject"]', 'Nemo Tile PO'); await pg.fill('#mbm [data-f="body"]', 'Please send the signed PO.')
         n0 = await pg.evaluate("() => (DB.outbox || []).length")
         await pg.click('#mbm #mbm-ok'); await pg.wait_for_timeout(300)
-        o = await pg.evaluate("n0 => { const o = (DB.outbox || []).slice(n0)[0]; return o && { to: o.to.email, cc: o.cc, status: o.status, toast: document.getElementById('toast').textContent, appr: mApprovals().some(x => x.kind === 'draft' && x.id === o.id) }; }", n0)
+        o = await pg.evaluate("n0 => { const o = (DB.outbox || []).slice(n0)[0]; return o && { to: o.to.email, cc: o.cc, status: o.status, toast: document.getElementById('toast').textContent, appr: (render(), td2Model().rows.some(x => x.it.kind === 'draft' && x.it.id === o.id)) }; }", n0)
         c.ok(o and o['to'].startswith('chen@') and any(x.startswith('Billing <billing@') for x in o['cc']) and o['status'] == 'draft', f'{tag}: New Email to "Chen" cc "Billing" is a draft to their addresses ({o})')
         c.ok(o and 'Draft to Chen' in o['toast'] and o['appr'], f'{tag}: it toasts and waits on Today to send ({o and o["toast"]})')
         # any other mail To field in a sheet offers the team too
@@ -270,7 +287,8 @@ async def owner_today(c, pg, tag):
     t = await pg.evaluate("() => tdyTabOf()")
     c.ok(n > 0 and t == 'all', f"{tag}: the owner's Today opens on All while {n} wait on him ({t})")
     chip = await pg.evaluate("() => +((document.querySelector('.view.on .td-tabs [data-tdytabbtn=\"appr\"] .n') || {}).textContent || -1)")
-    c.ok(chip == n == await pg.evaluate("() => PRED.waitingOnMe.count()"), f'{tag}: the Approvals chip {chip} = his approvals {n}')
+    # the Your Day mock-up (11-03, BACKLOG 10.6): his Approvals is the 10-26 exceptions out of the one queue
+    c.ok(chip == n == await pg.evaluate("() => ydOwnerExc(PRED.waitingOnMe.rows()).length"), f'{tag}: the Approvals chip {chip} = his exceptions {n}')
     await pg.evaluate("() => { tdyTabSet('appr'); render(); }")
     c.ok(await pg.evaluate("() => tdyTabOf()") == 'appr', f'{tag}: his own pick holds while he is on Today')
     await shot(pg, f'owner_{tag}_today_approvals')
