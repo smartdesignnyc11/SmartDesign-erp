@@ -97,7 +97,9 @@ const rwMay = (v) => (ROLE_VIEWS[role()] || []).includes(v),
   // a figure in whole dollars (the figure), its build-up to the cent (one text, the chief of staff, 11-03)
   rwD = (v) => ((+v || 0) < -0.004 ? "−" : "") + money(Math.abs(Math.round(+v || 0))),
   rwPct = (v) => `${Math.round(+v || 0) < 0 ? "−" : ""}${Math.abs(Math.round(+v || 0))}%`,
-  rwEsc = (s) => esc(String(null == s ? "" : s));
+  rwEsc = (s) => esc(String(null == s ? "" : s)),
+  // the entity the Reports bar scopes to (Consolidated is every entity)
+  rwEnt = () => ("undefined" != typeof repEntity && repEntity ? repEntity : "all");
 // the page on screen (the menu reads it: mnTabOf)
 function rwPageNow() {
   if ("dashboard" === view) return "builder";
@@ -117,8 +119,8 @@ function rwFromTab(t) {
   if ("cash" === pg) rwS.cash = { cash13: "weeks", funds: "funds", ar: "ar", payables: "ap" }[t] || "weeks";
   if ("stmt" === pg) {
     rwS.detail = "tieout" === t ? "tieout" : "";
-    rwS.pack = "pack" === t || "flash" === t;
-    "flash" === t && rwSetPer("week", !0);
+    // the Pack open: the month's ("pack") or the week's Flash ("flash"); opening an old tab never moves the period
+    rwS.pack = "pack" === t ? "pack" : "flash" === t ? "flash" : !1;
     rwS.kind = { company: "pl", financials: "bs", statements: "bs", budget: "bva" }[t] || rwS.kind;
   }
   if ("builder" === pg) "searches" === t || !RW_TAB_PAGE[t] ? ((rwS.builder = "saved"), (rwS.std = "")) : ((rwS.builder = "standard"), (rwS.std = t));
@@ -127,7 +129,7 @@ function rwTabOf() {
   const P = rwS.page;
   if ("jobs" === P) return "wip" === rwS.jobs ? "wip" : "profit" === repTab ? "profit" : "portfolio";
   if ("cash" === P) return { weeks: "cash13", funds: "cash13", ar: "ar", ap: "payables" }[rwS.cash] || "cash13";
-  if ("stmt" === P) return "tieout" === rwS.detail ? "tieout" : rwS.pack ? ("week" === rwPer() ? "flash" : "pack") : { pl: "company", bs: "financials", cf: "financials", bva: "budget" }[rwS.kind] || "company";
+  if ("stmt" === P) return "tieout" === rwS.detail ? "tieout" : rwS.pack ? ("flash" === rwS.pack ? "flash" : "pack") : { pl: "company", bs: "financials", cf: "financials", bva: "budget" }[rwS.kind] || "company";
   if ("builder" === P) return rwS.std || "searches";
   return repTab;
 }
@@ -420,7 +422,7 @@ function rwStmtRows(kind) {
     return { head: `Budget vs Actual · ${rwPerLabel(rwPer()) || `${fmt(R[0])} to ${fmt(R[1])}`}`, rows: rows };
   }
   if ("bs" === kind) {
-    const S = glBS("all", R[1] > today() ? today() : R[1]),
+    const S = glBS(rwEnt(), R[1] > today() ? today() : R[1]),
       top = (L) => L.slice().sort((a, b) => Math.abs(b.bal) - Math.abs(a.bal));
     top(S.assets).forEach((r) => rows.push({ k: `${r.a.name}, ${r.a.number || r.a.id}`, v: rwC(r.bal), key: "a:" + (r.a.number || r.a.id) }));
     rows.push({ k: "Total assets", v: rwC(S.A), strong: 1, key: "A" });
@@ -470,7 +472,7 @@ function rwBehind() {
     other = r2(k.adjust - uncoded);
   let M = { rows: [] };
   try {
-    M = truthManual(R, { entityId: "all" });
+    M = truthManual(R, { entityId: rwEnt() });
   } catch (e) {}
   const man = (M.rows || []).filter((m) => !/^(Close|Accrual)\b/i.test((m.flag && m.flag.text) || "") || /manual/i.test(m.j.source || "")),
     opening = man.filter((m) => /^Opening/i.test((m.flag && m.flag.text) || "") || "opening" === m.j.source),
@@ -1014,7 +1016,7 @@ function rwOpenGo(go) {
     o.cash && (rwS.cash = o.cash);
     o.detail && (rwS.detail = o.detail);
     o.per && rwSetPer(o.per, !0);
-    o.pack && (rwS.pack = !0);
+    o.pack && (rwS.pack = "week" === o.per ? "flash" : "pack");
     repTab = rwTabOf();
     rwS.tab = repTab;
     return void ("reports" === view ? render() : setView("reports"));
@@ -1024,7 +1026,7 @@ function rwChipGo(group, k) {
   if ("page" === group) return rwGo(k), void ("reports" === view ? render() : setView("reports"));
   if ("jobs" === group) (rwS.jobs = k), "margin" === k && (repTab = "portfolio");
   if ("cash" === group) rwS.cash = k;
-  if ("per" === group) rwSetPer(k, !0), rwS.pack && "week" === k && (rwS.detail = "");
+  if ("per" === group) rwSetPer(k, !0), rwS.pack && (rwS.pack = "week" === k ? "flash" : "pack");
   if ("kind" === group) (rwS.kind = k), (rwS.pack = !1), (rwS.detail = "");
   if ("detail" === group) (rwS.detail = k), (rwS.pack = !1);
   if ("builder" === group) {
@@ -1084,7 +1086,7 @@ document.addEventListener(
     }
     if ((b = at("[data-rwpack]"))) {
       e.preventDefault();
-      rwS.pack = !0;
+      rwS.pack = "week" === rwPer() ? "flash" : "pack";
       rwS.detail = "";
       "last" === rwPer() && "undefined" != typeof packMonth && (packMonth = rwPrevYm());
       ["month", "ytd"].includes(rwPer()) && "undefined" != typeof packMonth && (packMonth = "");
