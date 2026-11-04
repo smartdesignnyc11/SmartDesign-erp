@@ -107924,8 +107924,13 @@ function bootRun() {
 // calendar, the reporting entity and basis, the as-of date of a pack, and the temporary re-dating fin3CostDated and
 // fin3PostDated do while they run). SPD.check (tests/speed_test.py turns it on) recomputes hits and records any
 // difference in SPD.bad, so a missing key part fails loudly.
-const SPD = { on: 0, depth: 0, ver: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
-  spdIds = new WeakMap();
+// SPD.wv is the write version (BACKLOG §1.36, the stale-memo class): one counter that every write moves (save() and
+// saveNow(), wrapped outermost in spdInstall, and every ledger sync, SPD.syncs) and no read moves. It is part of every
+// memo's key (spdCtx; ocMemo between draws; dataVer() for the lanes' own per-draw memos), so a memo kept before a write
+// is never the answer after it, even inside one draw (spdBegin's snapshot of DB is taken once, as the draw starts).
+const SPD = { on: 0, depth: 0, ver: 0, wv: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
+  spdIds = new WeakMap(),
+  dataVer = () => SPD.ver + "." + SPD.wv + "." + (SPD.syncs || 0);
 let spdNextId = 0,
   fin3CostDepth = 0;
 function spdId(o) {
@@ -107939,6 +107944,8 @@ function spdCtx() {
   return [
     // the app's minute, not only its day: a memo held "11 min ago" while a fresh read said "12 min ago" (speed_test)
     appNowIso().slice(0, 16),
+    // the write version: a write since the memo was kept (even in the same draw) is another key
+    SPD.wv + "." + (SPD.syncs || 0),
     "function" == typeof role ? role() : "",
     (u && u.id) || "",
     (S && S.id) || "",
@@ -108002,6 +108009,9 @@ function spdMemo(name, f, self, args) {
     if ((SPD.hits++, SPD.check && (!0 === SPD.check || (e.n = (e.n || 0) + 1) <= SPD.check))) {
       const fresh = JSON.stringify(f.apply(self, args)),
         had = JSON.stringify(e.r);
+      // a reader wrote into the answer after it was kept (e.j is the answer as kept): named so, since the fix is in that
+      // reader (copy a row before adding to it), not in the key
+      e.j && had !== e.j && SPD.bad.length < 50 && SPD.bad.push({ fn: name, key: k.slice(0, 160), view: view, at: 0, had: "written into by a reader after it was kept", fresh: String(had).slice(0, 200) });
       // a draw that runs over a minute's turn may differ in "N min ago"; that is the clock, not the memo
       if (fresh !== had && SPD.bad.length < 50 && appNowIso().slice(0, 16) === SPD.min) {
         const a = String(had),
@@ -108015,7 +108025,12 @@ function spdMemo(name, f, self, args) {
   }
   SPD.miss++;
   const r = f.apply(self, args);
-  return SPD.memo.set(k, { r: r }), Array.isArray(r) ? r.slice() : r;
+  let j = "";
+  if (SPD.check)
+    try {
+      j = JSON.stringify(r);
+    } catch (x) {}
+  return SPD.memo.set(k, { r: r, j: j }), Array.isArray(r) ? r.slice() : r;
 }
 // The readers answered from the memo: pure functions of the records, their arguments and spdCtx(). The per-draw
 // memos that were already there (ocMemo for the badge counts, budMemoGet for the budget) use it too while a draw runs.
@@ -108057,6 +108072,15 @@ function spdInstall() {
         (window[n] = function () {
           return spdMemo(n, f, this, arguments);
         });
+    });
+  // every write moves the write version: the outermost save and saveNow (every lane's wrapper runs inside these)
+  const sv = save,
+    svn = saveNow;
+  (save = function () {
+    return SPD.wv++, sv.apply(this, arguments);
+  }),
+    (saveNow = function () {
+      return SPD.wv++, svn.apply(this, arguments);
     });
   const draw = render;
   render = function () {
@@ -142268,7 +142292,7 @@ const ocMemo = (k, f) => {
         }
       }, null, []);
     const t = ("function" == typeof render && render.__tick) || 0,
-      key = k + "|" + role() + "|" + (S && S.id),
+      key = k + "|" + role() + "|" + (S && S.id) + "|" + dataVer(),
       c = ocCache[key];
     if (c && c.t === t) return c.v;
     let v;
@@ -189172,7 +189196,10 @@ function toBill(pid, opts) {
     const R = base.apply(this, arguments);
     try {
       const X = ocMemo("rbReady", () => rbReady()) || [];
-      let rows = R.rows.concat(X);
+      // each row copied before this adds its ahead and why: R and X are memoised answers (spdMemo, ocMemo), and writing
+      // into their rows changed the memo's answer for every later reader (speed_test, 11-04: oc:readyToBill held the
+      // application row's "ahead" that a fresh computation does not have). A reader never writes into what it was given.
+      let rows = R.rows.concat(X).map((r) => Object.assign({}, r));
       const held = R.held.slice();
       // A job billed ahead of the work (line by line, pbAhead) is never billed further ahead, and its measured work is
       // never left unbilled. Its application still bills every line behind its measure (this period = measured less
