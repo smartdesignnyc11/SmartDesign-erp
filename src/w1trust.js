@@ -315,9 +315,23 @@ function w1Register(el) {
 }
 // put back what this person typed in this sheet, field by field, where the field still shows what it showed before
 // and no tap used it since
+// A sheet that keeps its own draft opens showing the typing, and what it draws from that typing (Say It's read of
+// who it goes to) changes its body text, so its key is not the one the draft was kept under. The draft under the same
+// sheet and title whose typing a field of this sheet already shows is this sheet's: it is taken under this key.
+function w1Adopt(el, st) {
+  if (w1Get(st.key)) return;
+  const M = w1Mine(w1Load()),
+    pre = `${st.def.sel}|${st.title}|`,
+    S0 = [...w1Sigs(w1BodyOf(el, st))];
+  const k = Object.keys(M).find((k) => k !== st.key && k.startsWith(pre) && M[k].fields && S0.some(([f, sig]) => { const x = M[k].fields[sig]; return x && x.v !== x.d0 && "" !== x.v && w1Val(f) === x.v; }));
+  if (!k) return;
+  const d = M[k];
+  w1Put(k, null), w1Put(st.key, Object.assign(d, { open: !0, screen: st.screen, opener: st.opener || d.opener }));
+}
 function w1Restore(el) {
   const st = W1.get(el);
   if (!st || st.discarded) return;
+  st.restored || w1Adopt(el, st);
   const d = w1Get(st.key);
   if (!d || !d.fields) return;
   let put = 0,
