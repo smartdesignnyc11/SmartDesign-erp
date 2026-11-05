@@ -337,7 +337,7 @@ function rwSafeParts() {
       if (/^In the bank/.test(k)) return acct.map((a) => `${a.name.split(" ")[0]} ····${a.last4 || ""}${stmt(a) ? `, statement through ${fmt(stmt(a))}` : ""}`).join(" · ");
       if (/^Credit cards/.test(k)) return cards.map((a) => `${a.name.split(" ").slice(0, 2).join(" ")} ····${a.last4 || ""} ${money(Math.abs("function" == typeof acctBook ? acctBook(a) : +a.balance || 0))}`).join(" · ");
       if (/^Payroll due/.test(k)) return (DB.payroll || []).filter((r) => r.total && !["paid", "void"].includes(r.status) && (!r.payDate || r.payDate <= today())).map((r) => `${r.period || ""}${r.payDate && r.payDate < today() ? `, past due since ${fmt(r.payDate)}` : ""}`).join(" · ");
-      if (/^Set aside/.test(k)) return "Client money for work not done, job by job: paid to us with a bank line, less earned, never below $0. Billed and unpaid is never set aside; client funds sit inside it.";
+      if (/^Set aside/.test(k)) return "Client money for work not done, job by job: paid to us with a bank line, less earned (the work measured or billed on the job, or its cost to date, whichever is more), never below $0. Billed and unpaid is never set aside; client funds sit inside it.";
       if (/^Ours today/.test(k)) return "Before the 13-week check";
       if (/^13-week low/.test(k)) return "The same set-aside comes off every week of the forecast, so the low compares like with like";
       return "";
