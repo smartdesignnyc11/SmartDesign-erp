@@ -714,7 +714,9 @@ function ydMailRows(M) {
           // the renewal's task is that renewal: one row, the one that drafts it
           heldTask = (it) => "tdyTask" === it.kind && !!it.t && (it.t.refs || []).some((k) => ownRefs.has(k)),
           have = new Set((M.all || []).map((it) => it.kind + ":" + it.id));
-        const all = (M.all || []).filter((it) => !ydBrainKind(it) && !dupHold(it) && !heldTask(it)),
+        // the rows Today shows are exc's own copies (each with its why), never the queue's memoised items written into
+        const mine = new Map(exc.map((it) => [it.kind + ":" + it.id, it]));
+        const all = (M.all || []).filter((it) => !ydBrainKind(it) && !dupHold(it) && !heldTask(it)).map((it) => mine.get(it.kind + ":" + it.id) || it),
           extra = exc.filter((it) => !have.has(it.kind + ":" + it.id)),
           deals = ydDealRows(M),
           mins = all.filter((it) => "tdyMinutes" === it.kind),
