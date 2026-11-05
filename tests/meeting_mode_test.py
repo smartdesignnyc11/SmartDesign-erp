@@ -15,7 +15,7 @@ phone (390px), with every one-tap action, and checks the record each action leav
   - Follow: a second screen shows the presenter's card.
 Invented data only (CLAUDE.md, Privacy)."""
 import asyncio, re
-from harness import async_playwright, open_app, sign_in, go, Checks
+from harness import async_playwright, open_app, sign_in, go, Checks, OWNER
 
 CODE = re.compile(r'^[A-Z][A-Z0-9]{0,7}-\d{1,5}$')
 
@@ -432,7 +432,7 @@ async def record_checks(c, p):
     r = await pg.evaluate("(id) => { const T = tkKeyedRecs().find(r => r.rec.id === id); return tkSetOwner(T, 'Invented Millwork Co'); }", ids['wait'])
     c.ok(not r['ok'] and 'not on the team' in r['why'], f'record: tkSetOwner refuses a vendor: {r}')
     r = await pg.evaluate("() => { const m = crCreateTask({ title: 'Invented: get the stair quote', for: 'p:p121', assignee: 'Invented Millwork Co', source: { assistant: true } }); return JSON.parse(JSON.stringify({ a: m.rec.assignee, w: m.rec.waitingOn, f: m.rec.ownerFlag, code: m.rec.code })); }")
-    c.ok(r['a'] == 'Owner' and (r['w'] or {}).get('name') == 'Invented Millwork Co' and (r['f'] or {}).get('why') == 'outside' and CODE.match(r['code']), f'record: the creation path makes the vendor Waiting On and the maker the owner: {r}')
+    c.ok(r['a'] == OWNER and (r['w'] or {}).get('name') == 'Invented Millwork Co' and (r['f'] or {}).get('why') == 'outside' and CODE.match(r['code']), f'record: the creation path makes the vendor Waiting On and the maker the owner: {r}')
     await go(pg, 'tkall')
     gate = await pg.evaluate("""() => { const a = asAllTasks()[0]; asTaskDialog(a.a.id); const m = document.getElementById('mbm'); if (!m) return 'no dialog';
       const who = m.querySelector('[data-f="assignee"]'); who.value = 'Invented Millwork Co'; const was = a.a.assignee; m.querySelector('#mbm-ok').click();

@@ -1673,7 +1673,7 @@ async function ljDemoSeed() {
   // 4. The hard / soft / contingency estimate and the tax credit budget: a landmarked church and its rectory
   const G = mkClient("cl_lj_grace", "Grace Chapel Trustees", [{ id: "ct_lj_g1", name: "Rev. Martha Hale", email: "trustees@gracechapel.example", phone: "(212) 555-0190", role: "Chair of the trustees", primary: !0 }], { type: "Institution", propertyAddr: "31 Hale Place, New York, NY 10027" });
   const pG = mkJob("p_lj_grace", G, "Grace Chapel and Rectory — restoration", G.propertyAddr, "2026-10-05", { lpc: "Individual landmark" });
-  pG.mbDeal = { clientPaysAll: !0, loi: "all-cash", loiStatus: "being prepared", at: appNowIso(), by: "Owner" };
+  pG.mbDeal = { clientPaysAll: !0, loi: "all-cash", loiStatus: "being prepared", at: appNowIso(), by: DEMO_OWNER };
   clientOpen = G.id;
   const eG = newDoc(G, "estimate", { template: "construction", fields: { title: "Church and rectory restoration: budget", projectId: pG.id, date: "2026-09-01" } });
   Object.assign(eG, { ljDemo: 1, costModel: !0, htc: { fed: 20, qual: 98.5, props: [{ id: "pr_lj_ch", name: "Church", state: 20, sf: 6200, finishPerSf: 38 }, { id: "pr_lj_re", name: "Rectory", state: 30, sf: 3400, finishPerSf: 55 }] } });
