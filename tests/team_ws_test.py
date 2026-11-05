@@ -30,6 +30,8 @@ MARKERS = """() => { const S = new Set(), add = s => { s = String(s || '').trim(
   (DB.leads || []).forEach(l => add(l.name)); (DB.pos || []).forEach(p => add(p.vendor)); (DB.meetings || []).forEach(m => add(m.title));
   return [...S]; }"""
 DEMO_DAY = re.compile(r'2026-09-03|\b9/3\b|Sep(tember)?\.? 3\b|Sept 3\b')
+# the demo's sample budget plan: its version ids and names, and the words of its history
+SAMPLE_PLAN = re.compile(r'bv_orig|bv_rf3|bv_draft|Reforecast Q3|Working Draft — Q4 Update|From the January plan|Approved at the January planning meeting')
 
 def leaks(text, markers):
     return [m for m in markers if re.search(r'(?<![A-Za-z])' + re.escape(m) + r'(?![A-Za-z])', text)]
@@ -81,11 +83,18 @@ async def main():
         dbj = await pg.evaluate("JSON.stringify(DB)")
         lk = leaks(dbj, markers)
         c.ok(not lk, f'none of the demo\'s names anywhere on the device: {lk[:8]}')
+        # no demo budget plan or figures (11-05: the sample plan's invented revenue and cost reached the team's books):
+        # the Budget page and every budget read leave the firm with no plan until a person makes one
+        bp = await pg.evaluate("""() => { budPlan(); budActiveVer(); try { budRows({ range: [today().slice(0, 4) + '-01-01', today()] }); } catch (e) {}
+          const P = DB.budgetPlan || {}; return { n: (P.versions || []).length, lines: (P.versions || []).reduce((a, v) => a + Object.keys(v.lines || {}).length, 0), audit: (P.audit || []).length, none: budNone(), html: budNoneHtml('test') }; }""")
+        dbj = await pg.evaluate("JSON.stringify(DB)")
+        c.ok(bp['n'] == 0 and bp['lines'] == 0 and bp['audit'] == 0 and bp['none'] and not re.search(SAMPLE_PLAN, dbj), f'no demo budget plan or figures on the device, after the budget is read: {bp}')
         await pg.evaluate("saveNow()")
         await pg.wait_for_timeout(1500)
         srv = json.dumps(S.data('sd-team'))
         c.ok(len(S.names('sd-team')) > 3 and not leaks(srv, markers), f'the first upload carries an empty firm, no demo name on the server: {leaks(srv, markers)[:8]}')
         c.ok('"__teamWs"' in srv and '"tasksOnly": true' in srv, 'the server holds the team mark and the pilot')
+        c.ok(not re.search(SAMPLE_PLAN, srv), f'no demo budget plan or figures on the server: {re.findall(SAMPLE_PLAN, srv)[:4]}')
 
         # ---- 3. the real clock
         r = await pg.evaluate("""() => { let threw = ''; try { appSetDay('2026-09-03'); } catch (e) { threw = e.message; }
