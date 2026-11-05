@@ -140527,7 +140527,7 @@ if (
             // re-attribution is a new row, by the system, saying what it corrects (the trail stays verifiable)
             (DB.audit || []).filter((a) => a.refId === j.id && "approve" === a.action && a.by !== FIN3_SEED).forEach((a) => {
               a.h
-                ? audit("ledger", j.id, "approve", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
+                ? audit("ledger", j.id, "re-attributed", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
                 : ((a.by = FIN3_SEED), (a.role = "system"), (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
             }),
             n++;
