@@ -633,7 +633,12 @@ async def s_polish(p, c):
         c.ok(not await modal(pg), 'polish: Escape closes a modal with no input')
         # New Buy Run does not look disabled
         # the FF&E buy run lives in the Buy Board's FF&E Buying Tools (procurement P1)
-        await pg.evaluate("() => { setCurrent('p121'); view = 'proc'; procMode = 'finish'; render(); }"); await pg.wait_for_timeout(500)
+        # (lane P2, 11-05, the purchasing SPEC: "FF&E › New Buy Run → Buy Board multi-select"; New Buy Run makes something
+        # real or goes: with nothing ticked there is no blue that only toasts, so the check ticks an item first)
+        await pg.evaluate("() => { setCurrent('p121'); view = 'proc'; procMode = 'finish'; procSel.clear(); render(); }"); await pg.wait_for_timeout(500)
+        none = await pg.evaluate("() => !document.getElementById('proc-run') && !!document.querySelector('#proc-body .pu-runhint')")
+        c.ok(none, 'polish: with nothing ticked, New Buy Run is a hint, not a blue that only toasts')
+        await pg.evaluate("() => { const tr = [...document.querySelectorAll('#proc-body tr')].find(t => /fireclay sink/i.test(t.innerText)); const cb = tr && tr.querySelector('[data-pick]'); cb && cb.click(); }"); await pg.wait_for_timeout(300)
         run = await pg.evaluate("() => { const b = document.getElementById('proc-run'); return b && { text: b.innerText.trim(), disabled: b.disabled, aria: b.getAttribute('aria-disabled') || '' }; }")
         c.ok(run and not run['disabled'] and run['aria'] != 'true', f'polish: New Buy Run is not disabled ({run})')
         # design phases are not things to buy

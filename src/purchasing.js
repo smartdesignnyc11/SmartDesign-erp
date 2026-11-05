@@ -99,7 +99,7 @@ function puDecWho(r) {
 }
 function puLineWord(r) {
   const ref = r.lineKey ? findLine(r.lineKey) : null;
-  if (ref && ref.doc) return `${ref.doc.number || ""}${ref.line && ref.line.num ? ` line ${ref.line.num}` : ""}${"sub" === r.kind ? " · subcontract" : ""}${r.budget ? ` · ${money(r.budget)}` : ""}`.trim();
+  if (ref && ref.doc) return `${ref.doc.number || ""}${ref.line && ref.line.num ? ` line ${ref.line.num}` : ""}${"sub" === r.kind ? " · subcontract" : ""}`.trim();
   if ("ffe" === r.kind) return `FF&E, ${r.room || "selection"}${r.it && r.it.line ? "" : " · No estimate line"}`;
   if ("request" === r.kind) return `Request from ${r.askedBy || "the site"} · No estimate line`;
   return "No estimate line: link one";
@@ -118,11 +118,20 @@ function puOnRoute() {
   } catch (e) {}
   return (puRouteMemo = { k: k, ids: ids }), ids;
 }
+// A need's one money figure (11-05: the rows read the line's whole budget, $21,500 and $75,000, while the pick bar added
+// what was left, $19,850, and the countertop read "$0 priced"): what is left to buy on a contract line or a subcontract
+// scope, the price of an FF&E item or a priced material; none when nothing prices it. The row shows it and the pick bar
+// adds it, so the bar is always the sum of the picked rows.
+function puNeedValue(r) {
+  const amt = r && +r.price > 0 ? r2(+r.price) : 0;
+  return { amt: amt, say: amt ? `${money(amt)}${["line", "sub"].includes(r.kind) ? " left on the line" : ""}` : "" };
+}
 function puNeed(r) {
   if (!r || r.received || "done" === r.tab) return null;
   const td = today(),
     stock = r.ordered ? [] : puStockFor(r.name),
-    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: puLineWord(r), stock: stock, pick: !r.ordered };
+    val = puNeedValue(r),
+    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: [puLineWord(r), val.say].filter(Boolean).join(" · "), val: val, stock: stock, pick: !r.ordered };
   if (r.ordered && r.po) return Object.assign(base, { b: "gone" });
   // due: the board's own sections (bbFinish): late, to acknowledge, or to order within five working days
   const due = r.late || ["ack", "week", "late"].includes(r.section);
@@ -141,10 +150,7 @@ function puNeed(r) {
     const s = puSubmittalOf(r);
     o = "revise" === s.status ? { actor: "sub", who: s.sub || "the sub", why: `submittal ${s.number} came back Revise and Resubmit; the order waits for it.`, act: "Open the Submittal", k: "subm" } : { actor: "designer", who: "the architect", why: `submittal ${s.number} is in review; the order waits for it.`, act: "Open the Submittal", k: "subm" };
   } else if (r.matUnknown) o = { actor: "pm", who: "the PM", why: "the material portion of the line is not set; the line includes labour.", act: "Set the Material Portion", k: "split" };
-  else if ((r.rfqs || []).length) {
-    const q = r.rfqs[0];
-    o = { actor: "vendor", who: (q.vendors || []).length ? `${(q.vendors || []).length} vendors` : "the vendors", why: `${q.number}: quotes due ${q.dueDate ? fmt(q.dueDate) : "soon"}.`, act: "Open the Request", k: "rfq" };
-  } else if ("sub" === r.kind) o = { actor: "coord", why: "No sub contracted. Over $2,500: three bids, or a reason.", act: "Ask for Bids", k: "quote", tone: r.late ? "bad" : "warn" };
+  else if ((r.rfqs || []).length || puQuoteStage(r)) o = puQuoteStep(r); else if ("sub" === r.kind) o = { actor: "coord", why: "No sub contracted. Over $2,500: three bids, or a reason.", act: "Ask for Bids", k: "quote", tone: r.late ? "bad" : "warn" };
   else if (!r.price) o = { actor: "coord", why: "No price yet.", act: "Ask for Quotes", k: "quote", tone: r.late ? "bad" : "" };
   else o = { actor: "coord", why: `Order by ${fmt(r.orderBy)}.`, act: "Order", k: "order", tone: r.late ? "bad" : "" };
   const st = puStockSay(stock),
@@ -217,6 +223,7 @@ function puReceivedValue(po) {
 function puOrderRows(pid) {
   const R = [],
     put = (o) => R.push(Object.assign({ actor: "coord", b: "mine" }, o));
+  puLineOverRows(pid).forEach(put);
   puOverOrder(pid).forEach((x) =>
     put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
   );
@@ -410,7 +417,7 @@ function puRowHtml(x, o) {
   const pick = o.pick && x.pick ? bbPickBox(x.r) : "",
     who = o.others ? `<span class="pu-who">Waiting on ${esc(x.who || "someone")}</span>` : "",
     sub = [x.job, x.line].filter(Boolean).join(" · ");
-  return `<div class="pu-row ${x.tone || ""}${pick ? " pu-pickable" : ""}${o.sel && o.sel === x.id ? " sel" : ""}" data-purow="${esc(x.id)}">${pick}<button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(x.name)}</b>${sub ? `<span class="pu-sub" data-nocase>${esc(sub)}</span>` : ""}${who}<span class="pu-why" data-nocase>${esc(x.why || "")}</span>${x.when ? `<span class="pu-when ${x.r && x.r.late ? "bad" : ""}">${esc(x.when)}</span>` : ""}</button>${x.act && !o.others && !o.quiet ? `<button type="button" class="btn sm pu-act" data-puact="${esc(x.id)}">${esc(x.act)}</button>` : ""}</div>`;
+  return `<div class="pu-row ${x.tone || ""}${pick ? " pu-pickable" : ""}${o.sel && o.sel === x.id ? " sel" : ""}" data-purow="${esc(x.id)}"${x.val ? ` data-puamt="${x.val.amt}"` : ""}>${pick}<button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(x.name)}</b>${sub ? `<span class="pu-sub" data-nocase>${esc(sub)}</span>` : ""}${who}<span class="pu-why" data-nocase>${esc(x.why || "")}</span>${x.when ? `<span class="pu-when ${x.r && x.r.late ? "bad" : ""}">${esc(x.when)}</span>` : ""}</button>${x.act && !o.others && !o.quiet ? `<button type="button" class="btn sm pu-act" data-puact="${esc(x.id)}">${esc(x.act)}</button>` : ""}</div>`;
 }
 function puSecHtml(key, title, rows, o) {
   o = o || {};
@@ -550,12 +557,12 @@ function puBuyRender() {
   // Quotes the one blue, and the other reads Order, With a Reason
   let bar = "";
   if (picked.length) {
-    const priced = picked.filter((x) => +x.r.price > 0),
-      unpriced = picked.filter((x) => !(+x.r.price > 0)),
-      total = r2(priced.reduce((a, x) => a + +x.r.price, 0)),
+    const priced = picked.filter((x) => x.val && x.val.amt > 0),
+      unpriced = picked.filter((x) => !(x.val && x.val.amt > 0)),
+      total = r2(priced.reduce((a, x) => a + x.val.amt, 0)),
       quotes = unpriced.length > 0 || total > 2500,
       jobs = [...new Set(picked.map((x) => x.job))];
-    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase> · ${money(total)}${unpriced.length ? ` priced, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span></span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${quotes ? "" : "primary"}" id="bb-order">${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${quotes ? "primary" : ""}" id="bb-quote">Ask for Quotes</button></span></div>`;
+    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase data-pubar="${total}" data-punoprice="${unpriced.length}"> · ${priced.length ? `${money(total)} for ${priced.length === picked.length ? (1 === picked.length ? "it" : "all") : priced.length} priced` : "none priced"}${unpriced.length ? `, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span></span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${quotes ? "" : "primary"}" id="bb-order">${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${quotes ? "primary" : ""}" id="bb-quote">Ask for Quotes</button></span></div>`;
   }
   const laterFirst = later[0] && later[0].r.orderBy,
     laterLast = later.length && later[later.length - 1].r.orderBy,
@@ -568,7 +575,7 @@ function puBuyRender() {
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1, sel: bbSel }) +
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
     panel = !phone ? `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${sel ? bbPanelHtml(sel.r, picked.length) : bbPanelHtml(null)}</aside>` : "",
-    foot = `<div class="pu-foot"><button type="button" class="pu-link" id="bb-more">FF&amp;E Buy Runs, Receiving and Returns</button></div>`;
+    foot = `<div class="pu-foot"><button type="button" class="pu-link" id="bb-more">FF&amp;E Buying Tools</button></div>`;
   root.innerHTML = `<div class="pu pr-keep bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" data-pupage="proc" id="buy-board" data-os-keep>${puHeadHtml("proc")}${filters}<div class="bb-main"><div class="bb-list pu-list" data-nocase>${list}${foot}</div>${panel}</div>${bar}</div>`;
   bbWire(root);
   const q = (s) => root.querySelector(s);
@@ -588,8 +595,10 @@ function puOrders() {
     rows = puOrderRows(pid),
     me = puMe(),
     mine = rows.filter((x) => x.actor === me),
-    others = rows.filter((x) => x.actor !== me).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
+    others = rows.filter((x) => x.actor !== me && "tile" !== x.actor).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
     owed = rows.filter((x) => "owed" === x.tile),
+    lineOver = rows.filter((x) => "lineover" === x.tile),
+    lineOverSum = r2(lineOver.reduce((a, x) => a + (x.money || 0), 0)),
     over = rows.filter((x) => "over" === x.tile),
     cnb = puCommitted(pid),
     owedSum = r2(owed.reduce((a, x) => a + (x.money || 0), 0)),
@@ -603,16 +612,17 @@ function puOrders() {
       // one line names the order, its vendor, its job and what it buys: an order is found by any of them
       return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"} · ${puJob(DB.projects.find((p) => p.id === po.projectId))}: ${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")}`, job: "", line: `Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
     },
-    tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
+    tileRows = "lineover" === t ? lineOver : "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
     tiles =
       puTile("mine", "Needs You", String(mine.length), "rows whose next tap is yours") +
       puTile("owed", "Owed Back", money(owedSum), `${owed.length} return${1 === owed.length ? "" : "s"} and credits`) +
       puTile("over", "Over the Order", money(overSum), over.length ? over.map((x) => x.po.number).join(", ") : "nothing paid past an order") +
+      puTile("lineover", "Over the Line", money(lineOverSum), lineOver.length ? `${lineOver.length} line${1 === lineOver.length ? "" : "s"}: spent and ordered past the budget` : "every line within its budget") +
       puTile("cnb", "Committed, Not Yet Billed", money(cnbSum), `${cnb.pos.length} open order${1 === cnb.pos.length ? "" : "s"}, net of their bills`, puPrepaidSay(cnb.prepaid)),
     chips = [["draft", "Draft"], ["open", "Open"], ["received", "Received"], ["all", "All"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Orders:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-pupof="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
     body =
-      (tileRows ? puSecHtml("tile", { owed: "Owed Back", over: "Over the Order", cnb: "Committed, Not Yet Billed" }[t], tileRows, { empty: "Nothing here." }) : "") +
+      (tileRows ? puSecHtml("tile", { owed: "Owed Back", over: "Over the Order", lineover: "Over the Line", cnb: "Committed, Not Yet Billed" }[t], tileRows, { empty: "Nothing here." }) : "") +
       puSecHtml("mine", "Needs You", mine, { count: "po", empty: "Nothing waits on you." }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
       filters +
@@ -967,7 +977,7 @@ function puDo(x) {
     }
     if ("find" === x.k) return r.m ? openEditor("mat", r.m.id) : bbDo(r, "open");
     if ("route" === x.k) return setView("recv");
-    if ("split" === x.k) return "function" == typeof jpOpenJob ? jpOpenJob(r.p.id, "costs") : (setCurrent(r.p.id), setView("costs"));
+    if ("split" === x.k) return puMatSheet(r.lineKey || r.key);
     if ("subm" === x.k) return setCurrent(r.p.id), setView("subm");
     if ("quote" === x.k) return puStockGate([r], () => bbQuote([r]));
     if ("order" === x.k) return puStockGate([r], () => bbOrder([r]));
@@ -976,14 +986,53 @@ function puDo(x) {
   return x.run && x.run();
 }
 // The stock check at the door: before money is committed on a need the shelf may cover, the person is asked
+// (11-05, the coordinator expert: its blue was Buy It Anyway, with no way to use the stock.) The blue takes what the
+// person says from the shelf (a pick for the driver, on the need's job) and buys the rest; a need the shelf covers in
+// full is not bought at all. Buy It Anyway stays, second.
 function puStockGate(R, go) {
   const S0 = R.flatMap((r) => (r.ordered ? [] : puStockFor(r.name).map((s) => Object.assign({ need: r }, s))));
   if (!S0.length) return go();
-  return mbModal(
+  const want = (s) => {
+    const q = "function" == typeof bbNum ? bbNum(s.need.qty) : { n: 0, unit: "" },
+      one = puParts(s.need.name).length <= 1;
+    return one && q.n > 0 && (!q.unit || !s.unit || String(q.unit).replace(/s$/, "") === String(s.unit).replace(/s$/, "")) ? Math.min(q.n, s.qty) : "";
+  };
+  const m = mbModal(
     "Check the Stock First",
-    `<p class="small" style="margin:0 0 8px">${S0.map((s) => `<b data-nocase>${esc(puUnits(s.qty, s.unit))} of ${esc(s.name)}</b> at the ${esc(String(s.where).toLowerCase())}, for <span data-nocase>${esc(s.need.name)}</span>`).join("<br>")}</p><p class="small muted" style="margin:0">Use what we own before buying: money spent on what is on the shelf cannot go to raises, bonuses or the client.</p>`,
-    { submit: "Buy It Anyway", onSubmit: () => void setTimeout(go, 0) },
+    `<p class="small muted" style="margin:0 0 8px">On the shelf now. Say how many to take; the driver picks them for the job, and the order buys the rest.</p>${S0.map((s, i) => `<div class="pu-rq"><span><b data-nocase>${esc(s.name)}</b><span class="small muted" data-nocase>${esc(puUnits(s.qty, s.unit))} at the ${esc(String(s.where).toLowerCase())}, for ${esc(s.need.name)}${s.sure ? "" : " (may be it: check)"}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" step="any" data-pustk="${i}" value="${want(s)}" aria-label="How many to take of ${esc(s.name)}"></div>`).join("")}<p class="small muted" style="margin:8px 0 0">Use what we own before buying: money spent on what is on the shelf cannot go to raises, bonuses, the client or charity.</p>`,
+    {
+      submit: "Use the Stock, Buy the Rest",
+      alt: { label: "Buy It Anyway", run: () => void setTimeout(go, 0) },
+      onSubmit: () => {
+        const took = [];
+        S0.forEach((s, i) => {
+          const n = Math.min(+((m.querySelector(`[data-pustk="${i}"]`) || {}).value || 0), s.qty);
+          if (!(n > 0)) return;
+          const q = "function" == typeof stockTakeForLine ? stockTakeForLine({ projectId: s.need.p.id, invId: s.id, qty: n, unit: s.unit, needBy: s.need.needBy, note: `From stock for ${s.need.name}` }) : null;
+          q && took.push({ s: s, n: n, q: q });
+        });
+        if (!took.length) return toast("Say how many to take, or tap Buy It Anyway"), !1;
+        // a need the shelf covers in full is not bought: its request goes the stock path (it leaves the store run)
+        const full = R.filter((r) => {
+          const q = "function" == typeof bbNum ? bbNum(r.qty) : { n: 0 },
+            got = took.filter((t) => t.s.need === r).reduce((a, t) => a + t.n, 0);
+          return puParts(r.name).length <= 1 && q.n > 0 && got >= q.n;
+        });
+        full.forEach((r) => {
+          try {
+            r.q && "function" == typeof bbReqPath ? bbReqPath(r.p, r.q, "stock", "taken from stock") : r.m && "on-site" !== r.m.status && ((r.m.status = "ordered"), (r.m.notes = `${r.m.notes ? r.m.notes + " · " : ""}taken from stock`));
+            r.q && r.q.status === "new" && ((r.q.status = "ack"), (r.q.ackAt = appNowIso()));
+          } catch (e) {}
+        });
+        save();
+        const rest = R.filter((r) => !full.includes(r));
+        rcToast(`${took.map((t) => `${puUnits(t.n, t.s.unit)} ${t.s.name}`).join(", ")} from stock: a pick for the driver${rest.length ? "; now the order for the rest" : ""}`, [{ label: "Open", run: () => setView("recv") }]);
+        rest.length && setTimeout(go, 0);
+        render();
+      },
+    },
   );
+  return m;
 }
 // the Buy Board's own Order and Ask for Quotes run the same stock check
 {
@@ -1002,7 +1051,7 @@ function puStockGate(R, go) {
       args = arguments;
     if (R.some((r) => r.__puChecked)) return bq.apply(self, args);
     let out = null;
-    puStockGate(R, () => (R.forEach((r) => (r.__puChecked = 1)), (out = bq.apply(self, args)), R.forEach((r) => delete r.__puChecked)));
+    puStockGate(R, () => (R.forEach((r) => (r.__puChecked = 1)), (out = puQuoteDoor(R) || bq.apply(self, args)), R.forEach((r) => delete r.__puChecked)));
     return out;
   };
 }
@@ -1163,7 +1212,7 @@ function puNewNeed() {
     if ("ovbuy" === view) view = (ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po";
     const r = base.apply(this, arguments);
     try {
-      puDemoLines(), puDraw(), puCrumbs();
+      puDemoLines(), puDraw(), puCrumbs(), puDocDecorate(), puFfeCrumb();
     } catch (e) {
       console.warn("purchasing", e);
     }
@@ -1175,7 +1224,13 @@ function puNewNeed() {
   const base = renderProc;
   renderProc = function () {
     const pane = "undefined" != typeof procPane ? procPane : "board";
-    if ("finish" === procMode || "board" !== pane) return base.apply(this, arguments);
+    if ("finish" === procMode || "board" !== pane) {
+      const out = base.apply(this, arguments);
+      try {
+        puFfeDress(document.getElementById("proc-body"));
+      } catch (e) {}
+      return out;
+    }
     try {
       return puBuyRender();
     } catch (e) {
@@ -1183,6 +1238,408 @@ function puNewNeed() {
       return base.apply(this, arguments);
     }
   };
+}
+
+// ---- one status per need (11-05): Today, the Buy Board, Quotes and Deliveries read puNeedStatus -----------------------
+// The quote stage of a need: lane P4's rfqLineState when it is there, else the request's own status. A draft request is the
+// coordinator's to send (it read "Waiting on 1 vendors"); an awarded one is not a quote any more.
+function puQuoteStage(r) {
+  const key = r && (r.lineKey || r.key);
+  if (key && "function" == typeof rfqLineState) {
+    try {
+      const s = rfqLineState(key);
+      if (s && s.stage && "awarded" !== s.stage) return s;
+      if (s && "awarded" === s.stage) return null;
+    } catch (e) {}
+  }
+  const q = ((r && r.rfqs) || [])[0];
+  if (!q) return null;
+  const st = q.status,
+    nq = (q.quotes || []).filter((x) => !x.unreadable).length,
+    nv = (q.vendors || []).length;
+  return { stage: "draft" === st ? "draft" : "foreman-review" === st ? "foreman" : "purchasing" === st ? "pick" : ["leveled", "negotiating"].includes(st) || (nv && nq >= nv) ? "leveled" : (q.quotes || []).some((x) => x.unreadable) ? "price-needed" : "out", rfq: q, label: (("undefined" != typeof RFQ_STATUS && RFQ_STATUS[st]) || st) };
+}
+function puQuoteStep(r) {
+  const s = puQuoteStage(r) || { stage: "out", rfq: (r.rfqs || [])[0] || {} },
+    q = s.rfq || {},
+    n = q.number || "The request",
+    nv = (q.vendors || []).length,
+    base = { act: "Open the Request", k: "rfq" };
+  if ("draft" === s.stage) return Object.assign(base, { actor: "coord", why: `${n} is a draft: add the vendors and send it.` });
+  if ("pick" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: pick the vendors and send it.` });
+  if ("foreman" === s.stage) return Object.assign(base, { actor: "foreman", who: q.foreman || "the foreman", why: `checks the quantities on ${n}.` });
+  if ("price-needed" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: a reply is in that needs its prices entered.` });
+  if ("leveled" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: the quotes are in; level and award.`, act: "Open the Quotes" });
+  return Object.assign(base, { actor: "vendor", who: nv ? `${nv} vendor${1 === nv ? "" : "s"}` : "the vendors", why: `${n}: quotes due ${q.dueDate ? fmt(q.dueDate) : "soon"}.` });
+}
+// The one status of a need (a buyList row): its bucket (mine, others, later, route, gone), whose tap it is, why, and the
+// next step. Lane P4 reads it for Quotes, P1 for Deliveries; Today's Buy Board cards read it below.
+function puNeedStatus(r) {
+  const x = puNeed(r);
+  return x ? { b: x.b, actor: x.actor, who: x.who || "", why: x.why, act: x.act, k: x.k, tone: x.tone || "", when: x.when } : null;
+}
+// The status of the open need on a contract line (or null when nothing on the line is left to buy)
+function puNeedStatusFor(lineKey) {
+  const r = buyList("").find((x) => (x.lineKey === lineKey || x.key === lineKey) && !x.received && !(x.ordered && x.po));
+  return r ? puNeedStatus(r) : null;
+}
+// Today's Buy Board card says what the board says (11-05: "Ask for Bids" after the award), and does what its row does
+if ("function" == typeof bbTodayCard) {
+  const base = bbTodayCard;
+  bbTodayCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      const x = it && it.x && puNeed(it.x);
+      x && x.act && ((c.verb = x.act), (c.run = () => puDo(x)), (c.why = esc(`Buy Board · ${x.why}`)));
+    } catch (e) {}
+    return c;
+  };
+}
+// Ask for Quotes on the Buy Board opens the request sheet (lane P4's rfqStartFromLines) prefilled from the picked lines;
+// until it is there, the request is made as before
+function puQuoteDoor(R) {
+  if ("function" != typeof rfqStartFromLines || !R.length) return null;
+  if (new Set(R.map((r) => r.p.id)).size > 1 || R.some((r) => "request" === r.kind)) return null;
+  const items = R.map((r) => ("ffe" === r.kind && r.it ? "sel:" + r.it.id : r.m ? (r.lineKey ? { key: r.lineKey, materialId: r.m.id } : null) : r.lineKey || null));
+  if (items.some((i) => !i)) return null;
+  const subs = R.filter((r) => "sub" === r.kind);
+  if (subs.length && subs.length !== R.length) return null;
+  const category = subs.length ? (((("undefined" != typeof COST_CODES && COST_CODES.find((c) => c[0] === subs[0].code)) || [])[1]) || "Subcontract").split(/[ &,]/)[0] : void 0;
+  bbPick.clear();
+  return rfqStartFromLines(items, { pid: R[0].p.id, sub: !!subs.length, category: category }) || !0;
+}
+// The best price known for a need's item, from the one price history (itemPriceHistory: our orders, bills, receipts and
+// quotes), read per part of its name (11-05: the studs read "no buys on file" while Price Watch had four stores)
+function puBookPrice(r) {
+  if (!r || "function" != typeof itemPriceHistory || ["sub", "line"].includes(r.kind)) return null;
+  const k = "pb|" + r.id + "|" + ("function" == typeof dataVer ? dataVer() : "");
+  puBookPrice.memo = puBookPrice.memo || new Map();
+  if (puBookPrice.memo.has(k)) return puBookPrice.memo.get(k);
+  let out = null;
+  for (const part of puParts(String(r.name || "").replace(/^\d+\.\s*/, ""))) {
+    let H = null;
+    try {
+      H = itemPriceHistory(part);
+    } catch (e) {}
+    if (H && H.best && +H.best.price > 0) {
+      out = { label: H.label, unit: H.unit || "", price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "", say: `${money(H.best.price)}/${H.unit || "ea"} at ${H.best.vendor || "a store"}${H.best.date ? `, ${fmt(H.best.date)}` : ""} (${H.label})` };
+      break;
+    }
+  }
+  puBookPrice.memo.size > 400 && puBookPrice.memo.clear();
+  return puBookPrice.memo.set(k, out), out;
+}
+// The best price known for a name typed or read on the order sheet (the item, or the request the order covers)
+function puBestFor(name, unit) {
+  if ("function" != typeof itemPriceHistory) return null;
+  for (const part of puParts(name)) {
+    let H = null;
+    try {
+      H = itemPriceHistory(part);
+    } catch (e) {}
+    if (!H || !H.best || !(+H.best.price > 0)) continue;
+    const u = (x) => String(x || "").toLowerCase().replace(/s$/, "");
+    if (unit && H.unit && u(unit) !== u(H.unit) && !["ls", "lot"].includes(u(unit))) continue;
+    if (["ls", "lot"].includes(u(unit))) continue;
+    return { label: H.label, unit: H.unit, price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "" };
+  }
+  return null;
+}
+
+// ---- the job's Orders: lines spent and ordered past their budget (the one budget test, lineCommitment) ---------------
+// A draft that puts its line over is the coordinator's (Needs You); a line already over with nothing drafted is shown on
+// the tile only (it is the PM's change order or reason, and Over the Order already carries a paid overrun).
+function puLineOverRows(pid) {
+  if ("function" != typeof lineCommitment) return [];
+  const keys = new Set();
+  (DB.pos || []).filter((po) => "cancelled" !== po.status && (!pid || po.projectId === pid)).forEach((po) => (po.lines || []).forEach((l) => l.line && keys.add(l.line)));
+  const out = [];
+  keys.forEach((k) => {
+    const c = lineCommitment(k);
+    if (!c || !(c.budget > 0) || !(c.over > Math.max(1, 0.001 * c.budget))) return;
+    let ref = null;
+    try {
+      ref = findLine(k);
+    } catch (e) {}
+    if (!ref) return;
+    "function" == typeof ctNumber && ctNumber(ref.doc);
+    const p = (DB.projects || []).find((x) => x.id === ref.doc.projectId) || null,
+      draft = c.drafts[0] || null;
+    out.push({
+      id: "lineover:" + k,
+      name: `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""}: ${money(c.over)} over its budget`,
+      job: puJob(p),
+      line: `${ref.line.item || ref.line.desc || ""} · budget ${money(c.budget)} · spent ${money(c.actual)} · on order ${money(c.onOrder)}${c.drafted ? ` (${money(c.drafted)} in draft ${c.drafts.map((po) => po.number).join(", ")})` : ""}`,
+      why: draft ? `Draft ${draft.number} puts the line over. Cut it to what is left, or issue it with a reason.` : "Spent and ordered past the line's budget: a change order, or the reason it is absorbed.",
+      act: draft ? "Open the Draft" : "Open the Line",
+      run: draft ? () => flowGo.po(draft)() : () => ("function" == typeof finLineModal ? finLineModal(k) : null),
+      tone: "bad",
+      money: c.over,
+      tile: "lineover",
+      actor: draft ? "coord" : "tile",
+    });
+  });
+  return out;
+}
+
+// ---- Set the Material Portion: one field, the PM's (11-05: it opened the Budget page, which has no split field) --------
+function puMatSheet(key) {
+  let ref = null;
+  try {
+    ref = key ? findLine(key) : null;
+  } catch (e) {}
+  if (!ref) return toast("This need is on no contract line yet: link it to a line first");
+  const name = `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""} · ${ref.line.item || ref.line.desc || ""}`;
+  if (!["owner", "pm"].includes(role())) {
+    ref.line.matAsk = { by: ((currentUser() || {}).name) || role(), at: appNowIso() };
+    save(), render();
+    return toast(`Asked the PM to set the material portion of ${name}: it is in his Approvals`, { label: "Open", run: () => setView("proc") });
+  }
+  const M = "function" == typeof rfqMatBudget ? rfqMatBudget(key, ref.line, ref.doc) : { whole: +ref.line.cost || 0 },
+    whole = M.whole || +ref.line.cost || 0;
+  return mbModal(
+    "Set the Material Portion",
+    `<p class="small" style="margin:0 0 8px" data-nocase>${esc(name)}: a budget of ${money(whole)} for labour and material together. Enter the material part in dollars, or as a percent of the line ("40%"); the rest is labour. The price and the client's document do not change.</p>${mbF("Material", `<input data-f="mat" inputmode="decimal" placeholder="e.g. 12000 or 40%" value="${M.split ? esc(String(M.budget)) : ""}">`)}`,
+    {
+      submit: "Save the Portion",
+      onSubmit: (f) => {
+        const s = String(f.mat || "").trim(),
+          v = /%\s*$/.test(s) ? r2((whole * parseFloat(s)) / 100) : +s.replace(/[$,\s]/g, "");
+        if (!s || !isFinite(v)) return toast("Enter dollars, or a percent like 40%"), !1;
+        const out = rfqSetMatBudget(key, v);
+        return out ? (delete ref.line.matAsk, save(), void 0) : !1;
+      },
+    },
+  );
+}
+// the PM's Approvals: every line on his jobs whose material portion the buying waits on
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "pm" === role())) return out;
+      const me = String(((currentUser() || {}).name) || "").toLowerCase().split(" ")[0];
+      const R = buyList("").filter((r) => r.matUnknown && !r.ordered && (r.lineKey || r.key) && (!me || !r.p.project.pm || String(r.p.project.pm).toLowerCase().includes(me)));
+      const seen = new Set();
+      return out.concat(
+        R.filter((r) => !seen.has(r.lineKey || r.key) && seen.add(r.lineKey || r.key)).map((r) => {
+          const k = r.lineKey || r.key,
+            ask = r.l && r.l.matAsk;
+          return { kind: "matsplit", id: k, sev: "warn", n: "Split", title: `Set the material portion: ${r.name}`, detail: `${puJob(r.p)} · ${puLineWord(r)} · budget ${money(r.budget || 0)} for labour and material together · the coordinator buys against the material part${ask ? ` · asked by ${ask.by}` : ""}`, yes: "Set the Portion", who: "pm", due: r.orderBy || "", open: { puMat: k } };
+        }),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.puMat) return void puMatSheet(go.puMat);
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the order sheet from lines (ctPOPicker), the one order path's sheet ----------------------------------------------
+// On the phone each line is a card: the item in full, its estimate line, quantity with unit, unit cost, then a full-width
+// vendor (11-05: a desktop table that opened scrolled sideways, names cut, the vendor box reading "ve"). On both devices
+// each ticked line shows the one budget test as it is typed (lineBudgetTest), the best price known for the item, and the
+// field request the order covers (ticked, it leaves the store run, so the studs are bought once).
+function puCtpDecorate(pid, m) {
+  if (!m || !m.querySelector("table.ctp")) return;
+  const p = (DB.projects || []).find((x) => x.id === pid) || null,
+    cl = p && (DB.clients || []).find((c) => c.id === p.clientId),
+    docs = cl ? [...cl.estimates, ...cl.changeOrders, ...cl.invoices] : [],
+    route = puOnRoute();
+  m.classList.add("pu-ctp");
+  m.classList.toggle("pu-ctp-ph", puPhone());
+  const LAB = ["", "Line", "Quantity", "Unit", "Unit Cost", "Vendor", "On Order"];
+  m.querySelectorAll("table.ctp tr.ctp-line, table.ctp tr.ctp-item").forEach((tr) => {
+    if (tr.dataset.pudone) return;
+    tr.dataset.pudone = "1";
+    const cb = tr.querySelector("[data-ctpsel]");
+    if (!cb) return;
+    const sel = cb.dataset.ctpsel,
+      lid = sel.split("#")[0],
+      d = docs.find((x) => (x.lines || []).some((l) => l.id === lid)),
+      l = d && d.lines.find((x) => x.id === lid),
+      key = d && l ? ctKey(d, l) : "";
+    tr.dataset.pukey = key;
+    [...tr.cells].forEach((td, i) => LAB[i] && td.setAttribute("data-lab", LAB[i]));
+    const lab = { ctpq: "Quantity", ctpu: "Unit", ctpc: "Unit cost", ctpv: "Vendor" };
+    Object.keys(lab).forEach((k) => {
+      const inp = tr.querySelector(`[data-${k}]`);
+      inp && inp.setAttribute("aria-label", `${lab[k]}, ${(l && l.item) || "line"}`);
+    });
+    cb.setAttribute("aria-label", `Buy ${(l && l.item) || "this line"}`);
+    const cell = tr.cells[1];
+    if (!cell) return;
+    tr.classList.contains("ctp-line") && d && cell.insertAdjacentHTML("beforeend", `<div class="pu-ctpdoc small muted" data-nocase>${esc(d.number)}${l.num ? ` line ${l.num}` : ""}</div>`);
+    // the field requests on this line that this order may cover
+    if (tr.classList.contains("ctp-line") && p && key) {
+      const Q = (p.requests || []).filter((q) => q.line === key && !["ordered", "delivered", "closed", "declined"].includes(q.status) && "order" !== q.path && "stock" !== q.path);
+      Q.length &&
+        cell.insertAdjacentHTML(
+          "beforeend",
+          Q.map((q) => `<label class="pu-ctpreq"><input type="checkbox" data-ctpreq="${esc(sel)}" value="${esc(q.id)}" checked><span data-nocase>This order covers ${esc(q.by || "the site")}'s request: ${esc([q.qty, q.unit, q.what].filter(Boolean).join(" "))}${route.has(q.id) ? ", now on today's store run (it comes off the run)" : ""}</span></label>`).join(""),
+        );
+    }
+    cell.insertAdjacentHTML("beforeend", `<div class="pu-ctpn" data-puctpn="${esc(sel)}" data-nocase></div>`);
+  });
+  puCtpCheck(m);
+}
+function puCtpCheck(m) {
+  const rows = [...m.querySelectorAll("table.ctp tr[data-pukey]")],
+    v = (tr, k) => (tr.querySelector(`[data-${k}]`) || {}).value || "",
+    on = (tr) => !!(tr.querySelector("[data-ctpsel]") || {}).checked,
+    adds = {};
+  rows.forEach((tr) => on(tr) && tr.dataset.pukey && (adds[tr.dataset.pukey] = (adds[tr.dataset.pukey] || 0) + (+v(tr, "ctpq") || 1) * (+v(tr, "ctpc") || 0)));
+  rows.forEach((tr) => {
+    const n = tr.querySelector("[data-puctpn]"),
+      key = tr.dataset.pukey;
+    if (!n || !key) return;
+    const say = [];
+    let tone = "";
+    if (on(tr)) {
+      const t = lineBudgetTest(key, adds[key] || 0);
+      t.ok ? t.c && t.c.budget > 0 && say.push(`${money(Math.max(0, r2(t.c.budget - t.after)))} left on the line after this buy`) : ((tone = "bad"), say.push(`Over budget: ${t.say}.`));
+      // the price against the best known for the item (the request it covers names the item when the line does not)
+      const req = tr.querySelector("[data-ctpreq]:checked"),
+        q = req && ((DB.projects || []).flatMap((p) => p.requests || []).find((x) => x.id === req.value) || null),
+        name = q ? q.what || "" : ((tr.cells[1] || {}).querySelector ? (tr.cells[1].querySelector("b") || tr.cells[1]).textContent : "").replace(/^\d+\.\s*/, ""),
+        unit = q ? q.unit : v(tr, "ctpu"),
+        price = +v(tr, "ctpc") || 0,
+        best = price > 0 && name ? puBestFor(name, unit) : null;
+      best && price > best.price * 1.03 + 0.005 && (tone = tone || "warn", say.push(`${money(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${money(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
+    } else {
+      const c = lineCommitment(key);
+      c && c.budget > 0 && c.left < 1 && ((tone = "warn"), say.push(c.over ? `${money(c.over)} over the line already` : "Nothing left to buy on this line"));
+    }
+    n.className = `pu-ctpn ${tone}`;
+    n.textContent = say.join(" ");
+  });
+}
+{
+  const base = ctPOPicker;
+  ctPOPicker = function (projectId, preferId, preKey) {
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm");
+      if (m && m.querySelector("table.ctp")) {
+        puCtpDecorate(projectId, m);
+        m.addEventListener("input", () => puCtpCheck(m));
+        m.addEventListener("change", (e) => (e.target && "ctp-doc" === e.target.id ? setTimeout(() => puCtpDecorate(projectId, m), 0) : puCtpCheck(m)));
+        // a request ticked as covered names the item on the order's line: keep the request's words on the line
+      }
+    } catch (e) {
+      console.warn("order sheet", e);
+    }
+    return r;
+  };
+}
+
+// ---- the document's door: Buy These Lines on the estimate, change order and invoice (SPEC: one order path, two doors) --
+// Tap Buy These Lines, tick one line or several on the document itself (phone cards too), then the bar's Buy These Lines
+// opens the same order sheet with those lines ticked and linked.
+let puDocPick = null;
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = function (c, d, a) {
+    if ("pos" === a && d && d.projectId && "function" == typeof docBuyable && docBuyable(d)) {
+      puDocPick = { id: d.id, cid: c.id, type: d.type, keys: new Set() };
+      return void render();
+    }
+    return base.apply(this, arguments);
+  };
+}
+const PU_TICK = {
+  on: '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="#2456C9"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  off: '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="4.5" fill="none" stroke="#8A93A3" stroke-width="1.6"/></svg>',
+};
+function puDocDoc() {
+  if (!puDocPick || "undefined" == typeof docOpen || !docOpen || docOpen.id !== puDocPick.id) return null;
+  const c = (DB.clients || []).find((x) => x.id === puDocPick.cid);
+  return (c && findDoc(c, puDocPick.type, puDocPick.id)) || null;
+}
+function puDocDecorate() {
+  document.querySelectorAll(".pu-docbar").forEach((b) => b.remove());
+  if (!puDocPick) return;
+  const v = document.querySelector(".view.on"),
+    d = puDocDoc(),
+    rows = v ? [...v.querySelectorAll("table.rx-lines tr[data-rxline]")] : [];
+  if (!d || !rows.length) return void (puDocPick = null);
+  const keyOf = (lid) => ctKey(d, d.lines.find((l) => l.id === lid) || { id: lid });
+  rows.forEach((tr) => {
+    const lid = tr.dataset.rxline,
+      l = d.lines.find((x) => x.id === lid);
+    if (!l || tr.querySelector(".pu-docpick")) return;
+    const key = keyOf(lid),
+      c = lineCommitment(key),
+      cell = tr.cells[0],
+      item = tr.cells[1];
+    tr.classList.add("pu-docrow");
+    cell && cell.insertAdjacentHTML("afterbegin", `<button type="button" class="pu-docpick" data-pubuy="${esc(lid)}" aria-pressed="${puDocPick.keys.has(key)}" aria-label="Buy ${esc(l.item || "this line")}">${puDocPick.keys.has(key) ? PU_TICK.on : PU_TICK.off}</button>`);
+    c && c.budget > 0 && item && item.insertAdjacentHTML("beforeend", `<div class="small pu-docleft ${c.left < 1 ? "bad" : ""}" data-nocase>${c.over ? `${money(c.over)} over the line` : `${money(c.left)} left to buy`}${c.pos.length ? ` · ${c.pos.map((po) => po.number).join(", ")}` : ""}</div>`);
+  });
+  // one blue on the screen while picking: the bar's
+  v.querySelectorAll(".btn.primary").forEach((b) => b.closest(".pu-docbar") || (b.classList.remove("primary"), b.classList.add("pu-wasprimary")));
+  const bar = document.createElement("div");
+  bar.className = "pu-docbar";
+  v.appendChild(bar);
+  const draw = () => {
+    const K = [...puDocPick.keys],
+      left = r2(K.reduce((a, k) => a + ((lineCommitment(k) || {}).left || 0), 0));
+    bar.innerHTML = `<span class="pu-bt" data-nocase><b>${K.length ? `${K.length} line${1 === K.length ? "" : "s"} picked` : "Tick the lines to buy"}</b>${K.length ? ` · ${money(left)} left on ${1 === K.length ? "it" : "them"}` : ` on ${esc(d.number)}`}</span><span class="pu-bb"><button type="button" class="btn" id="pu-docbuy-x">Cancel</button><button type="button" class="btn primary" id="pu-docbuy-go">Buy These Lines</button></span>`;
+    bar.querySelector("#pu-docbuy-x").onclick = () => ((puDocPick = null), render());
+    bar.querySelector("#pu-docbuy-go").onclick = () => {
+      if (!puDocPick.keys.size) return toast("Tick at least one line");
+      const keys = [...puDocPick.keys];
+      puDocPick = null;
+      render();
+      ctPOPicker(d.projectId, d.id, keys);
+    };
+  };
+  draw();
+  v.querySelectorAll("[data-pubuy]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.stopPropagation();
+        const k = keyOf(b.dataset.pubuy),
+          on = !puDocPick.keys.has(k);
+        on ? puDocPick.keys.add(k) : puDocPick.keys.delete(k);
+        b.setAttribute("aria-pressed", String(on));
+        b.innerHTML = on ? PU_TICK.on : PU_TICK.off;
+        b.closest("tr") && b.closest("tr").classList.toggle("pu-docon", on);
+        draw();
+      }),
+  );
+}
+
+// ---- FF&E Buying Tools: its own name, a buy run only when there is something to buy, labels that stay Title Case ------
+// (11-05: the page was headed "Buy Board" under the Buy Board's own button, its blue New Buy Run only toasted with nothing
+// ticked, and its tabs fell to sentence case after a tap, because a tab redraws the board alone and the label pass runs
+// on render(); it now runs on every draw of this page.)
+function puFfeDress(root) {
+  if (!root || "undefined" == typeof procMode || "finish" !== procMode) return;
+  const pane = "undefined" != typeof procPane ? procPane : "board";
+  root.querySelectorAll('[data-ppane="board"]').forEach((b) => (b.textContent = "FF&E Items"));
+  if ("board" === pane) {
+    const h = root.querySelector(".ph h2");
+    h && ((h.textContent = "FF&E Buying Tools"), (h.dataset.iaKeep = "1"));
+    const run = root.querySelector("#proc-run");
+    if (run && !(procSel && procSel.size)) run.outerHTML = `<span class="small muted pu-runhint">Tick the items to buy: a buy run makes one order per vendor.</span>`;
+  }
+  try {
+    "function" == typeof tcLabels && tcLabels(root);
+  } catch (e) {}
+}
+// the phone's header names the page (the desktop's crumb is the menu's place, Buy Board)
+function puFfeCrumb() {
+  if ("proc" !== view || "undefined" == typeof procMode || "finish" !== procMode || ("undefined" != typeof procPane && "board" !== procPane) || !puPhone()) return;
+  const c = document.getElementById("crumbs");
+  c && (c.innerHTML = "<b>FF&amp;E Buying Tools</b>");
 }
 
 // ---- the look ---------------------------------------------------------------------------------------------------------
@@ -1243,6 +1700,15 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 #buy-board.pu .bb-main{display:flex;gap:16px;align-items:flex-start}
 #buy-board.pu .bb-list{flex:1;min-width:0}
 #buy-board.pu .pu-row .bb-pick{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:0;background:none;cursor:pointer;padding:0}
+.pu-ctpn{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.35} .pu-ctpn:empty{display:none}
+.pu-ctpn.bad{color:var(--bad);font-weight:600} .pu-ctpn.warn{color:var(--warn);font-weight:600}
+.pu-ctpreq{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-top:6px;color:var(--ink-2);font-weight:400}
+.pu-ctpreq input{margin-top:2px;flex:none}
+.pu-runhint{align-self:center}
+.pu-docpick{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:none;padding:0;cursor:pointer;vertical-align:middle}
+tr.pu-docon{background:var(--accent-2)}
+.pu-docleft{color:var(--ink-3)} .pu-docleft.bad{color:var(--bad);font-weight:600}
+.pu-docbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:10px 14px;box-shadow:0 -6px 20px rgba(17,26,46,.08);z-index:25;margin-top:12px}
 @media (max-width:760px){
   .pu-ph{flex-direction:column;gap:8px}
   .pu-ph .acts{width:100%}
@@ -1263,6 +1729,30 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
   .pu-bb{width:100%} .pu-bb .btn{flex:1;min-height:44px}
   #buy-board.pu .bb-main{display:block}
   .pu-tile{min-height:84px}
+  /* the order sheet from lines: a card per line, nothing sideways (11-05) */
+  #mbm.pu-ctp-ph .tw{max-height:none !important;overflow:visible !important}
+  #mbm.pu-ctp-ph table.ctp{display:block;width:100%;min-width:0 !important;border:0}
+  #mbm.pu-ctp-ph table.ctp thead{display:none}
+  #mbm.pu-ctp-ph table.ctp tbody{display:block;width:100%}
+  #mbm.pu-ctp-ph table.ctp tr{display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);gap:6px 8px;padding:12px 0;border-top:1px solid var(--rule-2);width:100%;box-sizing:border-box}
+  #mbm.pu-ctp-ph table.ctp tr.ctp-doc{display:block}
+  #mbm.pu-ctp-ph table.ctp td{display:block;padding:0 !important;border:0 !important;width:auto !important;min-width:0;white-space:normal}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1){grid-column:1;grid-row:1;align-self:start}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1) .ctp-tick{display:flex;width:44px;height:44px;align-items:center;justify-content:center}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1) input{width:22px;height:22px}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(2){grid-column:2 / -1;grid-row:1;padding-left:0 !important}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(3){grid-column:2;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(4){grid-column:3;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(5){grid-column:4;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(6){grid-column:1 / -1;grid-row:3}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(n+7){grid-column:1 / -1}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(7):empty{display:none}
+  #mbm.pu-ctp-ph table.ctp td[data-lab]:not(:nth-child(2))::before{content:attr(data-lab);display:block;font-size:12px;color:var(--ink-3);margin-bottom:2px}
+  #mbm.pu-ctp-ph table.ctp td input:not([type=checkbox]){width:100% !important;min-height:44px;font-size:16px;box-sizing:border-box}
+  #mbm.pu-ctp-ph table.ctp td b{white-space:normal;overflow-wrap:anywhere}
+  .pu-docbar{position:fixed;left:8px;right:8px;bottom:calc(var(--bb-tabs, 64px) + 8px)}
+  .pu-docbar .pu-bb{width:100%} .pu-docbar .pu-bb .btn{flex:1;min-height:44px}
+  .view.on:has(.pu-docbar){padding-bottom:180px}
 }
 `;
   const st = document.createElement("style");
