@@ -4309,3 +4309,27 @@ a.rw-job:hover{border-color:var(--ink-3)}
 .tr-hand li{padding:4px 0}
 .rw-behind .tr-hand{margin:0 0 6px}
 .rw-behind .tr-hand a{display:inline-flex;align-items:center;min-height:44px}
+
+/* ---- Purchasing, lane P3 (11-05): the phone's targets, by class ------------------------------------------------------
+   The screen capture found 35 phone screens with targets under 44px: mostly the sheet's close button (26x31) and the
+   order sheet's fields (24x26). The shared sheet close, the drawer's close and every field in a sheet or drawer are
+   44px on the phone, whatever table cell they sit in; tests/pu_p3_test.py measures every Purchasing phone screen. */
+.mbm-x{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 6px;border-radius:8px}
+.crumb a[data-poback]{display:inline-flex;align-items:center;gap:4px}
+.crumb-sep svg,.status-flow .sf-sep svg{vertical-align:middle}
+@media (max-width:760px){
+  .mbm-x{width:44px;height:44px}
+  #mbm input:not([type=checkbox]):not([type=radio]):not([type=hidden]),#mbm select,#mbm textarea,
+  .drawer input:not([type=checkbox]):not([type=radio]):not([type=hidden]),.drawer select,.drawer textarea{min-height:44px;min-width:44px}
+  #d-close,.drawer .hd .btn{min-width:44px;min-height:44px}
+  /* links on the Purchasing pages and the order page are 44px tall to the thumb */
+  :is(#v-po,#v-vendors,#v-inv,#v-recv) .view-in a,#po-doc a,#v-vendors .vr a,#v-po .crumb a,#mat-week a{display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+}
+@media (max-width:760px){
+  /* the job's Materials (its Purchasing tab): the tiles and switches are thumb targets too */
+  #v-mat .gl,#v-mat .seg button,#v-mat .glance button{min-height:44px}
+  #v-mat .seg button{min-width:44px}
+  :is(#v-po,#v-vendors,#v-inv,#v-recv) a{display:inline-flex;align-items:center;min-height:44px}
+  /* the order's own fields fit the phone: a time or date field is never cut */
+  #po-doc .rc-sum input,#po-doc .rc-sum select{min-width:0;max-width:100%;width:100%}
+}
