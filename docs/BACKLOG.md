@@ -1303,7 +1303,7 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
 - **A line moved to a new vendor is numbered with the vendor's FM prefix** (FM-1), not PO-2026-nnn (`selPONumber`). Check: J6.
 - **Desktop receiving cards start at the full order** instead of empty. Check: J7.
 - **purchasing_test chase (4) and polish (1)** fail since integ8: Tino's typed email is not saved, no draft, no Open link on its toast.
-- **The 13-week forecast releases a job's set-aside by calendar**, not as earned (121 State's $47K by 9/23 at 25% done). Needs each job's forecast cost by week.
+- **The 13-week forecast releases a job's set-aside by calendar**, not as earned (121 State's $47K by 9/23 at 25% done). Needs each job's forecast cost by week. Also on Reports › Cash (11-05): "Set aside: 214 Lincoln Place, $22,780 received less $0 earned" after $5,760 of work was billed, $1,440 of it taken from the deposit.
 - **J10's fourth owner answer varies between runs** (passed once on this build, 3 of 4 the next).
 - **drafts_shards.sh reports FAILED when every shard passes**: it reads the last log line, which is now the DRAFTS count.
 - **A cached ready-to-bill answer differs from a fresh computation** (speed_test, owner/PM/coordinator, live and the Reports batch alike): oc:readyToBill's memo key misses an input. The same class hid Controls' 15 exceptions on the Reports batch (fixed there). Class fix: every memo keyed by a data version that every write moves; speed_test's memo check gates.

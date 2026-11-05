@@ -198,4 +198,5 @@ Merge order: inbox, buy, ask, feat (feat last because ranking touches every Home
 ## Earlier notes
 - The role-expert regrade after the 2026-10-15 weekly reset, phone-first, in field conditions.
 - Platform (BACKLOG §5) on Supabase plus Netlify. This is what turns the demo-phase AI live: inbox watching, document reading, web search, sending, and bank and card feeds.
-| running (11-05) | Billing path: New Invoice directly on the client's Contract and Billing, filled from the milestone and its lines; J8 to 24/26 or fewer, J9 to 23/24 or fewer (BACKLOG 1.36) | jobpage.js, salespages.js, yourday.js; not app.js, since the danger sweep is changing it | Full tier after the danger sweep merges |
+| DEPLOYED f95a7ab (11-05) | Billing path: New Invoice directly on the client's Contract and Billing, filled from the milestone and its lines; J8 to 24/26 or fewer, J9 to 23/24 or fewer (BACKLOG 1.36) | jobpage.js, salespages.js, yourday.js; not app.js, since the danger sweep is changing it | Full tier after the danger sweep merges |
+| DEPLOYED f95a7ab (11-05) | Danger sweep: Approvals on scBillState (Dispute Difference / Hold), hash-chained audit trail that keeps every row, stamps through apStamp, Insurance and Licenses renewal drafted apart from filed | app.js, subs.js, yourday.js, companypages.js and others | Live |
