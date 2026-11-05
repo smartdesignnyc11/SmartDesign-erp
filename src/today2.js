@@ -273,6 +273,17 @@ if ("function" == typeof tdCard) {
         b && billOverPO(b) && Object.assign(c, { verb: "Dispute Difference", run: () => billAction(b, "short") });
       }
     } catch (e) {}
+    // a held bill's verb is Review the Hold, and a bill the bank paid before approval is reviewed on its page, never
+    // approved from the row (BACKLOG §1.36, the danger sweep: held WW-2026-118's card on Today read Approve). Its page
+    // opens with the safe next step blue (scBillSafeNext).
+    try {
+      if (it && "bill" === it.kind && "function" == typeof scSafeNext) {
+        // the same safe next step as the bill page and Approvals (scSafeNext)
+        const b = (DB.bills || []).find((y) => y.id === it.id),
+          nx = b ? scSafeNext(b) : null;
+        nx && Object.assign(c, { verb: nx.label, run: nx.run });
+      }
+    } catch (e) {}
     return c;
   };
 }

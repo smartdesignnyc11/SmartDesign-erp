@@ -39,7 +39,7 @@ function puParts(name) {
 let puStockMemo = { k: "", m: new Map() };
 function puStockFor(name) {
   if ("function" != typeof stockCheck) return [];
-  const k = String((typeof SPD !== "undefined" && SPD && SPD.ver) || "") + "|" + ((DB.inventory || []).map((i) => i.qty).join(","));
+  const k = ("function" == typeof dataVer ? dataVer() : "") + "|" + ((DB.inventory || []).map((i) => i.qty).join(","));
   puStockMemo.k !== k && (puStockMemo = { k: k, m: new Map() });
   if (puStockMemo.m.has(name)) return puStockMemo.m.get(name);
   const out = [];

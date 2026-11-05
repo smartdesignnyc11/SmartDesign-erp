@@ -884,7 +884,9 @@ function pbFurther(c, d) {
 if ("function" == typeof billingRows) {
   const base = billingRows;
   billingRows = function () {
-    const R = base.apply(this, arguments) || [];
+    // each row copied before it is annotated: the base's rows are a memoised answer (ocMemo, spdMemo), and writing
+    // ahead and why into them changed that answer for every later reader (speed_test, 11-04, oc:billingRows)
+    const R = (base.apply(this, arguments) || []).map((r) => (r && "object" == typeof r ? Object.assign({}, r) : r));
     try {
       R.forEach((r) => {
         const pid = (r.job && r.job.id) || (r.inv && r.inv.projectId);

@@ -312,7 +312,7 @@ const bbNum = (q) => {
 let bbStockMemo = { k: "", m: new Map() };
 function bbStock(r) {
   if (r.ordered || "buy" !== r.tab || "function" != typeof stockCheck) return null;
-  const k = String(SPD && SPD.ver);
+  const k = "function" == typeof dataVer ? dataVer() : String(SPD && SPD.ver);   // the write version too: a write in a draw is a new key
   bbStockMemo.k !== k && (bbStockMemo = { k: k, m: new Map() });
   if (bbStockMemo.m.has(r.id)) return bbStockMemo.m.get(r.id);
   let out = null;

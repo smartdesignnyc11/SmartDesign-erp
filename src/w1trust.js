@@ -1410,18 +1410,33 @@ document.addEventListener(
   !0,
 );
 
-// One verb, one act: "Draft the Renewal" on Today opens the Renew sheet (record the renewal, or Draft a Request); on
-// Obligations the same words drafted a mail and moved the person to the assistant (the tap lint, the controller's
-// phone: "falls through to Ask"). Obligations opens the same sheet.
+// One verb, one act: "Draft the Renewal" on Today and on Obligations opens the same draft (flRenewDraft: the filing
+// drafted on its task, or the request to the party), never a sheet that records it (BACKLOG §1.36); Record the Filing
+// on Obligations records it. On Obligations the words once drafted a mail and moved the person to the assistant (the
+// tap lint, the controller's phone: "falls through to Ask").
 {
   const base = render;
   render = function () {
     const r = base.apply(this, arguments);
     try {
-      "function" == typeof flRenewDialog &&
+      "function" == typeof flRenewDraft &&
         document.querySelectorAll(".view.on [data-bnobdraft]").forEach((b) => {
           const o = (DB.obligations || []).find((x) => x.id === b.dataset.bnobdraft);
+          o && (b.onclick = () => flRenewDraft(o));
+        });
+      "function" == typeof flRenewDialog &&
+        document.querySelectorAll(".view.on [data-bnobrec]").forEach((b) => {
+          const o = (DB.obligations || []).find((x) => x.id === b.dataset.bnobrec);
           o && (b.onclick = () => flRenewDialog(o));
+          // the phone's row holds one action (Draft the Renewal) and hid the row's second: Record the Filing goes on its
+          // own line under the row, 44px, at the thumb's side (chief-of-staff review, 11-04: a filing could not be
+          // recorded from the phone)
+          const cell = b.closest("tr") && b.closest("tr").querySelector(":scope > td.pr-cell");
+          if (cell && !b.getClientRects().length) {
+            let line = cell.querySelector(".pr-act2");
+            line || (cell.insertAdjacentHTML("beforeend", '<div class="pr-act2"></div>'), (line = cell.querySelector(".pr-act2")));
+            line.appendChild(b);
+          }
         });
     } catch (e) {}
     return r;
@@ -1435,6 +1450,8 @@ document.addEventListener(
 .w1-dr .btn{min-height:36px}
 .w1-typed{outline:2px solid var(--amber, #d89b00);outline-offset:1px}
 @media (max-width: 819px){.w1-dr .btn{min-height:44px}}
+.pr-act2{display:flex;justify-content:flex-end;padding:0 12px 10px}
+.pr-act2>.btn{min-height:44px !important;min-width:64px;padding:0 14px;border-radius:22px;font-size:14px;font-weight:600;white-space:nowrap;background:var(--paper);border:1px solid var(--rule);color:var(--ink)}
 `;
   const st = document.createElement("style");
   (st.id = "w1-css"), (st.textContent = css), document.head.appendChild(st);

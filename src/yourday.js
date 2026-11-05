@@ -152,7 +152,7 @@ function ydChipsHtml(defs, on, group) {
 }
 // a row: {id, sec, title, meta, when, late, amt, act, primary, n}
 function ydRowHtml(r) {
-  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${r.act ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}</div>`;
+  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${r.act ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}${r.act2 ? `<button type="button" class="btn" data-ydact="${esc(r.id)}:2">${esc(r.act2)}</button>` : ""}</div>`;
 }
 function ydSectionHtml(title, n, note, rows, empty) {
   return `<section class="yd-card"><div class="yd-sh"><h3>${esc(title)}</h3>${null != n ? `<span class="n">${n}</span>` : ""}${note ? `<span class="note">${esc(note)}</span>` : ""}</div>${rows.length ? rows.map(ydRowHtml).join("") : `<div class="yd-empty">${esc(empty || "Nothing here.")}</div>`}</section>`;
@@ -569,7 +569,8 @@ function ydOwnerExc(appr) {
   (appr || []).forEach((it) => {
     if (ydBrainKind(it)) return;
     const w = ydExcWhy(it);
-    w.length && (it.ydWhy = w);
+    // a copy carries the why: the item is the queue's memoised answer (spdMemo), which a reader never writes into
+    w.length && (it = Object.assign({}, it, { ydWhy: w }));
     "bill" === it.kind && seen.add(it.id);
     out.push(it);
   });
@@ -713,7 +714,9 @@ function ydMailRows(M) {
           // the renewal's task is that renewal: one row, the one that drafts it
           heldTask = (it) => "tdyTask" === it.kind && !!it.t && (it.t.refs || []).some((k) => ownRefs.has(k)),
           have = new Set((M.all || []).map((it) => it.kind + ":" + it.id));
-        const all = (M.all || []).filter((it) => !ydBrainKind(it) && !dupHold(it) && !heldTask(it)),
+        // the rows Today shows are exc's own copies (each with its why), never the queue's memoised items written into
+        const mine = new Map(exc.map((it) => [it.kind + ":" + it.id, it]));
+        const all = (M.all || []).filter((it) => !ydBrainKind(it) && !dupHold(it) && !heldTask(it)).map((it) => mine.get(it.kind + ":" + it.id) || it),
           extra = exc.filter((it) => !have.has(it.kind + ":" + it.id)),
           deals = ydDealRows(M),
           mins = all.filter((it) => "tdyMinutes" === it.kind),
@@ -1147,10 +1150,10 @@ const YD_EXC_RULE = "Exceptions only (Alan, 10-26): the owner decides a bill pai
         const why = ydBillExc(b);
         if (!why.length) {
           const by = (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
+          // the stamp and its audit row in one step, by the PM who approved (apStamp: a held bill refuses it)
+          if (!("function" == typeof apStamp ? apStamp("bill", b, "approved: no exception, so it does not wait on the Owner", "approved under the exceptions rule", { by: by, before: { status: "pm-approved" }, after: { status: "approved" }, note: YD_EXC_RULE, extra: { rule: YD_EXC_RULE } }) : null)) return r;
           b.status = "approved";
           b.approvedAt = today();
-          b.approvals.push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "approved: no exception, so it does not wait on the Owner", rule: YD_EXC_RULE });
-          audit("bill", b.id, "approved under the exceptions rule", { status: "pm-approved" }, { status: "approved" }, YD_EXC_RULE);
           save(), render();
           toast(`${b.number}: approved, to pay. The controller pays it.`, () => ("function" == typeof openBill ? openBill(b.id) : setView("ap")));
         } else {
