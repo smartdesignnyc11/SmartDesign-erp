@@ -441,13 +441,19 @@ async def sec_polish(p, c):
     t = await text(pg)
     c.ok('Proceed as an extra' in t and 'Proceed as an extra. Proceed as an extra' not in t, "the foreman's card reads the decision once")
     # the first Acknowledge click works (Chen's Approvals)
+    # Approvals is Today's Approvals chip (the Your Day lane, 11-03; the old page forwards there): the request's row,
+    # its Acknowledge (on the desktop the selected row's verb is the side panel's button)
     await sign_in(pg, 'u_chen'); await go(pg, 'mapprove'); await pg.wait_for_timeout(400)
-    await pg.evaluate("() => { window.mApprKind = 'req'; render() }"); await pg.wait_for_timeout(300)
-    n = await pg.locator('.view.on .m-appr[data-mk="req"] .m-appr-a button').count()
-    c.ok(n >= 1, 'Chen has a request to acknowledge')
+    REQ = """() => [...document.querySelectorAll('.view.on .td-do .td-card')].find(e => e.dataset.kind === 'req')"""
+    n = await pg.evaluate(f"() => !!({REQ})()")
+    c.ok(n, 'Chen has a request to acknowledge')
     if n:
         before = await pg.evaluate("() => DB.projects.flatMap(p => p.requests || []).filter(r => r.status === 'new').length")
-        await pg.click('.view.on .m-appr[data-mk="req"] .m-appr-a button'); await pg.wait_for_timeout(400)
+        lbl = await pg.evaluate(f"""async () => {{ const r = ({REQ})(); let v = r.querySelector('[data-tdverb]');
+          if (!v) {{ r.click(); await new Promise(x => setTimeout(x, 200)); v = document.querySelector('.view.on .td2-aside [data-td2lead]'); }}
+          if (!v) return ''; const t = v.innerText.trim(); v.click(); return t; }}""")
+        await pg.wait_for_timeout(400)
+        c.ok(lbl.startswith('Acknowledge'), f'the request row reads Acknowledge ({lbl!r})')
         after = await pg.evaluate("() => DB.projects.flatMap(p => p.requests || []).filter(r => r.status === 'new').length")
         c.ok(after == before - 1, f'the first Acknowledge click acknowledges: new requests {before} -> {after}')
         c.ok(await toast(pg), 'Acknowledge toasts')

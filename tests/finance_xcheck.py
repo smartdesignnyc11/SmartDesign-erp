@@ -539,8 +539,11 @@ async def check_role(pg, R, uid):
 
     # Chief of Staff
     if gate('cos', 'Chief of Staff'):
-        # the Chief of Staff is the assistant's Findings › Every Chain now (lane assistant): 'cos' redirects to 'pa'
-        await nav(pg, 'ask', 'cos'); t = await text_of(pg, 'pa')
+        # the Chief of Staff's pass is Ask's Findings › Every Chain (lane assistant); its old link lands on Today since the
+        # Your Day mock-up (11-03), so the reading opens the pass where it lives, as a person does from Ask
+        await nav(pg, 'ask', 'pa')
+        await pg.evaluate("() => paOpen('findings', 'chains')"); await pg.wait_for_timeout(300)
+        t = await text_of(pg, 'pa')
         s = 'Chief of Staff'
         R.count('unmatched_n', S(s), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S(s), t, r'bank items? not yet matched — ' + MONEY)

@@ -336,12 +336,20 @@ async def s_approve(p, c):
         arr = await pg.evaluate("() => (document.querySelector('.f3-arriving') || {}).innerText || ''")
         c.ok(po['number'] not in arr, f"approve: Arriving Today does not list the pending {po['number']}")
         # the owner's Approvals and Do Now
+        # Approvals is Today's Approvals chip (the Your Day lane, 11-03; the old page forwards there): the card, its
+        # Approve, the side panel's Open the Record; Reject is on the PO's own record
         await sign_in(pg, 'u_owner'); await go(pg, 'mapprove'); await pg.wait_for_timeout(500)
-        row = await pg.evaluate("""n => { const el = [...document.querySelectorAll('#v-mapprove .m-appr[data-mk="po"]')].find(x => x.innerText.includes(n)); if (!el) return null;
-          return { btns: [...el.querySelectorAll('button')].map(b => b.innerText.trim()), text: el.innerText.slice(0, 200) }; }""", po['number'])
+        row = await pg.evaluate("""async n => { const vis = e => !!e && e.getClientRects().length > 0;
+          const el = [...document.querySelectorAll('.view.on .td-do .td-card')].find(x => vis(x) && x.dataset.kind === 'po' && x.innerText.includes(n)); if (!el) return null;
+          const own = [...el.querySelectorAll('button')].filter(vis).map(b => b.innerText.trim()); el.click(); await new Promise(r => setTimeout(r, 250));
+          const side = [...document.querySelectorAll('.view.on .td2-aside button')].filter(vis).map(b => b.innerText.trim().replace(/,\\s*[\u2212-]?\\$[\\d,.]+$/, ''));
+          return { btns: own.concat(side), text: el.innerText.slice(0, 200) }; }""", po['number'])
         c.ok(bool(row), f"approve: {po['number']} appears in the owner's Approvals")
         if row:
-            for lbl in ('Approve', 'Reject', 'Open'): c.ok(lbl in row['btns'], f"approve: the row offers {lbl} ({row['btns']})")
+            for lbl in ('Approve', 'Open the Record'): c.ok(lbl in row['btns'], f"approve: the row offers {lbl} ({row['btns']})")
+            await pg.evaluate("id => { poOpen = id; view = 'po'; render(); }", po['id']); await pg.wait_for_timeout(400)
+            rj = await pg.evaluate("() => [...document.querySelectorAll('#v-po [data-poact=\"reject\"]')].filter(b => b.getClientRects().length).map(b => b.innerText.trim())")
+            c.ok(bool(rj), f"approve: the PO's record offers its Reject (Send Back to Draft): {rj}")
         pred = await pg.evaluate("n => ({ q: PRED.waitingOnMe.rows().some(it => it.kind === 'po' && it.title.includes(n)), who: (mApprovals({ everyone: true }).find(it => it.kind === 'po' && it.title.includes(n)) || {}).who || '', deleg: (DELEGATION.po || {}).role || '' })", po['number'])
         c.ok(pred['q'] and pred['who'] == 'owner' and pred['deleg'] == 'owner', f'approve: DELEGATION hands a PO to the owner and Do Now counts it ({pred})')
         await go(pg, 'home'); await pg.wait_for_timeout(400)
@@ -349,8 +357,12 @@ async def s_approve(p, c):
         c.ok(home, "approve: the PO is on the owner's Do Now")
         if row:
             await go(pg, 'mapprove'); await pg.wait_for_timeout(400)
-            el = pg.locator('#v-mapprove .m-appr[data-mk="po"]').filter(has_text=po['number']).first
-            await el.locator('button').filter(has_text=re.compile(r'^Approve$')).first.click(); await pg.wait_for_timeout(900)
+            # the card's Approve (on the desktop the selected card's verb is the side panel's button)
+            await pg.evaluate("""async n => { const vis = e => !!e && e.getClientRects().length > 0;
+              const el = [...document.querySelectorAll('.view.on .td-do .td-card')].find(x => vis(x) && x.dataset.kind === 'po' && x.innerText.includes(n));
+              let b = el && el.querySelector('[data-tdverb]'); if (!vis(b)) { el.click(); await new Promise(r => setTimeout(r, 250)); b = document.querySelector('.view.on .td2-aside [data-td2lead]'); }
+              b && /^Approve/.test(b.innerText.trim()) && b.click(); }""", po['number'])
+            await pg.wait_for_timeout(900)
             m = await modal(pg)
             if m and re.search(r'Without an Approved Submittal', m['title']): await pg.keyboard.press('Escape')
             st = await pg.evaluate("id => DB.pos.find(x => x.id === id).status", po['id']); t = await toast(pg)
@@ -566,7 +578,8 @@ async def s_dates(p, c):
             c.ok(re.search(r'2027', tbl), f'dates: the Vendors table shows the year ({tbl[:120]!r})')
         # one need-by per request: the insulation raise says 9/14 in its words
         await go(pg, 'mapprove'); await pg.wait_for_timeout(400)
-        card = await pg.evaluate("() => { const el = [...document.querySelectorAll('#v-mapprove .m-appr')].find(x => /Insulation for 3rd fl/.test(x.innerText)); return el ? el.innerText : ''; }")
+        # Approvals is Today's Approvals chip (the Your Day lane, 11-03): the request's card there
+        card = await pg.evaluate("() => { const el = [...document.querySelectorAll('.view.on .td-do .td-card, #v-mapprove .m-appr')].find(x => x.getClientRects().length && /Insulation for 3rd fl/.test(x.innerText)); return el ? el.innerText : ''; }")
         c.ok(card and '9/14' in card and not re.search(r'needs it by\s*9/4\b|by 9/4\b', card), f'dates: the insulation request shows one need-by, 9/14 ({card[:200]!r})')
         fr = await pg.evaluate("() => { const r = DB.field.raises.find(x => x.id === 'fr3'); return { dueBy: r.dueBy, needBy: r.needBy || '' }; }")
         c.ok(fr['needBy'] == '2026-09-14', f'dates: the raise carries the date the site needs it ({fr})')
@@ -668,12 +681,14 @@ async def s_selftest(p, c):
         b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width': w, 'height': 844}, is_mobile=w < 500, has_touch=w < 500); pg = await ctx.new_page()
         try:
             await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+            # the Inbox is Messages (the Your Day lane, 11-03): All, a message opened from its row
             await sign_in(pg, 'u_chen'); await go(pg, 'comms'); await pg.wait_for_timeout(400)
-            await pg.locator('[data-ibopen]').first.click(); await pg.wait_for_timeout(400)
+            await pg.locator('#yd-chat [data-ydchip="all"]').click(); await pg.wait_for_timeout(300)
+            await pg.locator('#yd-chat [data-ydmrow]:not([data-ydmrow^="th:"]) [data-ydact]').first.click(); await pg.wait_for_timeout(400)
             r = await pg.evaluate("() => { const m = document.querySelector('.ib-msg'), l = document.querySelector('.ib-list'); return [!!m && m.getBoundingClientRect().top < innerHeight, !!(l && l.getClientRects().length), (document.querySelector('[data-ibback]') || {}).innerText] }")
             c.ok(r[0] and not r[1] and r[2] == 'Back', f'selftest: at {w}px an opened message replaces the list, with Back ({r})')
             await pg.locator('[data-ibback]').click(); await pg.wait_for_timeout(300)
-            c.ok(await pg.evaluate("() => !!document.querySelector('.ib-list') && !document.querySelector('.ib-msg')"), f'selftest: at {w}px Back returns to the list')
+            c.ok(await pg.evaluate("() => view === 'chat' && !!document.querySelector('#yd-chat [data-ydmrow]') && !document.querySelector('.view.on .ib-msg')"), f'selftest: at {w}px Back returns to the list (Messages)')
         finally:
             await b.close()
 

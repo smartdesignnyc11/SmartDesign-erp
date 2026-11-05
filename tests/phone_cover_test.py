@@ -146,7 +146,12 @@ async def main():
         await go(pg, 'clients')
         cid = await pg.evaluate("(DB.clients.find(c => /Klein/.test(c.name)) || {}).id")
         await pg.evaluate("c => { clientOpen = c; docOpen = null; render(); scrollTo(0, 0) }", cid); await pg.wait_for_timeout(250)
-        await pg.locator('#v-clients [data-newest]').first.tap(); await pg.wait_for_timeout(400)
+        # the client's page (the Sales mock-up, 11-03): New, then Estimate; the old record's New Estimate where it shows
+        if await pg.locator('#yd-clients [data-ydnew]').count():
+            await pg.locator('#yd-clients [data-ydnew]').first.tap(); await pg.wait_for_timeout(300)
+            await pg.locator('#yd-clients [data-ydnewitem="est"]').first.tap(); await pg.wait_for_timeout(400)
+        else:
+            await pg.locator('#v-clients [data-newest]').first.tap(); await pg.wait_for_timeout(400)
         await pg.locator('#mbm button', has_text=re.compile('Start', re.I)).first.tap(); await pg.wait_for_timeout(700)
         est = await pg.evaluate("() => docOpen && docOpen.id")
         c.ok(bool(est), f'1: Start Estimate opened the new draft ({est})'); await pg.screenshot(path=os.path.join(SHOTS, 'pm_new_estimate.png'))
@@ -282,7 +287,11 @@ async def main():
 
         # ---------------------------------------------------------------- 6. Sales > Estimates: a tap on a number opens that estimate
         await sign_in(pg, 'u_owner')
-        GO = "() => { docOpen = null; const B = mnBuild(role()); const g = B.groups.find(g => g.id === 'sales'); const it = g.items.find(i => i.l === 'Estimates'); mnGo(g, it); }"
+        # the owner's Estimates are Billing's Estimates under Accounting (the Sales mock-up, 11-03, flagged for Alan): the
+        # Sales entry where a role has it, else the Billing entry, on its Estimates tab
+        GO = """() => { docOpen = null; const B = mnBuild(role()); let g = B.groups.find(g => g.id === 'sales'), it = g && g.items.find(i => i.l === 'Estimates');
+          if (!it) { g = B.groups.find(g => g.items.some(i => i.v === 'billing')); it = g && g.items.find(i => i.v === 'billing'); }
+          mnGo(g, it); if (typeof billTab !== 'undefined' && billTab !== 'estimates') { billTab = 'estimates'; render(); } }"""
         await pg.evaluate(GO); await pg.wait_for_timeout(400)
         nums = await pg.evaluate("() => [...document.querySelectorAll('.view.on .pr-row .pr-num')].filter(e => e.getClientRects().length).map(e => e.textContent.trim())")
         c.ok(len(nums) >= 3, f'6: each estimate row leads with its number: {nums}')

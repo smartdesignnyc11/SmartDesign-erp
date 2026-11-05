@@ -49,10 +49,12 @@ RAIL = {
 # Purchasing (docs/mockups/purchasing/SPEC.md, 11-03): Alan's five; Stock for the coordinator and the driver only
 BUY = ['Buy Board', 'Orders', 'Quotes', 'Deliveries', 'Vendors']
 SETTINGS = ['Settings', 'Connections', 'The SmartDesign Standard', 'Problem Reports']
+COMPANY = ['Company and Settings', 'Team', 'The Brain', 'Insurance and Licenses', 'Connections', 'The SmartDesign Standard', 'Company Settings']
 # Each group's pages (Projects lists the person's jobs first: checked by name below, then All Projects).
 KIDS = {
     ('u_owner', 'buy'): BUY,
-    ('u_owner', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
+    # Sales and Clients (docs/mockups/sales, 11-03): Pipeline and Clients; Estimates off the menu, reversibly (YD_ESTIMATES_IN_MENU)
+    ('u_owner', 'sales'): ['Pipeline', 'Clients'],
     # the 11-03 Accounting pages (accounting SPEC §4) and Design pages (design SPEC)
     ('u_owner', 'money'): ['Billing', 'Banking', 'Bills and Payroll'],
     ('u_owner', 'studio'): ['Selections', 'Drawings'],
@@ -64,20 +66,22 @@ KIDS = {
     ('u_alan', 'reports'): ['Job Profitability', 'Report Builder'],
     ('u_chen', 'reports'): ['Report Builder'],
     ('u_sarah', 'reports'): ['Report Builder'],
-    ('u_owner', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Your Own Data', 'Sales Settings'],
+    # Company and Settings (docs/mockups/company, 11-03): the hub, then six pages
+    ('u_owner', 'setup'): COMPANY,
     ('u_alan', 'buy'): BUY,
-    ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients', 'Numbers', 'Partners', 'Playbook'],
+    # the PM writes estimates and has no Accounting group: Estimates stays under Sales and Clients for him (11-04)
+    ('u_alan', 'sales'): ['Pipeline', 'Estimates', 'Clients'],
     # ('u_alan', 'money'): none, the PM has no Accounting group (11-03)
-    ('u_alan', 'setup'): ['Company', 'Calendar', 'Team', 'Meetings', 'Obligations', 'The Brain', 'Chief of Staff'] + SETTINGS + ['Sales Settings'],
+    ('u_alan', 'setup'): COMPANY,
     ('u_chen', 'buy'): BUY + ['Stock'],
-    ('u_chen', 'sales'): ['Pipeline', 'Clients', 'Forecast', 'Sales Dashboard', 'Partners', 'Playbook'],
+    ('u_chen', 'sales'): ['Pipeline', 'Clients'],
     ('u_chen', 'money'): ['Time and Crew'],
     ('u_billing', 'buy'): ['Vendors'],
     ('u_billing', 'money'): ['Billing', 'Banking'],
     ('u_controller', 'buy'): ['Orders', 'Vendors'],
     ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Books'],
     ('u_sarah', 'studio'): ['Selections', 'Drawings'],
-    ('u_sarah', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
+    ('u_sarah', 'setup'): ['Company and Settings', 'Team', 'Connections', 'The SmartDesign Standard'],
     ('u_angel', 'setup'): ['Team', 'Connections', 'The SmartDesign Standard'],
 }
 # A job's tabs (Alan, 11-03: docs/mockups/job-structure/): eight, in this order, for a role that may open each page;
@@ -150,7 +154,8 @@ BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups bu
   const v = b.dataset.v; if (b.dataset.tab || b.dataset.pid || /^ov/.test(v)) { if (n) out.push(`${v} carries ${n}`); return; }
   let want = null;
   if (v === 'home') want = (typeof TD2_SPEC === 'object' && TD2_SPEC[role()]) ? td2LateN() : 0;
-  else if (v === 'tkall') want = tkTasksN();
+  // the Your Day mock-up (11-03): Tasks carries no number in the menu (Today counts what is due)
+  else if (v === 'tkall') want = 0;
   else if (v === 'chat') want = p2nMsgN().n;
   else if (typeof AC_PAGES === 'object' && AC_PAGES[v]) want = AC_PAGES[v].badge.includes(role()) ? acCount(v) : 0;   // the Accounting pages: the seat's own
   else if (v === 'billing') want = billingNeeds();

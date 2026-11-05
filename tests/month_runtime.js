@@ -142,7 +142,10 @@ const COLLECT = {
     return its([...R.querySelectorAll('.h4c')].flatMap(card => [...card.querySelectorAll('.h4r[data-ea]')].map(el => [card, el])).map(x => x[1]), el => {
       const card = el.closest('.h4c'); return { sec: norm((card.querySelector('.h4c-hd b') || {}).innerText), kind: 'ea', text: norm(el.innerText).slice(0, 240), verbs: [{ label: norm((el.querySelector('em, .h4-act') || {}).innerText || 'Open'), el }] }; });
   },
-  mapprove: R => { const out = its([...R.querySelectorAll('.m-appr')], el => ({ sec: 'Approvals', kind: el.dataset.mk, id: el.dataset.mid, text: norm(el.querySelector('.m-appr-t') ? el.querySelector('.m-appr-t').innerText : el.innerText).slice(0, 240), verbs: btns(el, '.m-appr-a button') }));
+  // Approvals folded into Today (the Your Day lane, 11-03): the person taps Today's Approvals chip and reads the list
+  // whole (the chip is never folded), as they read the Approvals page before. The cards are Today's.
+  mapproveToday: R => COLLECT.home(R).map(x => Object.assign(x, { sec: 'Approvals' })),
+  mapprove: R => { if (!R.querySelector('.m-appr') && R.querySelector('.td-home')) return COLLECT.mapproveToday(R); const out = its([...R.querySelectorAll('.m-appr')], el => ({ sec: 'Approvals', kind: el.dataset.mk, id: el.dataset.mid, text: norm(el.querySelector('.m-appr-t') ? el.querySelector('.m-appr-t').innerText : el.innerText).slice(0, 240), verbs: btns(el, '.m-appr-a button') }));
     const all = R.querySelector('#mappr-allhours'); if (all && vis(all) && !all.disabled) out.unshift({ sec: 'Approvals', kind: 'hours', text: norm(all.innerText), verbs: [{ label: norm(all.innerText), el: all }] });
     return out; },
   billing: R => its([...R.querySelectorAll('tr')].filter(tr => tr.querySelector('[data-blact]')), el => ({ sec: 'Billing Queue', kind: 'bl', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-blact]') })),
@@ -159,7 +162,10 @@ const COLLECT = {
   client: R => its([...R.querySelectorAll('.cl-waiting .pa-row')], el => ({ sec: 'Waiting on You', kind: (el.querySelector('[data-pdecide]') ? 'dec' : 'doc'), id: ((el.querySelector('[data-pdecide]') || {}).dataset || {}).pdecide || ((el.querySelector('[data-papprove]') || {}).dataset || {}).papprove || ((el.querySelector('[data-smcl]') || {}).dataset || {}).smcl || '',
     text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-pdecide], [data-papprove], [data-smcl]') })),
 };
-const VIEWOF = { home: 'home', mapprove: 'mapprove', billing: 'billing', bank: 'bank', ftoday: 'ftoday', sday: 'sday', client: 'client', comms: 'comms', tkall: 'tkall', time: 'time', route: 'route', close: 'gl', pa: 'pa' };
+// Approvals and the Inbox are no longer pages a person opens (11-03): Approvals is Today's Approvals chip, the Inbox
+// is Messages (its All list, and To Decide for the mail with something to apply)
+const YD_FOLD = typeof ydMsgRender === 'function';
+const VIEWOF = { home: 'home', mapprove: YD_FOLD ? 'home' : 'mapprove', billing: 'billing', bank: 'bank', ftoday: 'ftoday', sday: 'sday', client: 'client', comms: YD_FOLD ? 'chat' : 'comms', tkall: 'tkall', time: 'time', route: 'route', close: 'gl', pa: 'pa' };
 M.texts = {};
 // The person's whole Do Now list in its order (Today's All), card by card: the ledger reads where each event stood
 // on it (its rank, and what outranked it), whatever the actor reads.
@@ -181,6 +187,9 @@ M.open = (s, force) => { const v = VIEWOF[s] || s;
     try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = !M.topFive; } catch (e) {} try { td2QuietOpen = !M.topFive; } catch (e) {}
     try { if (was !== `${tdyAllOpen}|${td2QuietOpen}` && view === v) force = true; } catch (e) {} }
   if (s === 'mapprove') window.mApprKind = 'all';
+  if (YD_FOLD && s === 'home') { try { if (tdyTabOf() !== 'today') { tdyTabSet('today'); if (view === v) force = true; } } catch (e) {} }
+  if (YD_FOLD && s === 'mapprove') { try { if (tdyTabOf() !== 'appr' || !tdyAllOpen) { tdyTabSet('appr'); tdyAllOpen = true; force = true; } } catch (e) {} }
+  if (YD_FOLD && s === 'comms') { try { const want = M.msgChip || 'all'; if (ydMsg.chip !== want || ydMsg.thread || view !== v) { ydMsg.chip = want; ydMsg.sel = ''; ydMsg.thread = false; cmSel = ''; force = true; } } catch (e) {} }
   if (force || view !== v || document.querySelector('#mbm') || document.querySelector('#drawer.on') || s === 'close') M.go(v);
   if (s === 'close') { const t = [...M.root().querySelectorAll('button, [role=tab]')].find(b => norm(b.innerText) === 'Close'); t && t.click(); }
   if (s === 'comms') { const f = M.root().querySelector('[data-cmf="all"]'); f && !f.classList.contains('on') && f.click(); }
@@ -358,14 +367,16 @@ const KINDS = { owner: /^(lead|call)$/, coord: /^(bill|quote|delivery|visit|coi|
 M.inbox = async (uid, roleName, cap, did) => {
   let done = 0; const tried = new Set();
   for (let k = 0; k < 40 && done < cap; k++) {
-    M.open('comms');
-    const it = [...M.root().querySelectorAll('.ib-item[data-ibopen]')].filter(vis).find(x => !tried.has(x.dataset.ibopen) && /to decide/.test(x.innerText));
-    if (!it) break; tried.add(it.dataset.ibopen);
-    const c = DB.comms.find(x => x.id === it.dataset.ibopen); if (!c) continue;
+    // the Inbox's To Decide is Messages' To Decide (11-03): the person opens Messages, taps To Decide, opens a message
+    if (YD_FOLD) { M.msgChip = 'decide'; try { M.open('comms'); } finally { M.msgChip = ''; } } else M.open('comms');
+    const sel = YD_FOLD ? '[data-ydmrow]' : '.ib-item[data-ibopen]', idOf = x => (YD_FOLD ? x.dataset.ydmrow : x.dataset.ibopen);
+    const it = [...M.root().querySelectorAll(sel)].filter(vis).find(x => !tried.has(idOf(x)) && /to decide/.test(x.innerText));
+    if (!it) break; tried.add(idOf(it));
+    const c = DB.comms.find(x => x.id === idOf(it)); if (!c) continue;
     const toChen = /chen@/.test(JSON.stringify([c.to, c.cc]));
     const mineKinds = (c.proposals || []).filter(pr => pr.status !== 'applied' && KINDS[roleName].test(pr.kind) && !(roleName !== 'coord' && pr.kind === 'bill' && toChen) && !(pr.kind === 'unrouted' && pr.as !== 'vendor'));
     if (!mineKinds.length) continue;
-    it.click(); await sleep(20);
+    (YD_FOLD ? (it.querySelector('[data-ydact]') || it) : it).click(); await sleep(20);
     for (const pr of mineKinds) { if (done >= cap) break;
       const b = [...document.querySelectorAll('[data-cmapply]')].find(x => vis(x) && x.dataset.cmapply === c.id + '|' + pr.id); if (!b) continue;
       const t0 = M.toasts.length; b.click(); await sleep(25); const steps = await M.drive(SAY[roleName]); done++;
