@@ -1064,10 +1064,10 @@ QUOTE_TYPED = {'Atlantic Yard Supply': ['891', '2288', '61']}   # Ray Quint's pr
 
 def open_rfq(p, rfq):
     """the RFQ's own page: from its card on Quotes, unless Quotes still has it open"""
-    if p.look().has('RFQs — ' + rfq): return
+    if p.look().has('Request for Quote — ' + rfq): return
     # the 11-03 Quotes page lists each request as a row (Needs You, or Waiting on Someone Else): the row is the record
-    if p.scr.row(rfq + ' · '): return p.tap_row(rfq + ' · ', expect='RFQs')
-    p.tap('Open', after=rfq + ' · ', exact=True, expect='RFQs')
+    if p.scr.row(rfq + ' · '): return p.tap_row(rfq + ' · ', expect='Request for Quote')
+    p.tap('Open', after=rfq + ' · ', exact=True, expect='Request for Quote')
 
 
 def send_drafts(p, rx):
