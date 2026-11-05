@@ -2157,7 +2157,7 @@ function scSeed() {
     inclusions: ["Boxes, doors and drawer fronts, finished", "Installation and scribe to the walls", "Hardware install (hardware by the owner)"],
     exclusions: ["Countertops", "Appliances and their hook-ups", "Plumbing and electrical"],
     signedOn: "2026-07-28",
-    signedBy: "Owner",
+    signedBy: DEMO_OWNER,
     retainageAt: "substantial completion",
     changes: [],
   };

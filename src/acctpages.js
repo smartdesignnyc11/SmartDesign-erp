@@ -851,6 +851,63 @@ if ("function" == typeof renderGL) {
     return r;
   };
 }
+// ---- The audit line on Controls (CoS 11-05): the trail's size, the last verify (who, when, what it found) and Verify
+// Now. The noun is the audit trail (DB.audit); the last verify is read from the trail's own rows (auditLastVerify), so
+// there is no second store. Verify Now runs auditVerifyRun, which writes its own row. Only the controller and the Owner
+// may run it; anyone else who reaches Controls reads the line.
+function acAuditMay() {
+  return ["controller", "owner"].includes(role());
+}
+function acAuditLineHtml() {
+  if ("function" != typeof auditVerify || "function" != typeof auditLastVerify) return "";
+  const A = DB.audit || [],
+    L = auditLastVerify(),
+    res = (L && L.after) || null,
+    bad = !!(res && !res.ok),
+    row = bad && res.id ? A.find((x) => x.id === res.id) : null,
+    R = row ? auditRef(row) : null,
+    last = L
+      ? `Last verified by ${esc(L.by || L.role || "")}, ${esc(L.t || "")}: ${bad ? `<b class="bad">${esc(String(L.note || "").replace(/^does not verify: /, "does not verify, "))}</b>` : esc(L.note || "intact")}`
+      : "Not verified yet. Verify Now checks every row against its seal and the heads the month closes recorded.";
+  return `<section class="card ac-stand au-line" id="au-line" aria-label="Audit Trail"><div class="ac-cap">Audit Trail <b>${A.length.toLocaleString()} row${1 === A.length ? "" : "s"}</b><span class="small">append-only and sealed; each row chained to the one before it</span></div>
+    <div class="row wrap au-row" style="gap:8px;align-items:center"><span class="small au-last">${last}</span><span class="grow"></span>${acAuditMay() ? '<button type="button" class="btn sm" data-auverify>Verify Now</button>' : '<span class="small muted">The controller or the Owner runs the check</span>'}</div>
+    ${bad && R && R.open ? `<div class="row wrap au-broken" style="gap:8px;align-items:center;margin-top:6px"><span class="small">The first broken row is about ${esc(R.label)}.</span><button type="button" class="btn sm" data-auopen="${esc(res.id)}">Open the Record</button></div>` : ""}</section>`;
+}
+function acAuditLine() {
+  const v = document.getElementById("v-verify");
+  if (!v || !v.classList.contains("on")) return;
+  v.querySelector(":scope > #au-line")?.remove();
+  const html = acAuditLineHtml();
+  if (!html) return;
+  const front = v.querySelector(":scope > .ac-front");
+  front ? front.insertAdjacentHTML("afterend", html) : v.insertAdjacentHTML("afterbegin", html);
+  const el = v.querySelector(":scope > #au-line");
+  el.querySelector("[data-auverify]") && (el.querySelector("[data-auverify]").onclick = () => acAuditVerifyNow());
+  el.querySelectorAll("[data-auopen]").forEach((b) => (b.onclick = () => acAuditOpen(b.dataset.auopen)));
+}
+function acAuditOpen(id) {
+  const a = (DB.audit || []).find((x) => x.id === id),
+    R = a && auditRef(a);
+  R && R.open ? R.open() : toast("That record is no longer on file");
+}
+function acAuditVerifyNow() {
+  if (!acAuditMay()) return void toast("Only the controller or the Owner runs the audit check");
+  const V = auditVerifyRun("Verify Now on Controls"),
+    b = V.broken[0],
+    row = b && (DB.audit || [])[b.at],
+    R = row && row.id === b.id ? auditRef(row) : null;
+  try {
+    save();
+  } catch (e) {}
+  render();
+  const toLine = () => {
+    "verify" !== view && ((view = "verify"), render());
+    setTimeout(() => document.getElementById("au-line")?.scrollIntoView({ block: "center" }), 30);
+  };
+  V.ok
+    ? toast(`Audit trail verified: ${V.rows.toLocaleString()} rows intact`, toLine)
+    : toast(`The audit trail does not verify: ${auditBrokenWords(V)}`, R && R.open ? R.open : toLine, 9000);
+}
 if ("function" == typeof renderVerify) {
   const base = renderVerify;
   renderVerify = function () {
@@ -858,6 +915,11 @@ if ("function" == typeof renderVerify) {
     try {
       acMount();
     } catch (e) {}
+    try {
+      acAuditLine();
+    } catch (e) {
+      console.warn("audit line", e);
+    }
     return r;
   };
 }

@@ -331,7 +331,7 @@ M.work = async (uid, roleName, o) => {
           if (r.chase && M.memo[key] && workBetween(M.memo[key], day) < 3 && !(/Order/.test(r.verb.source) && (DB.vendors || []).length > (M.memo['v|' + key] || 0))) continue;
           if (r.max && (used.get(r) || 0) >= r.max) continue;
           if (roleName === 'client' && !(await M.clientReady(uid, it))) { M.tried.add(day + '|' + key); continue; }
-          pickIt = it; pickV = v; pickR = r; M.tried.add(day + '|' + key); M.memo[key] = day; M.memo['v|' + key] = (DB.vendors || []).length; used.set(r, (used.get(r) || 0) + 1); break;
+          pickIt = it; pickV = v; pickR = r; M.tried.add(day + '|' + key); M.memo[key] = day; /^Draft the Renewal$/.test(v.label) && (M.memo['draft1|' + key] = M.memo['draft1|' + key] || day); M.memo['v|' + key] = (DB.vendors || []).length; used.set(r, (used.get(r) || 0) + 1); break;
         }
         if (pickIt) break;
       }
@@ -550,15 +550,44 @@ M.extras.designer = async (uid, cap, did) => { let n = 0; const seen = (M.texts.
     if (n >= cap) break; if (!seen.includes(a.title.slice(0, 22))) continue;
     a.status = 'done'; a.completedAt = today(); save(); n++; did('My Day', a.title, 'fn:mark the task done', { steps: ['done'] }); }
   return n; };
+// Is a task's assignee this person: by first name, or as the app reads it (tkOwnerMatch: a task for the owner's seat,
+// "Owner", is the owner's). The demo owner has a person's name since 11-05; the seat's tasks are still hers.
+M.mine = (who, me) => !!me && (RX('^' + me.split(' ')[0]).test(who) || (typeof tkOwnerSafe === 'function' && tkOwnerSafe(who, me)));
 M.doneMine = async (uid, cap, did) => { let n = 0; const me = (currentUser() || {}).name || '';
   const seen = Object.values(M.texts).join(' ');
   const skip = /^(Write change order|Raise the \$)|change order|inspection|Inspection|COI|PO\b/;
-  for (const p of DB.projects) for (const a of (p.actions || []).filter(a => a.status !== 'done' && a.due && a.due <= today() && a.assignee && (me.split(' ')[0] && RX('^' + me.split(' ')[0]).test(a.assignee)))) {
+  for (const p of DB.projects) for (const a of (p.actions || []).filter(a => a.status !== 'done' && a.due && a.due <= today() && a.assignee && M.mine(a.assignee, me))) {
     if (n >= cap) break; if (skip.test(a.title) || !seen.includes(a.title.slice(0, 20))) continue;
     a.status = 'done'; a.completedAt = today(); save(); n++; did('Tasks', a.title, 'fn:Done (Tasks > row > Done)', { steps: ['done'] }); }
   return n; };
 M.extras.foreman = async () => 0;
-M.extras.owner = async (uid, cap, did) => { let n = await M.inbox(uid, 'owner', Math.min(3, cap), did); return n + await M.doneMine(uid, cap - n, did); };
+M.extras.owner = async (uid, cap, did) => { let n = await M.inbox(uid, 'owner', Math.min(3, cap), did); n += await M.fileDrafted(uid, cap - n, did); return n + await M.doneMine(uid, cap - n, did); };
+// A filing the owner drafted (Draft the Renewal on Today) is filed with the state the next working day, outside the app,
+// and recorded the way the owner records it: Company and Settings > Insurance and Licenses, the row's Record the Filing
+// (or Record the Renewal), typing the day it was filed in Filed On (BACKLOG §1.36: Draft the Renewal once stamped today's
+// date as filed; it now only drafts, so the month's 263rd catch is earned here, through the screens). The actor's
+// memory is its own: what it drafted and on which day (M.memo), never the book.
+M.fileDrafted = async (uid, cap, did) => { let n = 0; const day = today();
+  const drafted = Object.entries(M.memo).filter(([k, d]) => k.startsWith('draft1|' + uid + '|') && d < day && !M.memo['filed|' + k]);
+  for (const [k, d] of drafted) {
+    if (n >= cap) break;
+    let on = d; try { do { on = iso(addDays(on, 1)); } while (!workdays(on, on)); } catch (e) { on = day; }
+    if (on > day) continue;   // filed the working day after the draft: not yet
+    const text = k.split('|')[3] || '', words = (text.match(/[A-Za-z]{5,}/g) || []).filter(w => !/^(Renew|renew|draft|Draft|before|expires|filing|late|days)$/.test(w));
+    M.go('obligations'); await sleep(30);
+    const rows = [...M.root().querySelectorAll('.yd-row, tr')].filter(vis);
+    const row = rows.find(r => words.length && words.every(w => norm(r.innerText).toLowerCase().includes(w.toLowerCase())) && [...r.querySelectorAll('button')].some(b => /^Record the (Filing|Renewal)$/.test(norm(b.innerText))));
+    // the same renewal drafted from Today and from Approvals is one filing: once recorded, its row has no Record the Filing
+    if (!row) { M.memo['filed|' + k] = day; continue; }
+    const b = [...row.querySelectorAll('button')].find(b => vis(b) && /^Record the (Filing|Renewal)$/.test(norm(b.innerText)));
+    const t0 = M.toasts.length; b.click(); await sleep(30);
+    const f = document.querySelector('#mbm [data-f="on"]');
+    if (f) { f.value = on; f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new Event('change', { bubbles: true })); }
+    const steps = [`typed Filed On ${on}`].concat(await M.drive(SAY.owner));
+    M.memo['filed|' + k] = day; n++;
+    did('Insurance and Licenses', norm(row.innerText).slice(0, 110), norm(b.innerText), { steps, toast: M.toasts.slice(t0).join(' | ') });
+  }
+  return n; };
 // The driver works his Route stop by stop: each drop line of a confirmed request carries Delivered, and he presses it
 // once it is on site. (Before, the Route had no way to close a stop, and this actor called requestAction itself for
 // "ack" requests whose name it found on the page; a paid order ready at a vendor's yard is "ordered", and it never
