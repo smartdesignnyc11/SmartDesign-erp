@@ -343,7 +343,8 @@ function p2nMsgPage() {
   if ("chat" === view && v) {
     const field = "field" === p2nPane && p2nTabsFor().some((x) => "field" === x[0]);
     v.classList.toggle("p2n-fieldon", field);
-    let s = v.querySelector(":scope > .p2n-mtabs");
+    v.querySelectorAll(".p2n-mtabs").forEach((x) => x.remove());
+    let s = null;
     const html = p2nTabsHtml(field ? "field" : "team");
     s && s.remove();
     html && (v.querySelector(".msg-wrap") || v.firstChild).insertAdjacentHTML("beforebegin", html);
@@ -358,7 +359,10 @@ function p2nMsgPage() {
     field && document.body.classList.remove("msg-thread", "msg-solo-ph");
   }
   if ("comms" === view && v) {
-    let s = v.querySelector(":scope > .p2n-mtabs");
+    // one strip per page: every earlier strip goes, wherever a redraw left it (a strip left inside the page stacked up
+    // as people signed in and out on one device)
+    v.querySelectorAll(".p2n-mtabs").forEach((x) => x.remove());
+    let s = null;
     s && s.remove();
     const html = p2nTabsHtml("mail"),
       ph = v.querySelector(":scope > .ph");
@@ -567,7 +571,9 @@ document.addEventListener(
 );
 
 // ---- N4 the Team page: every staff member, phone and email, Message and Email ---------------------------------
-const P2N_DEMO_PHONE = { u_owner: "(917) 555-0100", u_alan: "(917) 555-0101", u_chen: "(917) 555-0102", u_sarah: "(917) 555-0103", u_billing: "(917) 555-0104", u_controller: "(917) 555-0105", u_angel: "(917) 555-0106", u_alberto: "(917) 555-0107", u_alex: "(917) 555-0108", u_satish: "(917) 555-0109" };
+// the same numbers the field seed gives (src/app.js, fSeed's table): two tables that disagreed gave Billing Angel's
+// number and the Controller Alberto's (BACKLOG 10.8); every number here is one person's
+const P2N_DEMO_PHONE = { u_owner: "(917) 555-0100", u_alan: "(917) 555-0101", u_chen: "(917) 555-0102", u_alex: "(917) 555-0103", u_angel: "(917) 555-0104", u_alberto: "(917) 555-0105", u_satish: "(917) 555-0106", u_sarah: "(917) 555-0108", u_billing: "(917) 555-0109", u_controller: "(917) 555-0110" };
 // The demo's people get invented phones (the 555-01xx range) and the demo workspace's addresses, once, demo only.
 function p2nTeamSeed() {
   if ("function" == typeof sdSeedsOff && sdSeedsOff()) return !1;

@@ -553,7 +553,7 @@ function acApHtml() {
     ["paid", "Paid", ""],
     ["payroll", "Payroll", ""],
   ])}
-  <p class="small muted ac-chiplead">${{ approve: "Bills and payroll runs waiting on a yes. A PM recommends each bill and the owner approves it, and the owner approves the payroll run the controller builds. Whoever entered an item cannot approve it.", pay: "Approved and unpaid, by due date. The Payment Run is built from here; the bank pays it.", paid: "Each payment names its bill, its account and the bank line that cleared it.", payroll: "Hours become payroll and labor cost on each job. The split is checked before pay day." }[acChip.ap] || ""}</p>`;
+  <p class="small muted ac-chiplead">${{ approve: "Bills and payroll runs waiting on a yes. The PM approves a bill that matches its PO; Alan decides only the exceptions (paid before approval, over the PO or with none, a bank-detail change, a first payment to a new vendor, a PO over $10,000) and the payroll run the controller builds. Whoever entered an item cannot approve it.", pay: "Approved and unpaid, by due date. The Payment Run is built from here; the bank pays it.", paid: "Each payment names its bill, its account and the bank line that cleared it.", payroll: "Hours become payroll and labor cost on each job. The split is checked before pay day." }[acChip.ap] || ""}</p>`;
 }
 
 // Books

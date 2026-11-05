@@ -18,7 +18,8 @@
 //     by DELEGATION. The bank change is the vendor's existing `bankPending`, now with who asked and the call-back.
 //   - The per-vendor, per-job ledger is a read (scLedger), queryable as EQ_TABLES.vendorledger and in Ask.
 // ------------------------------------------------------------------------------------------------------------------
-const SC_DEF = { tolPts: 5, ownerAbove: 2500, bankWatchDays: 30, dupDays: 60 };
+// (the bank-change watch window is the routing's, one for every check: app.js bankChangeRecent)
+const SC_DEF = { tolPts: 5, ownerAbove: 2500, dupDays: 60 };
 function scSet() {
   const c = (DB && DB.company) || {};
   return Object.assign({}, SC_DEF, c.payCheck || {});
@@ -311,7 +312,9 @@ function pcCheck(b, o) {
       next: "Verify by Phone",
       act: "bank",
     });
-  } else if (v && v.bankChangedAt && dayDiff(v.bankChangedAt, today()) <= Z.bankWatchDays && !(v.bankVerified && v.bankVerified.on >= v.bankChangedAt) && /ach|wire|zelle/i.test(method)) {
+  } else if (v && "function" == typeof bankChangeRecent && bankChangeRecent(v, o.on || b.payOn || "")) {
+    // the one test (app.js bankChangeRecent): measured to the day the money leaves, for any method (a check is mailed
+    // to the address the same change named)
     H("bank", `${v.name}'s bank details changed ${scDay(v.bankChangedAt)} with no call-back on record: confirm by phone before money goes to the new account`, { money: amt, fixed: !0, next: "Verify by Phone", act: "bank" });
   } else if (v && /wire/i.test(method) && !(v.bank && v.bank.last4)) {
     H("bank", `No bank account on file for ${v.name}: a wire goes only to an account on file and confirmed by phone; pay by check instead`, { money: amt, fixed: !0, next: "Pay by Check", act: "check" });
