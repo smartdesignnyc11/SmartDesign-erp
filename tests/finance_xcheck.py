@@ -824,10 +824,21 @@ INV_STAMP_JS = INV_STAMP_FN + """
     as('u_owner'); openBill(b.id); await sleep(200);
     const page = [...document.querySelectorAll('#drawer button.primary')].filter(x => x.getClientRects().length).map(x => x.innerText.trim());
     try { closeEditor(); } catch (e) {}
-    window.mApprKind = 'all'; view = 'mapprove'; render(); await sleep(200);
-    const el = [...document.querySelectorAll('.m-appr')].find(x => x.innerText.includes(num));
-    const appr = el ? [...el.querySelectorAll('.m-appr-a button')].filter(x => x.getClientRects().length).map(x => ({ l: x.innerText.trim(), blue: x.classList.contains('primary') })) : null;
-    // a bill not on Approvals at all (a held bill waits on nobody's yes) offers nothing there to get wrong
+    // the owner's approvals are Today's Approvals tab (the Your Day batch, 11-05; the old Approvals page opens Today):
+    // the bill's row, selected, and its side panel's buttons, the lead first (its amount after a comma is not its words)
+    const vis = e => !!e && e.getClientRects().length > 0;
+    let appr = null;
+    try { tdyTabSet('appr'); tdyAllOpen = true; } catch (e) {}
+    view = 'home'; render(); await sleep(250);
+    const card = [...document.querySelectorAll('.view.on .td-do .td-card')].find(x => vis(x) && x.innerText.includes(num));
+    if (card) {
+      const own = [...card.querySelectorAll('button')].filter(vis);
+      if (!own.length) { card.click(); await sleep(250); }
+      const aside = document.querySelector('.view.on .td2-aside');
+      const B = own.length ? own : aside ? [...aside.querySelectorAll('button')].filter(vis) : [];
+      appr = B.map(x => ({ l: x.innerText.trim().replace(/,\\s*[\\u2212-]?\\$[\\d,.]+$/, ''), blue: x.classList.contains('primary') }));
+    }
+    // a bill not on Today's Approvals at all offers nothing there to get wrong
     const ok = page.length === 1 && !/^(approve|pay|release)/i.test(page[0]) && (!appr || (appr[0] && appr[0].l === page[0] && !appr.some(x => x.blue && /^(approve|pay|release|recommend)/i.test(x.l))));
     return { ok, page, appr };
   };

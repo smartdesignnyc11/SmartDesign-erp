@@ -1878,13 +1878,18 @@ function scHoldReview(b) {
 // The safe next step for a bill's state, the one answer every row that offers a bill a verb reads (the bill page, Today,
 // Approvals): held, Review the Hold; paid before approval, Hold (when this person may hold it; else Review, which opens
 // the bill). null when the state asks for nothing different.
+// A bill paid before approval and billed over its PO, at the owner, is decided by disputing the difference (the
+// short-pay sheet: the PO amount costed, the rest held as money the vendor owes back), the way the firm settled
+// WW-2026-118 (chain_test step 7): that is its safe next step, and never Approve as Billed.
 function scSafeNext(b) {
   const st = scBillState(b);
   if ("held" === st) return { label: "Review the Hold", run: () => scHoldReview(b) };
-  if ("pba" === st)
+  if ("pba" === st) {
+    if ("function" == typeof billOverPO && billOverPO(b)) return { label: "Dispute Difference", run: () => billAction(b, "short") };
     return ["client", "crew", "driver", "foreman"].includes(role()) || "function" != typeof billHoldSheet
       ? { label: "Review", run: () => flowGo.bill(b)() }
       : { label: "Hold", run: () => billHoldSheet(b, "hold") };
+  }
   return null;
 }
 // Approvals: a held or paid-before-approval bill's row leads with its safe next step, blue; Approve stays on the row,
@@ -1921,12 +1926,14 @@ function scBillSafeNext(id) {
   box.querySelectorAll("button.primary").forEach((x) => SC_UNSAFE.test(label(x)) && x.classList.remove("primary"));
   if ("paid" === st) return;
   let safe = null;
-  if ("held" === st) {
-    if (!body.querySelector("[data-scholdrev]")) {
-      body.insertAdjacentHTML("afterbegin", '<div class="row sc-safenext" style="gap:8px;margin:0 0 10px;flex-wrap:wrap"><button type="button" class="btn sm primary" data-scholdrev>Review the Hold</button></div>');
-      body.querySelector("[data-scholdrev]").onclick = () => scHoldReview(b);
+  const nx = scSafeNext(b);
+  if ("held" === st || (nx && "Dispute Difference" === nx.label)) {
+    // the safe step at the top of the page, the same words as Today's card and the Approvals row (scSafeNext)
+    if (!body.querySelector("[data-scsafe]")) {
+      body.insertAdjacentHTML("afterbegin", `<div class="row sc-safenext" style="gap:8px;margin:0 0 10px;flex-wrap:wrap"><button type="button" class="btn sm primary" data-scsafe${"held" === st ? " data-scholdrev" : ""}>${esc(nx.label)}</button></div>`);
+      body.querySelector("[data-scsafe]").onclick = () => nx.run();
     }
-    safe = body.querySelector("[data-scholdrev]");
+    safe = body.querySelector("[data-scsafe]");
   } else {
     const hold = body.querySelector('[data-billhold="hold"]');
     if (!hold) return;
