@@ -993,24 +993,28 @@ if ("function" == typeof tvApply) {
     return r;
   };
 }
+// Who owes what, one count per person (PM review 11-05 #8: the Team view gave Alan 10 while his Mine said 6). Each
+// person's rows are openTasks(name), the function Mine, the chips, the bar and Ask read; the count is those rows.
 function ydTeamHtml() {
-  const T = tkAll({ open: !0 }).filter((t) => !t.approval),
-    td = today(),
+  const td = today(),
     people = "function" == typeof ydPeople ? ydPeople() : (DB.users || []).map((u) => ({ id: u.id, name: u.name })),
-    byPerson = people.map((p) => ({ p: p, T: T.filter((t) => (p.uid ? t.ownerUid === p.uid : !1) || (!t.ownerUid && t.owner === p.name)) })),
-    named = new Set(byPerson.flatMap((x) => x.T.map((t) => t.key))),
-    other = T.filter((t) => !named.has(t.key)),
+    seen = new Set(),
+    byPerson = people.map((p) => {
+      const T = openTasks(p.name).filter((t) => !seen.has(t2Key(t)));
+      T.forEach((t) => seen.add(t2Key(t)));
+      return { p: p, T: T };
+    }),
+    other = openTasks("all").filter((t) => !seen.has(t2Key(t))),
     has = byPerson.filter((x) => x.T.length),
     none = byPerson.filter((x) => !x.T.length).map((x) => x.p.name);
   const row = (t) => {
-    const s = tdyShape ? tdyShape(t) : t,
-      late = t.due && t.due < td;
-    return `<div class="yd-row" data-ydtask="${esc(s.key || t.key || "")}" role="button" tabindex="0"><span class="yd-t"><b>${esc(t.title)}</b><span>${esc([t.code, t.sourceLabel || t.project].filter(Boolean).join(" · "))}</span></span><span class="yd-when${late ? " late" : ""}">${esc(t.due ? (late ? `${dayDiff(t.due, td)} days late` : ydWhen(t.due)) : "No date")}</span></div>`;
+    const late = t.due && t.due < td;
+    return `<div class="yd-row" data-ydtask="${esc(t2Key(t))}" role="button" tabindex="0"><span class="yd-t"><b>${esc(t.title)}</b><span>${esc([t.code, t.sourceLabel || t.project].filter(Boolean).join(" · "))}</span></span><span class="yd-when${late ? " late" : ""}">${esc(t.due ? (late ? `${dayDiff(t.due, td)} days late` : ydWhen(t.due)) : "No date")}</span></div>`;
   };
   const sortT = (L) => L.slice().sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
   const groups = has
-    .map((x) => `<section class="yd-card yd-team" data-ydteamwho="${esc(x.p.id)}"><div class="yd-gh">${esc(x.p.name)}</div>${sortT(x.T).map(row).join("")}</section>`)
-    .concat(other.length ? [`<section class="yd-card yd-team" data-ydteamwho="nobody"><div class="yd-gh">No Owner Yet</div>${sortT(other).map(row).join("")}</section>`] : [])
+    .map((x) => `<section class="yd-card yd-team" data-ydteamwho="${esc(x.p.id)}"><div class="yd-gh">${esc(x.p.name)}<span class="n">${x.T.length}</span></div>${sortT(x.T).map(row).join("")}</section>`)
+    .concat(other.length ? [`<section class="yd-card yd-team" data-ydteamwho="nobody"><div class="yd-gh">No Owner Yet<span class="n">${other.length}</span></div>${sortT(other).map(row).join("")}</section>`] : [])
     .join("");
   return `<div class="yd-teamv">${groups}<p class="yd-foot" data-ydteamfoot>${esc(`${people.length} people at the firm; ${has.length} have open tasks${none.length ? `. Nothing open: ${none.join(", ")}` : ""}. Load per person lives on Team.`)}</p></div>`;
 }
@@ -1105,7 +1109,7 @@ function ydForward() {
       ydOffice() && document.querySelectorAll('#mtabs [data-mv="tkall"] i.n').forEach((i) => i.remove());
       ydMsgRender();
       ydTodayAfter();
-      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === "v-" + view));
+      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === tkViewId(view)));
     } catch (e) {
       console.warn("your day", e);
     }
