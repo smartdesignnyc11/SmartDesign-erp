@@ -314,15 +314,15 @@ function puVendorRows() {
       lapsed = v.insuranceExp && v.insuranceExp < td,
       open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po));
     if (lapsed && (open.length || (DB.bills || []).some((b) => b.vendor === v.name && !["paid", "void"].includes(b.status)) || /window|plumb|electr|tile|mill/i.test(v.trade || "")))
-      return R.push({ b: "mine", actor: "coord", id: "v:coi:" + v.id, name: `${v.name}: blocked`, job: v.trade || "", line: `Insurance lapsed ${fmt(v.insuranceExp)}`, why: "No new order and no one on site until the certificate lands.", act: "Chase the Certificate", run: () => puVendorOpen(v), tone: "bad" });
+      return R.push({ b: "mine", actor: "coord", id: "v:coi:" + v.id, name: `${v.name}: blocked`, job: v.trade || "", line: `Insurance lapsed ${fmt(v.insuranceExp)}`, why: "No new order and no one on site until the certificate lands.", act: "Chase the Certificate", run: () => puChasePaper(v, "coi"), tone: "bad" });
     const unpaid = (DB.bills || []).filter((b) => b.vendor === v.name && !["paid", "verified", "void", "rejected"].includes(b.status) && !b.paidAt);
     if (!v.w9 && unpaid.length) {
       const b = unpaid[0],
         out = "function" == typeof billBankCovers && billBankCovers(b);
-      return R.push({ b: "mine", actor: "coord", id: "v:w9:" + v.id, name: `${v.name}: W-9 before ${b.number}`, job: v.trade || "", line: `${b.number} · ${money(billTotal(b))}${out ? " · the bank shows it already left" : ""}`, why: "Ask for the W-9 today: without it the year-end 1099 is wrong and the payment may need backup withholding.", act: "Ask for the W-9", run: () => puVendorOpen(v), tone: "warn" });
+      return R.push({ b: "mine", actor: "coord", id: "v:w9:" + v.id, name: `${v.name}: W-9 before ${b.number}`, job: v.trade || "", line: `${b.number} · ${money(billTotal(b))}${out ? " · the bank shows it already left" : ""}`, why: "Ask for the W-9 today: without it the year-end 1099 is wrong and the payment may need backup withholding.", act: "Ask for the W-9", run: () => puChasePaper(v, "w9"), tone: "warn" });
     }
     const site = !v.insuranceExp && puVendorOnSite(v);
-    site && R.push({ b: "mine", actor: "coord", id: "v:site:" + v.id, name: `${v.name}: no certificate on file`, job: v.trade || "", line: site, why: "Anyone coming on site or inside needs a current certificate of insurance.", act: "Chase the Certificate", run: () => puVendorOpen(v), tone: "warn" });
+    site && R.push({ b: "mine", actor: "coord", id: "v:site:" + v.id, name: `${v.name}: no certificate on file`, job: v.trade || "", line: site, why: "Anyone coming on site or inside needs a current certificate of insurance.", act: "Chase the Certificate", run: () => puChasePaper(v, "coi"), tone: "warn" });
   });
   // the controller's: money already out to vendors with no W-9 (backup withholding, the year-end 1099)
   const W9 = puNoW9Paid();
@@ -785,16 +785,72 @@ function puDraw() {
 function puVendorOpen(v) {
   "function" == typeof vendorPage ? vendorPage(v.id) : openVendor(v.id);
 }
+// A chase opens its draft, never the vendor's page (Chase the Certificate opened the page and drafted nothing): the one
+// chase sheet (eaNudge) with the address, the subject and a message naming the missing paper and the date it is needed
+// by; it goes to the person's mailbox to read and send, an expectation is logged and the follow-up set. The lapsed or
+// lapsing certificate uses the coordinator's Do Now chase (coiChaseItem, the booking named); the rest says the same.
+function puChasePaper(v, kind) {
+  if (!v) return;
+  if ("function" != typeof eaNudge) return puVendorOpen(v);
+  const r = "coi" === kind && PRED.vendorsCoiLapsing && PRED.vendorsCoiLapsing.row(v);
+  if (r && "function" == typeof coiChaseItem) return void eaNudge(coiChaseItem(r));
+  const open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po)),
+    need = open.map((po) => po.needBy || po.expected).filter(Boolean).sort()[0] || "",
+    by = need && need > today() ? ("function" == typeof addWork ? addWork(need, -2) : need) : "function" == typeof addWork ? addWork(today(), 3, !1) : today(),
+    byW = "function" == typeof fmtL ? fmtL(by) : fmt(by),
+    lapsed = v.insuranceExp && v.insuranceExp < today();
+  if ("w9" === kind)
+    return void eaNudge({ kind: "w9", n: "W-9", t: `${esc(v.name)} — W-9`, sub: "before the next payment", vendor: v, subject: `W-9 for ${v.name}`,
+      msg: `Hi — we need a signed W-9 for ${v.name} before we can release the next payment. Could you send it by ${byW}? Thanks.` });
+  eaNudge({ kind: "coi", n: "!COI", t: `${esc(v.name)} — insurance ${lapsed ? "expired " + fmt(v.insuranceExp) : "not on file"}`, sub: "no new order until it arrives", vendor: v,
+    msg: `Hi — ${lapsed ? `the certificate of insurance we have for ${v.name} expired ${fmtL(v.insuranceExp)}` : `we do not have a certificate of insurance on file for ${v.name}`}${open.length ? `, and ${open.map((po) => po.number).join(", ")} ${1 === open.length ? "is" : "are"} open with you` : ""}. Could you send a current one by ${byW}, with SmartDesign named as certificate holder? Thanks.` });
+}
 function puPlus(v, what) {
   if ("restock" === what) {
     const low = (DB.inventory || []).filter((i) => "tool" !== i.type && puReorder(i) > 0 && invAvailable(i) <= puReorder(i));
     if (!low.length) return toast("Nothing is at its reorder point");
-    return mbModal(
-      "Restock the Warehouse",
-      `<p class="small muted" style="margin:0 0 8px">At or under the reorder point. The next store run buys them, or order them from a supplier.</p>${low.map((i) => `<div class="pu-kv"><span data-nocase>${esc(i.name)}</span><b>${puUnits(invAvailable(i), i.unit)} at the ${esc(String(locName(i.loc)).toLowerCase())}</b></div>`).join("")}`,
-      { submit: null },
-    );
+    return puRestockSheet(low);
   }
+}
+// Restock the Warehouse: the sheet offered only Cancel. Its action is the restock order: a draft purchase order for the
+// firm's own stock (no job: overhead, shipped to the warehouse), numbered like every PO (nextPO), one line per stock item
+// with the quantity to buy and the last cost, each line linked to its stock item (invId) so receiving it can restock the
+// shelf. The vendor is picked from the vendors on file (an unknown name is not created here); the draft is issued from
+// the order like any other, so the order's own checks (insurance, W-9, approval over the limit) apply.
+function puRestockSheet(low) {
+  const V = (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    want = (i) => Math.max(1, r2(puReorder(i) * 2 - invAvailable(i)));
+  const m = mbModal(
+    "Restock the Warehouse",
+    `<p class="small muted" style="margin:0 0 8px">At or under the reorder point. Draft one order for what to buy; it waits as a draft for you to check and issue.</p>${low.map((i) => `<label class="pu-rq"><span data-nocase><b>${esc(i.name)}</b><span class="small muted">${puUnits(invAvailable(i), i.unit)} at the ${esc(String(locName(i.loc)).toLowerCase())} · reorder at ${puUnits(puReorder(i), i.unit)}</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purs="${esc(i.id)}" value="${want(i)}" aria-label="${esc(i.name)}: how many to buy (${esc(i.unit || "")})"></label>`).join("")}<label class="f"><span>Vendor</span><select data-f="vendor" data-pursv="1"><option value="">Choose the vendor…</option>${V.map((v) => `<option value="${esc(v.name)}">${esc(v.name)}</option>`).join("")}</select></label>`,
+    {
+      submit: "Draft the Restock Order",
+      onSubmit: () => {
+        const vendor = (m.querySelector("[data-pursv]") || {}).value || "";
+        if (!vendor) {
+          const s = m.querySelector("[data-pursv]");
+          return s && "function" == typeof vfMark ? vfMark(s, "Choose who to buy it from") : toast("Choose who to buy it from"), !1;
+        }
+        const lines = low
+          .map((i) => ({ i: i, q: Math.max(0, +((m.querySelector(`[data-purs="${i.id}"]`) || {}).value || 0)) }))
+          .filter((x) => x.q > 0)
+          .map(({ i, q }) => ({ id: uid("pl"), item: i.name, desc: "Warehouse stock", qty: q, unit: i.unit || "ea", price: +i.cost || 0, materialId: "", invId: i.id, code: i.code || "", line: "", received: 0 }));
+        if (!lines.length) return toast("Nothing to buy: every quantity is 0"), !1;
+        const v = (DB.vendors || []).find((x) => x.name === vendor),
+          po = { id: uid("po"), number: nextPO(), projectId: "", vendor: vendor, vendorId: v ? v.id : "", date: today(), expected: "", needBy: "", status: "draft", shipTo: "Warehouse", notes: `Restock: ${lines.length} stock item${1 === lines.length ? "" : "s"} at or under the reorder point`, lines: lines, tax: 0, shipping: 0, matchedTxns: [], createdBy: ((currentUser() || {}).name) || role(), restock: !0 };
+        DB.pos.push(po);
+        try {
+          audit("po", po.id, "created", null, { number: po.number, vendor: vendor, from: "restock", items: lines.map((l) => `${l.qty} ${l.unit} ${l.item}`).join("; ") });
+        } catch (e) {}
+        try {
+          log(`${po.number} drafted to restock the warehouse from ${vendor}: ${lines.map((l) => `${l.qty} ${l.unit} ${l.item}`).join(", ")}`);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number} drafted for ${vendor} — ${lines.length} stock item${1 === lines.length ? "" : "s"}, ${money(poTotal(po).total)}. Check it and issue it`, { label: "Open", run: () => ((poOpen = po.id), setView("po")) });
+      },
+    },
+  );
+  return m;
 }
 // Buy from a document's lines: the job, the document, then its lines (the order sheet the Buy Board's picks use)
 function puBuyFromDoc(kind) {

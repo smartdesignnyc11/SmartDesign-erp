@@ -862,6 +862,107 @@ async def s_receive(p, c):
     finally:
         await b.close()
 
+RSHEET = """() => { const m = document.querySelector('#mbm'); if (!m || !m.getClientRects().length) return null;
+  return { title: (m.querySelector('.mbm-hd h3') || {}).innerText || '', counts: [...m.querySelectorAll('input[data-purq]')].map(i => i.value),
+           conds: m.querySelectorAll('[data-pucond]').length, slip: m.querySelectorAll('input[type=file][data-puslip]').length,
+           ok: (m.querySelector('#mbm-ok') || {}).innerText || '' }; }"""
+async def s_onesheet(p, c):
+    """BACKLOG 1.36, the class: every way into receiving opens the one sheet, its counts empty (what is still to come only
+    the hint); the foreman's Site counts against the quantity and unit; Chase the Certificate drafts the chase; Restock
+    drafts the restock order, numbered like every PO."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen'); await connect_demo(pg)
+        # the order's Receive Some… (desktop)
+        await pg.evaluate("() => { setCurrent('p121'); poOpen = 'po3'; view = 'po'; render(); }"); await pg.wait_for_timeout(500)
+        await click_rx(pg, r'^Receive Some', '.view.on', wait=500)
+        s = await pg.evaluate(RSHEET)
+        c.ok(s and s['counts'] and all(v == '' for v in s['counts']) and s['conds'] == 4 and s['slip'] == 1, f"onesheet: the order's Receive Some is the one sheet, its count empty ({s})")
+        if s: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
+        # the desktop's Deliveries line cards start empty too
+        q = await pg.evaluate("() => { view = 'recv'; render(); return [...document.querySelectorAll('#recv-body input[data-rq]')].map(i => i.value); }")
+        c.ok(q and all(v == '' for v in q), f"onesheet: Deliveries' line-by-line counts start empty ({q})")
+        # Vendors: Chase the Certificate opens the chase draft, not the vendor's page
+        await pg.evaluate("() => { view = 'vendors'; render(); }"); await pg.wait_for_timeout(500)
+        ch = pg.locator('.view.on button:visible').filter(has_text=re.compile(r'^Chase the Certificate$'))
+        c.ok(await ch.count() > 0, 'onesheet: Vendors has Chase the Certificate')
+        if await ch.count():
+            await ch.first.click(); await pg.wait_for_timeout(600)
+            d = await pg.evaluate("() => ({ to: (document.getElementById('ea-to') || {}).value || '', subj: (document.getElementById('ea-subj') || {}).value || '', msg: (document.getElementById('ea-msg') || {}).value || '' })")
+            c.ok(d['to'] and re.search(r'insurance', d['subj'], re.I) and re.search(r'certificate', d['msg'], re.I) and re.search(r'\bby \w{3}, \w{3} \d', d['msg']),
+                 f'onesheet: Chase the Certificate opens the chase draft, addressed, naming the certificate and the date it is due ({d})')
+            await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
+        # Stock: Restock drafts the restock order through the one number
+        await pg.evaluate("() => { view = 'inv'; render(); }"); await pg.wait_for_timeout(500)
+        rs = pg.locator('.view.on button:visible').filter(has_text=re.compile(r'^Restock$'))
+        c.ok(await rs.count() > 0, 'onesheet: Stock has Restock')
+        if await rs.count():
+            await rs.first.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and any(x not in ('Cancel', 'Ask') for x in m['buttons']), f"onesheet: Restock's sheet has an action besides Cancel ({m and m['buttons']})")
+            n0 = await pg.evaluate("() => DB.pos.length")
+            await modal_ok(pg, 400)
+            c.ok(await pg.evaluate("() => DB.pos.length") == n0 and bool(await modal(pg)), 'onesheet: Restock with no vendor chosen drafts nothing')
+            await pg.locator('#mbm [data-f="vendor"]').select_option(label='Ferguson')
+            await modal_ok(pg, 700)
+            po = await pg.evaluate("() => { const po = DB.pos[DB.pos.length - 1]; return { n: po.number, v: po.vendor, st: po.status, inv: po.lines.map(l => l.invId) }; }")
+            t = await toast(pg)
+            c.ok(re.match(r'PO-\d{4}-\d{3}$', po['n']) and po['v'] == 'Ferguson' and po['st'] == 'draft' and all(po['inv']), f'onesheet: Restock drafts a PO-2026-nnn order for the stock items ({po})')
+            c.ok(t['open'] and po['n'] in t['text'], f'onesheet: the restock toast names the order, with Open ({t["text"]!r})')
+        c.ok(not errs, f'onesheet: page errors {errs[:2]}')
+    finally:
+        await b.close()
+    # the foreman's Site on the phone: counted against the quantity and unit; It Arrived opens the one sheet, empty
+    b, pg, errs = await fresh(p, True)
+    try:
+        await sign_in(pg, 'u_angel')
+        await pg.evaluate("() => { setCurrent('p121'); view = 'fsite'; render(); }"); await pg.wait_for_timeout(600)
+        site = await pg.evaluate("() => (document.querySelector('.f3-dels') || {}).innerText || ''")
+        c.ok('0 of 900 sf received' in site, f"onesheet: the foreman's Site counts the 900 sf order in sf ({site[-160:]!r})")
+        await pg.locator('.f3-dels [data-f3recv]').first.click(); await pg.wait_for_timeout(600)
+        s = await pg.evaluate(RSHEET)
+        c.ok(s and s['counts'] and all(v == '' for v in s['counts']) and s['conds'] == 4, f"onesheet: the foreman's It Arrived opens the one sheet, its count empty ({s})")
+        c.ok(await pg.evaluate("() => document.querySelectorAll('#mbm').length") == 1, 'onesheet: It Arrived opens one sheet, not two')
+        c.ok(not errs, f'onesheet (phone): page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_claims(p, c):
+    """The coordinator's day, S1: a delivery of 36 of 40 studs and 30 batts with 3 damaged. Condition is per line: the short
+    is claimed on the studs, the damage on the batts, and Bill What Arrived bills only the good quantity."""
+    b, pg, errs = await fresh(p, True)
+    try:
+        await sign_in(pg, 'u_chen')
+        await pg.evaluate("""() => { DB.pos.push({ id: 'po_cl', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: today(), status: 'issued',
+          shipTo: 'Site', lines: [{ id: 'cl1', item: '2x4x8 KD stud', qty: 40, unit: 'ea', price: 4.6, received: 0 }, { id: 'cl2', item: 'R-15 mineral wool batts', qty: 30, unit: 'bag', price: 57.4, received: 0 }],
+          tax: 0, shipping: 0, matchedTxns: [] }); setCurrent('p121'); poOpen = 'po_cl'; view = 'po'; render(); }"""); await pg.wait_for_timeout(500)
+        await click_rx(pg, r'^Receive Some', '.view.on', wait=500)
+        await pg.locator('#mbm [data-purq="cl1"]').fill('36')
+        await pg.locator('#mbm [data-pucond="short"][data-pul="cl1"]').click()
+        await pg.locator('#mbm [data-purq="cl2"]').fill('30')
+        await pg.locator('#mbm [data-pucond="damaged"][data-pul="cl2"]').click(); await pg.wait_for_timeout(150)
+        bad = pg.locator('#mbm [data-pubad="cl2"]')
+        c.ok(await bad.is_visible(), 'claims: Damaged on the batts asks how many')
+        await modal_ok(pg, 300)
+        c.ok(bool(await modal(pg)) and await pg.evaluate("() => DB.pos.find(x => x.id === 'po_cl').lines.every(l => !l.received)"), 'claims: Damaged with no count of the damaged records nothing')
+        await bad.fill('3'); await modal_ok(pg, 900)
+        r = await pg.evaluate("""() => { const po = DB.pos.find(x => x.id === 'po_cl');
+          return { rec: po.lines.map(l => +l.received || 0), claims: (po.issues || []).filter(i => i.claim).map(i => [i.lineId, i.type, i.qty]) }; }""")
+        c.ok(r['rec'] == [36, 27], f'claims: received is the good quantity on each line, 36 studs and 27 batts ({r["rec"]})')
+        c.ok(sorted(r['claims']) == [['cl1', 'short', 4], ['cl2', 'damaged', 3]], f'claims: the short is claimed on the studs and the damage on the batts, each on its own line ({r["claims"]})')
+        t = await toast(pg)
+        c.ok(t['open'] and 'claimed' in t['text'], f'claims: the toast names both claims, with Open ({t["text"]!r})')
+        await pg.evaluate("() => { poOpen = 'po_cl'; view = 'po'; render(); }"); await pg.wait_for_timeout(400)
+        bw = pg.locator('.view.on button:visible').filter(has_text=re.compile(r'^Bill What Arrived'))
+        c.ok(await bw.count() > 0, 'claims: the order offers Bill What Arrived')
+        if await bw.count():
+            want = round(36 * 4.6 + 27 * 57.4, 2)
+            lab = await bw.first.inner_text()
+            c.ok(f'${want:,.0f}' in lab or f'${want:,.2f}' in lab, f'claims: Bill What Arrived is the good quantity, ${want:,.2f}, not the damaged batts ({lab!r})')
+        c.ok(not errs, f'claims: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 async def s_leaks(p, c):
     """The money leaks the review found (BACKLOG section 9, items 4, 5 and 7), each caught where the person works."""
     b, pg, errs = await fresh(p)
@@ -998,7 +1099,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
