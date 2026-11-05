@@ -1965,6 +1965,12 @@ def j10_week_money(p):
     m = re.search(r'\bOpen(?:, all current)?\b(.*?)Retainage held', sc.text, re.S)
     v = re.findall(r'\$[\d,]+(?:\.\d\d)?', m.group(1)) if m else []
     p.answers['Q2'] = v[-1] if v else ''
+    # the Open figure is the sum of the open invoices listed above it (11-05: a deposit credit on an application is what
+    # the client no longer owes; the figure and its rows must say the same)
+    k = m.start() if m else -1
+    rows = [CY.num(x) for x in re.findall(r'(?m)^\[\d+ [^\n]*· INV-[^\n]*\$([\d,]+(?:\.\d\d)?)\]$', sc.text[:k])] if k > 0 else []
+    p.expect(bool(rows) and abs(sum(rows) - CY.num(p.answers['Q2'])) <= max(1.0, 0.5 * len(rows)),
+             "Receivables' Open figure is the sum of the open invoices it lists", f"Open {p.answers['Q2']} vs the rows' {sum(rows):,.2f} ({len(rows)} rows)")
     p.go('Reports > Job Profitability', expect_menu=False)
     r = p.look().row(JOB['job'])
     if r is None: raise Stuck('job cost on 214 Lincoln', '214 Lincoln on Reports > Job Profitability', p.scr, 'Job Profitability')
@@ -1975,6 +1981,22 @@ def j10_week_money(p):
     p.answers['Q4'] = '; '.join(over_lines(sc.text)) or 'none over'
     p.expect(i >= 0, 'job cost by estimate line on 214 Lincoln (Reports > Job Profitability > the job: By Line)', sc.excerpt('Code', 6))
     p.expect(all(p.answers.get(q) for q in ('Q1', 'Q2')), 'cash and AR are each one figure the controller can read', str({k: v[:60] for k, v in p.answers.items()}))
+
+
+def ar_tied(w, p):
+    """J10's AR (Receivables' Open, as the controller read it) against the records: every sent invoice's balance (its
+    total, an application's less retainage and the deposit it takes off, less what was paid on it), summed"""
+    got = CY.num((p.answers or {}).get('Q2') or '')
+    if not got: return 'not done', 'no AR read off Receivables'
+    db = w.db(); rows = []
+    for c in db.get('clients') or []:
+        for i in c.get('invoices') or []:
+            if i.get('status') not in ('sent', 'viewed', 'partial', 'overdue'): continue
+            bal = CY.doc_total(i) - sum(CY.num(x.get('amount')) for x in c.get('payments') or [] if x.get('invoiceId') == i['id'])
+            if bal > 0.5: rows.append((i.get('number'), round(bal, 2)))
+    want = round(sum(b for _, b in rows), 2)
+    det = f"Receivables ${got:,.2f}, the open invoices' balances ${want:,.2f}: " + ', '.join(f'{n} ${b:,.2f}' for n, b in rows)
+    return ('right' if abs(got - want) <= max(1.0, 0.5 * len(rows)) else 'wrong'), det
 
 
 def answers_graded(w, p):
@@ -2000,7 +2022,7 @@ JOURNEYS = [
     ('J3', 'u_alan', 'Price a change', 'j3_price_change', ['next', 'morning'], ['C43', 'C44']),
     ('J7', 'u_chen', 'Receive and match', 'j7_receive_match', [], ['C16', 'C15', 'C17', 'C18', 'C19']),
     ('J9', 'u_billing', 'Bill the progress', 'j9_bill_progress', ['eod'], ['C32', 'C35', 'C34', 'C36']),
-    ('J10', 'u_controller', 'Know the week\'s money', 'j10_week_money', [], ['C25', 'C23', 'C24', answers_graded]),
+    ('J10', 'u_controller', 'Know the week\'s money', 'j10_week_money', [], ['C25', 'C23', 'C24', ar_tied, answers_graded]),
 ]
 TEN = [J[0] for J in JOURNEYS if J[0].startswith('J')]
 

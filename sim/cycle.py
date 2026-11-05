@@ -43,7 +43,11 @@ def wd_between(a, b):
 # ---------------------------------------------------------------- documents, the referee's own arithmetic
 def doc_total(d):
     """an estimate, change order or invoice: lines, less discount, plus tax on taxable lines; an SOV invoice is this
-    period's % of each scheduled line less retainage (checked against the app's stored amounts on Pilot 2's data)"""
+    period's % of each scheduled line less retainage and less the deposit it takes off (checked against the app's stored
+    amounts on Pilot 2's data). The deposit credit (depositApplied: the deposit's share of this period's work, money the
+    client paid on the deposit invoice) is not owed again: 11-05, once J8 made a real deposit invoice, J9's application
+    took $1,440 of it off, and the referee's AR ran $1,440 above the client's open balances (tests/reports_test.py's
+    referee already took it off)"""
     L = d.get('lines') or []
     if d.get('mode') == 'sov':
         amt = lambda l: num(l.get('scheduled')) * num(l.get('pct')) / 100
@@ -54,8 +58,9 @@ def doc_total(d):
     disc = sub * num(dc.get('value')) / 100 if dc.get('type') == 'pct' else num(dc.get('value'))
     f = (sub - disc) / sub if sub else 1
     ret = (sub - disc) * num(d.get('retainagePct')) / 100 if d.get('mode') == 'sov' else 0
+    dep = num(d.get('depositApplied')) if d.get('mode') == 'sov' and (d.get('type') or 'invoice') == 'invoice' else 0
     if not L and d.get('amount') is not None: return r2(d['amount'])
-    return r2(sub - disc + tx * f * num(d.get('taxRate')) / 100 - ret)
+    return r2(sub - disc + tx * f * num(d.get('taxRate')) / 100 - ret - dep)
 
 
 def po_total(po):
