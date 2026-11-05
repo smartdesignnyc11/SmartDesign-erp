@@ -14,10 +14,11 @@
                           no job set up), then On Track; All Open and Won and Lost one tap; How Sales Is Going (the
                           Numbers, the Forecast, the Dashboard and Partners' figures) one fold down; Proposals Out,
                           where an old Estimates link lands, each estimate with its deal.
-     Clients (clients)    Need You (a client waiting on us, money past due, someone writing as a client with no
-                          record, a "repeat client" with none), All, Partners.
+     Clients (clients)    Need You (a client waiting on us, a bill due by the Billing queue's rule, money past due,
+                          someone writing as a client with no record, a "repeat client" with none), All, Partners.
      A client             Waiting on Us, Waiting on Them, They Owe, Left to Bill, each equal to its rows; Overview,
-                          Contract and Billing, Messages; one + tied to the client. Billed is gross or net, labelled,
+                          Contract and Billing (New Invoice filled from what is due, then the Billing Record),
+                          Messages; one + tied to the client. Billed is gross or net, labelled,
                           from one function (slBilled) that ties to the cent.
      A deal (deal)        the next step with its button, the road to signed (Set Up the Job before Won), the proposal,
                           why they are buying, people, building, every touch.
@@ -391,9 +392,13 @@ function slClientsRows() {
   const need = [];
   C.forEach((c) => {
     const M = slClientMsgs(c),
-      F = clientFin(c);
-    if (M.length) need.push(rowOf(c, "need", { meta: `waiting on us: ${M.map((m) => `${ydMsgWho(m)} ${fmt(String(m.date || "").slice(0, 10))}`).join(", ")}`, act: "Open", when: ydAge(M[M.length - 1].date), late: !0 }));
-    else if (F.overdue > 0 && slMoneyOk()) need.push(rowOf(c, "need", { meta: `${ydMoney0(F.overdue)} past due`, act: "Open" }));
+      F = clientFin(c),
+      // a bill due (the Billing queue's rule, slBillDue): for the seats that bill, the client is waiting on our invoice
+      D = slBillDue(c),
+      due = D.length ? `ready to bill: ${D.map(slBillWhat).join("; ")}` : "";
+    if (M.length) need.push(rowOf(c, "need", { meta: [`waiting on us: ${M.map((m) => `${ydMsgWho(m)} ${fmt(String(m.date || "").slice(0, 10))}`).join(", ")}`, due].filter(Boolean).join(" · "), act: "Open", when: ydAge(M[M.length - 1].date), late: !0 }));
+    else if (F.overdue > 0 && slMoneyOk()) need.push(rowOf(c, "need", { meta: [`${ydMoney0(F.overdue)} past due`, due].filter(Boolean).join(" · "), act: "Open" }));
+    else if (D.length) need.push(rowOf(c, "need", { meta: due, act: "Open", when: D[0].due ? `by ${fmt(D[0].due)}` : "", late: D.some((r) => r.late) }));
   });
   slStrangers().forEach((x) => need.push({ id: x.id, sec: "need", title: x.title, meta: x.meta, act: slMayAddClient() ? x.act : "", run: x.run }));
   return need;
@@ -421,7 +426,7 @@ function slClientsRender() {
     ],
     slClChip,
     "clients",
-  )}${ydSectionHtml(title, shown.length, "need" === slClChip ? "waiting on us, money past due, or not on file" : "", shown, "need" === slClChip ? "No client needs you." : "Nobody here yet.")}`;
+  )}${ydSectionHtml(title, shown.length, "need" === slClChip ? "waiting on us, a bill due, money past due, or not on file" : "", shown, "need" === slClChip ? "No client needs you." : "Nobody here yet.")}`;
   shown.forEach((r) => {
     if (!r.touch) return;
     const b = h.querySelector(`[data-ydact="${CSS.escape(r.id)}"]`);
@@ -579,7 +584,14 @@ function slClientRender() {
     });
     (c.payments || []).forEach((p) => docs.push({ id: "d:pay:" + p.id, sec: "doc", title: `Payment${p.method ? `, ${p.method}` : ""}`, meta: p.date ? fmt(p.date) : "", amt: ydMoney0(p.amount), act: "", run: () => null }));
     docs.forEach((r) => ydAct(r.id, r.run));
-    body = `<div class="yd-ph"><button type="button" class="btn" data-ydclold>Billing Record</button><span class="small muted">new invoices, progress and deposit invoices, change orders and payments start there</span></div><section class="yd-card"><div class="yd-sh"><h3>The Contract</h3></div>${kv.map(([k, v, s]) => ydKv(k, v, s)).join("")}</section>${ydSectionHtml("Documents", docs.length, "estimates, change orders, invoices and payments", docs, "No documents yet.")}`;
+    // New Invoice, filled from what is due (slBillDue: the Billing queue's own rule); the old Billing Record stays one
+    // tap away for a credit, a retainage release or a blank progress invoice
+    const due = slBillDue(c),
+      mayBill = ydMay("billing"),
+      dueRows = due.map((r, i) => ({ id: "bd:" + i, sec: "due", title: slBillTitle(r), meta: slBillWhat(r), amt: ydMoney0(r.amount), act: due.length > 1 ? "New Invoice" : "", run: () => slBillRun(c, r) }));
+    dueRows.forEach((r) => ydAct(r.id, r.run));
+    const bar = `<div class="yd-ph sl-billbar" style="flex-wrap:wrap;align-items:center">${mayBill ? `<button type="button" class="btn primary" data-ydclnewinv>New Invoice</button>` : ""}<button type="button" class="btn" data-ydclold>Billing Record</button><span class="small muted grow" style="min-width:200px">${mayBill ? (due.length ? `New Invoice is filled from ${esc(slBillWhat(due[0]))}; a blank invoice is under New` : "nothing is due to bill: New Invoice starts a blank one; credits, retainage and progress invoices are in the Billing Record") : "invoices, change orders and payments, as billing keeps them"}</span></div>`;
+    body = `${bar}${due.length ? ydSectionHtml("Ready to Bill", due.length, "the Billing queue's rows for this client", dueRows, "") : ""}<section class="yd-card"><div class="yd-sh"><h3>The Contract</h3></div>${kv.map(([k, v, s]) => ydKv(k, v, s)).join("")}</section>${ydSectionHtml("Documents", docs.length, "estimates, change orders, invoices and payments", docs, "No documents yet.")}`;
     void pay;
   } else {
     const mine = (DB.comms || []).filter((m) => {
@@ -613,11 +625,60 @@ function slClientNewItems(c) {
     ["meet", "Meeting", may("tkall"), withJob(() => newTaskDialog(Object.assign({ title: `Meeting with ${c.name}` }, P ? { projectId: P.id } : {})))],
     ["est", "Estimate", may("billing"), () => docNewEstimate(c.id, P ? P.id : "")],
     ["co", "Change Order", may("billing") && !!P, () => newChangeOrderDialog({ clientId: c.id, projectId: P && P.id })],
-    ["inv", "Invoice", may("billing"), () => crNewInvoice(c)],
+    ["inv", "Invoice", may("billing"), () => crNewInvoice(c)],   // the blank one; the page's New Invoice is filled from what is due
     ["job", "Job", isOwner() || "pm" === role(), () => newProjectDialog(c.id)],
   ]
     .filter((x) => x[2])
     .map((x) => [x[0], x[1], x[3]]);
+}
+
+// ---- New Invoice, filled from what is due (J8 and J9; BACKLOG 1.36) ------------------------------------------------
+// What was wrong. Billing reached a new invoice through Clients' All, the client, Contract and Billing and the old
+// Billing Record (28 taps for J8's deposit, 27 for J9's progress invoice, against 24 and 23 before the Sales pages),
+// then typed the deposit by hand, though the Billing queue already knew what was due: the signed contract's deposit
+// (ctDepositDue, 25% and no retainage), the job's line-by-line application (pgApply: the field's measures, the
+// contract's retainage, every approved change order as a line), a design milestone.
+// Now. One rule, the queue's own (readyToBill): Clients' Need You names a client with a bill due, and the client's
+// Contract and Billing has New Invoice filled from the first of it, made by the queue's own drafts (ctDepositInvoice
+// through docAction, blDraftApplication and the rest through rtbAct). Nothing here makes an invoice of its own; with
+// nothing due, New Invoice is the blank invoice it always was (crNewInvoice).
+// Design gate (BACKLOG 1.16): no new store, list or queue; this reads readyToBill() and opens its drafts.
+function slBillDue(c) {
+  if (!c || !ydMay("billing") || "function" != typeof readyToBill) return [];
+  let R = [];
+  try {
+    R = (readyToBill() || {}).rows || [];
+  } catch (e) {
+    R = [];
+  }
+  const rank = (r) => ("deposit" === r.kind ? 0 : "application" === r.kind ? 1 : 2);
+  return R.filter((r) => r.c && r.c.id === c.id && +r.amount > 0).sort((a, b) => rank(a) - rank(b) || String(a.due || "~").localeCompare(String(b.due || "~")));
+}
+// the queue's words for a row, without the job's name in front (billingRows reads it the same way)
+function slBillWhat(r) {
+  const pn = r.p && r.p.project ? r.p.project.name : "";
+  return String(r.title || "").replace(pn + ": ", "") || "earned, not yet invoiced";
+}
+function slBillTitle(r) {
+  const job = r.p ? shortName(r.p) : "";
+  if ("deposit" === r.kind) return `The deposit on ${(r.d && r.d.number) || "the signed contract"}${job ? `, ${job}` : ""}`;
+  if ("application" === r.kind) return `Progress application${job ? `, ${job}` : ""}`;
+  return `${ydMoney0(r.amount)} ready to bill${job ? `, ${job}` : ""}`;
+}
+// a row's draft: one with a document behind it (the deposit, a milestone) opens over the client's page and its invoice
+// opens on the client's record, as a document opened from this page does (slOpenDoc); the rest are the queue's (rtbAct)
+function slBillRun(c, r) {
+  if ("application" !== r.kind && r.d && r.act && "function" == typeof docAction) {
+    (clientOpen = c.id), (docOpen = null), (slClSeen = { c: c.id, tab: "fin" });
+    "undefined" != typeof clientTab && (clientTab = "fin");
+    "undefined" != typeof finTab && (finTab = "invoices");
+    return void Promise.resolve(docAction(c, r.d, r.act)).then(() => (save(), render()));
+  }
+  "function" == typeof rtbAct && "function" == typeof blRtbKey ? rtbAct(blRtbKey(r)) : crNewInvoice(c);
+}
+function slNewInvoice(c) {
+  const r = slBillDue(c)[0];
+  r ? slBillRun(c, r) : crNewInvoice(c);
 }
 
 // ---- a deal's page -------------------------------------------------------------------------------------------------
@@ -784,6 +845,11 @@ document.addEventListener(
       return void (nc ? nc.click() : "function" == typeof openClientEditor ? openClientEditor("client") : null);
     }
     if ((b = at("[data-ydclback]"))) return e.preventDefault(), (clientOpen = null), (docOpen = null), (slClOld = !1), void render();
+    if ((b = at("[data-ydclnewinv]"))) {
+      e.preventDefault();
+      const c = (DB.clients || []).find((x) => x.id === clientOpen);
+      return void (c && slNewInvoice(c));
+    }
     if ((b = at("[data-ydclold]"))) return e.preventDefault(), (slClOld = !0), (clientTab = "fin"), (finTab = "invoices"), void render();
     if ((b = at("#yd-clients [data-ydtab]"))) return e.preventDefault(), (slClTab = b.dataset.ydtab), void render();
     if ((b = at("[data-ydgo]"))) return e.preventDefault(), void setView(b.dataset.ydgo);
