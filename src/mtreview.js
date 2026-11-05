@@ -1297,3 +1297,121 @@ if ("function" == typeof finishBoot) {
     return r;
   };
 }
+
+// ---- pasted notes in plain words (PM review 11-05 S1) ----------------------------------------------------------------
+// The PM's own notes ("- Angel to sister the joists by Friday", "Angel: check bolts Fri", "[Chen] Order the lighting")
+// found no action item: the reader knew only Gemini's "Suggested next steps" with "[Name] Title: detail". With no step,
+// the meeting was never matched to its job either, though "121 State Street" was in the title. Plain bullets now read
+// as steps (who, what, by when), under an "Action items" or "Next steps" heading or as bullets anywhere, and the job is
+// matched from the title, the notes and the steps by its name, address or street (a word only that job has).
+const MRV_DAY3 = { mon: "monday", tue: "tuesday", tues: "tuesday", wed: "wednesday", thu: "thursday", thur: "thursday", thurs: "thursday", fri: "friday", sat: "saturday", sun: "sunday" };
+const MRV_WHEN = /\b(?:(?:by|on|before|due|for)\s+)?(today|tonight|tomorrow|eod|end of (?:the )?(?:day|week)|this week|next week|(?:this |next )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)\.?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.? \d{1,2})(?![a-z])/i;
+function mrvPlainSteps(text) {
+  const out = [],
+    who = (n) => {
+      try {
+        return "function" == typeof mtPerson ? mtPerson(n) : "";
+      } catch (e) {
+        return "";
+      }
+    };
+  let inSteps = !1;
+  String(text || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .forEach((l0) => {
+      const l = l0.trim();
+      if (!l) return;
+      if (/^#*\s*\**\s*(?:suggested\s+)?(?:action items?|next steps|to-?dos?|tasks|follow[- ]?ups?|actions|owners?)\s*:?\s*\**\s*$/i.test(l)) return void (inSteps = !0);
+      if (/^#+\s/.test(l) || /^\**[A-Z][^.!?]{0,60}:\**$/.test(l)) return void (inSteps = !1);
+      const bullet = /^(?:[-*•–]|\d{1,2}[.)]|\[\s?\])\s+/.test(l),
+        // a line that starts with a person on the team and a colon is theirs ("Angel: check bolts Fri")
+        named = /^([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)?)\s*:\s*\S/.exec(l);
+      if (!bullet && !inSteps && !(named && !/^(present|attendees|date|time|where|location|re|subject|notes?)$/i.test(named[1]) && who(named[1]))) return;
+      const b = l.replace(/^(?:[-*•–]|\d{1,2}[.)]|\[\s?\])\s+/, "").replace(/\*\*/g, "").trim();
+      let owner = "",
+        rest = b,
+        m;
+      if ((m = b.match(/^\[([^\]]+)\]\s*(.+)$/))) (owner = m[1]), (rest = m[2]);
+      else if ((m = b.match(/^([A-Z][A-Za-z.'’-]+(?:\s+[A-Z][A-Za-z.'’-]+)?)\s*(?::|–|—|\s-)\s*(.+)$/)) && who(m[1])) (owner = m[1]), (rest = m[2]);
+      else if ((m = b.match(/^([A-Z][A-Za-z.'’-]+(?:\s+[A-Z][A-Za-z.'’-]+)?)\s+(?:to|will|should|needs to|has to|is to|must)\s+(.+)$/)) && who(m[1])) (owner = m[1]), (rest = m[2]);
+      else if ((m = b.match(/^([A-Z][a-z'’-]+),?\s+(.+)$/)) && who(m[1])) (owner = m[1]), (rest = m[2]);
+      const w = rest.match(MRV_WHEN);
+      let detail = "";
+      if (w) {
+        detail = w[0].replace(/\b(mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)\.?(?![a-z])/i, (d) => MRV_DAY3[d.toLowerCase().replace(".", "")] || d);
+        rest = (rest.slice(0, w.index) + rest.slice(w.index + w[0].length)).replace(/\s{2,}/g, " ");
+      }
+      const title = rest.replace(/^[\s,:;-]+|[\s,.;:-]+$/g, "");
+      title.length >= 3 && out.push({ owner: owner, title: title.charAt(0).toUpperCase() + title.slice(1), detail: detail });
+    });
+  return out;
+}
+if ("function" == typeof mtParseEmail) {
+  const base = mtParseEmail;
+  mtParseEmail = function (c) {
+    const m = base.apply(this, arguments);
+    try {
+      const raw = String((c && c.text) || "");
+      if (!(m.steps || []).length && !/Suggested next steps/i.test(raw)) {
+        const S_ = mrvPlainSteps(raw);
+        if (S_.length) {
+          // the owners resolve the way Gemini's do: a name on file, or nobody (the review asks for one)
+          S_.forEach((s) => {
+            const n = mtPerson(s.owner);
+            n ? (s.owner = n) : s.owner && ((s.rawOwner = s.owner), (s.owner = ""));
+          });
+          m.steps = S_;
+          (m.attendees || []).length || "function" != typeof mtAttendees || (m.attendees = mtAttendees(c, m));
+        }
+      }
+      // the first plain line ("Site meeting 121 State Street, Sep 3") is the summary when the notes have none
+      if (!m.summary) {
+        const first = raw
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => l && !/^(?:[-*•–]|\d{1,2}[.)]|\[)/.test(l) && !/^(present|attendees|action items|next steps)\b/i.test(l));
+        first && (m.summary = first.slice(0, 160));
+      }
+      // read by the job match below, never saved on the meeting row (the notes are the attendees', like the transcript)
+      Object.defineProperty(m, "pasteText", { value: raw.slice(0, 4000), enumerable: !1, configurable: !0 });
+    } catch (e) {
+      console.warn("plain notes", e);
+    }
+    return m;
+  };
+}
+if ("function" == typeof mtMatchProject) {
+  const base = mtMatchProject;
+  mtMatchProject = function (m) {
+    const r = base.apply(this, arguments);
+    if (r || !m) return r;
+    try {
+      const hay = ` ${[m.title, m.summary, m.pasteText, ...(m.steps || []).map((s) => s.title + " " + s.detail)].join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " ")} `,
+        P = DB.projects || [];
+      // the whole name or address first ("121 state street"), or its number and street ("121 state")
+      let hit = P.filter((p) =>
+        [p.project && p.project.name, p.project && p.project.address, p.address, shortName(p)]
+          .filter(Boolean)
+          .map((n) => String(n).toLowerCase().replace(/,.*$/, "").replace(/[^a-z0-9]+/g, " ").trim())
+          .some((n) => n.length > 4 && (hay.includes(` ${n} `) || (/^\d+ [a-z]+/.test(n) && hay.includes(` ${n.split(" ").slice(0, 2).join(" ")} `)))),
+      );
+      if (1 === hit.length) return hit[0];
+      // else a street word only one job has
+      const W = {};
+      P.forEach((p) =>
+        String(shortName(p) || "")
+          .toLowerCase()
+          .split(/[^a-z]+/)
+          .filter((w) => w.length >= 4 && !/^(street|place|avenue|road|house|floor|apartment|site|meeting)$/.test(w))
+          .forEach((w) => (W[w] = W[w] && W[w] !== p ? "dup" : p)),
+      );
+      hit = Object.entries(W)
+        .filter(([w, p]) => "dup" !== p && hay.includes(` ${w} `))
+        .map(([, p]) => p);
+      return 1 === new Set(hit).size ? hit[0] : null;
+    } catch (e) {
+      return null;
+    }
+  };
+}
