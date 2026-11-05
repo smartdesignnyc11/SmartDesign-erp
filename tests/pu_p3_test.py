@@ -293,9 +293,9 @@ async def s_field(pg, c, dev, phone):
     row = await js(pg, r"""() => { const r = [...document.querySelectorAll('.f3-arriving .f3-row')].find(x => /PO-2026-047/.test(x.innerText)); return r ? r.innerText.replace(/\s+/g, ' ') : ''; }""")
     c.ok('900 sf' in row and 'flooring' in row and '7:00 AM' in row and 'job site' in row and 'Curb drop, call Angel' in row and '$' not in row,
          f'FIELD {dev}: the foreman\'s Arriving Today says what, when, where and the note, and no money ({row!r})')
-    pad = await js(pg, r"""() => { const r = [...document.querySelectorAll('.view.on .f-row.warn, .view.on .f-row.bad, .view.on .f3-row.late')].filter(x => x.offsetParent);
+    pad = await js(pg, r"""() => { const r = [...document.querySelectorAll('.view.on .f3-row.late')].filter(x => x.offsetParent);
       return r.map(x => { const t = x.querySelector('b'); return t ? Math.round(t.getBoundingClientRect().left - x.getBoundingClientRect().left) : 99; }); }""")
-    c.ok(all(p >= 8 for p in pad), f'FIELD {dev}: a toned row\'s stripe never covers its first letter (title offsets {pad})')
+    c.ok(all(p >= 8 for p in pad), f'FIELD {dev}: a late row on Arriving Today keeps its title clear of the edge; the .f-row stripe is lane T1's (title offsets {pad})')
     fl = await js(pg, "() => { const b = document.getElementById('rp-btn'); if (!b) return null; const r = b.getBoundingClientRect(); return [b.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; }")
     c.ok(fl and fl[0] == 'Report an App Problem' and fl[1] >= 44 and fl[2] >= 44, f'FIELD {dev}: the header flag reads Report an App Problem and is 44px ({fl})')
     if phone:

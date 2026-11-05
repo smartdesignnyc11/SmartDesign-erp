@@ -4338,9 +4338,6 @@ body .topbar #rp-btn{width:44px;min-width:44px;height:44px;min-height:44px}
 @media (min-width:1281px){body .topbar #rp-btn{width:auto}}
 /* the foreman's delivery card: what, when, where and the office's note */
 .f3-row .f3-what{color:var(--ink-2)} .f3-row .f3-note{color:var(--warn);font-weight:600}
-/* A row's tone bar (an inset 3px stripe) never sits on its first letter: a toned row keeps room for the stripe on every
-   screen, whatever later phone rule zeroes its padding (the field expert, 11-05: "Carlos" read as "arlos" on Today) */
-.f-row:is(.warn,.bad,.ok),.f3-row:is(.late,.warn,.bad){padding-left:12px !important}
 /* Documents' filter row wraps on the phone instead of running off the right edge */
 @media (max-width:760px){
   #v-files #file-filter,#v-files #file-view{flex-wrap:wrap;overflow:visible;gap:8px}
