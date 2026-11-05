@@ -65806,6 +65806,17 @@ if ("function" == typeof dsWire) {
   };
 }
 let frqLast = null;
+// back online: what was saved on the phone goes now, and the foreman is told it went
+"undefined" != typeof window &&
+  window.addEventListener("online", () => {
+    try {
+      const Q = (DB.projects || []).flatMap((p) => (p.requests || []).filter((r) => r.queued));
+      if (!Q.length) return;
+      Q.forEach((r) => ((r.sentAt = appNowIso()), delete r.queued));
+      const who = (DB.users || []).find((u) => "coord" === u.role)?.name || "the coordinator";
+      save(), render(), toast(`Back online: ${Q.length} request${1 === Q.length ? "" : "s"} sent to ${who}`, { label: "Open", run: () => setView("req") });
+    } catch (e) {}
+  });
 function frqReceipt(r) {
   if (!r) return;
   frqLast = r;
@@ -65813,10 +65824,14 @@ function frqReceipt(r) {
     garbage = "garbage" === r.kind,
     who = garbage
       ? DB.users.find((u) => "driver" === u.role)?.name || "the driver"
-      : r.ackBy || DB.users.find((u) => "coord" === u.role)?.name || "procurement";
+      : r.ackBy || DB.users.find((u) => "coord" === u.role)?.name || "procurement",
+    // offline, the request is on this phone only: it says so, and goes when the phone is back online (the field
+    // expert: "Chen has it now" with no signal, when she did not)
+    off = "undefined" != typeof navigator && !1 === navigator.onLine;
+  off && ((r.queued = appNowIso()), "function" == typeof save && save());
   mbModal(
-    garbage ? "Dump Run Requested" : "Request sent",
-    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${esc(who)} has it now${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}${esc(i.what)}</b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
+    garbage ? "Dump Run Requested" : off ? "Request Saved on This Phone" : "Request sent",
+    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${off ? `Saved on this phone. It goes to ${esc(who)} when you are back online` : `${esc(who)} has it now`}${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}${esc(i.what)}</b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
     {
       submit: "Done",
       onSubmit: () => {
@@ -65941,6 +65956,21 @@ function frqTidy() {
       box.querySelector(".sendbar") ||
         readBtn.disabled ||
         (readBtn.textContent = readBtn.textContent.replace(/^Read it$/, "Send the Request"));
+    // "Send the Request" sends: it reads the words and, when nothing needs asking, sends them in the same tap (the field
+    // expert: it only read them, and a second Send appeared under the list)
+    "Send the Request" !== readBtn.textContent.trim() ||
+      readBtn.dataset.frqOne ||
+      ((readBtn.dataset.frqOne = "1"),
+      (readBtn.dataset.frqN = String((comp.lines || []).length)),
+      readBtn.addEventListener("click", () => {
+        const n0 = +readBtn.dataset.frqN || 0,
+          t0 = Date.now(),
+          tick = () => {
+            if (comp.busy && Date.now() - t0 < 6e4) return void setTimeout(tick, 200);
+            !comp.busy && (comp.lines || []).length > n0 && !(comp.questions || []).length && "function" == typeof compSend && compSend();
+          };
+        setTimeout(tick, 0);
+      }));
   }
   const chips = box.querySelector(".chips"),
     stray = chips && chips.querySelector("#frq-dump");

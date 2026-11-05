@@ -1369,6 +1369,9 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 .pu-rq>span{flex:1;display:flex;flex-direction:column;gap:2px} .pu-rq input{width:96px;min-height:44px}
 .pu-conds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 #mbm .pu-rql, #mbm .pu-rql .small, #mbm .pu-rql .pu-chip, #mbm .pu-early, .mbm-bd:has(.pu-rql) > p, .mbm-bd:has(.pu-rql) label.f > span{font-size:15px}
+/* the foreman's request (the field expert): Urgent is a 44px target, and Send stays in reach with the keyboard up */
+label:has(> #cp-urgent){min-height:44px;min-width:44px;display:inline-flex;align-items:center;gap:8px;padding:0 10px 0 4px;cursor:pointer} #cp-urgent{width:24px;height:24px}
+@media (max-width:600px){ .sendbar:has(#cp-urgent), .frq-when-row + .sendbar{position:sticky;bottom:0;z-index:3;background:var(--paper);padding:8px 0;box-shadow:0 -1px 0 var(--rule-2)} }
 .pu-rql{border-top:1px solid var(--rule-2);padding-bottom:4px} .pu-rql .pu-rq{border-top:0} .pu-rql .pu-conds{margin:4px 0 8px} .pu-rql .pu-bad[hidden]{display:none}
 .pu-lines{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin-top:8px}
 .pu-line{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--rule-2)} .pu-line>span{display:flex;flex-direction:column}

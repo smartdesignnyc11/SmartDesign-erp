@@ -1044,6 +1044,38 @@ async def s_price(p, c):
     finally:
         await b.close()
 
+async def s_request(p, c):
+    """The field expert's day: the foreman's Send the Request only read the words (a second Send appeared), and with no
+    signal it said "Chen has it now". One tap sends; offline it says it is saved on the phone and goes when back online."""
+    b, pg, errs = await fresh(p, True)
+    try:
+        await sign_in(pg, 'u_angel')
+        await pg.evaluate("() => { setCurrent('p121'); view = 'req'; render(); }"); await pg.wait_for_timeout(500)
+        cnt = "() => (DB.projects.find(p => p.id === 'p121').requests || []).length"
+        n0 = await pg.evaluate(cnt)
+        await pg.locator('#cp-text').fill('20 sheets 5/8 type X drywall and 2 boxes 1-5/8 screws for tomorrow')
+        await pg.locator('#cp-read').click(); await pg.wait_for_function('() => !comp.busy', timeout=60000); await pg.wait_for_timeout(900)
+        m = await modal(pg)
+        c.ok(await pg.evaluate(cnt) == n0 + 1 and m and 'Sent' in m['title'], f"request: one tap on Send the Request sends it ({n0} -> {await pg.evaluate(cnt)}, {m and m['title']!r})")
+        # Urgent sits beside Send once the request has lines: measured on a line from a typed kit, before it is sent
+        box = await pg.evaluate("() => { comp.lines = [{ what: 'Blue tape', qty: 1, unit: 'roll' }]; renderComposer(); const l = document.querySelector('#cp-urgent'); const r = l && l.getClientRects().length && l.closest('label').getBoundingClientRect(); const out = r ? [Math.round(r.width), Math.round(r.height)] : null; comp.lines = []; renderComposer(); return out; }")
+        if m: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
+        c.ok(box and box[0] >= 44 and box[1] >= 44, f'request: Urgent is a 44px target ({box})')
+        await pg.context.set_offline(True)
+        await pg.evaluate("() => { view = 'req'; render(); }"); await pg.wait_for_timeout(400)
+        await pg.locator('#cp-text').fill('1 box of 3 inch deck screws')
+        await pg.locator('#cp-read').click(); await pg.wait_for_function('() => !comp.busy', timeout=60000); await pg.wait_for_timeout(900)
+        m = await modal(pg)
+        c.ok(m and 'Saved on This Phone' in m['title'] and 'has it now' not in m['text'] and 'back online' in m['text'], f"request: offline it says it is saved on the phone, not that Chen has it ({m and m['text'][:160]!r})")
+        if m: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
+        await pg.context.set_offline(False); await pg.wait_for_timeout(800)
+        t = await toast(pg)
+        q = await pg.evaluate("() => (DB.projects.find(p => p.id === 'p121').requests || []).filter(r => r.queued).length")
+        c.ok(q == 0 and 'Back online' in t['text'] and t['open'], f"request: back online, it goes and the foreman is told, with Open ({t['text']!r}, {q} waiting)")
+        c.ok(not errs, f'request: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 async def s_leaks(p, c):
     """The money leaks the review found (BACKLOG section 9, items 4, 5 and 7), each caught where the person works."""
     b, pg, errs = await fresh(p)
@@ -1180,7 +1212,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
