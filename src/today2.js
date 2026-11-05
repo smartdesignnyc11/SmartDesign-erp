@@ -125,7 +125,7 @@ function td2DueOf(it) {
   if ("tdyMail" === it.kind) return String((it.c && it.c.date) || "").slice(0, 10) || today();
   if ("tdyChat" === it.kind) return today();
   if ("tdyMinutes" === it.kind) return "";
-  if ("tdyCatch" === it.kind) return String(it.due || "").slice(0, 10);
+  if ("tdyCatch" === it.kind || "td2Dep" === it.kind) return String(it.due || "").slice(0, 10);
   try {
     return String(stdDueOf(it) || "").slice(0, 10);
   } catch (e) {
@@ -298,7 +298,75 @@ if ("function" == typeof standardMoneyNow) {
         if (b && billOverPO(b)) return !0;
       }
       if (it && "object" == typeof it && "tdyCatch" === it.kind && "overPO" === it.det) return !0;
+      if (it && "object" == typeof it && "td2Dep" === it.kind) return !0;
     } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- Billing's Today: the signed contract's deposit, due within 2 business days (BACKLOG §1.36, 11-05) -------------
+// The Standard invoices within 2 business days of a milestone, and a signed contract's deposit is the first one
+// (ctDepositDue: its "by" is two business days after signing). Billing's Today had no row for it: the deposit sat on
+// the Billing queue and the client's Ready to Bill, and Today, billing's first screen, said nothing until it was late.
+// The row is the Billing queue's own deposit row for that client (slBillDue, over billingRows): its button is
+// slBillRun on that row, the same call the client's New Invoice makes, so it opens the same prefilled Deposit Invoice
+// sheet, or reopens the draft once one is written (then the row is gone, the queue having dropped the deposit). The
+// row's title opens the signed contract. Design gate (BACKLOG 1.16): no store, list or queue; read on each draw.
+function td2DepositRows() {
+  if ("billing" !== role() || "function" != typeof slBillDue || "function" != typeof ctDepositDue) return [];
+  const td = today(),
+    out = [];
+  (DB.clients || []).forEach((c) => {
+    let R = [];
+    try {
+      R = slBillDue(c) || [];
+    } catch (e) {
+      R = [];
+    }
+    R.filter((r) => "ready" === r.kind && r.rtb && "deposit" === r.rtb.kind && r.rtb.d).forEach((r) => {
+      const D = ctDepositDue(c, r.rtb.d);
+      if (!D || !D.by) return;
+      // due within 2 business days (or already late): the Standard's clock, from the contract's own "by"
+      if (D.by > td && workdays(td, D.by) - 1 > 2) return;
+      out.push({ kind: "td2Dep", id: r.rtb.d.id, c: c, r: r, D: D, title: `Deposit due: ${c.name}`, detail: `${D.pct}% of ${r.rtb.d.number}`, amount: D.amount, due: D.by });
+    });
+  });
+  return out;
+}
+if ("function" == typeof tdyModel) {
+  const base = tdyModel;
+  tdyModel = function () {
+    const M = base.apply(this, arguments);
+    try {
+      const add = td2DepositRows();
+      if (add.length) {
+        const have = new Set((M.all || []).map((it) => it.kind + ":" + it.id)),
+          mins = (M.all || []).filter((it) => "tdyMinutes" === it.kind);
+        let all = (M.all || []).filter((it) => "tdyMinutes" !== it.kind).concat(add.filter((it) => !have.has(it.kind + ":" + it.id)));
+        try {
+          all = standardOrder(all, stdQueueTie);
+        } catch (e) {}
+        M.all = all.concat(mins);
+      }
+    } catch (e) {
+      console.warn("today deposit rows", e);
+    }
+    return M;
+  };
+}
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    if (it && "td2Dep" === it.kind) {
+      const { c: c, r: r, D: D } = it;
+      return {
+        line1: `<a href="#" data-tdrec>${esc(`Deposit due: ${c.name}`)}</a>`,
+        why: esc([`${money(D.amount)}, ${D.pct}% of ${r.rtb.d.number}`, `invoice by ${fmt(D.by)}`, `signed ${fmt(D.signed)}`].join(" · ")),
+        verb: "Draft",
+        go: () => slBillOpen(c, r),
+        run: () => slBillRun(c, r),
+      };
+    }
     return base.apply(this, arguments);
   };
 }
@@ -336,7 +404,7 @@ function td2Rows(M) {
           return { imm: 1, blk: 1, now: 1 };
         }
       })(),
-      now = late || (due && due <= td) || ["raise", "clientq", "tdyMail", "tdyChat"].includes(it.kind) || !rk.imm || !rk.blk || (!rk.now && !(isAppr && has("appr"))),
+      now = late || (due && due <= td) || ["raise", "clientq", "tdyMail", "tdyChat", "td2Dep"].includes(it.kind) || !rk.imm || !rk.blk || (!rk.now && !(isAppr && has("appr"))),
       sec = now ? "now" : promise && has("promised") ? "promised" : isAppr && has("appr") ? "appr" : wait && has("waiting") ? "waiting" : last;
     return {
       it: it,
