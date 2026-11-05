@@ -508,13 +508,25 @@ async def s_chase(p, c):
         drafts0 = await pg.evaluate("() => ((DB.demoWs || {})[paMe().id] || { drafts: [] }).drafts.length")
         tino = await pg.evaluate("() => { const v = DB.vendors.find(x => /^tino/i.test(x.name)); return { email: v.email || '', ins: v.insuranceExp || '' }; }")
         c.ok(tino['email'] == '', f'chase: Tino has no email on file in the seed ({tino})')
-        ch = pg.locator('#v-home button:visible').filter(has_text=re.compile(r'^Chase( COI)?$')).first
-        c.ok(await ch.count() > 0, 'chase: Chase is a button on Home')
+        # Tino's missing certificate is a Chase COI row of Home's Caught for You (Today to the approved mockups, aa561e6,
+        # 10-25: the detectors sit behind the quiet line); the first Chase on Home is now Window Works' lapsed COI on Do Now
+        # (00fef35, 10-21), so this check tapped Window Works and typed Tino's address into its chase. It taps Tino's own.
+        TINO_CHASE = """() => { document.querySelectorAll('[data-pt-tino]').forEach(b => b.removeAttribute('data-pt-tino'));
+          const b = [...document.querySelectorAll('#v-home button')].find(b => b.getClientRects().length && /^Chase( COI)?$/.test(b.innerText.trim())
+            && (() => { let r = b.parentElement; for (let i = 0; r && i < 4 && !/Tino/.test(r.innerText); i++) r = r.parentElement; return r && /Tino/.test(r.innerText) && !/Window Works/.test(r.innerText); })());
+          return b ? (b.setAttribute('data-pt-tino', '1'), true) : false; }"""
+        if not await pg.evaluate(TINO_CHASE):
+            cf = pg.locator('#v-home button:visible').filter(has_text=re.compile(r'Caught for You'))
+            if await cf.count(): await cf.first.click(); await pg.wait_for_timeout(500)
+        await pg.evaluate(TINO_CHASE)
+        ch = pg.locator('#v-home [data-pt-tino]').first
+        c.ok(await ch.count() > 0, "chase: Tino's Chase COI is a button on Home")
         if await ch.count():
             await ch.click(); await pg.wait_for_timeout(700)
             m = await modal(pg)
             c.ok(bool(m), 'chase: the chase modal opens')
             if m:
+                c.ok('Tino' in m['title'], f"chase: the modal is Tino's chase ({m['title']!r})")
                 c.ok(not re.search(r'project chat|client.s activity', m['text'], re.I), f'chase: the modal does not claim chat or client activity ({m["text"][:200]!r})')
                 em = pg.locator('#mbm input[type=email], #mbm [data-f="email"], #mbm #ea-email')
                 c.ok(await em.count() > 0, 'chase: the modal asks for the vendor email when it is missing')
