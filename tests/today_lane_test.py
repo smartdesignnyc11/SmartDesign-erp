@@ -161,7 +161,7 @@ async def handoffs(c, pg):
     toast = await pg.evaluate("() => { const t = document.getElementById('toast'); return { text: t.innerText, open: !!t.querySelector('a') }; }")
     c.ok('Offered to Chen' in toast['text'] and toast['open'], f'hand-off: the toast says what happened, with Open: {toast}')
     x = await pg.evaluate(t)
-    c.ok(x['owner'] == 'Owner' and x['offeredTo'] == 'Chen Biron' and x['status'] == 'offered', f"hand-off: until Chen accepts, the Owner still owns it ({x['owner']}, offered to {x['offeredTo']}, {x['status']})")
+    c.ok(x['owner'] == OWNER and x['offeredTo'] == 'Chen Biron' and x['status'] == 'offered', f"hand-off: until Chen accepts, the Owner still owns it ({x['owner']}, offered to {x['offeredTo']}, {x['status']})")
     await go(pg, 'home'); await pg.wait_for_timeout(250)
     on_owner = await pg.evaluate("() => tdyModel().tasks.some(it => /Lane handoff/.test(it.title))")
     await sign_in(pg, 'u_chen'); await go(pg, 'home'); await pg.wait_for_timeout(250)
@@ -174,7 +174,7 @@ async def handoffs(c, pg):
     c.ok(no is False, 'hand-off: a decline with no reason is refused')
     await pg.evaluate(f"() => tdyDecline(({t})(), 'Not mine: Alan files with DOB')")
     x = await pg.evaluate(t)
-    c.ok(x['owner'] == 'Owner' and x['handoff']['state'] == 'declined' and 'Alan files' in x['handoff']['reason'], f"hand-off: a decline comes back with its reason ({x['owner']}, {x['handoff']})")
+    c.ok(x['owner'] == OWNER and x['handoff']['state'] == 'declined' and 'Alan files' in x['handoff']['reason'], f"hand-off: a decline comes back with its reason ({x['owner']}, {x['handoff']})")
     on_chen = await pg.evaluate("() => tdyModel().all.some(it => /Lane handoff/.test(it.title))")
     c.ok(not on_chen, 'hand-off: a declined task leaves the decliner\'s list')
     await sign_in(pg, 'u_owner'); await go(pg, 'home'); await pg.wait_for_timeout(200)
@@ -197,7 +197,7 @@ async def handoffs(c, pg):
     await pg.wait_for_timeout(400)
     toast = await pg.evaluate("() => document.getElementById('toast').innerText")
     x = await pg.evaluate("() => tkAll({ open: true }).find(x => /Lane new: order the stair/.test(x.title))")
-    c.ok(x and x['owner'] == 'Owner' and x['offeredTo'] == 'Chen Biron' and 'Offered to Chen' in toast, f"hand-off: New Task for Chen is offered, the Owner owns it until he accepts ({x and (x['owner'], x['offeredTo'])}; {toast[:90]!r})")
+    c.ok(x and x['owner'] == OWNER and x['offeredTo'] == 'Chen Biron' and 'Offered to Chen' in toast, f"hand-off: New Task for Chen is offered, the Owner owns it until he accepts ({x and (x['owner'], x['offeredTo'])}; {toast[:90]!r})")
 
 
 RECUR = """() => { const all = (DB.projects || []).flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => a && a.recur);

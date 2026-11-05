@@ -5,6 +5,9 @@ from playwright.async_api import async_playwright
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # SD_DIST names another build to open (a copy built while a long suite holds dist/); the default is dist/.
 URL = 'file://' + (os.environ.get('SD_DIST') or os.path.join(ROOT, 'dist', 'smartdesigns_projects.html'))
+# The demo owner is a person (DEMO_OWNER in src/app.js, CoS 11-05): a stamp, a log line or an audit row the owner writes
+# names her. 'Owner' alone is the role's word (a task for the owner's seat, "the Owner approves").
+OWNER = 'Maren Holloway'
 USERS = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_alberto', 'u_alex', 'u_klein', 'u_sarah', 'u_billing', 'u_controller']
 DESKTOP = {'width': 1440, 'height': 900}
 PHONE = {'width': 390, 'height': 844}

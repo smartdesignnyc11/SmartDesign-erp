@@ -251,7 +251,7 @@ async def sec_manual(p, c):
     cl = await pg.evaluate("() => closeChecklist('2026-08').filter(i => /manual/i.test(i.label)).map(i => i.label)")
     c.ok(cl and re.search(r'1 .*\$1,200', cl[0]), f'the close checklist lists manual entries with count and amount: {cl}')
     a = await ask(pg, 'were there any manual entries in August')
-    c.ok(re.search(r'1 manual (journal )?entr', a['headline']) and 'Straight-line on the van' in a['text'] and 'Owner' in a['text'], f"Ask: {a['headline'][:200]}")
+    c.ok(re.search(r'1 manual (journal )?entr', a['headline']) and 'Straight-line on the van' in a['text'] and OWNER in a['text'], f"Ask: {a['headline'][:200]}")
     # a posting that did not derive from a document (the close's WIP entry) is flagged too, as a close entry
     k = await pg.evaluate("() => truthFlagOf({kind: 'close', accrues: 'wip', memo: 'WIP adjustment', approvedBy: 'Owner', approvedAt: '2026-09-01T10:00:00', date: '2026-08-31', lines: []})")
     c.ok(bool(k and k['text'].startswith('Close')), f'a close entry is flagged as a close entry: {k}')
