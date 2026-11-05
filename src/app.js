@@ -9465,16 +9465,9 @@ function docActions(c, d, st) {
       "construction" !== d.template &&
       ["approved", "converted"].includes(d.status) &&
       (h += B("invoice", "Invoice from this estimate…", "primary")),
-    ("estimate" !== k && "co" !== k) ||
-      "draft" === d.status ||
-      ["rejected", "expired"].includes(d.status) ||
-      !d.lines.length ||
-      (h += B("pos", "Purchase orders from lines…")),
-    "invoice" === k &&
-      "sov" !== d.mode &&
-      "void" !== d.status &&
-      d.lines.length &&
-      (h += B("pos", "Purchase orders from lines…")),
+    // the document's buying door (docs/mockups/purchasing/SPEC.md: "Buy These Lines"): only a document the firm may buy
+    // from (docBuyable: an approved or converted estimate, an approved change order, a sent invoice), on both devices
+    docBuyable(d) && d.lines.length && (h += B("pos", "Buy These Lines")),
     "estimate" === k &&
       ("sent" === d.status &&
         (h += B("approve", "Client approved", "primary") + B("reject", "Rejected") + B("expire", "Expired")),
@@ -37938,13 +37931,8 @@ const docActionsBase6 = docActions;
 docActions = function (c, d, st) {
   let h = docActionsBase6(c, d, st);
   return (
-    "estimate" === d.type &&
-      "draft" === d.status &&
-      d.lines.length &&
-      !/data-docact="pos"/.test(h) &&
-      mbCanEdit() &&
-      (h +=
-        '<button class="btn sm" data-docact="pos" title="Buy out long-lead items before award; the PO cannot be issued until the estimate is approved">Purchase orders from lines… (pre-award)</button>'),
+    // (11-05, the coordinator expert: a draft estimate was buyable; Alan's rule: only approved estimates and change
+    // orders are bought from, so the pre-award door is gone; docBuyable is the one test)
     h
   );
 };
@@ -51246,6 +51234,16 @@ const CT_TEMPLATES = {
   simple: "Simple (one line per item)",
 };
 let ctInternal = !0;
+// The one test of a document the firm may buy from (11-05): an approved or converted estimate, an approved or billed
+// change order, a sent invoice that is not a schedule of values. The document's Buy These Lines and the order sheet's
+// document list read it, on both devices (a draft estimate was buyable from the phone's order sheet).
+function docBuyable(d) {
+  if (!d) return !1;
+  if ("estimate" === d.type) return ["approved", "converted"].includes(d.status);
+  if ("co" === d.type) return ["approved", "billed"].includes(d.status);
+  if ("invoice" === d.type) return "sov" !== d.mode && !["void", "draft"].includes(d.status);
+  return !1;
+}
 const ctKey = (d, l) => `${"co" === d.type ? "co" : d.type}:${d.id}:${l.id}`,
   ctCode = (l) =>
     (LINE_KW.find(([w]) => (l.item || "").toLowerCase().includes(w)) || [
@@ -51695,17 +51693,7 @@ function ctPOPicker(projectId, preferId, preKey) {
   const p = DB.projects.find((x) => x.id === projectId) || S,
     cl = DB.clients.find((c) => c.id === p.clientId);
   if (!cl) return void toast("This project has no client yet");
-  const docs = [
-    ...cl.estimates.filter(
-      (e) => "rejected" !== e.status && "expired" !== e.status && (!e.projectId || e.projectId === p.id),
-    ),
-    ...cl.changeOrders.filter(
-      (x) => ["approved", "billed"].includes(x.status) && (!x.projectId || x.projectId === p.id),
-    ),
-    ...cl.invoices.filter(
-      (x) => "sov" !== x.mode && "void" !== x.status && (!x.projectId || x.projectId === p.id),
-    ),
-  ];
+  const docs = [...cl.estimates, ...cl.changeOrders, ...cl.invoices].filter((x) => docBuyable(x) && (!x.projectId || x.projectId === p.id));
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
   let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
@@ -121802,7 +121790,7 @@ function rxReadLines(c, d) {
     lines
       .map(
         (l, i) =>
-          `<tr class="${l.parent ? "rx-child" : ""}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
+          `<tr class="${l.parent ? "rx-child" : ""}" data-rxline="${esc(l.id)}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
             int
               ? `<td class="int money">${l.cost ? money(l.cost) : ""}</td><td class="int money">${((l) => {
                   const a = lineAmount(l, d),
