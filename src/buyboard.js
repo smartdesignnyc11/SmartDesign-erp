@@ -64,14 +64,19 @@ const BB_BUYOUT_DAYS = 10;
 function bbLineNeed(p, c, d, l, key, src) {
   const f = lineFin(key);
   if (!f) return null;
-  const remaining = Math.max(0, r2(f.budget - f.actual - f.committed)),
+  // what is left is the line's one left (lineCommitment, src/app.js): draft orders count, so a drafted buy is not a need
+  // again (11-05: Demolition stayed "Ask for Bids" with PO-2026-049 drafted on it)
+  const C = "function" == typeof lineCommitment ? lineCommitment(key) : null,
+    remaining = C ? C.left : Math.max(0, r2(f.budget - f.actual - f.committed)),
     sub = !bbBuysLine(l) && bbSubScope(l);
   if (!f.budget || remaining < 1 || !(bbBuysLine(l) || sub)) return null;
+  // a subcontract scope with an order on it is bought out (a second sub is the order sheet's question, with a reason)
+  if (sub && C && C.pos.some((po) => "cancelled" !== po.status)) return null;
   let M = { budget: null };
   try {
     M = sub ? { budget: null } : rfqMatBudget(key, l, d) || { budget: null };
   } catch (e) {}
-  const matLeft = null != M.budget ? Math.max(0, r2(M.budget - f.committed)) : null;
+  const matLeft = null != M.budget ? Math.max(0, r2(M.budget - (C ? C.onOrder : f.committed))) : null;
   if (null != matLeft && matLeft < 1) return null;
   const { needBy: needBy, task: tk } = lineNeedBy(p, l),
     lead = sub ? BB_BUYOUT_DAYS : l.leadWeeks ? 5 * +l.leadWeeks : 5,
@@ -457,11 +462,14 @@ function bbSectionsHtml(R, defs, key, phone) {
 }
 // The need's panel (desktop aside; the phone opens it as a sheet): where it stands, the money, the stock, what happened,
 // and the next step as the one blue button.
+// Keyed on the item, never on the line alone: a line holds many items (line 6 is insulation and drywall), so another
+// item's price on the same line is not this one's. A whole contract line (a sub scope, a line need) is its own item.
 function bbLastPrices(r) {
-  const nm = "function" == typeof normItem ? normItem(r.name.replace(/^\d+\.\s*/, "")) : "";
+  const nm = "function" == typeof normItem ? normItem(String(r.name || "").replace(/^\d+\.\s*/, "").replace(/^\d+(\.\d+)?\s*[a-z]*\s+(?=[A-Za-z])/i, "")) : "",
+    whole = ["line", "sub"].includes(r.kind);
   return (DB.pos || [])
     .filter((po) => !["cancelled", "draft"].includes(po.status))
-    .flatMap((po) => (po.lines || []).filter((l) => (r.lineKey && l.line === r.lineKey) || (r.m && l.materialId === r.m.id) || (nm && normItem(l.item || "") === nm)).map((l) => ({ d: po.date || "", p: +l.price || 0, u: l.unit || "" })))
+    .flatMap((po) => (po.lines || []).filter((l) => (whole && r.lineKey && l.line === r.lineKey) || (r.m && l.materialId === r.m.id) || (r.q && l.requestId === r.q.id) || (nm && normItem(l.item || "") === nm)).map((l) => ({ d: po.date || "", p: +l.price || 0, u: l.unit || "", v: po.vendor || "", n: po.number })))
     .filter((x) => x.p > 0)
     .sort((a, b) => b.d.localeCompare(a.d))
     .slice(0, 3);
@@ -506,7 +514,11 @@ function bbPanelHtml(r, picks) {
     budget = lf ? lf.budget : r.budget,
     committed = lf ? lf.committed : r.po && "function" == typeof poTotal ? poTotal(r.po).total : 0,
     last = bbLastPrices(r),
+    // the shop: the same reader as the row (puStockFor, each part of the name), so the panel and the row agree
     st = bbStock(r),
+    S1 = "function" == typeof puStockFor && !r.ordered ? puStockFor(r.name) : null,
+    C = r.lineKey && "function" == typeof lineCommitment ? lineCommitment(r.lineKey) : null,
+    book = "function" == typeof puBookPrice ? puBookPrice(r) : null,
     H = bbHistory(r),
     steps = bbSteps(r),
     ref = [bbLineLabel(r), bbJob(r.p), r.task ? r.task.name : r.room || ""].filter(Boolean).join(" · "),
@@ -521,9 +533,12 @@ function bbPanelHtml(r, picks) {
         : "",
     grid = [
       ["Line budget", budget ? money(budget) : "—"],
-      ["Committed", money(committed || 0)],
-      [`Last ${last.length || 3} buys`, last.length ? last.map((x) => `${money(x.p)}${x.u ? "/" + x.u : ""}`).join(", ") : "none on file"],
-      ["At the shop", st ? `${st.from} in stock` : "none"],
+      ["Committed", money(C ? C.committed : committed || 0)],
+      C && C.drafted ? ["In draft orders", money(C.drafted)] : null,
+      C && C.budget ? [C.over ? "Over the line" : "Left on the line", money(C.over || C.left)] : null,
+      [`Last ${last.length || 3} buys`, last.length ? last.map((x) => `${money(x.p)}${x.u ? "/" + x.u : ""}${x.v ? ` ${x.v}` : ""}`).join(", ") : book ? "none ordered" : "none on file"],
+      book ? ["Best price known", book.say] : null,
+      ["At the shop", S1 ? (S1.length ? S1.map((s) => `${puUnits(s.qty, s.unit)} ${s.name}, ${String(s.where).toLowerCase()}`).join("; ") : "none") : st ? `${st.from} in stock` : "none"],
       r.askedBy ? ["Asked by", r.askedBy] : null,
     ].filter(Boolean);
   return `<div class="bb-ph"><span class="bb-ref" data-nocase>${esc(ref)}</span><h3 data-nocase>${esc(r.name)}</h3></div>${lateBox}${fix}<div class="bb-grid" data-nocase>${grid.map(([k, v]) => `<span>${esc(k)}</span><b data-nocase>${esc(v)}</b>`).join("")}</div>${H.length ? `<div class="bb-hist" data-nocase><span class="bb-hh">WHAT HAPPENED</span>${H.map((h) => `<span><b>${esc(h.d ? fmt(h.d) : h.when || "")}</b> · <span data-nocase>${esc(h.t)}</span></span>`).join("")}</div>` : ""}<div class="bb-steps">${steps

@@ -29796,7 +29796,7 @@ function clientFundsLedger() {
               actual = f.actual,
               committed = f.committed,
               paidOut = actual,
-              remainingToBuy = Math.max(0, r2(budget - actual - committed)),
+              remainingToBuy = (lineCommitment(key) || { left: Math.max(0, r2(budget - actual - committed)) }).left,
               reserved = Math.max(0, r2(Math.min(collected - paidOut, budget - paidOut))),
               floated = Math.max(0, r2(paidOut - collected)),
               kind =
@@ -41314,7 +41314,7 @@ const ctPOPickerBase_wf2b = (ctPOPicker = function (projectId, preferId, preKey)
       setTimeout(() => {
         row?.scrollIntoView({ block: "center" });
         const v = row?.querySelector("[data-ctpv]");
-        v && !v.value && v.focus();
+        v && !v.value && !("function" == typeof mOn && mOn()) && v.focus();
       }, 60);
   }
 });
@@ -51672,14 +51672,63 @@ function ctPrint(c, d) {
 }
 // The budget left on a line after the orders already on it (buying day finding 14: the whole line showed while
 // PO-2026-041 and PO-2026-048 were already on it), the same number the order sheet and the Buy Board show.
-function ctpLeftText(key, l, have) {
+// One commitment per line (11-05, the coordinator expert: Demolition read $19,850 left on the order sheet, $0 committed
+// on the Buy Board and "—" on Client Funds, after a draft PO-2026-049 of $13,900; the drafts were counted nowhere, so the
+// line was bought twice). What a contract line has spent and has on order, and what is left to buy:
+//   actual      bills, bank and card lines, store runs, stock and labour on the line (lineFin)
+//   committed   issued orders, net of what is billed against them (lineFin; the books' committed)
+//   drafted     draft orders on the line, not yet issued (a buy in hand: counted here so it is never bought twice)
+//   used        actual + committed + drafted;  left = budget - used;  over = used - budget
+// Every screen that shows a line's committed or left reads this: the order sheet, the Buy Board's row and panel,
+// Client Funds, the job's Orders, and the issue gate (lineBudgetTest below).
+function lineCommitment(key) {
   let f = null;
   try {
     f = lineFin(key);
   } catch (e) {}
-  if (!f || !(+f.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
-  const left = Math.max(0, r2(f.budget - f.actual - f.committed));
-  return ` · budget ${money(f.budget)} · ${money(left)} left${(have || []).length ? ` after ${have.map((po) => po.number).join(", ")}` : ""}`;
+  if (!f) return null;
+  const amt = (po) => (po.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    drafts = f.draftPOs || (DB.pos || []).filter((po) => "draft" === po.status && (po.lines || []).some((l) => l.line === key)),
+    budget = +f.budget || 0,
+    actual = r2(+f.actual || 0),
+    committed = r2(+f.committed || 0),
+    drafted = r2(drafts.reduce((a, po) => a + amt(po), 0)),
+    used = r2(actual + committed + drafted);
+  return { key: key, budget: budget, actual: actual, committed: committed, drafted: drafted, onOrder: r2(committed + drafted), used: used, left: Math.max(0, r2(budget - used)), over: budget > 0 ? Math.max(0, r2(used - budget)) : 0, pos: (f.pos || []).concat(drafts), drafts: drafts };
+}
+// The one budget test (11-05, the field expert: the create check read committed and ignored actual, so Windows, with $0
+// left, made a $29,700 order with no warning). Actual plus committed plus drafted plus what this buy adds, against the
+// line. add: the dollars being added; opts.excludePo: an order already counted, taken out first (to issue a draft as it
+// stands: lineBudgetTest(key, 0); to test an order's new amount: lineBudgetTest(key, newAmount, { excludePo: po.id })).
+// Read at the tick and at create (the order sheet), at issue (the issue gate), and on the job's Orders (Over the Line).
+function lineBudgetTest(key, add, opts) {
+  const o = opts || {},
+    c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return { ok: !0, c: c, by: 0, after: c ? r2(c.used + (+add || 0)) : +add || 0, say: "" };
+  const ex = o.excludePo ? (DB.pos || []).find((po) => po.id === o.excludePo) : null,
+    mine = ex && "cancelled" !== ex.status ? r2((ex.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)) : 0,
+    after = r2(c.used - mine + (+add || 0)),
+    by = r2(after - c.budget),
+    ok = by <= Math.max(1, 0.001 * c.budget);
+  let ref = null;
+  try {
+    ref = findLine(key);
+  } catch (e) {}
+  const name = ref ? `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""} (${ref.line.item || ref.line.desc || ""})` : "the line";
+  return {
+    ok: ok,
+    c: c,
+    by: ok ? 0 : by,
+    after: after,
+    mine: mine,
+    say: ok ? "" : `${money(by)} over the ${money(c.budget)} budget of ${name}: ${money(c.actual)} spent, ${money(c.onOrder)} on order${c.drafted ? ` (${money(c.drafted)} in draft)` : ""}${+add ? `, and this buy adds ${money(+add)}` : ""}`,
+  };
+}
+function ctpLeftText(key, l, have) {
+  const c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
+  const P = c.pos.map((po) => po.number + ("draft" === po.status ? " (draft)" : ""));
+  return ` · budget ${money(c.budget)} · ${c.over ? `${money(c.over)} over` : `${money(c.left)} left`}${P.length ? ` after ${P.join(", ")}` : c.actual ? ` after ${money(c.actual)} spent` : ""}`;
 }
 const ROWFN = (d, l, key, have, its, lq, lc, preKey) =>
   `<tr class="ctp-line"><td><label class="ctp-tick"><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></label></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${ctpLeftText(key, l, have)}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
@@ -51723,7 +51772,10 @@ function ctPOPicker(projectId, preferId, preKey) {
                   have = ctPOsForKey(key),
                   its = l.items || [],
                   lq = +l.qty || 1,
-                  lc = l.cost
+                  lcm = lineCommitment(key),
+                  lc = lcm && lcm.budget > 0
+                    ? r2(lcm.left / lq)
+                    : l.cost
                     ? r2(l.cost / lq)
                     : (() => {
                         const o =
@@ -51745,27 +51797,27 @@ function ctPOPicker(projectId, preferId, preKey) {
         const docOf = (lid) => docs.find((x) => x.lines.some((l) => l.id === lid)),
           picks = [...m.querySelectorAll("[data-ctpsel]:checked")].map((cb) => cb.dataset.ctpsel);
         if (!picks.length) return toast("Tick at least one line or item"), !1;
-        const over = [];
-        if (
-          (picks.forEach((sel) => {
-            const [lid] = sel.split("#"),
-              d = docOf(lid),
-              l = d.lines.find((x) => x.id === lid),
-              g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
-              add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
-              f = lineFin(ctKey(d, l));
-            l.cost &&
-              f &&
-              f.committed + add > 1.001 * l.cost &&
-              !over.some((o) => o.l === l) &&
-              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
-          }),
-          over.length &&
-            !appConfirm(
-              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
-            ))
-        )
-          return !1;
+        // the one budget test per line (lineBudgetTest: actual plus on order plus this buy), every pick on a line summed
+        const adds = {};
+        picks.forEach((sel) => {
+          const [lid] = sel.split("#"),
+            d = docOf(lid),
+            l = d.lines.find((x) => x.id === lid),
+            g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
+            k = ctKey(d, l);
+          (adds[k] = adds[k] || { l: l, add: 0 }).add += (+g("ctpq") || 1) * (+g("ctpc") || 0);
+        });
+        const over = Object.entries(adds).map(([k, x]) => lineBudgetTest(k, x.add)).filter((t) => !t.ok);
+        if (over.length && !appConfirm(`This order would put ${over.length === 1 ? "the line" : `${over.length} lines`} over budget. ${over.map((t) => t.say).join("; ")}. Create it anyway?`)) return !1;
+        // a second order on a subcontract line is a second sub for the same scope: warned, and the reason kept on the order
+        const subAgain = Object.entries(adds).filter(([k, x]) => "function" == typeof bbSubScope && bbSubScope(x.l) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)));
+        let againWhy = "";
+        if (subAgain.length) {
+          const on = subAgain.map(([k, x]) => `${x.l.num ? x.l.num + ". " : ""}${x.l.item} (${(DB.pos || []).filter((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)).map((po) => po.number).join(", ")})`).join("; ");
+          const why = appPrompt(`A subcontract order is already on ${on}. A second sub for the same scope buys it twice unless the scope is split. Why a second order?`, "", { title: "A Second Order on This Line", label: "Reason" });
+          if (null == why) return !1;
+          againWhy = String(why).trim();
+        }
         const byVendor = {},
           srcDocs = new Set();
         picks.forEach((sel) => {
@@ -51787,6 +51839,8 @@ function ctPOPicker(projectId, preferId, preKey) {
             line: ctKey(d, l),
             code: l.code || codeForLine(l),
             received: 0,
+            // the field request this order covers (ticked under the line): it leaves the store run, so it is bought once
+            requestId: (m.querySelector(`[data-ctpreq="${sel}"]:checked`) || {}).value || "",
           }),
             it && !it.vendor && (it.vendor = vendor),
             it || l.vendor || (l.vendor = vendor);
@@ -51808,7 +51862,19 @@ function ctPOPicker(projectId, preferId, preKey) {
             matchedTxns: [],
             createdBy: S.project.userName || DB.me || "",
           };
+          againWhy && lines.some((pl) => subAgain.some(([k]) => k === pl.line)) && (po.secondOrderWhy = againWhy);
           return DB.pos.push(po), po;
+        });
+        made.forEach((po) => {
+          try {
+            // a line bought for a field request names what the site asked for (not the estimate line's title)
+            (po.lines || []).forEach((pl) => {
+              const q = pl.requestId && (p.requests || []).find((x) => x.id === pl.requestId);
+              q && q.what && ((pl.desc = pl.desc || pl.item), (pl.item = q.what));
+            });
+            (po.lines || []).some((pl) => pl.requestId) && "function" == typeof bbAfterOrder && bbAfterOrder(po, "from the order sheet");
+            po.secondOrderWhy && audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+          } catch (e) {}
         });
         audit(
           "po",
