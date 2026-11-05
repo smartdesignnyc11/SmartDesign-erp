@@ -189190,7 +189190,9 @@ function toBill(pid, opts) {
     const R = base.apply(this, arguments);
     try {
       const X = ocMemo("rbReady", () => rbReady()) || [];
-      let rows = R.rows.concat(X);
+      // the rows below are decorated (ahead, why): copies, never the memo's own rows, so a cached answer stays the one
+      // its inputs give (BACKLOG 1.36: the memo check found oc:readyToBill's rows carrying this wrapper's words)
+      let rows = R.rows.concat(X).map((r) => Object.assign({}, r));
       const held = R.held.slice();
       // A job billed ahead of the work (line by line, pbAhead) is never billed further ahead, and its measured work is
       // never left unbilled. Its application still bills every line behind its measure (this period = measured less
