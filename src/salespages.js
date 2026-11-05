@@ -206,10 +206,11 @@ let slChip = "need",
 function slOpenPipeline(chip) {
   (slChip = chip || "need"), setView("ovsales");
 }
-// the owner and the PM take inquiries and move deals (the PM starts a lead on the Pipeline, as on the old Lead Board)
-// The roles the old Sales page let add a lead (ocCan("scleads")) keep New Lead and its import here (drafts crawl, 11-04:
-// billing and the coordinator had lost them)
-const slMayEdit = () => ("function" == typeof ocCan ? ocCan("scleads") : isOwner() || "pm" === role()) && ydOffice();
+// Two gates (chief of staff, 11-05). Adding a lead: every role the old Sales page let add one (ocCan("scleads"): the
+// owner, the PM, the coordinator and billing; the drafts crawl found billing and the coordinator had lost New Lead).
+// Moving a deal (its full record, won or lost, Set Up the Job): the owner and the PM only (DECISIONS 11-04).
+const slMayAddLead = () => ("function" == typeof ocCan ? ocCan("scleads") : isOwner() || "pm" === role()) && ydOffice();
+const slMayEdit = () => (isOwner() || "pm" === role()) && ydOffice();
 // New Client for every office role that keeps the client list (the old Clients page offered it to all of them)
 const slMayAddClient = () => ydOffice() && ydMay("clients");
 // money on the client pages: the owner, the PM, billing and the controller (the designer reads decisions, not money)
@@ -231,7 +232,8 @@ function slDealRow(l, sec, o) {
     primary: !!o.primary,
     // a lead not yet qualified opens as the lead it is (its own record: Convert to Opportunity, Unqualify); a deal opens
     // its page
-    run: o.run || (() => ("inquiry" === l.stage && "function" == typeof scOpen ? scOpen(l.id) : slOpenDeal(l.id))),
+    // (the lead's own record moves it, so it is the owner's and the PM's; anyone else reads the deal's page)
+    run: o.run || (() => ("inquiry" === l.stage && slMayEdit() && "function" == typeof scOpen ? scOpen(l.id) : slOpenDeal(l.id))),
   };
 }
 function slPipelineRows() {
@@ -300,12 +302,12 @@ function slPipelineRender() {
           : ydSectionHtml("Proposals Out", sec("props").length, "each estimate with its deal", sec("props"), "No proposals out.");
   const nums = slNums();
   const fold = ydFoldHtml("nums", "How Sales Is Going", slNumsOpen, nums.map((x) => `<div class="yd-kv"${x.go ? ` data-ydnum="${esc(x.k)}" role="button" tabindex="0"` : ""}><span>${esc(x.k)}<i>${esc(x.sub)}</i></span><b>${esc(x.v)}</b></div>`).join(""));
-  const plus = slMayEdit()
+  const plus = slMayAddLead()
     ? `<span class="yd-plus"><button type="button" class="btn yd-plusb" data-ydnew aria-haspopup="menu" aria-expanded="${slNewOpen}" aria-label="New Lead">${ydSvg("plus")}${phone ? "" : "New Lead"}</button>${
         slNewOpen ? `<div class="yd-menu" role="menu"><span class="yd-mh">New lead, for you</span><button type="button" role="menuitem" data-ydnewitem="mail">Lead from a Mail</button><button type="button" role="menuitem" data-ydnewitem="typed">Lead, Typed In</button>${"function" == typeof ocSalesImport ? '<button type="button" role="menuitem" data-ydnewitem="import">Import a List</button>' : ""}</div>` : ""
       }</span>`
     : "";
-  h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Pipeline</h2><div class="yd-sub">${need.length ? `${ydPlural(need.length, "deal needs", "deals need")} you` : "No deal needs you"} · open pipeline ${esc(ydMoney0(pipe))}${slMayEdit() ? "" : " · read only"}</div></div>${plus}</div>${ydChipsHtml(defs, slChip, "pipe")}${body}${fold}`;
+  h.innerHTML = `<div class="yd-ph"><div class="grow"><h2>Pipeline</h2><div class="yd-sub">${need.length ? `${ydPlural(need.length, "deal needs", "deals need")} you` : "No deal needs you"} · open pipeline ${esc(ydMoney0(pipe))}${slMayEdit() ? "" : slMayAddLead() ? " · you add leads; the owner and the PM move deals" : " · read only"}</div></div>${plus}</div>${ydChipsHtml(defs, slChip, "pipe")}${body}${fold}`;
 }
 
 // ---- Clients ------------------------------------------------------------------------------------------------------
@@ -378,7 +380,7 @@ function slClientsRows() {
       const L = (DB.leads || []).filter((l) => l.partnerId === p.id),
         owe = (p.thanks || []).filter((t) => !t.done).length,
         last = (p.touches || []).map((t) => t.at).sort().pop() || "";
-      return { id: "pt:" + p.id, sec: "partners", title: `${p.name}${p.firm ? `, ${p.firm}` : ""}`, meta: `${L.length} referrals${owe ? ` · a thank-you owed` : ""}${last ? ` · last touch ${fmt(String(last).slice(0, 10))}` : " · never touched"}`, act: "function" == typeof slPartnerTouch ? "Touch" : "Open", run: () => ("function" == typeof slPartnerTouch ? slPartnerTouch(p) : "function" == typeof slPartnerSheet ? slPartnerSheet(p) : null) };
+      return { id: "pt:" + p.id, sec: "partners", title: `${p.name}${p.firm ? `, ${p.firm}` : ""}`, meta: `${L.length} referrals${owe ? ` · a thank-you owed` : ""}${last ? ` · last touch ${fmt(String(last).slice(0, 10))}` : " · never touched"}`, act: "function" == typeof slPartnerTouch ? "Touch" : "Open", run: () => ("function" == typeof slPartnerSheet ? slPartnerSheet(p) : null), touch: "function" == typeof slPartnerTouch ? () => slPartnerTouch(p) : null };
     });
   const C = DB.clients || [],
     rowOf = (c, sec, o) => {
@@ -393,7 +395,7 @@ function slClientsRows() {
     if (M.length) need.push(rowOf(c, "need", { meta: `waiting on us: ${M.map((m) => `${ydMsgWho(m)} ${fmt(String(m.date || "").slice(0, 10))}`).join(", ")}`, act: "Open", when: ydAge(M[M.length - 1].date), late: !0 }));
     else if (F.overdue > 0 && slMoneyOk()) need.push(rowOf(c, "need", { meta: `${ydMoney0(F.overdue)} past due`, act: "Open" }));
   });
-  slStrangers().forEach((x) => need.push({ id: x.id, sec: "need", title: x.title, meta: x.meta, act: slMayEdit() || "pm" === role() ? x.act : "", run: x.run }));
+  slStrangers().forEach((x) => need.push({ id: x.id, sec: "need", title: x.title, meta: x.meta, act: slMayAddClient() ? x.act : "", run: x.run }));
   return need;
 }
 function slClientsRender() {
@@ -406,7 +408,8 @@ function slClientsRender() {
   slClChip = keep;
   const shown = slClientsRows();
   ydActs = {};
-  shown.forEach((r) => ydAct(r.id, r.run));
+  // a partner's row opens the partner (its details, to edit); its Touch button logs a touch
+  shown.forEach((r) => (ydAct(r.id, r.run), r.touch && ydAct("t" + r.id, r.touch)));
   const owed = (DB.clients || []).reduce((a, c) => a + clientFin(c).outstanding, 0),
     past = (DB.clients || []).reduce((a, c) => a + clientFin(c).overdue, 0);
   const title = { need: "Need You", all: "All Clients", partners: "Partners" }[slClChip];
@@ -419,6 +422,11 @@ function slClientsRender() {
     slClChip,
     "clients",
   )}${ydSectionHtml(title, shown.length, "need" === slClChip ? "waiting on us, money past due, or not on file" : "", shown, "need" === slClChip ? "No client needs you." : "Nobody here yet.")}`;
+  shown.forEach((r) => {
+    if (!r.touch) return;
+    const b = h.querySelector(`[data-ydact="${CSS.escape(r.id)}"]`);
+    b && (b.dataset.ydact = "t" + r.id);
+  });
 }
 
 // ---- a client's page -----------------------------------------------------------------------------------------------
@@ -647,7 +655,7 @@ function slDealRender() {
   if ("won" === l.stage && !job) (act = "Set Up the Job"), (run = () => slSetUpJob(l));
   else if (n.task) (act = slVerb(n.title) === "Open" ? "Open the Task" : slVerb(n.title)), (run = () => tkSheet(n.key));
   else if (slIsOpen(l)) (act = "Add a Next Step"), (run = () => newTaskDialog({ title: "", dealId: l.id }));
-  run && ydAct("next", run);
+  run && edit && ydAct("next", run);
   const Q = l.qual || {};
   const why = [
     ["What set it off", Q.trigger],
@@ -781,6 +789,7 @@ document.addEventListener(
     if ((b = at("[data-ydgo]"))) return e.preventDefault(), void setView(b.dataset.ydgo);
     if ((b = at("[data-ydrecord]"))) {
       e.preventDefault();
+      if (!slMayEdit()) return;
       const l = (DB.leads || []).find((x) => x.id === b.dataset.ydrecord);
       return void (l && ("inquiry" === l.stage && "function" == typeof scOpen ? scOpen(l.id) : "function" == typeof hbOpen ? (hbOpen("deal", l.id), render()) : null));
     }

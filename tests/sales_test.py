@@ -29,6 +29,77 @@ PAGE = """() => { const chips = [...document.querySelectorAll('.view.on [data-yd
   return { chips, rows, tiles, tabs, text: document.querySelector('.view.on').innerText }; }"""
 
 
+# The two sales gates (chief of staff, 11-05), named role by role, not read from the code they check:
+#   adding a lead (New Lead, Import a List): the owner, the PM, the coordinator and billing; nobody else
+#   moving a deal (the lead's and the deal's full record, won or lost, Set Up the Job, the next step): the owner and the PM
+ADD_LEAD = ('u_owner', 'u_alan', 'u_chen', 'u_billing')
+MOVE_DEAL = ('u_owner', 'u_alan')
+OFFICE = ('u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah')
+
+
+async def gates(p, phone):
+    """each office role, both gates, as each shows on the screen: the Pipeline's +, a lead's own record, the signed
+    deal's Open the Full Record and Set Up the Job; and Add as a Client on an unknown sender follows New Client"""
+    for uid in OFFICE:
+        who = f'{uid} {"phone" if phone else "desktop"}'
+        b, pg, errs = await open_app(p, phone)
+        await sign_in(pg, uid)
+        g = await pg.evaluate("() => ({ add: slMayAddLead(), move: slMayEdit(), client: slMayAddClient(), pipe: (ROLE_VIEWS[role()] || []).includes('ovsales') })")
+        c.ok(g['add'] == (uid in ADD_LEAD), f'{who}: adds leads {g["add"]}, want {uid in ADD_LEAD}')
+        c.ok(g['move'] == (uid in MOVE_DEAL), f'{who}: moves deals {g["move"]}, want {uid in MOVE_DEAL}')
+        if g['pipe']:
+            await go(pg, 'ovsales')
+            plus = await pg.evaluate("() => !!document.querySelector('.view.on [data-ydnew]')")
+            c.ok(plus == (uid in ADD_LEAD), f'{who}: the Pipeline + shows {plus}')
+            # a lead (inquiry) row: its own record for the owner and the PM, the deal's read-only page for anyone else
+            lead = await pg.evaluate("""async () => { const l = DB.leads.find(x => x.stage === 'inquiry'); if (!l) return null;
+              slChip = 'open'; render(); await new Promise(r => setTimeout(r, 100));
+              const r = document.querySelector(`.view.on [data-ydrow="${l.id}"]`); if (!r) return 'no row';
+              r.click(); await new Promise(r => setTimeout(r, 200)); return view; }""")
+            c.ok(lead in (('scleads',) if uid in MOVE_DEAL else ('deal',)), f'{who}: a lead opens on {lead}')
+            # the signed deal with no job: Open the Full Record and Set Up the Job only for those who move deals
+            d = await pg.evaluate("""async () => { const l = DB.leads.find(x => x.stage === 'won' && /Nakamura/.test(x.name)); if (!l) return null;
+              slOpenDeal(l.id); await new Promise(r => setTimeout(r, 200)); const t = (document.querySelector('.view.on') || {}).innerText || '';
+              return { full: !!document.querySelector('.view.on [data-ydrecord]'), setup: [...document.querySelectorAll('.view.on [data-ydact="next"]')].some(b => /Set Up the Job/.test(b.innerText)) }; }""")
+            c.ok(d and d['full'] == (uid in MOVE_DEAL) and d['setup'] == (uid in MOVE_DEAL), f'{who}: the signed deal offers Open the Full Record and Set Up the Job: {d}')
+        # an unknown sender's Add as a Client follows New Client (slMayAddClient)
+        await go(pg, 'clients')
+        st = await pg.evaluate("""() => { clientOpen = null; docOpen = null; slClChip = 'need'; render();
+          const rows = [...document.querySelectorAll('.view.on [data-ydrow^="who:"], .view.on [data-ydrow^="rep:"]')];
+          return { rows: rows.length, acts: rows.filter(r => r.querySelector('[data-ydact]')).length, newc: !!document.querySelector('.view.on [data-ydnewclient]') }; }""")
+        c.ok(st['rows'] == 0 or (st['acts'] == st['rows']) == st['newc'] == g['client'], f'{who}: Add as a Client follows New Client: {st}, may add clients {g["client"]}')
+        c.ok(not errs, f'{who} gates: errors {errs[:2]}')
+        await b.close()
+
+
+async def partners(p, phone):
+    """a partner's row opens the partner, to read and edit; its Touch button logs a touch"""
+    who = f'owner {"phone" if phone else "desktop"}'
+    b, pg, errs = await open_app(p, phone)
+    await sign_in(pg, 'u_owner'); await go(pg, 'clients')
+    await pg.evaluate("() => { clientOpen = null; docOpen = null; slClChip = 'partners'; render(); }")
+    await pg.wait_for_timeout(150)
+    pid = await pg.evaluate("() => { const p = DB.partners[0]; return p && p.id; }")
+    c.ok(bool(pid), f'{who}: no partner on file')
+    if pid:
+        await pg.evaluate("id => { const r = document.querySelector(`.view.on [data-ydrow=\"pt:${id}\"] .yd-t`); r.click(); }", pid)
+        await pg.wait_for_timeout(250)
+        m = await pg.evaluate("() => { const m = document.querySelector('#mbm'); return m ? { t: m.innerText.split('\\n')[0], firm: !!m.querySelector('[data-f=firm]') } : null; }")
+        c.ok(m and m['firm'] and 'partner' in m['t'].lower(), f'{who}: the row opens the partner to edit: {m}')
+        if m:
+            await pg.fill('#mbm [data-f=firm]', 'Kahn & Partners Realty')
+            await pg.click('#mbm #mbm-ok'); await pg.wait_for_timeout(250)
+            firm = await pg.evaluate("id => DB.partners.find(x => x.id === id).firm", pid)
+            c.ok(firm == 'Kahn & Partners Realty', f'{who}: the partner\'s details are edited and saved ({firm!r})')
+        await pg.evaluate("() => { document.querySelectorAll('#mbm').forEach(x => x.remove()); slClChip = 'partners'; render(); }")
+        t = await pg.evaluate("""async id => { const b = document.querySelector(`.view.on [data-ydrow="pt:${id}"] [data-ydact]`); if (!b) return null;
+          const lbl = b.innerText.trim(); b.click(); await new Promise(r => setTimeout(r, 250)); const m = document.querySelector('#mbm');
+          return { lbl, t: m ? m.innerText.split('\\n')[0] : '' }; }""", pid)
+        c.ok(t and t['lbl'] == 'Touch' and t['t'].lower().startswith('touch'), f'{who}: the row\'s Touch button logs a touch: {t}')
+    c.ok(not errs, f'{who} partners: errors {errs[:2]}')
+    await b.close()
+
+
 async def pipeline_as(p, uid, phone):
     who = f'{uid} {"phone" if phone else "desktop"}'
     b, pg, errs = await open_app(p, phone)
@@ -63,11 +134,9 @@ async def pipeline_as(p, uid, phone):
     # Today's Deals That Need You reads the same rule
     tn = await pg.evaluate("() => { try { return ydFirmRows().find(r => r.k === 'deals').v; } catch (e) { return null; } }")
     c.ok(str(tn) == n, f"{who}: Today's Deals That Need You {tn} vs the Pipeline's {n}")
-    # roles: whoever the old Sales page let add a lead (ROLE_VIEWS holds scleads) has the one + (New Lead: from a mail,
-    # typed in, or a list imported); the others read (drafts crawl, 11-04: billing and the coordinator had lost it)
+    # roles: the one + (New Lead: from a mail, typed in, or a list imported) is every role that adds leads, named here
     plus = await pg.evaluate("() => !!document.querySelector('.view.on [data-ydnew]')")
-    may = await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('scleads')")
-    c.ok(plus == may, f'{who}: the Pipeline + shows {plus}, the role adds leads {may}')
+    c.ok(plus == (uid in ADD_LEAD), f'{who}: the Pipeline + shows {plus}')
     # the old pages land here
     for old in ('salesnum', 'hbforecast', 'hbdash'):
         ok = await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", old)
@@ -203,6 +272,8 @@ async def main():
     async with async_playwright() as p:
         for phone in (False, True):
             if not only or 'deal' in only: await estimates_and_deal(p, phone)
+            if not only or 'gates' in only: await gates(p, phone)
+            if not only or 'partners' in only: await partners(p, phone)
             for uid in ('u_owner', 'u_alan', 'u_chen'):
                 if not only or 'pipeline' in only: await pipeline_as(p, uid, phone)
             for uid in ('u_owner', 'u_alan', 'u_billing', 'u_sarah'):
