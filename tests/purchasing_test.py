@@ -599,10 +599,23 @@ async def s_polish(p, c):
     try:
         await sign_in(pg, 'u_chen')
         await pg.evaluate("() => { setCurrent('p121'); view = 'recv'; render(); }"); await pg.wait_for_timeout(500)
-        card = pg.locator('.recv-po').filter(has_text='PO-2026-048').first
+        # The phone's Deliveries lists each order under Arriving with Receive, which opens the receive sheet (the Purchasing
+        # pages, src/purchasing.js puDeliveries/puReceive: "the phone receives from the sheet"); the old line cards are behind
+        # "Receive Line by Line". This check tapped a Received on those hidden cards and relied on the count pre-filled at the
+        # full order (BACKLOG 1.36). The person taps Receive on the Carlos row, counts what came (the whole millwork order) and
+        # taps Receive; an untouched sheet records nothing.
+        card = pg.locator('.view.on .pu-row').filter(has_text='PO-2026-048').filter(has=pg.locator('[data-purecv]')).first
         c.ok(await card.count() > 0, 'polish: the Carlos PO is on Deliveries')
         if await card.count():
-            await card.locator('button').filter(has_text=re.compile(r'^Received$')).first.click(); await pg.wait_for_timeout(900)
+            await card.locator('[data-purecv]').first.click(); await pg.wait_for_timeout(500)
+            q = pg.locator('#mbm input[data-purq]').first
+            c.ok(await q.count() > 0 and await q.input_value() == '', f"polish: the received count starts empty on the phone ({await q.input_value() if await q.count() else 'no sheet'!r})")
+            rec0 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-048').lines.map(l => +l.received || 0))")
+            await modal_ok(pg, 400)
+            rec1 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-048').lines.map(l => +l.received || 0))")
+            c.ok(rec0 == rec1 and bool(await modal(pg)), f'polish: Receive with no count typed records nothing and keeps the sheet open ({rec0} -> {rec1})')
+            if await q.count(): await q.fill('1')
+            await modal_ok(pg, 900)
             t = await toast(pg)
             c.ok('Bill It' in t.get('links', []), f'polish: the receiving toast offers Bill It ({t})')
             if 'Bill It' in t.get('links', []):

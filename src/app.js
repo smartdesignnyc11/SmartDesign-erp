@@ -34256,7 +34256,7 @@ function renderRecv() {
         return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${got}/${tot} received</span></div>\n    ${po.lines
           .map((l) => {
             const left = Math.max(0, (+l.qty || 0) - (+l.received || 0));
-            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="${left}" data-rq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
+            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="" placeholder="${left} to come" aria-label="${esc(l.item || l.desc || "Line")}: how many arrived (${left} still to come)" data-rq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
           })
           .join(
             "",
@@ -34290,9 +34290,13 @@ function renderRecv() {
         const [pid, lid] = b.dataset.rin.split(":"),
           po = DB.pos.find((x) => x.id === pid),
           l = po.lines.find((x) => x.id === lid),
-          qty = +root.querySelector(`[data-rq="${pid}:${lid}"]`).value || 0;
-        qty <= 0 ||
-          (receive(po, l, qty), save(), render(), toast(`${qty} ${l.unit || ""} ${l.item || ""} checked in`));
+          inp = root.querySelector(`[data-rq="${pid}:${lid}"]`),
+          qty = +inp.value || 0;
+        // Receiving counts what arrived: the box starts empty (what is still to come is only its hint), so an
+        // untouched Received records nothing and asks for the count (BACKLOG 1.36: pre-filled at the full order,
+        // one tap recorded what never came and the bill was then matched to it).
+        if (qty <= 0) return void (toast(`Type how many ${l.item || l.desc || "of this line"} arrived first`), inp.focus());
+        receive(po, l, qty), save(), render(), toast(`${qty} ${l.unit || ""} ${l.item || ""} checked in`);
       }),
   ),
     root.querySelectorAll("[data-rall]").forEach(
@@ -56089,10 +56093,15 @@ function procRecvModal() {
 function procReceiveModal(it, tag) {
   mbModal(
     `Receiving — ${esc(it.name)}`,
-    `\n    <p class="small muted" style="margin:0 0 10px">${selQty(it)} ${SEL_UNIT_LABEL[it.unit] || it.unit} expected from ${esc(it.vendor || "the vendor")}${it.sku ? ` · ${esc(it.sku)}` : ""}${it.finish ? ` · ${esc(it.finish)}` : ""}. Open it and look before it goes on a shelf — a short count found at installation is a four-week hole.</p>\n    <div class="grid2">\n      <div class="f"><label>Office tag</label><input data-f="tag" placeholder="121-4" value="${esc(tag || it.tag || "")}"></div>\n      <div class="f"><label>Quantity in the box</label><input data-f="qty" type="number" step="0.01" value="${selQty(it)}"></div>\n    </div>\n    <div class="f"><label>Condition</label>\n      <div class="recv-cond">${SEL_CONDITIONS.map(([k, l, c, why]) => `<label class="recv-opt"><input type="radio" name="cond" value="${k}" ${"ok" === k ? "checked" : ""}><span><b>${l}</b>${why ? `<span class="small muted">${why}</span>` : ""}</span></label>`).join("")}</div>\n    </div>\n    <div class="f"><label>Note</label><textarea data-f="note" rows="2" placeholder="Chip on the spout, photographed. Spoke to Dana at Ferguson."></textarea></div>`,
+    `\n    <p class="small muted" style="margin:0 0 10px">${selQty(it)} ${SEL_UNIT_LABEL[it.unit] || it.unit} expected from ${esc(it.vendor || "the vendor")}${it.sku ? ` · ${esc(it.sku)}` : ""}${it.finish ? ` · ${esc(it.finish)}` : ""}. Open it and look before it goes on a shelf — a short count found at installation is a four-week hole.</p>\n    <div class="grid2">\n      <div class="f"><label>Office tag</label><input data-f="tag" placeholder="121-4" value="${esc(tag || it.tag || "")}"></div>\n      <div class="f"><label>Quantity in the box</label><input data-f="qty" type="number" inputmode="decimal" step="0.01" value="" placeholder="${selQty(it)} expected"></div>\n    </div>\n    <div class="f"><label>Condition</label>\n      <div class="recv-cond">${SEL_CONDITIONS.map(([k, l, c, why]) => `<label class="recv-opt"><input type="radio" name="cond" value="${k}" ${"ok" === k ? "checked" : ""}><span><b>${l}</b>${why ? `<span class="small muted">${why}</span>` : ""}</span></label>`).join("")}</div>\n    </div>\n    <div class="f"><label>Note</label><textarea data-f="note" rows="2" placeholder="Chip on the spout, photographed. Spoke to Dana at Ferguson."></textarea></div>`,
     {
       submit: "Record it",
       onSubmit: (f) => {
+        // the count in the box is typed, never assumed: the expected quantity is only the hint
+        if ("" === String(f.qty == null ? "" : f.qty).trim()) {
+          const i = document.querySelector('#mbm [data-f="qty"]');
+          return i && "function" == typeof vfMark && vfMark(i, "Count what is in the box"), !1;
+        }
         const cond = document.querySelector('input[name="cond"]:checked')?.value || "ok";
         selReceive(it, "office", { tag: f.tag, qty: f.qty, condition: cond, note: f.note }),
           selVerifyLocal(it),
@@ -148853,7 +148862,7 @@ function rcReceiveSome(po) {
   rows.length
     ? mbModal(
         `Receive Some — ${esc(po.number)}`,
-        `<p class="small muted" style="margin:0 0 8px">${esc(po.vendor)} · enter what arrived today. Leave a line at 0 if nothing came.</p>\n    <div class="rc-recv">${rows.map((l) => `<label class="rc-recvrow"><span class="grow"><b>${esc(l.item || l.desc || "Line")}</b><span class="small muted"> · ${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")} in</span></span><input type="number" inputmode="decimal" min="0" max="${left(l)}" step="any" value="${left(l)}" data-f="q_${esc(l.id)}" aria-label="${esc(l.item || "Line")} received"></label>`).join("")}</div>\n    ${mbF("Note", '<input data-f="note" placeholder="Optional — packing slip, condition">')}`,
+        `<p class="small muted" style="margin:0 0 8px">${esc(po.vendor)} · enter what arrived today. Leave a line empty if nothing came.</p>\n    <div class="rc-recv">${rows.map((l) => `<label class="rc-recvrow"><span class="grow"><b>${esc(l.item || l.desc || "Line")}</b><span class="small muted"> · ${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")} in</span></span><input type="number" inputmode="decimal" min="0" max="${left(l)}" step="any" value="" placeholder="${left(l)} to come" data-f="q_${esc(l.id)}" aria-label="${esc(l.item || "Line")}: how many arrived (${left(l)} still to come)"></label>`).join("")}</div>\n    ${mbF("Note", '<input data-f="note" placeholder="Optional — packing slip, condition">')}`,
         {
           submit: "Record Receipt",
           onSubmit: (f) => {

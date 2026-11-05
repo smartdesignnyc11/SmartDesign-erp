@@ -869,7 +869,11 @@ function puReceive(po) {
         save(), render();
         claim
           ? toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received; a ${cond} claim is open with ${po.vendor}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
-          : toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received`, { label: "Open", run: () => flowGo.po(po)() });
+          : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards; the
+            // phone's sheet offered only Open (purchasing_test polish)
+            "function" == typeof rcReceiptToast
+            ? rcReceiptToast(po, `${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received${"received" === po.status ? " — the order is all in" : ""}`)
+            : toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
   );

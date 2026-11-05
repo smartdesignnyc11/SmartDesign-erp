@@ -487,6 +487,16 @@ async def walk_coord(w):
     w.note(f'receiving {po}')
     rcv0 = await pg.evaluate("n => JSON.stringify((DB.pos || []).find(p => p.number === n) || {})", po)
     await w.toast_mark()
+    # the count starts empty and the coordinator types what came (BACKLOG 1.36: pre-filled at the full order, one tap
+    # recorded what never came); here the first line came in full, its "to come" hint
+    left = await pg.evaluate("""n => { document.querySelectorAll('[data-dw-rq]').forEach(e => e.removeAttribute('data-dw-rq'));
+      const c = [...document.querySelectorAll('.view.on .recv-po')].find(x => x.getClientRects().length && (x.innerText || '').includes(n));
+      const i = c && c.querySelector('input[data-rq]'); if (!i) return '';
+      i.setAttribute('data-dw-rq', '1'); return i.value === '' ? (i.getAttribute('max') || '1') : 'prefilled:' + i.value; }""", po)
+    if left.startswith('prefilled:'):
+        await w.flag('prefilled', f'{po}: the received count starts at {left[10:]}, not empty')
+    elif left:
+        await w.fill(left, css='[data-dw-rq]')
     await w.click('Received', within=po)
     await w.mutated(f'{po} received', "([n, before]) => { const p = (DB.pos || []).find(p => p.number === n); return p && JSON.stringify(p) !== before && /receiv/i.test(JSON.stringify(p)) }", [po, rcv0])
     w.step('"Bill It" in the toast > invoice # > Enter')
