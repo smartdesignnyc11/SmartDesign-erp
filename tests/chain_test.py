@@ -695,6 +695,10 @@ async def s3_receive(C):
         await C.pcheck('Receive Some')
         await C.pfill(f"#mbm [data-f='q_{tl}']", '80', 'square feet that arrived')
         await C.pfill('#mbm [data-f=note]', '80 sf on two pallets; 60 sf back-ordered', 'note')
+        # the foreman photographs the packing slip before he records the receipt (the one receive sheet, BACKLOG 1.36:
+        # the field expert's day; the slip is the proof the bill is matched to)
+        await C.ph.set_input_files('#mbm [data-puslip]', files=[{'name': 'slip.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xff\xe0' + b'\x00' * 64 + b'\xff\xd9'}])
+        C.plog('photo of the packing slip')
         await C.ptap('#mbm #mbm-ok', 'Record Receipt')
         C.plog(f"→ {await C.ph.evaluate(TOAST)}")
     await C.to_desk()

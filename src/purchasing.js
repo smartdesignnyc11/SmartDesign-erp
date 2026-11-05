@@ -252,7 +252,7 @@ function puOrderRows(pid) {
         const risk = retRisk(r),
           exp = retExpected(r),
           credit = ["shipped", "received"].includes(r.status);
-        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(retValue(r))} to send back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
+        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(exp)} back once it is returned`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""}${retValue(r) - exp > 0.5 ? ` · ${money(retValue(r))} less ${money(r2(retValue(r) - exp))} restocking and freight` : ""} · ${risk.label || "no return-by date"}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
       });
   } catch (e) {}
   try {
@@ -631,7 +631,7 @@ function puDeliveries() {
     arriving = (DB.pos || [])
       .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
       .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
-    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
+    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : "function" == typeof selHeld && selHeld(it) ? `Under claim with ${it.vendor || "the vendor"}: it stays at the office until the claim closes` : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
     back = (() => {
       try {
         return retOpen().filter((r) => ["raise", "authorised", "toship"].includes(r.status) && (!pid || r.projectId === pid)).map((r) => ({ id: "back:" + r.id, name: r.name, job: r.vendor, line: retRisk(r).label || "", why: r.rma ? `${r.rma}: ship it back` : "No return authorisation yet", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) }));
@@ -913,18 +913,21 @@ function puReceive(po) {
   if (!po) return;
   const left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
     L = (po.lines || []).filter((l) => left(l) > 0);
+  if ("function" == typeof poIsSub && poIsSub(po)) return void toast(poSubWords(po));
   if (!L.length) return void toast(`${po.number} has nothing left to receive`);
+  const field = ["foreman", "crew", "driver"].includes(role()),
+    early = po.expected && "function" == typeof workdays && po.expected > today() ? workdays(today(), po.expected) - 1 : 0;
   const cond = {},
     CONDS = [["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]];
   L.forEach((l) => (cond[l.id] = "good"));
   const lineHtml = (l) => {
     const item = esc(l.item || l.desc || "Line"),
       u = esc(l.unit || "");
-    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}">${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span><b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span></span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
+    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}"><button type="button" class="pu-chip" data-puall="${esc(l.id)}" data-left="${left(l)}">All Here</button>${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span><b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span></span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
   };
   const m = mbModal(
     `Receive Some — <span data-nocase>${esc(po.number)}</span>`,
-    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here; leave a line empty if none of it came. Mark each line's condition.</p>${L.map(lineHtml).join("")}<label class="f"><span>Photo of the Slip</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>Note</span><input data-punote="1" data-f="note" placeholder="What is short, damaged or wrong; the slip number"></label>`,
+    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here; leave a line empty if none of it came. Mark each line's condition.</p>${early > 3 ? `<p class="note warn pu-early" style="margin:0 0 10px">${esc(po.vendor)} promised this for ${fmt(po.expected)}, ${early} working days from now. Check the slip says ${esc(po.number)} before you count it in.</p>` : ""}${L.map(lineHtml).join("")}<label class="f"><span>Photo of the Slip${field ? "" : ' <span class="muted">(optional)</span>'}</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>Note</span><input data-punote="1" data-f="note" placeholder="What is short, damaged or wrong; the slip number"></label>`,
     {
       submit: "Record Receipt",
       onSubmit: () => {
@@ -935,6 +938,8 @@ function puReceive(po) {
             return { l: l, i: i, bi: bi, k: cond[l.id] || "good", raw: String((i && i.value) || "").trim(), badRaw: String((bi && bi.value) || "").trim() };
           });
         // a line marked Short, Damaged or Wrong needs its count (0 when none of it came)
+        const sl = m.querySelector("[data-puslip]");
+        if (field && !(sl && sl.files && sl.files.length)) return mark(sl, "Take a photo of the packing slip first");
         const unCounted = rows.find((x) => "good" !== x.k && "" === x.raw);
         if (unCounted) return mark(unCounted.i, "Count what arrived on this line (0 if none of it came)");
         const R = rows.filter((x) => "" !== x.raw);
@@ -988,6 +993,13 @@ function puReceive(po) {
             : toast(`${po.number}: ${what}`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
+  );
+  m.querySelectorAll("[data-puall]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const i = m.querySelector(`[data-purq="${b.dataset.puall}"]`);
+        i && ((i.value = b.dataset.left), i.dispatchEvent(new Event("input", { bubbles: !0 })));
+      }),
   );
   m.querySelectorAll("[data-pucond]").forEach(
     (b) =>
@@ -1356,6 +1368,7 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 .pu-rq{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
 .pu-rq>span{flex:1;display:flex;flex-direction:column;gap:2px} .pu-rq input{width:96px;min-height:44px}
 .pu-conds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#mbm .pu-rql, #mbm .pu-rql .small, #mbm .pu-rql .pu-chip, #mbm .pu-early, .mbm-bd:has(.pu-rql) > p, .mbm-bd:has(.pu-rql) label.f > span{font-size:15px}
 .pu-rql{border-top:1px solid var(--rule-2);padding-bottom:4px} .pu-rql .pu-rq{border-top:0} .pu-rql .pu-conds{margin:4px 0 8px} .pu-rql .pu-bad[hidden]{display:none}
 .pu-lines{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin-top:8px}
 .pu-line{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--rule-2)} .pu-line>span{display:flex;flex-direction:column}

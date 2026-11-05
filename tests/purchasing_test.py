@@ -611,22 +611,22 @@ async def s_polish(p, c):
     try:
         await sign_in(pg, 'u_chen')
         await pg.evaluate("() => { setCurrent('p121'); view = 'recv'; render(); }"); await pg.wait_for_timeout(500)
-        # The phone's Deliveries lists each order under Arriving with Receive, which opens the receive sheet (the Purchasing
-        # pages, src/purchasing.js puDeliveries/puReceive: "the phone receives from the sheet"); the old line cards are behind
-        # "Receive Line by Line". This check tapped a Received on those hidden cards and relied on the count pre-filled at the
-        # full order (BACKLOG 1.36). The person taps Receive on the Carlos row, counts what came (the whole millwork order) and
-        # taps Receive; an untouched sheet records nothing.
-        card = pg.locator('.view.on .pu-row').filter(has_text='PO-2026-048').filter(has=pg.locator('[data-purecv]')).first
-        c.ok(await card.count() > 0, 'polish: the Carlos PO is on Deliveries')
+        # The phone's Deliveries lists each order under Arriving with Receive, which opens the one receive sheet (puReceive);
+        # its count starts empty and an untouched sheet records nothing (BACKLOG 1.36). The person receives what came on
+        # Tino's flooring (400 of 900 sf), and the toast's Bill It bills that delivery. This check received the Carlos
+        # millwork subcontract "in full" to reach its bill; a subcontract is not received (the field expert's day: two taps
+        # cleared its $38,000 balance), so Carlos is billed from its order and its Receive is refused.
+        card = pg.locator('.view.on .pu-row').filter(has_text='PO-2026-047').filter(has=pg.locator('[data-purecv]')).first
+        c.ok(await card.count() > 0, 'polish: the Tino PO is on Deliveries')
         if await card.count():
             await card.locator('[data-purecv]').first.click(); await pg.wait_for_timeout(500)
             q = pg.locator('#mbm input[data-purq]').first
             c.ok(await q.count() > 0 and await q.input_value() == '', f"polish: the received count starts empty on the phone ({await q.input_value() if await q.count() else 'no sheet'!r})")
-            rec0 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-048').lines.map(l => +l.received || 0))")
+            rec0 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-047').lines.map(l => +l.received || 0))")
             await modal_ok(pg, 400)
-            rec1 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-048').lines.map(l => +l.received || 0))")
+            rec1 = await pg.evaluate("() => JSON.stringify(DB.pos.find(x => x.number === 'PO-2026-047').lines.map(l => +l.received || 0))")
             c.ok(rec0 == rec1 and bool(await modal(pg)), f'polish: Receive with no count typed records nothing and keeps the sheet open ({rec0} -> {rec1})')
-            if await q.count(): await q.fill('1')
+            if await q.count(): await q.fill('400')
             await modal_ok(pg, 900)
             t = await toast(pg)
             c.ok('Bill It' in t.get('links', []), f'polish: the receiving toast offers Bill It ({t})')
@@ -635,13 +635,35 @@ async def s_polish(p, c):
                 m = await modal(pg)
                 c.ok(bool(m) and re.search(r'Bill', m['title']), f'polish: the bill dialog opens ({m and m["title"]!r})')
                 if m:
-                    c.ok('$38,000' in m['text'], f'polish: the dialog says $38,000 ({m["text"][:200]!r})')
-                    await pg.locator('#mbm [data-f="number"]').fill('CM-0103')
+                    c.ok('$3,560' in m['text'] and '$8,010' not in m['text'], f'polish: the dialog bills the 400 sf that came, $3,560 ({m["text"][:200]!r})')
+                    await pg.locator('#mbm [data-f="number"]').fill('TF-2207')
                     await modal_ok(pg, 1000)
                     t2 = await toast(pg)
-                    # the record's amount leads; a netted figure may follow only as what is payable after retainage
-                    c.ok(re.search(r'submitted — \$38,000', t2['text']) and not re.search(r'\$34,200(?! payable)', t2['text']), f"polish: the toast shows the record's amount ({t2['text']!r})")
-                    c.ok(re.search(r'retainage', t2['text'], re.I), f"polish: the toast names the retainage netted ({t2['text']!r})")
+                    # Tino was paid $8,000 before delivery: the toast leads with the bill's own amount, then what the prepayment covers
+                    c.ok(re.search(r'submitted — \$3,560|\$3,560 invoiced', t2['text']), f"polish: the toast shows the record's amount ({t2['text']!r})")
+        # Carlos: a subcontract is billed from its order, never received
+        await pg.evaluate("() => { view = 'recv'; render(); }"); await pg.wait_for_timeout(400)
+        cr = pg.locator('.view.on .pu-row').filter(has_text='PO-2026-048').filter(has=pg.locator('[data-purecv]')).first
+        if await cr.count():
+            await cr.locator('[data-purecv]').first.click(); await pg.wait_for_timeout(500)
+            t = await toast(pg)
+            c.ok(not await modal(pg) and 'subcontract' in t['text'], f"polish: the Carlos subcontract's Receive is refused, not a receive sheet ({t['text']!r})")
+        c.ok(await pg.evaluate("() => DB.pos.find(x => x.number === 'PO-2026-048').lines.every(l => !l.received)"), 'polish: nothing is received on the Carlos subcontract')
+        await pg.evaluate("() => { poOpen = 'po4'; view = 'po'; render(); }"); await pg.wait_for_timeout(500)
+        bb = pg.locator('.view.on button:visible').filter(has_text=re.compile(r'^(Bill|New Pay Application$)'))
+        c.ok(await bb.count() > 0, f"polish: the Carlos order offers its bill ({await pg.evaluate('() => [...document.querySelectorAll(\".view.on button\")].filter(b => b.getClientRects().length).map(b => b.innerText.trim()).slice(0, 12)')})")
+        if await bb.count():
+            await bb.first.click(); await pg.wait_for_timeout(700)
+            m = await modal(pg)
+            c.ok(bool(m) and re.search(r'Bill', m['title']), f'polish: the bill dialog opens ({m and m["title"]!r})')
+            if m:
+                c.ok('$38,000' in m['text'], f'polish: the dialog says $38,000 ({m["text"][:200]!r})')
+                await pg.locator('#mbm [data-f="number"]').fill('CM-0103')
+                await modal_ok(pg, 1000)
+                t2 = await toast(pg)
+                # the record's amount leads; a netted figure may follow only as what is payable after retainage
+                c.ok(re.search(r'submitted — \$38,000', t2['text']) and not re.search(r'\$34,200(?! payable)', t2['text']), f"polish: the toast shows the record's amount ({t2['text']!r})")
+                c.ok(re.search(r'retainage', t2['text'], re.I), f"polish: the toast names the retainage netted ({t2['text']!r})")
         c.ok(not errs, f'polish (phone): page errors {errs[:2]}')
     finally:
         await b.close()
@@ -923,6 +945,33 @@ async def s_onesheet(p, c):
         s = await pg.evaluate(RSHEET)
         c.ok(s and s['counts'] and all(v == '' for v in s['counts']) and s['conds'] == 4, f"onesheet: the foreman's It Arrived opens the one sheet, its count empty ({s})")
         c.ok(await pg.evaluate("() => document.querySelectorAll('#mbm').length") == 1, 'onesheet: It Arrived opens one sheet, not two')
+        # the foreman: All Here puts in what is still to come by his tap; the slip photo comes before Receive
+        al = pg.locator('#mbm [data-puall]').first
+        if await al.count():
+            await al.click(); await pg.wait_for_timeout(150)
+            v = await pg.locator('#mbm [data-purq]').first.input_value()
+            c.ok(v == '900', f'onesheet: All Here puts in the 900 sf still to come ({v!r})')
+            await modal_ok(pg, 400)
+            c.ok(bool(await modal(pg)) and await pg.evaluate("() => !DB.pos.find(x => x.number === 'PO-2026-047').lines[0].received"), "onesheet: the foreman's Receive waits for the photo of the slip")
+            await pg.locator('#mbm [data-puslip]').set_input_files(files=[{'name': 'slip.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xff\xe0' + b'\x00' * 64 + b'\xff\xd9'}])
+            await modal_ok(pg, 800)
+            r = await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); return { rec: po.lines[0].received, slip: (po.receipts || []).slice(-1)[0]?.slip || '' }; }")
+            c.ok(r['rec'] == 900 and r['slip'], f'onesheet: with the slip photographed, 900 sf are received and the receipt names the slip ({r})')
+        # a subcontract has no It Arrived on Site
+        site = await pg.evaluate("() => { view = 'fsite'; render(); const c = document.querySelector('.f3-dels'); return c ? [...c.querySelectorAll('.f3-row')].filter(r => /PO-2026-048/.test(r.innerText)).map(r => [r.innerText, !!r.querySelector('[data-f3recv]')]) : []; }")
+        c.ok(site and not any(x[1] for x in site) and all('Subcontract' in x[0] for x in site), f"onesheet: Carlos's subcontract has no It Arrived on Site ({site})")
+        # a material with no order behind it is not received against nothing
+        mt = await pg.evaluate("""() => { view = 'fsite'; render(); const b = [...document.querySelectorAll('[data-frecv^="mat:"]')].find(x => x.getClientRects().length);
+          if (b) b.setAttribute('data-pt-mat', '1'); return b ? b.dataset.frecv : ''; }""")
+        if mt:
+            await pg.locator('[data-pt-mat]').first.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Arrived Without an Order' in m['title'], f"onesheet: a material with no order opens Arrived Without an Order ({m and m['title']!r})")
+            if m and 'Arrived Without an Order' in m['title']:
+                n0 = await pg.evaluate("() => (DB.field.raises || []).length")
+                await modal_ok(pg, 600)
+                r = await pg.evaluate("n0 => { const x = (DB.field.raises || []).slice(n0); return x.map(r => [r.type, r.to, r.title]); }", n0)
+                c.ok(r and r[0][0] == 'delivery' and 'no order' in r[0][2], f'onesheet: the coordinator is told it arrived with no order ({r})')
         c.ok(not errs, f'onesheet (phone): page errors {errs[:2]}')
     finally:
         await b.close()
@@ -960,6 +1009,38 @@ async def s_claims(p, c):
             lab = await bw.first.inner_text()
             c.ok(f'${want:,.0f}' in lab or f'${want:,.2f}' in lab, f'claims: Bill What Arrived is the good quantity, ${want:,.2f}, not the damaged batts ({lab!r})')
         c.ok(not errs, f'claims: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_price(p, c):
+    """The coordinator's day: studs issued at $4.60 against a best of $3.98. Issue says the gap in dollars, with Use the
+    Best Price or Issue Anyway with a reason; poLinePriceCheck is the one verdict (P2's entry-time flag calls it too)."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        it = await pg.evaluate("""() => { const D = pwData(); for (const k of Object.keys(D.items)) { const H = itemPriceHistory(k);
+            const lab = (H && (H.rows.slice(-1)[0] || {}).item) || ''; if (H && H.best && +H.best.adjusted > 1 && H.unit && lab && pwKeyFor(lab, H.unit) === k) return { label: lab, unit: H.unit, best: Math.min(+H.best.adjusted, +(H.last || H.best).adjusted) }; } return null; }""")
+        c.ok(bool(it), f'price: an item with a price history to test against ({it})')
+        if it:
+            price = round(it['best'] * 1.15, 2)
+            await pg.evaluate("""([it, price]) => { DB.pos.push({ id: 'po_pr', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: '', needBy: '2026-09-20', status: 'draft', shipTo: 'Site',
+              lines: [{ id: 'pr1', item: it.label, qty: 40, unit: it.unit, price: price, received: 0, line: (DB.pos.flatMap(x => x.lines).find(l => l.line) || {}).line || '' }], tax: 0, shipping: 0, matchedTxns: [] }); setCurrent('p121'); poOpen = 'po_pr'; view = 'po'; render(); }""", [it, price])
+            await pg.wait_for_timeout(400)
+            v = await pg.evaluate("([it, price]) => poLinePriceCheck(it.label, it.unit, price, 40)", [it, price])
+            c.ok(not v['ok'] and abs(v['gap'] - round(price - it['best'], 2)) < 0.02, f'price: the check flags the line, the gap per unit and on 40 ({v})')
+            await pg.evaluate("() => poAction(DB.pos.find(x => x.id === 'po_pr'), 'issue')"); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Above' in m['title'] and 'Use the Best Price' in m['buttons'] and 'Issue Anyway' in m['buttons'], f'price: Issue stops at the price with Use the Best Price and Issue Anyway ({m and m["title"]!r}, {m and m["buttons"]})')
+            c.ok(await pg.evaluate("() => DB.pos.find(x => x.id === 'po_pr').status") == 'draft', 'price: the order is not issued while the price question is open')
+            if m:
+                await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(300)
+                c.ok(bool(await modal(pg)), 'price: Issue Anyway asks for the reason first')
+                await pg.locator('#mbm [data-f="why"]').fill('The yard at the best price is out until October')
+                await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(900)
+                r = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_pr'); return { st: po.status, why: (po.priceReason || {}).why || '', aud: (DB.audit || []).some(a => a.action === 'price-over-accepted' && a.id === po.id || a.recordId === po.id && a.action === 'price-over-accepted') }; }")
+                t = await toast(pg)
+                c.ok(r['st'] != 'draft' and r['why'], f'price: Issue Anyway with a reason issues it and keeps the reason ({r}; {t["text"]!r}; {await modal(pg)})')
+        c.ok(not errs, f'price: page errors {errs[:2]}')
     finally:
         await b.close()
 
@@ -1099,7 +1180,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

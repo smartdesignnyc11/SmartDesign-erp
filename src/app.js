@@ -1947,6 +1947,11 @@ function poRecvWords(po) {
   if (L.length <= 2) return L.map((l) => `${q(l.received)} of ${q(l.qty)}${l.unit ? " " + l.unit : ""}`).join(", ") + " received";
   return `${L.filter((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001).length} of ${L.length} lines received in full`;
 }
+// A subcontract is not a delivery: its progress is measured on the job or approved on its bill, never received (the
+// field expert: the foreman received the $76,000 Carlos subcontract "in full" in two taps, 15 days early, and that
+// cleared its $38,000 balance bill). Every receive entry asks this first.
+const poIsSub = (po) => !!po && "subcontract" === po.type;
+const poSubWords = (po) => `${po.number} is a subcontract with ${po.vendor}: its progress is measured on the job and approved on its bill, not received`;
 function poPaid(po) {
   return DB.txns.filter((t) => (po.matchedTxns || []).includes(t.id)).reduce((a, t) => a - t.amt, 0);
 }
@@ -34257,7 +34262,7 @@ function renderRecv() {
   const root = $("#recv-body");
   if (!root) return;
   const pos = DB.pos
-    .filter((po) => po.projectId === S.id && ["issued", "partial"].includes(po.status))
+    .filter((po) => po.projectId === S.id && ["issued", "partial"].includes(po.status) && !poIsSub(po))
     .sort((a, b) => (a.expected || "").localeCompare(b.expected || ""));
   root.innerHTML = `<div class="ph"><div><h2>Deliveries</h2><p class="lead">Check in what arrived, line by line. Materials on the schedule update themselves.</p></div></div>${
     pos
@@ -37984,11 +37989,17 @@ poAction = function (po, a) {
   return poActionBase2(po, a);
 };
 const poStateBase2 = poState;
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-fprob]");
+  if (!b) return;
+  const po = (DB.pos || []).find((x) => x.id === b.dataset.fprob);
+  po && (e.preventDefault(), deliveryProblem(po));
+});
 function deliveryProblem(po, host) {
   const p = DB.projects.find((x) => x.id === po.projectId);
   mbModal(
     `Delivery problem — ${esc(po.number)}`,
-    `<label class="f"><span>What happened</span><select id="dp-type"><option value="short">Short — fewer than ordered</option><option value="damaged">Damaged</option><option value="wrong">Wrong item</option><option value="backorder">Back-ordered</option></select></label><label class="f"><span>Line</span><select id="dp-line">${po.lines.map((l) => `<option value="${l.id}">${esc(l.item || l.desc || "")}</option>`).join("")}</select></label><label class="f"><span>Quantity affected</span><input type="number" step="any" id="dp-qty" value="${po.lines[0] ? Math.max(0, (+po.lines[0].qty || 0) - (+po.lines[0].received || 0)) : 0}"></label><label class="f"><span>New ETA (if known)</span><input type="date" id="dp-eta"></label><label class="f"><span>Note</span><input id="dp-note" placeholder="what the driver / vendor said"></label>`,
+    `<label class="f"><span>What happened</span><select id="dp-type"><option value="short">Short — fewer than ordered</option><option value="damaged">Damaged</option><option value="wrong">Wrong item</option><option value="backorder">Back-ordered</option></select></label><label class="f"><span>Line</span><select id="dp-line">${po.lines.map((l) => `<option value="${l.id}">${esc(l.item || l.desc || "")}</option>`).join("")}</select></label><label class="f"><span>Quantity affected</span><input type="number" step="any" min="0" inputmode="decimal" id="dp-qty" value="" placeholder="How many"></label><label class="f"><span>New ETA (if known)</span><input type="date" id="dp-eta"></label><label class="f"><span>Note</span><input id="dp-note" placeholder="what the driver / vendor said"></label>`,
     {
       submit: "Report",
       onSubmit: () => {
@@ -37998,15 +38009,19 @@ function deliveryProblem(po, host) {
           eta = $("#dp-eta").value,
           note = $("#dp-note").value,
           l = po.lines.find((x) => x.id === lid);
-        (po.issues = po.issues || []).push({
+        if (!(qty > 0)) return "function" == typeof vfMark ? vfMark($("#dp-qty"), "How many are affected?") : toast("How many are affected?"), !1;
+        // short, damaged and wrong are claims against the vendor on their own line (held off the bill and the route
+        // until resolved); a back-order is a new date, not a claim
+        const claim = "backorder" !== type;
+        (po.issues = po.issues || []).push(Object.assign({
           t: nowStamp(),
-          by: S.project.userName || role(),
+          by: (currentUser() || {}).name || S.project.userName || role(),
           type: type,
           lineId: lid,
           qty: qty,
           eta: eta,
           note: note,
-        }),
+        }, claim ? { claim: !0, status: "open", at: appNowIso(), item: (l && (l.item || l.desc)) || "", unit: (l && l.unit) || "", amount: r2(qty * (+(l && l.price) || 0)) } : {})),
           l && ((l.backordered = qty), (l.issue = type)),
           (po.flag = `${type}: ${l?.item || ""} ${qty}`);
         const wasEta = po.expected || "";
@@ -38029,7 +38044,7 @@ function deliveryProblem(po, host) {
         ),
           save(),
           render(),
-          toast("Reported to purchasing");
+          toast(`${type} on ${po.number} reported${claim ? `: ${qty} ${(l && l.unit) || ""} ${(l && l.item) || ""} claimed from ${po.vendor}`.replace(/\s+/g, " ") : ""}`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
   );
@@ -49068,7 +49083,7 @@ function fRenderToday() {
     })
     .join(
       "",
-    )}\n      ${subs.map((s) => `<div class="f-row"><div class="grow"><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)} · ${esc(s.lead)} · ${esc(task(s.taskId)?.name || "")}</span></div><div class="row" style="gap:4px">${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}${"onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${"noshow" !== s.status && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("")}\n      ${subs.length ? "" : '<div class="small muted" style="margin-top:6px">No subs due today.</div>'}</div>\n    ${dels.length || insp.length ? `<div class="card f-card"><div class="hd"><h3>Coming to site</h3></div>\n      ${dels.map((d) => `<div class="f-row"><div class="grow"><b>${esc(d.n)}</b><span class="small muted">Delivery expected today</span></div><div class="row" style="gap:4px"><button class="btn sm" data-frecv="${d.k}:${d.id}">Received</button><button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button></div></div>`).join("")}\n      ${insp.map((i) => `<div class="f-row"><div class="grow"><b>${esc(i.name)}</b><span class="small muted">${esc(i.agency)} · ${fmtL(i.date)}${i.notes ? ` · ${esc(i.notes)}` : ""}</span></div><a href="#" class="btn sm" data-fview="fsite">Prep list</a></div>`).join("")}</div>` : ""}\n    <div class="card f-card ${blockers.length ? "warn" : ""}"><div class="hd"><h3>Tomorrow — ${fmtL(tom)}</h3><span class="small muted">${blockers.length ? `${blockers.length} task${blockers.length > 1 ? "s" : ""} not ready` : "all set"}</span></div>\n      ${
+    )}\n      ${subs.map((s) => `<div class="f-row"><div class="grow"><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)} · ${esc(s.lead)} · ${esc(task(s.taskId)?.name || "")}</span></div><div class="row" style="gap:4px">${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}${"onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${"noshow" !== s.status && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("")}\n      ${subs.length ? "" : '<div class="small muted" style="margin-top:6px">No subs due today.</div>'}</div>\n    ${dels.length || insp.length ? `<div class="card f-card"><div class="hd"><h3>Coming to site</h3></div>\n      ${dels.map((d) => `<div class="f-row"><div class="grow"><b>${esc(d.n)}</b><span class="small muted">Delivery expected today</span></div><div class="row" style="gap:4px"><button class="btn sm" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}</div></div>`).join("")}\n      ${insp.map((i) => `<div class="f-row"><div class="grow"><b>${esc(i.name)}</b><span class="small muted">${esc(i.agency)} · ${fmtL(i.date)}${i.notes ? ` · ${esc(i.notes)}` : ""}</span></div><a href="#" class="btn sm" data-fview="fsite">Prep list</a></div>`).join("")}</div>` : ""}\n    <div class="card f-card ${blockers.length ? "warn" : ""}"><div class="hd"><h3>Tomorrow — ${fmtL(tom)}</h3><span class="small muted">${blockers.length ? `${blockers.length} task${blockers.length > 1 ? "s" : ""} not ready` : "all set"}</span></div>\n      ${
     tomTasks.length
       ? tomTasks
           .map((t) => {
@@ -49161,7 +49176,34 @@ function fRenderToday() {
         }),
     );
 }
+// An order is received on the one receive sheet, line by line (fReceiveQuiet marked every line received in full in two
+// taps). A material with no order behind it cannot be received against nothing: it arrived without an order, which
+// tells the coordinator, who orders it or finds who did (the field expert: Insulation "Received" with no PO).
+const fMatHasPO = (m) => !!m && (DB.pos || []).some((po) => "cancelled" !== po.status && ((po.lines || []).some((l) => l.materialId === m.id) || (m.po && (m.po === po.number || m.po === po.id))));
+function fArrivedNoOrder(m) {
+  mbModal(
+    "Arrived Without an Order",
+    `<div class="note warn">${esc(m.name)} came to site, and no purchase order is behind it. Nothing is received against nothing: The coordinator finds the order or raises one, so the bill has something to match.</div><div class="f" style="margin-top:10px"><label>What Came</label><input data-f="what" placeholder="e.g. 12 bags, Owens Corning R-15" enterkeyhint="next"></div><div class="f"><label>Where It Is Staged</label><input data-f="where" placeholder="e.g. garden level, by the door" enterkeyhint="done"></div>`,
+    {
+      submit: "Tell the Coordinator",
+      onSubmit: (v) => {
+        const by = fWho(),
+          what = String(v.what || "").trim(),
+          where = String(v.where || "").trim();
+        (m.arrivedNoOrder = { at: appNowIso(), by: by, what: what, where: where }), where && (m.staged = where);
+        "function" == typeof fSend &&
+          fSend({ type: "delivery", title: `${m.name} arrived on site with no order behind it${what ? ` (${what})` : ""}`, taskId: m.taskId || "", note: `Checked by ${by}${where ? `, staged ${where}` : ""}. Find the order or raise one before its bill comes in.` });
+        log(`${m.name} arrived with no order behind it — ${by} told the coordinator${where ? ` · staged ${where}` : ""}`, "field", by), save(), render();
+      },
+    },
+  );
+}
 function fReceive(k, id) {
+  if ("po" === k) {
+    const po = (DB.pos || []).find((x) => x.id === id);
+    return void (po && rcReceiveSome(po));
+  }
+  if (mat(id) && !fMatHasPO(mat(id))) return fArrivedNoOrder(mat(id));
   const name =
     "po" === k
       ? (() => {
@@ -49383,7 +49425,7 @@ function fRenderSite() {
       .sort((a, b) => (a.when || "z").localeCompare(b.when || "z"))
       .slice(0, 4),
     punch = DB.field.punch.filter((x) => x.projectId === S.id && "verified" !== x.status);
-  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button><button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || '<div class="small muted">Nothing due in the next two weeks.</div>'}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
+  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || '<div class="small muted">Nothing due in the next two weeks.</div>'}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
     insp
       .map(({ i: i, when: when }) => {
         const prep = fPrepFor(i);
@@ -66380,7 +66422,7 @@ if ("function" == typeof fRenderSite) {
                   got = (po.lines || []).filter((l) => (+l.received || 0) >= (+l.qty || 0)).length,
                   when = po.expected || po.needBy || "",
                   late = when && when < today() && got < n;
-                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}</div></div>\n          <button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the rest" : "It arrived"}</button></div>`;
+                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}</div></div>\n          ${poIsSub(po) ? `<span class="small muted">Subcontract: progress, not a delivery</span>` : `<button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the rest" : "It arrived"}</button>`}</div>`;
               })
               .join("")
           : '<p class="small muted" style="margin:8px 0 0">Nothing is on order for this job.</p>'
@@ -67727,7 +67769,7 @@ function f3ArrivingHtml() {
         // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
         const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
           got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
-        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div>${poIsSub(po) ? "" : `<button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button>`}</div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -74594,7 +74636,7 @@ function cmRead(c) {
     push(
       "bill",
       amt
-        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}, matched to what was received` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}${"subcontract" === poOf.type ? ", a subcontract: approve it against the work in place" : (poOf.lines || []).some((l) => +l.received > 0) ? ", to be matched to what was received" : ", and nothing on it has been received yet: hold it until it arrives"}` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
         : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
@@ -148890,6 +148932,8 @@ function rcReceiptToast(po, text) {
 if ("function" == typeof poAction) {
   const base = poAction;
   poAction = function (po, a) {
+    // a subcontract's progress is measured or approved on its bill, never received (Receive All cleared Carlos's balance)
+    if (("receive" === a || "receivepartial" === a) && po && poIsSub(po)) return void toast(poSubWords(po));
     if ("receivepartial" === a && po && "draft" !== po.status) return void rcReceiveSome(po);
     const was = po ? po.status : "",
       r = base.apply(this, arguments);
@@ -165760,7 +165804,8 @@ if ("function" == typeof fReceive) {
     base.apply(this, arguments);
     try {
       const m = document.getElementById("mbm");
-      if (!m || m.querySelector("[data-rcvshot]")) return;
+      // an order's receive sheet has its own photo of the slip
+      if ("po" === k || !m || m.querySelector("[data-rcvshot], [data-puslip]")) return;
       let shot = null;
       m.querySelector(".mbm-bd").insertAdjacentHTML(
         "beforeend",
@@ -196887,6 +196932,84 @@ function poDoubleOrder(po) {
       }
     } catch (e) {
       console.warn("double order", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// The one price check for a PO line, against the item's own history (itemPriceHistory: the last price paid and the best
+// recent price, adjusted to today): above the lower of the two by more than half a percent is flagged, with the gap per
+// unit and on the line's quantity. P2's entry-time flag and the issue gate below call this, so both give one verdict.
+// Units must agree (no conversion is guessed); with no history, or another unit, there is no verdict (ok, ref null).
+function poLinePriceCheck(item, unit, price, qty) {
+  const out = { ok: !0, ref: null, kind: "", gap: 0, gapTotal: 0, say: "" };
+  try {
+    // the item itself, by the price book's own key and unit (pwMake: a box of 10 is priced per piece), never a
+    // look-alike by words (a fuzzy match priced windows against a $56 part)
+    const B = "function" == typeof pwMake && item ? pwMake({ item: item, unit: unit, qty: +qty || 1, price: +price }) : null,
+      D = B ? pwData() : null,
+      H = B && D.items[B.key] ? itemPriceHistory(B.key) : null;
+    if (!H || !(+price > 0) || (H.unit && B.normUnit && H.unit !== B.normUnit)) return out;
+    const C = [H.best && ["best", H.best], H.last && ["last", H.last]].filter(Boolean).filter(([, r]) => +r.adjusted > 0);
+    if (!C.length) return out;
+    const [kind, r] = C.reduce((a, x) => (+x[1].adjusted < +a[1].adjusted ? x : a)),
+      f = +B.packF || 1,
+      refN = +r.adjusted,
+      ref = r2(refN * f);
+    Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "" });
+    // more than 60% above is a different thing priced the same way (a deposit, another size), not an overpayment: no verdict
+    if (+B.price <= refN * 1.005 + 0.0005 || refN < +B.price * 0.4) return out;
+    const gap = r2(+price - ref),
+      gapTotal = r2((+B.price - refN) * (+B.normQty || 0));
+    return Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${money(+price)} per ${unit || "unit"} is ${money(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor}${r.date ? ", " + fmt(r.date) : ""})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
+  } catch (e) {
+    return out;
+  }
+}
+const poPriceFlags = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => !x.ok);
+// Issue gate: a line priced above its last or best price is said before the order goes out, in dollars, with Use the
+// Best Price or Issue Anyway with a reason (the coordinator's day: studs issued at $4.60 against a best of $3.98).
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    try {
+      if (po && "issue" === a && "draft" === po.status) {
+        const F = poPriceFlags(po),
+          key = F.map((x) => `${x.l.id}:${x.l.price}`).join("|");
+        if (F.length && po.priceOk !== key) {
+          const go = () => poAction(po, "issue"),
+            total = r2(F.reduce((s, x) => s + x.gapTotal, 0));
+          return void mbModal(
+            "Priced Above What We Pay",
+            `<p class="small" style="margin:0 0 8px">${esc(po.number)} pays ${money(total)} more than the best or last price on ${F.length} line${1 === F.length ? "" : "s"}. Money paid above the price we know cannot go to raises, bonuses or the client.</p>${F.map((x) => `<div class="small" data-nocase style="margin:4px 0">${esc(x.say)}</div>`).join("")}<label class="f" style="margin-top:10px"><span>Reason to Issue Anyway</span><input data-f="why" placeholder="e.g. the best price was a yard sale; this is the vendor on site Tuesday"></label>`,
+            {
+              submit: "Use the Best Price",
+              onSubmit: () => {
+                F.forEach((x) => {
+                  const was = x.l.price;
+                  (x.l.price = x.ref), audit("po", po.id, "price-to-best", { item: x.l.item, price: was }, { price: x.ref, kind: x.kind, vendor: x.vendor });
+                }),
+                  (po.priceOk = poPriceFlags(po).map((x) => `${x.l.id}:${x.l.price}`).join("|")),
+                  save(),
+                  setTimeout(go, 0);
+              },
+              alt: {
+                label: "Issue Anyway",
+                keep: !0,
+                run: () => {
+                  const i = document.querySelector('#mbm [data-f="why"]'),
+                    why = String((i && i.value) || "").trim();
+                  if (!why) return void ("function" == typeof vfMark ? vfMark(i, "Say why it is worth paying more") : toast("Say why it is worth paying more"));
+                  (po.priceOk = key), (po.priceReason = { why: why, by: (currentUser() || {}).name || role(), at: appNowIso(), over: total });
+                  audit("po", po.id, "price-over-accepted", null, { over: total, lines: F.map((x) => x.say) }, why);
+                  save(), "function" == typeof mbCloseModal && mbCloseModal(), setTimeout(go, 0);
+                },
+              },
+            },
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("price gate", e);
     }
     return base.apply(this, arguments);
   };
