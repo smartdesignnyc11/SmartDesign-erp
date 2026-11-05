@@ -13706,7 +13706,7 @@ function apStamp(kind, rec, action, auditAction, o) {
   // a record that names its approver on itself (a rule change, a client credit, a journal, a PO) names the person who
   // acted, in the same step as the audit row: never a role, never someone who did not act (BACKLOG §1.36)
   o.approve && ((rec.approvedBy = who.by), (rec.approvedAt = o.approvedAt || today()));
-  audit(kind, rec.id, auditAction || action, void 0 === o.before ? null : o.before, void 0 === o.after ? null : o.after, o.note || "", who);
+  audit(kind, rec.id, auditAction || action, void 0 === o.before ? null : o.before, void 0 === o.after ? null : "function" == typeof o.after ? o.after() : o.after, o.note || "", who);
   return st;
 }
 const isOwner = () => "owner" === role();
@@ -63517,14 +63517,13 @@ function rtApprove(o, note) {
     o,
     "owner" === st.next ? "approved for payment by Owner" : "pm" === st.next ? "recommended by PM" : "approved by coordinator",
     "approved-step",
-    { by: currentUser()?.name || DB.me || S?.project?.userName || role(), role: st.next, extra: { note: note || "" } },
+    { by: currentUser()?.name || DB.me || S?.project?.userName || role(), role: st.next, extra: { note: note || "" }, after: () => ({ role: st.next, complete: rtStep(o).complete }) },
   );
   // refused (a held bill): no step, no status
   if (!stp) return !1;
   const after = rtStep(o);
   return (
     after.complete ? (o.status = "approved") : "pm" === st.next && (o.status = "pm-approved"),
-    (DB.audit[DB.audit.length - 1] || {}).refId === o.id && (DB.audit[DB.audit.length - 1].after = { role: st.next, complete: after.complete }),
     save(),
     !0
   );
@@ -72642,6 +72641,7 @@ function glProposeOpening(entityId) {
   };
   return DB.gl.journals.push(j), j;
 }
+let glApproveNote = "";
 function glApprove(id) {
   const j = DB.gl.journals.find((x) => x.id === id);
   if (!j || "pending" !== j.status) return;
@@ -72657,7 +72657,7 @@ function glApprove(id) {
     glReverse(j, j.autoReverseOn, "auto-reverse").ok && (j.status = "posted");
   }
   try {
-    apStamp("ledger", j, `approved and posted by ${who}`, "approve", { by: who, after: j.memo });
+    apStamp("ledger", j, `approved and posted by ${who}`, "approve", { by: who, after: j.memo, note: glApproveNote });
   } catch (e) {}
   save(), render(), toast(`Posted #${j.n}`);
 }
@@ -124359,6 +124359,7 @@ function finNormalise() {
               i.date,
               td,
               "a sent invoice cannot be dated after today — the date is the send date",
+              { by: "system", role: "system" },
             );
           } catch (e) {}
           (i.dateWas = i.date), (i.date = td), n++;
@@ -132874,11 +132875,10 @@ function lkWatchVendors(on) {
 }
 const FIN2_SYS = "system",
   FIN2_SETUP = "system (setup)";
-function fin2Audit(actor, kind, refId, action, before, after, note) {
+// the actor and role go in the same call that writes the row (a sealed row is never edited after: auditVerify)
+function fin2Audit(actor, kind, refId, action, before, after, note, roleOf) {
   try {
-    audit(kind, refId, action, before, after, note);
-    const a = DB.audit[DB.audit.length - 1];
-    a && a.refId === refId && a.action === action && ((a.by = actor), (a.role = "system"));
+    audit(kind, refId, action, before, after, note, { by: actor, role: roleOf || "system" });
   } catch (e) {}
 }
 const fin2Who = () => (void 0 !== S && S && S.project && S.project.userName) || role(),
@@ -133301,7 +133301,14 @@ if (
     const j = ((DB.gl || {}).journals || []).find((x) => x.id === id);
     if (j && "opening" === j.kind && "pending" === j.status && !j.statementRef)
       return void fin2OpeningDialog(id);
-    const r = glApproveBase_f2.apply(this, arguments);
+    // the audit row's note is written by the approval's own call (glApproveNote), never patched after it
+    glApproveNote = j && "opening" === j.kind && j.statementRef ? `opening balances signed against: ${j.statementRef}` : "";
+    let r;
+    try {
+      r = glApproveBase_f2.apply(this, arguments);
+    } finally {
+      glApproveNote = "";
+    }
     if (j && "opening" === j.kind && "posted" === j.status) {
       (DB.gl.openingPosted = DB.gl.openingPosted || {}),
         (DB.gl.openingPosted[j.entityId] = j.id),
@@ -133309,8 +133316,6 @@ if (
         (j.memo = `Opening balances at setup — posted by the Owner against ${j.statementRef}`);
       try {
         finCash._c = null;
-        const a = DB.audit[DB.audit.length - 1];
-        a && a.refId === j.id && (a.note = `opening balances signed against: ${j.statementRef}`);
       } catch (e) {}
       save(), render();
     }
@@ -134263,8 +134268,10 @@ function fin2InvoiceDates() {
           ["draft", "void"].includes(i.status) || i.dateRec || (i.dateRec = i.date);
       }),
     ),
+    // a row from before the writer named the system: put right only while it is unsealed (a sealed row is never edited)
     (DB.audit || []).forEach((a) => {
-      "invoice" === a.kind &&
+      !a.h &&
+        "invoice" === a.kind &&
         "date-corrected" === a.action &&
         "system" !== a.by &&
         ((a.by = "system"), (a.role = "system"));
@@ -135098,9 +135105,9 @@ function fin2SeedSignOpening() {
             "awaiting the Owner",
             "posted",
             `signed with the demo data at seed, as the Owner posts it: against ${j.statementRef}${wrong.length ? `; the wrong-side line${1 === wrong.length ? "" : "s"} (${wrong.map((d) => d.name).join(", ")}) checked against the statement` : ""}`,
+            "owner",
           );
-        const a = DB.audit[DB.audit.length - 1];
-        a && a.refId === j.id && (a.role = "owner"), n++;
+        n++;
       }),
     (DB.gl.openingSeedSigned = !0),
     n)
@@ -140394,12 +140401,12 @@ if (
             (j.wrongSignChecked = []),
             (j.memo =
               "Opening balances at setup — posted with the demo data by the system; no statement is on file"),
-            (DB.audit || []).forEach((a) => {
-              a.refId === j.id &&
-                "approve" === a.action &&
-                ((a.by = FIN3_SEED),
-                (a.role = "system"),
-                (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
+            // an unsealed row (this boot's own seed) is put right where it stands; a sealed one is never edited: the
+            // re-attribution is a new row, by the system, saying what it corrects (the trail stays verifiable)
+            (DB.audit || []).filter((a) => a.refId === j.id && "approve" === a.action && a.by !== FIN3_SEED).forEach((a) => {
+              a.h
+                ? audit("ledger", j.id, "approve", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
+                : ((a.by = FIN3_SEED), (a.role = "system"), (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
             }),
             n++;
         }),
@@ -193668,13 +193675,10 @@ function sdSeedBillDocs() {
           ok && ((rec.persisted = !0), save());
         });
       } catch (e) {}
-      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
       // the audit line is dated when the invoice was attached (with the bill), not at this boot: a sync later in the
-      // session must not read it as the record's latest change and blame a re-derivation on it
-      const a = (DB.audit || [])[DB.audit.length - 1];
-      a &&
-        a.refId === b.id &&
-        Object.assign(a, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || a.by, role: "coord" });
+      // session must not read it as the record's latest change and blame a re-derivation on it. Its date and person go in
+      // the call that writes it (a sealed row is never edited after)
+      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || void 0, role: "coord" });
     });
 }
 // The open pay period (8/31 – 9/13, paid 9/11) has no run yet on the app day, as it would not live: its hours
