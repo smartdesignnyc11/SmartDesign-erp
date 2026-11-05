@@ -23,7 +23,8 @@ the foreman's functions), and drives the real buttons the person sees.
   visits    6. A delivery or a sub's visit in mail (Diamond 9/25 8-12, the plumber Thursday 7am) is applied once
                and shows on the foreman's Arriving Today on its day.
   owner     7. "Sign the 45 Cranberry PW1 by 9/28" is the owner's task due 9/28; the LLC biennial is on the
-               owner's Do Now and Draft the Renewal records the filing (next expiry 9/28/2028).
+               owner's Do Now; Draft the Renewal drafts the filing on its task (nothing recorded) and Record the Filing
+               on Obligations records it on the day typed (next expiry 9/28/2028).
   client    8. The garden bath tile sample is approved from the portal by the button the client sees, and the
                coordinator can order the tile.
 
@@ -505,15 +506,50 @@ async def s_owner(p, c):
             await ok(pg, 800)
             t = await pg.evaluate("() => DB.projects.flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => /PW1/.test(a.title || '')).map(a => [a.assignee, a.due])")
             c.ok(t and t[0][1] == '2026-09-28', f"owner: the owner's task is due 9/28 ({t})")
+        # Draft the Renewal drafts the filing; it never records it (BACKLOG §1.36: it opened Record the Filing with today
+        # in Filed On). The filing is recorded by Record the Filing on Obligations, with the day it was filed typed.
         v = await press_any(pg, 'u_owner', r'LLC biennial', r'^Draft the Renewal$')
         m = await modal(pg)
-        c.ok(v and m and m['fields'].get('next') == '2028-09-28', f"owner: Draft the Renewal on Do Now opens the filing with the next period ({m and m['fields']})")
+        c.ok(v and m and m['title'].startswith('Draft the Renewal') and 'on' not in m['fields'] and not re.match(r'^(record|mark)\b', (m['ok'] or '').lower())
+             and 'biennial' in (m['fields'].get('text') or '').lower(),
+             f"owner: Draft the Renewal on Do Now opens the filing drafted, with nothing to record ({m and (m['title'], m['ok'], list(m['fields']))})")
         if m:
             await ok(pg, 800)
-            o = await pg.evaluate("() => { const o = DB.obligations.find(x => /biennial/i.test(x.name)); return { exp: o.expires, st: o.status, h: (o.history || []).length }; }")
-            c.ok(o['exp'] == '2028-09-28' and o['h'] == 1, f'owner: the filing is recorded; the register runs to 9/28/2028 ({o})')
+            o = await pg.evaluate("""() => { const o = DB.obligations.find(x => /biennial/i.test(x.name)); const T = o.taskId && bnObTask(o);
+              return { exp: o.expires, h: (o.history || []).length, draft: !!o.draft, task: !!(T && /drafted/.test(T.a.notes || '')) }; }""")
+            c.ok(o['exp'] != '2028-09-28' and o['h'] == 0 and o['draft'] and o['task'], f'owner: the draft is saved on the renewal task and nothing is recorded as filed ({o})')
+            c.ok(await listed(pg, 'u_owner', 'biennial'), 'owner: drafted, not filed, it stays on Do Now')
+        await pg.evaluate("() => { view = 'obligations'; render(); }"); await pg.wait_for_timeout(300)
+        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on button')].find(x => x.getClientRects().length && /^Record the Filing$/.test(x.innerText.trim()) && /biennial/i.test((x.closest('.yd-row, tr') || {}).innerText || ''));
+          b && b.click(); return b ? b.innerText.trim() : ''; }""")
+        await pg.wait_for_timeout(300)
+        m = await modal(pg)
+        c.ok(r == 'Record the Filing' and m and m['fields'].get('on') == '' and m['fields'].get('next') == '2028-09-28',
+             f"owner: Record the Filing on Obligations opens with Filed On empty and the next period ({r!r}, {m and m['fields']})")
+        if m:
+            await ok(pg, 500)
+            c.ok(bool(await modal(pg)), 'owner: Record the Filing with no Filed On is refused (the sheet stays)')
+            await pg.fill('#mbm [data-f="on"]', '2026-09-22'); await ok(pg, 800)
+            o = await pg.evaluate("() => { const o = DB.obligations.find(x => /biennial/i.test(x.name)); return { exp: o.expires, h: (o.history || []).length, on: o.renewedOn }; }")
+            c.ok(o['exp'] == '2028-09-28' and o['h'] == 1 and o['on'] == '2026-09-22', f'owner: the filing is recorded on the day typed; the register runs to 9/28/2028 ({o})')
             c.ok(not await listed(pg, 'u_owner', 'biennial'), 'owner: once filed it leaves Do Now')
         c.ok(not errs, f'owner: page errors {errs[:2]}')
+    finally:
+        await b.close()
+    # the phone (390): the row's Record the Filing is on screen, 44px, and opens the sheet (chief-of-staff review, 11-04:
+    # the phone's row held only Draft the Renewal, so a filing could not be recorded from the phone)
+    b, pg, errs = await open_app(p, phone=True)
+    try:
+        await sign_in(pg, 'u_owner'); await go(pg, 'obligations'); await pg.wait_for_timeout(300)
+        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on button')].find(x => /^Record the Filing$/.test(x.innerText.trim()) && /biennial/i.test((x.closest('.yd-row, tr') || {}).innerText || '')); b && b.setAttribute('data-flowrec', '1');
+          if (!b || !b.getClientRects().length) return { shown: false };
+          const r = b.getBoundingClientRect(); return { shown: true, h: Math.round(r.height), right: Math.round(r.right), w: innerWidth }; }""")
+        c.ok(r.get('shown') and r['h'] >= 44 and r['right'] <= r['w'], f'owner phone: Record the Filing is on the Obligations row, 44px, on screen ({r})')
+        if r.get('shown'):
+            await pg.locator('[data-flowrec]').first.click(timeout=4000); await pg.wait_for_timeout(300)
+            m = await modal(pg)
+            c.ok(m and m['title'].startswith('Record the Filing') and m['fields'].get('on') == '', f"owner phone: it opens Record the Filing with Filed On empty ({m and (m['title'], m['fields'])})")
+        c.ok(not errs, f'owner phone: page errors {errs[:2]}')
     finally:
         await b.close()
 

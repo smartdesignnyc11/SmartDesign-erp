@@ -1757,6 +1757,34 @@ function seedAP() {
       unit: "",
       extId: "",
     });
+  seedTrail(DB.bills, "bill"), seedTrail(DB.payroll, "payroll");
+}
+// The seeded approval trails are written the way a person's action writes them (apStamp): each line with its audit
+// row, the same person, record and moment (BACKLOG §1.36: NT-88412, CM-0091 and WW-2026-118 read "recommended by PM"
+// and "approved for payment by Owner" with nothing in the audit trail behind them).
+const SEED_AUDIT = { submitted: "submitted", "recommended by PM": "pmok", "approved for payment by Owner": "approved" };
+function seedTs(t) {
+  // "8/10 3:40 PM" in the demo year: the stamp's own moment
+  const m = String(t || "").match(/^(\d{1,2})\/(\d{1,2}) (\d{1,2}):(\d{2}) (AM|PM)$/);
+  if (!m) return appNowIso();
+  const h = (+m[3] % 12) + ("PM" === m[5] ? 12 : 0),
+    p = (n) => String(n).padStart(2, "0");
+  return `${today().slice(0, 4)}-${p(m[1])}-${p(m[2])}T${p(h)}:${m[4]}:00`;
+}
+function seedTrail(L, kind) {
+  (L || []).forEach((r) => {
+    const T = r.approvals || [];
+    (r.approvals = []),
+      T.forEach((a) =>
+        apStamp(kind, r, a.action, SEED_AUDIT[a.action] || (/^payment released/.test(a.action) ? "paid" : a.action), {
+          by: a.by,
+          role: a.role,
+          t: a.t,
+          ts: a.ts || seedTs(a.t),
+          extra: a.note ? { note: a.note } : {},
+        }),
+      );
+  });
 }
 function seedPOs() {
   (DB.pos = [
@@ -13515,13 +13543,13 @@ const AP_DEFAULTS = {
 function entityName(id) {
   return (DB.entities || []).find((e) => e.id === id)?.name || "—";
 }
-function audit(kind, refId, action, before, after, note) {
+function audit(kind, refId, action, before, after, note, who) {
   DB.audit.push({
     id: uid("au"),
-    ts: appNowIso(),
-    t: nowStamp(),
-    by: S?.project?.userName || role(),
-    role: role(),
+    ts: (who && who.ts) || appNowIso(),
+    t: (who && who.t) || nowStamp(),
+    by: (who && who.by) || S?.project?.userName || role(),
+    role: (who && who.role) || role(),
     kind: kind,
     refId: refId,
     action: action,
@@ -13529,7 +13557,157 @@ function audit(kind, refId, action, before, after, note) {
     after: void 0 === after ? null : JSON.parse(JSON.stringify(after)),
     note: note || "",
   }),
-    DB.audit.length > 5e3 && DB.audit.shift();
+    auditSealSoon();
+}
+// ---- The audit trail is append-only and hash-chained (BACKLOG §1.36, S1; CLAUDE.md "Financial truth": nothing posted
+// changes silently, the trail is tamper-evident). It never drops a row: it dropped its oldest past 5,000, so a true
+// approval later read as unbacked. A view pages what it shows; the store keeps every row.
+// Each row, once sealed, carries n (its place, 1, 2, 3 …), prev (the hash of the row before it, "genesis" for the first)
+// and h (SHA-256 over prev and the row's own fields). Rows are sealed at the end of the turn that wrote them (a writer
+// may still set the row's who and note in that same step, as fin2Audit does); DB.auditHead keeps the last n and h, so
+// removing the newest row shows too. auditVerify() reads only, and names the first row that was edited, removed or
+// inserted. Checked: tests/finance_xcheck.py --figure invariants, INV AUDIT CHAIN.
+function auditSha256(s) {
+  const K = [
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ],
+    H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19],
+    b = new TextEncoder().encode(String(s)),
+    L = b.length,
+    n = ((L + 9 + 63) >> 6) << 6,
+    m = new Uint8Array(n),
+    W = new Uint32Array(64),
+    dv = new DataView(m.buffer),
+    r = (x, k) => (x >>> k) | (x << (32 - k));
+  m.set(b), (m[L] = 0x80), dv.setUint32(n - 4, L << 3), dv.setUint32(n - 8, Math.floor(L / 0x20000000));
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = dv.getUint32(o + 4 * i);
+    for (let i = 16; i < 64; i++) {
+      const s0 = r(W[i - 15], 7) ^ r(W[i - 15], 18) ^ (W[i - 15] >>> 3),
+        s1 = r(W[i - 2], 17) ^ r(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+      W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+    }
+    let [a, bb, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (r(e, 6) ^ r(e, 11) ^ r(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0,
+        t2 = ((r(a, 2) ^ r(a, 13) ^ r(a, 22)) + ((a & bb) ^ (a & c) ^ (bb & c))) | 0;
+      (h = g), (g = f), (f = e), (e = (d + t1) | 0), (d = c), (c = bb), (bb = a), (a = (t1 + t2) | 0);
+    }
+    (H[0] = (H[0] + a) | 0), (H[1] = (H[1] + bb) | 0), (H[2] = (H[2] + c) | 0), (H[3] = (H[3] + d) | 0), (H[4] = (H[4] + e) | 0), (H[5] = (H[5] + f) | 0), (H[6] = (H[6] + g) | 0), (H[7] = (H[7] + h) | 0);
+  }
+  return H.map((x) => (x >>> 0).toString(16).padStart(8, "0")).join("");
+}
+// the row as hashed: every field but h, in a fixed order
+function auditRowText(a) {
+  return Object.keys(a)
+    .filter((k) => "h" !== k)
+    .sort()
+    .map((k) => k + "=" + JSON.stringify(void 0 === a[k] ? null : a[k]))
+    .join("|");
+}
+let auditSealTimer = 0;
+function auditSealSoon() {
+  auditSealTimer ||
+    (auditSealTimer = setTimeout(() => {
+      auditSealTimer = 0;
+      try {
+        auditSeal();
+      } catch (e) {
+        console.warn("audit seal", e);
+      }
+    }, 0));
+}
+// seal the rows not yet sealed, in order, after the last sealed one (a trail from before the chain is sealed from its
+// first row, once: that is where the chain begins)
+function auditSeal() {
+  const A = DB.audit || [];
+  let i = A.length;
+  while (i > 0 && !A[i - 1].h) i--;
+  if (i === A.length) return 0;
+  let prev = i ? A[i - 1].h : "genesis",
+    n = i ? +A[i - 1].n || i : 0;
+  for (let k = i; k < A.length; k++) {
+    const a = A[k];
+    (a.n = ++n), (a.prev = prev), delete a.h, (a.h = auditSha256(prev + "|" + auditRowText(a))), (prev = a.h);
+  }
+  return (DB.auditHead = { n: n, h: prev }), A.length - i;
+}
+// reads only: { ok, rows, sealed, pending, broken: [{ at, id, why }] }
+function auditVerify() {
+  const A = DB.audit || [],
+    broken = [];
+  let prev = "genesis",
+    n = 0,
+    sealed = 0;
+  for (let k = 0; k < A.length; k++) {
+    const a = A[k];
+    if (!a.h) {
+      // not yet sealed: only the newest rows, after every sealed one
+      if (A.slice(k).some((x) => x.h)) broken.push({ at: k, id: a.id, why: "a row without a seal among sealed rows (inserted)" });
+      break;
+    }
+    sealed++;
+    if (a.prev !== prev) broken.push({ at: k, id: a.id, why: k ? "the row before it is not the one it was sealed after (a row removed, inserted or edited before it)" : "the first row does not start the chain" });
+    else if (+a.n !== n + 1) broken.push({ at: k, id: a.id, why: `numbered ${a.n} after ${n} (a row removed)` });
+    else if (auditSha256(prev + "|" + auditRowText(a)) !== a.h) broken.push({ at: k, id: a.id, why: "its fields changed after it was sealed (edited)" });
+    if (broken.length) break;
+    (prev = a.h), (n = +a.n);
+  }
+  const H = DB.auditHead;
+  !broken.length && H && (+H.n > n || (+H.n === n && H.h !== prev)) && broken.push({ at: A.length, id: "", why: `the trail ends at ${n}, its head says ${H.n} (the newest rows removed)` });
+  return { ok: !broken.length, rows: A.length, sealed: sealed, pending: A.length - sealed, broken: broken };
+}
+// An approval stamp ("recommended by PM", "approved for payment by Owner", a routing step, a short-pay) is written
+// only here: by the person's own action, with its audit row in the same step, the same person, record and moment
+// (BACKLOG §1.36: three seeded bills read "recommended by PM" and "approved by Alan" with nothing in the audit trail
+// behind them). A seed writes its invented history through it too (o.by, o.role, o.ts, o.t), so no stamp shows
+// without its action. Checked: tests/finance_xcheck.py --figure invariants (INV STAMP BACKED) and the walk's danger
+// sweep (stamp).
+// A held bill takes no approval stamp, by any path (chief-of-staff review, 11-04: a planted hold on AMP-311 was
+// recommended by the PM through billAction and approved by the owner through rtApprove). The reason, or "".
+function apStampRefused(kind, rec) {
+  if ("bill" !== kind || !rec) return "";
+  const h = rec.onHold && "open" === rec.onHold.state ? rec.onHold : null;
+  return h
+    ? `${rec.vendor || "The bill"} ${rec.number || ""} is held by ${h.by}: ${h.why}. Nothing is approved while it is held: release the hold first`
+    : ["hold", "on-hold", "held"].includes(rec.status)
+      ? `${rec.vendor || "The bill"} ${rec.number || ""} is on hold. Nothing is approved while it is held`
+      : "";
+}
+// Is this stamp backed by its person's own action in the audit trail (the same test as INV STAMP BACKED)? A line that is
+// not an approval stamp ("submitted", "built from approved hours") is not asked.
+const AP_STAMP_RX = /\b(recommended|approved|verified|signed off)\b/i;
+function apStampBacked(rec, a) {
+  const w = String((a && a.action) || "");
+  if (!rec || !AP_STAMP_RX.test(w) || /\bfrom approved\b/i.test(w)) return !0;
+  const by = String(a.by || "").trim().toLowerCase();
+  return !!by && !!a.ts && (DB.audit || []).some((x) => x.refId === rec.id && String(x.by || "").trim().toLowerCase() === by && x.ts && x.ts <= a.ts);
+}
+// one line of an approval trail: a stamp with no audit row behind it says so in plain words, never reads as approved
+function apTrailLine(rec, a) {
+  const ok = apStampBacked(rec, a);
+  return `<div${ok ? "" : ' class="ap-unbacked"'}><span>${esc(a.t || "")}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role || "")}${a.note ? ` — ${esc(a.note)}` : ""}${ok ? "" : ' <span class="pill bad">no record of this action: not counted as an approval</span>'}</div>`;
+}
+function apStamp(kind, rec, action, auditAction, o) {
+  o = o || {};
+  const no = apStampRefused(kind, rec);
+  if (no) return toast(no), null;
+  const who = {
+      by: o.by || S?.project?.userName || role(),
+      role: o.role || role(),
+      ts: o.ts || appNowIso(),
+      t: o.t || nowStamp(),
+    },
+    st = Object.assign({ t: who.t, ts: who.ts, by: who.by, role: who.role, action: action }, o.extra || {});
+  (rec.approvals = rec.approvals || []).push(st);
+  // a record that names its approver on itself (a rule change, a client credit, a journal, a PO) names the person who
+  // acted, in the same step as the audit row: never a role, never someone who did not act (BACKLOG §1.36)
+  o.approve && ((rec.approvedBy = who.by), (rec.approvedAt = o.approvedAt || today()));
+  audit(kind, rec.id, auditAction || action, void 0 === o.before ? null : o.before, void 0 === o.after ? null : "function" == typeof o.after ? o.after() : o.after, o.note || "", who);
+  return st;
 }
 const isOwner = () => "owner" === role();
 function canApprove(item) {
@@ -13823,7 +14001,7 @@ function openBill(id) {
       .map((f) => `<option value="${f.id}" ${b.fileId === f.id ? "selected" : ""}>${esc(f.name)}</option>`)
       .join(
         "",
-      )}</select></div></div>\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(b.notes)}</textarea></div>\n    ${id ? `<div class="card" style="margin-top:6px"><h4>Approval trail</h4><div class="trail">${b.approvals.length ? b.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">Created by ' + esc(b.createdBy || "—") + ". No approvals yet.</div>"}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px;flex-wrap:wrap">${"draft" === b.status ? '<button class="btn sm primary" data-bact="submit">Submit for approval</button>' : ""}${"submitted" !== b.status || ("pm" !== role() && !isOwner()) ? "" : '<button class="btn sm primary" data-bact="pmok">PM: recommend</button><button class="btn sm danger" data-bact="reject">Reject</button>'}${("pm-approved" === b.status || ("submitted" === b.status && !needsOwner(tot))) && isOwner() ? '<button class="btn sm primary" data-bact="approve">Owner: approve for payment</button><button class="btn sm danger" data-bact="reject">Reject</button>' : ""}${"pm-approved" !== b.status || isOwner() ? "" : '<span class="small muted">Waiting for the Owner.</span>'}${"approved" === b.status ? '<button class="btn sm primary" data-bact="paid">Mark paid (record payment)</button>' : ""}${"exception" === b.status && isOwner() ? '<button class="btn sm" data-bact="clear">Owner: clear exception</button>' : ""}${["void", "paid", "verified"].includes(b.status) ? "" : '<button class="btn sm" data-bact="void">Void</button>'}</div>` : ""}`),
+      )}</select></div></div>\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(b.notes)}</textarea></div>\n    ${id ? `<div class="card" style="margin-top:6px"><h4>Approval trail</h4><div class="trail">${b.approvals.length ? b.approvals.map((a) => apTrailLine(b, a)).join("") : '<div class="muted">Created by ' + esc(b.createdBy || "—") + ". No approvals yet.</div>"}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px;flex-wrap:wrap">${"draft" === b.status ? '<button class="btn sm primary" data-bact="submit">Submit for approval</button>' : ""}${"submitted" !== b.status || ("pm" !== role() && !isOwner()) ? "" : '<button class="btn sm primary" data-bact="pmok">PM: recommend</button><button class="btn sm danger" data-bact="reject">Reject</button>'}${("pm-approved" === b.status || ("submitted" === b.status && !needsOwner(tot))) && isOwner() ? '<button class="btn sm primary" data-bact="approve">Owner: approve for payment</button><button class="btn sm danger" data-bact="reject">Reject</button>' : ""}${"pm-approved" !== b.status || isOwner() ? "" : '<span class="small muted">Waiting for the Owner.</span>'}${"approved" === b.status ? '<button class="btn sm primary" data-bact="paid">Mark paid (record payment)</button>' : ""}${"exception" === b.status && isOwner() ? '<button class="btn sm" data-bact="clear">Owner: clear exception</button>' : ""}${["void", "paid", "verified"].includes(b.status) ? "" : '<button class="btn sm" data-bact="void">Void</button>'}</div>` : ""}`),
     ro ||
       $("#e-addbl")?.addEventListener("click", () => {
         b.lines.push({ id: uid("bl"), desc: "", amount: 0 }),
@@ -13934,12 +14112,10 @@ function billAction(b, a, why) {
   if ("pmok" === a) {
     if (b.createdBy && b.createdBy.toLowerCase() === by.toLowerCase() && !isOwner())
       return void toast("Separation of duties: the person who entered the bill cannot approve it");
-    (b.status = needsOwner(billTotal(b)) ? "pm-approved" : "approved"),
-      b.approvals.push({
-        ...stamp,
-        action: "approved" === b.status ? "approved (PM, under Owner threshold)" : "recommended by PM",
-      }),
-      audit("bill", b.id, a, null, { status: b.status });
+    // the stamp first: a held bill refuses it (apStamp), and then nothing about the bill changes
+    const to = needsOwner(billTotal(b)) ? "pm-approved" : "approved";
+    if (!apStamp("bill", b, "approved" === to ? "approved (PM, under Owner threshold)" : "recommended by PM", a, { by: by, ts: stamp.ts, t: stamp.t, after: { status: to } })) return;
+    b.status = to;
   }
   if ("approve" === a) {
     const vb = DB.vendors.find((x) => x.name.toLowerCase() === b.vendor.toLowerCase());
@@ -13962,15 +14138,8 @@ function billAction(b, a, why) {
         "e.g. COI renewal received by email, filing tomorrow",
         (w) => billAction(b, "approve", w),
       );
-    (b.status = "approved"),
-      (b.approvedAt = today()),
-      b.approvals.push({
-        ...stamp,
-        action: "approved for payment by Owner",
-        note: fl.length ? `override: ${why} (${fl.join("; ")})` : "",
-      }),
-      audit("bill", b.id, "approved", null, { status: "approved", flags: fl }),
-      log(`Bill approved: ${b.vendor} ${money(billTotal(b))}`);
+    if (!apStamp("bill", b, "approved for payment by Owner", "approved", { by: by, ts: stamp.ts, t: stamp.t, after: { status: "approved", flags: fl }, extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" } })) return;
+    (b.status = "approved"), (b.approvedAt = today()), log(`Bill approved: ${b.vendor} ${money(billTotal(b))}`);
   }
   if ("reject" === a) {
     if (!why)
@@ -14042,7 +14211,7 @@ function openPayroll(id) {
     flow = ["draft", "submitted", "pm-approved", "approved", "paid", "verified"],
     fi = flow.indexOf(r.status);
   ($("#d-body").innerHTML =
-    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
+    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => apTrailLine(r, a)).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
     $("#e-addalloc")?.addEventListener("click", () => {
       r.alloc.push({ projectId: "", pct: 0 });
       const i = r.alloc.length - 1;
@@ -14124,11 +14293,7 @@ function payrollAction(r, a) {
     )
       return;
     (r.status = "approved"),
-      r.approvals.push({
-        ...stamp,
-        action: `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`,
-      }),
-      audit("payroll", r.id, "approved"),
+      apStamp("payroll", r, `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`, "approved", { by: by, ts: stamp.ts, t: stamp.t }),
       r.fromTime || prLinkTime(r),
       log(`Payroll approved: ${r.period} ${money(r.total)}`);
   }
@@ -39437,7 +39602,8 @@ poAction = function (po, a) {
       (po.status = "draft"), audit("po", po.id, "sent-back", "pending", "draft", by), save(), void render()
     );
   if (
-    ("issue" === a && owner && poNeedsApproval(po) && ((po.approvedBy = by), (po.approvedAt = today())),
+    // the owner issuing an order that needs approval approves it: the stamp with its audit row (BACKLOG §1.36)
+    ("issue" === a && owner && poNeedsApproval(po) && ((po.approvedBy = by), (po.approvedAt = today()), audit("po", po.id, "approved", po.status, "issued", `${by}, as the owner issued it`)),
     "bill" !== a)
   ) {
     if ("receive" === a || "receivepartial" === a) {
@@ -59897,7 +60063,8 @@ function spApprove(s, ok, why) {
     (s.approvedBy = currentUser()?.name || DB.me || ""),
     (s.approvedAt = today()),
     (s.rejectNote = ok ? "" : why || ""),
-    audit("spend", s.id, ok ? "approved" : "rejected", null, { by: s.approvedBy, why: why || "" }),
+    // the audit row names the same person as the stamp (BACKLOG §1.36, INV STAMP BACKED)
+    audit("spend", s.id, ok ? "approved" : "rejected", null, { by: s.approvedBy, why: why || "" }, "", { by: s.approvedBy || void 0 }),
     log(
       `${money(spTotal(s))} at ${s.vendor || "a vendor"} ${ok ? "approved" : "sent back"} by ${s.approvedBy}${why ? " — " + why : ""}`,
     ),
@@ -60477,7 +60644,9 @@ function spSeed() {
     (S3.receipt = spPaperReceipt("NEMO TILE SUPPLY", [["PORCELAIN 12X24 · 340SF", "4,250.00"]], "4,250.00")),
     (S3.status = "approved"),
     (S3.approvedBy = "Alan"),
-    (S3.approvedAt = S3.date);
+    (S3.approvedAt = S3.date),
+    // the seeded approval carries its audit row, by Alan, on its day (BACKLOG §1.36, INV STAMP BACKED)
+    audit("spend", S3.id, "approved", null, { by: "Alan" }, "", { by: "Alan", role: "pm", ts: `${S3.date}T16:00:00`, t: `${fmt(S3.date)} 4:00 PM` });
   const C = DB.accounts.find((a) => "card" === a.type);
   C &&
     !DB.txns.some((t) => "tsp0" === t.id) &&
@@ -60631,6 +60800,8 @@ function labRun() {
           (s.status = "approved"),
           (s.approvedBy = currentUser()?.name || DB.me || ""),
           (s.approvedAt = today()),
+          // the person running labor cost from approved hours approves each line it makes: the stamp's audit row
+          audit("spend", s.id, "approved", null, { from: "approved hours", hours: g.hours }, "labor cost from approved hours", { by: s.approvedBy || void 0 }),
           made.push(s);
       });
       const reim = labReimbursements(),
@@ -63338,28 +63509,21 @@ function rtApprove(o, note) {
   const can = rtCan(o);
   if (!can.ok) return toast(can.why), !1;
   const st = rtStep(o);
-  o.approvals = [
-    ...(o.approvals || []),
-    {
-      t: nowStamp(),
-      by: currentUser()?.name || DB.me || "",
-      role: st.next,
-      action:
-        "owner" === st.next
-          ? "approved for payment by Owner"
-          : "pm" === st.next
-            ? "recommended by PM"
-            : "approved by coordinator",
-      note: note || "",
-    },
-  ];
+  // the stamp and its audit row in one step, by the person approving (apStamp); the step it fills is st.next, which
+  // rtCan has just checked is this person's role
+  o.approvals = (o.approvals || []).slice();
+  const stp = apStamp(
+    void 0 !== o.number ? "bill" : "spend",
+    o,
+    "owner" === st.next ? "approved for payment by Owner" : "pm" === st.next ? "recommended by PM" : "approved by coordinator",
+    "approved-step",
+    { by: currentUser()?.name || DB.me || S?.project?.userName || role(), role: st.next, extra: { note: note || "" }, after: () => ({ role: st.next, complete: rtStep(o).complete }) },
+  );
+  // refused (a held bill): no step, no status
+  if (!stp) return !1;
   const after = rtStep(o);
   return (
     after.complete ? (o.status = "approved") : "pm" === st.next && (o.status = "pm-approved"),
-    audit(void 0 !== o.number ? "bill" : "spend", o.id, "approved-step", null, {
-      role: st.next,
-      complete: after.complete,
-    }),
     save(),
     !0
   );
@@ -72477,21 +72641,23 @@ function glProposeOpening(entityId) {
   };
   return DB.gl.journals.push(j), j;
 }
+let glApproveNote = "";
 function glApprove(id) {
   const j = DB.gl.journals.find((x) => x.id === id);
   if (!j || "pending" !== j.status) return;
   if ("owner" !== role()) return void toast("Only the Owner approves a manual entry");
   if (glLocked(j.date, j.entityId, "gl")) return void toast("That period is locked");
-  (DB.gl.journals = DB.gl.journals.filter((x) => x.id !== id)),
-    (j.approvedBy = role()),
-    (j.approvedAt = appNowIso());
+  // approvedBy names the person who approved (it read "owner", the role), with its audit row by that person (apStamp)
+  const who = (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role(),
+    keep = { by: j.approvedBy, at: j.approvedAt };
+  (DB.gl.journals = DB.gl.journals.filter((x) => x.id !== id)), (j.approvedBy = who), (j.approvedRole = role()), (j.approvedAt = appNowIso());
   const res = glPost(j);
-  if (!res.ok) return toast(res.why), void DB.gl.journals.push(j);
+  if (!res.ok) return (j.approvedBy = keep.by), (j.approvedAt = keep.at), toast(res.why), void DB.gl.journals.push(j);
   if (j.autoReverseOn) {
     glReverse(j, j.autoReverseOn, "auto-reverse").ok && (j.status = "posted");
   }
   try {
-    audit("ledger", j.id, "approve", "", j.memo, "");
+    apStamp("ledger", j, `approved and posted by ${who}`, "approve", { by: who, after: j.memo, note: glApproveNote });
   } catch (e) {}
   save(), render(), toast(`Posted #${j.n}`);
 }
@@ -95246,9 +95412,10 @@ function mtWire(host) {
           // in the drawing, so a button that shows to anyone else still changes nothing
           if ("owner" !== role()) return void toast("Only the owner approves a change");
           const by = (currentUser() || {}).name || "Owner";
+          const was = c.status;
           "code" === c.kind ? (c.status = "approved") : (mtChangeApply(c), (c.status = "live")),
-            (c.approvedBy = by),
-            (c.approvedAt = today()),
+            // the approval names the owner who approved it, with its audit row (apStamp; it wrote none)
+            apStamp("change", c, "code" === c.kind ? "approved for the next build by the Owner" : "approved and published by the Owner", "approved", { by: by, approve: !0, before: was, after: c.status }),
             log(`Change ${c.status}: ${c.title}`, "change", by),
             save(),
             toast("live" === c.status ? "Published" : "Approved for the next build"),
@@ -95837,27 +96004,30 @@ function lsInit() {
       covered.includes(c.delta.path) &&
       ((c.status = "live"),
       (c.liveAt = today()),
-      (c.approvedBy = "Owner"),
-      (c.note = "Already in effect — covered by the changes approved after the meeting read"));
+      (c.note = "Already in effect — covered by the changes approved after the meeting read"),
+      // the system marks it live because it is already in effect: it says so, and never names the Owner, who did not
+      // act on it (BACKLOG §1.36: it read "approved by Owner" with nothing behind it)
+      apStamp("change", c, "marked live by the system: already in effect, covered by changes approved after the meeting read", "covered-live", { by: "system", role: "system", approve: !0, before: "draft", after: "live" }));
   }),
     LS_CHANGES.forEach(([key, kind, title, why, delta]) => {
-      DB.changes.some((c) => c.title === title) ||
-        DB.changes.push({
-          id: uid("ch"),
-          key: key,
-          title: title,
-          why: why,
-          kind: kind,
-          delta: delta,
-          evidence: [],
-          status: "live",
-          at: today(),
-          by: "The assistant",
-          approvedBy: "Owner",
-          approvedAt: today(),
-          liveAt: today(),
-          built: "code" === kind,
-        });
+      if (DB.changes.some((c) => c.title === title)) return;
+      // a change that ships with the build is live because it shipped, not because the Owner approved it here: it says
+      // so, with its audit row (it read "approved by Owner" with no action of his behind it)
+      const c = {
+        id: uid("ch"),
+        key: key,
+        title: title,
+        why: why,
+        kind: kind,
+        delta: delta,
+        evidence: [],
+        status: "live",
+        at: today(),
+        by: "The assistant",
+        liveAt: today(),
+        built: "code" === kind,
+      };
+      DB.changes.push(c), apStamp("change", c, "live as shipped with the build", "shipped", { by: "system", role: "system", approve: !0, after: "live" });
     });
 }
 if ("function" == typeof finishBoot) {
@@ -98220,7 +98390,7 @@ function bnObligationsHtml() {
                 : (DB.projects.find((p) => p.id === c) || { project: { name: c } }).project.name,
           )
           .join(", ");
-      return `<tr data-bnob="${o.id}"><td>${esc(BN_OB_KINDS[o.kind] || o.kind)}</td><td><b>${esc(o.name)}</b>${o.number ? `<div class="small muted">${esc(o.number)}</div>` : ""}</td><td>${esc(o.party || "")}</td><td class="small">${esc(cov)}</td><td>${o.expires ? bnY(o.expires) : "—"}</td><td>${esc(o.owner || "")}</td><td>${st}</td><td>${r.ext ? '<span class="small muted">from Vendors</span>' : null !== r.days && r.days <= (o.renewLead || 30) && "active" === o.status ? `<button class="btn sm" data-bnobdraft="${o.id}">Draft the Renewal</button>` : ""}</td></tr>`;
+      return `<tr data-bnob="${o.id}"><td>${esc(BN_OB_KINDS[o.kind] || o.kind)}</td><td><b>${esc(o.name)}</b>${o.number ? `<div class="small muted">${esc(o.number)}</div>` : ""}</td><td>${esc(o.party || "")}</td><td class="small">${esc(cov)}</td><td>${o.expires ? bnY(o.expires) : "—"}</td><td>${esc(o.owner || "")}</td><td>${st}</td><td>${r.ext ? '<span class="small muted">from Vendors</span>' : null !== r.days && r.days <= (o.renewLead || 30) && "active" === o.status ? `<button class="btn sm" data-bnobdraft="${o.id}">Draft the Renewal</button> <button class="btn sm" data-bnobrec="${o.id}">${"filing" === o.kind ? "Record the Filing" : "Record the Renewal"}</button>` : ""}</td></tr>`;
     }).join("") || '<tr><td colspan="8" class="muted">Nothing on the register yet.</td></tr>'
   }</tbody></table></div>\n    <p class="small muted">Everything here lands on the calendar as its expiry and its renewal date, and on the owner's tasks ${DB.company.obLead || 30} days ahead. A policy bound in a meeting goes here the same day, with the carrier's email, so the renewal writes itself.</p>`;
 }
@@ -98917,17 +99087,15 @@ function renderObligations() {
               : void bnObModal(tr.dataset.bnob);
         }),
     ),
+    // Draft the Renewal drafts it (flRenewDraft); Record the Filing / Renewal records it, with the date typed
     host.querySelectorAll("[data-bnobdraft]").forEach(
+      (b) => (b.onclick = () => flRenewDraft(DB.obligations.find((x) => x.id === b.dataset.bnobdraft))),
+    ),
+    host.querySelectorAll("[data-bnobrec]").forEach(
       (b) =>
         (b.onclick = () => {
-          const o = DB.obligations.find((x) => x.id === b.dataset.bnobdraft);
-          o && bnDraftFor({ kind: "obligation", o: o })
-            ? (save(),
-              toast("Renewal request drafted — approve it under The Brain › Hands"),
-              (bnTab = "hands"),
-              (view = "brain"),
-              render())
-            : toast("A draft for this renewal already exists");
+          const o = DB.obligations.find((x) => x.id === b.dataset.bnobrec);
+          o && flRenewDialog(o);
         }),
     );
 }
@@ -107942,8 +108110,13 @@ function bootRun() {
 // calendar, the reporting entity and basis, the as-of date of a pack, and the temporary re-dating fin3CostDated and
 // fin3PostDated do while they run). SPD.check (tests/speed_test.py turns it on) recomputes hits and records any
 // difference in SPD.bad, so a missing key part fails loudly.
-const SPD = { on: 0, depth: 0, ver: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
-  spdIds = new WeakMap();
+// SPD.wv is the write version (BACKLOG §1.36, the stale-memo class): one counter that every write moves (save() and
+// saveNow(), wrapped outermost in spdInstall, and every ledger sync, SPD.syncs) and no read moves. It is part of every
+// memo's key (spdCtx; ocMemo between draws; dataVer() for the lanes' own per-draw memos), so a memo kept before a write
+// is never the answer after it, even inside one draw (spdBegin's snapshot of DB is taken once, as the draw starts).
+const SPD = { on: 0, depth: 0, ver: 0, wv: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
+  spdIds = new WeakMap(),
+  dataVer = () => SPD.ver + "." + SPD.wv + "." + (SPD.syncs || 0);
 let spdNextId = 0,
   fin3CostDepth = 0;
 function spdId(o) {
@@ -107957,6 +108130,8 @@ function spdCtx() {
   return [
     // the app's minute, not only its day: a memo held "11 min ago" while a fresh read said "12 min ago" (speed_test)
     appNowIso().slice(0, 16),
+    // the write version: a write since the memo was kept (even in the same draw) is another key
+    SPD.wv + "." + (SPD.syncs || 0),
     "function" == typeof role ? role() : "",
     (u && u.id) || "",
     (S && S.id) || "",
@@ -108020,6 +108195,9 @@ function spdMemo(name, f, self, args) {
     if ((SPD.hits++, SPD.check && (!0 === SPD.check || (e.n = (e.n || 0) + 1) <= SPD.check))) {
       const fresh = JSON.stringify(f.apply(self, args)),
         had = JSON.stringify(e.r);
+      // a reader wrote into the answer after it was kept (e.j is the answer as kept): named so, since the fix is in that
+      // reader (copy a row before adding to it), not in the key
+      e.j && had !== e.j && SPD.bad.length < 50 && SPD.bad.push({ fn: name, key: k.slice(0, 160), view: view, at: 0, had: "written into by a reader after it was kept", fresh: String(had).slice(0, 200) });
       // a draw that runs over a minute's turn may differ in "N min ago"; that is the clock, not the memo
       if (fresh !== had && SPD.bad.length < 50 && appNowIso().slice(0, 16) === SPD.min) {
         const a = String(had),
@@ -108033,7 +108211,12 @@ function spdMemo(name, f, self, args) {
   }
   SPD.miss++;
   const r = f.apply(self, args);
-  return SPD.memo.set(k, { r: r }), Array.isArray(r) ? r.slice() : r;
+  let j = "";
+  if (SPD.check)
+    try {
+      j = JSON.stringify(r);
+    } catch (x) {}
+  return SPD.memo.set(k, { r: r, j: j }), Array.isArray(r) ? r.slice() : r;
 }
 // The readers answered from the memo: pure functions of the records, their arguments and spdCtx(). The per-draw
 // memos that were already there (ocMemo for the badge counts, budMemoGet for the budget) use it too while a draw runs.
@@ -108075,6 +108258,15 @@ function spdInstall() {
         (window[n] = function () {
           return spdMemo(n, f, this, arguments);
         });
+    });
+  // every write moves the write version: the outermost save and saveNow (every lane's wrapper runs inside these)
+  const sv = save,
+    svn = saveNow;
+  (save = function () {
+    return SPD.wv++, sv.apply(this, arguments);
+  }),
+    (saveNow = function () {
+      return SPD.wv++, svn.apply(this, arguments);
     });
   const draw = render;
   render = function () {
@@ -124167,6 +124359,7 @@ function finNormalise() {
               i.date,
               td,
               "a sent invoice cannot be dated after today — the date is the send date",
+              { by: "system", role: "system" },
             );
           } catch (e) {}
           (i.dateWas = i.date), (i.date = td), n++;
@@ -132682,17 +132875,17 @@ function lkWatchVendors(on) {
 }
 const FIN2_SYS = "system",
   FIN2_SETUP = "system (setup)";
-function fin2Audit(actor, kind, refId, action, before, after, note) {
+// the actor and role go in the same call that writes the row (a sealed row is never edited after: auditVerify)
+function fin2Audit(actor, kind, refId, action, before, after, note, roleOf) {
   try {
-    audit(kind, refId, action, before, after, note);
-    const a = DB.audit[DB.audit.length - 1];
-    a && a.refId === refId && a.action === action && ((a.by = actor), (a.role = "system"));
+    audit(kind, refId, action, before, after, note, { by: actor, role: roleOf || "system" });
   } catch (e) {}
 }
 const fin2Who = () => (void 0 !== S && S && S.project && S.project.userName) || role(),
   fin2Stamp = () => ({ t: nowStamp(), ts: appNowIso(), by: fin2Who(), role: role() });
 function fin2ApproveAsBilled(b, why) {
   if (!b) return !1;
+  if (apStampRefused("bill", b)) return toast(apStampRefused("bill", b)), !1;   // held: nothing is approved, nothing changes
   if (!billPaidUnapproved(b)) return toast(`${b.number || "This bill"} is not waiting on an approval`), !1;
   if (!isOwner()) return toast("Only the Owner approves a bill the bank already paid"), !1;
   if (!canApprove(b))
@@ -132745,22 +132938,17 @@ function fin2ApproveAsBilled(b, why) {
     (b.paidAt = b.paidAt || (t && t.date) || today()),
     (b.paidBeforeApproval = !0),
     (b.approvedAsBilled = { on: today(), by: st.by, txnId: t ? t.id : "" }),
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, st, {
-        action: "approved as billed by Owner — bank payment confirmed",
-        note: fl.length ? `override: ${why} (${fl.join("; ")})` : "",
-      }),
-    );
-  try {
-    audit(
-      "bill",
-      b.id,
-      "approved-as-billed",
-      "paid before approval",
-      "verified",
-      `${t ? `${money(-t.amt)} from ${a ? a.name : "the bank"} on ${t.date} confirmed as the payment` : "no bank line"}${why ? "; override: " + why : ""}`,
-    );
-  } catch (e) {}
+    // the stamp and its audit row in one step (apStamp)
+    apStamp("bill", b, "approved as billed by Owner — bank payment confirmed", "approved-as-billed", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: "paid before approval",
+      after: "verified",
+      note: `${t ? `${money(-t.amt)} from ${a ? a.name : "the bank"} on ${t.date} confirmed as the payment` : "no bank line"}${why ? "; override: " + why : ""}`,
+      extra: { note: fl.length ? `override: ${why} (${fl.join("; ")})` : "" },
+    });
   try {
     log(`Bill approved as billed: ${b.vendor} ${money(billTotal(b))}`);
   } catch (e) {}
@@ -133113,7 +133301,14 @@ if (
     const j = ((DB.gl || {}).journals || []).find((x) => x.id === id);
     if (j && "opening" === j.kind && "pending" === j.status && !j.statementRef)
       return void fin2OpeningDialog(id);
-    const r = glApproveBase_f2.apply(this, arguments);
+    // the audit row's note is written by the approval's own call (glApproveNote), never patched after it
+    glApproveNote = j && "opening" === j.kind && j.statementRef ? `opening balances signed against: ${j.statementRef}` : "";
+    let r;
+    try {
+      r = glApproveBase_f2.apply(this, arguments);
+    } finally {
+      glApproveNote = "";
+    }
     if (j && "opening" === j.kind && "posted" === j.status) {
       (DB.gl.openingPosted = DB.gl.openingPosted || {}),
         (DB.gl.openingPosted[j.entityId] = j.id),
@@ -133121,8 +133316,6 @@ if (
         (j.memo = `Opening balances at setup — posted by the Owner against ${j.statementRef}`);
       try {
         finCash._c = null;
-        const a = DB.audit[DB.audit.length - 1];
-        a && a.refId === j.id && (a.note = `opening balances signed against: ${j.statementRef}`);
       } catch (e) {}
       save(), render();
     }
@@ -134075,8 +134268,10 @@ function fin2InvoiceDates() {
           ["draft", "void"].includes(i.status) || i.dateRec || (i.dateRec = i.date);
       }),
     ),
+    // a row from before the writer named the system: put right only while it is unsealed (a sealed row is never edited)
     (DB.audit || []).forEach((a) => {
-      "invoice" === a.kind &&
+      !a.h &&
+        "invoice" === a.kind &&
         "date-corrected" === a.action &&
         "system" !== a.by &&
         ((a.by = "system"), (a.role = "system"));
@@ -134910,9 +135105,9 @@ function fin2SeedSignOpening() {
             "awaiting the Owner",
             "posted",
             `signed with the demo data at seed, as the Owner posts it: against ${j.statementRef}${wrong.length ? `; the wrong-side line${1 === wrong.length ? "" : "s"} (${wrong.map((d) => d.name).join(", ")}) checked against the statement` : ""}`,
+            "owner",
           );
-        const a = DB.audit[DB.audit.length - 1];
-        a && a.refId === j.id && (a.role = "owner"), n++;
+        n++;
       }),
     (DB.gl.openingSeedSigned = !0),
     n)
@@ -140206,12 +140401,12 @@ if (
             (j.wrongSignChecked = []),
             (j.memo =
               "Opening balances at setup — posted with the demo data by the system; no statement is on file"),
-            (DB.audit || []).forEach((a) => {
-              a.refId === j.id &&
-                "approve" === a.action &&
-                ((a.by = FIN3_SEED),
-                (a.role = "system"),
-                (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
+            // an unsealed row (this boot's own seed) is put right where it stands; a sealed one is never edited: the
+            // re-attribution is a new row, by the system, saying what it corrects (the trail stays verifiable)
+            (DB.audit || []).filter((a) => a.refId === j.id && "approve" === a.action && a.by !== FIN3_SEED).forEach((a) => {
+              a.h
+                ? audit("ledger", j.id, "approve", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
+                : ((a.by = FIN3_SEED), (a.role = "system"), (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
             }),
             n++;
         }),
@@ -140665,6 +140860,10 @@ function pay3Can(b) {
     b.ic ||
     b.short ||
     b.dispute ||
+    // a held bill is not waiting on an approval: its hold is reviewed first (BACKLOG §1.36, NEM-5851's Review opened
+    // Approve and Dispute while it was held)
+    ("function" == typeof billHeld && billHeld(b)) ||
+    ["hold", "on-hold", "held", "disputed"].includes(b.status) ||
     (!billPaidUnapproved(b) && !["submitted", "pm-approved"].includes(b.status))
   );
 }
@@ -140700,15 +140899,17 @@ function pay3ApproveAsBilled(b, a, why) {
     pay3AsBilled = !1;
   }
   if (["approved", "verified", "paid"].includes(b.status)) {
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, fin2Stamp(), {
-        action: `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`,
-        note: why,
-      }),
-    );
-    try {
-      audit("bill", b.id, "approved-over-po", "", b.status, `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`);
-    } catch (e) {}
+    const st = fin2Stamp();
+    apStamp("bill", b, `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`, "approved-over-po", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: "",
+      after: b.status,
+      note: `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`,
+      extra: { note: why },
+    });
     save();
   }
 }
@@ -140804,22 +141005,17 @@ function pay3ShortPay(b, amt, why, opts) {
         (b.paidAt = b.paidAt || (t && t.date) || today()),
         (b.paidBeforeApproval = !0))
       : (b.status = "approved"),
-    (b.approvals = b.approvals || []).push(
-      Object.assign({}, st, {
-        action: `approved at ${money(amt)}${P ? " (" + P.po.number + ")" : ""} by Owner — ${money(held)} disputed`,
-        note: why,
-      }),
-    );
-  try {
-    audit(
-      "bill",
-      b.id,
-      "approved-short",
-      before,
-      b.status,
-      `${money(amt)} approved and costed; ${money(held)} disputed ${paid ? "and held as a vendor receivable (1300)" : "and held back from payment"} — ${why}`,
-    );
-  } catch (e) {}
+    // the stamp and its audit row in one step (apStamp)
+    apStamp("bill", b, `approved at ${money(amt)}${P ? " (" + P.po.number + ")" : ""} by Owner — ${money(held)} disputed`, "approved-short", {
+      by: st.by,
+      role: st.role,
+      ts: st.ts,
+      t: st.t,
+      before: before,
+      after: b.status,
+      note: `${money(amt)} approved and costed; ${money(held)} disputed ${paid ? "and held as a vendor receivable (1300)" : "and held back from payment"} — ${why}`,
+      extra: { note: why },
+    });
   try {
     log(`Bill approved at ${money(amt)}, ${money(held)} disputed: ${b.vendor} ${b.number || ""}`);
   } catch (e) {}
@@ -142286,7 +142482,7 @@ const ocMemo = (k, f) => {
         }
       }, null, []);
     const t = ("function" == typeof render && render.__tick) || 0,
-      key = k + "|" + role() + "|" + (S && S.id),
+      key = k + "|" + role() + "|" + (S && S.id) + "|" + dataVer(),
       c = ocCache[key];
     if (c && c.t === t) return c.v;
     let v;
@@ -148156,6 +148352,9 @@ if ("function" == typeof rtCan) {
 if ("function" == typeof rtApprove) {
   const rtApproveBase_bl = rtApprove;
   rtApprove = function (o, note) {
+    // a held bill: no review is skipped and no step is stamped (apStampRefused, the same rule apStamp keeps)
+    const held = "function" == typeof apStampRefused ? apStampRefused(void 0 !== o.number ? "bill" : "spend", o) : "";
+    if (held) return toast(held), !1;
     try {
       const st = rtStep(o),
         my = role();
@@ -181936,7 +182135,8 @@ function blCreditAct(row) {
     DB.clientCredits.push(cc));
   const was = cc.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(cc.invoiceLineId) : null;
   if (was) return (clientOpen = was.c.id), (docOpen = { kind: "invoice", id: was.inv.id }), void render();
-  "approved" !== cc.status && ((cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()));
+  // billing's draft is the approval: it names the person, with its audit row in the same step (apStamp; it wrote none)
+  "approved" !== cc.status && ((cc.status = "approved"), apStamp("client-credit", cc, `credit to the client approved by ${by}`, "approved", { by: by, approve: !0, before: "proposed", after: "approved", note: cc.why || "" }));
   row.txn && (row.txn.clientCreditDone = cc.id);
   let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === p.id && "sov" !== i.mode && (i.rebill || i.creditFor));
   inv ||
@@ -189190,7 +189390,10 @@ function toBill(pid, opts) {
     const R = base.apply(this, arguments);
     try {
       const X = ocMemo("rbReady", () => rbReady()) || [];
-      let rows = R.rows.concat(X);
+      // each row copied before this adds its ahead and why: R and X are memoised answers (spdMemo, ocMemo), and writing
+      // into their rows changed the memo's answer for every later reader (speed_test, 11-04: oc:readyToBill held the
+      // application row's "ahead" that a fresh computation does not have). A reader never writes into what it was given.
+      let rows = R.rows.concat(X).map((r) => Object.assign({}, r));
       const held = R.held.slice();
       // A job billed ahead of the work (line by line, pbAhead) is never billed further ahead, and its measured work is
       // never left unbilled. Its application still bills every line behind its measure (this period = measured less
@@ -190958,16 +191161,85 @@ function flObRole(o) {
   return (u && u.role) || "owner";
 }
 const flObYears = (o) => (/biennial/i.test(o.name || "") ? 2 : 1);
+// "Draft the Renewal" drafts it; it never records it (BACKLOG §1.36, the walk's danger sweep: the button opened Record the
+// Filing with today in Filed On, one tap from marking a filing done that nobody had filed). A filing with an agency is
+// drafted as the filing packet on its renewal task (what to file, where, by when, the fee, the entity), for the person
+// who files it; a policy or license from a party is drafted as the request to that party, approved under The Brain ›
+// Hands before it goes. Recording the filing or the renewal is its own button on Obligations, with the date typed.
+function flRenewDraftText(o) {
+  const filing = "filing" === o.kind,
+    file = flObFile(o),
+    ent = (DB.entities || []).find((e) => (o.covers || []).includes(e.id)) || (DB.entities || [])[0] || {};
+  return filing
+    ? [
+        `File: ${o.name}${o.number ? ` (${o.number})` : ""}`,
+        `With: ${o.party || "the agency"}`,
+        `For: ${ent.name || "the company"}`,
+        `File by: ${fmtL(file || o.expires)} (it expires ${fmtL(o.expires)})`,
+        o.amount ? `Fee: ${money(o.amount)}` : null,
+        o.notes ? `Notes: ${o.notes}` : null,
+        "",
+        "Before filing: check the address of record and the registered agent are current, and that the members or officers listed are right.",
+        "After filing: keep the receipt; record the filing on Obligations with the date it was filed and the receipt number.",
+      ]
+        .filter((x) => null !== x)
+        .join("\n")
+    : bnRenewalText(o).body;
+}
+function flRenewDraft(o) {
+  if (!o) return;
+  const filing = "filing" === o.kind;
+  mbModal(
+    `Draft the Renewal — ${esc(o.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `This drafts the filing for the person who files it, on the renewal task. Nothing is marked filed: once it is filed, record it on Obligations with the date and the receipt.` : `This drafts the request to ${esc(o.party || "them")} for the renewal terms. It waits for your approval under The Brain › Hands before it goes; record the renewal on Obligations once the new ${esc(o.kind)} is in hand.`}</p>${mbF(filing ? "The Filing, Drafted" : "The Request, Drafted", `<textarea data-f="text" rows="9">${esc((o.draft && o.draft.text) || flRenewDraftText(o))}</textarea>`)}`,
+    {
+      submit: filing ? "Save the Draft" : "Draft the Request",
+      onSubmit: (f) => {
+        const text = String(f.text || "").trim();
+        if (!text) return toast("The draft is empty"), !1;
+        const by = (currentUser() || {}).name || role();
+        if (filing) {
+          o.draft = { text: text, by: by, at: appNowIso() };
+          let T = null;
+          try {
+            "function" == typeof bnObligationTasks && bnObligationTasks();
+            T = o.taskId && "function" == typeof bnObTask ? bnObTask(o) : null;
+            T && T.a && ((T.a.draft = text), (T.a.notes = [String(T.a.notes || "").replace(/\n?--- The filing, drafted[\s\S]*$/, ""), `--- The filing, drafted ${fmtL(today())} by ${by} ---\n${text}`].filter(Boolean).join("\n")));
+          } catch (e) {}
+          try {
+            audit("obligation", o.id, "renewal-drafted", "", "", T && T.a ? `on the task ${T.a.title}` : "on the obligation");
+          } catch (e) {}
+          save(), render();
+          rcToast(`${o.name}: the filing is drafted${T && T.a ? " on its renewal task" : ""}. Nothing is marked filed`, [
+            { label: "Open", run: () => (T && T.a && "function" == typeof tkOpen ? tkOpen(`action:${T.a.id}:${T.p.id}`) : ((view = "obligations"), render())) },
+          ]);
+          return;
+        }
+        const ox = "function" == typeof bnDraftFor ? bnDraftFor({ kind: "obligation", o: o }) : null;
+        if (!ox) return toast("A request for this renewal is already drafted: it waits under The Brain › Hands"), !1;
+        (ox.body = text), (ox.by = by);
+        try {
+          audit("obligation", o.id, "renewal-request-drafted", "", "", `to ${o.party || "the party"}`);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Renewal request to ${o.party || "them"} drafted: approve it under The Brain › Hands`, [{ label: "Open", run: () => (("undefined" != typeof bnTab && (bnTab = "hands")), (view = "brain"), render()) }]);
+      },
+    },
+  );
+}
 function flRenewDialog(o) {
   const next = o.expires ? iso(new Date(+o.expires.slice(0, 4) + flObYears(o), +o.expires.slice(5, 7) - 1, +o.expires.slice(8, 10))) : "",
     filing = "filing" === o.kind;
+  // the day it was filed or renewed is typed by the person who did it, never today by default (BACKLOG §1.36)
   mbModal(
-    `Renew — ${esc(o.name)}`,
-    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `File it with ${esc(o.party || "the agency")}${o.notes ? ` (${esc(o.notes)})` : ""}, then record it here: the register moves to the next period and the renewal task closes.` : `Record the renewed period when the new ${esc(o.kind)} is in hand; Draft a Request asks ${esc(o.party || "them")} for it.`}</p><div class="grid2">${mbF(filing ? "Filed On" : "Renewed On", `<input type="date" data-f="on" value="${today()}">`)}${mbF("Next Expiry", `<input type="date" data-f="next" value="${esc(next)}">`)}</div>${mbF("Confirmation or Policy Number", `<input data-f="conf" value="" placeholder="${filing ? "the filing receipt number" : "the new policy number"}">`)}`,
+    `${filing ? "Record the Filing" : "Record the Renewal"} — ${esc(o.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `Once it is filed with ${esc(o.party || "the agency")}${o.notes ? ` (${esc(o.notes)})` : ""}, record it here: the register moves to the next period and the renewal task closes.` : `Record the renewed period when the new ${esc(o.kind)} is in hand; Draft a Request asks ${esc(o.party || "them")} for it.`}</p><div class="grid2">${mbF(filing ? "Filed On" : "Renewed On", `<input type="date" data-f="on" value="" max="${today()}">`)}${mbF("Next Expiry", `<input type="date" data-f="next" value="${esc(next)}">`)}</div>${mbF("Confirmation or Policy Number", `<input data-f="conf" value="" placeholder="${filing ? "the filing receipt number" : "the new policy number"}">`)}`,
     {
       submit: filing ? "Record the Filing" : "Record the Renewal",
-      alt: filing ? null : { label: "Draft a Request", run: () => ("function" == typeof bnDraftFor && bnDraftFor({ kind: "obligation", o: o }) ? (save(), toast(`Renewal request to ${o.party || "them"} drafted — approve it under The Brain › Hands`)) : toast("A request for this renewal is already drafted")) },
+      alt: filing ? null : { label: "Draft a Request", run: () => flRenewDraft(o) },
       onSubmit: (f) => {
+        if (!f.on) return toast(`Say when it was ${filing ? "filed" : "renewed"}`), !1;
+        if (f.on > today()) return toast(`It cannot be ${filing ? "filed" : "renewed"} on a day still to come`), !1;
         if (!f.next || f.next <= (o.expires || "")) return toast("Set the next expiry after the current one"), !1;
         const was = { starts: o.starts, expires: o.expires };
         (o.history = o.history || []).push({ at: today(), by: flMe(), from: was, to: { starts: o.expires, expires: f.next }, conf: f.conf || "", on: f.on || today() }),
@@ -191014,7 +191286,7 @@ function flObRows() {
       amount: 0,
       verb: "Draft the Renewal",
       no: "",
-      run: () => flRenewDialog(o),
+      run: () => flRenewDraft(o),
       open: () => ((view = "obligations"), render()),
       pri: 3,
       score: o.expires <= iso(addDays(td, 7)) ? 50 : 30,
@@ -193403,13 +193675,10 @@ function sdSeedBillDocs() {
           ok && ((rec.persisted = !0), save());
         });
       } catch (e) {}
-      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
       // the audit line is dated when the invoice was attached (with the bill), not at this boot: a sync later in the
-      // session must not read it as the record's latest change and blame a re-derivation on it
-      const a = (DB.audit || [])[DB.audit.length - 1];
-      a &&
-        a.refId === b.id &&
-        Object.assign(a, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || a.by, role: "coord" });
+      // session must not read it as the record's latest change and blame a re-derivation on it. Its date and person go in
+      // the call that writes it (a sealed row is never edited after)
+      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || void 0, role: "coord" });
     });
 }
 // The open pay period (8/31 – 9/13, paid 9/11) has no run yet on the app day, as it would not live: its hours
@@ -197480,7 +197749,7 @@ function billPapersHtml(b) {
             (x) =>
               (x.onclick = () => {
                 const k = x.dataset.billhold;
-                if ("release" === k) return (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), save(), closeEditor(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+                if ("release" === k) return (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), (b.onHold.releasedAt = appNowIso()), audit("bill", b.id, "hold-released", "held", b.status, `released by ${b.onHold.releasedBy}; it was held: ${b.onHold.why}`), save(), closeEditor(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
                 billHoldSheet(b, k);
               }),
           );
@@ -197495,7 +197764,7 @@ function billPapersHtml(b) {
 {
   const base = billAction;
   billAction = function (b, a) {
-    if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pm-approve"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
+    if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pmok", "approvebilled", "short"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
     return base.apply(this, arguments);
   };
 }

@@ -241,7 +241,12 @@ function ydInsNeeds() {
       lead = +o.renewLead || 30,
       lapsed = exp && exp < td,
       soon = exp && !lapsed && dayDiff(td, exp) <= lead;
-    (lapsed || soon) && out.push({ id: "ob:" + o.id, sec: "need", title: ydObName(o), meta: `${o.party || ""}${lapsed ? ` · lapsed ${fmt(exp)}` : ` · expires ${fmt(exp)}; renew inside ${lead} days`}`, when: lapsed ? "Lapsed" : `${dayDiff(td, exp)} days`, late: !0, act: "Renew", run: () => ("function" == typeof bnObModal ? bnObModal(o.id) : setView("obligations")) });
+    (lapsed || soon) && out.push({ id: "ob:" + o.id, sec: "need", title: ydObName(o), meta: `${o.party || ""}${lapsed ? ` · lapsed ${fmt(exp)}` : ` · expires ${fmt(exp)}; renew inside ${lead} days`}`, when: lapsed ? "Lapsed" : `${dayDiff(td, exp)} days`, late: !0,
+      // Draft the Renewal drafts it (the filing on its task, or the request to the party) and records nothing; Record the
+      // Filing records it with the day typed (BACKLOG §1.36: the renewal's one button opened a sheet that recorded it)
+      ...("function" == typeof flRenewDraft
+        ? { act: "Draft the Renewal", run: () => flRenewDraft(o), act2: "filing" === o.kind ? "Record the Filing" : "Record the Renewal", run2: () => flRenewDialog(o) }
+        : { act: "Renew", run: () => ("function" == typeof bnObModal ? bnObModal(o.id) : setView("obligations")) }) });
   });
   DB.company && !String(DB.company.lic || "").trim() && out.push({ id: "lic", sec: "need", title: "The license number on our documents is blank", meta: "estimates, contracts and invoices print it; Company Settings holds it", when: "Blank", late: !0, act: "Fill It In", run: () => ydOpenSettings("firm") });
   return out;
@@ -266,7 +271,7 @@ function ydInsRender() {
     needIds = new Set(need.map((r) => r.id.replace(/^ob:/, ""))),
     O = (DB.obligations || []).filter(ydObLive);
   ydActs = {};
-  need.forEach((r) => ydAct(r.id, r.run));
+  need.forEach((r) => (ydAct(r.id, r.run), r.run2 && ydAct(r.id + ":2", r.run2)));
   const file = O.filter((o) => ydObFirm(o) && !needIds.has(o.id)).map((o) => ({ id: "f:" + o.id, sec: "file", title: ydObName(o), meta: [o.party, o.number, o.amount ? `${ydMoney0(o.amount)} a year` : ""].filter(Boolean).join(" · "), when: o.expires ? `to ${fmt(o.expires)}` : "", act: "Open", run: () => bnObModal(o.id) }));
   const kept = O.filter((o) => !ydObFirm(o)).map((o) => {
     const v = (o.covers || []).includes("vendor") || /certificate of insurance/i.test(ydObName(o)),

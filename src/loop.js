@@ -532,7 +532,8 @@ function lpApprove(id) {
   if (!lpOwner()) return toast("Only the owner approves a change"), !1;
   const by = lpMe().name || "Owner",
     td = today();
-  (c.loop.approvedBy = by), (c.loop.approvedAt = td), (c.approvedBy = by), (c.approvedAt = td);
+  // the approval and its audit row by the owner who approved, in one step (apStamp, BACKLOG §1.36)
+  (c.loop.approvedBy = by), (c.loop.approvedAt = td), apStamp("change", c, "approved by the Owner", "approved", { by: by, approve: !0, approvedAt: td });
   if ("rule" === c.kind || "setting" === c.kind) {
     const d = c.delta || {},
       was = lpGet(d.path);

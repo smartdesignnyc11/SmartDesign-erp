@@ -990,6 +990,7 @@ function scRunApproval(b, why) {
 function scApproveAtMeasured(b) {
   const po = scPOOf(b);
   if (!po || !b.payApp) return null;
+  if ("function" == typeof apStampRefused && apStampRefused("bill", b)) return toast(apStampRefused("bill", b)), null;   // held: the claim is not revised or approved
   const tol = scSet().tolPts,
     claimedGross = billGross(b),
     changed = [];
@@ -1010,10 +1011,14 @@ function scApproveAtMeasured(b) {
   if (!changed.length) return null;
   const diff = r2(claimedGross - billGross(b));
   b.payApp.revised = { by: scMe(), role: role(), at: appNowIso(), claimed: claimedGross, approved: billGross(b), diff: diff, lines: changed };
-  (b.approvals = b.approvals || []).push({ t: nowStamp(), ts: appNowIso(), by: scMe(), role: role(), action: `pay application approved at measured: ${money(billGross(b))} of ${money(claimedGross)} claimed`, note: `${money(diff)} ahead of the work goes to the next application` });
-  try {
-    audit("bill", b.id, "payapp-at-measured", money(claimedGross), money(billGross(b)), changed.map((c) => `${c.desc} ${c.claimed}% to ${c.approved}%`).join("; "));
-  } catch (e) {}
+  // the stamp and its audit row in one step (apStamp, BACKLOG §1.36)
+  apStamp("bill", b, `pay application approved at measured: ${money(billGross(b))} of ${money(claimedGross)} claimed`, "payapp-approved-at-measured", {
+    by: scMe(),
+    before: money(claimedGross),
+    after: money(billGross(b)),
+    note: changed.map((c) => `${c.desc} ${c.claimed}% to ${c.approved}%`).join("; "),
+    extra: { note: `${money(diff)} ahead of the work goes to the next application` },
+  });
   // the conditional waiver that came in at the claimed amount still covers the smaller payment
   return b.payApp.revised;
 }
@@ -1275,7 +1280,8 @@ function scApproveChange(po, cid) {
   if (!c || "pending" !== c.status) return;
   if (!["owner", "pm"].includes(role())) return toast("The PM or the owner approves a change");
   if (scLow(c.by) === scLow(scMe())) return toast("A second person approves the change");
-  (c.status = "approved"), (c.approvedBy = scMe()), (c.approvedAt = appNowIso());
+  // the approval and its audit row by the person who approved, in one step (apStamp, BACKLOG §1.36)
+  (c.status = "approved"), apStamp("subchange", c, `approved by ${scMe()}`, "approved", { by: scMe(), approve: !0, approvedAt: appNowIso(), after: c.number });
   try {
     audit("po", po.id, "subcontract-change-approved", "pending", c.number, money(c.amount));
   } catch (e) {}
@@ -1813,6 +1819,131 @@ function scBillDrawer(id) {
   wrap.querySelectorAll("[data-wvadd]").forEach((x) => (x.onclick = () => wvSheet(b, { after: again })));
   wrap.querySelectorAll("[data-pareview]").forEach((x) => (x.onclick = () => scPayAppReview(b)));
 }
+// ---- The bill page's one blue button is the safe next step for the bill's state (BACKLOG §1.36, the walk's danger
+// sweep: the blue and first button on held NEM-5851 and GOW-5482, and on WW-2026-118 paid on the Amex before anyone
+// approved it, was Approve). On a held bill (on hold, a difference disputed, disputed) it is Review the Hold, at the top,
+// and every Approve, Pay, Release and Recommend on the page is a plain button below it; on a bill the bank paid before
+// approval it is Hold, at the top (the money has left: what comes next is stopping it going further while the charge is
+// looked at, not signing it); on a paid bill no approval is blue. Approve stays on the page, never blue on these.
+const SC_UNSAFE = /^(owner: |pm: )?(approve|approve .*|recommend|pay|pay now|pay .*|schedule payment|release|release payment|mark paid.*|confirm)$/i;
+function scBillState(b) {
+  if (!b) return "";
+  if ((b.onHold && "open" === b.onHold.state) || ["hold", "on-hold", "held", "disputed"].includes(b.status) || b.dispute || (b.short && +b.short.held > 0 && "open" === (b.short.state || "open"))) return "held";
+  if ("paid" === b.status || b.paidAt) return "paid";
+  if ("function" == typeof billPaidUnapproved && billPaidUnapproved(b)) return "pba";
+  return "";
+}
+function scHoldTask(b) {
+  for (const p of DB.projects || []) {
+    const a = (p.actions || []).find((x) => x.billId === b.id && "done" !== x.status);
+    if (a) return { p: p, a: a };
+  }
+  return null;
+}
+function scHoldReview(b) {
+  const T = scHoldTask(b),
+    h = b.onHold && "open" === b.onHold.state ? b.onHold : null,
+    sh = b.short && +b.short.held > 0 ? b.short : null,
+    can = !["client", "crew", "driver", "foreman"].includes(role()),
+    L = [
+      h ? `Held by ${esc(h.by)}${h.at ? ` on ${scDay(h.at)}` : ""}: ${esc(h.why)}${h.for ? ` · a task for ${esc(h.for)}` : ""}` : "",
+      sh ? `Approved ${money(sh.approved)}; ${money(sh.held)} disputed${sh.why ? `: ${esc(sh.why)}` : ""}. The disputed part is not paid until the vendor credits it or it is accepted and costed.` : "",
+      b.dispute ? `Disputed${b.dispute.why ? `: ${esc(b.dispute.why)}` : ""}` : "",
+      !h && !sh && !b.dispute ? `The bill reads ${esc(billState(b).text || b.status)}.` : "",
+    ].filter(Boolean);
+  mbModal(
+    `Review the Hold — ${esc(b.vendor)} ${esc(b.number || "")}`,
+    `<div class="note warn small">${L.join("<br>")}</div><p class="small muted" style="margin:8px 0 0">Nothing is approved or paid while it is held. ${T ? `The task to clear it: ${esc(T.a.title)}${T.a.assignee ? `, with ${esc(T.a.assignee)}` : ""}.` : ""}${h ? " Release the Hold once what held it is settled; approving comes after that, on the bill." : ""}</p>`,
+    {
+      submit: T && "function" == typeof tkOpen ? "Open the Task" : null,
+      alt:
+        h && can
+          ? {
+              label: "Release the Hold",
+              run: () => {
+                const by = (currentUser() || {}).name || role();
+                (h.state = "released"), (h.releasedBy = by), (h.releasedAt = appNowIso());
+                try {
+                  audit("bill", b.id, "hold-released", "held", b.status, `released by ${by}; it was held: ${h.why}`);
+                } catch (e) {}
+                save(), "function" == typeof closeEditor && closeEditor(), render();
+                rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+              },
+            }
+          : null,
+      onSubmit: () => void setTimeout(() => tkOpen(`action:${T.a.id}:${T.p.id}`), 0),
+    },
+  );
+}
+// The safe next step for a bill's state, the one answer every row that offers a bill a verb reads (the bill page, Today,
+// Approvals): held, Review the Hold; paid before approval, Hold (when this person may hold it; else Review, which opens
+// the bill). null when the state asks for nothing different.
+// A bill paid before approval and billed over its PO, at the owner, is decided by disputing the difference (the
+// short-pay sheet: the PO amount costed, the rest held as money the vendor owes back), the way the firm settled
+// WW-2026-118 (chain_test step 7): that is its safe next step, and never Approve as Billed.
+function scSafeNext(b) {
+  const st = scBillState(b);
+  if ("held" === st) return { label: "Review the Hold", run: () => scHoldReview(b) };
+  if ("pba" === st) {
+    if ("function" == typeof billOverPO && billOverPO(b)) return { label: "Dispute Difference", run: () => billAction(b, "short") };
+    return ["client", "crew", "driver", "foreman"].includes(role()) || "function" != typeof billHoldSheet
+      ? { label: "Review", run: () => flowGo.bill(b)() }
+      : { label: "Hold", run: () => billHoldSheet(b, "hold") };
+  }
+  return null;
+}
+// Approvals: a held or paid-before-approval bill's row leads with its safe next step, blue; Approve stays on the row,
+// never blue (chief-of-staff review, 11-04: WW-2026-118, paid on the Amex before approval with its bank details changed,
+// its COI expired and $3,800 over its PO, read Approve first on Approvals)
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      document.querySelectorAll('#v-mapprove .m-appr[data-mk="bill"]').forEach((el) => {
+        const b = (DB.bills || []).find((x) => x.id === el.dataset.mid),
+          nx = b ? scSafeNext(b) : null,
+          box = el.querySelector(".m-appr-a");
+        if (!nx || !box || box.querySelector("[data-mysafe]")) return;
+        box.querySelectorAll("button.primary").forEach((x) => x.classList.remove("primary"));
+        box.insertAdjacentHTML("afterbegin", `<button type="button" class="btn primary" data-mysafe>${esc(nx.label)}</button>`);
+        box.querySelector("[data-mysafe]").onclick = (e) => (e.preventDefault(), e.stopPropagation(), nx.run());
+      });
+    } catch (e) {
+      console.warn("approvals safe next", e);
+    }
+    return r;
+  };
+}
+function scBillSafeNext(id) {
+  const b = (DB.bills || []).find((x) => x.id === id),
+    body = document.getElementById("d-body"),
+    st = scBillState(b);
+  if (!st || !body) return;
+  const box = body.closest("#drawer") || body.parentElement || body,
+    label = (x) => String(x.innerText || x.textContent || "").trim();
+  // no Approve, Pay, Release or Recommend is blue on a held, paid or paid-before-approval bill
+  box.querySelectorAll("button.primary").forEach((x) => SC_UNSAFE.test(label(x)) && x.classList.remove("primary"));
+  if ("paid" === st) return;
+  let safe = null;
+  const nx = scSafeNext(b);
+  if ("held" === st || (nx && "Dispute Difference" === nx.label)) {
+    // the safe step at the top of the page, the same words as Today's card and the Approvals row (scSafeNext)
+    if (!body.querySelector("[data-scsafe]")) {
+      body.insertAdjacentHTML("afterbegin", `<div class="row sc-safenext" style="gap:8px;margin:0 0 10px;flex-wrap:wrap"><button type="button" class="btn sm primary" data-scsafe${"held" === st ? " data-scholdrev" : ""}>${esc(nx.label)}</button></div>`);
+      body.querySelector("[data-scsafe]").onclick = () => nx.run();
+    }
+    safe = body.querySelector("[data-scsafe]");
+  } else {
+    const hold = body.querySelector('[data-billhold="hold"]');
+    if (!hold) return;
+    const row = hold.closest(".bill-holdrow") || hold.parentElement;
+    row && row.parentElement === body && body.firstElementChild !== row && body.prepend(row);
+    safe = hold;
+  }
+  // one blue on the page: the safe next step
+  safe && (box.querySelectorAll("button.primary").forEach((x) => x !== safe && x.classList.remove("primary")), safe.classList.add("primary"));
+}
 {
   const base = openBill;
   openBill = function (id) {
@@ -1821,6 +1952,11 @@ function scBillDrawer(id) {
       scBillDrawer(id);
     } catch (e) {
       console.warn("payment check on the bill", e);
+    }
+    try {
+      scBillSafeNext(id);
+    } catch (e) {
+      console.warn("safe next on the bill", e);
     }
     return r;
   };

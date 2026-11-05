@@ -884,13 +884,16 @@ function pbFurther(c, d) {
 if ("function" == typeof billingRows) {
   const base = billingRows;
   billingRows = function () {
-    const R = base.apply(this, arguments) || [];
+    // each row copied before it is annotated: the base's rows are a memoised answer (ocMemo, spdMemo), and writing
+    // ahead and why into them changed that answer for every later reader (speed_test, 11-04, oc:billingRows)
+    const R = (base.apply(this, arguments) || []).map((r) => (r && "object" == typeof r ? Object.assign({}, r) : r));
     try {
-      R.forEach((r) => {
+      // a decorated row is a copy, never the memo's own row (BACKLOG 1.36: a cached billingRows carried these words)
+      return R.map((r) => {
         const pid = (r.job && r.job.id) || (r.inv && r.inv.projectId);
-        if (!pid || r.ahead || (r.held && r.held.ahead) || !(r.inv ? "sov" === r.inv.mode : ["progress", "held", "ready"].includes(r.kind) || /application|line/i.test(r.what || ""))) return;
+        if (!pid || r.ahead || (r.held && r.held.ahead) || !(r.inv ? "sov" === r.inv.mode : ["progress", "held", "ready"].includes(r.kind) || /application|line/i.test(r.what || ""))) return r;
         const A = pbAhead(pid);
-        A.lines.length && ((r.ahead = { n: A.lines.length, amount: A.total }), (r.why = `${r.why ? r.why + " · " : ""}billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`));
+        return A.lines.length ? Object.assign({}, r, { ahead: { n: A.lines.length, amount: A.total }, why: `${r.why ? r.why + " · " : ""}billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}` }) : r;
       });
     } catch (e) {}
     return R;

@@ -132,6 +132,16 @@ MINUTES = ast.literal_eval(re.search(r'^MINUTES = (\{.*?\})\n', _SV, re.M | re.S
 MAIL_MINUTES = ast.literal_eval(re.search(r'^MAIL_MINUTES = (\{.*?\})\n', _SV, re.M | re.S).group(1))
 
 
+# A ratchet under the budget: a journey that once took fewer taps may not take more again, even while it is still over
+# JOURNEYS.md's budget (BACKLOG 1.36, 11-05: J8 went from 24 to 28 taps with the Sales pages and nothing said so). A pin
+# is lowered to the new count when a change takes taps away; it never rises without an approved design (PROCESS rule 8).
+# 11-05: New Invoice on the client's Contract and Billing, filled from what is due (was 28/30 and 27/28 on live).
+PINS = {
+    'J8': {'desktop': 20, 'phone': 21},
+    'J9': {'desktop': 20, 'phone': 21},
+}
+
+
 def budget_for(jid, device):
     """(taps, minutes, the device the budget is JOURNEYS.md's for)"""
     B = BUDGET[jid]
@@ -960,31 +970,31 @@ def open_meta(p):
 
 
 def deposit_invoice(p):
-    """Billing: the Ashbys' 25% deposit, invoiced from the contract and sent; returns its number"""
+    """Billing: the Ashbys' 25% deposit, invoiced from the contract and sent; returns its number. The way billing gets to
+    it (BACKLOG 1.36, 11-05): Clients opens on Need You, which names the Ashbys with the deposit due (the Billing queue's
+    own rule); billing's seat opens the client on Contract and Billing, whose New Invoice is filled from what is due"""
     p._act('news')
-    p.go('Billing')
-    p.expect(p.scr.has('Wren & Julian Ashby') or p.scr.has('214 Lincoln'), 'the signed contract\'s deposit waits in Billing\'s queue (Ready to Bill)',
-             p.scr.excerpt('Ready', 6))
-    p.go('Clients', expect_menu=False)
-    # the Sales mock-up (11-03): Clients opens on Need You; every client is under All; the client's page has Contract
-    # and Billing, and its Billing Record holds the new invoices
-    p.tap('All', exact=True)
-    p.tap_row(JOB['client'])
-    p.tap('Contract and Billing', exact=True)
-    p.tap('Billing Record', exact=True)
-    p.expect(bool(p.look().find('Deposit Invoice') or p.scr.find('New Deposit Invoice') or p.scr.find('Bill the Deposit')),
-             'a Deposit Invoice from the signed contract (25%, no retainage)', 'only New Invoice: the deposit is typed by hand')
-    p.tap('New Invoice', exact=True)
-    open_meta(p)
     dep = round(CONTRACT * JOB['deposit_pct'] / 100, 2)
-    p.do([('type', 'Title', f"Deposit — {JOB['deposit_pct']}% on signing")])
-    p.tap('Add Line', exact=True)
-    p.look()
-    it, rate = p.scr.find('Item', field=True, exact=True), p.scr.find('Rate', field=True)
-    p.do_ctls([('type', it, f"Deposit on signing: {JOB['deposit_pct']}% of the ${CONTRACT:,.0f} contract"), ('type', rate, str(dep))])
+    sc = client_billing(p, due=rf"ready to bill: [^\n]*{JOB['deposit_pct']}% deposit", due_said="the signed contract's deposit due (25%, by 9/8)")
+    p.expect(bool(sc.find('New Invoice', exact=True)), "New Invoice on the Ashbys' Contract and Billing", sc.excerpt('Contract and Billing', 8))
+    p.tap('New Invoice', exact=True)
+    sc = p.look()
+    if sc.sheet and 'deposit invoice' in norm(sc.sheet_title):   # the queue's own deposit draft: the contract's % and amount
+        f, a = sc.find('Deposit %', field=True), sc.find('Amount', field=True)
+        p.expect(f is not None and CY.num(f.value) == JOB['deposit_pct'] and a is not None and abs(CY.num(a.value) - dep) < 0.01,
+                 f"the Deposit Invoice sheet opens at the contract's {JOB['deposit_pct']}%, ${dep:,.2f}, nothing to type", sc.excerpt('Deposit Invoice', 6))
+        p.tap('Create Deposit Invoice', exact=True)
+    else:   # New Invoice was blank: the deposit typed by hand, the way billing still could
+        p.expect(False, 'New Invoice filled from the signed contract (the 25% deposit, no retainage)', 'a blank invoice: the deposit is typed by hand')
+        open_meta(p)
+        p.do([('type', 'Title', f"Deposit — {JOB['deposit_pct']}% on signing")])
+        p.tap('Add Line', exact=True)
+        p.look()
+        it, rate = p.scr.find('Item', field=True, exact=True), p.scr.find('Rate', field=True)
+        p.do_ctls([('type', it, f"Deposit on signing: {JOB['deposit_pct']}% of the ${CONTRACT:,.0f} contract"), ('type', rate, str(dep))])
     for _ in range(2):
         if p.look().has('Unsaved changes'): p.tap('Save', exact=True)
-    inv = (re.findall(r'INV-\d{4}-\d+', p.scr.text) or [''])[0]
+    inv = (re.findall(r'INV-\d{4}-\d+', p.scr.toast) or re.findall(r'INV-\d{4}-\d+', p.scr.text) or [''])[0]
     p.tap('Send to Client', exact=True, expect='Send to Client')
     to = (p.scr.find('To', field=True) or Ctl(0, 'input', '', 0, 0)).value
     subj = (p.scr.find('Subject', field=True) or Ctl(0, 'input', '', 0, 0)).value
@@ -993,7 +1003,7 @@ def deposit_invoice(p):
     p.expect(not out, f'Send sends {inv} from the app (the toast: "in your mail app to send")', p.scr.toast)
     if out:
         p.mail('send', to or JOB['emails'][0], subj or f'{inv} deposit', f'Attached is invoice {inv} for ${dep:,.2f}, the deposit on signing. Billing')
-        p.note(f'{inv} also mailed from billing\'s own mailbox')
+        p.note(f"{inv} also mailed from billing's own mailbox")
     return inv, dep
 
 
@@ -1754,15 +1764,22 @@ def j3_price_change(p):
 
 
 # ---------------------------------------------------------------------------------------------------- J9 bill the progress
-def client_billing(p):
-    """the Ashbys' own Billing tab: Clients, the Ashbys, Billing (the tab with its count)"""
+def client_billing(p, due=None, due_said=''):
+    """the Ashbys' own Contract and Billing: Clients opens on Need You, where a client with a bill due is (the Billing
+    queue's own rule, BACKLOG 1.36); a client with nothing due is under All. Billing's seat opens a client on Contract
+    and Billing, whose New Invoice is filled from what is due. `due`: the words Need You should say on the Ashbys' row"""
     sc = p.go('Clients', expect_menu=False)
     l = sc.find(JOB['client'], kinds=('link',))   # inside one of the Ashbys' documents: its trail leads back to them
     if l: p.tap_ctl(l)
-    elif not (sc.find('Overview', exact=True) and sc.has(JOB['client'])): p.tap('All', exact=True); p.tap_row(JOB['client'])
-    # the Sales mock-up (11-03): Contract and Billing, then its Billing Record for a new invoice
-    p.tap('Contract and Billing', exact=True)
-    p.tap('Billing Record', exact=True)
+    elif not (sc.find('Overview', exact=True) and sc.has(JOB['client'])):
+        r = sc.row(JOB['client'], after='Need You')
+        if due:
+            k = sc.text.find(JOB['client'], sc.where('Need You') or 0)
+            p.expect(r is not None and k >= 0 and bool(re.search(due, sc.text[k:k + 600], re.I)), f"Clients' Need You names the Ashbys with {due_said}",
+                     sc.excerpt(JOB['client'], 3) if k >= 0 else sc.excerpt('Need You', 8))
+        if r is None: p.tap('All', exact=True)
+        p.tap_row(JOB['client'])
+    if not p.look().find('New Invoice', exact=True): p.tap('Contract and Billing', exact=True)
     return p.look()
 
 
@@ -1770,12 +1787,16 @@ def j9_bill_progress(p):
     """Billing: the progress invoice from the SOV (the demolition measured on site), 10% retainage, the approved change
     order and the pendants bought for the Ashbys on it, sent, the chase set."""
     p._act('news')
-    client_billing(p)
-    p.tap('New Progress Invoice…', exact=True, expect='bill off which document')
-    p.tap('Start Progress Invoice', exact=True)
+    # BACKLOG 1.36 (11-05): the measured work is in Clients' Need You (the Billing queue's rule), and the Ashbys'
+    # Contract and Billing has New Invoice filled from it: the job's application (the field's measures, the contract's
+    # retainage, every approved change order as a line). The old way was the Billing Record's New Progress Invoice.
+    sc = client_billing(p, due=r'ready to bill: [^\n]*application', due_said='the measured work ready to bill (the job\'s application)')
+    p.expect(bool(sc.find('New Invoice', exact=True)), "New Invoice on the Ashbys' Contract and Billing", sc.excerpt('Contract and Billing', 8))
+    p.tap('New Invoice', exact=True)
     sc = p.look()
+    if sc.sheet and 'bill off which document' in sc.text.lower(): p.tap('Start Progress Invoice', exact=True); sc = p.look()
     inv = (re.findall(r'INV-\d{4}-\d+', p.scr.toast) or re.findall(r'Invoice (INV-\d{4}-\d+)', sc.text) or [''])[0]
-    if not inv: raise Stuck('start the progress invoice', 'a draft progress invoice', sc, 'Start Progress Invoice')
+    if not inv: raise Stuck('start the progress invoice', 'a draft progress invoice', sc, 'New Invoice')
     # the measure from the field: the foreman measured the demolition at 40% (the field day); a line with no measure is not billed
     ret = sc.find('Retainage held', field=True) or next((c for c in sc.ctls if not c.action and c.value == '10' and 'retainage' in sc.text[max(0, c.pos - 40):c.pos].lower()), None)
     p.expect(bool(re.search(r'Retainage held[^\n]*="10"', sc.text)) or (ret is not None and ret.value == '10'), 'the progress invoice holds 10% retainage (the contract\'s)', sc.excerpt('Retainage', 2))
@@ -1809,8 +1830,13 @@ def j9_bill_progress(p):
     p.tap('Send', exact=True)
     p.expect(bool(re.search(r'sent', p.scr.toast, re.I)), f'a toast that {inv} went to the Ashbys', p.scr.toast)
     if exp is None:   # the pendants on an invoice of their own, the way billing would still bill them back
-        client_billing(p)
-        p.tap('New Invoice', exact=True)
+        sc = client_billing(p)
+        # the page's New Invoice is filled from what is still due (stored materials, say); a blank invoice is the client's
+        # New menu's Invoice (BACKLOG 1.36)
+        if re.search(r'New Invoice is filled from', sc.text):
+            p.tap('New', exact=bool(sc.find('New', exact=True)))   # the phone's + reads "New for Wren & Julian Ashby"
+            p.tap('Invoice', exact=True)
+        else: p.tap('New Invoice', exact=True)
         open_meta(p)
         p.do([('type', 'Title', 'Pendant lights for the island (bought for you, at cost)')])
         p.tap('Add Line', exact=True)
@@ -1939,6 +1965,12 @@ def j10_week_money(p):
     m = re.search(r'\bOpen(?:, all current)?\b(.*?)Retainage held', sc.text, re.S)
     v = re.findall(r'\$[\d,]+(?:\.\d\d)?', m.group(1)) if m else []
     p.answers['Q2'] = v[-1] if v else ''
+    # the Open figure is the sum of the open invoices listed above it (11-05: a deposit credit on an application is what
+    # the client no longer owes; the figure and its rows must say the same)
+    k = m.start() if m else -1
+    rows = [CY.num(x) for x in re.findall(r'(?m)^\[\d+ [^\n]*· INV-[^\n]*\$([\d,]+(?:\.\d\d)?)\]$', sc.text[:k])] if k > 0 else []
+    p.expect(bool(rows) and abs(sum(rows) - CY.num(p.answers['Q2'])) <= max(1.0, 0.5 * len(rows)),
+             "Receivables' Open figure is the sum of the open invoices it lists", f"Open {p.answers['Q2']} vs the rows' {sum(rows):,.2f} ({len(rows)} rows)")
     p.go('Reports > Job Profitability', expect_menu=False)
     r = p.look().row(JOB['job'])
     if r is None: raise Stuck('job cost on 214 Lincoln', '214 Lincoln on Reports > Job Profitability', p.scr, 'Job Profitability')
@@ -1949,6 +1981,22 @@ def j10_week_money(p):
     p.answers['Q4'] = '; '.join(over_lines(sc.text)) or 'none over'
     p.expect(i >= 0, 'job cost by estimate line on 214 Lincoln (Reports > Job Profitability > the job: By Line)', sc.excerpt('Code', 6))
     p.expect(all(p.answers.get(q) for q in ('Q1', 'Q2')), 'cash and AR are each one figure the controller can read', str({k: v[:60] for k, v in p.answers.items()}))
+
+
+def ar_tied(w, p):
+    """J10's AR (Receivables' Open, as the controller read it) against the records: every sent invoice's balance (its
+    total, an application's less retainage and the deposit it takes off, less what was paid on it), summed"""
+    got = CY.num((p.answers or {}).get('Q2') or '')
+    if not got: return 'not done', 'no AR read off Receivables'
+    db = w.db(); rows = []
+    for c in db.get('clients') or []:
+        for i in c.get('invoices') or []:
+            if i.get('status') not in ('sent', 'viewed', 'partial', 'overdue'): continue
+            bal = CY.doc_total(i) - sum(CY.num(x.get('amount')) for x in c.get('payments') or [] if x.get('invoiceId') == i['id'])
+            if bal > 0.5: rows.append((i.get('number'), round(bal, 2)))
+    want = round(sum(b for _, b in rows), 2)
+    det = f"Receivables ${got:,.2f}, the open invoices' balances ${want:,.2f}: " + ', '.join(f'{n} ${b:,.2f}' for n, b in rows)
+    return ('right' if abs(got - want) <= max(1.0, 0.5 * len(rows)) else 'wrong'), det
 
 
 def answers_graded(w, p):
@@ -1974,7 +2022,7 @@ JOURNEYS = [
     ('J3', 'u_alan', 'Price a change', 'j3_price_change', ['next', 'morning'], ['C43', 'C44']),
     ('J7', 'u_chen', 'Receive and match', 'j7_receive_match', [], ['C16', 'C15', 'C17', 'C18', 'C19']),
     ('J9', 'u_billing', 'Bill the progress', 'j9_bill_progress', ['eod'], ['C32', 'C35', 'C34', 'C36']),
-    ('J10', 'u_controller', 'Know the week\'s money', 'j10_week_money', [], ['C25', 'C23', 'C24', answers_graded]),
+    ('J10', 'u_controller', 'Know the week\'s money', 'j10_week_money', [], ['C25', 'C23', 'C24', ar_tied, answers_graded]),
 ]
 TEN = [J[0] for J in JOURNEYS if J[0].startswith('J')]
 
@@ -2032,6 +2080,10 @@ def failures_of(r):
                       'got': f"{g['status']}: {g['detail']}", 'screen': (r['stuck'] or {}).get('screen', ''), 'control': (r['stuck'] or {}).get('control', '')})
     if r['taps'] > r['budget'] and not r['stuck']:
         F.append({'kind': 'taps', 'journey': r['journey'], 'device': r['device'], 'step': 'tap budget', 'expected': f"at most {r['budget']} taps",
+                  'got': f"{r['taps']} taps", 'screen': '', 'control': ''})
+    pin = PINS.get(r['journey'], {}).get(r['device'])
+    if pin is not None and r['taps'] > pin and not r['stuck']:
+        F.append({'kind': 'taps', 'journey': r['journey'], 'device': r['device'], 'step': 'tap pin', 'expected': f"at most {pin} taps (the pin: it took {pin} before)",
                   'got': f"{r['taps']} taps", 'screen': '', 'control': ''})
     # minutes are reported, not gating: they are the harness's model (sim/server.py MINUTES, a minute per typed field), not a
     # person's time; they gate once calibrated against real recorded sessions (docs/CYCLE_WALK.md)
@@ -2423,6 +2475,9 @@ def selftest():
     check(not failures_of(over) and stops_at(over) == 'passes', 'pass rule: modelled minutes over the budget are reported, never a failure (not calibrated yet)')
     taps = dict(base, taps=13)
     check(failures_of(taps) and stops_at(taps).startswith('over budget: 13 taps'), 'pass rule: over the tap budget fails')
+    pin = PINS['J8']['desktop']
+    pinned = [dict(base, taps=pin, budget=pin + 10), dict(base, taps=pin + 1, budget=pin + 10)]
+    check(not failures_of(pinned[0]) and any(f['step'] == 'tap pin' for f in failures_of(pinned[1])), f'pass rule: more taps than the pin fails, even inside the budget ({pin})')
     rec = dict(base, grades=[{'step': 'C31', 'status': 'not done', 'detail': 'no payment yet'}])
     check(failures_of(rec) and 'C31' in stops_at(rec), 'pass rule: a record not right fails, and the report names it')
     st = dict(base, stuck={'step': 'match the Ashbys\' transfer', 'expected': 'a Match on the bank line'}, taps=40)

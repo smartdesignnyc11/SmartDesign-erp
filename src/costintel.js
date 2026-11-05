@@ -673,6 +673,7 @@ function ciTickMemo(k, fn) {
       setTimeout(() => (ciTick = null), 0);
     } catch (e) {}
   }
+  "function" == typeof dataVer && (k += "|" + dataVer());   // a write earlier in the same turn is another key
   return k in ciTick ? ciTick[k] : (ciTick[k] = fn());
 }
 // Kept across turns while nothing the rule reads has changed (Home, the checklist and the rail read it on every draw).
