@@ -11,6 +11,29 @@
     !0,
   ),
 );
+// The demo's owner is a person, named like everyone else on the team (CoS 11-05): "Owner" could not be told apart from
+// the role, so "approved by Owner" read the same whether a person or the role was meant. The name is invented. The
+// seeds stamp what the owner did with this name; a role word ("the Owner", a task for the owner's seat) stays a role.
+const DEMO_OWNER = "Maren Holloway";
+// the person in the owner's seat, by name: the owner user's own name ("Owner" only while no owner is on file)
+const ownerPerson = () => {
+  try {
+    const u = ((typeof DB !== "undefined" && DB && DB.users) || []).find((x) => "owner" === x.role);
+    return (u && u.name) || "Owner";
+  } catch (e) {
+    return "Owner";
+  }
+};
+// A demo saved before the owner had a name: the owner's seat becomes the person, and what the seat owns going forward
+// (leads and sales contacts) follows. Past rows on the trail keep the name they were written with (they are sealed).
+function ownerRename() {
+  if (DB.__teamWs || ("undefined" != typeof window && window.__sdWs && "team" === window.__sdWs.kind)) return;
+  const u = (DB.users || []).find((x) => "u_owner" === x.id && "Owner" === x.name);
+  if (!u) return;
+  (u.name = DEMO_OWNER), "Owner" === DB.me && (DB.me = DEMO_OWNER);
+  const own = (r) => r && "Owner" === r.owner && (r.owner = DEMO_OWNER);
+  (DB.leads || []).forEach(own), ((DB.hub || {}).contacts || []).forEach(own), ((DB.hub || {}).companies || []).forEach(own);
+}
 const DAY = 864e5,
   iso = (d) => {
     const x = new Date(d);
@@ -1630,7 +1653,7 @@ function seedAP() {
         approvals: [
           { t: "8/10 9:12 AM", by: "Chen", role: "coord", action: "submitted" },
           { t: "8/10 3:40 PM", by: "Alan", role: "pm", action: "recommended by PM" },
-          { t: "8/11 8:05 AM", by: "Owner", role: "owner", action: "approved for payment by Owner" },
+          { t: "8/11 8:05 AM", by: DEMO_OWNER, role: "owner", action: "approved for payment by " + DEMO_OWNER },
           { t: "8/12 10:00 AM", by: "Chen", role: "coord", action: "payment released (ACH)" },
         ],
         createdBy: "Chen",
@@ -1688,7 +1711,7 @@ function seedAP() {
         approvals: [
           { t: "8/18 11:00 AM", by: "Chen", role: "coord", action: "submitted" },
           { t: "8/18 2:00 PM", by: "Alan", role: "pm", action: "recommended by PM" },
-          { t: "8/19 8:30 AM", by: "Owner", role: "owner", action: "approved for payment by Owner" },
+          { t: "8/19 8:30 AM", by: DEMO_OWNER, role: "owner", action: "approved for payment by " + DEMO_OWNER },
           { t: "8/20 9:00 AM", by: "Chen", role: "coord", action: "payment released (ACH)" },
         ],
         createdBy: "Chen",
@@ -2287,6 +2310,7 @@ async function load(opts = {}) {
     (DB.me = DB.me || ""),
     (DB.users = DB.users || []),
     DB.users.length || seedUsers(),
+    ownerRename(),
     (DB.deviceUser = DB.deviceUser || "");
   try {
     mbInit();
@@ -19169,7 +19193,7 @@ function seedUsers() {
   // the team's own workspace starts with no people: each adds themself at sign-in, from their profile (2026-10-23)
   if (DB.__teamWs || (window.__sdWs && "team" === window.__sdWs.kind)) return void (DB.users = DB.users || []);
   DB.users = [
-    { id: "u_owner", name: "Owner", role: "owner", contact: "" },
+    { id: "u_owner", name: DEMO_OWNER, role: "owner", contact: "" },
     { id: "u_alan", name: "Alan", role: "pm", contact: "", mb: !0 },
     { id: "u_chen", name: "Chen Biron", role: "coord", contact: "", employeeId: "em5" },
     { id: "u_angel", name: "Angel", role: "crew", contact: "", employeeId: "em1" },
@@ -22600,25 +22624,25 @@ function mbSeed() {
         "",
       ],
     ].forEach(([t, kind, text, dir]) =>
-      d1.activities.push({ id: uid("ac"), t: t, kind: kind, text: text, by: "Owner", dir: dir }),
+      d1.activities.push({ id: uid("ac"), t: t, kind: kind, text: text, by: DEMO_OWNER, dir: dir }),
     ),
     d1.statusHistory.push(
       { from: "new", to: "review", at: "2026-04-14T10:06:00.000Z", by: "System" },
-      { from: "review", to: "waiting", at: "2026-04-15T15:00:00.000Z", by: "Owner" },
+      { from: "review", to: "waiting", at: "2026-04-15T15:00:00.000Z", by: DEMO_OWNER },
       { from: "waiting", to: "responded", at: "2026-04-18T13:00:00.000Z", by: "System" },
-      { from: "responded", to: "underwriting", at: "2026-05-02T16:00:00.000Z", by: "Owner" },
+      { from: "responded", to: "underwriting", at: "2026-05-02T16:00:00.000Z", by: DEMO_OWNER },
       {
         from: "underwriting",
         to: "watch",
         at: "2026-06-22T10:00:00.000Z",
-        by: "Owner",
+        by: DEMO_OWNER,
         why: "Price too high",
       },
     );
   const sc = {
     id: uid("uw"),
     at: "2026-06-22T09:00:00.000Z",
-    by: "Owner",
+    by: DEMO_OWNER,
     name: "Quick screen (June)",
     inputs: {
       name: "Quick screen",
@@ -22745,7 +22769,7 @@ function mbSeed() {
     activities: [],
     statusHistory: [
       { from: "new", to: "review", at: appIso(new Date(appNowMs() - 6048e5)), by: "System" },
-      { from: "review", to: "waiting", at: appIso(new Date(appNowMs() - 5184e5)), by: "Owner" },
+      { from: "review", to: "waiting", at: appIso(new Date(appNowMs() - 5184e5)), by: DEMO_OWNER },
     ],
     triggers: [],
     triggerLogic: "ANY",
@@ -22762,14 +22786,14 @@ function mbSeed() {
       t: d2.createdAt,
       kind: "capture",
       text: "Captured from LoopNet: https://www.loopnet.com/Listing/123-W-82nd-St-New-York-NY/30712488/",
-      by: "Owner",
+      by: DEMO_OWNER,
     },
     {
       id: uid("ac"),
       t: d2.lastOutboundAt,
       kind: "email",
       text: "Inquiry sent to Dana Whitfield — requested setup sheet, rent roll, regulatory status of units, access.",
-      by: "Owner",
+      by: DEMO_OWNER,
       dir: "out",
     },
   ),
@@ -76366,7 +76390,7 @@ function mwItems() {
           id: l.id,
           project: "",
           text: `${l.next || "Follow up"} — ${l.name}${l.addr ? " · " + l.addr : ""}`,
-          owner: "Owner",
+          owner: l.owner || ownerPerson(),
           due: l.nextDue || "",
           done: !1,
           from: l.commId ? "message" : "",
@@ -79122,7 +79146,7 @@ function slSeed() {
           direction: "out",
           note: "Maria introduced her; called the next morning. Ten-minute call done.",
           value: "What her board asks for in the packet",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       closePlan: [],
@@ -79174,7 +79198,7 @@ function slSeed() {
         direction: "out",
         note: "Called back within the hour. Ten-minute call — budget bracket, the March date, Arjun decides.",
         value: "Told her what the board will ask for",
-        by: "Owner",
+        by: DEMO_OWNER,
       },
       {
         id: "t2",
@@ -79183,7 +79207,7 @@ function slSeed() {
         direction: "out",
         note: "Site visit. Walked the line; riser on the kitchen wall drives the plan.",
         value: "A range of 150–220 from our last three co-op kitchens",
-        by: "Owner",
+        by: DEMO_OWNER,
       },
     ],
     building: {
@@ -79244,7 +79268,7 @@ function slSeed() {
           direction: "out",
           note: "David introduced us; called Erik same day.",
           value: "Landmark rear-yard timeline",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t5",
@@ -79253,7 +79277,7 @@ function slSeed() {
           direction: "out",
           note: "Walked the house with David. Party wall and the rear extension are the money.",
           value: "A range from our two Hicks St townhouses",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t6",
@@ -79261,7 +79285,7 @@ function slSeed() {
           channel: "note",
           direction: "out",
           note: "Handwritten note after the walk-through.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       building: { landmark: "yes", leadWeeks: 14, altSeen: !0 },
@@ -79307,7 +79331,7 @@ function slSeed() {
           direction: "out",
           note: "Site visit.",
           value: "Condo board timeline",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t9",
@@ -79315,7 +79339,7 @@ function slSeed() {
           channel: "proposal",
           direction: "out",
           note: "Proposal emailed — one option.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       proposal: { sentAt: d(14) },
@@ -79345,7 +79369,7 @@ function slSeed() {
           channel: "call",
           direction: "out",
           note: "She called; we spoke the same morning.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t11",
@@ -79353,7 +79377,7 @@ function slSeed() {
           channel: "meeting",
           direction: "out",
           note: "Site visit with her mother.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t12",
@@ -79362,7 +79386,7 @@ function slSeed() {
           direction: "out",
           note: "Presented three options at her kitchen table; she leans to the middle one.",
           value: "Board packet from her last job, updated",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       proposal: { sentAt: d(8), presentedAt: d(8) },
@@ -79413,7 +79437,7 @@ function slSeed() {
           channel: "call",
           direction: "out",
           note: "Called the same afternoon.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t14",
@@ -79421,7 +79445,7 @@ function slSeed() {
           channel: "meeting",
           direction: "out",
           note: "Site visit with David.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t15",
@@ -79429,7 +79453,7 @@ function slSeed() {
           channel: "presented",
           direction: "out",
           note: "Three options at their table; they took the recommended.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t16",
@@ -79437,7 +79461,7 @@ function slSeed() {
           channel: "note",
           direction: "out",
           note: "Handwritten note at signing.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       design: { fee: 9e3, credit: !0, at: d(70) },
@@ -82911,7 +82935,7 @@ function hbInit() {
               : "lost" === l.stage
                 ? l.lostAt || l.created
                 : hbEndOfMonth(iso(addDays(today(), 30)))),
-        l.owner || (l.owner = "Owner"),
+        l.owner || (l.owner = ownerPerson()),
         l.dealtype || (l.dealtype = "New Business"),
         l.forecastCategory ||
           (l.forecastCategory =
@@ -82959,7 +82983,7 @@ const hbStages = () => DB.hub.pipeline.stages,
   hbStage = (id) => hbStages().find((s) => s.id === id) || { id: id, label: id, prob: 0 },
   hbUsers = () =>
     (DB.users || []).filter((u) => !["crew", "driver", "client"].includes(u.role)).map((u) => u.name),
-  hbMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || "Owner",
+  hbMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || ownerPerson(),
   hbFmtMoney = (v) => (null == v || "" === v ? "" : money(+v || 0)),
   hbFmtDate = (d) => {
     if (!d) return "";
@@ -86248,7 +86272,7 @@ function renderHbWorkspace() {
           ? `<div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Deal</th><th>Stage</th><th>Amount</th><th>Close date</th><th>Next step</th><th>Last activity</th></tr></thead><tbody>${(
               DB.leads || []
             )
-              .filter((l) => l.owner === me || "Owner" === me)
+              .filter((l) => l.owner === me || "owner" === role())
               .filter((l) => !["won", "lost"].includes(l.stage))
               .map(
                 (l) =>
@@ -86417,7 +86441,7 @@ function renderHbQuotes() {
           (!hbQuoteStat || hbQuoteStatus(e) === hbQuoteStat),
       )
       .sort((a, b) => (b.e.date || "").localeCompare(a.e.date || ""));
-  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Quotes</h1><div class="small muted">${Q.length} record${1 === Q.length ? "" : "s"}</div></div><div class="hb-head-acts"><button class="hb-btn primary" id="hb-newquote">Create quote</button></div></div><div class="hb-views"><button class="hb-viewtab ${hbQuoteMine ? "" : "on"}" data-hbqv="all">All quotes</button><button class="hb-viewtab ${hbQuoteMine ? "on" : ""}" data-hbqv="mine">My quotes</button></div><div class="hb-filterbar"><div class="hb-pill"><label>Status</label><select id="hb-qstatus"><option value="">All</option>${["Draft", "Published", "Signed", "Expired"].map((s) => `<option ${hbQuoteStat === s ? "selected" : ""}>${s}</option>`).join("")}</select></div><span class="grow"></span></div><div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Quote name</th><th>Status</th><th>Amount</th><th>Deal</th><th>Owner</th><th>Expiration date</th><th>Create date</th><th></th></tr></thead><tbody>${Q.map(({ e: e, c: c, l: l }) => `<tr><td class="hb-name"><a href="#" data-hbq="${c.id}|${e.id}">${esc(e.title)} ${esc(e.number)}</a></td><td><span class="hb-status ${hbQuoteStatus(e).toLowerCase()}">${hbQuoteStatus(e)}</span></td><td>${money(docTotal(e).total)}</td><td class="small">${l ? `<a href="#" data-hbgo="deal|${l.id}">${esc(l.name)}</a>` : esc(c.name)}</td><td class="small">${esc((l && l.owner) || "Owner")}</td><td class="small">${hbFmtDate(e.validUntil)}</td><td class="small muted">${hbFmtDate(e.date)}</td><td class="small"><a href="#" data-hbq="${c.id}|${e.id}">Edit</a> · <a href="#" data-hbqclone="${c.id}|${e.id}">Clone</a></td></tr>`).join("") || '<tr><td colspan="8"><div class="hb-empty"><b>No quotes yet.</b><div class="small muted">Create a quote from a deal.</div></div></td></tr>'}</tbody></table></div></div>`),
+  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Quotes</h1><div class="small muted">${Q.length} record${1 === Q.length ? "" : "s"}</div></div><div class="hb-head-acts"><button class="hb-btn primary" id="hb-newquote">Create quote</button></div></div><div class="hb-views"><button class="hb-viewtab ${hbQuoteMine ? "" : "on"}" data-hbqv="all">All quotes</button><button class="hb-viewtab ${hbQuoteMine ? "on" : ""}" data-hbqv="mine">My quotes</button></div><div class="hb-filterbar"><div class="hb-pill"><label>Status</label><select id="hb-qstatus"><option value="">All</option>${["Draft", "Published", "Signed", "Expired"].map((s) => `<option ${hbQuoteStat === s ? "selected" : ""}>${s}</option>`).join("")}</select></div><span class="grow"></span></div><div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Quote name</th><th>Status</th><th>Amount</th><th>Deal</th><th>Owner</th><th>Expiration date</th><th>Create date</th><th></th></tr></thead><tbody>${Q.map(({ e: e, c: c, l: l }) => `<tr><td class="hb-name"><a href="#" data-hbq="${c.id}|${e.id}">${esc(e.title)} ${esc(e.number)}</a></td><td><span class="hb-status ${hbQuoteStatus(e).toLowerCase()}">${hbQuoteStatus(e)}</span></td><td>${money(docTotal(e).total)}</td><td class="small">${l ? `<a href="#" data-hbgo="deal|${l.id}">${esc(l.name)}</a>` : esc(c.name)}</td><td class="small">${esc((l && l.owner) || ownerPerson())}</td><td class="small">${hbFmtDate(e.validUntil)}</td><td class="small muted">${hbFmtDate(e.date)}</td><td class="small"><a href="#" data-hbq="${c.id}|${e.id}">Edit</a> · <a href="#" data-hbqclone="${c.id}|${e.id}">Clone</a></td></tr>`).join("") || '<tr><td colspan="8"><div class="hb-empty"><b>No quotes yet.</b><div class="small muted">Create a quote from a deal.</div></div></td></tr>'}</tbody></table></div></div>`),
     host.querySelectorAll("[data-hbqv]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -86661,12 +86685,12 @@ function renderHbForecast() {
   hbInit();
   const [a, b, label] = hbPeriod(),
     L = (DB.leads || []).filter((l) => "lost" !== l.stage && l.closedate >= a && l.closedate <= b),
-    reps = [...new Set(L.map((l) => l.owner || "Owner").concat(hbUsers()))],
+    reps = [...new Set(L.map((l) => l.owner || ownerPerson()).concat(hbUsers()))],
     G = DB.hub.forecast.goals,
     sub = DB.hub.forecast.submissions.filter((s) => s.period === label),
     sum = (A) => A.reduce((x, l) => x + (+l.value || 0), 0),
     row = (rep) => {
-      const R = rep ? L.filter((l) => (l.owner || "Owner") === rep) : L,
+      const R = rep ? L.filter((l) => (l.owner || ownerPerson()) === rep) : L,
         goal = rep ? +G[`${rep}|${label}`] || 0 : reps.reduce((x, r) => x + (+G[`${r}|${label}`] || 0), 0),
         won = sum(R.filter((l) => "won" === l.stage)),
         open = R.filter((l) => !["won", "lost"].includes(l.stage)),
@@ -86722,7 +86746,7 @@ function renderHbForecast() {
       (b) =>
         (b.onclick = () => {
           const rep = b.dataset.hbsubmit,
-            R = L.filter((l) => (l.owner || "Owner") === rep && !["won", "lost"].includes(l.stage));
+            R = L.filter((l) => (l.owner || ownerPerson()) === rep && !["won", "lost"].includes(l.stage));
           mbModal(
             "Submit forecast",
             `<div class="small muted">${esc(DB.hub.pipeline.label)} · ${label}</div>${mbF("Amount", mbIn("amount", Math.round(sum(R.filter((l) => ["Commit", "Closed won"].includes(l.forecastCategory)))), "", "number"))}<div class="small muted">Or pick the deals:</div><div class="hb-collist">${R.map((l) => `<label class="chk"><input type="checkbox" data-fcd="${l.id}" data-amt="${+l.value || 0}" ${["Commit"].includes(l.forecastCategory) ? "checked" : ""}> ${esc(l.name)} · ${money(l.value)} · ${esc(l.forecastCategory || "")}</label>`).join("")}</div>${mbF("Notes", mbIn("notes", "", ""))}`,
@@ -86759,7 +86783,7 @@ function renderHbForecast() {
         (a.onclick = (e) => {
           e.preventDefault();
           const rep = a.dataset.hbrep,
-            R = L.filter((l) => (l.owner || "Owner") === rep);
+            R = L.filter((l) => (l.owner || ownerPerson()) === rep);
           (host.querySelector("#hb-fc-detail").innerHTML =
             `<div class="hb-card-sec"><h4>${esc(rep)} — ${label}</h4>${HB_FORECAST.map((c) => {
               const D = R.filter(
@@ -86827,9 +86851,9 @@ function renderHbDashboard() {
           ) >= order.indexOf(s.id),
       ).length,
     acts = L.flatMap((l) =>
-      (l.touches || []).filter((t) => inR(t.at)).map((t) => ({ ...t, owner: l.owner || "Owner" })),
+      (l.touches || []).filter((t) => inR(t.at)).map((t) => ({ ...t, owner: l.owner || ownerPerson() })),
     ),
-    reps = [...new Set(L.map((l) => l.owner || "Owner"))],
+    reps = [...new Set(L.map((l) => l.owner || ownerPerson()))],
     bySource = {};
   created.forEach((l) => {
     bySource[l.source || "Unknown"] = (bySource[l.source || "Unknown"] || 0) + 1;
@@ -87783,7 +87807,7 @@ function hbSeed() {
           outcome: "Left voicemail",
           title: "Call — Left voicemail",
           body: "Left a message about the brownstone on Dean St.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
     }),
@@ -87959,7 +87983,7 @@ function hbSeed() {
       {
         id: "sq_inq",
         name: "New inquiry — first week",
-        owner: "Owner",
+        owner: DEMO_OWNER,
         updated: d(20),
         steps: [
           {
@@ -87998,7 +88022,7 @@ function hbSeed() {
       {
         id: "sq_prop",
         name: "Proposal out — thirty days",
-        owner: "Owner",
+        owner: DEMO_OWNER,
         updated: d(12),
         steps: [
           {
@@ -88038,7 +88062,7 @@ function hbSeed() {
       {
         id: "pb_disc",
         title: "Discovery call",
-        by: "Owner",
+        by: DEMO_OWNER,
         updated: d(30),
         uses: 4,
         onDeals: !0,
@@ -88049,7 +88073,7 @@ function hbSeed() {
       {
         id: "pb_qual",
         title: "Qualification",
-        by: "Owner",
+        by: DEMO_OWNER,
         updated: d(30),
         uses: 2,
         onDeals: !0,
@@ -97457,8 +97481,8 @@ function bnSeedLessons() {
       when: when,
       then: then,
       why: why,
-      source: "Owner",
-      taughtBy: "Owner",
+      source: DEMO_OWNER,
+      taughtBy: DEMO_OWNER,
       at: td,
       auto: !1,
       active: !0,
@@ -102118,7 +102142,7 @@ function scInit() {
         "inquiry" !== l.stage ||
           l.leadStatus ||
           (l.leadStatus = (l.touches || []).some((t) => "in" !== t.direction) ? "Open" : "New"),
-        l.owner || (l.owner = "Owner"),
+        l.owner || (l.owner = ownerPerson()),
         (l.history && l.history.length) ||
           (l.history = [{ stage: l.stage || "inquiry", at: l.created || today() }]),
         ["qual", "building", "props"].forEach((k) => {
@@ -102468,7 +102492,7 @@ function scLeadsHtml() {
       ? !["Unqualified", "Junk"].includes(l.leadStatus || "New")
       : (l.leadStatus || "New") === scTab,
   );
-  scOwner && (R = R.filter((l) => (l.owner || "Owner") === scOwner)),
+  scOwner && (R = R.filter((l) => (l.owner || ownerPerson()) === scOwner)),
     scSource && (R = R.filter((l) => (l.source || "") === scSource)),
     q &&
       (R = R.filter((l) =>
@@ -102485,7 +102509,7 @@ function scLeadsHtml() {
     late = L.filter(
       (l) => !["Unqualified", "Junk"].includes(l.leadStatus || "New") && l.nextDue && l.nextDue < td,
     ).length,
-    owners = [...new Set(L.map((l) => l.owner || "Owner"))].sort(),
+    owners = [...new Set(L.map((l) => l.owner || ownerPerson()))].sort(),
     sources = [...new Set(L.map((l) => l.source).filter(Boolean))].sort(),
     lead = L.length
       ? `${counts.New} new · ${counts.Open} open${noReply ? ` · ${noReply} with no reply from us yet` : ""}${late ? ` · ${late} next step${1 === late ? "" : "s"} late` : ""}`
@@ -102502,7 +102526,7 @@ function scLeadsHtml() {
         last = scLastTouch(l),
         d = scDays(last),
         lateRow = l.nextDue && l.nextDue < td;
-      return `<tr data-scrow="${l.id}"><td class="name"><a href="#" data-scopen="${l.id}"><b>${esc(l.name)}</b></a>${l.commId ? '<div class="small muted">from a message</div>' : ""}</td><td>${esc(l.company || "")}</td><td class="small">${esc(l.email || "")}${l.email && l.phone ? "<br>" : ""}${esc(l.phone || "")}</td><td class="small">${esc(l.addr || "")}${l.buildingType ? `<div class="muted">${esc(l.buildingType)}${l.scope ? " · " + esc(l.scope) : ""}</div>` : ""}</td><td class="small">${esc(l.source || "—")}</td><td><span class="pill ${SC_PILL[st] || "neutral"}">${st}</span></td><td class="small">${esc(l.owner || "Owner")}</td><td class="small ${null != d && d >= 7 && !["Unqualified", "Junk"].includes(st) ? "warn" : "muted"}">${last ? hbRel(last) : "—"}</td><td class="small ${lateRow ? "bad" : ""}">${l.next ? `${esc(l.next)}${l.nextDue ? ` · ${fmt(l.nextDue)}` : ""}` : '<span class="muted">none set</span>'}</td><td class="acts">${["Unqualified", "Junk"].includes(st) ? `<button class="btn sm" data-screopen="${l.id}">Reopen</button>` : `<button class="btn sm primary" data-scconvert="${l.id}">Convert</button><button class="btn sm ghost" data-scunq="${l.id}" title="Unqualify">Unqualify</button>`}</td></tr>`;
+      return `<tr data-scrow="${l.id}"><td class="name"><a href="#" data-scopen="${l.id}"><b>${esc(l.name)}</b></a>${l.commId ? '<div class="small muted">from a message</div>' : ""}</td><td>${esc(l.company || "")}</td><td class="small">${esc(l.email || "")}${l.email && l.phone ? "<br>" : ""}${esc(l.phone || "")}</td><td class="small">${esc(l.addr || "")}${l.buildingType ? `<div class="muted">${esc(l.buildingType)}${l.scope ? " · " + esc(l.scope) : ""}</div>` : ""}</td><td class="small">${esc(l.source || "—")}</td><td><span class="pill ${SC_PILL[st] || "neutral"}">${st}</span></td><td class="small">${esc(l.owner || ownerPerson())}</td><td class="small ${null != d && d >= 7 && !["Unqualified", "Junk"].includes(st) ? "warn" : "muted"}">${last ? hbRel(last) : "—"}</td><td class="small ${lateRow ? "bad" : ""}">${l.next ? `${esc(l.next)}${l.nextDue ? ` · ${fmt(l.nextDue)}` : ""}` : '<span class="muted">none set</span>'}</td><td class="acts">${["Unqualified", "Junk"].includes(st) ? `<button class="btn sm" data-screopen="${l.id}">Reopen</button>` : `<button class="btn sm primary" data-scconvert="${l.id}">Convert</button><button class="btn sm ghost" data-scunq="${l.id}" title="Unqualify">Unqualify</button>`}</td></tr>`;
     }).join("");
   return `<div class="ph"><div><h2>Leads</h2><div class="lead">${lead}</div></div><div class="acts"><button class="btn" id="sc-inbox">Messages</button><button class="btn primary" id="sc-newlead">New Lead</button></div></div>\n  <div class="ctabs" id="sc-tabs">${tabs.map(([k, n, c]) => `<button class="${scTab === k ? "on" : ""}" data-sctab="${k}">${n}<span class="n">${c || ""}</span></button>`).join("")}</div>\n  <div class="row sc-filters"><input class="q" id="sc-q" placeholder="Search name, company, email, property…" value="${esc(scQ)}"><select id="sc-owner"><option value="">All Owners</option>${owners.map((o) => `<option ${o === scOwner ? "selected" : ""}>${esc(o)}</option>`).join("")}</select><select id="sc-source"><option value="">All Sources</option>${sources.map((o) => `<option ${o === scSource ? "selected" : ""}>${esc(o)}</option>`).join("")}</select><span class="grow"></span><span class="small muted">${R.length} lead${1 === R.length ? "" : "s"}</span></div>\n  ${
     R.length
@@ -104687,7 +104711,7 @@ let tkFlash = "";
             projectId: "",
             project: "inquiry" === l.stage ? "Leads" : "Pipeline",
             title: `${l.next || "Follow up"} — ${l.leadName || l.name}${l.addr && !(l.name || "").includes(l.addr) ? " · " + l.addr : ""}`,
-            assignee: l.owner || "Owner",
+            assignee: l.owner || ownerPerson(),
             due: l.nextDue || "",
             priority: "",
             status: "todo",
@@ -155862,9 +155886,9 @@ function budSeed() {
     months = (from, to, val) => BUD_MONTHS.map((x, m) => (m >= from && m <= to ? val : 0)),
     O = mk("bv_orig", `Original ${y}`, "original", "locked", {
       createdOn: `${y}-01-05`,
-      createdBy: "Owner",
+      createdBy: DEMO_OWNER,
       lockedOn: `${y}-01-09`,
-      lockedBy: "Owner",
+      lockedBy: DEMO_OWNER,
       lockNote: "Approved at the January planning meeting",
       basisNote:
         "Opening run-rate for overhead; construction from June and design from April at the plan volume",
@@ -155896,7 +155920,7 @@ function budSeed() {
     createdOn: `${y}-07-31`,
     createdBy: "Controller",
     lockedOn: `${y}-08-03`,
-    lockedBy: "Owner",
+    lockedBy: DEMO_OWNER,
     lockNote: "Q3 reforecast approved: actuals through July, the three signed jobs on their schedules",
     basisNote:
       "Actuals January–July; August–December from the jobs under contract and the March–July overhead run-rate",
@@ -155960,8 +155984,8 @@ function budSeed() {
       detail: detail,
     });
   return (
-    A(`${y}-01-05`, "Owner", O, "created", "From the January plan"),
-    A(`${y}-01-09`, "Owner", O, "locked", O.lockNote),
+    A(`${y}-01-05`, DEMO_OWNER, O, "created", "From the January plan"),
+    A(`${y}-01-09`, DEMO_OWNER, O, "locked", O.lockNote),
     A(
       `${y}-07-31`,
       "Controller",
@@ -155969,8 +155993,8 @@ function budSeed() {
       "created",
       "Copy of the actuals through July plus the jobs under contract",
     ),
-    A(`${y}-08-03`, "Owner", R, "locked", R.lockNote),
-    A(`${y}-08-03`, "Owner", R, "made active", "Reports read Reforecast Q3 from August"),
+    A(`${y}-08-03`, DEMO_OWNER, R, "locked", R.lockNote),
+    A(`${y}-08-03`, DEMO_OWNER, R, "made active", "Reports read Reforecast Q3 from August"),
     A(`${y}-09-02`, "Controller", D, "created", "Copy of Reforecast Q3"),
     P
   );
@@ -182387,7 +182411,7 @@ const RFQ_REGIONS = ["NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT",
     return p ? shortName(p) : "";
   },
   rfqVendor = (id) => (DB.vendors || []).find((v) => v.id === id) || null,
-  rfqMe = () => ((typeof currentUser == "function" && currentUser()) || {}).name || "Owner",
+  rfqMe = () => ((typeof currentUser == "function" && currentUser()) || {}).name || ownerPerson(),
   rfqUserOf = (r) => (DB.users || []).find((u) => u.role === r) || null,
   rfqIdOf = (p) => p + Math.random().toString(36).slice(2, 8);
 function rfqHist(r, what, note) {

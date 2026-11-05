@@ -201,7 +201,7 @@ async def t_task(c, p):
     r = await pg.evaluate("""() => { const P = DB.projects.find(x => x.id === 'p121'), m = P.chat.slice(-1)[0], a = (P.actions || []).find(x => x.id === m.taskId);
        return { link: !!m.taskId, a: a && [a.title, a.assignee, a.due, a.status, (a.source || {}).chat ? 1 : 0], toast: document.getElementById('toast').innerText } }""")
     c.ok(r['link'] and r['a'] and r['a'][0] == 'Order the brass hinges for the parlor doors', f"task: one tap makes the task, linked from the line ({r['a']})")
-    c.ok(r['a'] and r['a'][1] == 'Owner' and r['a'][2] == '2026-09-03' and r['a'][4] == 1, f"task: on the owner, due today, pointing back at the message ({r['a']})")
+    c.ok(r['a'] and r['a'][1] == OWNER and r['a'][2] == '2026-09-03' and r['a'][4] == 1, f"task: on the owner, due today, pointing back at the message ({r['a']})")
     c.ok('Open' in r['toast'], f"task: the toast has Open ({r['toast']!r})")
     # the owner's own Tasks list shows it (findable, not just saved)
     await pg.evaluate("() => { view = 'tkall'; render(); tkWho = 'me'; t2View = 'all'; tkProject = ''; tkArea = ''; tkPri = ''; t2Q = ''; tkQueue = ''; tkPerson = ''; render(); }")

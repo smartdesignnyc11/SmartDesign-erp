@@ -215,7 +215,7 @@ async def main():
         c.ok(d == '2026-09-04', 'the owner can accept it too')
         L = await pg.evaluate("""(m => ({live: m.proposals.filter(p => p.review && p.status === 'live').map(p => p.liveBy),
             mine: m.changes.filter(c => !c.via).map(c => c.by), review: m.changes.filter(c => c.via === 'review').map(c => c.by)}))(DB.meetings.find(m => m.id === 'mt_live'))""")
-        c.ok(L['live'] and set(L['live']) == {'Chen Biron'} and set(L['mine']) == {'Chen Biron'} and set(L['review']) == {'Owner'},
+        c.ok(L['live'] and set(L['live']) == {'Chen Biron'} and set(L['mine']) == {'Chen Biron'} and set(L['review']) == {OWNER},
              f"a change made live stays the coordinator's, who clicked it; what the owner accepted is the owner's: {L}")
         await b.close()
 
