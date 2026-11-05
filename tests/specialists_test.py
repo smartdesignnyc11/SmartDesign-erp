@@ -200,7 +200,7 @@ async def main():
         any('PO-PLANT-OVER' in c and '$5,000' in c for c in six['cause']) or flag(f'six: the cause does not compare bill and PO {six["cause"]}')
         any('statement' in m for m in six['mail']) or flag(f'six: the firm inbox mail is not in the cause {six["mail"]}')
         any('two extra sheets' in m for m in six['mail']) and flag('privacy: the controller reads Chen\'s private mail through a finding')
-        six['owner']['name'] == 'Owner' or flag(f'six: a short-pay is the owner\'s; task went to {six["owner"]}')
+        six['owner']['name'] == OWNER or flag(f'six: a short-pay is the owner\'s; task went to {six["owner"]}')
         six['opts'] >= 2 or flag('six: fewer than two options')
         chen = await pg.evaluate("() => { signIn('u_chen'); return rsSix('c.overPO|bill:bPLANTOVER').cause.mail.map(m => m.line); }")
         any('two extra sheets' in m for m in chen) or flag(f'privacy: Chen does not see her own mail in the cause {chen}')
@@ -290,14 +290,14 @@ async def main():
           t.dispute = { why: 'Charged twice', by: 'Controller', at: appNowIso(), with: 'Amex', amt: t.amt }; t.dupState = 'disputed';
           window.SV_SOURCES.push(() => [{ key: 'pb:test', kind: 'price', amount: 84, date: today(), by: 'Alex', what: 'PEX at the cheaper store', evidence: ['receipt'] }]);
           const ok = svSetShare({ wage: 20, bonus: 10, charity: 5 }); const bad = svSetShare({ wage: 90, bonus: 20, charity: 0 });
-          const V = svSummary(); svCredit('short:bPLANTOVER', 'Owner'); const V2 = svSummary();
+          const V = svSummary(); svCredit('short:bPLANTOVER', '""" + OWNER + """'); const V2 = svSummary();
           const eqO = eqRows('savings').length; signIn('u_angel'); const eqF = eqRows('savings').length; signIn('u_alan'); const eqP = eqRows('savings').length;
           return { ytd: V.ytd, bySource: V.bySource, pools: V.pools, ok, bad, credited: V2.credited, eqO, eqF, eqP }; }""")
         r['bySource'].get('Duplicates Stopped', 0) >= 742.18 or flag(f'savings: the disputed duplicate is not counted {r["bySource"]}')
         r['bySource'].get('Price Differences', 0) >= 84 or flag('savings: another lane\'s SV_SOURCES row is not read')
         r['ok'] and not r['bad'] or flag('savings: shares over 100% were accepted')
         abs(r['pools']['charity'] - round(r['ytd'] * 0.05, 2)) < 0.02 or flag(f'savings: the charity pool is not 5% of the year {r}')
-        r['credited'].get('Owner', 0) >= 600 or flag(f'savings: the bonus credit was not recorded {r["credited"]}')
+        r['credited'].get(OWNER, 0) >= 600 or flag(f'savings: the bonus credit was not recorded {r["credited"]}')
         r['eqO'] > 0 and r['eqF'] == 0 or flag(f'savings: Ask reads {r["eqO"]} rows as the owner, {r["eqF"]} as the foreman')
         print(f'SAVINGS ytd ${r["ytd"]:,.2f} · {r["bySource"]}')
 
@@ -308,7 +308,7 @@ async def main():
           signIn('u_billing'); const refused = wlApply(w) === 0;
           signIn('u_owner'); rsApprove(k);
           const offered = w.move.tasks.map(t => { const rec = tdyRec(t); return rec && rec.handoff ? rec.handoff.state + ':' + rec.handoff.to : 'none'; });
-          const eq = eqRows('workload').find(x => x.person === 'Owner'); signIn('u_alberto'); const eqCrew = eqRows('workload').length;
+          const eq = eqRows('workload').find(x => x.person === '""" + OWNER + """'); signIn('u_alberto'); const eqCrew = eqRows('workload').length;
           return { to: w.move.to.name, n: w.move.tasks.length, fix: X.fix.kind, refused, offered, eq: eq ? eq.overloaded : null, eqCrew }; }""")
         r.get('fix') == 'moveWork' or flag(f'workload: no move proposed for the overloaded owner {r}')
         r.get('refused') or flag('workload: someone other than the manager moved the work')

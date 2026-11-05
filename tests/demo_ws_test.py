@@ -236,8 +236,8 @@ async def persona(p, uid, C):
         wjr = one(S['meetings'], lambda m: m['title'] == 'Weekly jobs review')
         att = await pg.evaluate("() => { const m = DB.meetings.find(x => x.title === 'Weekly jobs review'); return m ? { attendees: m.attendees, owners: m.steps.map(s => s.owner), tasks: m.proposals.filter(p => p.kind === 'task').map(p => p.apply.assignee) } : null; }")
         C.ok(bool(att) and not any('image' in str(a).lower() or 'cid:' in str(a).lower() for a in att['attendees'] + att['owners']), f'{uid}: "[image: Meeting records]" is not a person in the meeting ({att})')
-        C.ok(bool(att) and all(re.search(r'[A-Za-z]', str(a)) and ' ' in str(a).strip() or a in ('Alan', 'Angel', 'Chen Biron', 'Sarah Davis', 'Owner') for a in att['attendees']), f'{uid}: an attendee is a name with letters and a space, or a staff member on file ({att and att["attendees"]})')
-        C.ok(bool(att) and 'Owner' in att['tasks'] and 'Alan' not in att['tasks'], f'{uid}: "[Alan]" in the owner\'s own meeting notes is the workspace owner, not the seed PM by first name ({att and att["tasks"]})')
+        C.ok(bool(att) and all(re.search(r'[A-Za-z]', str(a)) and ' ' in str(a).strip() or a in ('Alan', 'Angel', 'Chen Biron', 'Sarah Davis', OWNER) for a in att['attendees']), f'{uid}: an attendee is a name with letters and a space, or a staff member on file ({att and att["attendees"]})')
+        C.ok(bool(att) and OWNER in att['tasks'] and 'Alan' not in att['tasks'], f'{uid}: "[Alan]" in the owner\'s own meeting notes is the workspace owner, not the seed PM by first name ({att and att["tasks"]})')
         # ---- S3 (finding 15): one forwarded thread, one permit proposal; Needs an Answer counts threads with a question and no reply.
         sup = [p for p in by_kind(S, 'permit') if 'supersede approved' in (p.get('subject') or '')]
         C.ok(len(sup) == 1, f'{uid}: one forwarded thread yields one permit proposal, not one per message ({len(sup)})')

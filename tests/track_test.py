@@ -202,7 +202,7 @@ async def main():
             trkFollowSweep(); const o = DB.outbox.find(x => x.about && x.about.poId === 'tpo5');
             return [o && o.status, o && o.forName, DB.asst.u_chen.delegated.includes('orderFollowups'), DB.company.delegationLog.slice(-1)[0].by, mApprovals({ everyone: true }).some(i => i.kind === 'draft' && i.id === (o || {}).id)] }""")
         c.ok(off[0] == 'draft' and off[1] == 'Chen Biron' and off[2] is False, f'switched off by the owner, follow-ups are drafts for the coordinator: {off}')
-        c.ok(off[3] == 'Owner', f'who switched it is logged: {off[3]}')
+        c.ok(off[3] == OWNER, f'who switched it is logged: {off[3]}')
         g = await pg.evaluate("""() => [trkSendGuard('confirm', { subject: 'PO-2026-047', body: 'Your invoice will be paid next week, sorry for the delay.' }, 'u_chen'),
             trkSendGuard('confirm', { subject: 'PO-2026-047', body: 'The new date of the 30th works for us.' }, 'u_chen'),
             trkSendGuard('discount', { subject: 'x', body: 'Please confirm.' }, 'u_chen'),
