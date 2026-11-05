@@ -457,7 +457,8 @@ function puMenuHtml(v, items) {
 function puHeadHtml(v, extra) {
   // inside a job the page is the job's Purchasing tab: its name, the job's words, and the job's one + (src/jobpage.js)
   const job = "function" == typeof jpOn && jpOn(),
-    items = job || ("function" == typeof canEdit && !canEdit()) ? [] : puPlusItems(v),
+    // the controller and billing read Purchasing and buy nothing (src/puorders.js puReadOnly): no + for them
+    items = job || ["controller", "billing"].includes(role()) ? [] : puPlusItems(v),
     name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
     lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
   // on the phone the job's header names the section (src/jobpage.js): no second heading under it
