@@ -11677,11 +11677,16 @@ function poScopeList() {
 const poScopeCommitted = () =>
   poScope ? poCommitted((DB.projects || []).find((p) => p.id === poScope) || { id: poScope }) : (DB.projects || []).reduce((a, p) => a + poCommitted(p), 0);
 const poJobName = (po) => String((((DB.projects || []).find((p) => p.id === po.projectId) || {}).project || {}).name || "Overhead").replace(/ —.*$/, "");
+// The one number every purchase order gets, however it was made (New PO, a line moved to another vendor, a split, a
+// buy run from Selections, the Buy Board, a quote award, the assistant): PO-<year>-nnn on the firm's one sequence.
+// The FM / invoice group of a Selections buy is po.fm, never the number (BACKLOG 1.36: a moved line became "FM-1").
+// The sequence never hands out a number already on an order (an import or a synced device can be ahead of it).
 function nextPO() {
-  return (
-    (DB.company.seq.po = (DB.company.seq.po || 0) + 1),
-    `${DB.company.poPrefix || "PO"}-${appNow().getFullYear()}-${String(DB.company.seq.po).padStart(3, "0")}`
-  );
+  const pre = `${DB.company.poPrefix || "PO"}-${today().slice(0, 4)}-`,
+    taken = new Set((DB.pos || []).map((p) => String(p.number || "")));
+  let n = (DB.company.seq.po || 0) + 1;
+  while (taken.has(pre + String(n).padStart(3, "0"))) n++;
+  return (DB.company.seq.po = n), pre + String(n).padStart(3, "0");
 }
 function renderPOFunds() {
   const el = $("#po-funds");
@@ -54568,13 +54573,6 @@ function selFromClip(c, extra) {
     );
   return selVerifyLocal(it), it;
 }
-function selPONumber(fm, projectId) {
-  const base = fm || "FM",
-    n =
-      DB.pos.filter((po) => po.projectId === projectId && String(po.number).startsWith(base + "-")).length +
-      1;
-  return `${base}-${n}`;
-}
 function selPORun(ids, opts) {
   opts = opts || {};
   const all = ids.map(selItem).filter(Boolean);
@@ -54617,7 +54615,7 @@ function selPORun(ids, opts) {
   for (const { pid: pid, fm: fm, fms: fms, vendor: vendor, list: list } of Object.values(groups)) {
     const po = {
       id: uid("po"),
-      number: selPONumber(fm, pid),
+      number: nextPO(),
       projectId: pid,
       vendor: vendor,
       date: today(),
@@ -57916,6 +57914,26 @@ function poFunding(po) {
   const c = fundCheck(items);
   return c.rows.length ? c : null;
 }
+// A new draft made from an existing draft (a line moved to another vendor, a line split onto its own order): the
+// job, ship-to, dates, tax status, entity and FM group carry over; the number is the next PO-2026-nnn (nextPO); what
+// belongs to the first order's history does not: its approvals, sends, receipts, problems and payments, and its
+// shipping amount (copied, it counted twice; the tax rate carries). A different vendor also drops the old vendor's
+// id, contact, terms and sourcing choice.
+const PO_CHILD_DROP = ["approvedAt", "approvedBy", "issuedAt", "emailedAt", "emailDraft", "sentBack", "submittedAt", "submittedBy",
+    "supersededAt", "cancelReason", "overReason", "dupWarned", "flag", "followups", "issues", "receipts", "receivedOn", "slips",
+    "staged", "stale", "etaFrom", "repaired", "taxRepair", "templateFirst", "submittalId", "submOverride", "tradeVerified",
+    "tradeVerifiedBy"],
+  PO_VENDOR_DROP = ["vendorId", "contact", "termsPreset", "depositPct", "retainagePct", "sc", "sourcing"];
+function poChildOf(po, over) {
+  const kid = Object.assign({}, po);
+  PO_CHILD_DROP.forEach((k) => delete kid[k]);
+  if (over && over.vendor && String(over.vendor).toLowerCase() !== String(po.vendor || "").toLowerCase()) {
+    PO_VENDOR_DROP.forEach((k) => delete kid[k]);
+    const v = (DB.vendors || []).find((x) => String(x.name || "").toLowerCase() === String(over.vendor).toLowerCase());
+    v && (kid.vendorId = v.id);
+  }
+  return Object.assign(kid, { id: uid("po"), number: nextPO(), date: today(), status: "draft", matchedTxns: [], shipping: 0, madeFrom: po.number }, over || {});
+}
 function poMoveLine(po, lineId, vendor) {
   vendor = String(vendor || "").trim();
   const l = (po.lines || []).find((x) => x.id === lineId);
@@ -57930,16 +57948,7 @@ function poMoveLine(po, lineId, vendor) {
   );
   const fresh = !target;
   if (!target) {
-    (target = Object.assign({}, po, {
-      id: uid("po"),
-      number: selPONumber(po.fm || "", po.projectId),
-      vendor: vendor,
-      lines: [],
-      matchedTxns: [],
-      date: today(),
-      status: "draft",
-    })),
-      DB.pos.push(target);
+    (target = poChildOf(po, { vendor: vendor, lines: [] })), DB.pos.push(target);
     const run = (DB.sel.runs || []).find((r) => (r.poIds || []).includes(po.id));
     run && run.poIds.push(target.id);
   }
@@ -57971,13 +57980,7 @@ function poSplitLine(po, lineId) {
   const l = (po.lines || []).find((x) => x.id === lineId);
   if (!l || (po.lines || []).length < 2) return;
   if ("draft" !== po.status) return void toast("This order has been issued");
-  const target = Object.assign({}, po, {
-    id: uid("po"),
-    number: selPONumber(po.fm || "", po.projectId),
-    lines: [l],
-    matchedTxns: [],
-    status: "draft",
-  });
+  const target = poChildOf(po, { lines: [l] });
   DB.pos.push(target);
   const run = (DB.sel.runs || []).find((r) => (r.poIds || []).includes(po.id));
   if ((run && run.poIds.push(target.id), (po.lines = po.lines.filter((x) => x.id !== lineId)), l.selId)) {
@@ -122399,13 +122402,6 @@ if (
       const k = { estimate: "est", co: "co", invoice: "inv" }[kind];
       DB.company.seq[k] = (DB.company.seq[k] || 0) + 1;
       return `${{ estimate: DB.company.pe, co: DB.company.pc, invoice: DB.company.pi }[kind]}-${today().slice(0, 4)}-${String(DB.company.seq[k]).padStart(3, "0")}`;
-    }),
-  "function" == typeof nextPO &&
-    (nextPO = function () {
-      return (
-        (DB.company.seq.po = (DB.company.seq.po || 0) + 1),
-        `${DB.company.poPrefix || "PO"}-${today().slice(0, 4)}-${String(DB.company.seq.po).padStart(3, "0")}`
-      );
     }),
   "function" == typeof mReadPhoto)
 ) {
