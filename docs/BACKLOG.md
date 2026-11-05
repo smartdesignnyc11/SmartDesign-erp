@@ -1311,3 +1311,13 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
 - **Stamps outside bills and payroll have no action behind them:** rule changes seeded as approved by "Owner"; a client credit's approval writes no audit row; glApprove records the role, not the person. Route all through apStamp.
 - **Send to Client opens late, over a change order the person has already opened** (J3: the PM answers the joist find as an extra, opens CO-2026-003 from the toast, and the Send sheet the app opened "at once" arrives over it, with no cost and 0 days). The walk now records the finding and closes the sheet; the app bug is the class: a sheet opened by a step must open with that step, never after the person has moved on, and never before the record has its cost and days. Check: J3's "asks for its cost and days before it can be sent" passes and the walk's late-sheet close never fires.
 - **J8 takes 28/30 taps against live's 24/26, and J9 27/28 against 23/24 (same billing path)** (Messages' All, Clients' All, Contract and Billing, Billing Record before New Invoice). Fix: New Invoice directly on the client's Contract and Billing, filled from the milestone and its lines (the signed contract's 25% deposit, no retainage). Check: pin J8 at 28 taps or fewer, then lower it to the new count.
+- **Audit trail follow-ups (CoS 11-05):**
+  - an audit line in Controls, so the controller can run auditVerify and see the first tampered row;
+  - the month close runs verify and records DB.auditHead in the close record, so re-sealing the whole trail is caught;
+  - the boot re-attribution row's action reads "re-attributed", not "approve";
+  - the demo owner gets a person's name ("Owner" cannot be told apart from the role).
+- **Approvals pins (CoS 11-05):** a check that WW-2026-118 is on Today's Approvals tab; a check that a bill paid before approval never reaches To Pay.
+- **Month actor files the LLC statement** through Record the Filing (types the day it filed), dry run of one turn first; the month bar returns to 263 earned through the screens.
+- **Delegated sales tasks:** a sales task the owner or PM assigns to the coordinator or billing counts as delegation, so they can act on it (SAL-1, SAL-11).
+- **Billing's Today shows a deposit due within 2 business days** (today2.js, reading ctDepositDue's by).
+- **The Billing queue's draft row opens the invoice with no toast** (acctpages.js); it should say it opened the existing draft.
