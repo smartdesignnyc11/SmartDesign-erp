@@ -1322,3 +1322,9 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
 - **Delegated sales tasks:** a sales task the owner or PM assigns to the coordinator or billing counts as delegation, so they can act on it (SAL-1, SAL-11).
 - **Billing's Today shows a deposit due within 2 business days** (today2.js, reading ctDepositDue's by).
 - **The Billing queue's draft row opens the invoice with no toast** (acctpages.js); it should say it opened the existing draft.
+- **Follow-ups from the 11-05 evening CoS review:**
+  - **214 Lincoln shows work billed with no cost posted.** Flag it on Cash and WIP as "work billed, no cost posted". Earned stays cost-to-cost everywhere, one figure per job. The measured-work rule (3107788) was taken out: it picked whichever figure released more of the client's money, counted a CO as billed, and gave Cash a different earned figure from WIP.
+  - **Audit rows carry the user id, not only a name.** Renaming a person (the demo owner) writes its own audit row.
+  - **A close blocked by a failed verify escalates in the Standard's format** (what happened, impact, options, recommendation, decision deadline: books by the 10th), and it reaches the owner. On the hosted copy, sync must never merge the trail as a whole list, which would drop rows and block every close.
+  - **The PM's over-budget card on Today shows the day the line goes over** (E232, 121 State general conditions). The month's match should name the job and the line.
+  - **The month actor counts a task as seen only on its own person's screens** (doneMine).
