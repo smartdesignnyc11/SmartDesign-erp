@@ -3180,6 +3180,46 @@
     "ops",
     "coord-noun"
    ]
+  },
+  {
+   "id": "P4W1",
+   "role": "u_chen",
+   "q": "what is in the warehouse?",
+   "truth": "DB.inventory.filter(i => +i.qty > 0 && i.loc === 'wh').map(i => i.name).slice(0, 5)",
+   "check": "names",
+   "notes": "purchasing lane P4 (coordinator expert 11-05): the assistant did not understand \"warehouse\"; it is Stock",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P4W2",
+   "role": "u_chen",
+   "q": "what is owed back to us?",
+   "truth": "puOrderRows('').filter(x => 'owed' === x.tile).reduce((a, x) => a + (x.money || 0), 0)",
+   "check": "number",
+   "notes": "purchasing lane P4 (coordinator expert 11-05): it refused; the answer is the Orders page's Owed Back figure, the same number as the tile",
+   "refuse_ok": false,
+   "tags": [
+    "money",
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "P4W3",
+   "role": "u_angel",
+   "q": "what was ordered for my job?",
+   "truth": "DB.projects.find(p => p.id === 'p121').materials.filter(m => ['ordered', 'shipped'].includes(m.status)).map(m => m.name)",
+   "check": "names",
+   "absent": "['$']",
+   "notes": "purchasing lane P4 (field expert 11-05): the foreman was refused as a money question; field roles get items, quantities, dates and the drop point, no dollars",
+   "refuse_ok": false,
+   "tags": [
+    "ops",
+    "field"
+   ]
   }
  ]
 }
