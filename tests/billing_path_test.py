@@ -303,9 +303,12 @@ async def t_progress(C, p, phone):
       return { app: R.filter(x => x.kind === 'ready' && x.rtb && x.rtb.kind === 'application').length, draft: d ? d.id : '', btn: b ? b.innerText.trim() : '' };""", num)
     C.ok(q['app'] == 0 and q['draft'] and q['btn'], f'PRO {dev}: the Billing queue holds {num} as a draft to send with its button, and no second application to draft: {q}')
     if q['btn']:
+        await js(pg, "const t = document.getElementById('toast'); t.textContent = ''; t.classList.remove('on');")   # New Invoice's own toast is not this row's
         await pg.locator(f'[data-blact="{q["draft"]}"]').filter(has_text=q['btn']).first.click(); await pg.wait_for_timeout(900)
         y = await js(pg, COUNT, num)
         C.ok(y['n'] == [num] and y['open'] == y['id'], f'PRO {dev}: the queue\'s draft row opens {num} itself, no second draft: {y}')
+        # and says so, as New Invoice does: "INV-... drafted already", with Open (BACKLOG 1.36: it opened with no word)
+        C.ok(num in y['toast'] and 'drafted already' in y['toast'] and 'Open' in y['toast'], f'PRO {dev}: the queue\'s draft row toasts {num} drafted already, with Open: {y["toast"]!r}')
     C.ok(not errs, f'PRO {dev}: no page errors: {errs[:3]}')
     await b.close()
 

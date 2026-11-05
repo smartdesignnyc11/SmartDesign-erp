@@ -147707,12 +147707,18 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row)
-    return "credit" === row.kind
-      ? blCreditAct(row)
-      : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
-        ? rtbAct(row.key)
-        : blOpenRow(row);
+  if (!row) return;
+  if ("credit" === row.kind) return blCreditAct(row);
+  if ("ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))) return rtbAct(row.key);
+  blOpenRow(row);
+  // the queue's draft row reopens the draft already written: it says so, as the client's New Invoice does (slBillRun),
+  // so the person knows nothing new was made (BACKLOG §1.36: it opened the invoice with no word)
+  if ("draft" === row.kind && row.inv && row.client) {
+    const c = row.client,
+      go = () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: row.inv.id }), render()),
+      msg = `${row.inv.number || "The invoice"} drafted already${row.inv.title ? ` (${row.inv.title})` : ""}: review it, then Send to Client`;
+    "function" == typeof rcToast ? rcToast(msg, [{ label: "Open", run: go }]) : toast(msg, go);
+  }
 }
 // A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
 // draft opens for review. Nothing is sent from here.
