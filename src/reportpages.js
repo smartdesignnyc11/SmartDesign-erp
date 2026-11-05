@@ -414,6 +414,8 @@ function rwStmtRows(kind) {
     return { head: `Profit and Loss · ${rwPerLabel(rwPer()) || `${fmt(R[0])} to ${fmt(R[1])}`}`, rows: rows };
   }
   if ("bva" === kind) {
+    // no plan yet: say so and offer New Budget Plan, never a $0 budget beside the actuals (budNone)
+    if ("function" == typeof budNone && budNone(R[1].slice(0, 4))) return { head: "Budget vs Actual", rows: [], none: true };
     let T = null;
     try {
       T = budTotals(budRows({ range: R, ent: "function" == typeof repEntity ? "" : repEntity || "" }));
@@ -692,7 +694,7 @@ function rwStmtHtml() {
     ["bs", "Balance Sheet"],
     ["cf", "Cash Flow"],
     ["bva", "Budget vs Actual"],
-  ], rwS.pack || rwS.detail ? "" : rwS.kind)}<section class="card rw-stmt" aria-label="${rwEsc(K.head)}"><div class="rw-cap">${rwEsc(K.head)}</div>${rwRowsHtml(K.rows)}${K.note ? `<p class="small muted">${rwEsc(K.note)}</p>` : ""}</section>${behind}`;
+  ], rwS.pack || rwS.detail ? "" : rwS.kind)}<section class="card rw-stmt" aria-label="${rwEsc(K.head)}"><div class="rw-cap">${rwEsc(K.head)}</div>${K.none ? budNoneHtml("reports", { plain: 1 }) : rwRowsHtml(K.rows)}${K.note ? `<p class="small muted">${rwEsc(K.note)}</p>` : ""}</section>${behind}`;
 }
 
 // Report Builder

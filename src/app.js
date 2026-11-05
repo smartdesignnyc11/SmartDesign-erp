@@ -30076,6 +30076,7 @@ Object.assign(KPIS, {
     bench: "≥ 0",
     go: { view: "reports", tab: "budget" },
     fn: () => {
+      if ("function" == typeof budNone && budNone(today().slice(0, 4))) return null;
       const b = budgetFor(today().slice(0, 4)),
         m = +today().slice(5, 7),
         bud = b.income.slice(0, m).reduce((a, v) => a + v, 0);
@@ -110320,6 +110321,8 @@ const SD_DEMO_SEEDS = [
   "seedPOs",
   "altSeed",
   "biSeed",
+  // the sample budget plan (its versions, figures and history are invented): a firm's own records start with no plan
+  "budSeed",
   "bnSeedLessons",
   "cdSeed",
   "cmSeed",
@@ -155581,10 +155584,98 @@ function budPosted(ent, y) {
 }
 function budPlan() {
   (DB.budgetPlan && Array.isArray(DB.budgetPlan.versions) && DB.budgetPlan.versions.length) || budSeed();
+  // a firm's own records start with no plan (budSeed is a demo seed): the plan is empty until a person makes one
+  (DB.budgetPlan && Array.isArray(DB.budgetPlan.versions)) || (DB.budgetPlan = { versions: [], active: {}, audit: [], comments: {}, threshold: { pct: 10, amt: 2500 } });
+  DB.budgetPlan.sampleChecked || !budFirmOwn() || budSampleCleanup();
   const P = DB.budgetPlan;
   return (P.audit = P.audit || []), (P.comments = P.comments || {}), (P.active = P.active || {}), P;
 }
+// ---- The sample plan a firm's own records received before budSeed was a demo seed (11-05) ---------------------------
+// A team workspace's first budget read wrote the demo's plan (Original, Reforecast Q3, Working Draft: invented revenue
+// and costs, and a history stamped "Owner", later "system (setup)"). A budget figure the firm never made read as
+// theirs, and it is already on the server. Once per plan, on a firm's own records: the sample plan nobody touched is
+// removed, with an audit row by the system; one a person has worked on is kept and flagged for the owner; nothing a
+// person made is removed. Untouched: exactly the seed's three versions under the seed's names and stamps, every row of
+// its history the seed's own (the seed writes no time; a person's act always has one), and no commentary.
+const BUD_SAMPLE = { bv_orig: /^Original \d{4}$/, bv_rf3: /^Reforecast Q3$/, bv_draft: /^Working Draft — Q4 Update$/ };
+const BUD_SAMPLE_BY = ["Owner", "Controller", "system (setup)", DEMO_OWNER];
+function budSampleState(P) {
+  const V = (P && P.versions) || [];
+  if (!V.length || !V.every((v) => BUD_SAMPLE[v.id]) || V.length !== Object.keys(BUD_SAMPLE).length) return "";
+  if (!V.every((v) => BUD_SAMPLE[v.id].test(v.name || "") && [v.createdBy, v.lockedBy].filter(Boolean).every((b) => BUD_SAMPLE_BY.includes(b)))) return "";
+  const A = P.audit || [],
+    seedRows = A.filter((a) => !a.t && BUD_SAMPLE_BY.includes(a.by)),
+    worked = A.filter((a) => a.t && !["exported", "refused"].includes(a.act)),
+    said = Object.values(P.comments || {}).some((m) => Object.values(m || {}).some((c) => c && String(c.text || "").trim()));
+  if (!seedRows.length) return "";
+  return worked.length || said || A.length !== seedRows.length + A.filter((a) => a.t && ["exported", "refused"].includes(a.act)).length ? "edited" : "untouched";
+}
+// a firm's own records: the team's workspace, or a device whose demo data was wiped for live data (never a demo
+// workspace whose records the server holds: sdSeedsOff is true there too, and its sample plan is the demo's own)
+function budFirmOwn() {
+  try {
+    if ("undefined" != typeof window && window.__sdWs && "demo" === window.__sdWs.kind) return !1;
+    return !!(DB.__teamWs || ("undefined" != typeof window && window.__sdWs && "team" === window.__sdWs.kind) || DB.__liveData || DB.__wiped);
+  } catch (e) {
+    return !1;
+  }
+}
+function budSampleCleanup() {
+  const P = DB.budgetPlan;
+  if (!P || P.sampleChecked) return "";
+  const st = budSampleState(P),
+    names = (P.versions || []).map((v) => v.name).join(", ");
+  if ("untouched" === st) {
+    DB.budgetPlan = { versions: [], active: {}, audit: [], comments: {}, threshold: P.threshold || { pct: 10, amt: 2500 }, sampleChecked: "removed" };
+    try {
+      audit("budget", "sample-plan", "removed", { versions: (P.versions || []).map((v) => v.id) }, null, `removed the sample budget plan that setup added (${names}): its figures and history were the demo's, not the firm's, and nobody had edited it. A firm's own records start with no plan; New Budget Plan makes one.`, { by: "system", role: "system" });
+    } catch (e) {}
+  } else if ("edited" === st) {
+    P.sampleChecked = "kept";
+    try {
+      audit("budget", "sample-plan", "kept", null, null, `kept the sample budget plan that setup added (${names}): someone has worked on it since, so it stays for the owner to review`, { by: "system", role: "system" });
+    } catch (e) {}
+    try {
+      const t = crCreateTask({ title: "Review the budget plan: it began as the sample plan setup added", for: "firm", assignee: ownerPerson(), due: today(), priority: "high", area: "finance", notes: `${names} began as the demo's sample plan, with invented figures, and has been edited since, so it was kept. Check every figure is the firm's own, or start a New Budget Plan and remove this one.` });
+      t && t.rec && (t.rec.createdBy = "system");
+    } catch (e) {}
+  } else P.sampleChecked = "no sample";
+  try {
+    save();
+  } catch (e) {}
+  return st;
+}
 const budVer = (id) => budPlan().versions.find((v) => v.id === id) || null;
+// No plan yet (a firm's own records before anyone makes one): every budget surface says so and offers New Budget
+// Plan, never a crash and never a $0 budget dressed as a plan.
+const budNone = (y) => !budActiveVer(y);
+const BUD_NONE_WORDS = "No budget plan yet: nothing here is compared with a plan until the firm makes one.";
+// o.plain: the page already has its one blue button (Financial Statements' Pack), so this one is plain
+function budNoneHtml(where, o) {
+  return `<div class="bud-none" data-budnone="${esc(where || "")}"><h3>No Budget Plan Yet</h3><p class="small muted">${esc(BUD_NONE_WORDS)} The actuals are in the ledger and the reports as always.</p>${budCanEdit() ? `<button type="button" class="btn${o && o.plain ? "" : " primary"}" data-budnewplan>New Budget Plan</button>` : '<p class="small muted">The Owner or the controller makes the plan.</p>'}</div>`;
+}
+// New Budget Plan: the first version of the year, empty, a draft the person fills in (budNewVersion)
+function budNewPlanDialog() {
+  if (!budCanEdit()) return void toast("The Owner or the controller makes the budget plan");
+  const y = budYear();
+  mbModal("New Budget Plan", `<div class="f"><label>Name</label><input data-f="name" value="${esc(`${y} Budget`)}"></div><p class="small muted">An empty draft for ${esc(y)}, by entity, account and month. Fill it in, then lock it and make it active.</p>`, {
+    submit: "Create the Plan",
+    onSubmit: (f) => {
+      const nv = budNewVersion(String((f && f.name) || "").trim() || `${y} Budget`, "");
+      if (!nv) return !1;
+      const P = budPlan();
+      P.active[nv.year] || (P.active[nv.year] = nv.id);
+      (budScrVer = nv.id), save(), (view = "budget"), render();
+      budToast(`${nv.name} created as an empty draft`, () => {
+        (budScrVer = nv.id), (view = "budget"), render();
+      });
+    },
+  });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-budnewplan]") : null;
+  b && (e.preventDefault(), budNewPlanDialog());
+});
 function budActiveVer(y) {
   const P = budPlan();
   return (y = y || budYear()), budVer(P.active[y]) || P.versions.find((v) => v.year === y) || null;
@@ -156483,6 +156574,11 @@ if (
   repPack = function () {
     let h = repPackBase_bud.apply(this, arguments);
     try {
+      const ym = (void 0 !== packMonth && packMonth) || today().slice(0, 7);
+      if (budNone(ym.slice(0, 4)))
+        return h
+          .replace(/ · budget [−-]?\$[\d,.]+(?=<\/span>)/, "")
+          .replace(/<h3 class="rep-h">2 · P&L vs budget \(YTD\)<\/h3><div class="tw">[\s\S]*?<\/table><\/div>/, () => `<h3 class="rep-h">2 · P&L vs Budget</h3>${budNoneHtml("pack", { plain: 1 })}`);
       const t = budPackTable();
       t &&
         (h = h.replace(
@@ -156732,6 +156828,7 @@ function budPhoneHtml(v) {
   }</div>\n    <p class="small muted">Read view. Edit the budget on a larger screen.</p>`;
 }
 function budScreenHtml() {
+  if (!budScrV()) return `<div class="ph"><div><h2>Budget</h2><p class="lead">The operating budget by entity, account and month.</p></div></div><section class="card">${budNoneHtml("budget")}</section>`;
   const P = budPlan(),
     v = budScrV(),
     phone = vw() < 700,
@@ -157052,6 +157149,7 @@ function renderBudget() {
   const host = document.getElementById("budget-body");
   if (!host) return;
   host.innerHTML = budScreenHtml();
+  if (!budScrV()) return;
   const v = budScrV(),
     ent = "all" === budScrEnt ? "" : budScrEnt,
     q = (s) => host.querySelector(s);
@@ -157576,7 +157674,7 @@ void 0 !== ASK_INTENTS &&
       if (!S2.v)
         return {
           headline: `There is no ${y} budget.`,
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157626,7 +157724,7 @@ void 0 !== ASK_INTENTS &&
       if (!S2.v)
         return {
           headline: "There is no budget for that year.",
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157682,7 +157780,7 @@ void 0 !== ASK_INTENTS &&
       if (!v)
         return {
           headline: "There is no budget for that period.",
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157746,7 +157844,7 @@ void 0 !== ASK_INTENTS &&
         if (!v)
           return {
             headline: `There is no ${y} budget.`,
-            note: "Budgets are kept under Accounting › Budget.",
+            note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
             work: [],
             go: { view: "budget" },
             kind: "fin-budget",
