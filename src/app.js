@@ -1208,6 +1208,10 @@ function blankClient(name) {
 }
 const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
   money = (n) => {
+    // whole dollars, as the house shows money; a figure under $100 with cents keeps them (11-05: a unit price of $4.60
+    // read "$5" on the phone, and the price check compares cents: $4.60 against a best of $3.98)
+    const c = Math.round(100 * Math.abs(+n || 0));
+    if (c % 100 && c < 1e4) return (+n < 0 ? "−$" : "$") + (c / 100).toFixed(2);
     const v = Math.round(+n || 0);
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString();
   },
