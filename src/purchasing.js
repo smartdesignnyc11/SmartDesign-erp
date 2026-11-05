@@ -639,7 +639,7 @@ function puDeliveries() {
     arriving = (DB.pos || [])
       .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
       .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
-    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
+    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: puHeldBy(it) ? `Held: ${puHeldBy(it).kind} on arrival, claim open with ${puHeldBy(it).vendor || it.vendor || "the vendor"}. It does not go to the site until the claim closes.` : "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, tone: puHeldBy(it) ? "bad" : "", run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
     back = (() => {
       try {
         return retOpen().filter((r) => ["raise", "authorised", "toship"].includes(r.status) && (!pid || r.projectId === pid)).map((r) => ({ id: "back:" + r.id, name: r.name, job: r.vendor, line: retRisk(r).label || "", why: r.rma ? `${r.rma}: ship it back` : "No return authorisation yet", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) }));
@@ -660,6 +660,15 @@ function puDeliveries() {
       puSecHtml("back", "Going Back", back, { quiet: 1 }) +
       (puPhone() ? puFullHtml("recv", "Receive Line by Line") : `<h3 class="pu-h3">Arriving: Receive Line by Line</h3>`);
   return puPageHtml("recv", { body: body });
+}
+// an item at the office under an open claim on arrival (damaged, short, wrong) is held there, never sent with the route
+// (the coordinator expert, 11-05: the damaged range read "deliver it with the route")
+function puHeldBy(it) {
+  try {
+    return selClaims().find((c) => c.itemId === it.id && ("undefined" == typeof CLAIM_OPEN || CLAIM_OPEN.includes(c.status))) || null;
+  } catch (e) {
+    return null;
+  }
 }
 let puVendFilter = "all";
 function puFilterVendors(k) {

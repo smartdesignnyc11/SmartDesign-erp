@@ -19,6 +19,10 @@ the screens, on the desktop (1440x900) and the phone (390x844, touch).
   VENDORS    the list shows open orders, owed back, insurance, W-9 and paid; every row opens its record; the record's
              first card answers open orders, owed back, insurance, W-9 and price history (last, best, trend).
   STOCK      every row says what is on hand, what a need wants of it, and opens its record.
+  FIELD      the field expert's pass: the foreman's Arriving Today says what, when, where and the order's note (no
+             money); the header flag reads Report an App Problem and is 44px; the receipt's split is one labelled
+             column on the phone with one blue; leaving an estimate after opening Purchase Orders from Lines, with
+             nothing typed, toasts nothing; a toned row's stripe never covers its first letter.
 Usage: python3 pu_p3_test.py [--desktop|--phone] [--only NEW,RECORD,...]
 """
 import asyncio, re, sys
@@ -275,6 +279,43 @@ async def s_stock(pg, c, dev):
         if nm[0] not in nm[1] and not await js(pg, "n => [...document.querySelectorAll('#drawer input')].some(i => i.value === n)", nm[0], 0): bad.append(nm[0])
         await reset(pg)
     c.ok(not bad, f'STOCK {dev}: every row opens its record ({bad})')
+    # Deliveries: an item under an open claim on arrival is held at the office, not sent with the route
+    await page(pg, 'recv')
+    rng = await js(pg, r"""() => { const r = [...document.querySelectorAll('.view.on [data-pusec=office] .pu-row')].find(x => /Range, 36/.test(x.innerText)); return r ? r.innerText.replace(/\s+/g, ' ') : ''; }""")
+    c.ok('Held' in rng and 'claim' in rng and 'deliver it with the route' not in rng, f'STOCK {dev}: Deliveries holds the damaged range at the office under its claim ({rng!r})')
+
+
+async def s_field(pg, c, dev, phone):
+    # an order due on site today, with a window and the office's note (planted on the seed's PO-2026-047)
+    await js(pg, "() => { const po = DB.pos.find(p => p.number === 'PO-2026-047'); po.expected = today(); po.deliveryWindow = '7:00 AM - 9:00 AM'; po.notes = 'Curb drop, call Angel'; save(); }", None, 100)
+    await sign_in(pg, 'u_angel')
+    await page(pg, 'ftoday')
+    row = await js(pg, r"""() => { const r = [...document.querySelectorAll('.f3-arriving .f3-row')].find(x => /PO-2026-047/.test(x.innerText)); return r ? r.innerText.replace(/\s+/g, ' ') : ''; }""")
+    c.ok('900 sf' in row and 'flooring' in row and '7:00 AM' in row and 'job site' in row and 'Curb drop, call Angel' in row and '$' not in row,
+         f'FIELD {dev}: the foreman\'s Arriving Today says what, when, where and the note, and no money ({row!r})')
+    pad = await js(pg, r"""() => { const r = [...document.querySelectorAll('.view.on .f-row.warn, .view.on .f-row.bad, .view.on .f3-row.late')].filter(x => x.offsetParent);
+      return r.map(x => { const t = x.querySelector('b'); return t ? Math.round(t.getBoundingClientRect().left - x.getBoundingClientRect().left) : 99; }); }""")
+    c.ok(all(p >= 8 for p in pad), f'FIELD {dev}: a toned row\'s stripe never covers its first letter (title offsets {pad})')
+    fl = await js(pg, "() => { const b = document.getElementById('rp-btn'); if (!b) return null; const r = b.getBoundingClientRect(); return [b.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; }")
+    c.ok(fl and fl[0] == 'Report an App Problem' and fl[1] >= 44 and fl[2] >= 44, f'FIELD {dev}: the header flag reads Report an App Problem and is 44px ({fl})')
+    if phone:
+        await js(pg, "() => spCaptureModal({})", None, 600)
+        sp = await js(pg, r"""() => { const m = document.getElementById('mbm'); const sel = m.querySelector('table.sp-lines [data-slf=key]');
+          const td = sel && sel.closest('td'); const vis = e => e.getBoundingClientRect().width > 0;
+          return { w: sel ? Math.round(sel.getBoundingClientRect().width) : 0, k: td ? td.dataset.k : '', blues: [...m.querySelectorAll('.btn.primary')].filter(vis).map(b => b.textContent.trim()) }; }""")
+        c.ok(sp['w'] >= 300 and sp['k'] and sp['blues'] == ['Submit'], f'FIELD {dev}: the receipt split is one labelled column with one blue ({sp})')
+        await reset(pg)
+    await sign_in(pg, 'u_alan')
+    await reset(pg)
+    await js(pg, "() => { let e, c; for (const cc of DB.clients) for (const x of cc.estimates || []) if (x.id === 'es1') { e = x; c = cc; } flowGo.doc(c, 'estimate', e)(); }", None, 800)
+    await tap(pg, '.view.on [data-docact="pos"]', 900)
+    await js(pg, "() => { try { mbCloseModal(); } catch (e) {} const t = document.getElementById('toast'); t && t.classList.remove('on'); }", None, 300)
+    back = pg.locator('.view.on [data-docback]')
+    if await back.count():
+        await back.first.click(); await pg.wait_for_timeout(500)
+    t = await js(pg, "() => { const t = document.getElementById('toast'); return t && t.classList.contains('on') ? t.textContent : ''; }")
+    c.ok('Kept your changes' not in t, f'FIELD {dev}: leaving the estimate with nothing typed toasts nothing ({t!r})')
+    await sign_in(pg, 'u_chen')
 
 
 async def main():
@@ -286,7 +327,7 @@ async def main():
             await sign_in(pg, 'u_chen')
             for k, fn in [('NEW', lambda: s_new(pg, c, dev)), ('RECORD', lambda: s_record(pg, c, dev, phone)), ('OWED', lambda: s_owed(pg, c, dev)),
                           ('VENDORS', lambda: s_vendors(pg, c, dev, phone)), ('STOCK', lambda: s_stock(pg, c, dev)), ('CHIP', lambda: s_chip(pg, c, dev)),
-                          ('MENU', lambda: s_menu(pg, c, dev, phone)), ('TAPS', lambda: s_taps(pg, c, dev) if phone else asyncio.sleep(0))]:
+                          ('MENU', lambda: s_menu(pg, c, dev, phone)), ('FIELD', lambda: s_field(pg, c, dev, phone)), ('TAPS', lambda: s_taps(pg, c, dev) if phone else asyncio.sleep(0))]:
                 if not on(k): continue
                 try:
                     await fn()
