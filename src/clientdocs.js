@@ -854,9 +854,8 @@ if ("function" == typeof billingRows) {
   billingRows = function () {
     const R = base.apply(this, arguments);
     try {
-      (R || []).forEach((r) => {
-        "draft" === r.kind && Math.abs(+r.amount || 0) < 0.005 && ((r.why = "$0: nothing to bill on it, so it cannot be sent; delete it or add the work"), (r.needs = !1), (r.zero = !0));
-      });
+      // a copy, never the memo's own row (BACKLOG 1.36)
+      return (R || []).map((r) => ("draft" === r.kind && Math.abs(+r.amount || 0) < 0.005 ? Object.assign({}, r, { why: "$0: nothing to bill on it, so it cannot be sent; delete it or add the work", needs: !1, zero: !0 }) : r));
     } catch (e) {}
     return R;
   };
