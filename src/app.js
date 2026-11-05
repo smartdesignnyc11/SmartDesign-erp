@@ -104711,7 +104711,7 @@ let tkFlash = "";
             projectId: "",
             project: "inquiry" === l.stage ? "Leads" : "Pipeline",
             title: `${l.next || "Follow up"} — ${l.leadName || l.name}${l.addr && !(l.name || "").includes(l.addr) ? " · " + l.addr : ""}`,
-            assignee: l.owner || ownerPerson(),
+            assignee: l.assignee || l.owner || ownerPerson(),
             due: l.nextDue || "",
             priority: "",
             status: "todo",

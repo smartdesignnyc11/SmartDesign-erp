@@ -212,6 +212,26 @@ function slOpenPipeline(chip) {
 // Moving a deal (its full record, won or lost, Set Up the Job): the owner and the PM only (DECISIONS 11-04).
 const slMayAddLead = () => ("function" == typeof ocCan ? ocCan("scleads") : isOwner() || "pm" === role()) && ydOffice();
 const slMayEdit = () => (isOwner() || "pm" === role()) && ydOffice();
+// A third gate (CoS 11-05): delegation. A sales task the owner or the PM hands to someone in the office (the
+// coordinator, billing) is theirs to act on: its own verb (Draft the recap, Call back) opens that task, on the Pipeline
+// and on the deal's page. Only that task: the deal's record, won or lost and Set Up the Job stay the owner's and the
+// PM's (slMayEdit). Delegated means the task names this person and the owner or the PM put it there: the assignment's
+// row on the audit trail (tkSetOwner writes it), else the task was made by the owner or the PM.
+function slDelegatedTo(task) {
+  if (!task || !ydOffice() || slMayEdit()) return !1;
+  const me = "function" == typeof tdyMe ? tdyMe() : {},
+    x = task.row || task;
+  if (!me.id || (task.ownerUid || "") !== me.id) return !1;
+  const mgr = (who, r) => ["owner", "pm"].includes(r) || ["owner", "pm"].includes((("function" == typeof tdyUserOf && tdyUserOf(who)) || {}).role);
+  const set = (DB.audit || []).filter((a) => "task" === a.kind && a.refId === x.id && "owner" === a.action).pop();
+  if (set) return mgr(set.by, set.role);
+  let rec = null;
+  try {
+    rec = "function" == typeof tdyRec ? tdyRec(x) : null;
+  } catch (e) {}
+  return !!rec && !!rec.createdBy && mgr(rec.createdBy, "");
+}
+const slMayTask = (l) => slMayEdit() || slDelegatedTo(slNextStep(l).task);
 // New Client for every office role that keeps the client list (the old Clients page offered it to all of them)
 const slMayAddClient = () => ydOffice() && ydMay("clients");
 // money on the client pages: the owner, the PM, billing and the controller (the designer reads decisions, not money)
@@ -220,7 +240,9 @@ function slDealRow(l, sec, o) {
   o = o || {};
   const s = slNextStep(l),
     td = slTd(),
-    late = s.due && s.due < td;
+    late = s.due && s.due < td,
+    // a task handed to this person: its own verb, and it opens the task (never the deal's record)
+    del = !slMayEdit() && s.task && slDelegatedTo(s.task);
   return {
     id: l.id,
     sec: sec,
@@ -229,12 +251,12 @@ function slDealRow(l, sec, o) {
     amt: ydMoney0(l.value || 0),
     when: o.when || ("won" === l.stage ? `Signed ${fmt(l.wonAt || l.closedate)}` : "lost" === l.stage ? `Lost ${fmt(l.lostAt || l.closedate)}` : s.due ? (late ? `${dayDiff(s.due, td)} days late` : ydWhen(s.due)) : "No Next Step"),
     late: o.late != null ? o.late : late,
-    act: slMayEdit() ? o.act || "Open" : "",
+    act: slMayEdit() ? o.act || "Open" : del ? (slVerb(s.title) === "Open" ? "Open the Task" : slVerb(s.title)) : "",
     primary: !!o.primary,
     // a lead not yet qualified opens as the lead it is (its own record: Convert to Opportunity, Unqualify); a deal opens
     // its page
     // (the lead's own record moves it, so it is the owner's and the PM's; anyone else reads the deal's page)
-    run: o.run || (() => ("inquiry" === l.stage && slMayEdit() && "function" == typeof scOpen ? scOpen(l.id) : slOpenDeal(l.id))),
+    run: del ? () => tkSheet(s.key) : o.run || (() => ("inquiry" === l.stage && slMayEdit() && "function" == typeof scOpen ? scOpen(l.id) : slOpenDeal(l.id))),
   };
 }
 function slPipelineRows() {
@@ -733,7 +755,9 @@ function slDealRender() {
     c = slClientOf(l),
     job = slJobOf(l),
     phone = ydPhone(),
-    edit = slMayEdit();
+    edit = slMayEdit(),
+    // a next step handed to this person is theirs to act on; the deal's record and Set Up the Job are not
+    del = !edit && !!n.task && !("won" === l.stage && !job) && slDelegatedTo(n.task);
   ydActs = {};
   const stages = ["inquiry", "qualified", "site-visit", "proposal"],
     far = Math.max(...(l.history || []).map((h) => stages.indexOf(h.stage)).concat([stages.indexOf(l.stage), "won" === l.stage ? stages.length : -1])),
@@ -749,7 +773,7 @@ function slDealRender() {
   if ("won" === l.stage && !job) (act = "Set Up the Job"), (run = () => slSetUpJob(l));
   else if (n.task) (act = slVerb(n.title) === "Open" ? "Open the Task" : slVerb(n.title)), (run = () => tkSheet(n.key));
   else if (slIsOpen(l)) (act = "Add a Next Step"), (run = () => newTaskDialog({ title: "", dealId: l.id }));
-  run && edit && ydAct("next", run);
+  run && (edit || del) && ydAct("next", run);
   const Q = l.qual || {};
   const why = [
     ["What set it off", Q.trigger],
@@ -764,7 +788,7 @@ function slDealRender() {
   const body = `<div class="yd-host"><div class="yd-ph"><button type="button" class="yd-back" data-ydgo="ovsales" aria-label="Back to the Pipeline">${ydSvg("back")}${phone ? "" : "Pipeline"}</button></div>
   <div class="yd-ph"><div class="grow"><h2>${esc(l.name)}</h2><div class="yd-sub">${esc([SL_LABEL[l.stage] || l.stage, ydMoney0(l.value || 0), l.addr, l.source].filter(Boolean).join(" · "))}</div></div></div>
   ${edit ? `<div class="yd-ph"><button type="button" class="btn" data-ydrecord="${esc(l.id)}">Open the Full Record</button><span class="small muted">notes, stage, close as won or lost</span></div>` : ""}
-  <section class="yd-card"><div class="yd-sh"><h3>Next Step</h3></div><div class="yd-row" data-ydrow="next"><span class="yd-t"><b>${esc("won" === l.stage && !job ? "Set up the job: nothing can be bought or billed until it exists" : n.title)}</b><span>${esc(n.task ? `${n.task.code ? n.task.code + " · " : ""}due ${fmt(n.due)}${n.task.owner ? " · " + n.task.owner : ""}` : slIsOpen(l) ? "No open task on this deal" : "")}</span></span>${n.due ? `<span class="yd-when${late ? " late" : ""}">${esc(late ? `${dayDiff(n.due, td)} days late` : ydWhen(n.due))}</span>` : ""}${act && edit ? `<button type="button" class="btn primary" data-ydact="next">${esc(act)}</button>` : ""}</div></section>
+  <section class="yd-card"><div class="yd-sh"><h3>Next Step</h3></div><div class="yd-row" data-ydrow="next"><span class="yd-t"><b>${esc("won" === l.stage && !job ? "Set up the job: nothing can be bought or billed until it exists" : n.title)}</b><span>${esc(n.task ? `${n.task.code ? n.task.code + " · " : ""}due ${fmt(n.due)}${n.task.owner ? " · " + n.task.owner : ""}` : slIsOpen(l) ? "No open task on this deal" : "")}</span></span>${n.due ? `<span class="yd-when${late ? " late" : ""}">${esc(late ? `${dayDiff(n.due, td)} days late` : ydWhen(n.due))}</span>` : ""}${act && (edit || del) ? `<button type="button" class="btn primary" data-ydact="next">${esc(act)}</button>` : ""}</div></section>
   <section class="yd-card"><div class="yd-sh"><h3>Road to Signed</h3><span class="note">Set Up the Job comes before Won</span></div>${road.map((x) => ydKv(`${x.done ? "Done: " : ""}${x.k}`, x.at ? fmt(String(x.at).slice(0, 10)) : "", x.who ? `by ${x.who}` : "")).join("")}</section>
   <section class="yd-card"><div class="yd-sh"><h3>The Proposal</h3></div>${l.proposal && l.proposal.sentAt ? ydKv("Sent", fmt(l.proposal.sentAt)) : ydKv("Not sent yet", "")}${ydKv("Estimate", c && (c.estimates || []).length ? (c.estimates || []).map((e) => e.number).join(", ") : "No estimate linked yet")}${c ? ydKv("Client record", c.name) : ydKv("Client record", "none on file yet")}</section>
   ${why.length ? `<section class="yd-card"><div class="yd-sh"><h3>Why They Are Buying</h3></div>${why.map(([k, v]) => ydKv(k, "", v)).join("")}</section>` : ""}
