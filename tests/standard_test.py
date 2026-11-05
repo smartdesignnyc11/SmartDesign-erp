@@ -59,7 +59,7 @@ async def main():
         r = await pg.evaluate("""() => { const v = DB.company.standard; return { v: v.version, by: v.by, at: v.at, why: v.why, prev: v.prev, h1: DB.company.standardVersions[0].hash,
           name: standard().values[0].name, id: standard().values[0].id, ok: standardVerify().ok, toast: (document.getElementById('toast') || {}).innerText || '',
           sys: mindSystem() }; }""")
-        c.ok(r['v'] == 2 and r['by'] == 'Owner' and r['why'].startswith('test:') and r['at'].startswith('2026-09-03') and r['prev'] == r['h1'], f"version 2: {r['v']} {r['by']} {r['at']} {r['why']}")
+        c.ok(r['v'] == 2 and r['by'] == OWNER and r['why'].startswith('test:') and r['at'].startswith('2026-09-03') and r['prev'] == r['h1'], f"version 2: {r['v']} {r['by']} {r['at']} {r['why']}")
         c.ok(r['name'] == 'Own it, always' and r['id'] == 'own', f"the edited value keeps its id: {r['id']} {r['name']}")
         c.ok(r['ok'], 'the chain verifies after the edit')
         c.ok('version 2' in r['toast'] and 'Open' in r['toast'], f"toast with Open: {r['toast']!r}")
