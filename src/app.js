@@ -13658,7 +13658,114 @@ function auditVerify() {
   }
   const H = DB.auditHead;
   !broken.length && H && (+H.n > n || (+H.n === n && H.h !== prev)) && broken.push({ at: A.length, id: "", why: `the trail ends at ${n}, its head says ${H.n} (the newest rows removed)` });
+  // The head beside the rows does not catch someone who edits a row and re-seals the whole trail after it: every hash
+  // then agrees again. Each month close records the head it saw (DB.periods.closes[].auditHead), so the row at that
+  // place must still carry that seal. The first close whose row no longer does names where to look: the change is at or
+  // before that row, and after the last close that still agrees (CoS 11-05).
+  if (!broken.length) {
+    let okTo = 0;
+    for (const c of auditAnchors()) {
+      const k = c.n - 1,
+        a = A[k] && +A[k].n === c.n ? A[k] : A.find((x) => +x.n === c.n),
+        lbl = "function" == typeof fin3Label ? fin3Label(c.month) : c.month;
+      if (!a) {
+        broken.push({ at: A.length, id: "", why: `the ${lbl} close recorded ${c.n} rows; the trail now has ${n} (rows removed and the trail re-sealed)` });
+        break;
+      }
+      if (a.h !== c.h) {
+        broken.push({ at: A.indexOf(a), id: a.id, why: `it no longer carries the seal the ${lbl} close recorded for row ${c.n}: a row ${okTo ? `after row ${okTo} and ` : ""}at or before it was edited, removed or inserted, and the trail re-sealed` });
+        break;
+      }
+      okTo = c.n;
+    }
+  }
   return { ok: !broken.length, rows: A.length, sealed: sealed, pending: A.length - sealed, broken: broken };
+}
+// the heads the month closes recorded, oldest first
+function auditAnchors() {
+  return ((DB.periods || {}).closes || [])
+    .filter((c) => c && c.auditHead && +c.auditHead.n > 0 && c.auditHead.h)
+    .map((c) => ({ month: c.month, n: +c.auditHead.n, h: c.auditHead.h }))
+    .sort((a, b) => a.n - b.n);
+}
+// The record an audit row is about, and how to open it (the Controls audit line names the first broken row's record).
+function auditRef(a) {
+  if (!a) return { label: "", open: null };
+  const id = a.refId,
+    G = "object" == typeof flowGo ? flowGo : null;
+  try {
+    if ("bill" === a.kind) {
+      const b = (DB.bills || []).find((x) => x.id === id);
+      if (b) return { label: `bill ${b.number || b.id}${b.vendor ? ` (${b.vendor})` : ""}`, open: G && G.bill(b) };
+    }
+    if ("po" === a.kind) {
+      const po = (DB.pos || []).find((x) => x.id === id);
+      if (po) return { label: `order ${po.number || po.id}`, open: G && G.po(po) };
+    }
+    if (["invoice", "estimate", "co", "document"].includes(a.kind))
+      for (const c of DB.clients || []) {
+        for (const [k, L] of [
+          ["invoice", c.invoices],
+          ["estimate", c.estimates],
+          ["co", c.changeOrders],
+        ]) {
+          const d = (L || []).find((x) => x.id === id);
+          if (d) return { label: `${{ invoice: "invoice", estimate: "estimate", co: "change order" }[k]} ${d.number || d.id}`, open: G && G.doc(c, k, d) };
+        }
+      }
+    if ("client" === a.kind) {
+      const c = (DB.clients || []).find((x) => x.id === id);
+      if (c) return { label: `client ${c.name}`, open: G && G.client(c) };
+    }
+    if ("txn" === a.kind) {
+      const t = (DB.txns || []).find((x) => x.id === id);
+      if (t && "function" == typeof txnOpen) return { label: `bank line ${t.desc || t.id}`, open: txnOpen(t) };
+    }
+    if ("payroll" === a.kind && "function" == typeof openPayroll && (DB.payroll || []).some((x) => x.id === id)) return { label: `payroll run ${id}`, open: () => openPayroll(id) };
+    if ("ledger" === a.kind && ((DB.gl || {}).journals || []).some((j) => j.id === id))
+      return {
+        label: `journal entry ${id}`,
+        open: () => {
+          "undefined" != typeof glTab && (glTab = "journal"), (view = "gl"), render();
+        },
+      };
+    if ("period" === a.kind)
+      return {
+        label: `the ${"function" == typeof fin3Label ? fin3Label(id) : id} close`,
+        open: () => {
+          "undefined" != typeof glTab && (glTab = "periods"), (view = "gl"), render();
+        },
+      };
+  } catch (e) {}
+  return { label: `${a.kind || "record"} ${id || ""}`.trim(), open: null };
+}
+// the first broken row in plain words, with its place and the record it is about
+function auditBrokenWords(V) {
+  const b = V && V.broken && V.broken[0];
+  if (!b) return "";
+  const a = (DB.audit || [])[b.at],
+    R = a && a.id === b.id ? auditRef(a) : null;
+  return `row ${b.at + 1}${R && R.label ? `, on ${R.label}` : ""}: ${b.why}`;
+}
+// Verify, and record that it ran: who ran it, when, and what it found, as its own row on the trail (the Controls audit
+// line and every month close run this). The rows written so far are sealed first, so the check covers them.
+function auditVerifyRun(ctx) {
+  try {
+    auditSeal();
+  } catch (e) {}
+  const V = auditVerify(),
+    b = V.broken[0];
+  audit("audit", "trail", "verify", null, { ok: V.ok, rows: V.rows, at: b ? b.at : null, id: b ? b.id : "" }, `${V.ok ? `${V.rows} rows intact` : `does not verify: ${auditBrokenWords(V)}`}${ctx ? ` (${ctx})` : ""}`);
+  try {
+    auditSeal();
+  } catch (e) {}
+  return V;
+}
+// the last time the trail was verified, from the trail itself (no second store)
+function auditLastVerify() {
+  const A = DB.audit || [];
+  for (let k = A.length - 1; k >= 0; k--) if ("audit" === A[k].kind && "verify" === A[k].action) return A[k];
+  return null;
 }
 // An approval stamp ("recommended by PM", "approved for payment by Owner", a routing step, a short-pay) is written
 // only here: by the person's own action, with its audit row in the same step, the same person, record and moment
@@ -133834,6 +133941,15 @@ function fin2RunClose(ym, reason) {
     return { ok: !1, why: "Say why you are closing with items still open" };
   const block = fin2CloseBlockers(ym);
   if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
+  // the audit trail must verify before a month is sealed on it (CoS 11-05): a close never records a head over a broken
+  // trail. The run is its own row on the trail.
+  const AV = auditVerifyRun(`before the ${fin3Label(ym)} close`);
+  if (!AV.ok) {
+    try {
+      save();
+    } catch (e) {}
+    return { ok: !1, audit: AV, why: `The audit trail does not verify, so ${fin3Label(ym)} cannot be closed on it: ${auditBrokenWords(AV)}. The close posted nothing and locked nothing. Open Accounting › Controls to see the row and its record; the controller or the Owner restores the trail before the close.` };
+  }
   glSync();
   const posted = [],
     end = fin2End(ym),
@@ -133939,6 +134055,12 @@ function fin2RunClose(ym, reason) {
     });
   try {
     audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
+  } catch (e) {}
+  // the trail's head as this close saw it, kept on the close record: re-sealing the whole trail later no longer matches
+  // it, and auditVerify says so (auditAnchors)
+  try {
+    auditSeal();
+    DB.auditHead && (rec.auditHead = { n: DB.auditHead.n, h: DB.auditHead.h });
   } catch (e) {}
   try {
     finCash._c = null;
