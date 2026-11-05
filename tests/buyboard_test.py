@@ -65,10 +65,12 @@ async def desktop(c, p):
         td = await pg.evaluate("""() => { const M = tdyModel(); const B = M.all.filter(i => i.kind === 'tdyBuy');
           const want = PRED.buyNeeds.rows().map(r => r.id);
           return { all: B.map(i => i.id).sort(), chip: (M.buy || []).map(i => i.id).sort(), want: want.sort(), top: B.filter(i => i.tier !== 9).length,
-                   fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]), ins: (M.buy || []).some(i => /Insulation/.test(i.x.name)) }; }""")
+                   fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb, (puNeed(i.x) || {}).act]), ins: (M.buy || []).some(i => /Insulation/.test(i.x.name)) }; }""")
         c.ok(td['chip'] == td['want'] and td['all'] == td['want'], f"Today: the Buy Board chip and All hold PRED.buyNeeds, the badge's set ({len(td['chip'])}, {len(td['all'])} vs {len(td['want'])})")
         c.ok(0 < td['top'] <= 3, f"Do Now: at most three Buy Board lines rank first; the rest follow the day's other work ({td['top']} of {len(td['all'])})")
-        c.ok(any(v == 'Fix' for n, v in td['fix']) and td['ins'], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the chip {td['fix']}")
+        # one status per need (lane P2, 11-05, Alan's purchasing push: Today said "Ask for Bids" after the award): a late
+        # promise's card says what its Buy Board row says (an order with nothing behind it: Find the Order)
+        c.ok(td['fix'] and all(v == a for n, v, a in td['fix']) and td['ins'], f"Do Now: a late promise is there, its verb the Buy Board row's, and the insulation (promised 9/16 for 9/11) is in the chip {td['fix']}")
         a = await pg.evaluate("() => paAsk(\"what's late to order\").headline")
         c.ok(str(L['pred']) in a, f'Ask: "what\'s late to order" says {L["pred"]} ({a[:90]})')
         # the late promise opens with the fix choices
@@ -137,7 +139,7 @@ async def desktop(c, p):
         c.ok(sb and sb['type'] == 'subcontract' and sb['status'] == 'draft' and 'insurance' in sb['why'], f'sub: the award is a subcontract and a sub with no COI is held {sb}')
         # the P0 lane saw it: an RFQ for demolition started from the line (the plain Ask for Quotes, no sub flag), awarded
         # to a vendor not marked as a sub, was typed "materials" and carried use tax; sub scope is read off the lines
-        sl = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name)); const pid = r0.p.id;
+        sl = await pg.evaluate("""() => { const pid = 'p121';   // (the award above bought Demolition out: it has left the Buy Board, lane P2)
           const s = rfqLineSources(pid).find(x => /Demolition/i.test(x.item)); if (!s) return { src: null };
           const q = rfqFromLines(pid, [s.key]); if (!q) return { src: s.key, q: null };
           const v = ensureVendor('Five Boro Wrecking', { trade: 'General' }); delete v.kind; v.insuranceExp = '2027-06-30';
