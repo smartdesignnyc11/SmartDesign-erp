@@ -2128,8 +2128,10 @@ ${tvPhoneFilterChips()}<div class="tv-qaw no-print"><div class="tv-qa"><button t
 function tvPhoneFilterChips() {
   const L = [];
   try {
-    t2View && "week" !== t2View && "blocked" !== t2View && L.push(["due", tkViewName(t2View)]);
-    tkWho && "me" !== tkWho && L.push(["owner", { all: "Everyone", team: "My Team", none: "Unassigned" }[tkWho] || `Owner: ${tkFirst(tkWho)}`]);
+    // a chip on the bar (Mine, Waiting On, Team) already says its own view and owner; a job's list is everyone's
+    const chipOn = "home" === t2Ctx() && tvBuiltIns().some((v) => tvIsOn(v));
+    t2View && !["week", "blocked", "all"].includes(t2View) && L.push(["due", tkViewName(t2View)]);
+    tkWho && "me" !== tkWho && !chipOn && !("all" === tkWho && "home" !== t2Ctx()) && L.push(["owner", { all: "Everyone", team: "My Team", none: "Unassigned" }[tkWho] || `Owner: ${tkFirst(tkWho)}`]);
     if (tkProject && "home" === t2Ctx()) {
       const p = (DB.projects || []).find((q) => q.id === tkProject);
       L.push(["project", "__sales" === tkProject ? "Sales" : p ? shortName(p) : "A Job"]);
