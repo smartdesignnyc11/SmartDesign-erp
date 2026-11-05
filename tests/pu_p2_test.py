@@ -272,10 +272,12 @@ async def phone(c, p):
               return { sw: bd.scrollWidth, cw: bd.clientWidth, tw: [...m.querySelectorAll('.tw')].map(t => [t.scrollWidth, t.clientWidth]), docsw: document.documentElement.scrollWidth,
                 vmin: Math.min(...v.map(x => x.getBoundingClientRect().width)), hmin: Math.min(...inp.map(x => x.getBoundingClientRect().height)),
                 cut: names.filter(n => n.scrollWidth > n.clientWidth + 1 || n.getBoundingClientRect().right > innerWidth).map(n => n.innerText),
+                overlap: rows.flatMap(tr => [...tr.cells]).filter(td => td.getClientRects().length && td.scrollHeight > td.clientHeight + 1).map(td => td.innerText.slice(0, 30)),
                 ticked: [...m.querySelectorAll('[data-ctpsel]:checked')].map(i => i.closest('tr').dataset.pukey) }; }""")
             c.ok(P['sw'] <= P['cw'] + 1 and all(a <= b2 + 1 for a, b2 in P['tw']) and P['docsw'] <= 390, f'phone: the order sheet does not scroll sideways {P["sw"]}/{P["cw"]} {P["tw"]} doc {P["docsw"]}')
             c.ok(P['vmin'] >= 300, f"phone: the vendor picker is full width ({P['vmin']:.0f}px)")
             c.ok(P['hmin'] >= 44, f"phone: the sheet's inputs are 44px tall ({P['hmin']:.0f}px)")
+            c.ok(not P['overlap'], f"phone: no card's text runs over the next field ({P['overlap']})")
             c.ok(not P['cut'], f"phone: no item name is cut off ({P['cut']})")
             c.ok(sorted(P['ticked']) == sorted([L1, L3]), f"phone: the lines it opened for stay ticked ({P['ticked']})")
             await closeall(pg)

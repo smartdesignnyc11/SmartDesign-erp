@@ -1736,7 +1736,8 @@ tr.pu-docon{background:var(--accent-2)}
   #mbm.pu-ctp-ph table.ctp tbody{display:block;width:100%}
   #mbm.pu-ctp-ph table.ctp tr{display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);gap:6px 8px;padding:12px 0;border-top:1px solid var(--rule-2);width:100%;box-sizing:border-box}
   #mbm.pu-ctp-ph table.ctp tr.ctp-doc{display:block}
-  #mbm.pu-ctp-ph table.ctp td{display:block;padding:0 !important;border:0 !important;width:auto !important;min-width:0;white-space:normal}
+  #mbm.pu-ctp-ph table.ctp td{display:block;padding:0 !important;border:0 !important;width:auto !important;min-width:0;white-space:normal;height:auto !important;min-height:0 !important;max-height:none !important;overflow:visible}
+  #mbm.pu-ctp-ph table.ctp tr{height:auto !important}
   #mbm.pu-ctp-ph table.ctp td:nth-child(1){grid-column:1;grid-row:1;align-self:start}
   #mbm.pu-ctp-ph table.ctp td:nth-child(1) .ctp-tick{display:flex;width:44px;height:44px;align-items:center;justify-content:center}
   #mbm.pu-ctp-ph table.ctp td:nth-child(1) input{width:22px;height:22px}
