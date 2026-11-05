@@ -63,6 +63,16 @@ async def menu(pg, v):
     await pg.evaluate("v => { clientOpen = null; docOpen = null; setView(v); }", v)
     await pg.wait_for_timeout(300)
 
+# a row whose words read like code: a function rendered as text (11-05, integ13: a row field the shared row kit reads as
+# a label, act2, carried a function, and the row printed "() => slBillRun(c, r)" as a button)
+CODEISH = r"=>|\bfunction\b|\[object |\bundefined\b|\bNaN\b"
+ROWS_TEXT = """return [...document.querySelectorAll(arg)].filter(e => e.getClientRects().length).map(e => e.innerText.replace(/\\s+/g, ' '));"""
+
+
+async def code_rows(pg, sel):
+    """the rows matched by sel whose words read like code"""
+    return [t[:160] for t in await js(pg, ROWS_TEXT, sel) if re.search(CODEISH, t)]
+
 
 async def js(pg, body, arg=None):
     return await pg.evaluate("async (arg) => { const sleep = ms => new Promise(r => setTimeout(r, ms)); " + body + " }", arg)
@@ -275,6 +285,8 @@ async def t_rows(C, p, phone):
     await js(pg, "slOpenClient(arg.cid); await sleep(300);", S)
     rows = await js(pg, """return [...document.querySelectorAll('.view.on [data-sec="due"]')].filter(e => e.getClientRects().length).map(e => ({ id: e.dataset.ydrow, btn: !!e.querySelector('button'), text: e.innerText.replace(/\\s+/g, ' ') }));""")
     C.ok(len(rows) == 1 and '25% deposit' in rows[0]['text'] and not rows[0]['btn'], f'ROW {dev}: the Ashbys\' Ready to Bill is the deposit, one row with no button of its own (New Invoice acts): {rows}')
+    bad = await code_rows(pg, '.view.on [data-ydrow], .view.on button')
+    C.ok(not bad, f'ROW {dev}: no row or button on the Ashbys\' Contract and Billing reads like code: {bad[:3]}')
     if rows:
         await pg.locator(f'.view.on [data-ydrow="{rows[0]["id"]}"] .yd-t').first.click(); await pg.wait_for_timeout(600)
         r = await js(pg, "const c = DB.clients.find(x => x.id === arg.cid); return { doc: docOpen, n: (c.invoices || []).length, modal: !!document.getElementById('mbm') };", S)
@@ -283,6 +295,8 @@ async def t_rows(C, p, phone):
     await js(pg, "docOpen = null; slOpenClient('cl121'); await sleep(300);")
     rows = await js(pg, """return [...document.querySelectorAll('.view.on [data-sec="due"]')].filter(e => e.getClientRects().length).map(e => ({ id: e.dataset.ydrow, btn: (e.querySelector('button') || {}).innerText || '', text: e.innerText.replace(/\\s+/g, ' ') }));""")
     app = next((x for x in rows if 'Progress application' in x['text']), None)
+    bad = await code_rows(pg, '.view.on [data-ydrow], .view.on button')
+    C.ok(not bad, f'ROW {dev}: no row or button on the Kleins\' Contract and Billing reads like code: {bad[:3]}')
     C.ok(app is not None and (len(rows) == 1 or app['btn'] == 'New Invoice'), f'ROW {dev}: the Kleins\' application row, with its own New Invoice when there are several rows: {rows}')
     if app:
         n0 = await js(pg, "return (DB.clients.find(x => x.id === 'cl121').invoices || []).filter(i => i.status === 'draft').length;")
@@ -290,6 +304,13 @@ async def t_rows(C, p, phone):
         r = await js(pg, "return { view, billTab: typeof billTab !== 'undefined' ? billTab : '', job: typeof blProgJob !== 'undefined' ? blProgJob : '', n: (DB.clients.find(x => x.id === 'cl121').invoices || []).filter(i => i.status === 'draft').length };")
         C.ok(r['view'] == 'billing' and r['billTab'] == 'progress' and r['job'] == 'p121' and r['n'] == n0,
              f'ROW {dev}: tapping the application row opens 121 State\'s Progress Billing (the application\'s lines), drafts nothing: {r} (drafts before {n0})')
+    await menu(pg, 'billing')
+    bad = await code_rows(pg, '#v-billing tr, #v-billing [data-blact], #v-billing .card, #v-billing .gcard, .view.on [data-ydrow], .view.on button')
+    n = len(await js(pg, ROWS_TEXT, '#v-billing tr, #v-billing [data-blact], .view.on [data-ydrow], .view.on button'))
+    C.ok(n > 0 and not bad, f'ROW {dev}: no row or button in the Billing queue reads like code ({n} read): {bad[:3]}')
+    await menu(pg, 'clients')
+    bad = await code_rows(pg, '.view.on [data-ydrow], .view.on button')
+    C.ok(not bad, f'ROW {dev}: no row on Clients\' Need You reads like code: {bad[:3]}')
     C.ok(not errs, f'ROW {dev}: no page errors: {errs[:3]}')
     await b.close()
 

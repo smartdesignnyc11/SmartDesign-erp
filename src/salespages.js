@@ -590,8 +590,9 @@ function slClientRender() {
       mayBill = ydMay("billing"),
       // a row opens its source; its button (when there is more than one row) acts on that row, as New Invoice does on
       // the first: a row opens, a button acts
-      dueRows = due.map((r, i) => ({ id: "bd:" + i, sec: "due", title: slBillTitle(r), meta: slBillWhat(r), amt: ydMoney0(r.amount), act: due.length > 1 ? ("draft" === r.kind ? "Open the Draft" : "New Invoice") : "", run: () => slBillOpen(c, r), act2: () => slBillRun(c, r) }));
-    dueRows.forEach((r) => (ydAct(r.id, r.run), ydAct("n" + r.id, r.act2)));
+      dueRows = due.map((r, i) => ({ id: "bd:" + i, sec: "due", title: slBillTitle(r), meta: slBillWhat(r), amt: ydMoney0(r.amount), act: due.length > 1 ? ("draft" === r.kind ? "Open the Draft" : "New Invoice") : "", run: () => slBillOpen(c, r), bill: () => slBillRun(c, r) }));
+    // (the kit's act2 and run2 are a second button's label and action: this row's one button is its own, renamed below)
+    dueRows.forEach((r) => (ydAct(r.id, r.run), ydAct("n" + r.id, r.bill)));
     const bar = `<div class="yd-ph sl-billbar" style="flex-wrap:wrap;align-items:center">${mayBill ? `<button type="button" class="btn primary" data-ydclnewinv>New Invoice</button>` : ""}<button type="button" class="btn" data-ydclold>Billing Record</button><span class="small muted grow" style="min-width:200px">${mayBill ? (due.length ? `${"draft" === due[0].kind ? `New Invoice reopens ${esc(due[0].inv.number || "the draft")}, written and not sent` : `New Invoice is filled from ${esc(slBillWhat(due[0]))}`}; a blank invoice is under New` : "nothing is due to bill: New Invoice starts a blank one; credits, retainage and progress invoices are in the Billing Record") : "invoices, change orders and payments, as billing keeps them"}</span></div>`;
     body = `${bar}${due.length ? ydSectionHtml("Ready to Bill", due.length, "the Billing queue's rows for this client: a row opens its source", dueRows, "").replace(/data-ydact="(bd:\d+)"/g, 'data-ydact="n$1"') : ""}<section class="yd-card"><div class="yd-sh"><h3>The Contract</h3></div>${kv.map(([k, v, s]) => ydKv(k, v, s)).join("")}</section>${ydSectionHtml("Documents", docs.length, "estimates, change orders, invoices and payments", docs, "No documents yet.")}`;
     void pay;
