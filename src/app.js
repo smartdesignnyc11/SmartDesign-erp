@@ -66762,6 +66762,8 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "bank",
       "spend",
       "vendors",
+      // Orders: the PO behind a bill before it is paid (purchasing SPEC §4), read only
+      "po",
       "reports",
       "dashboard",
       "port",
@@ -66779,6 +66781,10 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "billing",
       "vendors",
       "po",
+      // every Purchasing page, read only (purchasing SPEC §4, decision 1; src/puorders.js puReadOnly)
+      "proc",
+      "rfq",
+      "recv",
       "reports",
       "dashboard",
       "port",
@@ -200834,6 +200840,8 @@ function mnPhoneBars() {
     people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/></svg>',
     // Chat in the office bar (2026-10-19): two square bubbles, the same mark as the desktop header's Chat
     chat: '<svg viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/></svg>',
+    // Deliveries on the coordinator's bar (purchasing SPEC §4, 11-05): a box truck, line-drawn
+    truck: '<svg viewBox="0 0 24 24"><path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8z"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
   });
 if ("function" == typeof mRenderTabs) {
   const base = mRenderTabs;
