@@ -4891,15 +4891,13 @@ function matRow(m) {
   return `<tr class="click" data-edit="mat:${m.id}"><td><span class="name">${esc(m.name)}</span><br><span class="sub">${"rough" === m.cat ? "Rough" : "Finish"}${m.vendor ? " · " + esc(m.vendor) : ""}${m.po ? " · PO " + esc(m.po) : ""}${m.qty ? " · " + esc(m.qty) : ""}</span></td><td>${t ? `<span class="dot" style="background:${TRADES[t.trade]?.c}"></span> ${esc(t.name)}<br><span class="sub">${"end" === m.when ? "ends" : "starts"} ${fmt("end" === m.when ? t.end : t.start)}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmt(orderBy)}</td><td class="num">${fmt(needBy)}</td><td class="num">${m.lead}d</td><td><span class="pill ${sevPill(st.sev)}">${esc(m.status.replace("-", " "))}</span><br><span class="sub">${esc(st.msg)}</span></td><td class="num">${m.eta ? fmt(m.eta) : "—"}</td><td class="num">${m.cost ? "$" + esc(m.cost) : ""}</td><td>${"on-site" !== m.status ? `<button class="btn sm" data-onsite="${m.id}">On site</button>` : ""}</td></tr>`;
 }
 function renderMats() {
+  // One question, one number (11-05): the card under the Order This Week chip lists the chip's own rows, the Buy Board's
+  // predicate for this job (estimate and change-order lines and site requests included), not a second count of the
+  // job's materials that also held the late ones ("Order This Week 1" over "3 items · 2 already late").
   const td = today(),
-    weekEnd = addWork(td, 5),
-    wk = S.materials
-      .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
-      .map((m) => ({ m: m, ...matDates(m), st: matState(m) }))
-      .filter((x) => x.orderBy && parse(x.orderBy) <= parse(weekEnd))
-      .sort((a, b) => parse(a.orderBy) - parse(b.orderBy));
+    wk = "object" == typeof PRED && PRED.orderThisWeek ? PRED.orderThisWeek.rows(S.id) : [];
   $("#mat-week").innerHTML = wk.length
-    ? `<div class="week"><h3>Order this week · ${wk.length} item${wk.length > 1 ? "s" : ""}${wk.some((x) => 3 === x.st.sev) ? " · " + wk.filter((x) => 3 === x.st.sev).length + " already late" : ""}</h3>${wk.map((x) => `<div class="it"><span class="d" style="${parse(x.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${fmt(x.orderBy)}</span><span class="grow"><b>${esc(x.m.name)}</b> <span class="muted">${x.m.vendor ? "· " + esc(x.m.vendor) : ""} · needed ${fmt(x.needBy)} for ${esc(task(x.m.taskId)?.name || "")}</span>${"needs-decision" === x.m.status || openDecisionFor("mat", x.m.id) ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" data-go="mat:${x.m.id}">Open</a></div>`).join("")}</div>`
+    ? `<div class="week"><h3>Order This Week · ${wk.length}</h3>${wk.map((r) => `<div class="it"><span class="d" style="${r.orderBy && parse(r.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${r.orderBy ? fmt(r.orderBy) : ""}</span><span class="grow"><b>${esc(r.name)}</b> <span class="muted">${r.vendor ? "· " + esc(r.vendor) + " " : ""}${r.needBy ? `· needed ${fmt(r.needBy)}` : ""}${r.task ? ` for ${esc(r.task.name || "")}` : ""}</span>${r.dec ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" class="mat-wk-open" ${r.m ? `data-go="mat:${r.m.id}"` : `data-matwk="${esc(r.id)}"`}>Open</a></div>`).join("")}</div>`
     : "";
   const rows = S.materials
       .filter(
