@@ -1935,6 +1935,18 @@ function poTotal(po) {
     total: r2(sub + sub * ((+po.tax || 0) / 100) + (+po.shipping || 0)),
   };
 }
+// How much of an order is in, counted against its quantities and units, never its lines: "0 of 900 sf received" (the
+// foreman's Site read "0 of 1 received" for a 900 sf order). Lines in one unit add up; mixed units are listed, and past
+// two lines the count is of lines in full.
+function poRecvWords(po) {
+  const L = (po && po.lines) || [],
+    q = (x) => r2(+x || 0),
+    units = [...new Set(L.map((l) => String(l.unit || "").trim().toLowerCase()))];
+  if (!L.length) return "nothing on it";
+  if (1 === units.length) return `${q(L.reduce((a, l) => a + (+l.received || 0), 0))} of ${q(L.reduce((a, l) => a + (+l.qty || 0), 0))}${L[0].unit ? " " + L[0].unit : ""} received`;
+  if (L.length <= 2) return L.map((l) => `${q(l.received)} of ${q(l.qty)}${l.unit ? " " + l.unit : ""}`).join(", ") + " received";
+  return `${L.filter((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001).length} of ${L.length} lines received in full`;
+}
 function poPaid(po) {
   return DB.txns.filter((t) => (po.matchedTxns || []).includes(t.id)).reduce((a, t) => a - t.amt, 0);
 }
@@ -34253,7 +34265,7 @@ function renderRecv() {
         const tot = po.lines.reduce((a, l) => a + (+l.qty || 0), 0),
           got = po.lines.reduce((a, l) => a + (+l.received || 0), 0),
           late = po.expected && parse(po.expected) < parse(today());
-        return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${got}/${tot} received</span></div>\n    ${po.lines
+        return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${esc(poRecvWords(po))}</span></div>\n    ${po.lines
           .map((l) => {
             const left = Math.max(0, (+l.qty || 0) - (+l.received || 0));
             return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="" placeholder="${left} to come" aria-label="${esc(l.item || l.desc || "Line")}: how many arrived (${left} still to come)" data-rq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
@@ -34265,6 +34277,8 @@ function renderRecv() {
       .join("") || '<div class="card muted">Nothing on order for this job.</div>'
   }${recvTodayHtml()}`;
   const receive = (po, l, qty, note) => {
+    // one receipt writer (puReceiveLines, the receive sheet's): the material is read on the order's own job
+    if ("function" == typeof puReceiveLines) return void puReceiveLines(po, [{ l: l, q: qty }], note || "", "");
     l.received = r2((+l.received || 0) + qty);
     const m = l.materialId && mat(l.materialId);
     m && l.received >= l.qty - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
@@ -66366,18 +66380,15 @@ if ("function" == typeof fRenderSite) {
                   got = (po.lines || []).filter((l) => (+l.received || 0) >= (+l.qty || 0)).length,
                   when = po.expected || po.needBy || "",
                   late = when && when < today() && got < n;
-                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${got} of ${n} received</div></div>\n          <button class="btn sm" data-f3recv="${esc(po.id)}">${got ? "Receive the rest" : "It arrived"}</button></div>`;
+                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}</div></div>\n          <button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the rest" : "It arrived"}</button></div>`;
               })
               .join("")
           : '<p class="small muted" style="margin:8px 0 0">Nothing is on order for this job.</p>'
       }\n    </div>`,
     ),
-      root.querySelectorAll("[data-f3recv]").forEach(
-        (b) =>
-          (b.onclick = () => {
-            "function" == typeof fReceive && fReceive("po", b.dataset.f3recv);
-          }),
-      );
+      // It Arrived opens the one receive sheet (the [data-f3recv] listener below, rcReceiveSome); its own onclick here
+      // also opened the staging sheet (fReceive) underneath it
+      void 0;
   };
 }
 if ("function" == typeof renderNav) {
@@ -148856,70 +148867,10 @@ function rcPORead(po) {
   const lock = root.querySelector(".rx-lock");
   lock && (lock.textContent = rcPOStatusLine(po));
 }
+// Receive Some on the order, and the foreman's It Arrived and Check In: the one receive sheet (puReceive, the
+// Purchasing pages). It had its own sheet here, pre-filled at what was still to come (BACKLOG 1.36).
 function rcReceiveSome(po) {
-  const left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
-    rows = (po.lines || []).filter((l) => left(l) > 0);
-  rows.length
-    ? mbModal(
-        `Receive Some — ${esc(po.number)}`,
-        `<p class="small muted" style="margin:0 0 8px">${esc(po.vendor)} · enter what arrived today. Leave a line empty if nothing came.</p>\n    <div class="rc-recv">${rows.map((l) => `<label class="rc-recvrow"><span class="grow"><b>${esc(l.item || l.desc || "Line")}</b><span class="small muted"> · ${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")} in</span></span><input type="number" inputmode="decimal" min="0" max="${left(l)}" step="any" value="" placeholder="${left(l)} to come" data-f="q_${esc(l.id)}" aria-label="${esc(l.item || "Line")}: how many arrived (${left(l)} still to come)"></label>`).join("")}</div>\n    ${mbF("Note", '<input data-f="note" placeholder="Optional — packing slip, condition">')}`,
-        {
-          submit: "Record Receipt",
-          onSubmit: (f) => {
-            const got = rows
-              .map((l) => ({ l: l, q: Math.min(left(l), Math.max(0, +f["q_" + l.id] || 0)) }))
-              .filter((x) => x.q > 0);
-            if (!got.length) {
-              const i = document.querySelector('#mbm [data-f^="q_"]');
-              return i && "function" == typeof vfMark && vfMark(i, "Enter how many arrived"), !1;
-            }
-            got.forEach(({ l: l, q: q }) => {
-              l.received = r2((+l.received || 0) + q);
-              const m = l.materialId && mat(l.materialId);
-              m &&
-                l.received >= (+l.qty || 0) - 0.001 &&
-                ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
-            });
-            const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
-            (po.status = full ? "received" : "partial"),
-              full && (po.receivedOn = today()),
-              (po.receipts = po.receipts || []).push({
-                date: today(),
-                t: nowStamp(),
-                by: rcWho(),
-                lines: got.map(({ l: l, q: q }) => ({
-                  lineId: l.id,
-                  item: l.item || l.desc || "",
-                  unit: l.unit || "",
-                  qty: q,
-                })),
-                slip: "",
-                note: f.note || "",
-              });
-            try {
-              audit(
-                "po",
-                po.id,
-                "received",
-                "",
-                got.map(({ l: l, q: q }) => `${l.item || l.desc}: ${q}`).join("; "),
-                f.note || "",
-              );
-            } catch (e) {}
-            log(
-              `${po.number}: received ${got.map(({ l: l, q: q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`).join(", ")}${f.note ? " — " + f.note : ""}`,
-            ),
-              save(),
-              render();
-            const amt = r2(got.reduce((a, x) => a + x.q * (+x.l.price || 0), 0));
-            rcReceiptToast(
-              po,
-              `${po.number} · ${po.vendor} — ${full ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt ? `, ${money(amt)}` : ""}`,
-            );
-          },
-        },
-      )
-    : toast(`${po.number} has nothing left to receive`);
+  return po && "function" == typeof puReceive ? puReceive(po) : void 0;
 }
 function rcReceiptToast(po, text) {
   const L = [];

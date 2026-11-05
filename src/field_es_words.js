@@ -788,6 +788,7 @@ esAdd({
   "from {d}": "desde {d}",
   "expected {d}": "llega {d}",
   "expected {d} · {n} of {n} received": "llega {d} · {n} de {n} recibido",
+  "expected {d} · {n} of {n} {x} received": "llega {d} · {n} de {n} {x} recibido",
   "in {d}": "entrada {d}",
   "in {n}:{n}": "entrada {n}:{n}",
   "until {d}": "hasta {d}",

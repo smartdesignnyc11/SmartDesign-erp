@@ -822,66 +822,125 @@ function puBuyFromDoc(kind) {
     });
   return m;
 }
-// One receipt line, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on
-// the order's own job, not the job on screen
-function puReceiveLine(po, l, qty, note, slip) {
+// One receipt, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on the
+// order's own job, not the job on screen: every line that came, in one receipt row and one audit row
+function puReceiveLines(po, got, note, slip) {
   const p = (DB.projects || []).find((x) => x.id === po.projectId);
-  l.received = r2((+l.received || 0) + qty);
-  const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
-  m && l.received >= l.qty - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
+  got.forEach(({ l, q }) => {
+    l.received = r2((+l.received || 0) + q);
+    const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
+    m && l.received >= (+l.qty || 0) - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
+    // a restock order's line puts what came on the shelf it was bought for
+    const iv = l.invId && (DB.inventory || []).find((x) => x.id === l.invId);
+    iv && (iv.qty = r2((+iv.qty || 0) + q));
+  });
   const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
   (po.status = full ? "received" : "partial"), full && (po.receivedOn = today());
-  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: [{ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: qty }], slip: slip || "", note: note || "" });
+  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: got.map(({ l, q }) => ({ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: q })), slip: slip || "", note: note || "" });
   try {
-    audit("po", po.id, "received", "", `${l.item || l.desc}: ${qty}`, note || "");
+    audit("po", po.id, "received", "", got.map(({ l, q }) => `${l.item || l.desc}: ${q}`).join("; "), note || "");
   } catch (e) {}
+  try {
+    log(`${po.number}: received ${got.map(({ l, q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ")).join(", ")}${note ? " — " + note : ""}`);
+  } catch (e) {}
+  return full;
 }
-// Receive (the phone's sheet, the desktop's too): the count starts empty; Good, Short, Damaged or Wrong; a photo of the
-// slip; Short, Damaged or Wrong opens a claim on the order (its delivery issue), with Open
+// The one receive sheet (BACKLOG 1.36), however receiving starts: the phone's Deliveries (Receive), the order's Receive
+// Some…, the foreman's It Arrived on Site and Check In on Today (rcReceiveSome opens this one). Receiving counts what
+// came: every count starts empty, what is still to come is only the hint, and a line left empty records nothing. A count
+// over what is still to come is refused: what was not ordered is not received onto the order. A photo of the slip.
+// Condition is per line (the coordinator's day, S1: one choice for the whole delivery put the damage claim on the good
+// studs and no claim on the short): Good, Short, Damaged or Wrong on each line. Short claims what did not come; Damaged
+// and Wrong ask how many and claim those. Only the good quantity is received, so Bill What Arrived bills only what can
+// be used, and each claim holds the difference against the vendor on its own line.
 function puReceive(po) {
   if (!po) return;
-  let cond = "good";
-  const L = (po.lines || []).filter((l) => (+l.received || 0) < (+l.qty || 0));
+  const left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
+    L = (po.lines || []).filter((l) => left(l) > 0);
+  if (!L.length) return void toast(`${po.number} has nothing left to receive`);
+  const cond = {},
+    CONDS = [["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]];
+  L.forEach((l) => (cond[l.id] = "good"));
+  const lineHtml = (l) => {
+    const item = esc(l.item || l.desc || "Line"),
+      u = esc(l.unit || "");
+    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}">${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span><b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span></span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
+  };
   const m = mbModal(
-    `Receive <span data-nocase>${esc(po.number)}</span>`,
-    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here.</p>${L.map((l) => `<label class="pu-rq"><span data-nocase><b>${esc(l.item)}</b><span class="small muted">${r2((+l.qty || 0) - (+l.received || 0))} ${esc(l.unit || "")} expected</span></span><input type="number" inputmode="decimal" min="0" data-purq="${esc(l.id)}" value="" placeholder="Count" aria-label="Count of ${esc(l.item)}"></label>`).join("")}<div class="pu-conds" role="radiogroup" aria-label="Condition">${[["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]].map(([k, l]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" aria-pressed="${"good" === k}">${l}</button>`).join("")}</div><label class="f"><span>Photo of the Slip</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>What Is Wrong</span><input data-punote="1" placeholder="Only if something is short, damaged or wrong"></label>`,
+    `Receive Some — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here; leave a line empty if none of it came. Mark each line's condition.</p>${L.map(lineHtml).join("")}<label class="f"><span>Photo of the Slip</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>Note</span><input data-punote="1" data-f="note" placeholder="What is short, damaged or wrong; the slip number"></label>`,
     {
-      submit: "Receive",
+      submit: "Record Receipt",
       onSubmit: () => {
-        const got = L.map((l) => ({ l: l, q: m.querySelector(`[data-purq="${l.id}"]`).value })).filter((x) => "" !== x.q);
-        if (!got.length) return toast("Count at least one line, even if it is 0"), !1;
-        const slip = m.querySelector("[data-puslip]"),
-          slipName = slip && slip.files && slip.files[0] ? slip.files[0].name : "";
-        got.forEach((x) => +x.q > 0 && puReceiveLine(po, x.l, +x.q, "", slipName));
-        slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
-        let claim = null;
-        if ("good" !== cond) {
-          const x = got[0],
-            short = Math.max(0, r2((+x.l.qty || 0) - (+x.l.received || 0)));
-          claim = { t: nowStamp(), at: appNowIso(), by: ((currentUser() || {}).name) || role(), type: cond, lineId: x.l.id, qty: "short" === cond ? short : +x.q || 0, note: (m.querySelector("[data-punote]") || {}).value || "", claim: !0, status: "open" };
-          (po.issues = po.issues || []).push(claim);
-          x.l.issue = cond;
-          po.flag = `${cond}: ${x.l.item} ${claim.qty}`;
-          try {
-            audit("po", po.id, "delivery-claim", "", cond, `${claim.qty} ${x.l.item}`);
-          } catch (e) {}
+        const mark = (i, msg) => (i && "function" == typeof vfMark ? vfMark(i, msg) : toast(msg), !1),
+          rows = L.map((l) => {
+            const i = m.querySelector(`[data-purq="${l.id}"]`),
+              bi = m.querySelector(`[data-pubad="${l.id}"]`);
+            return { l: l, i: i, bi: bi, k: cond[l.id] || "good", raw: String((i && i.value) || "").trim(), badRaw: String((bi && bi.value) || "").trim() };
+          });
+        // a line marked Short, Damaged or Wrong needs its count (0 when none of it came)
+        const unCounted = rows.find((x) => "good" !== x.k && "" === x.raw);
+        if (unCounted) return mark(unCounted.i, "Count what arrived on this line (0 if none of it came)");
+        const R = rows.filter((x) => "" !== x.raw);
+        if (!R.length) return mark(m.querySelector("[data-purq]"), "Count what arrived (0 if none of it came)");
+        const over = R.find((x) => +x.raw > left(x.l) + 0.001);
+        if (over) return mark(over.i, `Only ${left(over.l)} ${over.l.unit || ""} are still to come: the rest goes back, or onto a change to the order`);
+        for (const x of R) {
+          const c = Math.max(0, +x.raw || 0);
+          if ("short" === x.k && c >= left(x.l) - 0.001) return mark(x.i, `Nothing is short: ${c} is everything still to come`);
+          if (["damaged", "wrong"].includes(x.k)) {
+            const bad = +x.badRaw;
+            if ("" === x.badRaw || !(bad > 0)) return mark(x.bi, `How many are ${x.k}?`);
+            if (bad > c + 0.001) return mark(x.bi, `Only ${c} came: count the ${x.k} among them`);
+          }
         }
+        const note = String((m.querySelector("[data-punote]") || {}).value || "").trim(),
+          slip = m.querySelector("[data-puslip]"),
+          slipName = slip && slip.files && slip.files[0] ? slip.files[0].name : "",
+          claims = [],
+          came = [];
+        R.forEach((x) => {
+          const c = Math.max(0, +x.raw || 0),
+            bad = ["damaged", "wrong"].includes(x.k) ? +x.badRaw || 0 : 0,
+            good = r2(c - bad),
+            q = "short" === x.k ? r2(left(x.l) - c) : bad;
+          good > 0 && came.push({ l: x.l, q: good });
+          "good" !== x.k && q > 0 && claims.push({ l: x.l, type: x.k, qty: q });
+        });
+        if (!came.length && !claims.length) return mark(R[0].i, "Nothing is counted as arrived: type what came, or mark the line Short");
+        const full = came.length ? puReceiveLines(po, came, note, slipName) : !1;
+        slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
+        // one claim per line and kind, on its own line: what did not come, or what came damaged or wrong
+        claims.forEach((k) => {
+          const claim = { t: nowStamp(), at: appNowIso(), by: ((currentUser() || {}).name) || role(), type: k.type, lineId: k.l.id, item: k.l.item || k.l.desc || "", qty: k.qty, unit: k.l.unit || "", amount: r2(k.qty * (+k.l.price || 0)), note: note, claim: !0, status: "open" };
+          (po.issues = po.issues || []).push(claim);
+          k.l.issue = k.type;
+          try {
+            audit("po", po.id, "delivery-claim", "", k.type, `${k.qty} ${k.l.unit || ""} ${k.l.item}`.replace(/\s+/g, " "));
+          } catch (e) {}
+        });
+        claims.length && (po.flag = claims.map((k) => `${k.type}: ${k.l.item} ${k.qty}`).join("; "));
         save(), render();
-        claim
-          ? toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received; a ${cond} claim is open with ${po.vendor}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
-          : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards; the
-            // phone's sheet offered only Open (purchasing_test polish)
+        const amt = r2(came.reduce((a, x) => a + x.q * (+x.l.price || 0), 0)),
+          what = full ? "received in full" : came.length ? `${came.length} line${1 === came.length ? "" : "s"} received` : "nothing received",
+          held = r2(claims.reduce((a, k) => a + k.qty * (+k.l.price || 0), 0));
+        claims.length
+          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
+          : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards
             "function" == typeof rcReceiptToast
-            ? rcReceiptToast(po, `${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received${"received" === po.status ? " — the order is all in" : ""}`)
-            : toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received`, { label: "Open", run: () => flowGo.po(po)() });
+            ? rcReceiptToast(po, `${po.number} · ${po.vendor} — ${what}${amt ? `, ${money(amt)}` : ""}`)
+            : toast(`${po.number}: ${what}`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
   );
   m.querySelectorAll("[data-pucond]").forEach(
     (b) =>
       (b.onclick = () => {
-        cond = b.dataset.pucond;
-        m.querySelectorAll("[data-pucond]").forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
+        const id = b.dataset.pul;
+        cond[id] = b.dataset.pucond;
+        m.querySelectorAll(`[data-pucond][data-pul="${id}"]`).forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
+        const w = m.querySelector(`[data-pubadw="${id}"]`);
+        w && (w.hidden = !["damaged", "wrong"].includes(cond[id]));
       }),
   );
   return m;
@@ -1241,6 +1300,7 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 .pu-rq{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
 .pu-rq>span{flex:1;display:flex;flex-direction:column;gap:2px} .pu-rq input{width:96px;min-height:44px}
 .pu-conds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.pu-rql{border-top:1px solid var(--rule-2);padding-bottom:4px} .pu-rql .pu-rq{border-top:0} .pu-rql .pu-conds{margin:4px 0 8px} .pu-rql .pu-bad[hidden]{display:none}
 .pu-lines{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin-top:8px}
 .pu-line{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--rule-2)} .pu-line>span{display:flex;flex-direction:column}
 .pu-kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
