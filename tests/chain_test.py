@@ -1556,9 +1556,11 @@ async def s10_polinks(C):
     pid = C.ids['project']['id']; est = C.ids['estimate']['id']; L = C.ids['estimate']['lines']
     tile_id = L['Tile – primary bath']; tile_key = f'estimate:{est}:{tile_id}'
     await C.day('2026-10-02')
-    # the coordinator's New PO opens on the job's lines
+    # the coordinator's New PO opens on the job's lines: Orders has one New, its first item New Purchase Order From Lines
+    # (purchasing SPEC §2, lane P3 11-05: the old "New PO" button beside "+ New" was a second door to the same sheet)
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 700)
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumi="0"]', 700)
     m = await C.modal()
     cls = await C.js("() => { const b = document.querySelector('#mbm-blank'); return b ? b.className : null; }")
     C.ok(m and m['title'] == 'Which Lines?', 'Purchasing > New PO opens on "Which Lines?" (the estimate, change-order and invoice lines of the job)', m and m['title'])
@@ -1644,8 +1646,10 @@ async def s10_polinks(C):
     # an order for the shop, no job: Start Blank, then the line linked to overhead on the phone
     await C.js("() => mbCloseModal()")
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 600)
-    await C.click('#mbm #mbm-blank', 600)
+    # the blank order sits behind More on Orders' New (purchasing SPEC §2); it opens the same blank form Start Blank opens
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumore]', 400)
+    await C.click('.pu-menu [role=menuitem]:has-text("Blank Purchase Order")', 600)
     d = await C.js("() => (document.querySelector('#d-title') || {}).textContent")
     C.ok(d and 'purchase order' in d.lower(), 'Start Blank opens the blank purchase order', d)
     await C.pg.select_option('#e-vendorsel', 'Arcadia Tile Supply')
