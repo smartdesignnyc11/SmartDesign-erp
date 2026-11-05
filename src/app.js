@@ -35987,27 +35987,6 @@ const renderReportsBase7 = renderReports;
 // never offsets another job's cash. Client funds (deposits, retainers, collected and not yet bought) sit inside it.
 // It took all of Over-Billed (WIP) before ($156,274 on 9/3), cash that never arrived included, and Safe to Spend
 // read -$4,151; on the same records it is 121 State's $169,750 received less $122,626 earned.
-// What the job has earned, as the set-aside reads it (BACKLOG §1.36, 11-05): the greater of its cost to date (jobFin's
-// earned, cost to cost) and the work done on its schedule of values as the progress grid reads it (pgRows, the rows
-// every application bills from): a line measured in the field is done to its measure (pgProposal's %, the same one
-// billedAhead reads), and a change order's line, billed on its own evidence (pgIsCO), to what it billed. Billing past
-// the measure and a deposit spread on the lines are never work done, so they never release the set-aside; a line
-// nobody measured counts by its cost, which the cost-to-cost figure already holds. Before, a job with no cost posted
-// read $0 earned after $5,760 of measured work and change order was billed (214 Lincoln: $22,780 received less $0).
-function setAsideEarned(p, J) {
-  const ctc = r2(+(J && J.earned) || 0);
-  let work = 0;
-  try {
-    ("function" == typeof pgRows ? pgRows(p.id) || [] : []).forEach((r) => {
-      const sched = +(r.ev && r.ev.scheduled) || 0,
-        pr = r.pr,
-        measured = pr && null != pr.pct && !pr.stale && ["schedule", "delivered"].includes(pr.basis);
-      work += measured ? (sched * +pr.pct) / 100 : pgIsCO(r.sv) ? (sched * (+r.ev.billedPct || 0)) / 100 : 0;
-    });
-  } catch (e) {}
-  work = r2(work);
-  return { earned: r2(Math.max(ctc, work)), ctc: ctc, work: work };
-}
 function setAsideRows() {
   return (DB.projects || [])
     .map((p) => {
@@ -36018,7 +35997,7 @@ function setAsideRows() {
         return null;
       }
       const collected = r2(+J.collected || 0),
-        earned = setAsideEarned(p, J).earned;
+        earned = r2(+J.earned || 0);
       return { p: p, collected: collected, earned: earned, billed: r2(+J.billed || 0), amt: r2(Math.max(0, collected - earned)) };
     })
     .filter((x) => x && (x.amt > 0.005 || x.collected > 0.005));
@@ -36055,10 +36034,8 @@ function setAsideWeeks(weeks) {
             });
         } catch (e) {}
         const tgt = (p.project && p.project.target) || "",
-          span = tgt > td ? dayDiff(td, tgt) : 0,
-          // today's earned is the set-aside's own (setAsideEarned), so week one starts where Reports > Cash stands
-          E = setAsideEarned(p, J);
-        return { p: p, collected: +J.collected || 0, earned: E.earned, left: Math.max(0, (+J.contract || 0) - Math.max(+J.earnedContract || +J.earned || 0, E.work)), ins: ins, span: span };
+          span = tgt > td ? dayDiff(td, tgt) : 0;
+        return { p: p, collected: +J.collected || 0, earned: +J.earned || 0, left: Math.max(0, (+J.contract || 0) - (+J.earnedContract || +J.earned || 0)), ins: ins, span: span };
       })
       .filter(Boolean);
   return (weeks || []).map((w) => {
