@@ -151,8 +151,12 @@ function ydChipsHtml(defs, on, group) {
     .join("")}</div>`;
 }
 // a row: {id, sec, title, meta, when, late, amt, act, primary, n}
+// A row's button labels are words. A field that holds anything else (a function, an object) is another screen's own
+// field under the same name, and drawing it printed its source as a button (the combined build, 11-05: Ready to
+// Bill's act2). The helper draws only string labels, so a name clash can no longer reach the screen.
+const ydLabel = (v) => "string" == typeof v && v.trim().length > 0;
 function ydRowHtml(r) {
-  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${r.act ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}${r.act2 ? `<button type="button" class="btn" data-ydact="${esc(r.id)}:2">${esc(r.act2)}</button>` : ""}</div>`;
+  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${ydLabel(r.act) ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}${ydLabel(r.act2) ? `<button type="button" class="btn" data-ydact="${esc(r.id)}:2">${esc(r.act2)}</button>` : ""}</div>`;
 }
 function ydSectionHtml(title, n, note, rows, empty) {
   return `<section class="yd-card"><div class="yd-sh"><h3>${esc(title)}</h3>${null != n ? `<span class="n">${n}</span>` : ""}${note ? `<span class="note">${esc(note)}</span>` : ""}</div>${rows.length ? rows.map(ydRowHtml).join("") : `<div class="yd-empty">${esc(empty || "Nothing here.")}</div>`}</section>`;
