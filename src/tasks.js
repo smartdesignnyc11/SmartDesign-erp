@@ -231,7 +231,8 @@ function tkDayOf(x) {
   const n = dayDiff(td, x.due);
   if (1 === n) return ["1" + x.due, "Tomorrow"];
   if (n <= 7) return ["1" + x.due, fmtL(x.due)];
-  return ["2", "Later On"];
+  // "Later" is a view (put off for later); a date past next week is Further Out (capture 11-05: "Later 0" beside "Later On 1")
+  return ["2", "Further Out"];
 }
 function tkGroupOf(x, gb) {
   if ("day" === gb) return tkDayOf(x);
@@ -993,8 +994,12 @@ function tkCheckDone(key) {
     { label: "Undo", run: () => (tkToggle(kind, id, pid || ""), save(), renderTkAll()) },
   ]);
 }
-// swipe left on a row: Later and Hand Off slide in (the same two are in the sheet for anyone who doesn't swipe)
+// Swipe a row (PM review 11-05 #10): right is Done (the same as the circle, with Undo and the proof gate); left opens
+// Later, Reschedule and Hand Off under the title, which stays in view (the row used to slide 252px and hide it).
 function tkSwipe(r) {
+  // a row is wired once: the list wires its rows on more than one pass, and two listeners made one swipe two toggles
+  if (r.dataset.tkswipe) return;
+  r.dataset.tkswipe = "1";
   let x0 = 0,
     y0 = 0,
     on = !1;
@@ -1015,7 +1020,12 @@ function tkSwipe(r) {
         dy = t.clientY - y0;
       if (Math.abs(dy) > Math.abs(dx)) return void (on = !1);
       dx < -40 && (r.classList.add("swiped"), (on = !1));
-      dx > 30 && (r.classList.remove("swiped"), (on = !1));
+      if (dx > 30 && r.classList.contains("swiped")) return void (r.classList.remove("swiped"), (on = !1));
+      if (dx > 70 && !r.classList.contains("done") && r.querySelector("[data-t2done]")) {
+        on = !1;
+        r.classList.add("tk-swdone");
+        setTimeout(() => tkCheckDone(r.dataset.tkkey), 160);
+      }
     },
     { passive: !0 },
   );
