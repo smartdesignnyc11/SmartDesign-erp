@@ -318,6 +318,25 @@ if ("function" == typeof mRenderTabs) {
     return r;
   };
 }
+// the receipt's split on the phone: each cell carries its column's words (as drawn, Spanish for a Spanish field user),
+// so the one-column layout labels every field
+if ("function" == typeof spCaptureModal) {
+  const base = spCaptureModal;
+  spCaptureModal = function () {
+    const r = base.apply(this, arguments);
+    const label = () =>
+      document.querySelectorAll("#mbm table.sp-lines").forEach((t) => {
+        const H = [...t.querySelectorAll("thead th")].map((h) => h.textContent.trim());
+        t.querySelectorAll("tbody tr").forEach((tr) => [...tr.children].forEach((td, i) => H[i] && (td.dataset.k = H[i])));
+      });
+    setTimeout(label, 0);
+    try {
+      const m = document.getElementById("mbm");
+      m && !m.dataset.puSpl && ((m.dataset.puSpl = "1"), new MutationObserver(label).observe(m, { childList: !0, subtree: !0 }));
+    } catch (e) {}
+    return r;
+  };
+}
 // the job's Order This Week card: a row with no material behind it (an estimate line, a site request) opens its Buy Board
 // row, the same record its chip opens
 document.addEventListener("click", (e) => {

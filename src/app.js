@@ -61858,7 +61858,7 @@ if ("function" == typeof spCaptureModal) {
         (bar.className = "rc-go"),
           (bar.innerHTML = s.read
             ? `<span class="pill info">read</span><span class="small muted">${esc(s.read.source)} · ${(s.read.lines || []).length} printed lines · ${(s.read.ink || []).length} handwritten note${1 === (s.read.ink || []).length ? "" : "s"}${Math.abs(s.read.gap || 0) > 0.02 ? ` · ${money2(s.read.gap)} unclassified` : ""}</span><span class="grow"></span><button class="btn sm" id="rc-again">Read it again</button>`
-            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm primary" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
+            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
           shot.parentNode.insertBefore(bar, shot.nextSibling),
           bar.querySelector("#rc-go")?.addEventListener("click", () => rcRun(s)),
           bar.querySelector("#rc-again")?.addEventListener("click", () => rcRun(s));
@@ -67716,7 +67716,14 @@ function f3ArrivingHtml() {
         // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
         const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
           got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
-        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
+        // what, when and where, and the office's note for the drop (the field expert, 11-05: the card showed the PO number
+        // but not the items, the time or the drop point, and "Curb drop, call Angel" never reached the foreman). No money.
+        const L = (po.lines || []).filter((l) => l.item || l.desc),
+          what = L.slice(0, 2).map((l) => `${r2(+l.qty || 0)} ${l.unit || ""} ${l.item || l.desc}`.replace(/\s+/g, " ").trim()).join(", ") + (L.length > 2 ? `, and ${L.length - 2} more` : ""),
+          v = (DB.vendors || []).find((x) => x.id === po.vendorId || x.name === po.vendor),
+          win = po.deliveryWindow || (v && v.deliveryWindow) || "",
+          where = po.shipToText || ({ site: "the job site", office: "the office", wh: "the warehouse" }[po.shipTo] || po.shipTo || "the job site");
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small f3-what" data-nocase>${esc(what || `${L.length} line${1 === L.length ? "" : "s"}`)}</div><div class="small ${late ? "bad-t" : "muted"}" data-nocase>${win ? `${esc(win)} · ` : ""}to ${esc(where)} · ${esc(po.number)}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div>${po.notes ? `<div class="small f3-note" data-nocase>Note: ${esc(po.notes)}</div>` : ""}</div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -107492,9 +107499,11 @@ function rpMount() {
     const b = document.createElement("button");
     (b.id = "rp-btn"),
       (b.className = "btn rp-btn no-print"),
-      (b.title = "Report a Problem"),
-      b.setAttribute("aria-label", "Report a Problem");
-    const mine = "client" === role() ? "Something Wrong?" : "Report a Problem";
+      (b.title = "Report an App Problem"),
+      b.setAttribute("aria-label", "Report an App Problem");
+    // the header's flag reports a problem with the app, not the site: a site or delivery problem is reported on the job
+    // and on the delivery (the field expert, 11-05: the foreman read the flag as the site's problem button)
+    const mine = "client" === role() ? "Something Wrong?" : "Report an App Problem";
     (b.title = mine),
       b.setAttribute("aria-label", mine),
       (b.innerHTML = `${RP_FLAG}<span class="rp-btn-t">${mine}</span>`),

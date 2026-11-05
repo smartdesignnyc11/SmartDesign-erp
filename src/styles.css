@@ -4333,3 +4333,28 @@ a.rw-job:hover{border-color:var(--ink-3)}
   /* the order's own fields fit the phone: a time or date field is never cut */
   #po-doc .rc-sum input,#po-doc .rc-sum select{min-width:0;max-width:100%;width:100%}
 }
+/* the header's Report an App Problem is a 44px target on every topbar, the field's included (it was 40px) */
+body .topbar #rp-btn{width:44px;min-width:44px;height:44px;min-height:44px}
+@media (min-width:1281px){body .topbar #rp-btn{width:auto}}
+/* the foreman's delivery card: what, when, where and the office's note */
+.f3-row .f3-what{color:var(--ink-2)} .f3-row .f3-note{color:var(--warn);font-weight:600}
+/* A row's tone bar (an inset 3px stripe) never sits on its first letter: a toned row keeps room for the stripe on every
+   screen, whatever later phone rule zeroes its padding (the field expert, 11-05: "Carlos" read as "arlos" on Today) */
+.f-row:is(.warn,.bad,.ok),.f3-row:is(.late,.warn,.bad){padding-left:12px !important}
+/* Documents' filter row wraps on the phone instead of running off the right edge */
+@media (max-width:760px){
+  #v-files #file-filter,#v-files #file-view{flex-wrap:wrap;overflow:visible;gap:8px}
+  #v-files #file-filter button,#v-files #file-view button{min-height:44px;flex:0 0 auto}
+}
+/* The receipt's split (a store run, a field expense) on the phone: one column, each field labelled (the column's own
+   words, src/puorders.js) and full width; the Line picker was 29px wide at 390 (the field expert, 11-05). Read the Receipt
+   is plain: Submit is the sheet's one blue. */
+@media (max-width:760px){
+  #mbm table.sp-lines thead{display:none}
+  #mbm table.sp-lines,#mbm table.sp-lines tbody,#mbm table.sp-lines tr{display:block;width:100%}
+  #mbm table.sp-lines tr{padding:10px 0;border-top:1px solid var(--rule-2)}
+  #mbm table.sp-lines td{display:flex;flex-direction:column;gap:4px;width:100% !important;padding:4px 0;border:0}
+  #mbm table.sp-lines td>:is(input,select){width:100% !important;min-width:0}
+  #mbm table.sp-lines td[data-k]::before{content:attr(data-k);font-size:12.5px;color:var(--ink-3)}
+  #mbm .rc-go{flex-wrap:wrap} #mbm .rc-go #rc-go{min-height:44px}
+}
