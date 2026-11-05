@@ -20,6 +20,8 @@ PRO  The Kleins (121 State, the seeded job with measured work ready to bill and 
 MEMO The queue's memo answers what a fresh read does on Clients, a client and Billing (no wrapper decorates its cached rows).
 ROW  A row opens, a button acts: the Ashbys' deposit row opens the signed contract, the Kleins' application row opens
      the job's Progress Billing; neither drafts anything.
+TODAY Billing's Today shows the deposit due within 2 business days (ctDepositDue's by); its blue Draft opens the same
+     prefilled Deposit Invoice sheet as New Invoice (slBillRun on the queue's row); drafted, it leaves Today.
 BLANK A client with nothing due: New Invoice is the blank invoice it always was (crNewInvoice), never an application.
      The phone never scrolls sideways on the client's Contract and Billing.
 
@@ -185,6 +187,62 @@ async def t_deposit(C, p, phone):
     await b.close()
 
 
+SHEET = "const m = document.getElementById('mbm'); return m ? { title: (m.querySelector('h3') || {}).innerText || '', pct: (m.querySelector('#dep-pct') || {}).value, amt: (m.querySelector('#dep-amt') || {}).value } : null;"
+TODAY_ROW = """const sl = ms => new Promise(r => setTimeout(r, ms)), vis = e => !!e && e.getClientRects().length > 0;
+  try { tdyTabSet('today'); tdyAllOpen = true; } catch (e) {} view = 'home'; render(); await sl(300);
+  const e = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(vis).find(x => x.innerText.includes('Deposit due: ' + arg));
+  const chip = [...document.querySelectorAll('.view.on [data-tdytabbtn]')].find(b => b.classList.contains('on'));
+  if (!e) return { found: false, chip: chip && chip.dataset.tdytabbtn };
+  // the desk selects the row and acts from its side panel (the blue button); the phone acts from the row
+  let b = null;
+  if (document.querySelector('.view.on .td2-aside')) { e.click(); await sl(250); b = document.querySelector('.view.on .td2-aside [data-td2lead]'); }
+  else b = e.querySelector('[data-tdverb]');
+  document.querySelectorAll('[data-deptoday]').forEach(x => x.removeAttribute('data-deptoday')); b && b.setAttribute('data-deptoday', '1');
+  return { found: true, chip: chip && chip.dataset.tdytabbtn, text: e.innerText.replace(/\\s+/g, ' '), verb: vis(b) ? b.innerText.trim().replace(/,\\s*[\\u2212-]?\\$[\\d,.]+$/, '') : '',
+           blue: !!(b && b.classList.contains('primary')), sw: document.scrollingElement.scrollWidth, w: innerWidth };"""
+
+
+async def t_today(C, p, phone):
+    """TODAY: billing's Today shows the signed contract's deposit, due within 2 business days (ctDepositDue's by), on the
+    Today chip; its blue button opens the same prefilled Deposit Invoice sheet as the client's New Invoice (one path,
+    slBillRun on the queue's own row); Create drafts one invoice, toasts it with Open, and the row leaves Today."""
+    dev = 'phone' if phone else 'desktop'
+    b, pg, errs = await open_app(p, phone)
+    await sign_in(pg, 'u_owner')
+    S = await js(pg, SIGNED_SETUP, LINES)
+    await owner_signs(pg, S)
+    await sign_in(pg, 'u_billing')
+    # what the client's New Invoice opens: the reference
+    await js(pg, "slOpenClient(arg.cid); render(); await sleep(300);", S)
+    ref = None
+    if await pg.locator('.view.on [data-ydclnewinv]').first.is_visible():
+        await pg.locator('.view.on [data-ydclnewinv]').first.click(); await pg.wait_for_timeout(500)
+        ref = await js(pg, SHEET)
+    await js(pg, "try { mbCloseModal(); } catch (e) {} clientOpen = null; docOpen = null;")
+    r = await js(pg, TODAY_ROW, 'Wren & Julian Ashby')
+    C.ok(r['found'] and r['chip'] == 'today', f"TODAY {dev}: billing's Today shows the Ashbys' deposit due on the Today chip: {r}")
+    if not r['found']:
+        await b.close(); return
+    C.ok('$22,780' in r['text'] and '25% of' in r['text'] and re.search(r'(invoice by 9/8|Tue)', r['text']), f"TODAY {dev}: the row names the 25%, $22,780 and the by date (9/8, two business days after signing): {r['text'][:200]!r}")
+    C.ok(r['verb'] == 'Draft', f'TODAY {dev}: its button reads Draft: {r}')
+    if not phone: C.ok(r['blue'], f'TODAY {dev}: selected, its Draft is the blue button: {r}')
+    C.ok(r['sw'] <= r['w'], f"TODAY {dev}: Today does not scroll sideways ({r['sw']} > {r['w']})")
+    await pg.locator('[data-deptoday]').first.click(); await pg.wait_for_timeout(500)
+    m = await js(pg, SHEET)
+    C.ok(m and ref and m == ref and 'Deposit Invoice' in m['title'] and m['pct'] == '25' and abs(float(m['amt'] or 0) - DEPOSIT) < 0.01,
+         f"TODAY {dev}: Draft opens the same prefilled Deposit Invoice sheet as New Invoice: {m} (New Invoice: {ref})")
+    if not m:
+        await b.close(); return
+    await pg.locator('#mbm #mbm-ok').first.click(); await pg.wait_for_timeout(800)
+    x = await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), I = (c.invoices || []).filter(i => i.status !== 'void' && i.depositOf === arg.eid), t = document.getElementById('toast');
+      return { n: I.length, number: I[0] && I[0].number, total: I[0] && docTotal(I[0]).total, toast: t ? t.innerText : '' };""", S)
+    C.ok(x['n'] == 1 and abs((x['total'] or 0) - DEPOSIT) < 0.01 and (x['number'] or '#') in x['toast'] and 'Open' in x['toast'], f'TODAY {dev}: one deposit invoice drafted, toasted with Open: {x}')
+    r2 = await js(pg, TODAY_ROW, 'Wren & Julian Ashby')
+    C.ok(not r2['found'], f'TODAY {dev}: drafted, the deposit leaves billing\'s Today: {r2}')
+    C.ok(not errs, f'TODAY {dev}: no page errors: {errs[:3]}')
+    await b.close()
+
+
 async def t_progress(C, p, phone):
     dev = 'phone' if phone else 'desktop'
     b, pg, errs = await open_app(p, phone)
@@ -245,9 +303,12 @@ async def t_progress(C, p, phone):
       return { app: R.filter(x => x.kind === 'ready' && x.rtb && x.rtb.kind === 'application').length, draft: d ? d.id : '', btn: b ? b.innerText.trim() : '' };""", num)
     C.ok(q['app'] == 0 and q['draft'] and q['btn'], f'PRO {dev}: the Billing queue holds {num} as a draft to send with its button, and no second application to draft: {q}')
     if q['btn']:
+        await js(pg, "const t = document.getElementById('toast'); t.textContent = ''; t.classList.remove('on');")   # New Invoice's own toast is not this row's
         await pg.locator(f'[data-blact="{q["draft"]}"]').filter(has_text=q['btn']).first.click(); await pg.wait_for_timeout(900)
         y = await js(pg, COUNT, num)
         C.ok(y['n'] == [num] and y['open'] == y['id'], f'PRO {dev}: the queue\'s draft row opens {num} itself, no second draft: {y}')
+        # and says so, as New Invoice does: "INV-... drafted already", with Open (BACKLOG 1.36: it opened with no word)
+        C.ok(num in y['toast'] and 'drafted already' in y['toast'] and 'Open' in y['toast'], f'PRO {dev}: the queue\'s draft row toasts {num} drafted already, with Open: {y["toast"]!r}')
     C.ok(not errs, f'PRO {dev}: no page errors: {errs[:3]}')
     await b.close()
 
@@ -331,10 +392,11 @@ async def t_memo(C, p):
 
 async def main():
     C = Checks()
-    only = sys.argv[1:] or ['DEP', 'PRO', 'ROW', 'BLANK', 'MEMO']
+    only = sys.argv[1:] or ['DEP', 'TODAY', 'PRO', 'ROW', 'BLANK', 'MEMO']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'DEP' in only: await t_deposit(C, p, phone)
+            if 'TODAY' in only: await t_today(C, p, phone)
             if 'PRO' in only: await t_progress(C, p, phone)
             if 'ROW' in only: await t_rows(C, p, phone)
             if 'BLANK' in only: await t_blank(C, p, phone)

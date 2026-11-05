@@ -376,7 +376,7 @@ async def s4_coi(p, C):
         k = await check(pg, bill['id'])
         C.ok(k['pass'] and 'papers' in k['released'], f'[4] released by the owner with a reason, it passes: {k["released"]}')
         log = await pg.evaluate("n => { const b = DB.bills.find(x => x.number === n); return [(b.pcRel || []).map(r => [r.key, r.by, r.why]), (DB.audit || []).filter(a => a.refId === b.id && a.action === 'pay-hold-released').length]; }", 'BSW-102')
-        C.ok(log[0] and log[0][0][1] == 'Owner' and log[1] == 1, f'[4] the release is logged with who and why: {log}')
+        C.ok(log[0] and log[0][0][1] == OWNER and log[1] == 1, f'[4] the release is logged with who and why: {log}')
         # mobilisation: the next subcontract to this sub does not issue
         res = await pg.evaluate("""() => { const po = JSON.parse(JSON.stringify(DB.pos.find(x => x.id === 'pobsw'))); Object.assign(po, {id: 'pobsw2', number: 'PO-2026-091', status: 'draft', sc: null});
             DB.pos.push(po); poAction(po, 'issue'); return [po.status, (document.getElementById('toast') || {}).innerText || '']; }""")
@@ -409,7 +409,7 @@ async def s5_bank(p, C):
         C.ok(bank and 'integrity' in (await pg.evaluate("() => standardPrincipleOf('pc:bank') && standardPrincipleOf('pc:bank').id")), '[5] the bank hold ranks under Integrity')
         # the requester cannot verify
         await as_user(pg, 'u_owner')
-        await pg.evaluate("() => { DB.vendors.find(x => x.id === 'vbsw').bankPending.by = 'Owner'; }")
+        await pg.evaluate("by => { DB.vendors.find(x => x.id === 'vbsw').bankPending.by = by; }", OWNER)
         await pg.evaluate("() => scCallBackSheet(DB.vendors.find(x => x.id === 'vbsw'))")
         await pg.wait_for_timeout(120)
         t = await toast_text(pg)
@@ -431,9 +431,9 @@ async def s5_bank(p, C):
         C.ok(v == '4471' and await modal(pg) is not None, f'[5] a read-back that does not match is refused: on file ····{v}')
         await fill(pg, {'last4': '9902'}); await press(pg)
         v = await pg.evaluate("() => { const v = DB.vendors.find(x => x.id === 'vbsw'); return [v.bank.last4, !!v.bankPending, v.bankVerified && v.bankVerified.by, v.bankVerified && v.bankVerified.phone, (v.bankLog || []).length]; }")
-        C.ok(v == ['9902', False, 'Owner', '718-555-0142', 1], f'[5] the owner\'s call-back applies it, logged: {v}')
+        C.ok(v == ['9902', False, OWNER, '718-555-0142', 1], f'[5] the owner\'s call-back applies it, logged: {v}')
         k = await check(pg, bill['id'])
-        C.ok(k['pass'] and any('confirmed by phone by Owner' in x for x in k['ok']), f'[5] the payment passes, saying the account was confirmed by phone: {k["ok"][:3]}')
+        C.ok(k['pass'] and any(f'confirmed by phone by {OWNER}' in x for x in k['ok']), f'[5] the payment passes, saying the account was confirmed by phone: {k["ok"][:3]}')
         # a change not verified (set straight on the record) still holds an ACH for 30 days
         await pg.evaluate("() => { const v = DB.vendors.find(x => x.id === 'vbsw'); v.bankVerified = null; v.bankChangedAt = today(); save(); }")
         k = await check(pg, bill['id'], None, 'ACH')

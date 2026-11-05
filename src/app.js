@@ -11,6 +11,29 @@
     !0,
   ),
 );
+// The demo's owner is a person, named like everyone else on the team (CoS 11-05): "Owner" could not be told apart from
+// the role, so "approved by Owner" read the same whether a person or the role was meant. The name is invented. The
+// seeds stamp what the owner did with this name; a role word ("the Owner", a task for the owner's seat) stays a role.
+const DEMO_OWNER = "Maren Holloway";
+// the person in the owner's seat, by name: the owner user's own name ("Owner" only while no owner is on file)
+const ownerPerson = () => {
+  try {
+    const u = ((typeof DB !== "undefined" && DB && DB.users) || []).find((x) => "owner" === x.role);
+    return (u && u.name) || "Owner";
+  } catch (e) {
+    return "Owner";
+  }
+};
+// A demo saved before the owner had a name: the owner's seat becomes the person, and what the seat owns going forward
+// (leads and sales contacts) follows. Past rows on the trail keep the name they were written with (they are sealed).
+function ownerRename() {
+  if (DB.__teamWs || ("undefined" != typeof window && window.__sdWs && "team" === window.__sdWs.kind)) return;
+  const u = (DB.users || []).find((x) => "u_owner" === x.id && "Owner" === x.name);
+  if (!u) return;
+  (u.name = DEMO_OWNER), "Owner" === DB.me && (DB.me = DEMO_OWNER);
+  const own = (r) => r && "Owner" === r.owner && (r.owner = DEMO_OWNER);
+  (DB.leads || []).forEach(own), ((DB.hub || {}).contacts || []).forEach(own), ((DB.hub || {}).companies || []).forEach(own);
+}
 const DAY = 864e5,
   iso = (d) => {
     const x = new Date(d);
@@ -1630,7 +1653,7 @@ function seedAP() {
         approvals: [
           { t: "8/10 9:12 AM", by: "Chen", role: "coord", action: "submitted" },
           { t: "8/10 3:40 PM", by: "Alan", role: "pm", action: "recommended by PM" },
-          { t: "8/11 8:05 AM", by: "Owner", role: "owner", action: "approved for payment by Owner" },
+          { t: "8/11 8:05 AM", by: DEMO_OWNER, role: "owner", action: "approved for payment by " + DEMO_OWNER },
           { t: "8/12 10:00 AM", by: "Chen", role: "coord", action: "payment released (ACH)" },
         ],
         createdBy: "Chen",
@@ -1688,7 +1711,7 @@ function seedAP() {
         approvals: [
           { t: "8/18 11:00 AM", by: "Chen", role: "coord", action: "submitted" },
           { t: "8/18 2:00 PM", by: "Alan", role: "pm", action: "recommended by PM" },
-          { t: "8/19 8:30 AM", by: "Owner", role: "owner", action: "approved for payment by Owner" },
+          { t: "8/19 8:30 AM", by: DEMO_OWNER, role: "owner", action: "approved for payment by " + DEMO_OWNER },
           { t: "8/20 9:00 AM", by: "Chen", role: "coord", action: "payment released (ACH)" },
         ],
         createdBy: "Chen",
@@ -2287,6 +2310,7 @@ async function load(opts = {}) {
     (DB.me = DB.me || ""),
     (DB.users = DB.users || []),
     DB.users.length || seedUsers(),
+    ownerRename(),
     (DB.deviceUser = DB.deviceUser || "");
   try {
     mbInit();
@@ -13658,7 +13682,114 @@ function auditVerify() {
   }
   const H = DB.auditHead;
   !broken.length && H && (+H.n > n || (+H.n === n && H.h !== prev)) && broken.push({ at: A.length, id: "", why: `the trail ends at ${n}, its head says ${H.n} (the newest rows removed)` });
+  // The head beside the rows does not catch someone who edits a row and re-seals the whole trail after it: every hash
+  // then agrees again. Each month close records the head it saw (DB.periods.closes[].auditHead), so the row at that
+  // place must still carry that seal. The first close whose row no longer does names where to look: the change is at or
+  // before that row, and after the last close that still agrees (CoS 11-05).
+  if (!broken.length) {
+    let okTo = 0;
+    for (const c of auditAnchors()) {
+      const k = c.n - 1,
+        a = A[k] && +A[k].n === c.n ? A[k] : A.find((x) => +x.n === c.n),
+        lbl = "function" == typeof fin3Label ? fin3Label(c.month) : c.month;
+      if (!a) {
+        broken.push({ at: A.length, id: "", why: `the ${lbl} close recorded ${c.n} rows; the trail now has ${n} (rows removed and the trail re-sealed)` });
+        break;
+      }
+      if (a.h !== c.h) {
+        broken.push({ at: A.indexOf(a), id: a.id, why: `it no longer carries the seal the ${lbl} close recorded for row ${c.n}: a row ${okTo ? `after row ${okTo} and ` : ""}at or before it was edited, removed or inserted, and the trail re-sealed` });
+        break;
+      }
+      okTo = c.n;
+    }
+  }
   return { ok: !broken.length, rows: A.length, sealed: sealed, pending: A.length - sealed, broken: broken };
+}
+// the heads the month closes recorded, oldest first
+function auditAnchors() {
+  return ((DB.periods || {}).closes || [])
+    .filter((c) => c && c.auditHead && +c.auditHead.n > 0 && c.auditHead.h)
+    .map((c) => ({ month: c.month, n: +c.auditHead.n, h: c.auditHead.h }))
+    .sort((a, b) => a.n - b.n);
+}
+// The record an audit row is about, and how to open it (the Controls audit line names the first broken row's record).
+function auditRef(a) {
+  if (!a) return { label: "", open: null };
+  const id = a.refId,
+    G = "object" == typeof flowGo ? flowGo : null;
+  try {
+    if ("bill" === a.kind) {
+      const b = (DB.bills || []).find((x) => x.id === id);
+      if (b) return { label: `bill ${b.number || b.id}${b.vendor ? ` (${b.vendor})` : ""}`, open: G && G.bill(b) };
+    }
+    if ("po" === a.kind) {
+      const po = (DB.pos || []).find((x) => x.id === id);
+      if (po) return { label: `order ${po.number || po.id}`, open: G && G.po(po) };
+    }
+    if (["invoice", "estimate", "co", "document"].includes(a.kind))
+      for (const c of DB.clients || []) {
+        for (const [k, L] of [
+          ["invoice", c.invoices],
+          ["estimate", c.estimates],
+          ["co", c.changeOrders],
+        ]) {
+          const d = (L || []).find((x) => x.id === id);
+          if (d) return { label: `${{ invoice: "invoice", estimate: "estimate", co: "change order" }[k]} ${d.number || d.id}`, open: G && G.doc(c, k, d) };
+        }
+      }
+    if ("client" === a.kind) {
+      const c = (DB.clients || []).find((x) => x.id === id);
+      if (c) return { label: `client ${c.name}`, open: G && G.client(c) };
+    }
+    if ("txn" === a.kind) {
+      const t = (DB.txns || []).find((x) => x.id === id);
+      if (t && "function" == typeof txnOpen) return { label: `bank line ${t.desc || t.id}`, open: txnOpen(t) };
+    }
+    if ("payroll" === a.kind && "function" == typeof openPayroll && (DB.payroll || []).some((x) => x.id === id)) return { label: `payroll run ${id}`, open: () => openPayroll(id) };
+    if ("ledger" === a.kind && ((DB.gl || {}).journals || []).some((j) => j.id === id))
+      return {
+        label: `journal entry ${id}`,
+        open: () => {
+          "undefined" != typeof glTab && (glTab = "journal"), (view = "gl"), render();
+        },
+      };
+    if ("period" === a.kind)
+      return {
+        label: `the ${"function" == typeof fin3Label ? fin3Label(id) : id} close`,
+        open: () => {
+          "undefined" != typeof glTab && (glTab = "periods"), (view = "gl"), render();
+        },
+      };
+  } catch (e) {}
+  return { label: `${a.kind || "record"} ${id || ""}`.trim(), open: null };
+}
+// the first broken row in plain words, with its place and the record it is about
+function auditBrokenWords(V) {
+  const b = V && V.broken && V.broken[0];
+  if (!b) return "";
+  const a = (DB.audit || [])[b.at],
+    R = a && a.id === b.id ? auditRef(a) : null;
+  return `row ${b.at + 1}${R && R.label ? `, on ${R.label}` : ""}: ${b.why}`;
+}
+// Verify, and record that it ran: who ran it, when, and what it found, as its own row on the trail (the Controls audit
+// line and every month close run this). The rows written so far are sealed first, so the check covers them.
+function auditVerifyRun(ctx) {
+  try {
+    auditSeal();
+  } catch (e) {}
+  const V = auditVerify(),
+    b = V.broken[0];
+  audit("audit", "trail", "verify", null, { ok: V.ok, rows: V.rows, at: b ? b.at : null, id: b ? b.id : "" }, `${V.ok ? `${V.rows} rows intact` : `does not verify: ${auditBrokenWords(V)}`}${ctx ? ` (${ctx})` : ""}`);
+  try {
+    auditSeal();
+  } catch (e) {}
+  return V;
+}
+// the last time the trail was verified, from the trail itself (no second store)
+function auditLastVerify() {
+  const A = DB.audit || [];
+  for (let k = A.length - 1; k >= 0; k--) if ("audit" === A[k].kind && "verify" === A[k].action) return A[k];
+  return null;
 }
 // An approval stamp ("recommended by PM", "approved for payment by Owner", a routing step, a short-pay) is written
 // only here: by the person's own action, with its audit row in the same step, the same person, record and moment
@@ -19062,7 +19193,7 @@ function seedUsers() {
   // the team's own workspace starts with no people: each adds themself at sign-in, from their profile (2026-10-23)
   if (DB.__teamWs || (window.__sdWs && "team" === window.__sdWs.kind)) return void (DB.users = DB.users || []);
   DB.users = [
-    { id: "u_owner", name: "Owner", role: "owner", contact: "" },
+    { id: "u_owner", name: DEMO_OWNER, role: "owner", contact: "" },
     { id: "u_alan", name: "Alan", role: "pm", contact: "", mb: !0 },
     { id: "u_chen", name: "Chen Biron", role: "coord", contact: "", employeeId: "em5" },
     { id: "u_angel", name: "Angel", role: "crew", contact: "", employeeId: "em1" },
@@ -22493,25 +22624,25 @@ function mbSeed() {
         "",
       ],
     ].forEach(([t, kind, text, dir]) =>
-      d1.activities.push({ id: uid("ac"), t: t, kind: kind, text: text, by: "Owner", dir: dir }),
+      d1.activities.push({ id: uid("ac"), t: t, kind: kind, text: text, by: DEMO_OWNER, dir: dir }),
     ),
     d1.statusHistory.push(
       { from: "new", to: "review", at: "2026-04-14T10:06:00.000Z", by: "System" },
-      { from: "review", to: "waiting", at: "2026-04-15T15:00:00.000Z", by: "Owner" },
+      { from: "review", to: "waiting", at: "2026-04-15T15:00:00.000Z", by: DEMO_OWNER },
       { from: "waiting", to: "responded", at: "2026-04-18T13:00:00.000Z", by: "System" },
-      { from: "responded", to: "underwriting", at: "2026-05-02T16:00:00.000Z", by: "Owner" },
+      { from: "responded", to: "underwriting", at: "2026-05-02T16:00:00.000Z", by: DEMO_OWNER },
       {
         from: "underwriting",
         to: "watch",
         at: "2026-06-22T10:00:00.000Z",
-        by: "Owner",
+        by: DEMO_OWNER,
         why: "Price too high",
       },
     );
   const sc = {
     id: uid("uw"),
     at: "2026-06-22T09:00:00.000Z",
-    by: "Owner",
+    by: DEMO_OWNER,
     name: "Quick screen (June)",
     inputs: {
       name: "Quick screen",
@@ -22638,7 +22769,7 @@ function mbSeed() {
     activities: [],
     statusHistory: [
       { from: "new", to: "review", at: appIso(new Date(appNowMs() - 6048e5)), by: "System" },
-      { from: "review", to: "waiting", at: appIso(new Date(appNowMs() - 5184e5)), by: "Owner" },
+      { from: "review", to: "waiting", at: appIso(new Date(appNowMs() - 5184e5)), by: DEMO_OWNER },
     ],
     triggers: [],
     triggerLogic: "ANY",
@@ -22655,14 +22786,14 @@ function mbSeed() {
       t: d2.createdAt,
       kind: "capture",
       text: "Captured from LoopNet: https://www.loopnet.com/Listing/123-W-82nd-St-New-York-NY/30712488/",
-      by: "Owner",
+      by: DEMO_OWNER,
     },
     {
       id: uid("ac"),
       t: d2.lastOutboundAt,
       kind: "email",
       text: "Inquiry sent to Dana Whitfield — requested setup sheet, rent roll, regulatory status of units, access.",
-      by: "Owner",
+      by: DEMO_OWNER,
       dir: "out",
     },
   ),
@@ -29945,6 +30076,7 @@ Object.assign(KPIS, {
     bench: "≥ 0",
     go: { view: "reports", tab: "budget" },
     fn: () => {
+      if ("function" == typeof budNone && budNone(today().slice(0, 4))) return null;
       const b = budgetFor(today().slice(0, 4)),
         m = +today().slice(5, 7),
         bud = b.income.slice(0, m).reduce((a, v) => a + v, 0);
@@ -76259,7 +76391,7 @@ function mwItems() {
           id: l.id,
           project: "",
           text: `${l.next || "Follow up"} — ${l.name}${l.addr ? " · " + l.addr : ""}`,
-          owner: "Owner",
+          owner: l.owner || ownerPerson(),
           due: l.nextDue || "",
           done: !1,
           from: l.commId ? "message" : "",
@@ -79015,7 +79147,7 @@ function slSeed() {
           direction: "out",
           note: "Maria introduced her; called the next morning. Ten-minute call done.",
           value: "What her board asks for in the packet",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       closePlan: [],
@@ -79067,7 +79199,7 @@ function slSeed() {
         direction: "out",
         note: "Called back within the hour. Ten-minute call — budget bracket, the March date, Arjun decides.",
         value: "Told her what the board will ask for",
-        by: "Owner",
+        by: DEMO_OWNER,
       },
       {
         id: "t2",
@@ -79076,7 +79208,7 @@ function slSeed() {
         direction: "out",
         note: "Site visit. Walked the line; riser on the kitchen wall drives the plan.",
         value: "A range of 150–220 from our last three co-op kitchens",
-        by: "Owner",
+        by: DEMO_OWNER,
       },
     ],
     building: {
@@ -79137,7 +79269,7 @@ function slSeed() {
           direction: "out",
           note: "David introduced us; called Erik same day.",
           value: "Landmark rear-yard timeline",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t5",
@@ -79146,7 +79278,7 @@ function slSeed() {
           direction: "out",
           note: "Walked the house with David. Party wall and the rear extension are the money.",
           value: "A range from our two Hicks St townhouses",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t6",
@@ -79154,7 +79286,7 @@ function slSeed() {
           channel: "note",
           direction: "out",
           note: "Handwritten note after the walk-through.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       building: { landmark: "yes", leadWeeks: 14, altSeen: !0 },
@@ -79200,7 +79332,7 @@ function slSeed() {
           direction: "out",
           note: "Site visit.",
           value: "Condo board timeline",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t9",
@@ -79208,7 +79340,7 @@ function slSeed() {
           channel: "proposal",
           direction: "out",
           note: "Proposal emailed — one option.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       proposal: { sentAt: d(14) },
@@ -79238,7 +79370,7 @@ function slSeed() {
           channel: "call",
           direction: "out",
           note: "She called; we spoke the same morning.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t11",
@@ -79246,7 +79378,7 @@ function slSeed() {
           channel: "meeting",
           direction: "out",
           note: "Site visit with her mother.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t12",
@@ -79255,7 +79387,7 @@ function slSeed() {
           direction: "out",
           note: "Presented three options at her kitchen table; she leans to the middle one.",
           value: "Board packet from her last job, updated",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       proposal: { sentAt: d(8), presentedAt: d(8) },
@@ -79306,7 +79438,7 @@ function slSeed() {
           channel: "call",
           direction: "out",
           note: "Called the same afternoon.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t14",
@@ -79314,7 +79446,7 @@ function slSeed() {
           channel: "meeting",
           direction: "out",
           note: "Site visit with David.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t15",
@@ -79322,7 +79454,7 @@ function slSeed() {
           channel: "presented",
           direction: "out",
           note: "Three options at their table; they took the recommended.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
         {
           id: "t16",
@@ -79330,7 +79462,7 @@ function slSeed() {
           channel: "note",
           direction: "out",
           note: "Handwritten note at signing.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
       design: { fee: 9e3, credit: !0, at: d(70) },
@@ -82804,7 +82936,7 @@ function hbInit() {
               : "lost" === l.stage
                 ? l.lostAt || l.created
                 : hbEndOfMonth(iso(addDays(today(), 30)))),
-        l.owner || (l.owner = "Owner"),
+        l.owner || (l.owner = ownerPerson()),
         l.dealtype || (l.dealtype = "New Business"),
         l.forecastCategory ||
           (l.forecastCategory =
@@ -82852,7 +82984,7 @@ const hbStages = () => DB.hub.pipeline.stages,
   hbStage = (id) => hbStages().find((s) => s.id === id) || { id: id, label: id, prob: 0 },
   hbUsers = () =>
     (DB.users || []).filter((u) => !["crew", "driver", "client"].includes(u.role)).map((u) => u.name),
-  hbMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || "Owner",
+  hbMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || ownerPerson(),
   hbFmtMoney = (v) => (null == v || "" === v ? "" : money(+v || 0)),
   hbFmtDate = (d) => {
     if (!d) return "";
@@ -86141,7 +86273,7 @@ function renderHbWorkspace() {
           ? `<div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Deal</th><th>Stage</th><th>Amount</th><th>Close date</th><th>Next step</th><th>Last activity</th></tr></thead><tbody>${(
               DB.leads || []
             )
-              .filter((l) => l.owner === me || "Owner" === me)
+              .filter((l) => l.owner === me || "owner" === role())
               .filter((l) => !["won", "lost"].includes(l.stage))
               .map(
                 (l) =>
@@ -86310,7 +86442,7 @@ function renderHbQuotes() {
           (!hbQuoteStat || hbQuoteStatus(e) === hbQuoteStat),
       )
       .sort((a, b) => (b.e.date || "").localeCompare(a.e.date || ""));
-  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Quotes</h1><div class="small muted">${Q.length} record${1 === Q.length ? "" : "s"}</div></div><div class="hb-head-acts"><button class="hb-btn primary" id="hb-newquote">Create quote</button></div></div><div class="hb-views"><button class="hb-viewtab ${hbQuoteMine ? "" : "on"}" data-hbqv="all">All quotes</button><button class="hb-viewtab ${hbQuoteMine ? "on" : ""}" data-hbqv="mine">My quotes</button></div><div class="hb-filterbar"><div class="hb-pill"><label>Status</label><select id="hb-qstatus"><option value="">All</option>${["Draft", "Published", "Signed", "Expired"].map((s) => `<option ${hbQuoteStat === s ? "selected" : ""}>${s}</option>`).join("")}</select></div><span class="grow"></span></div><div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Quote name</th><th>Status</th><th>Amount</th><th>Deal</th><th>Owner</th><th>Expiration date</th><th>Create date</th><th></th></tr></thead><tbody>${Q.map(({ e: e, c: c, l: l }) => `<tr><td class="hb-name"><a href="#" data-hbq="${c.id}|${e.id}">${esc(e.title)} ${esc(e.number)}</a></td><td><span class="hb-status ${hbQuoteStatus(e).toLowerCase()}">${hbQuoteStatus(e)}</span></td><td>${money(docTotal(e).total)}</td><td class="small">${l ? `<a href="#" data-hbgo="deal|${l.id}">${esc(l.name)}</a>` : esc(c.name)}</td><td class="small">${esc((l && l.owner) || "Owner")}</td><td class="small">${hbFmtDate(e.validUntil)}</td><td class="small muted">${hbFmtDate(e.date)}</td><td class="small"><a href="#" data-hbq="${c.id}|${e.id}">Edit</a> · <a href="#" data-hbqclone="${c.id}|${e.id}">Clone</a></td></tr>`).join("") || '<tr><td colspan="8"><div class="hb-empty"><b>No quotes yet.</b><div class="small muted">Create a quote from a deal.</div></div></td></tr>'}</tbody></table></div></div>`),
+  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Quotes</h1><div class="small muted">${Q.length} record${1 === Q.length ? "" : "s"}</div></div><div class="hb-head-acts"><button class="hb-btn primary" id="hb-newquote">Create quote</button></div></div><div class="hb-views"><button class="hb-viewtab ${hbQuoteMine ? "" : "on"}" data-hbqv="all">All quotes</button><button class="hb-viewtab ${hbQuoteMine ? "on" : ""}" data-hbqv="mine">My quotes</button></div><div class="hb-filterbar"><div class="hb-pill"><label>Status</label><select id="hb-qstatus"><option value="">All</option>${["Draft", "Published", "Signed", "Expired"].map((s) => `<option ${hbQuoteStat === s ? "selected" : ""}>${s}</option>`).join("")}</select></div><span class="grow"></span></div><div class="hb-tablewrap"><table class="hb-table"><thead><tr><th>Quote name</th><th>Status</th><th>Amount</th><th>Deal</th><th>Owner</th><th>Expiration date</th><th>Create date</th><th></th></tr></thead><tbody>${Q.map(({ e: e, c: c, l: l }) => `<tr><td class="hb-name"><a href="#" data-hbq="${c.id}|${e.id}">${esc(e.title)} ${esc(e.number)}</a></td><td><span class="hb-status ${hbQuoteStatus(e).toLowerCase()}">${hbQuoteStatus(e)}</span></td><td>${money(docTotal(e).total)}</td><td class="small">${l ? `<a href="#" data-hbgo="deal|${l.id}">${esc(l.name)}</a>` : esc(c.name)}</td><td class="small">${esc((l && l.owner) || ownerPerson())}</td><td class="small">${hbFmtDate(e.validUntil)}</td><td class="small muted">${hbFmtDate(e.date)}</td><td class="small"><a href="#" data-hbq="${c.id}|${e.id}">Edit</a> · <a href="#" data-hbqclone="${c.id}|${e.id}">Clone</a></td></tr>`).join("") || '<tr><td colspan="8"><div class="hb-empty"><b>No quotes yet.</b><div class="small muted">Create a quote from a deal.</div></div></td></tr>'}</tbody></table></div></div>`),
     host.querySelectorAll("[data-hbqv]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -86554,12 +86686,12 @@ function renderHbForecast() {
   hbInit();
   const [a, b, label] = hbPeriod(),
     L = (DB.leads || []).filter((l) => "lost" !== l.stage && l.closedate >= a && l.closedate <= b),
-    reps = [...new Set(L.map((l) => l.owner || "Owner").concat(hbUsers()))],
+    reps = [...new Set(L.map((l) => l.owner || ownerPerson()).concat(hbUsers()))],
     G = DB.hub.forecast.goals,
     sub = DB.hub.forecast.submissions.filter((s) => s.period === label),
     sum = (A) => A.reduce((x, l) => x + (+l.value || 0), 0),
     row = (rep) => {
-      const R = rep ? L.filter((l) => (l.owner || "Owner") === rep) : L,
+      const R = rep ? L.filter((l) => (l.owner || ownerPerson()) === rep) : L,
         goal = rep ? +G[`${rep}|${label}`] || 0 : reps.reduce((x, r) => x + (+G[`${r}|${label}`] || 0), 0),
         won = sum(R.filter((l) => "won" === l.stage)),
         open = R.filter((l) => !["won", "lost"].includes(l.stage)),
@@ -86615,7 +86747,7 @@ function renderHbForecast() {
       (b) =>
         (b.onclick = () => {
           const rep = b.dataset.hbsubmit,
-            R = L.filter((l) => (l.owner || "Owner") === rep && !["won", "lost"].includes(l.stage));
+            R = L.filter((l) => (l.owner || ownerPerson()) === rep && !["won", "lost"].includes(l.stage));
           mbModal(
             "Submit forecast",
             `<div class="small muted">${esc(DB.hub.pipeline.label)} · ${label}</div>${mbF("Amount", mbIn("amount", Math.round(sum(R.filter((l) => ["Commit", "Closed won"].includes(l.forecastCategory)))), "", "number"))}<div class="small muted">Or pick the deals:</div><div class="hb-collist">${R.map((l) => `<label class="chk"><input type="checkbox" data-fcd="${l.id}" data-amt="${+l.value || 0}" ${["Commit"].includes(l.forecastCategory) ? "checked" : ""}> ${esc(l.name)} · ${money(l.value)} · ${esc(l.forecastCategory || "")}</label>`).join("")}</div>${mbF("Notes", mbIn("notes", "", ""))}`,
@@ -86652,7 +86784,7 @@ function renderHbForecast() {
         (a.onclick = (e) => {
           e.preventDefault();
           const rep = a.dataset.hbrep,
-            R = L.filter((l) => (l.owner || "Owner") === rep);
+            R = L.filter((l) => (l.owner || ownerPerson()) === rep);
           (host.querySelector("#hb-fc-detail").innerHTML =
             `<div class="hb-card-sec"><h4>${esc(rep)} — ${label}</h4>${HB_FORECAST.map((c) => {
               const D = R.filter(
@@ -86720,9 +86852,9 @@ function renderHbDashboard() {
           ) >= order.indexOf(s.id),
       ).length,
     acts = L.flatMap((l) =>
-      (l.touches || []).filter((t) => inR(t.at)).map((t) => ({ ...t, owner: l.owner || "Owner" })),
+      (l.touches || []).filter((t) => inR(t.at)).map((t) => ({ ...t, owner: l.owner || ownerPerson() })),
     ),
-    reps = [...new Set(L.map((l) => l.owner || "Owner"))],
+    reps = [...new Set(L.map((l) => l.owner || ownerPerson()))],
     bySource = {};
   created.forEach((l) => {
     bySource[l.source || "Unknown"] = (bySource[l.source || "Unknown"] || 0) + 1;
@@ -87676,7 +87808,7 @@ function hbSeed() {
           outcome: "Left voicemail",
           title: "Call — Left voicemail",
           body: "Left a message about the brownstone on Dean St.",
-          by: "Owner",
+          by: DEMO_OWNER,
         },
       ],
     }),
@@ -87852,7 +87984,7 @@ function hbSeed() {
       {
         id: "sq_inq",
         name: "New inquiry — first week",
-        owner: "Owner",
+        owner: DEMO_OWNER,
         updated: d(20),
         steps: [
           {
@@ -87891,7 +88023,7 @@ function hbSeed() {
       {
         id: "sq_prop",
         name: "Proposal out — thirty days",
-        owner: "Owner",
+        owner: DEMO_OWNER,
         updated: d(12),
         steps: [
           {
@@ -87931,7 +88063,7 @@ function hbSeed() {
       {
         id: "pb_disc",
         title: "Discovery call",
-        by: "Owner",
+        by: DEMO_OWNER,
         updated: d(30),
         uses: 4,
         onDeals: !0,
@@ -87942,7 +88074,7 @@ function hbSeed() {
       {
         id: "pb_qual",
         title: "Qualification",
-        by: "Owner",
+        by: DEMO_OWNER,
         updated: d(30),
         uses: 2,
         onDeals: !0,
@@ -97350,8 +97482,8 @@ function bnSeedLessons() {
       when: when,
       then: then,
       why: why,
-      source: "Owner",
-      taughtBy: "Owner",
+      source: DEMO_OWNER,
+      taughtBy: DEMO_OWNER,
       at: td,
       auto: !1,
       active: !0,
@@ -102011,7 +102143,7 @@ function scInit() {
         "inquiry" !== l.stage ||
           l.leadStatus ||
           (l.leadStatus = (l.touches || []).some((t) => "in" !== t.direction) ? "Open" : "New"),
-        l.owner || (l.owner = "Owner"),
+        l.owner || (l.owner = ownerPerson()),
         (l.history && l.history.length) ||
           (l.history = [{ stage: l.stage || "inquiry", at: l.created || today() }]),
         ["qual", "building", "props"].forEach((k) => {
@@ -102361,7 +102493,7 @@ function scLeadsHtml() {
       ? !["Unqualified", "Junk"].includes(l.leadStatus || "New")
       : (l.leadStatus || "New") === scTab,
   );
-  scOwner && (R = R.filter((l) => (l.owner || "Owner") === scOwner)),
+  scOwner && (R = R.filter((l) => (l.owner || ownerPerson()) === scOwner)),
     scSource && (R = R.filter((l) => (l.source || "") === scSource)),
     q &&
       (R = R.filter((l) =>
@@ -102378,7 +102510,7 @@ function scLeadsHtml() {
     late = L.filter(
       (l) => !["Unqualified", "Junk"].includes(l.leadStatus || "New") && l.nextDue && l.nextDue < td,
     ).length,
-    owners = [...new Set(L.map((l) => l.owner || "Owner"))].sort(),
+    owners = [...new Set(L.map((l) => l.owner || ownerPerson()))].sort(),
     sources = [...new Set(L.map((l) => l.source).filter(Boolean))].sort(),
     lead = L.length
       ? `${counts.New} new · ${counts.Open} open${noReply ? ` · ${noReply} with no reply from us yet` : ""}${late ? ` · ${late} next step${1 === late ? "" : "s"} late` : ""}`
@@ -102395,7 +102527,7 @@ function scLeadsHtml() {
         last = scLastTouch(l),
         d = scDays(last),
         lateRow = l.nextDue && l.nextDue < td;
-      return `<tr data-scrow="${l.id}"><td class="name"><a href="#" data-scopen="${l.id}"><b>${esc(l.name)}</b></a>${l.commId ? '<div class="small muted">from a message</div>' : ""}</td><td>${esc(l.company || "")}</td><td class="small">${esc(l.email || "")}${l.email && l.phone ? "<br>" : ""}${esc(l.phone || "")}</td><td class="small">${esc(l.addr || "")}${l.buildingType ? `<div class="muted">${esc(l.buildingType)}${l.scope ? " · " + esc(l.scope) : ""}</div>` : ""}</td><td class="small">${esc(l.source || "—")}</td><td><span class="pill ${SC_PILL[st] || "neutral"}">${st}</span></td><td class="small">${esc(l.owner || "Owner")}</td><td class="small ${null != d && d >= 7 && !["Unqualified", "Junk"].includes(st) ? "warn" : "muted"}">${last ? hbRel(last) : "—"}</td><td class="small ${lateRow ? "bad" : ""}">${l.next ? `${esc(l.next)}${l.nextDue ? ` · ${fmt(l.nextDue)}` : ""}` : '<span class="muted">none set</span>'}</td><td class="acts">${["Unqualified", "Junk"].includes(st) ? `<button class="btn sm" data-screopen="${l.id}">Reopen</button>` : `<button class="btn sm primary" data-scconvert="${l.id}">Convert</button><button class="btn sm ghost" data-scunq="${l.id}" title="Unqualify">Unqualify</button>`}</td></tr>`;
+      return `<tr data-scrow="${l.id}"><td class="name"><a href="#" data-scopen="${l.id}"><b>${esc(l.name)}</b></a>${l.commId ? '<div class="small muted">from a message</div>' : ""}</td><td>${esc(l.company || "")}</td><td class="small">${esc(l.email || "")}${l.email && l.phone ? "<br>" : ""}${esc(l.phone || "")}</td><td class="small">${esc(l.addr || "")}${l.buildingType ? `<div class="muted">${esc(l.buildingType)}${l.scope ? " · " + esc(l.scope) : ""}</div>` : ""}</td><td class="small">${esc(l.source || "—")}</td><td><span class="pill ${SC_PILL[st] || "neutral"}">${st}</span></td><td class="small">${esc(l.owner || ownerPerson())}</td><td class="small ${null != d && d >= 7 && !["Unqualified", "Junk"].includes(st) ? "warn" : "muted"}">${last ? hbRel(last) : "—"}</td><td class="small ${lateRow ? "bad" : ""}">${l.next ? `${esc(l.next)}${l.nextDue ? ` · ${fmt(l.nextDue)}` : ""}` : '<span class="muted">none set</span>'}</td><td class="acts">${["Unqualified", "Junk"].includes(st) ? `<button class="btn sm" data-screopen="${l.id}">Reopen</button>` : `<button class="btn sm primary" data-scconvert="${l.id}">Convert</button><button class="btn sm ghost" data-scunq="${l.id}" title="Unqualify">Unqualify</button>`}</td></tr>`;
     }).join("");
   return `<div class="ph"><div><h2>Leads</h2><div class="lead">${lead}</div></div><div class="acts"><button class="btn" id="sc-inbox">Messages</button><button class="btn primary" id="sc-newlead">New Lead</button></div></div>\n  <div class="ctabs" id="sc-tabs">${tabs.map(([k, n, c]) => `<button class="${scTab === k ? "on" : ""}" data-sctab="${k}">${n}<span class="n">${c || ""}</span></button>`).join("")}</div>\n  <div class="row sc-filters"><input class="q" id="sc-q" placeholder="Search name, company, email, property…" value="${esc(scQ)}"><select id="sc-owner"><option value="">All Owners</option>${owners.map((o) => `<option ${o === scOwner ? "selected" : ""}>${esc(o)}</option>`).join("")}</select><select id="sc-source"><option value="">All Sources</option>${sources.map((o) => `<option ${o === scSource ? "selected" : ""}>${esc(o)}</option>`).join("")}</select><span class="grow"></span><span class="small muted">${R.length} lead${1 === R.length ? "" : "s"}</span></div>\n  ${
     R.length
@@ -104580,7 +104712,7 @@ let tkFlash = "";
             projectId: "",
             project: "inquiry" === l.stage ? "Leads" : "Pipeline",
             title: `${l.next || "Follow up"} — ${l.leadName || l.name}${l.addr && !(l.name || "").includes(l.addr) ? " · " + l.addr : ""}`,
-            assignee: l.owner || "Owner",
+            assignee: l.assignee || l.owner || ownerPerson(),
             due: l.nextDue || "",
             priority: "",
             status: "todo",
@@ -110189,6 +110321,8 @@ const SD_DEMO_SEEDS = [
   "seedPOs",
   "altSeed",
   "biSeed",
+  // the sample budget plan (its versions, figures and history are invented): a firm's own records start with no plan
+  "budSeed",
   "bnSeedLessons",
   "cdSeed",
   "cmSeed",
@@ -133834,6 +133968,15 @@ function fin2RunClose(ym, reason) {
     return { ok: !1, why: "Say why you are closing with items still open" };
   const block = fin2CloseBlockers(ym);
   if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
+  // the audit trail must verify before a month is sealed on it (CoS 11-05): a close never records a head over a broken
+  // trail. The run is its own row on the trail.
+  const AV = auditVerifyRun(`before the ${fin3Label(ym)} close`);
+  if (!AV.ok) {
+    try {
+      save();
+    } catch (e) {}
+    return { ok: !1, audit: AV, why: `The audit trail does not verify, so ${fin3Label(ym)} cannot be closed on it: ${auditBrokenWords(AV)}. The close posted nothing and locked nothing. Open Accounting › Controls to see the row and its record; the controller or the Owner restores the trail before the close.` };
+  }
   glSync();
   const posted = [],
     end = fin2End(ym),
@@ -133939,6 +134082,12 @@ function fin2RunClose(ym, reason) {
     });
   try {
     audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
+  } catch (e) {}
+  // the trail's head as this close saw it, kept on the close record: re-sealing the whole trail later no longer matches
+  // it, and auditVerify says so (auditAnchors)
+  try {
+    auditSeal();
+    DB.auditHead && (rec.auditHead = { n: DB.auditHead.n, h: DB.auditHead.h });
   } catch (e) {}
   try {
     finCash._c = null;
@@ -140405,7 +140554,7 @@ if (
             // re-attribution is a new row, by the system, saying what it corrects (the trail stays verifiable)
             (DB.audit || []).filter((a) => a.refId === j.id && "approve" === a.action && a.by !== FIN3_SEED).forEach((a) => {
               a.h
-                ? audit("ledger", j.id, "approve", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
+                ? audit("ledger", j.id, "re-attributed", a.by, FIN3_SEED, "re-attributed: posted with the demo data at seed; nobody signed it and no statement is on file (the earlier row named " + a.by + ")", { by: FIN3_SEED, role: "system" })
                 : ((a.by = FIN3_SEED), (a.role = "system"), (a.note = "posted with the demo data at seed; nobody signed it and no statement is on file"));
             }),
             n++;
@@ -147561,12 +147710,18 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row)
-    return "credit" === row.kind
-      ? blCreditAct(row)
-      : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
-        ? rtbAct(row.key)
-        : blOpenRow(row);
+  if (!row) return;
+  if ("credit" === row.kind) return blCreditAct(row);
+  if ("ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))) return rtbAct(row.key);
+  blOpenRow(row);
+  // the queue's draft row reopens the draft already written: it says so, as the client's New Invoice does (slBillRun),
+  // so the person knows nothing new was made (BACKLOG §1.36: it opened the invoice with no word)
+  if ("draft" === row.kind && row.inv && row.client) {
+    const c = row.client,
+      go = () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: row.inv.id }), render()),
+      msg = `${row.inv.number || "The invoice"} drafted already${row.inv.title ? ` (${row.inv.title})` : ""}: review it, then Send to Client`;
+    "function" == typeof rcToast ? rcToast(msg, [{ label: "Open", run: go }]) : toast(msg, go);
+  }
 }
 // A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
 // draft opens for review. Nothing is sent from here.
@@ -155429,10 +155584,98 @@ function budPosted(ent, y) {
 }
 function budPlan() {
   (DB.budgetPlan && Array.isArray(DB.budgetPlan.versions) && DB.budgetPlan.versions.length) || budSeed();
+  // a firm's own records start with no plan (budSeed is a demo seed): the plan is empty until a person makes one
+  (DB.budgetPlan && Array.isArray(DB.budgetPlan.versions)) || (DB.budgetPlan = { versions: [], active: {}, audit: [], comments: {}, threshold: { pct: 10, amt: 2500 } });
+  DB.budgetPlan.sampleChecked || !budFirmOwn() || budSampleCleanup();
   const P = DB.budgetPlan;
   return (P.audit = P.audit || []), (P.comments = P.comments || {}), (P.active = P.active || {}), P;
 }
+// ---- The sample plan a firm's own records received before budSeed was a demo seed (11-05) ---------------------------
+// A team workspace's first budget read wrote the demo's plan (Original, Reforecast Q3, Working Draft: invented revenue
+// and costs, and a history stamped "Owner", later "system (setup)"). A budget figure the firm never made read as
+// theirs, and it is already on the server. Once per plan, on a firm's own records: the sample plan nobody touched is
+// removed, with an audit row by the system; one a person has worked on is kept and flagged for the owner; nothing a
+// person made is removed. Untouched: exactly the seed's three versions under the seed's names and stamps, every row of
+// its history the seed's own (the seed writes no time; a person's act always has one), and no commentary.
+const BUD_SAMPLE = { bv_orig: /^Original \d{4}$/, bv_rf3: /^Reforecast Q3$/, bv_draft: /^Working Draft — Q4 Update$/ };
+const BUD_SAMPLE_BY = ["Owner", "Controller", "system (setup)", DEMO_OWNER];
+function budSampleState(P) {
+  const V = (P && P.versions) || [];
+  if (!V.length || !V.every((v) => BUD_SAMPLE[v.id]) || V.length !== Object.keys(BUD_SAMPLE).length) return "";
+  if (!V.every((v) => BUD_SAMPLE[v.id].test(v.name || "") && [v.createdBy, v.lockedBy].filter(Boolean).every((b) => BUD_SAMPLE_BY.includes(b)))) return "";
+  const A = P.audit || [],
+    seedRows = A.filter((a) => !a.t && BUD_SAMPLE_BY.includes(a.by)),
+    worked = A.filter((a) => a.t && !["exported", "refused"].includes(a.act)),
+    said = Object.values(P.comments || {}).some((m) => Object.values(m || {}).some((c) => c && String(c.text || "").trim()));
+  if (!seedRows.length) return "";
+  return worked.length || said || A.length !== seedRows.length + A.filter((a) => a.t && ["exported", "refused"].includes(a.act)).length ? "edited" : "untouched";
+}
+// a firm's own records: the team's workspace, or a device whose demo data was wiped for live data (never a demo
+// workspace whose records the server holds: sdSeedsOff is true there too, and its sample plan is the demo's own)
+function budFirmOwn() {
+  try {
+    if ("undefined" != typeof window && window.__sdWs && "demo" === window.__sdWs.kind) return !1;
+    return !!(DB.__teamWs || ("undefined" != typeof window && window.__sdWs && "team" === window.__sdWs.kind) || DB.__liveData || DB.__wiped);
+  } catch (e) {
+    return !1;
+  }
+}
+function budSampleCleanup() {
+  const P = DB.budgetPlan;
+  if (!P || P.sampleChecked) return "";
+  const st = budSampleState(P),
+    names = (P.versions || []).map((v) => v.name).join(", ");
+  if ("untouched" === st) {
+    DB.budgetPlan = { versions: [], active: {}, audit: [], comments: {}, threshold: P.threshold || { pct: 10, amt: 2500 }, sampleChecked: "removed" };
+    try {
+      audit("budget", "sample-plan", "removed", { versions: (P.versions || []).map((v) => v.id) }, null, `removed the sample budget plan that setup added (${names}): its figures and history were the demo's, not the firm's, and nobody had edited it. A firm's own records start with no plan; New Budget Plan makes one.`, { by: "system", role: "system" });
+    } catch (e) {}
+  } else if ("edited" === st) {
+    P.sampleChecked = "kept";
+    try {
+      audit("budget", "sample-plan", "kept", null, null, `kept the sample budget plan that setup added (${names}): someone has worked on it since, so it stays for the owner to review`, { by: "system", role: "system" });
+    } catch (e) {}
+    try {
+      const t = crCreateTask({ title: "Review the budget plan: it began as the sample plan setup added", for: "firm", assignee: ownerPerson(), due: today(), priority: "high", area: "finance", notes: `${names} began as the demo's sample plan, with invented figures, and has been edited since, so it was kept. Check every figure is the firm's own, or start a New Budget Plan and remove this one.` });
+      t && t.rec && (t.rec.createdBy = "system");
+    } catch (e) {}
+  } else P.sampleChecked = "no sample";
+  try {
+    save();
+  } catch (e) {}
+  return st;
+}
 const budVer = (id) => budPlan().versions.find((v) => v.id === id) || null;
+// No plan yet (a firm's own records before anyone makes one): every budget surface says so and offers New Budget
+// Plan, never a crash and never a $0 budget dressed as a plan.
+const budNone = (y) => !budActiveVer(y);
+const BUD_NONE_WORDS = "No budget plan yet: nothing here is compared with a plan until the firm makes one.";
+// o.plain: the page already has its one blue button (Financial Statements' Pack), so this one is plain
+function budNoneHtml(where, o) {
+  return `<div class="bud-none" data-budnone="${esc(where || "")}"><h3>No Budget Plan Yet</h3><p class="small muted">${esc(BUD_NONE_WORDS)} The actuals are in the ledger and the reports as always.</p>${budCanEdit() ? `<button type="button" class="btn${o && o.plain ? "" : " primary"}" data-budnewplan>New Budget Plan</button>` : '<p class="small muted">The Owner or the controller makes the plan.</p>'}</div>`;
+}
+// New Budget Plan: the first version of the year, empty, a draft the person fills in (budNewVersion)
+function budNewPlanDialog() {
+  if (!budCanEdit()) return void toast("The Owner or the controller makes the budget plan");
+  const y = budYear();
+  mbModal("New Budget Plan", `<div class="f"><label>Name</label><input data-f="name" value="${esc(`${y} Budget`)}"></div><p class="small muted">An empty draft for ${esc(y)}, by entity, account and month. Fill it in, then lock it and make it active.</p>`, {
+    submit: "Create the Plan",
+    onSubmit: (f) => {
+      const nv = budNewVersion(String((f && f.name) || "").trim() || `${y} Budget`, "");
+      if (!nv) return !1;
+      const P = budPlan();
+      P.active[nv.year] || (P.active[nv.year] = nv.id);
+      (budScrVer = nv.id), save(), (view = "budget"), render();
+      budToast(`${nv.name} created as an empty draft`, () => {
+        (budScrVer = nv.id), (view = "budget"), render();
+      });
+    },
+  });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-budnewplan]") : null;
+  b && (e.preventDefault(), budNewPlanDialog());
+});
 function budActiveVer(y) {
   const P = budPlan();
   return (y = y || budYear()), budVer(P.active[y]) || P.versions.find((v) => v.year === y) || null;
@@ -155681,6 +155924,13 @@ function budJobPart(p, y) {
   );
 }
 function budSeed() {
+  // The plan's history names the demo's people only in the demo. On a firm's own records (a team workspace, live data)
+  // nobody made or locked these versions: the system set them up, and it says so. A demo name never reaches a real
+  // firm (team_ws_test: "Maren Holloway" in the team workspace's budget history, 11-05), and a real person is never
+  // stamped with an act they did not do (BACKLOG §1.36, stamps with no action behind them).
+  const live = "function" == typeof sdSeedsOff && sdSeedsOff(),
+    byOwner = live ? "system (setup)" : DEMO_OWNER,
+    byCtl = live ? "system (setup)" : "Controller";
   const y = budYear(),
     P = (DB.budgetPlan = {
       versions: [],
@@ -155740,9 +155990,9 @@ function budSeed() {
     months = (from, to, val) => BUD_MONTHS.map((x, m) => (m >= from && m <= to ? val : 0)),
     O = mk("bv_orig", `Original ${y}`, "original", "locked", {
       createdOn: `${y}-01-05`,
-      createdBy: "Owner",
+      createdBy: byOwner,
       lockedOn: `${y}-01-09`,
-      lockedBy: "Owner",
+      lockedBy: byOwner,
       lockNote: "Approved at the January planning meeting",
       basisNote:
         "Opening run-rate for overhead; construction from June and design from April at the plan volume",
@@ -155772,9 +156022,9 @@ function budSeed() {
       );
   const R = mk("bv_rf3", "Reforecast Q3", "reforecast", "locked", {
     createdOn: `${y}-07-31`,
-    createdBy: "Controller",
+    createdBy: byCtl,
     lockedOn: `${y}-08-03`,
-    lockedBy: "Owner",
+    lockedBy: byOwner,
     lockNote: "Q3 reforecast approved: actuals through July, the three signed jobs on their schedules",
     basisNote:
       "Actuals January–July; August–December from the jobs under contract and the March–July overhead run-rate",
@@ -155809,7 +156059,7 @@ function budSeed() {
       );
   const D = mk("bv_draft", "Working Draft — Q4 Update", "draft", "open", {
     createdOn: `${y}-09-02`,
-    createdBy: "Controller",
+    createdBy: byCtl,
     basisNote:
       "Copy of Reforecast Q3; insurance at the renewed premium and the two trade companies starting outside service work in October",
   });
@@ -155838,18 +156088,18 @@ function budSeed() {
       detail: detail,
     });
   return (
-    A(`${y}-01-05`, "Owner", O, "created", "From the January plan"),
-    A(`${y}-01-09`, "Owner", O, "locked", O.lockNote),
+    A(`${y}-01-05`, byOwner, O, "created", "From the January plan"),
+    A(`${y}-01-09`, byOwner, O, "locked", O.lockNote),
     A(
       `${y}-07-31`,
-      "Controller",
+      byCtl,
       R,
       "created",
       "Copy of the actuals through July plus the jobs under contract",
     ),
-    A(`${y}-08-03`, "Owner", R, "locked", R.lockNote),
-    A(`${y}-08-03`, "Owner", R, "made active", "Reports read Reforecast Q3 from August"),
-    A(`${y}-09-02`, "Controller", D, "created", "Copy of Reforecast Q3"),
+    A(`${y}-08-03`, byOwner, R, "locked", R.lockNote),
+    A(`${y}-08-03`, byOwner, R, "made active", "Reports read Reforecast Q3 from August"),
+    A(`${y}-09-02`, byCtl, D, "created", "Copy of Reforecast Q3"),
     P
   );
 }
@@ -156324,6 +156574,11 @@ if (
   repPack = function () {
     let h = repPackBase_bud.apply(this, arguments);
     try {
+      const ym = (void 0 !== packMonth && packMonth) || today().slice(0, 7);
+      if (budNone(ym.slice(0, 4)))
+        return h
+          .replace(/ · budget [−-]?\$[\d,.]+(?=<\/span>)/, "")
+          .replace(/<h3 class="rep-h">2 · P&L vs budget \(YTD\)<\/h3><div class="tw">[\s\S]*?<\/table><\/div>/, () => `<h3 class="rep-h">2 · P&L vs Budget</h3>${budNoneHtml("pack", { plain: 1 })}`);
       const t = budPackTable();
       t &&
         (h = h.replace(
@@ -156573,6 +156828,7 @@ function budPhoneHtml(v) {
   }</div>\n    <p class="small muted">Read view. Edit the budget on a larger screen.</p>`;
 }
 function budScreenHtml() {
+  if (!budScrV()) return `<div class="ph"><div><h2>Budget</h2><p class="lead">The operating budget by entity, account and month.</p></div></div><section class="card">${budNoneHtml("budget")}</section>`;
   const P = budPlan(),
     v = budScrV(),
     phone = vw() < 700,
@@ -156893,6 +157149,7 @@ function renderBudget() {
   const host = document.getElementById("budget-body");
   if (!host) return;
   host.innerHTML = budScreenHtml();
+  if (!budScrV()) return;
   const v = budScrV(),
     ent = "all" === budScrEnt ? "" : budScrEnt,
     q = (s) => host.querySelector(s);
@@ -157417,7 +157674,7 @@ void 0 !== ASK_INTENTS &&
       if (!S2.v)
         return {
           headline: `There is no ${y} budget.`,
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157467,7 +157724,7 @@ void 0 !== ASK_INTENTS &&
       if (!S2.v)
         return {
           headline: "There is no budget for that year.",
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157523,7 +157780,7 @@ void 0 !== ASK_INTENTS &&
       if (!v)
         return {
           headline: "There is no budget for that period.",
-          note: "Budgets are kept under Accounting › Budget.",
+          note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
           work: [],
           go: { view: "budget" },
           kind: "fin-budget",
@@ -157587,7 +157844,7 @@ void 0 !== ASK_INTENTS &&
         if (!v)
           return {
             headline: `There is no ${y} budget.`,
-            note: "Budgets are kept under Accounting › Budget.",
+            note: "function" == typeof budNone && budNone() ? "No budget plan yet: the Owner or the controller makes one with New Budget Plan, on Books, Operating Budget." : "Budgets are kept under Accounting › Budget.",
             work: [],
             go: { view: "budget" },
             kind: "fin-budget",
@@ -182265,7 +182522,7 @@ const RFQ_REGIONS = ["NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT",
     return p ? shortName(p) : "";
   },
   rfqVendor = (id) => (DB.vendors || []).find((v) => v.id === id) || null,
-  rfqMe = () => ((typeof currentUser == "function" && currentUser()) || {}).name || "Owner",
+  rfqMe = () => ((typeof currentUser == "function" && currentUser()) || {}).name || ownerPerson(),
   rfqUserOf = (r) => (DB.users || []).find((u) => u.role === r) || null,
   rfqIdOf = (p) => p + Math.random().toString(36).slice(2, 8);
 function rfqHist(r, what, note) {

@@ -223,7 +223,7 @@ async def sec_approve(p, c):
     reply = await pg.evaluate("() => { const m = paInit().thread.slice(-1)[0]; return m.confirm ? m.text : '' }")
     c.ok('Sent to Window Works' in t and 'Open' in t, f'a toast says who it went to, with Open: {t!r}')
     c.ok(reply.startswith('Sent to Window Works'), f'and a short reply in the conversation says so: {reply!r}')
-    c.ok(o['by'] == 'Owner', f'the person approved and sent it: {o}')
+    c.ok(o['by'] == OWNER, f'the person approved and sent it: {o}')
     gone = await pg.evaluate("id => !paBriefModel(true).needs.some(x => x.key === 'q:draft:' + id)", oid)
     c.ok(gone, 'once sent it is off the briefing')
     # Not Now: off the briefing until the next working day, with a reply that carries Undo
