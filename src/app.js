@@ -9191,8 +9191,14 @@ const DOC_EDIT_KEYS = [
     "internal", "internalNotes", "scheduleDays", "retainagePct", "depositPct", "billFrom", "template", "mode",
     "estimateId", "taskId", "clientId", "exhibits",
   ],
+  // A line's derived fields are not edits: its number (ctNumber writes l.num when a sheet lists the lines, such as
+  // Purchase Orders from Lines) read as a change, and leaving the estimate toasted "Kept your changes" when nothing
+  // was typed (the field expert, 11-05). The snapshot leaves them out; a real edit still reads as one.
+  DOC_DERIVED_LINE = ["num"],
+  docSnapLine = (l) => (l && "object" == typeof l ? Object.fromEntries(Object.entries(l).filter(([f]) => !DOC_DERIVED_LINE.includes(f))) : l),
   docSnap = (d) => (
-    "construction" === d.template && ctNumber(d), JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, d[k]]))
+    "construction" === d.template && ctNumber(d),
+    JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, "lines" === k && Array.isArray(d[k]) ? d[k].map(docSnapLine) : d[k]]))
   ),
   docDirty = (d) => void 0 !== d._base && d._base !== docSnap(d);
 function docMark(d) {
