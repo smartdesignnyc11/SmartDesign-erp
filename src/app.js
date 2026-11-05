@@ -1950,7 +1950,9 @@ function poRecvWords(po) {
 // A subcontract is not a delivery: its progress is measured on the job or approved on its bill, never received (the
 // field expert: the foreman received the $76,000 Carlos subcontract "in full" in two taps, 15 days early, and that
 // cleared its $38,000 balance bill). Every receive entry asks this first.
-const poIsSub = (po) => !!po && "subcontract" === po.type;
+// The type alone is a guess (vendorDefaultType calls a tile supply house's 1 ls order a subcontract), so a subcontract
+// here is one the books treat as one: retainage held, or a subcontract agreement behind it.
+const poIsSub = (po) => !!po && "subcontract" === po.type && (+po.retainagePct > 0 || !!po.sc || !!po.subId);
 const poSubWords = (po) => `${po.number} is a subcontract with ${po.vendor}: its progress is measured on the job and approved on its bill, not received`;
 function poPaid(po) {
   return DB.txns.filter((t) => (po.matchedTxns || []).includes(t.id)).reduce((a, t) => a - t.amt, 0);
@@ -74666,7 +74668,7 @@ function cmRead(c) {
     push(
       "bill",
       amt
-        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}${"subcontract" === poOf.type ? ", a subcontract: approve it against the work in place" : (poOf.lines || []).some((l) => +l.received > 0) ? ", to be matched to what was received" : ", and nothing on it has been received yet: hold it until it arrives"}` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}${poIsSub(poOf) ? ", a subcontract: approve it against the work in place" : (poOf.lines || []).some((l) => +l.received > 0) ? ", to be matched to what was received" : ", and nothing on it has been received yet: hold it until it arrives"}` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
         : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
