@@ -295,7 +295,7 @@ async def s_field(pg, c, dev, phone):
          f'FIELD {dev}: the foreman\'s Arriving Today says what, when, where and the note, and no money ({row!r})')
     pad = await js(pg, r"""() => { const r = [...document.querySelectorAll('.view.on .f3-row.late')].filter(x => x.offsetParent);
       return r.map(x => { const t = x.querySelector('b'); return t ? Math.round(t.getBoundingClientRect().left - x.getBoundingClientRect().left) : 99; }); }""")
-    c.ok(all(p >= 8 for p in pad), f'FIELD {dev}: a late row on Arriving Today keeps its title clear of the edge; the .f-row stripe is lane T1's (title offsets {pad})')
+    c.ok(all(p >= 8 for p in pad), f'FIELD {dev}: a late row on Arriving Today keeps its title clear of the edge; the .f-row stripe is lane T1\'s (title offsets {pad})')
     fl = await js(pg, "() => { const b = document.getElementById('rp-btn'); if (!b) return null; const r = b.getBoundingClientRect(); return [b.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; }")
     c.ok(fl and fl[0] == 'Report an App Problem' and fl[1] >= 44 and fl[2] >= 44, f'FIELD {dev}: the header flag reads Report an App Problem and is 44px ({fl})')
     if phone:
