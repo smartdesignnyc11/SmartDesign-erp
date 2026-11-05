@@ -520,7 +520,7 @@ async def s_owner(p, c):
             c.ok(o['exp'] != '2028-09-28' and o['h'] == 0 and o['draft'] and o['task'], f'owner: the draft is saved on the renewal task and nothing is recorded as filed ({o})')
             c.ok(await listed(pg, 'u_owner', 'biennial'), 'owner: drafted, not filed, it stays on Do Now')
         await pg.evaluate("() => { view = 'obligations'; render(); }"); await pg.wait_for_timeout(300)
-        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on [data-bnobrec]')].find(x => x.getClientRects().length && /biennial/i.test((x.closest('tr') || {}).innerText || ''));
+        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on button')].find(x => x.getClientRects().length && /^Record the Filing$/.test(x.innerText.trim()) && /biennial/i.test((x.closest('.yd-row, tr') || {}).innerText || ''));
           b && b.click(); return b ? b.innerText.trim() : ''; }""")
         await pg.wait_for_timeout(300)
         m = await modal(pg)
@@ -541,12 +541,12 @@ async def s_owner(p, c):
     b, pg, errs = await open_app(p, phone=True)
     try:
         await sign_in(pg, 'u_owner'); await go(pg, 'obligations'); await pg.wait_for_timeout(300)
-        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on [data-bnobrec]')].find(x => /biennial/i.test((x.closest('tr') || {}).innerText || ''));
+        r = await pg.evaluate("""() => { const b = [...document.querySelectorAll('.view.on button')].find(x => /^Record the Filing$/.test(x.innerText.trim()) && /biennial/i.test((x.closest('.yd-row, tr') || {}).innerText || '')); b && b.setAttribute('data-flowrec', '1');
           if (!b || !b.getClientRects().length) return { shown: false };
           const r = b.getBoundingClientRect(); return { shown: true, h: Math.round(r.height), right: Math.round(r.right), w: innerWidth }; }""")
         c.ok(r.get('shown') and r['h'] >= 44 and r['right'] <= r['w'], f'owner phone: Record the Filing is on the Obligations row, 44px, on screen ({r})')
         if r.get('shown'):
-            await pg.locator('.view.on [data-bnobrec]:visible').first.click(timeout=4000); await pg.wait_for_timeout(300)
+            await pg.locator('[data-flowrec]').first.click(timeout=4000); await pg.wait_for_timeout(300)
             m = await modal(pg)
             c.ok(m and m['title'].startswith('Record the Filing') and m['fields'].get('on') == '', f"owner phone: it opens Record the Filing with Filed On empty ({m and (m['title'], m['fields'])})")
         c.ok(not errs, f'owner phone: page errors {errs[:2]}')

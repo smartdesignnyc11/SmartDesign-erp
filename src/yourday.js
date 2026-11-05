@@ -152,7 +152,7 @@ function ydChipsHtml(defs, on, group) {
 }
 // a row: {id, sec, title, meta, when, late, amt, act, primary, n}
 function ydRowHtml(r) {
-  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${r.act ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}</div>`;
+  return `<div class="yd-row${r.sel ? " sel" : ""}" data-ydrow="${esc(r.id)}"${r.sec ? ` data-sec="${esc(r.sec)}"` : ""}${null != r.n ? ` data-n="${esc(String(r.n))}"` : ""}${r.at ? ` data-at="${esc(r.at)}"` : ""} role="button" tabindex="0"><span class="yd-t"><b>${esc(r.title)}</b>${r.meta ? `<span>${esc(r.meta)}</span>` : ""}</span>${r.amt ? `<span class="yd-amt">${esc(r.amt)}</span>` : ""}${r.when ? `<span class="yd-when${r.late ? " late" : ""}">${esc(r.when)}</span>` : ""}${r.act ? `<button type="button" class="btn${r.primary ? " primary" : ""}" data-ydact="${esc(r.id)}">${esc(r.act)}</button>` : ""}${r.act2 ? `<button type="button" class="btn" data-ydact="${esc(r.id)}:2">${esc(r.act2)}</button>` : ""}</div>`;
 }
 function ydSectionHtml(title, n, note, rows, empty) {
   return `<section class="yd-card"><div class="yd-sh"><h3>${esc(title)}</h3>${null != n ? `<span class="n">${n}</span>` : ""}${note ? `<span class="note">${esc(note)}</span>` : ""}</div>${rows.length ? rows.map(ydRowHtml).join("") : `<div class="yd-empty">${esc(empty || "Nothing here.")}</div>`}</section>`;
@@ -569,7 +569,8 @@ function ydOwnerExc(appr) {
   (appr || []).forEach((it) => {
     if (ydBrainKind(it)) return;
     const w = ydExcWhy(it);
-    w.length && (it.ydWhy = w);
+    // a copy carries the why: the item is the queue's memoised answer (spdMemo), which a reader never writes into
+    w.length && (it = Object.assign({}, it, { ydWhy: w }));
     "bill" === it.kind && seen.add(it.id);
     out.push(it);
   });
