@@ -89,7 +89,7 @@ async def list_checks(c, pg, label, phone):
             # screen keeps the Due Soon chip
             n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tvview=\"b:week\"] .n') || document.querySelector('.view.on [data-t2view=\"week\"] .n'); return b ? +b.textContent : 0; }")
             c.ok(n == soon, f'{who}: the Due Soon number on the wide screen reads the same ({n} vs {soon})')
-        day = lambda g: g in ('Overdue', 'Late', 'Today', 'Tomorrow', 'No Date', 'Later On') or g.count(',') == 1
+        day = lambda g: g in ('Overdue', 'Late', 'Today', 'Tomorrow', 'No Date', 'Later On', 'Further Out') or g.count(',') == 1
         c.ok(soon == 0 or (m['groups'] and all(day(g) for g in m['groups'])), f'{who}: grouped by day ({m["groups"][:4]})')
         # one number: Today, Overdue and Due Soon, the list against the counts and Ask
         for v in ('today', 'overdue', 'week'):
