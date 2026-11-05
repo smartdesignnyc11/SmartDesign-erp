@@ -185045,6 +185045,28 @@ const pwFresh = () => (pwMemo = null);
 function pwData() {
   return pwMemoGet("data", pwBuild);
 }
+// The PO line a bill line pays for: its own link (poLineId), else the PO line whose item shares the bill line's words;
+// a bill of one goods line takes the one PO line on its estimate line, or the order's only line. Never by position.
+function pwBillPoLine(po, goods, l, desc, nBill) {
+  if (l.poLineId) return (po.lines || []).find((x) => x.id === l.poLineId) || null;
+  const words = (s) => String(pwNorm(s) || "").split(" ").filter((w) => w.length > 2),
+    W = words(desc);
+  let best = null,
+    bs = 0;
+  W.length &&
+    goods.forEach((x) => {
+      const H = words(x.item || x.desc || "");
+      if (!H.length) return;
+      const s = W.filter((w) => H.some((h) => h === w || (w.length > 3 && h.startsWith(w)) || (h.length > 3 && w.startsWith(h)))).length / Math.min(W.length, H.length);
+      s > bs && ((bs = s), (best = x));
+    });
+  if (bs >= 0.5) return best;
+  // a bill of one goods line: the one PO line on its estimate line, or the order's only line (the same estimate line can
+  // carry other things, as the windows line carries the brick mold, so this is never used for a bill of several lines)
+  if (1 !== nBill) return null;
+  const m = l.line ? goods.filter((x) => x.line === l.line) : [];
+  return 1 === m.length ? m[0] : 1 === goods.length ? goods[0] : null;
+}
 function pwBuild() {
   const rate = rfqTaxRate(),
     buys = [],
@@ -185077,23 +185099,38 @@ function pwBuild() {
       goodsLines = po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : [];
     let fee = 0,
       goods = 0;
-    const what = [];
+    const what = [],
+      // the bill's lines priced onto their PO lines (11-05, P3: WW-2026-118's $500 "Additional brick mold" line was laid on
+      // PO-2026-044's only line by position and read as the windows at $55.56/ea, with the bill listed twice): matched by the
+      // PO line id, the estimate line, or the item's words, never by position; amounts on one PO line add up, one source a bill
+      paid = new Map(),
+      billGoods = (b.lines || []).filter((l) => {
+        const d = String(l.desc || l.item || "").split(" — ")[0];
+        return !/^(sales |use )?tax\b/i.test(d) && !PW_FEE_RE.test(d);
+      });
     (b.lines || []).forEach((l, i) => {
       const desc = String(l.desc || l.item || "").split(" — ")[0],
         amt = +l.amount || 0,
         lid = l.id || `l${i}`;
       if (/^(sales |use )?tax\b/i.test(desc)) return;
       if (PW_FEE_RE.test(desc)) return (fee = r2(fee + amt)), void what.push(desc);
-      const pl = po && ((l.poLineId && po.lines.find((x) => x.id === l.poLineId)) || (1 === goodsLines.length ? goodsLines[0] : null)),
+      const pl = po && pwBillPoLine(po, goodsLines, l, desc, billGoods.length),
         B = pl && byId[`po:${po.id}:${pl.id}`];
       if (B) {
-        const q = +l.qty || +pl.qty || 0;
-        q > 0 && amt > 0 && ((B.paidPrice = pwR4(amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = lid), (B.billNo = b.number), (B.billDate = b.date), B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id }));
+        // a bill line with no quantity pays for the PO line as ordered (the windows: $33,000 for the 9 on the order)
+        const P = paid.get(B) || { amt: 0, q: 0, noQty: 0, lid: lid, pq: +pl.qty || 0 };
+        amt > 0 && ((P.amt += amt), +l.qty > 0 ? (P.q += +l.qty) : P.noQty++, paid.set(B, P));
         return void (goods += amt);
       }
       const q = +l.qty || 0;
       q > 0 && amt > 0 && add({ id: `bill:${b.id}:${lid}`, kind: "bill", date: b.date, vendor: b.vendor, projectId: b.projectId || "", item: desc, sku: l.sku || "", unit: l.unit, qty: q, price: +l.price || amt / q, code: l.code || b.code || "", line: l.line || b.line || "", billId: b.id, billLineId: lid, billNo: b.number, doc: "bill:" + b.id, docNo: b.number, src: { kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, billId: b.id } });
       goods += amt;
+    });
+    paid.forEach((P, B) => {
+      const q = P.noQty ? P.pq : P.q;
+      if (!(q > 0)) return;
+      (B.paidPrice = pwR4(P.amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = P.lid), (B.billNo = b.number), (B.billDate = b.date);
+      B.sources.some((s) => s.billId === b.id) || B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id });
     });
     if (fee > 0) {
       po && (fees = fees.filter((f) => f.id !== "po:" + po.id));
@@ -185221,11 +185258,14 @@ function itemPriceHistory(q, opts) {
     I && (I.alsoMatched = cand.slice(1, 4).map((x) => x.it.label));
   }
   if (!I) return null;
+  // opts.vendor or opts.vendorId: one vendor's history of the item (the vendor record's last, best and trend, 11-05)
+  const vn = o.vendorId ? ((DB.vendors || []).find((v) => v.id === o.vendorId) || {}).name || "" : o.vendor || "",
+    ofV = (L) => (vn ? L.filter((x) => String(x.vendor || "").toLowerCase() === String(vn).toLowerCase()) : L);
   const at = o.at || today(),
-    rows = I.buys.concat(o.quotes === !1 ? [] : I.quotes).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
-    buys = I.buys,
+    rows = ofV(I.buys.concat(o.quotes === !1 ? [] : I.quotes)).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
+    buys = ofV(I.buys),
     recent = iso(addDays(at, -pwSet().recentDays)),
-    rec = I.buys.concat(I.quotes).filter((x) => x.date >= recent && x.date <= at),
+    rec = ofV(I.buys.concat(I.quotes)).filter((x) => x.date >= recent && x.date <= at),
     best = rec.length ? rec.reduce((a, x) => (pwAdj(I, x.price, x.date, at) < pwAdj(I, a.price, a.date, at) ? x : a)) : null,
     last = buys[buys.length - 1] || null;
   return { key: I.key, label: I.label, cat: I.cat, unit: I.unit, rows: rows, n: buys.length, median: buys.length ? pwMedian(buys.map((x) => pwAdj(I, x.price, x.date, at))) : null, last: last && pwHistRow(last, I, at), best: best && pwHistRow(best, I, at), alsoMatched: I.alsoMatched || [], vendors: [...new Set(buys.map((x) => x.vendor))], item: I };
