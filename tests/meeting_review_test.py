@@ -38,7 +38,7 @@ SETUP = """([day]) => {
   DB.meetText = DB.meetText.filter(t => t.meetingId !== 'mt_live');
   const T = (h) => day + 'T' + h;
   // Meeting Mode's record (lane A's shape): what was on screen when, and what was changed live
-  DB.meetings.push({id: 'mt_live', title: 'Weekly Jobs', date: day, source: 'live', status: 'new', createdAt: day, proposals: [], attendees: ['Chen Biron', 'Alan', 'Angel', 'Owner'],
+  DB.meetings.push({id: 'mt_live', title: 'Weekly Jobs', date: day, source: 'live', status: 'new', createdAt: day, proposals: [], attendees: ['Chen Biron', 'Alan', 'Angel', '""" + OWNER + """'],
     owner: {uid: 'u_chen', name: 'Chen Biron'}, startedAt: T('09:59:30'),
     screenLog: [{taskKey: 'STA-21', from: T('10:00:40'), to: T('10:03:10')}, {taskKey: 'STA-22', from: T('10:03:10'), to: T('10:05:40')},
                 {taskKey: 'STA-23', from: T('10:05:40'), to: T('10:07:20')}, {taskKey: 'STA-24', from: T('10:07:20'), to: T('10:08:30')},
