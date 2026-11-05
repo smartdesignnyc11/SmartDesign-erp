@@ -155856,6 +155856,13 @@ function budJobPart(p, y) {
   );
 }
 function budSeed() {
+  // The plan's history names the demo's people only in the demo. On a firm's own records (a team workspace, live data)
+  // nobody made or locked these versions: the system set them up, and it says so. A demo name never reaches a real
+  // firm (team_ws_test: "Maren Holloway" in the team workspace's budget history, 11-05), and a real person is never
+  // stamped with an act they did not do (BACKLOG §1.36, stamps with no action behind them).
+  const live = "function" == typeof sdSeedsOff && sdSeedsOff(),
+    byOwner = live ? "system (setup)" : DEMO_OWNER,
+    byCtl = live ? "system (setup)" : "Controller";
   const y = budYear(),
     P = (DB.budgetPlan = {
       versions: [],
@@ -155915,9 +155922,9 @@ function budSeed() {
     months = (from, to, val) => BUD_MONTHS.map((x, m) => (m >= from && m <= to ? val : 0)),
     O = mk("bv_orig", `Original ${y}`, "original", "locked", {
       createdOn: `${y}-01-05`,
-      createdBy: DEMO_OWNER,
+      createdBy: byOwner,
       lockedOn: `${y}-01-09`,
-      lockedBy: DEMO_OWNER,
+      lockedBy: byOwner,
       lockNote: "Approved at the January planning meeting",
       basisNote:
         "Opening run-rate for overhead; construction from June and design from April at the plan volume",
@@ -155947,9 +155954,9 @@ function budSeed() {
       );
   const R = mk("bv_rf3", "Reforecast Q3", "reforecast", "locked", {
     createdOn: `${y}-07-31`,
-    createdBy: "Controller",
+    createdBy: byCtl,
     lockedOn: `${y}-08-03`,
-    lockedBy: DEMO_OWNER,
+    lockedBy: byOwner,
     lockNote: "Q3 reforecast approved: actuals through July, the three signed jobs on their schedules",
     basisNote:
       "Actuals January–July; August–December from the jobs under contract and the March–July overhead run-rate",
@@ -155984,7 +155991,7 @@ function budSeed() {
       );
   const D = mk("bv_draft", "Working Draft — Q4 Update", "draft", "open", {
     createdOn: `${y}-09-02`,
-    createdBy: "Controller",
+    createdBy: byCtl,
     basisNote:
       "Copy of Reforecast Q3; insurance at the renewed premium and the two trade companies starting outside service work in October",
   });
@@ -156013,18 +156020,18 @@ function budSeed() {
       detail: detail,
     });
   return (
-    A(`${y}-01-05`, DEMO_OWNER, O, "created", "From the January plan"),
-    A(`${y}-01-09`, DEMO_OWNER, O, "locked", O.lockNote),
+    A(`${y}-01-05`, byOwner, O, "created", "From the January plan"),
+    A(`${y}-01-09`, byOwner, O, "locked", O.lockNote),
     A(
       `${y}-07-31`,
-      "Controller",
+      byCtl,
       R,
       "created",
       "Copy of the actuals through July plus the jobs under contract",
     ),
-    A(`${y}-08-03`, DEMO_OWNER, R, "locked", R.lockNote),
-    A(`${y}-08-03`, DEMO_OWNER, R, "made active", "Reports read Reforecast Q3 from August"),
-    A(`${y}-09-02`, "Controller", D, "created", "Copy of Reforecast Q3"),
+    A(`${y}-08-03`, byOwner, R, "locked", R.lockNote),
+    A(`${y}-08-03`, byOwner, R, "made active", "Reports read Reforecast Q3 from August"),
+    A(`${y}-09-02`, byCtl, D, "created", "Copy of Reforecast Q3"),
     P
   );
 }
