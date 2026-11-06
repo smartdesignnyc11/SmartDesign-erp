@@ -438,10 +438,28 @@ M.sendCO = async (co, amt) => {
 };
 M.extras.coord = async (uid, cap, did) => {
   let n = await M.inbox(uid, 'coord', cap, did); const p = projOf('p121'); setCurrent(p.id);
-  // receive what is due today (it is on the foreman's Arriving list): Received, then Bill It
+  // receive what is due today (on Chen's Do Now and the foreman's Arriving list). The one receive sheet (P1, BACKLOG
+  // 1.36): Receive opens it, the count starts empty, so the person taps All Here on each line that came whole, then
+  // Record Receipt. A subcontract is never received (its progress is measured on site; see E229 in the book).
   for (const po of (DB.pos || []).filter(x => x.projectId === p.id && ['issued', 'partial'].includes(x.status) && x.expected && x.expected <= today())) {
-    if (n >= cap) break; const t0 = M.toasts.length; try { setCurrent(p.id); poAction(po, 'receive'); save(); render(); } catch (e) {}
-    n++; did('Deliveries', `${po.number} ${po.vendor}`, 'fn:Received', { steps: ['received ' + po.status], toast: M.toasts.slice(t0).join(' | ') });
+    if (n >= cap) break; const t0 = M.toasts.length, steps = [];
+    const sub = typeof poIsSub === 'function' && poIsSub(po);
+    // a subcontract's due date is its progress: the site measures it and the vendor's pay application is entered from
+    // the mail when it comes; the coordinator neither receives it nor makes up a bill for it here
+    if (sub) continue;
+    if (!sub) {
+      try {
+        setCurrent(p.id); poAction(po, 'receive'); await sleep(60);
+        const m = document.getElementById('mbm');
+        if (m && m.querySelector('[data-puall]')) {
+          m.querySelectorAll('[data-puall]').forEach(b => { b.click(); steps.push('All Here: ' + b.dataset.left); });
+          const ok = m.querySelector('#mbm-ok'); ok && ok.click(); await sleep(60); steps.push('Record Receipt');
+        } else steps.push('no receive sheet');
+        save(); render();
+      } catch (e) { steps.push('receive failed: ' + e.message); }
+      steps.push('received ' + po.status);
+      n++; did('Deliveries', `${po.number} ${po.vendor}`, 'fn:Receive (the one sheet)', { steps, toast: M.toasts.slice(t0).join(' | ') });
+    }
     if (n < cap && typeof lkBillPO === 'function') { try { const t1 = M.toasts.length; lkBillPO(po); const st = await M.drive(Object.assign({}, SAY.coord, { say: po.number + '-R' })); n++; did('Deliveries', po.number, 'fn:Bill It', { steps: st, toast: M.toasts.slice(t1).join(' | ') }); } catch (e) {} }
   }
   n < cap && (n += await M.doneMine(uid, cap - n, did));
@@ -689,6 +707,14 @@ M.check = (c, ev) => {
     case 'poEta': case 'poEtaAny': { const po = (DB.pos || []).find(p => c.number ? p.number === c.number : RX(c.vendor).test(p.vendor || ''));
       return [!!(po && po.expected === c.eta), po ? `${po.number} expected ${po.expected || 'no date'}` : 'no PO']; }
     case 'poStatus': { const po = (DB.pos || []).find(p => p.number === c.number); return [!!(po && c.status.includes(po.status)), po ? po.status : 'no PO']; }
+    // a subcontract is measured on site and billed by pay application, never received (P1, BACKLOG 1.36): the site's
+    // measurement, dated the event's day or later, lands on the subcontract's own line (scMeasured: the work in place its
+    // bills are approved against), and nothing on the subcontract was received as if it were a delivery
+    case 'subMeasured': { const po = (DB.pos || []).find(p => p.number === c.number); if (!po) return [false, 'no PO'];
+      const rec = (po.lines || []).some(l => +l.received > 0), sov = typeof scSov === 'function' ? scSov(po) : [], L = sov[0] || (po.lines || [])[0];
+      const m = L && typeof scMeasured === 'function' ? scMeasured(po, L) : null, onLine = !!(m && (m.taskIds || []).includes(c.taskId));
+      const ok = !rec && onLine && m.basis === 'measured' && String(m.on || '') >= after && (+m.pct || 0) >= (c.pct || 1) - 0.5;
+      return [ok, `${m ? `${Math.round(+m.pct || 0)}% ${m.basis}${m.on ? ' on ' + m.on : ''}${onLine ? '' : ' (not on its line)'}` : 'no measure'}${rec ? '; received as if a delivery' : ''}`]; }
     case 'coi': { const v = (DB.vendors || []).find(v => RX(c.vendor).test(v.name)); return [!!(v && v.insuranceExp && v.insuranceExp >= c.expAfter), v ? `insurance to ${v.insuranceExp || 'none on file'}` : 'vendor not on file']; }
     case 'outreach': { const s = sentAfter(c.to + (c.rx ? '|' + c.rx : ''), after, c.from); return [s.length > 0, s.length ? s.slice(0, 3).join(', ') : 'nothing went to them']; }
     case 'txn': { const T = txnsLike(c.desc, c.amt).filter(t => !c.after || t.date >= c.after);

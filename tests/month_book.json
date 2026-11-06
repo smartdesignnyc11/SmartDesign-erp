@@ -7020,26 +7020,29 @@
   {
    "id": "E229",
    "day": "2026-09-25",
-   "time": "08:00",
-   "kind": "due",
-   "actor": "the calendar",
-   "payload": {},
+   "time": "10:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "millpk",
+    "pct": 40,
+    "note": "Carlos delivered the parlor kitchen and laundry carcasses and set them in place"
+   },
    "expect": {
     "who": "u_chen",
-    "what": "Receive the Carlos carcasses (9/25) and bill the receipt against PO-2026-048",
+    "what": "Carlos's carcasses (9/25) are the millwork subcontract's progress: measured on site against PO-2026-048, never received as a delivery (P1, BACKLOG 1.36)",
     "by": 2,
     "see": [
      "PO-2026-048",
      "Carlos"
     ],
     "check": {
-     "t": "poStatus",
+     "t": "subMeasured",
      "number": "PO-2026-048",
-     "status": [
-      "received",
-      "partial",
-      "closed"
-     ]
+     "taskId": "millpk",
+     "pct": 40
     }
    },
    "tags": []

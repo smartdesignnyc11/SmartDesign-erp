@@ -1213,6 +1213,30 @@ async def s_route(p, c):
     finally:
         await b.close()
 
+async def s_duecard(p, c):
+    """The month on integ15 (E163): Tino's white oak due 9/18 was on none of Chen's Do Now cards. An order due today and
+    not all in is a card with Receive (the one sheet); a subcontract due today is a card with New Pay Application."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        await pg.evaluate("() => { DB.pos.find(x => x.number === 'PO-2026-047').expected = today(); DB.pos.find(x => x.number === 'PO-2026-048').expected = today(); save(); view = 'home'; render(); }")
+        await pg.wait_for_timeout(600)
+        A = await pg.evaluate("() => mApprovals().filter(x => x.kind === 'podue').map(x => [x.title, x.yes])")
+        tino = next((x for x in A if 'PO-2026-047' in x[0]), None)
+        carlos = next((x for x in A if 'PO-2026-048' in x[0]), None)
+        c.ok(tino and tino[1] == 'Receive' and 'due today' in tino[0], f"duecard: Tino's order due today is on Chen's Do Now with Receive ({A})")
+        c.ok(carlos and carlos[1] == 'New Pay Application', f"duecard: Carlos's subcontract due today is a pay application, not a receipt ({A})")
+        card = await pg.evaluate("""() => { const el = [...document.querySelectorAll('#v-home button')].find(b => b.getClientRects().length && b.innerText.trim() === 'Receive' && /PO-2026-047/.test((b.closest('.td-card, .h4r, .td-row, div') || b.parentElement).parentElement.innerText));
+          if (el) el.setAttribute('data-pt-due', '1'); return !!el; }""")
+        c.ok(card, "duecard: the Receive card is on Chen's Today")
+        if card:
+            await pg.locator('[data-pt-due]').first.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Receive Some' in m['title'] and 'PO-2026-047' in m['title'], f"duecard: its Receive opens the one receive sheet ({m and m['title']!r})")
+        c.ok(not errs, f'duecard: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 async def s_leaks(p, c):
     """The money leaks the review found (BACKLOG section 9, items 4, 5 and 7), each caught where the person works."""
     b, pg, errs = await fresh(p)
@@ -1349,7 +1373,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('cap', s_cap), ('selrecv', s_selrecv), ('claimclose', s_claimclose), ('route', s_route), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('cap', s_cap), ('selrecv', s_selrecv), ('claimclose', s_claimclose), ('route', s_route), ('duecard', s_duecard), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
