@@ -2120,7 +2120,11 @@ function tvPhoneHead(host) {
     q = (attr, v, on, label, n) => `<button type="button" class="tv-qc ${on ? "on" : ""}" ${attr}="${esc(v)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}${null != n ? `<span class="n">${n}</span>` : ""}</button>`;
   line.insertAdjacentHTML(
     "afterend",
-    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting On", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
+    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting On", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>${(() => {
+      // the Tasks badge's own count on its page (Alan, 11-06): late plus due today, one tap to those rows
+      const n = "home" === t2Ctx() && "me" === tkWho && !tkProject ? tkTasksBadgeN() : 0;
+      return n ? `<button type="button" class="tv-tdline no-print" data-tvqv="today" data-ocbadge="tkall" aria-pressed="${"today" === t2View}">${tvSvg("clock", 14)}<span><b>${n}</b> late or due today</span></button>` : "";
+    })()}
 ${tvPhoneFilterChips()}<div class="tv-qaw no-print"><div class="tv-qa"><button type="button" class="tv-qa-plus" data-tvqaopen aria-label="New task with details" title="New task with details">${tvSvg("plus", 18)}</button><input class="tv-qa-in" data-tvqa aria-label="Add a task" placeholder="Add a task, e.g. “Call Carlos tomorrow”" enterkeyhint="done" autocomplete="off"><button type="button" class="tv-qa-mic" data-tvqamic aria-label="Speak a task" title="Speak a task"><span>${tvSvg("mic", 18)}</span></button></div></div>`,
   );
 }
@@ -4346,6 +4350,8 @@ textarea.tv-fin{min-height:120px;resize:vertical}
   #v-tkall .tv-phhd .tk2-q{flex:1 1 0;min-width:0}
   /* the filter that is on, as chips with an X (capture 11-05 #3), and the parsed sentence before it is saved (#3) */
   #v-tkall .tv-phf{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px 0;background:#fff}
+  #v-tkall .tv-tdline{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;margin:0;padding:0 16px;border:0;background:#fff;color:var(--tv-late,#b3261e);font-size:13px;text-align:left;cursor:pointer}
+  #v-tkall .tv-tdline[aria-pressed="true"]{font-weight:600}
   #v-tkall .tv-phfc{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border:1px solid #C9D3E6;border-radius:999px;background:#EEF3FC;color:var(--tv-accent,#1F4FB8);font-size:13px;font-weight:600;cursor:pointer}
   #v-tkall .tv-on .tk2-hline .tk2-ic,#v-tkall .tv-filterbtn{flex:0 0 44px;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border-radius:12px;border:0;background:#F1F3F6;color:var(--tv-ink)}
   #v-tkall .tv-phhd .tk2-q{flex:1 1 auto;min-width:0;height:44px;border-radius:12px}
