@@ -22,7 +22,16 @@ MOCK_JS = r"""
   window.supabase = {createClient: () => ({
     auth: {
       getSession: async () => ({data: {session: await call('session')}}),
-      onAuthStateChange() {}, signInWithPassword: async () => ({data: {session: await call('session')}}),
+      onAuthStateChange() {},
+      // a device opened signed out (open_hosted(..., signed_out=True)) signs in through the real screen: the email names
+      // the person; the sign-in lasts through a reload, as Supabase's stored session does
+      signInWithPassword: async (c) => {
+        const id = JSON.parse(await window.__srv('', 'uidFor', JSON.stringify((c && c.email) || '')));
+        if (!id) return {data: {session: null}, error: {message: 'Invalid login credentials'}};
+        window.__mockUid = id;
+        try { sessionStorage.setItem('__mockUid', id); } catch (e) {}
+        return {data: {session: await call('session')}, error: null};
+      },
       signInWithOtp: async () => ({}), resetPasswordForEmail: async () => ({}), signInWithOAuth: async () => ({}), signOut: async () => ({}),
     },
     rpc: async (fn, args) => { const r = await call('rpc', {fn, args}); return r && r.__error ? {data: null, error: {message: r.__error}} : {data: r, error: null}; },
@@ -74,6 +83,8 @@ class Server:
     async def handle(self, uid, op, raw):
         a = json.loads(raw) if raw else None
         p = self.profiles.get(uid)
+        if op == 'uidFor':
+            return json.dumps(next((k for k, x in self.profiles.items() if x['email'] == a), None))
         if op == 'session':
             return json.dumps({'user': {'id': uid, 'email': p['email']}, 'access_token': 'tok-' + uid} if p else None)
         if not p: return json.dumps({'__error': 'not signed in'})
@@ -135,17 +146,26 @@ class Server:
             return json.dumps(None)
         return json.dumps({'__error': 'unknown op ' + op})
 
-async def open_hosted(browser, server, url, uid, phone=False, when='2026-10-26T13:30:00Z'):
-    """A device signed in as `uid` (a key of server.profiles) on the hosted copy, its clock at `when` (the wall clock)."""
+async def open_hosted(browser, server, url, uid, phone=False, when='2026-10-26T13:30:00Z', signed_out=False, at_signin=None):
+    """A device signed in as `uid` (a key of server.profiles) on the hosted copy, its clock at `when` (the wall clock).
+    signed_out: the device opens at the sign-in screen with no records (DB is null), as every new device and every live
+    check does, and the person signs in through the form; `at_signin(pg)` runs on that screen first. The 11-06 release
+    broke there only: a page-wide click listener read DB.users on the Sign In tap, which no signed-in boot ever made."""
     from harness import DESKTOP, PHONE
     ctx = await browser.new_context(viewport=PHONE if phone else DESKTOP, is_mobile=phone, has_touch=phone)
     await ctx.expose_function('__srv', server.handle)
-    await ctx.add_init_script(f'window.__mockUid = {json.dumps(uid)};')
+    if signed_out: await ctx.add_init_script("window.__mockUid = (() => { try { return sessionStorage.getItem('__mockUid') || ''; } catch (e) { return ''; } })();")
+    else: await ctx.add_init_script(f'window.__mockUid = {json.dumps(uid)};')
     pg = await ctx.new_page()
     errs = []
     pg.on('pageerror', lambda e: errs.append(str(e)))
     if when: await pg.clock.install(time=when)
     await pg.goto(url)
+    if signed_out:
+        await pg.wait_for_selector('#cl-email', timeout=60000)
+        if at_signin: await at_signin(pg)
+        await pg.fill('#cl-email', server.profiles[uid]['email']); await pg.fill('#cl-pass', 'invented-password')
+        await pg.click('#cl-form button[type=submit]')
     await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=90000)
     await pg.wait_for_timeout(600)
     return ctx, pg, errs
