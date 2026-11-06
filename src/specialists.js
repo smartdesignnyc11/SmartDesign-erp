@@ -300,7 +300,7 @@ const RS_SRC = {
   books10: () => rsRule("books10"),
   overPO: () => rsCatch("overPO"),
   noPO: () => rsRule("poBeforeOrder"),
-  vendorsBlocked: () => (PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : []).map((v) => ({ key: "vblock:" + v.id, what: `${v.name}: ${v.insuranceExp ? "insurance expired " + fmtL(v.insuranceExp) : "no insurance certificate on file"}`, sub: "an order is open with them: no new PO, no payment until it lands", amount: 0, run: () => setView("vendors"), rec: { v: v } })),
+  vendorsBlocked: () => (PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : []).map((v) => ({ key: "vblock:" + v.id, what: `${v.name}: ${v.insuranceExp ? "insurance expired " + fmtL(v.insuranceExp) : "no insurance certificate on file"}`, sub: "an order of theirs brings them on site: no new PO, no payment until it lands", amount: 0, run: () => setView("vendors"), rec: { v: v } })),
   payHoldPapers: () =>
     ("function" == typeof pcHeldBills ? pcHeldBills() : [])
       .filter((x) => x.R.holds.some((h) => ["papers", "w9"].includes(h.key)))
