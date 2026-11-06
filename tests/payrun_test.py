@@ -3,7 +3,7 @@ person who keyed a bill can never release its payment, so the controller prepare
 releases it in one tap; billing releases it while the owner is away. Desktop and phone.
 Run: python3 payrun_test.py"""
 import asyncio
-from harness import async_playwright, open_app, sign_in, Checks
+from harness import async_playwright, open_app, sign_in, Checks, OWNER
 
 # two approved bills from a vendor with its papers on file, keyed by the coordinator (the demo has none approved)
 SETUP = """() => { const v = DB.vendors.find(x => x.name === 'Nemo Tile'); v.w9 = true; v.w9On = today();
@@ -40,12 +40,19 @@ async def main():
             r = await pg.evaluate("() => mApprovals().filter(x => x.kind === 'payrun').map(x => [x.title, x.n, x.who])")
             c.ok(len(r) == 1 and r[0][2] == 'owner', f'{tag}: one Payment Run card in the owner Approvals ({r})')
             c.ok(await pg.evaluate("() => { signIn('u_controller'); const n = mApprovals().filter(x => x.kind === 'payrun').length; signIn('u_owner'); return n }") == 0, f'{tag}: not in the controller Approvals')
+            # Approvals is Today's Approvals chip for the office (7945df7, 11-03, Your Day built to the reviewed mock-ups:
+            # ydForward sends 'mapprove' to Today with the Approvals tab); the run's card there carries Release. This check
+            # looked for the old Approvals page's .m-appr card, found none and tapped nothing, so the run stayed prepared.
             await pg.evaluate("() => { view = 'mapprove'; render(); }"); await pg.wait_for_timeout(300)
-            hit = await pg.evaluate("() => { const el = document.querySelector('.m-appr[data-mk=\"payrun\"] [data-myes]'); if (el) el.click(); return !!el }")
+            hit = await pg.evaluate("""() => { const btn = [...document.querySelectorAll('.view.on button')].find(b => b.getClientRects().length && b.innerText.trim() === 'Release'
+                && /Payment Run/.test((b.closest('.td-card, .td-row, .h4r, .m-appr') || b.parentElement.parentElement || b).innerText));
+              if (btn) btn.click(); return !!btn }""")
             await pg.wait_for_timeout(600)
             r = await pg.evaluate("""() => { const run = (DB.payRuns || [])[0]; const P = (DB.payments || []).filter(x => x.run === run.id);
-              return { st: run.status, by: run.releasedBy, me: currentUser().name, n: P.length, payBy: [...new Set(P.map(x => x.by))], paid: run.paid, total: run.total, checked: P.every(x => x.check && x.check.pass), toast: document.getElementById('toast').innerText } }""")
+              return { st: run.status, by: run.releasedBy, me: currentUser().name, n: P.length, payBy: [...new Set(P.map(x => x.by))], paid: run.paid, total: run.total, checked: P.every(x => x.check && x.check.pass), toast: document.getElementById('toast').innerText,
+                audBy: (DB.audit || []).filter(a => a.refId === run.id && a.action === 'released').map(a => a.by) } }""")
             c.ok(hit and r['st'] == 'released' and r['n'] >= 1 and r['payBy'] == [r['me']] and r['by'] == r['me'], f'{tag}: released in one tap from Approvals, recorded by the owner ({r})')
+            c.ok(r['me'] == OWNER and r['audBy'] == [OWNER], f'{tag}: the release is the owner by name, {OWNER}, with her own audit row behind it ({r})')
             c.ok(r['checked'] and abs(r['paid'] - r['total']) < 0.01 and 'Payment Run released' in r['toast'], f'{tag}: every bill checked again and paid to the cent ({r})')
             # away: billing releases; back: the owner again
             await pg.evaluate("() => { DB.company.ownerAway = { from: today(), to: '2026-09-10', by: 'Alan' }; DB.payRuns.push({ id: 'prun_t2', status: 'prepared', bills: [], date: today(), method: '', total: 0, preparedBy: 'Chen Biron', preparedAt: appNowIso() }); save(); }")
