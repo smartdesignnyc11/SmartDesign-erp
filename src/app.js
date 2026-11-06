@@ -5252,6 +5252,9 @@ async function lookup() {
 }
 function renderProj() {
   const p = S.project;
+  try {
+    jobTaxFieldSync();
+  } catch (e) {}
   ($("#p-name").value = p.name),
     ($("#p-addr").value = p.addr || ""),
     ($("#p-target").value = p.target || ""),
@@ -182860,6 +182863,71 @@ const RFQ_RULES = {
 };
 // "Look beyond Manhattan and Brooklyn (Procurement playbook)": the line and where it is, without "Because: ", since
 // the RFQ page sets it inside its own sentences.
+// The job's tax status (Alan, DECISIONS 11-06): Capital Improvement or Repair. A subcontract's labour is taxed on a
+// Repair job and not on a Capital Improvement. Default: Capital Improvement once the client's ST-124 is on file; with
+// no certificate and nothing set, "" (not set), which keeps the rule as it was (no tax on sub labour), so no figure
+// moves until a person sets a job to Repair. One reader for every path: the purchase-tax rule (src/p0money.js), the
+// leveling and the award. To be confirmed with the accountant.
+const JOB_TAX = { ci: "Capital Improvement", repair: "Repair" },
+  JOB_TAX_NOTE = "Confirm with your accountant: repair work taxes the sub's labour; capital improvement with an ST-124 does not.";
+function jobTaxStatus(pp) {
+  const p = "string" == typeof pp ? (DB.projects || []).find((x) => x.id === pp) : pp;
+  if (!p) return "";
+  if ("repair" === p.taxStatus || "ci" === p.taxStatus) return p.taxStatus;
+  const c = (DB.clients || []).find((x) => x.id === p.clientId);
+  return p.st124 || (c && c.st124) ? "ci" : "";
+}
+const jobTaxRepair = (pp) => "repair" === jobTaxStatus(pp);
+const jobTaxWords = (pp) => {
+  const s = jobTaxStatus(pp);
+  return s ? `${JOB_TAX[s]}${"repair" === s ? ": the sub's labour is taxed" : ": no tax on the sub's labour"}` : "Not set: no tax on the sub's labour, as today";
+};
+// Set it: who, when and why on the audit trail. Orders not yet sent are re-decided by the one rule on save (p0Sweep);
+// an order the vendor already has keeps its tax and is named, for a person to change on the order.
+function jobSetTaxStatus(pid, status, why) {
+  const p = (DB.projects || []).find((x) => x.id === pid);
+  if (!p) return toast("No such job"), null;
+  if (!["ci", "repair"].includes(status)) return toast("Pick Capital Improvement or Repair"), null;
+  if (!("function" == typeof rfqReasonOk ? rfqReasonOk(why) : String(why || "").trim().length >= 15)) return toast("Say why, in a sentence: it goes on the audit trail"), null;
+  const from = jobTaxStatus(p);
+  if (from === status && p.taxStatus === status) return toast(`${shortName(p)} is ${JOB_TAX[status]} already`), null;
+  p.taxStatus = status;
+  p.taxStatusSet = { by: (typeof rfqMe == "function" && rfqMe()) || role(), at: appNowIso(), on: today(), why: String(why).trim(), from: from };
+  try {
+    audit("project", p.id, "tax-status", from || "not set", status, `${p.taxStatusSet.by}: ${JOB_TAX[from] || "Not set"} to ${JOB_TAX[status]}, because ${p.taxStatusSet.why}. ${JOB_TAX_NOTE}`);
+  } catch (e) {}
+  const sent = (DB.pos || []).filter((po) => po.projectId === p.id && ["subcontract", "service"].includes(po.type) && !["draft", "pending", "cancelled"].includes(po.status));
+  save(), render();
+  rcToast(`${shortName(p)} is now ${JOB_TAX[status]}: ${"repair" === status ? "sub labour is taxed" : "no tax on sub labour"} on new and unsent orders${sent.length ? `; ${sent.length} sent subcontract order${1 === sent.length ? "" : "s"} keep${1 === sent.length ? "s" : ""} ${1 === sent.length ? "its" : "their"} tax (${sent.map((x) => x.number).join(", ")})` : ""}`, [{ label: "Open", run: () => ("function" == typeof setCurrent && setCurrent(p.id), setView("proj")) }]);
+  return p;
+}
+// The field on Job Settings: a change asks why before it is written.
+function jobTaxFieldSync() {
+  const sel = document.getElementById("p-taxstatus"),
+    note = document.getElementById("p-taxstatus-note");
+  if (!sel || !S) return;
+  const s = jobTaxStatus(S);
+  sel.innerHTML = (s ? "" : '<option value="">Not Set (no tax on the sub\'s labour, as today)</option>') + Object.entries(JOB_TAX).map(([k, l]) => `<option value="${k}" ${k === s ? "selected" : ""}>${l}</option>`).join("");
+  note && (note.textContent = `${S.taxStatusSet ? `Set by ${S.taxStatusSet.by}, ${fmt(S.taxStatusSet.on)}: ${S.taxStatusSet.why}. ` : s && !S.taxStatus ? "From the client's ST-124 on file. " : ""}${JOB_TAX_NOTE}`);
+}
+document.addEventListener(
+  "change",
+  (e) => {
+    const t = e.target;
+    if (!t || "p-taxstatus" !== t.id || !S) return;
+    const pid = S.id,
+      to = t.value;
+    if (!to) return jobTaxFieldSync();
+    mbModal(`Tax Status: ${JOB_TAX[to]}`, `<p class="small">${esc(shortName(S))}: ${"repair" === to ? "the sub's labour is taxed at the job's rate on its orders, in leveling and on award" : "no tax on the sub's labour"}. Orders not yet sent follow it; sent ones keep their tax.</p><p class="small muted">${esc(JOB_TAX_NOTE)}</p>${mbF("Why", '<textarea data-f="why" rows="2" placeholder="e.g. the client confirmed this is repair work, not a capital improvement"></textarea>')}`, {
+      submit: "Change It",
+      onSubmit: (f) => (jobSetTaxStatus(pid, to, f.why) ? void 0 : !1),
+    });
+    const x = document.querySelector("#mbm .mbm-x"),
+      c = document.querySelector("#mbm #mbm-cancel");
+    [x, c].forEach((b) => b && b.addEventListener("click", () => setTimeout(jobTaxFieldSync, 0)));
+  },
+  !0,
+);
 function rfqWhy(key) {
   try {
     const w = "function" == typeof standardWhy && standard().values && standardWhy("rfq:" + key);
@@ -184509,6 +184577,9 @@ const RFQ_HANDLING = 120,
   rfqTaxRate = () => +(((DB.company || {}).taxRate) || 8.875),
   rfqChargesTax = (v) => (v && null != v.chargesTax ? !!v.chargesTax : /^NYC/.test((v && v.region) || "")),
   // a subcontract scope is labour: no sales or use tax on the bid (the award's subPO rule, now in the leveling too)
+  // the leveling and the award tax a sub's labour on a Repair job (the job's tax status, jobTaxStatus)
+  rfqJobRepair = (r) => !!r && jobTaxRepair(r.projectId),
+  rfqNoTax = (r, v) => rfqTaxFree(r, v) && !rfqJobRepair(r),
   rfqTaxFree = (r, v) => !!(r && r.sub) || (!!v && "function" == typeof scIsSub && !!scIsSub(v)) || (!!r && (r.lines || []).length > 0 && "function" == typeof bbSubScope && (r.lines || []).every((l) => bbSubScope({ item: l.item, desc: l.spec }))),
   rfqHandling = (v) => (v && v.delivery && !v.delivery.liftGate && !v.delivery.carryIn ? RFQ_HANDLING : 0),
   rfqRisk = (v) => {
@@ -184559,7 +184630,7 @@ function rfqLevel(r, opts) {
     vinfo = (q) => {
       const v = rfqVendor(q.vendorId) || {},
         arrive = null == q.lead ? "" : iso(addDays(td, q.lead));
-      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "", confirmed: !!q.confirmed, taxCharged: rfqChargesTax(v), taxFree: rfqTaxFree(r, rfqVendor(q.vendorId)), includes: q.includes || "", excludes: q.excludes || "", handling: rfqHandling(v), risk: rfqRisk(v), relation: rfqRelation(v) };
+      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "", confirmed: !!q.confirmed, taxCharged: rfqChargesTax(v), taxFree: rfqNoTax(r, rfqVendor(q.vendorId)), includes: q.includes || "", excludes: q.excludes || "", handling: rfqHandling(v), risk: rfqRisk(v), relation: rfqRelation(v) };
     },
     cost = (assign) => {
       const by = {};
@@ -184572,7 +184643,7 @@ function rfqLevel(r, opts) {
       Object.values(by).forEach((x) => {
         const q = latest[x.vendorId];
         const v = rfqVendor(x.vendorId);
-        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.tax = rfqTaxFree(r, v) ? 0 : r2((x.goods * rate) / 100)), (x.taxCharged = rfqChargesTax(v)), (x.handling = rfqHandling(v)), (x.landed = r2(x.goods + x.freight + x.shortfall + x.tax + x.handling)), (total = r2(total + x.landed));
+        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.tax = rfqNoTax(r, v) ? 0 : r2((x.goods * rate) / 100)), (x.taxCharged = rfqChargesTax(v)), (x.handling = rfqHandling(v)), (x.landed = r2(x.goods + x.freight + x.shortfall + x.tax + x.handling)), (total = r2(total + x.landed));
       });
       return { by: by, total: total };
     };
@@ -184625,7 +184696,7 @@ function rfqLevel(r, opts) {
     budgetComplete = !!budgets.length && known.length === budgets.length,
     // one figure or none: a basket measured against a budget that is missing for some of its lines is misleading
     budgetTotal = budgetComplete ? r2(known.reduce((a, b) => a + (+b.budget || 0), 0)) : 0;
-  return { taxRate: rate, taxFree: rfqTaxFree(r), unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, budgetComplete: budgetComplete, budgetMissing: budgets.filter((b) => null == b.budget).map((b) => b.label), needBy: r.needBy };
+  return { taxRate: rate, taxFree: rfqTaxFree(r), noTax: rfqNoTax(r), repair: rfqJobRepair(r), jobTax: jobTaxWords(r.projectId), unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, budgetComplete: budgetComplete, budgetMissing: budgets.filter((b) => null == b.budget).map((b) => b.label), needBy: r.needBy };
 }
 // The recommendation, in the Standard's escalation format. Schedule outranks cost (decision principles), so a
 // split that lands after the need-by date is never recommended over one that lands in time.
@@ -184744,6 +184815,8 @@ function rfqAward(r, assign, opts) {
       // a sub scope (the RFQ was a sub package, the vendor is a sub, or every awarded line is sub scope: an RFQ for
       // demolition made before the package flag) is a subcontract: labour carries no purchase or use tax
       subPO = !!r.sub || ("function" == typeof scIsSub && scIsSub(v)) || ("function" == typeof bbSubScope && lines.every((l) => bbSubScope({ item: l.item, desc: l.spec }))),
+      // a sub's labour is taxed on a Repair job (the job's tax status; the purchase-tax rule reads the same)
+      subNoTax = subPO && !rfqJobRepair(r),
       choice = "direct" === v.channel ? "direct" : "middleman",
       why = "direct" === choice ? `direct from the mill: ${repeat ? "a repeat item" : "the best landed cost"}` : `through a yard: ${repeat && goods < 5e3 ? "one delivery for this job, landed cost best" : "landed cost best"}`,
       po = {
@@ -184764,14 +184837,14 @@ function rfqAward(r, assign, opts) {
         rfqId: r.id,
         rfqNumber: r.number,
         sourcing: { rfqId: r.id, rfqNumber: r.number, choice: choice, why: why, region: v.region || "", round: q.round },
-        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed || subPO ? "" : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
-        useTax: taxed || subPO ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
-        landed: r2(goods + (+q.freight || 0) + shortfall + (subPO ? 0 : tax) + handling),
+        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed || subNoTax ? (subPO && !subNoTax ? ` A repair job: the sub's labour is taxed (${JOB_TAX_NOTE})` : "") : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
+        useTax: taxed || subNoTax ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
+        landed: r2(goods + (+q.freight || 0) + shortfall + (subNoTax ? 0 : tax) + handling),
         lines: lines.map((l) => {
           const key = l.line || (r.estLine || {}).key || "";
           return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: l.materialId || "", requestId: l.requestId || r.requestId || "", selId: l.selId || "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), invoiceLineId: l.invoiceLineId || (key.startsWith("invoice:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
         }),
-        tax: taxed && !subPO ? rate : 0,
+        tax: taxed && !subNoTax ? rate : 0,
         shipping: r2((+q.freight || 0) + shortfall),
         matchedTxns: [],
         createdBy: rfqMe(),
@@ -185681,8 +185754,10 @@ function rfqLevelHtml(r, L) {
     R = rfqRecommend(r, L),
     V = L.vendors,
     vn = (id) => (V.find((v) => v.vendorId === id) || {}).vendor || id,
-    taxNote = L.taxFree
-      ? `<p class="small muted">A sub's bid is labour, so no tax is added: the bids are leveled on price, on what each includes and leaves out, and against the line's budget.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`
+    taxNote = L.taxFree && !L.noTax
+      ? `<p class="small muted" data-rfqjobtax="repair">Job tax status: ${esc(L.jobTax)}. A sub's labour on a repair job carries NY sales tax at ${L.taxRate}%, so every bid is compared with its tax, on what each includes and leaves out, and against the line's budget. ${esc(JOB_TAX_NOTE)}${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`
+      : L.taxFree
+      ? `<p class="small muted" data-rfqjobtax="${esc(jobTaxStatus(r.projectId) || "unset")}">Job tax status: ${esc(L.jobTax)}. A sub's bid is labour, so no tax is added: the bids are leveled on price, on what each includes and leaves out, and against the line's budget. ${esc(JOB_TAX_NOTE)}${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`
       : `<p class="small muted">Landed cost counts NY sales tax where the vendor charges it and NY use tax (${L.taxRate}%) where it does not — confirm with the accountant; it is not tax advice.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`,
     tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">${L.taxFree ? "Line Budget" : "Material Budget"}</span><b>${L.budgetComplete ? money(L.budgetTotal) : L.budgets.length ? "None on the Line" : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgetComplete ? L.budgets.map((b) => b.label).join("; ").slice(0, 80) : L.budgets.length ? RFQ_NO_MAT : "")}</span></div></div>`,
     vcards = `<div class="rfq-cards">${V.map((v) => {
