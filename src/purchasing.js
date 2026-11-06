@@ -2142,6 +2142,8 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 .pu-rq{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
 .pu-rq>span{flex:1;display:flex;flex-direction:column;gap:2px} .pu-rq input{width:96px;min-height:44px}
 .pu-conds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+/* the count box holds its whole hint ("1,000 to come"), on the desktop and at 390px (it read "900 to con") */
+#mbm .pu-rql .pu-rq input[data-purq]{width:9.5em;min-width:9.5em;flex:0 0 auto;font-size:16px;padding-left:10px;padding-right:10px;box-sizing:border-box}
 #mbm .pu-rql, #mbm .pu-rql .small, #mbm .pu-rql .pu-chip, #mbm .pu-early, .mbm-bd:has(.pu-rql) > p, .mbm-bd:has(.pu-rql) label.f > span{font-size:15px}
 /* the foreman's request (the field expert): Urgent is a 44px target, and Send stays in reach with the keyboard up */
 label:has(> #cp-urgent){min-height:44px;min-width:44px;display:inline-flex;align-items:center;gap:8px;padding:0 10px 0 4px;cursor:pointer} #cp-urgent{width:24px;height:24px}

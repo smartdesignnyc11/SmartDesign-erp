@@ -504,8 +504,10 @@ PR_PAGE.ftoday = (v) => {
   v.classList.add("pr-ftoday");
   const hero = body.querySelector(":scope > .f-hero"),
     // what was offered to him and what is put on him stay on the first screen with their Accept and Done (lane T1);
+    // his own tasks (Put on You, today's and late first) come before Today's Work, so they are on the first screen
+    // with the offers (the 11-06 capture: Put on You sat under six schedule lines, below the fold)
     // Materials to Check (a request for quote's quantities, src/app.js rfqForemanCardHtml) is his to do today: never folded
-    keep = [hero, body.querySelector(":scope > .tkr-offers"), body.querySelector(":scope > .f-work"), body.querySelector(":scope > .f-mine"), body.querySelector(":scope > .f3-arriving"), body.querySelector(":scope > .rfq-fm"), body.querySelector(":scope > .f-you")].filter(Boolean),
+    keep = [hero, body.querySelector(":scope > .tkr-offers"), body.querySelector(":scope > .tkg-remind"), body.querySelector(":scope > .f-mine"), body.querySelector(":scope > .f-work"), body.querySelector(":scope > .f3-arriving"), body.querySelector(":scope > .rfq-fm"), body.querySelector(":scope > .f-you")].filter(Boolean),
     clock = hero && hero.querySelector("[data-fclock]");
   clock && clock.classList.add("primary");
   // the one blue button is the clock: a blue elsewhere on the first two screens would be a second

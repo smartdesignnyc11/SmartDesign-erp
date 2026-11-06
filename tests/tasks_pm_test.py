@@ -313,9 +313,13 @@ async def counts(c, pg):
     for uid in ('u_owner', 'u_alan', 'u_chen', 'u_billing'):
         await sign_in(pg, uid); await go(pg, 'home'); await pg.wait_for_timeout(200)
         n = await pg.evaluate("""() => { const vis = """ + VIS + """, num = s => { const e = [...document.querySelectorAll(s)].find(vis); return e ? +(e.textContent.replace(/\\D+/g, '') || 0) : null; };
-          return { want: tkTasksN(), bar: num('#mtabs [data-mv="tkall"] .n'), hasTab: !!document.querySelector('#mtabs [data-mv="tkall"]') }; }""")
-        # the approved menu (docs/mockups/today/SPEC.md: Tasks, "no badge") holds: a number on the tab, if any, is tkTasksN()
-        c.ok(n['bar'] in (None, 0, n['want']), f'bar: {uid}: the Tasks tab shows no number but the Tasks number ({n})')
+          return { want: tkMyCounts().today || 0, bar: num('#mtabs [data-mv="tkall"] .n'), rail: num('#nav-groups button[data-grp="mytasks"] .n'), hasTab: !!document.querySelector('#mtabs [data-mv="tkall"]') }; }""")
+        # Alan, 11-06: every office role's bar has Tasks, its badge late plus due today; the badge equals the rows Tasks >
+        # Today shows for that person (an empty badge is 0)
+        await go(pg, 'tkall'); await pg.evaluate("() => { tvApply('b:open'); t2View = 'today'; renderTkAll(); }"); await pg.wait_for_timeout(200)
+        rows = await pg.evaluate("() => document.querySelectorAll('#tkall-body .tk2-row').length")
+        c.ok(n['hasTab'] and (n['bar'] or 0) == n['want'] == rows and (n['rail'] or 0) in (0, n['want']), f'bar: {uid}: the Tasks badge reads late plus due today and equals Tasks > Today\'s rows ({n}, {rows} rows)')
+        await go(pg, 'home'); await pg.wait_for_timeout(150)
         await go(pg, 'tkall'); await pg.wait_for_timeout(200)
         ch = await pg.evaluate("""() => { const vis = """ + VIS + """; return [...document.querySelectorAll('#tkall-body .tv-qchips button, #tkall-body .yd-chips button')].filter(vis).map(b => [b.dataset.ydchip || b.dataset.tvqv, b.innerText.replace(/\\s+/g, ' ').trim(), (b.querySelector('.n') || {}).textContent || '']); }""")
         rows = await pg.evaluate("() => document.querySelectorAll('#tkall-body .tk2-row').length")
@@ -332,6 +336,25 @@ async def counts(c, pg):
           tkFilterSheet(); const b = document.querySelector('#mbm [data-tkfview="blocked"]'); const r = { chip: chip ? chip.innerText.replace(/\\d+/g, '').trim() : null, cn, sheet: b ? b.innerText.replace(/\\d+/g, '').trim() : null, sn: b ? +((b.querySelector('.n') || {}).textContent || 0) : null, mine: tkMyCounts().blocked };
           mbCloseModal(); return r; }""")
         c.ok(w['chip'] == w['sheet'] == 'Waiting On' and w['cn'] == w['sn'] == w['mine'], f'counts: {uid}: Waiting On reads one label and one number on the chip and the filter sheet ({w})')
+    # nothing waiting is lost (final-build capture, 11-06: the live build's Waiting On counted everyone's; Alan's now
+    # counts his). Every open task that waits on someone is on its owner's Waiting On chip, as drawn, and on everyone's
+    # (Team with Waiting On), as drawn
+    W = await pg.evaluate("() => openTasks('all').filter(x => t2ViewOf([x], 'blocked').length).map(x => ({ key: t2Key(x), owner: x.assignee, title: x.title }))")
+    c.ok(any('Shop drawings for the parlor bookcases' in x['title'] for x in W), f'waiting: the demo’s shop-drawings task waits on someone ({[x["title"][:30] for x in W]})')
+    lost = []
+    owners = {x['owner'] for x in W if x['owner']}
+    uid_of = await pg.evaluate("names => Object.fromEntries(names.map(n => [n, ((DB.users || []).find(u => tkOwnerMatch(n, u.name)) || {}).id || '']))", list(owners))
+    for o in owners:
+        u = uid_of.get(o)
+        if not u: lost.append((o, 'no sign-in')); continue
+        await sign_in(pg, u); await go(pg, 'tkall')
+        shown = await pg.evaluate("() => { tvApply('b:wait'); return [...document.querySelectorAll('#tkall-body .tk2-row')].map(r => r.dataset.tkkey); }")
+        lost += [(o, x['title'][:40]) for x in W if x['owner'] == o and x['key'] not in shown]
+    await sign_in(pg, 'u_alan'); await go(pg, 'tkall')
+    team = await pg.evaluate("() => { tvApply('b:all'); t2View = 'blocked'; renderTkAll(); return [...document.querySelectorAll('#tkall-body .tk2-row, #tkall-body .yd-row')].map(r => r.dataset.tkkey || r.dataset.ydtask); }")
+    lost += [('team', x['title'][:40]) for x in W if x['key'] not in team]
+    c.ok(not lost, f'waiting: every waiting task is on its owner’s Waiting On and on Team with Waiting On ({lost})')
+    await pg.evaluate("() => { tvApply('b:open'); }")
     # the Team view: each person's count is that person's open tasks, the same function as Mine
     await sign_in(pg, 'u_alan'); await go(pg, 'tkall')
     await pg.evaluate("() => tvApply('b:all')"); await pg.wait_for_timeout(300)

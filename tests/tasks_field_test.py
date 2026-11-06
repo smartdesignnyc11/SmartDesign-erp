@@ -21,6 +21,12 @@ field expert and the PM expert saw it (scratchpad tasks_review/field and pm), at
                 in Spanish.
   clock         Clock In on a day already sent does not overlap it; 0.02 h clocked against 0 logged is not balanced.
   toast         A toast's Undo is a 44px target.
+  autoclock     (Alan, 11-06) Clock-in is automatic by location once the notice is accepted (who and when, audited):
+                entering a site clocks in with Undo, 15 minutes away clocks out at the time they left, another site
+                switches the job, a poor fix asks, no acknowledgement stays manual, Spanish is in place.
+  payhold       (Alan, 11-06) Overlapping punches are held out of the pay run, the rest pays, the review says
+                "Held: N hours, overlap", the foreman is reminded the day before the cutoff and picks one, the kept one
+                is paid on the next run, and nothing is paid twice.
 Run: python3 tasks_field_test.py [section ...]   (SD_DIST names another build, e.g. the one before the fix)"""
 import asyncio, os, re, sys
 from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
@@ -193,6 +199,12 @@ async def s_offers(pg, c):
     c.ok('Check the flitch beam bolts' in card and 'Accept' in card and 'Decline' in card, f"offers: the PM's hand-off is on the foreman's Today with Accept and Decline ({card[:80]!r})")
     vis = await pg.evaluate("() => { const c = document.querySelector('#ftoday-body .tkr-offers'); return !!c && !c.closest('details.pr-more'); }")
     c.ok(vis, 'offers: it is on the first screen, not folded under More for Today')
+    # the 11-06 capture: Put on You sat below the first screen; his own tasks and offers start inside the first 844px
+    tops = await pg.evaluate("""() => { window.scrollTo(0, 0); const m = document.scrollingElement; m && (m.scrollTop = 0);
+      const t = (s) => { const e = document.querySelector(s); return e && e.getClientRects().length ? Math.round(e.getBoundingClientRect().top) : null; };
+      return { offers: t('#ftoday-body .tkr-offers'), mine: t('#ftoday-body .f-mine'), h: innerHeight }; }""")
+    await shot(pg, 'offers_foreman_first_screen')
+    c.ok(tops['offers'] is not None and tops['mine'] is not None and tops['offers'] < tops['h'] and tops['mine'] < tops['h'], f"offers: the foreman's offers and Put on You start on the first screen, no scroll ({tops})")
     if await tap(pg, '.tkr-offers [data-tkoffacc]'):
         own = await pg.evaluate("() => { const a = DB.projects.find(p => p.id === 'p121').actions.find(x => /flitch beam bolts/.test(x.title)); return a ? a.assignee : ''; }")
         c.ok(own.startswith('Angel'), f'offers: Accept makes it his ({own})')
@@ -401,6 +413,113 @@ async def s_clock(pg, c):
     await pg.evaluate(CLOSE)
 
 
+async def s_autoclock(pg, c):
+    """Alan, 11-06: clock-in is automatic by location, after the person accepts the notice"""
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    base = await pg.evaluate("""() => { const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === today())); save();
+      const g = DB.projects.find(p => p.id === 'p121').project.geo; return { lat: g.lat, lng: g.lng, rad: g.radius || 250, emp: e.id }; }""")
+    site = "{lat: %f, lng: %f, acc: 12}" % (base['lat'], base['lng'])
+    far = "{lat: %f, lng: %f, acc: 12}" % (base['lat'] + 0.02, base['lng'])
+    at = lambda hm: "today() + 'T%s:00'" % hm
+    count = "() => DB.time.filter(t => t.empId === myEmp().id && t.date === today()).length"
+    # no acknowledgement: manual
+    r = await pg.evaluate(f"() => {{ delete currentUser().geoAck; return tkGeoTick({site}, {at('07:02')}); }}")
+    c.ok(r['did'] == 'none' and await pg.evaluate(count) == 0, f'autoclock: without the acknowledgement nothing is automatic ({r})')
+    # the notice, accepted: who and when, in the audit trail
+    await go(pg, 'time')
+    ok = await tap(pg, '#v-time [data-tkgon]')
+    t = await mbm_text(pg)
+    await shot(pg, 'autoclock_notice')
+    c.ok(ok and 'never saved as a track' in t and 'I Agree' in t, f'autoclock: the notice says what it does and asks ({t[:80]!r})')
+    await tap(pg, '#mbm #mbm-ok')
+    r = await pg.evaluate("() => { const u = currentUser(); const a = (DB.audit || DB.auditLog || []).slice(-30).find(x => JSON.stringify(x).includes('auto-clock-by-location')); return { ack: !!(u.geoAck && u.geoAck.at), audit: !!a }; }")
+    c.ok(r['ack'] and r['audit'], f'autoclock: the acknowledgement is stored with who and when, in the audit trail ({r})')
+    # a poor fix never clocks in: it asks
+    r = await pg.evaluate(f"() => tkGeoTick({{lat: {base['lat']}, lng: {base['lng']}, acc: {base['rad'] + 200}}}, {at('07:01')})")
+    c.ok(r['did'] == 'asked' and await pg.evaluate(count) == 0, f'autoclock: a poor fix asks instead of clocking in ({r})')
+    # entering the radius clocks in, marked automatic with the distance and the accuracy
+    r = await pg.evaluate(f"() => tkGeoTick({site}, {at('07:02')})")
+    e = await pg.evaluate("id => { const e = DB.time.find(t => t.id === id); return e ? { pid: e.projectId, how: (e.auto || {}).how, acc: (e.auto || {}).acc, dist: (e.auto || {}).dist, inn: e.in, track: Object.keys(e).filter(k => /track|path|positions/i.test(k)) } : null; }", r.get('id'))
+    toast = await pg.evaluate("() => (document.getElementById('toast') || {}).innerText || ''")
+    await shot(pg, 'autoclock_in_toast')
+    c.ok(r['did'] == 'in' and e and e['pid'] == 'p121' and e['how'] == 'automatic, by location' and e['acc'] == 12 and e['dist'] is not None and not e['track'], f'autoclock: entering the radius clocks in, marked automatic, by location ({r}, {e})')
+    c.ok('Clocked in at' in toast and '7:02' in toast and 'Undo' in toast, f'autoclock: the toast says where and when, with Undo ({toast!r})')
+    # Undo reverses it
+    await tap(pg, '#toast a, #toast button', 'Undo')
+    c.ok(await pg.evaluate(count) == 0, 'autoclock: Undo takes the punch back')
+    r = await pg.evaluate(f"() => tkGeoTick({site}, {at('07:02')})")
+    # leaving: 10 minutes away is nothing, 15 clocks out at the time they left
+    r1 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:30')})")
+    r2 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:40')})")
+    r3 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:46')})")
+    out = await pg.evaluate("id => { const e = DB.time.find(t => t.id === id); return e ? e.out : ''; }", r.get('id'))
+    c.ok(r2['did'] == 'none' and r3['did'] == 'out' and out.endswith('T11:30:00'), f'autoclock: away 15 minutes clocks out at the time they left ({r2}, {r3}, out {out})')
+    await tap(pg, '#toast a, #toast button', 'Undo')
+    out = await pg.evaluate("id => DB.time.find(t => t.id === id).out", r.get('id'))
+    c.ok(out == '', f'autoclock: Undo puts them back on the clock ({out!r})')
+    # moving to another site switches the job
+    other = await pg.evaluate("() => { const p = DB.projects.find(p => p.id !== 'p121' && p.project.geo) || DB.projects.find(p => p.id !== 'p121'); p.project.geo = p.project.geo || { lat: 40.70, lng: -73.95, radius: 250 }; save(); return { id: p.id, lat: p.project.geo.lat, lng: p.project.geo.lng }; }")
+    r4 = await pg.evaluate("([o, at]) => tkGeoTick({ lat: o.lat, lng: o.lng, acc: 10 }, at)", [other, await pg.evaluate(at('12:10'))])
+    sw = await pg.evaluate("() => { const L = DB.time.filter(t => t.empId === myEmp().id && t.date === today()); return { open: L.filter(t => !t.out).map(t => t.projectId), n: L.length }; }")
+    c.ok(r4['did'] == 'switch' and sw['open'] == [other['id']], f'autoclock: another site moves them to that job ({r4}, {sw})')
+    # an automatic punch inside a day already on the clock is marked and goes to payroll's hold
+    r5 = await pg.evaluate(f"""() => {{ const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === today()));
+      DB.time.push({{ id: 'te_ov', empId: e.id, date: today(), in: today() + 'T07:00:00', out: today() + 'T15:30:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'approved', work: [] }});
+      const r = tkGeoTick({site}, {at('09:15')}); const n = DB.time.find(t => t.id === r.id); return {{ did: r.did, of: n && n.overlapOf, held: tkTimeOverlaps(e.id).length }}; }}""")
+    c.ok(r5['did'] == 'in' and r5['of'] == 'te_ov' and r5['held'] >= 1, f"autoclock: an overlap with a day on the clock is marked and goes to payroll's hold ({r5})")
+    await pg.evaluate("() => { currentUser().lang = 'es'; save(); render(); }")
+    await pg.evaluate("() => { delete currentUser().geoAck; render(); }")
+    await go(pg, 'time')
+    es = await pg.evaluate("() => (document.querySelector('#v-time .tkg-card') || {}).innerText || ''")
+    await shot(pg, 'autoclock_es')
+    c.ok('Activar la Entrada Automática' in es, f'autoclock: the Clock reads it in Spanish ({es[:80]!r})')
+    await tap(pg, '#v-time [data-tkgon]')
+    t = await mbm_text(pg)
+    c.ok('Entrada Automática por Ubicación' in t and 'nunca se guarda un recorrido' in t.lower(), f'autoclock: the notice reads in Spanish ({t[:80]!r})')
+    await pg.evaluate(CLOSE)
+    await pg.evaluate("() => { currentUser().lang = 'en'; save(); }")
+
+
+async def s_payhold(pg, c):
+    """Alan, 11-06, option 1: overlapping hours are held out of the pay run until the foreman picks; never paid twice"""
+    await sign_in(pg, 'u_owner')
+    r = await pg.evaluate("""() => { DB.company.payAnchor = '2026-08-28'; const P = payPeriodOf(today());
+      const alex = DB.employees.find(e => e.id === 'em3'), d = today();
+      DB.time.filter(t => t.date >= P.from && t.date <= d).forEach(t => (t.status = 'approved'));
+      DB.time.push({ id: 'te_ov2', empId: 'em3', date: d, in: d + 'T10:00:00', out: d + 'T16:00:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'approved', work: [], overlapOf: 'te9' });
+      save(); const O = tkTimeOverlaps('em3'); const run = payrollFromTime({ quiet: true });
+      const te9 = DB.time.find(t => t.id === 'te9'), ov = DB.time.find(t => t.id === 'te_ov2');
+      const others = DB.time.filter(t => t.date >= P.from && t.date <= d && t.status === 'approved' && !['te9', 'te_ov2'].includes(t.id));
+      return { n: O.length, h: O[0] && O[0].h, run: !!run, held: run && run.held, a: te9.payrollId || '', b: ov.payrollId || '', paid: others.filter(t => t.payrollId === (run && run.id)).length, others: others.length, runId: run && run.id }; }""")
+    c.ok(r['n'] == 1 and r['run'] and not r['a'] and not r['b'], f'payhold: both overlapping punches are held out of the run ({r})')
+    c.ok(r['paid'] == r['others'] and r['others'] > 0, f"payhold: the rest of the run pays ({r['paid']} of {r['others']})")
+    c.ok(bool(r['held']) and r['held'][0]['hours'] > 0, f"payhold: the run says what is held ({r['held']})")
+    await pg.evaluate("id => openPayroll(id)", r['runId'])
+    await pg.wait_for_timeout(300)
+    rv = await pg.evaluate("() => (document.querySelector('.tkg-held') || {}).innerText || ''")
+    await shot(pg, 'payhold_review')
+    c.ok('Held:' in rv and 'hours, overlap' in rv, f"payhold: the run's review shows Held: N hours, overlap ({rv[:80]!r})")
+    await pg.evaluate("() => { try { closeEditor(); } catch (e) {} }")
+    # the foreman's reminder, the day before the cutoff
+    await sign_in(pg, 'u_angel'); await go(pg, 'ftoday')
+    rem = await pg.evaluate("() => (document.querySelector('#ftoday-body .tkg-remind') || {}).innerText || ''")
+    await shot(pg, 'payhold_foreman_today')
+    c.ok('overlap: pick one before payroll' in rem, f"payhold: the foreman's Today says pick one before payroll ({rem[:90]!r})")
+    # he picks the earlier punch: the other is voided, the pick is audited
+    await tap(pg, '#ftoday-body [data-tkgpick]')
+    await tap(pg, '#mbm [data-tkgk="a"]')
+    await tap(pg, '#mbm #mbm-ok')
+    r2 = await pg.evaluate("""() => { const a = DB.time.find(t => t.id === 'te9'), b = DB.time.find(t => t.id === 'te_ov2'), au = (DB.audit || DB.auditLog || []).slice(-20).some(x => JSON.stringify(x).includes('overlap-picked'));
+      return { a: a.status, b: b.status, au, left: tkTimeOverlaps('em3').length }; }""")
+    c.ok(r2['b'] == 'void' and r2['a'] == 'approved' and r2['au'] and r2['left'] == 0, f'payhold: picking one releases it, the other is voided, and the pick is audited ({r2})')
+    # the next run pays the kept punch; nothing is paid twice
+    await sign_in(pg, 'u_owner')
+    r3 = await pg.evaluate("""() => { const run = payrollFromTime({ quiet: true }); const a = DB.time.find(t => t.id === 'te9'), b = DB.time.find(t => t.id === 'te_ov2');
+      const ids = (DB.payroll || []).flatMap(x => x.timeIds || []); const twice = ids.filter((x, i) => ids.indexOf(x) !== i);
+      return { a: a.payrollId || '', b: b.payrollId || '', twice: twice.length, held: (run && run.held || []).length }; }""")
+    c.ok(r3['a'] and not r3['b'] and r3['twice'] == 0 and r3['held'] == 0, f'payhold: the kept punch is paid on the next run, the voided one never, nothing twice ({r3})')
+
+
 async def s_toast(pg, c):
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     await tap(pg, '#fm-today [data-fm-start]') or await tap(pg, '#fm-today [data-fm-done]')
@@ -412,7 +531,7 @@ async def s_toast(pg, c):
 
 
 SECTIONS = {'rows': s_rows, 'question': s_question, 'need': s_need, 'plan': s_plan, 'punch': s_punch, 'offers': s_offers, 'blocked': s_blocked,
-            'dm': s_dm, 'photo': s_photo, 'designer': s_designer, 'quick': s_quick, 'es': s_es, 'sched': s_sched, 'clock': s_clock, 'toast': s_toast}
+            'dm': s_dm, 'photo': s_photo, 'designer': s_designer, 'quick': s_quick, 'es': s_es, 'sched': s_sched, 'clock': s_clock, 'autoclock': s_autoclock, 'payhold': s_payhold, 'toast': s_toast}
 
 
 async def main():
