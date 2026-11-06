@@ -23,36 +23,24 @@
    - the revision (lkRevise / lkSupersede): Edit on a sent or paid invoice is a linked void and re-issue with a reason;
      the original stays as sent until the re-issue goes out, then it is voided (its posting reversed) and its payments
      follow the re-issue;
-   - the approval queue (mApprovals, DELEGATION): a refund is a proposal (c.refunds) the owner approves (Settings may
+   - the approval queue (mApprovals, DELEGATION): a refund is a proposal in the client-credit register (DB.clientCredits, kind "refund") the owner approves (Settings may
      name another approver: DB.company.refundApprover); approved, it posts as a negative payment tied to the payment it
      returns (refundOf), back to the account that paid, and reads "approved, not in the bank" until a bank line on
      that account is matched to it;
    - the audit trail (audit, apStamp, docAudit): every mutation names who, when and why.
    Suite: tests/docview_test.py. Journey check: tests/cycle_walk.py open_document (J8).
 --------------------------------------------------------------------------------------------------------------------- */
-const DV_ROLES = ["billing", "controller"],
+const DV_ROLES = ["owner", "billing", "controller"],
   DV_CREDIT_ROLES = ["owner", "billing", "controller"],
   DV_LABEL = { estimate: "Estimate", co: "Change Order", invoice: "Invoice", credit: "Credit Memo", bill: "Bill" };
 let dvCur = null, // { kind, id, cid }: the record open in the viewer
   dvEditing = null, // the document the person chose to edit: its editor draws as before
   dvMore = !1,
   dvBillEdit = null;
-// documents made this turn (New Invoice, Draft, Duplicate, a revision): they open in the editor. "This turn" is the
-// next two seconds: a document made by a path that never opened it (a fixture, a sweep, an import) opens as its
-// document later. The wall clock here is a timer on this device, never stored as a date.
-const dvFresh = {
-  m: new Map(),
-  add(id) {
-    this.m.set(id, Date.now());
-  },
-  has(id) {
-    const t = this.m.get(id);
-    return null != t && Date.now() - t < 2e3;
-  },
-  delete(id) {
-    return this.m.delete(id);
-  },
-};
+// Documents just made (New Invoice, the queue's Draft, Duplicate, a revision: every one goes through newDoc) open in
+// the editor. The flag is set on create and read by the next draw, which clears it: a document made by a path that
+// never opened it in the same step (a fixture, a sweep, an import) opens as its document later. No clock is read.
+const dvFresh = new Set();
 const dvOn = () => DV_ROLES.includes(role());
 const dvWho = () => (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
 
@@ -77,18 +65,44 @@ function dvBal(c, d) {
 // the money the client paid on an invoice that a refund can return: payments the bank has, less what was refunded
 // or is proposed against each
 function dvRefundable(c, d) {
+  const ids = new Set(dvChain(c, d).map((x) => x.id));
   return (c.payments || [])
-    .filter((p) => p.invoiceId === d.id && +p.amount > 0 && !p.cmApply && !p.reverses && !p.reversalId && !p.refundOf)
+    .filter((p) => ids.has(p.invoiceId) && +p.amount > 0 && !p.xferOf && !p.cmApply && !p.reverses && !p.reversalId && !p.refundOf)
     .map((p) => {
       const out = r2(
-        (c.refunds || []).filter((f) => f.paymentId === p.id && !["declined", "void"].includes(f.status)).reduce((a, f) => a + (+f.amount || 0), 0),
+        dvRefunds(c).filter((f) => f.paymentId === p.id && !["declined", "void"].includes(f.status)).reduce((a, f) => a + (+f.amount || 0), 0),
       );
-      return { p: p, banked: payBanked(c, p), left: r2(+p.amount - out) };
+      // never more than the bank has of it: a payment recorded and not in the bank returns nothing
+      return { p: p, banked: payBanked(c, p), left: r2(Math.min(+p.amount, payBankedAmt(c, p)) - out) };
     })
-    .filter((x) => x.left > 0.005);
+    .filter((x) => x.left > 0.005 || !x.banked);
+}
+// the invoice and the ones it revises: a credit given on INV-2026-038 still stands on INV-2026-038-R1
+function dvChain(c, d) {
+  const out = [d];
+  let o = d;
+  for (let i = 0; o && o.revisionOf && i < 20; i++) (o = (c.invoices || []).find((x) => x.number === o.revisionOf && x.id !== o.id)), o && out.push(o);
+  return out;
 }
 function dvCreditsOn(c, d) {
-  return (c.invoices || []).filter((x) => x.creditMemo && x.creditOf === d.id && "void" !== x.status);
+  const ids = new Set(dvChain(c, d).map((x) => x.id));
+  return (c.invoices || []).filter((x) => x.creditMemo && ids.has(x.creditOf) && "void" !== x.status);
+}
+// The one register of what the firm owes a client back (DB.clientCredits, blCreditRows): a vendor credit passed on, a
+// credit memo (source "credit-memo"), and a refund (kind "refund": proposed, approved or declined, its bank line txnId)
+function dvRefunds(c) {
+  return (DB.clientCredits || []).filter((x) => "refund" === x.kind && (!c || x.clientId === c.id));
+}
+function dvCreditAsks(c) {
+  return (DB.clientCredits || []).filter((x) => "credit-ask" === x.kind && (!c || x.clientId === c.id));
+}
+// the Billing Queue's "credit the client" rows are vendor credits passed on; a refund or a credit waiting on the owner
+// is in Approvals, never a second row there
+if ("function" == typeof blCreditRows) {
+  const base = blCreditRows;
+  blCreditRows = function () {
+    return (base.apply(this, arguments) || []).filter((r) => !(r && r.cc && ["refund", "credit-ask"].includes(r.cc.kind)));
+  };
 }
 
 // ---- the open path: every list sets docOpen; billing and the controller read the document first --------------------------
@@ -145,6 +159,7 @@ if ("function" == typeof newDoc) {
       console.warn("docview: open", e);
     }
     const r = base.apply(this, arguments);
+    dvFresh.clear();
     try {
       // the document sits over the page it was opened from: a move to another page (a link, a toast, the menu) closes it
       dvCur && dvCur.view && dvCur.view !== view && dvClose();
@@ -389,7 +404,15 @@ function dvNotes(r) {
   } catch (e) {}
   if ("invoice" === d.type && !d.creditMemo) {
     dvCreditsOn(c, d).forEach((x) => out.push(`Credit memo ${esc(x.number)} of ${money(Math.abs(docTotal(x).total))} is applied to it${x.creditWhy ? ` (${esc(x.creditWhy)})` : ""}.`));
-    (c.refunds || [])
+    dvCreditAsks(c)
+      .filter((a) => a.invoiceId === d.id && "proposed" === a.status)
+      .forEach((a) => {
+        const may = "owner" === role() && !(a.by && String(a.by).toLowerCase() === String(dvWho()).toLowerCase());
+        out.push(
+          `<span data-dvcredit="${esc(a.id)}">Credit of ${money(a.amount)} asked by ${esc(a.by)}: ${esc(a.why)} · over ${money(dvCreditLimit())}, waiting on the owner; nothing is credited yet.${may ? ` <button type="button" class="btn sm" data-dvact="crapprove:${esc(a.id)}">Approve the Credit</button> <button type="button" class="btn sm" data-dvact="crdecline:${esc(a.id)}">Decline</button>` : ""}</span>`,
+        );
+      });
+    dvRefunds(c)
       .filter((f) => f.invoiceId === d.id && "void" !== f.status)
       .forEach((f) => {
         const pend = "proposed" === f.status;
@@ -458,6 +481,8 @@ function dvAct(a) {
   if ("rfapprove" === verb) return dvRefundDecide(r.c, arg, !0);
   if ("rfdecline" === verb) return dvRefundDecide(r.c, arg, !1);
   if ("rfmatch" === verb) return dvRefundMatchSheet(r.c, arg);
+  if ("crapprove" === verb) return dvCreditDecide(r.c, arg, !0);
+  if ("crdecline" === verb) return dvCreditDecide(r.c, arg, !1);
   if ("pdf" === a) return dvPdf(r);
   if ("history" === a) return dvHistory(r);
   if ("bill" === r.kind) return dvBillAct(r, a);
@@ -560,8 +585,24 @@ function dvRevise(c, d, why) {
   rcToast(`${n.number} started from ${d.number} (${why}); ${d.number} stands as sent until ${n.number} goes out`, [{ label: "Open", run: () => dvOpen(d.type, n.id, c.id) }]);
   return n;
 }
-// The original is voided when its revision goes out (lkSupersede). The money received on it follows the re-issue, each
-// payment with an audit row: the payment is unchanged in amount, date and bank line; only the invoice it settles moves.
+// The original is voided when its revision goes out (lkSupersede). What was settled on it (payments, credit memos'
+// applications) follows the re-issue without touching a posted record: each one stays exactly as it was, on the
+// original, and a linked pair of transfer records moves its amount (out of the original, into the revision), netting
+// to zero, as a credit memo's application does. A transfer is never cash: it carries the bank standing of the record it
+// moves (payBankedAmt) and posts nothing to the ledger (glPaymentLines). Each pair writes one audit row.
+function dvTransferSettled(c, o, n) {
+  const by = dvWho(),
+    done = new Set((c.payments || []).filter((p) => p.xferOf && p.invoiceId === n.id).map((p) => p.xferOf));
+  (c.payments || [])
+    .filter((p) => p.invoiceId === o.id && !p.unapplied && !p.xferOf && Math.abs(+p.amount || 0) > 0.005 && !done.has(p.id))
+    .forEach((p) => {
+      const amt = r2(+p.amount || 0),
+        stamp = { date: today(), method: "Transfer", ref: `${o.number} to ${n.number}`, xferOf: p.id, txnId: "xfer:" + p.id, recordedBy: by, recordedAt: appNowIso() };
+      c.payments.push(Object.assign({ id: uid("py"), invoiceId: o.id, amount: -amt, note: `${money(amt)} moved to ${n.number}, which replaces ${o.number}` }, stamp));
+      c.payments.push(Object.assign({ id: uid("py"), invoiceId: n.id, amount: amt, note: `${money(amt)} from ${o.number} (${p.cmApply ? "credit " + (p.ref || "") : (p.method || "payment") + " of " + fmtL(p.date)})` }, stamp));
+      audit("payment", p.id, "transferred-to-revision", { invoice: o.number }, { invoice: n.number }, `${money(amt)} of ${fmtL(p.date)} settles ${n.number}, which replaces ${o.number}; the record itself is unchanged`);
+    });
+}
 if ("function" == typeof lkSupersede) {
   const base = lkSupersede;
   lkSupersede = function (c, o, n) {
@@ -569,19 +610,24 @@ if ("function" == typeof lkSupersede) {
     const r = base.apply(this, arguments);
     try {
       if (o && n && "invoice" === o.type && "void" === o.status && "void" !== was) {
-        (c.payments || [])
-          .filter((p) => p.invoiceId === o.id && !p.unapplied)
-          .forEach((p) => {
-            (p.invoiceId = n.id), (p.movedFrom = o.number);
-            audit("payment", p.id, "moved-to-revision", { invoice: o.number }, { invoice: n.number }, `${money(+p.amount || 0)} of ${fmtL(p.date)} follows ${o.number} to ${n.number}`);
-          });
-        dvCreditsOn(c, o).forEach((x) => ((x.creditOf = n.id), (x.creditOfNumber = n.number)));
+        dvTransferSettled(c, o, n);
         "sent" === n.status && invoicePaid(c, n) >= docTotal(n).total - 0.005 && (n.status = "paid");
       }
     } catch (e) {
       console.warn("docview: supersede", e);
     }
     return r;
+  };
+}
+// a revision's lines remember the lines they copy, so a credit given on the original is not given twice
+if ("function" == typeof lkRevise) {
+  const base = lkRevise;
+  lkRevise = function (c, d) {
+    const n = base.apply(this, arguments);
+    try {
+      n && d && (n.lines || []).forEach((l, i) => d.lines && d.lines[i] && !l.revOfLine && (l.revOfLine = d.lines[i].id));
+    } catch (e) {}
+    return n;
   };
 }
 // a signed estimate is the contract: the change is a New Change Order on its job
@@ -618,11 +664,23 @@ function dvVoidSheet(c, d) {
 // line is credited by a negative share of its scheduled value, which lowers the line's billed-to-date (sovBilled).
 function dvCreditable(c, inv) {
   const sov = "sov" === inv.mode,
-    prior = dvCreditsOn(c, inv);
+    prior = dvCreditsOn(c, inv),
+    chain = dvChain(c, inv),
+    // a line and the lines it copies back through the revisions (revOfLine): one credit counts against all of them
+    roots = (l) => {
+      const out = new Set([l.id]);
+      let cur = l;
+      for (let i = 1; i < chain.length && cur && cur.revOfLine; i++) {
+        out.add(cur.revOfLine);
+        cur = (chain[i].lines || []).find((y) => y.id === cur.revOfLine);
+      }
+      return out;
+    };
   return (inv.lines || [])
     .map((l) => {
-      const amt = lineAmount(l, inv),
-        done = r2(-prior.reduce((a, x) => a + (x.lines || []).filter((y) => y.creditOfLine === l.id).reduce((s, y) => s + lineAmount(y, x), 0), 0));
+      const ids = roots(l),
+        amt = lineAmount(l, inv),
+        done = r2(-prior.reduce((a, x) => a + (x.lines || []).filter((y) => ids.has(y.creditOfLine)).reduce((s, y) => s + lineAmount(y, x), 0), 0));
       return { l: l, amt: amt, left: r2(amt - done), sov: sov };
     })
     .filter((x) => x.left > 0.005 && !(x.sov && !(+x.l.scheduled > 0)));
@@ -652,6 +710,17 @@ function dvCreditCreate(c, inv, picks, why, o) {
     );
   }
   if (!lines.length) return { ok: !1, why: "Pick at least one line and an amount to credit" };
+  // a credit over the company's limit (DB.company.creditApprovalOver, $1,000 unless Settings say otherwise) is the
+  // owner's to approve: it waits in the register, with the lines and the reason, and is issued only on that yes
+  const over = dvCreditLimit(),
+    X0 = r2(-docTotal({ type: "invoice", mode: sov ? "sov" : "items", lines: lines, taxRate: +inv.taxRate || 0, retainagePct: +inv.retainagePct || 0, discount: inv.discount && "pct" === inv.discount.type ? inv.discount : { type: "pct", value: 0 } }).total);
+  if (X0 > over + 0.005 && "owner" !== role() && !o.approvedAsk) {
+    const ask = { id: uid("cc"), kind: "credit-ask", clientId: c.id, projectId: inv.projectId || "", invoiceId: inv.id, invoiceNumber: inv.number, picks: (picks || []).map((p) => ({ lineId: p.lineId, amount: r2(+p.amount || 0) })), amount: X0, why: w, status: "proposed", by: dvWho(), byRole: role(), at: today() };
+    (DB.clientCredits = DB.clientCredits || []).push(ask);
+    apStamp("client-credit", ask, `credit of ${money(X0)} on ${inv.number} proposed by ${ask.by}`, "proposed", { after: { amount: X0, invoice: inv.number }, note: w });
+    docAudit(c, inv, "credit-proposed", `${money(X0)}: ${w} (over ${money(over)}: the owner approves)`);
+    return save(), { ok: !0, ask: ask, total: X0 };
+  }
   // the memo takes the next credit memo number (CM-), never an invoice number: the invoice sequence keeps no gap
   const keep = JSON.stringify({ seq: DB.company.seq || {}, free: DB.company.cxFree || null }),
     cm = newDoc(c, "invoice", {
@@ -677,6 +746,7 @@ function dvCreditCreate(c, inv, picks, why, o) {
     status: "sent",
     isDeposit: !1,
     issuedBy: dvWho(),
+    preparedBy: o.approvedAsk ? o.approvedAsk.by : dvWho(),
     issuedAt: appNowIso(),
     printKind: "credit",
   });
@@ -700,6 +770,42 @@ function dvCreditCreate(c, inv, picks, why, o) {
   (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `${cm.number} credits ${inv.number} ${money(X)}: ${w}` });
   "function" == typeof docMark && docMark(cm);
   return save(), { ok: !0, cm: cm, applied: onInv, onAccount: rest, total: X };
+}
+function dvCreditLimit() {
+  const v = DB.company && DB.company.creditApprovalOver;
+  return null == v || "" === v || isNaN(+v) ? 1e3 : +v;
+}
+// the owner's yes or no on a credit over the limit; the person who asked never decides it
+function dvCreditDecide(c, id, yes, note) {
+  const a = dvCreditAsks(c).find((x) => x.id === id);
+  if (!a || "proposed" !== a.status) return toast("That credit is not waiting on anyone"), null;
+  const me = String(dvWho()).toLowerCase();
+  if ("owner" !== role() || (a.by && String(a.by).toLowerCase() === me)) return toast("A credit over the limit is approved by the owner, never by the person who asked for it"), null;
+  const inv = (c.invoices || []).find((x) => x.id === a.invoiceId),
+    by = dvWho();
+  if (!yes) {
+    if (void 0 === note) {
+      mbModal(`Decline the Credit of ${money(a.amount)}`, mbF("Why", mbIn("why", "", "e.g. the client accepted the price")), {
+        submit: "Decline",
+        onSubmit: (v) => (v.why ? void dvCreditDecide(c, id, !1, v.why) : (toast("Say why"), !1)),
+      });
+      return null;
+    }
+    Object.assign(a, { status: "declined", decidedBy: by, decidedAt: today(), declineWhy: note });
+    apStamp("client-credit", a, `credit declined by ${by}`, "declined", { before: "proposed", after: "declined", note: note });
+    inv && docAudit(c, inv, "credit-declined", `${money(a.amount)}: ${note}`);
+    save(), render();
+    rcToast(`Credit of ${money(a.amount)} declined: ${note}`, inv ? [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }] : null);
+    return a;
+  }
+  const R = inv ? dvCreditCreate(c, inv, a.picks, a.why, { approvedAsk: a }) : { ok: !1, why: "The invoice is not on file" };
+  if (!R.ok || !R.cm) return toast(R.why || "Not issued"), null;
+  Object.assign(a, { status: "approved", decidedBy: by, decidedAt: today(), creditMemoId: R.cm.id });
+  apStamp("client-credit", a, `credit of ${money(a.amount)} approved by ${by}`, "approved", { by: by, approve: !0, before: "proposed", after: "approved", note: a.why });
+  render();
+  dvOpen("credit", R.cm.id, c.id);
+  rcToast(`${R.cm.number} issued: ${money(R.total)} credited on ${inv.number}, asked by ${a.by}, approved by ${by}`, [{ label: "Open", run: () => dvOpen("credit", R.cm.id, c.id) }]);
+  return R.cm;
 }
 function dvCreditSheet(c, inv) {
   const can = dvCreditable(c, inv);
@@ -727,6 +833,9 @@ function dvCreditSheet(c, inv) {
         const R = dvCreditCreate(c, inv, picks, f.why);
         if (!R.ok) return toast(R.why), !1;
         render();
+        if (R.ask)
+          return void (dvOpen("invoice", inv.id, c.id),
+          rcToast(`A credit of ${money(R.total)} on ${inv.number} is over ${money(dvCreditLimit())}: it waits on the owner in Approvals, nothing is credited yet`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]));
         dvOpen("credit", R.cm.id, c.id);
         rcToast(`${R.cm.number} issued: ${money(R.total)} credited on ${inv.number}${R.onAccount > 0.005 ? `, ${money(R.onAccount)} held on the account` : ""}`, [{ label: "Open", run: () => dvOpen("credit", R.cm.id, c.id) }]);
       },
@@ -770,7 +879,10 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
   if (!(amt > 0) || amt > x.left + 0.005) return { ok: !1, why: `Refund between $0.01 and ${money(x.left)} of that payment` };
   if (!w) return { ok: !1, why: "Say why the money goes back" };
   const f = {
-    id: uid("rf"),
+    id: uid("cc"),
+    kind: "refund",
+    clientId: c.id,
+    projectId: inv.projectId || "",
     invoiceId: inv.id,
     invoiceNumber: inv.number,
     paymentId: x.p.id,
@@ -786,7 +898,7 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
     at: today(),
     approver: dvRefundApprover(),
   };
-  (c.refunds = c.refunds || []).push(f);
+  (DB.clientCredits = DB.clientCredits || []).push(f);
   apStamp("client-refund", f, `refund of ${money(amt)} proposed by ${f.by}`, "proposed", { after: { amount: amt, paymentId: x.p.id, to: f.to }, note: w });
   docAudit(c, inv, "refund-proposed", `${money(amt)} to ${f.to}: ${w}`);
   return save(), { ok: !0, f: f };
@@ -794,7 +906,7 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
 // Approved: a negative payment tied to the payment it returns (refundOf). With a credit the invoice stays settled: the
 // credit memo puts the amount on the account and the refund draws it out; without one the amount is owed again.
 function dvRefundDecide(c, id, yes, note) {
-  const f = (c.refunds || []).find((x) => x.id === id);
+  const f = dvRefunds(c).find((x) => x.id === id);
   if (!f || "proposed" !== f.status) return toast("That refund is not waiting on anyone"), null;
   if (!dvMayApproveRefund(f)) return toast(`A refund is approved by ${dvRefundApproverWord()}, never by the person who proposed it`), null;
   const inv = (c.invoices || []).find((x) => x.id === f.invoiceId),
@@ -873,7 +985,7 @@ function dvRefundSheet(c, inv) {
 }
 // the bank lines that can be this refund: money out of the account that paid, the same amount, from the approval on
 function dvRefundLines(f) {
-  const used = new Set((DB.clients || []).flatMap((c) => (c.refunds || []).map((x) => x.txnId)).filter(Boolean));
+  const used = new Set(dvRefunds(null).map((x) => x.txnId).filter(Boolean));
   return (DB.txns || []).filter(
     (t) => +t.amt < 0 && Math.abs(-t.amt - f.amount) < 0.01 && (!f.acctId || t.acct === f.acctId) && !used.has(t.id) && !t.billId && !(t.match && (t.match.billId || t.match.paymentId)) && (!f.decidedAt || (t.date || "") >= addDaysIso(f.decidedAt, -3)),
   );
@@ -883,7 +995,7 @@ function addDaysIso(d, n) {
   return x.setDate(x.getDate() + n), x.toISOString().slice(0, 10);
 }
 function dvRefundMatch(c, id, txnId) {
-  const f = (c.refunds || []).find((x) => x.id === id),
+  const f = dvRefunds(c).find((x) => x.id === id),
     t = (DB.txns || []).find((x) => x.id === txnId);
   if (!f || "approved" !== f.status) return { ok: !1, why: "Only an approved refund is matched to the bank" };
   if (!t || !dvRefundLines(f).includes(t)) return { ok: !1, why: "That line is not this refund: the amount, the account or the date do not fit" };
@@ -895,7 +1007,7 @@ function dvRefundMatch(c, id, txnId) {
   return save(), { ok: !0 };
 }
 function dvRefundMatchSheet(c, id) {
-  const f = (c.refunds || []).find((x) => x.id === id);
+  const f = dvRefunds(c).find((x) => x.id === id);
   if (!f) return;
   const L = dvRefundLines(f);
   if (!L.length) return toast(`No ${money(f.amount)} out of ${f.to} is in the bank's lines yet; it stays "approved, not in the bank" until it is`);
@@ -912,6 +1024,8 @@ function dvRefundMatchSheet(c, id) {
 // the refund in the owner's Approvals (one item per proposal), and its open: the invoice's document with the decision
 if ("object" == typeof DELEGATION) DELEGATION.refund = { role: "owner", rule: "a refund to a client sends money out: the owner approves it (or the approver Settings names), never the person who proposed it", who: () => dvRefundApprover() };
 if ("object" == typeof APPR_CHIPS && Array.isArray(APPR_CHIPS) && !APPR_CHIPS.some(([k]) => "refund" === k)) APPR_CHIPS.splice(Math.max(0, APPR_CHIPS.length - 1), 0, ["refund", "Refunds"]);
+if ("object" == typeof DELEGATION) DELEGATION.creditmemo = { role: "owner", rule: "a credit to a client over the company limit (DB.company.creditApprovalOver, $1,000) is the owner's to approve, never the person who asked for it", who: () => "owner" };
+if ("object" == typeof APPR_CHIPS && Array.isArray(APPR_CHIPS) && !APPR_CHIPS.some(([k]) => "creditmemo" === k)) APPR_CHIPS.splice(Math.max(0, APPR_CHIPS.length - 1), 0, ["creditmemo", "Credits"]);
 if ("function" == typeof mApprovals) {
   const base = mApprovals;
   mApprovals = function (opts) {
@@ -919,7 +1033,7 @@ if ("function" == typeof mApprovals) {
     try {
       if (!Array.isArray(out) || !((opts && opts.everyone) || role() === dvRefundApprover())) return out;
       (DB.clients || []).forEach((c) =>
-        (c.refunds || [])
+        dvRefunds(c)
           .filter((f) => "proposed" === f.status)
           .forEach((f) =>
             out.push({
@@ -936,6 +1050,26 @@ if ("function" == typeof mApprovals) {
             }),
           ),
       );
+      (opts && opts.everyone) || "owner" === role()
+        ? (DB.clients || []).forEach((c) =>
+            dvCreditAsks(c)
+              .filter((a) => "proposed" === a.status)
+              .forEach((a) =>
+                out.push({
+                  kind: "creditmemo",
+                  id: a.id,
+                  sev: "warn",
+                  n: money(a.amount),
+                  title: `Credit ${money(a.amount)} to ${c.name}`,
+                  detail: `${a.invoiceNumber} · ${a.why} · over the ${money(dvCreditLimit())} limit · asked by ${a.by}`,
+                  yes: "Review the Credit",
+                  who: "owner",
+                  due: today(),
+                  open: { view: "billing", dvInvoice: a.invoiceId, dvClient: c.id },
+                }),
+              ),
+          )
+        : null;
     } catch (e) {}
     return out;
   };
@@ -955,6 +1089,11 @@ if ("function" == typeof payBankedAmt) {
   const base = payBankedAmt;
   payBankedAmt = function (c, py) {
     if (py && py.cmApply) return r2(+py.amount || 0);
+    // a transfer to a revision stands as the record it moves stood: in the bank or not, and never twice
+    if (py && py.xferOf) {
+      const o = ((c && c.payments) || []).find((x) => x.id === py.xferOf);
+      return o && +o.amount ? r2(payBankedAmt(c, o) * ((+py.amount || 0) / +o.amount)) : 0;
+    }
     if (py && py.refundId) return py.txnId ? r2(+py.amount || 0) : 0;
     return base.apply(this, arguments);
   };
@@ -962,7 +1101,7 @@ if ("function" == typeof payBankedAmt) {
 if ("function" == typeof glPaymentLines) {
   const base = glPaymentLines;
   glPaymentLines = function (c, p) {
-    return p && p.cmApply ? [] : base.apply(this, arguments);
+    return p && (p.cmApply || p.xferOf) ? [] : base.apply(this, arguments);
   };
 }
 // the memo's journal: the invoice's own posting of the same lines, reversed (Dr revenue and sales tax, Cr AR and retainage)
@@ -1115,7 +1254,7 @@ function dvPdf(r) {
 // ---- View History: every change, payment, credit and refund on the record, with who and when -------------------------------
 function dvHistory(r) {
   const id = "bill" === r.kind ? r.b.id : r.d.id,
-    au = (DB.audit || []).filter((x) => x.refId === id || (r.c && (r.c.refunds || []).some((f) => f.invoiceId === id && f.id === x.refId))),
+    au = (DB.audit || []).filter((x) => x.refId === id || (r.c && dvRefunds(r.c).some((f) => f.invoiceId === id && f.id === x.refId))),
     rows = au
       .slice()
       .sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")))
@@ -1178,7 +1317,7 @@ body.dv-open{overflow:hidden}body.dv-open #fsay,body.dv-open #fab{display:none}
 if ("object" == typeof EQ_TABLES) {
   EQ_TABLES.refunds = () =>
     (DB.clients || []).flatMap((c) =>
-      (c.refunds || []).map((f) => ({
+      dvRefunds(c).map((f) => ({
         _id: f.id,
         _module: "Billing",
         _label: `Refund ${money(f.amount)} to ${c.name} on ${f.invoiceNumber}`,

@@ -118,8 +118,9 @@ async def action_sets(pg, who):
     C.ok('edit' not in n('est_converted') and 'newco' in n('est_converted'), f'{who} signed estimate: no Edit; New Change Order instead ({A["est_converted"]})')
     C.ok(b('co_sent') == 'approve' and 'edit' in n('co_sent'), f'{who} sent change order: Record Approval blue, Edit (a revision) ({A["co_sent"]})')
     C.ok(b('co_approved') == 'billco' and 'edit' not in n('co_approved'), f'{who} approved change order: Bill It blue, no Edit ({A["co_approved"]})')
-    C.ok('bapprove' not in n('bill_pmok') and 'bfile' in n('bill_pmok') and 'bdispute' in n('bill_pmok') and 'bcredit' in n('bill_pmok'),
-         f'{who} a bill waiting on the owner: no Approve for {who}; Vendor\'s Document, Dispute, Request Credit ({A["bill_pmok"]})')
+    owner = who.startswith('owner')
+    C.ok((('bapprove' in n('bill_pmok') and b('bill_pmok') == 'bapprove') if owner else 'bapprove' not in n('bill_pmok')) and 'bfile' in n('bill_pmok') and 'bdispute' in n('bill_pmok') and 'bcredit' in n('bill_pmok'),
+         f'{who} a bill waiting on the owner: Approve only for the owner (blue); Vendor\'s Document, Dispute, Request Credit ({A["bill_pmok"]})')
     C.ok('bdispute' not in n('bill_paid') and 'bedit' not in n('bill_paid') and 'bpay' not in n('bill_paid'), f'{who} a paid bill: no Dispute, Edit or Pay ({A["bill_paid"]})')
 
 
@@ -283,6 +284,47 @@ async def revise(p, phone):
     await b.close()
 
 
+GATE = "(why) => { const m = document.getElementById('mbm'); if (!m) return false; const w = m.querySelector('textarea, input[data-f], input'); w && (w.value = why); m.querySelector('#mbm-ok').click(); return true; }"
+
+
+async def revise_settled(p, phone):
+    """a paid invoice re-issued: its payment and its credit follow the revision by linked transfers; no posted row changes"""
+    dev = 'phone' if phone else 'desktop'
+    who = f'billing on the {dev}'
+    b, pg, errs = await boot(p, phone, 'u_billing')
+    a = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = clientFin(c);
+      window.__rows = JSON.stringify(c.payments.filter(p => p.invoiceId === 'in2'));
+      const n = dvRevise(c, c.invoices.find(i => i.id === 'in2'), 'retainage line misread');
+      window.__n = n.id; docAction(c, n, 'send'); return { paid: r2(f.paid), n: n.number }; }""")
+    await pg.wait_for_timeout(400)
+    await pg.evaluate(GATE, 're-issue of INV-2026-035')
+    await pg.wait_for_timeout(500)
+    z = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), n = c.invoices.find(i => i.id === window.__n), o = c.invoices.find(i => i.id === 'in2'),
+        ids = JSON.parse(window.__rows).map(p => p.id), X = c.payments.filter(p => p.xferOf);
+      return { same: JSON.stringify(c.payments.filter(p => ids.includes(p.id))) === window.__rows, o: o.status, n: n.status, onO: r2(invoicePaid(c, o)), onN: r2(invoicePaid(c, n)),
+        pairs: X.length, net: r2(X.reduce((a, p) => a + p.amount, 0)), unbanked: r2(invoiceUnbanked(c, n)), paid: r2(clientFin(c).paid),
+        gl: glDerive().some(j => j.sourceType === 'pay' && X.some(p => p.id === j.sourceId)), audit: DB.audit.some(r => r.action === 'transferred-to-revision') }; }""")
+    C.ok(z['o'] == 'void' and z['n'] in ('sent', 'paid', 'partial'), f'{who}: {a["n"]} goes out and INV-2026-035 is voided ({z})')
+    C.ok(z['same'], f'{who}: the original\'s payment rows are byte-identical before and after the re-issue')
+    C.ok(z['pairs'] >= 2 and z['net'] == 0 and z['onO'] == 0 and z['onN'] == 72750, f'{who}: a linked transfer pair moves the $72,750 to the revision and nets to zero ({z})')
+    C.ok(z['unbanked'] == 0 and z['paid'] == a['paid'] and not z['gl'] and z['audit'], f'{who}: the moved money stays bank-backed, collected is unchanged, no cash posts, and an audit row says so ({z})')
+    # a credit given on the original is not given twice on its revision
+    q = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === 'in3'), l0 = o.lines[0], amt = lineAmount(l0, o);
+      const R = dvCreditCreate(c, o, [{ lineId: l0.id, amount: 1000 }], 'demolition billed ahead');
+      const n = dvRevise(c, o, 'one line re-measured'); window.__n3 = n.id; window.__amt = amt; window.__bal = r2(docTotal(n).total);
+      docAction(c, n, 'send'); return { ok: R.ok }; }""")
+    await pg.wait_for_timeout(400)
+    await pg.evaluate(GATE, 're-issue of INV-2026-038')
+    await pg.wait_for_timeout(500)
+    y = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), n = c.invoices.find(i => i.id === window.__n3), x = dvCreditable(c, n).find(v => v.l.id === n.lines[0].id);
+      const again = dvCreditCreate(c, n, [{ lineId: n.lines[0].id, amount: window.__amt }], 'twice?');
+      return { st: n.status, left: x ? x.left : 0, amt: window.__amt, bal: r2(docTotal(n).total - invoicePaid(c, n)), total: window.__bal, again: again.ok, credits: dvCreditsOn(c, n).length }; }""")
+    C.ok(q['ok'] and y['st'] != 'draft' and abs(y['bal'] - (y['total'] - 900)) < 0.01, f'{who}: the $900 credit on INV-2026-038 carries to its revision\'s balance ({y})')
+    C.ok(abs(y['left'] - (y['amt'] - 1000)) < 0.01 and not y['again'] and y['credits'] == 1, f'{who}: the revision\'s line can be credited only what is left after the original\'s credit; the full line again is refused ({y})')
+    C.ok(not errs, f'revise settled on the {dev}: no page errors ({errs[:2]})')
+    await b.close()
+
+
 async def credit(p, phone):
     dev = 'phone' if phone else 'desktop'
     who = f'billing on the {dev}'
@@ -340,6 +382,24 @@ async def credit(p, phone):
          f'{who}: crediting $500 of a taxable line reverses its 8.875% sales tax: $544.38 off the balance ({tx})')
     C.ok(abs(tx['gltax'] - 44.38) < 0.011, f'{who}: the ledger takes the $44.38 back out of sales tax payable (Dr 2300)')
     C.ok(not tx['over'], f'{who}: a line is never credited past what is left of it ($1,500 left; $1,600 refused)')
+    # over the company's limit ($1,000 unless Settings say otherwise) a credit waits on the owner; the asker never decides it
+    lim = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => /fixtures and finishes/.test(i.title || ''));
+      const n0 = c.invoices.filter(i => i.creditMemo).length, R = dvCreditCreate(c, d, [{ lineId: 'ltA', amount: 1200 }], 'vanity replaced at our cost');
+      window.__ask = R.ask && R.ask.id;
+      return { ask: !!R.ask, total: R.total, made: c.invoices.filter(i => i.creditMemo).length - n0, self: dvCreditDecide(c, R.ask.id, true) === null,
+               reg: (DB.clientCredits || []).some(x => x.id === R.ask.id && x.kind === 'credit-ask' && x.status === 'proposed'), queue: blCreditRows().some(r => r.cc && r.cc.id === R.ask.id) }; }""")
+    C.ok(lim['ask'] and lim['made'] == 0 and lim['reg'] and not lim['queue'], f'{who}: a ${lim["total"]:,.2f} credit (over $1,000) is asked for in the register, nothing is credited, and it is not a Billing Queue row ({lim})')
+    C.ok(lim['self'], f'{who}: billing cannot approve the credit it asked for')
+    await sign_in(pg, 'u_owner')
+    ow = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), inApp = mApprovals().some(x => x.kind === 'creditmemo' && x.id === window.__ask);
+      const cm = dvCreditDecide(c, window.__ask, true), a = (DB.clientCredits || []).find(x => x.id === window.__ask);
+      return { inApp: inApp, cm: cm ? cm.number : '', prep: cm && cm.preparedBy, issued: cm && cm.issuedBy, st: a.status, by: a.approvedBy }; }""")
+    C.ok(ow['inApp'] and ow['cm'].startswith('CM-') and ow['st'] == 'approved' and ow['by'] == OWNER and ow['issued'] == OWNER and ow['prep'] and ow['prep'] != OWNER,
+         f'the owner on the {dev}: the credit waits in the owner\'s Approvals; approved, it is issued with who asked and who approved ({ow})')
+    await sign_in(pg, 'u_billing')
+    sm = await pg.evaluate("""() => { DB.company.creditApprovalOver = 5000; const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => /fixtures and finishes/.test(i.title || ''));
+      const R = dvCreditCreate(c, d, [{ lineId: 'ltB', amount: 1000 }], 'install done by the client'); return { cm: !!R.cm, ask: !!R.ask, by: R.cm && R.cm.issuedBy }; }""")
+    C.ok(sm['cm'] and not sm['ask'] and sm['by'], f'{who}: with the limit set to $5,000 in Settings, a $1,000 credit issues at once with the issuer\'s name ({sm})')
     C.ok(not errs, f'credit on the {dev}: no page errors ({errs[:2]})')
     await b.close()
 
@@ -362,12 +422,15 @@ async def refund(p, phone):
     await shot(pg, f'u_billing_{dev}_refund_sheet')
     await pg.locator('#mbm #mbm-ok').click()
     await pg.wait_for_timeout(300)
-    f = await pg.evaluate("() => (DB.clients.find(c => c.id === 'cl121').refunds || [])[0] || null")
+    f = await pg.evaluate("() => dvRefunds(DB.clients.find(c => c.id === 'cl121'))[0] || null")
     z = await pg.evaluate(S0)
     C.ok(f and f['status'] == 'proposed' and f['amount'] == 500, f'billing {who}: the refund is a proposal ({f and f["status"]})')
+    reg = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'); return { inReg: (DB.clientCredits || []).some(x => x.kind === 'refund' && x.clientId === c.id), own: c.refunds === undefined, queue: blCreditRows().some(r => r.cc && r.cc.kind === 'refund'), cap: dvRefundPropose(c, c.invoices.find(i => i.id === 'in2'), c.payments.find(p => p.invoiceId === 'in2' && p.amount > 0).id, 1e6, 'x', false).ok } }")
+    C.ok(reg['inReg'] and reg['own'] and not reg['queue'], f'billing {who}: the refund lives in the one client-credit register, no store of its own, and is not a Billing Queue row ({reg})')
+    C.ok(not reg['cap'], f'billing {who}: a refund is capped at the cash the bank has of that payment ($1,000,000 refused)')
     C.ok(z['n'] == a['n'] and z['paid'] == a['paid'] and z['st'] == a['st'], f'billing {who}: a proposal moves no money ({a} / {z})')
     C.ok(f and f['acctId'], f'billing {who}: the refund names the account the payment came into ({f and f["to"]}; the sheet: {to})')
-    C.ok(await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'); return dvRefundDecide(c, c.refunds[0].id, true) === null && c.refunds[0].status === 'proposed' }"),
+    C.ok(await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'); return dvRefundDecide(c, dvRefunds(c)[0].id, true) === null && dvRefunds(c)[0].status === 'proposed' }"),
          f'billing {who}: billing cannot approve the refund it proposed')
     t = await pg.evaluate("() => (document.querySelector('#dv .dv-notes') || {}).innerText || ''")
     C.ok('proposed, not approved' in t, f'billing {who}: the document says the refund waits for approval ({t[:120]})')
@@ -387,7 +450,7 @@ async def refund(p, phone):
     await shot(pg, f'u_owner_{dev}_refund_review')
     await pg.locator('#dv [data-dvact^="rfapprove:"]').click()
     await pg.wait_for_timeout(300)
-    g = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = c.refunds[0], py = c.payments.find(p => p.id === f.paymentRecId), d = c.invoices.find(i => i.id === 'in2'), src = c.payments.find(p => p.id === f.paymentId);
+    g = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], py = c.payments.find(p => p.id === f.paymentRecId), d = c.invoices.find(i => i.id === 'in2'), src = c.payments.find(p => p.id === f.paymentId);
       return { st: f.status, by: f.approvedBy, rec: py ? { amt: py.amount, of: py.refundOf, acct: py.acctId, un: !!py.unapplied } : null, src: src.id, word: dvRefundWord(c, f), banked: py ? payBankedAmt(c, py) : null,
         inv: invoiceStatus(c, d), cr: r2(clientFin(c).credits), paid: r2(clientFin(c).paid), cm: !!f.creditMemoId, out: clientFin(c).outstanding } }""")
     C.ok(g['st'] == 'approved' and g['by'], f'the owner {who}: approved, with the owner\'s name on it ({g["by"]})')
@@ -395,7 +458,7 @@ async def refund(p, phone):
     C.ok(g['word'] == 'approved, not in the bank' and g['banked'] == 0, f'the owner {who}: it reads "approved, not in the bank" and is not bank money yet ({g["word"]})')
     C.ok(g['cm'] and g['inv'] == 'paid' and abs(g['cr'] - z['cr']) < 0.06 and abs(g['out'] - z['out']) < 0.06, f'the owner {who}: with its credit memo, INV-2026-035 stays paid and nothing is owed again ({g})')
     # the bank line: only money out of that account, of that amount, is this refund
-    m = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = c.refunds[0], other = (DB.accounts || []).find(a => a.id !== f.acctId);
+    m = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], other = (DB.accounts || []).find(a => a.id !== f.acctId);
       DB.txns.push({ id: 'tRFok', date: today(), amt: -500, acct: f.acctId, desc: 'ONLINE TRANSFER TO KLEIN S', cat: '', status: 'new', origin: 'feed' });
       other && DB.txns.push({ id: 'tRFno', date: today(), amt: -500, acct: other.id, desc: 'CHECK 1201', cat: '', status: 'new', origin: 'feed' });
       return { lines: dvRefundLines(f).map(t => t.id), wrong: other ? dvRefundMatch(c, f.id, 'tRFno').ok : false } }""")
@@ -405,7 +468,7 @@ async def refund(p, phone):
     await pg.wait_for_timeout(200)
     await pg.locator('#mbm #mbm-ok').click()
     await pg.wait_for_timeout(300)
-    h = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'), f = c.refunds[0], py = c.payments.find(p => p.id === f.paymentRecId); return { w: dvRefundWord(c, f), b: payBankedAmt(c, py) } }")
+    h = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], py = c.payments.find(p => p.id === f.paymentRecId); return { w: dvRefundWord(c, f), b: payBankedAmt(c, py) } }")
     C.ok(h['w'].startswith('refunded, in the bank') and h['b'] == -500, f'the owner {who}: matched, the refund reads in the bank ({h})')
     C.ok(not errs, f'refund {who}: no page errors ({errs[:2]})')
     await b.close()
@@ -434,9 +497,9 @@ async def main():
     async with async_playwright() as p:
         for phone in (False, True):
             if 'lists' in only:
-                for uid in ('u_billing', 'u_controller'):
+                for uid in ('u_billing', 'u_controller', 'u_owner'):
                     await lists_open(p, phone, uid)
-            if 'revise' in only: await revise(p, phone)
+            if 'revise' in only: await revise(p, phone); await revise_settled(p, phone)
             if 'credit' in only: await credit(p, phone)
             if 'refund' in only: await refund(p, phone)
             if 'portal' in only: await portal(p, phone)

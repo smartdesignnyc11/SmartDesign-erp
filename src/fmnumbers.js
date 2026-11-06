@@ -12,7 +12,8 @@
      a document's number never changes once it is sent, and existing documents keep theirs;
    - the series continues after the highest FM number the job already has anywhere: its Selections items (it.fm), its
      purchase orders (po.fm), invoices on the job numbered FM<n> (an import) or <prefix>-FM<n>, and the series' own
-     counter, which only rises: a voided or deleted FM number stays burned;
+     counter: a voided number stays burned; a draft deleted before it was sent gives its number back (fmFree), so the
+     client never sees FM3 then FM5;
    - the firm's INV or EST number the draft held is given back (the sequence keeps no gap), as a deleted draft's is;
    - the prefix is the house number and the street word ("121 State Street" → "121State"), from the job's address,
      else the client's property address, else the job's name; with none, the client's last name. It is set once per
@@ -115,10 +116,13 @@ function fmAssign(c, d) {
   if (!fmWants(d) || !c) return "";
   const pre = fmPrefixFor(c, d),
     tag = "estimate" === d.type ? "FME" : "FM",
-    n = fmHighest(pre, d.type, d.projectId) + 1,
+    top = fmHighest(pre, d.type, d.projectId),
+    // a number a deleted, never-sent draft gave back is handed out first, so the client's series has no hole
+    pool = (((DB.company.fmFree = DB.company.fmFree || {})[pre] = DB.company.fmFree[pre] || {})[tag] = (DB.company.fmFree[pre][tag] || []).filter((k) => k <= top && !fmTaken(pre, tag, k, d.projectId)).sort((a, b) => a - b)),
+    n = pool.length ? pool.shift() : top + 1,
     num = `${pre}-${tag}${n}`;
   if (num.length > FM_MAX) return "";
-  ((DB.company.fmSeq = DB.company.fmSeq || {})[pre] = DB.company.fmSeq[pre] || {})[tag] = n;
+  ((DB.company.fmSeq = DB.company.fmSeq || {})[pre] = DB.company.fmSeq[pre] || {})[tag] = Math.max(n, +DB.company.fmSeq[pre][tag] || 0);
   const was = d.number;
   (d.number = num), (d.fmNumbered = !0), (d.fmPrefix = pre);
   (c.activity || []).forEach((a) => a.text && was && a.text.includes(was) && /created/.test(a.text) && (a.text = a.text.split(was).join(num)));
@@ -134,10 +138,14 @@ function fmAssign(c, d) {
 // from an estimate (invoiceFromEstimate) copied only the line's words and price: the source line's selId is taken
 // from its fromLine key, and the order line from the job's orders that bought that selection. Only links are added;
 // amounts, quantities and words are never touched, and a link a line already has is kept.
-function fmLineLinks(d) {
+// Drafts only: a sent invoice is linked once, by the audited backfill (fmBackfill), never silently on a draw.
+function fmLineLinks(d, o) {
+  o = o || {};
   if (!d || "invoice" !== d.type || "materials" !== d.template || "void" === d.status) return 0;
+  if ("draft" !== d.status && !o.backfill) return 0;
   let n = 0;
   (d.lines || []).forEach((l) => {
+    const was = { selId: l.selId || "", poLineId: l.poLineId || "" };
     if (!l.selId && l.fromLine) {
       const [k, docId, lineId] = String(l.fromLine).split(":"),
         src = (DB.clients || []).flatMap((c) => ("co" === k ? c.changeOrders : c.estimates) || []).find((x) => x.id === docId),
@@ -154,12 +162,35 @@ function fmLineLinks(d) {
         }
       }
     }
+    o.backfill &&
+      (was.selId !== (l.selId || "") || was.poLineId !== (l.poLineId || "")) &&
+      audit("invoice", d.id, "line-linked", was, { selId: l.selId || "", poId: l.poId || "", poLineId: l.poLineId || "" }, `${d.number} · ${d.status} · line "${l.item || ""}" linked to its selection and order line (links only; amounts unchanged)`);
   });
   return n;
 }
+// The one-time backfill for finished-material invoices already sent before lines carried their links: each link it
+// adds writes an audit row; it runs once (DB.company.fmLinkBackfill) and never touches an amount.
+function fmBackfill() {
+  if (DB.company.fmLinkBackfill) return 0;
+  let n = 0;
+  (DB.clients || []).forEach((c) => (c.invoices || []).forEach((d) => "materials" === d.template && !["draft", "void"].includes(d.status) && (n += fmLineLinks(d, { backfill: !0 }))));
+  DB.company.fmLinkBackfill = { at: appNowIso(), links: n };
+  return n;
+}
+// a number in the series is taken while any document, selection or order on the job carries it
+function fmTaken(pre, tag, k, pid) {
+  const num = `${pre}-${tag}${k}`.toLowerCase(),
+    bare = `${tag}${k}`.toLowerCase(),
+    docs = (DB.clients || []).flatMap((c) => ("FME" === tag ? c.estimates : c.invoices) || []);
+  if (docs.some((x) => String(x.number || "").toLowerCase().replace(/-r\d+$/, "") === num || (pid && x.projectId === pid && String(x.number || "").toLowerCase() === bare))) return !0;
+  if ("FM" === tag && pid)
+    return ((DB.sel && DB.sel.items) || []).some((it) => it.projectId === pid && String(it.fm || "").toLowerCase() === bare) || (DB.pos || []).some((po) => po.projectId === pid && String(po.fm || "").toLowerCase() === bare);
+  return !1;
+}
 // every eligible draft, wherever it was made: a new document takes its template after newDoc in most paths
 function fmSweep() {
-  (DB.clients || []).forEach((c) => (c.invoices || []).forEach((d) => "materials" === d.template && fmLineLinks(d)));
+  fmBackfill();
+  (DB.clients || []).forEach((c) => (c.invoices || []).forEach((d) => "materials" === d.template && "draft" === d.status && fmLineLinks(d)));
   let n = 0;
   (DB.clients || []).forEach((c) =>
     [...(c.invoices || []), ...(c.estimates || [])].forEach((d) => {
@@ -223,7 +254,26 @@ if ("function" == typeof docAction) {
     try {
       fmWants(d) && fmAssign(c, d);
     } catch (e) {}
-    return base.apply(this, arguments);
+    // a deleted draft that was never sent gives its FM number back, as the INV rule does; a void keeps it burned
+    const del = "del" === a && d && d.fmNumbered && "draft" === d.status && !d.sentAt ? { num: d.number, pre: d.fmPrefix, tag: "estimate" === d.type ? "FME" : "FM", pid: d.projectId, coll: docColl(c, d.type) } : null;
+    const r = await base.apply(this, arguments);
+    try {
+      if (del && !del.coll.includes(d)) {
+        const m = new RegExp(`-${del.tag}(\\d+)$`).exec(del.num || ""),
+          k = m ? +m[1] : 0,
+          S0 = ((DB.company.fmSeq = DB.company.fmSeq || {})[del.pre] = DB.company.fmSeq[del.pre] || {}),
+          F = (((DB.company.fmFree = DB.company.fmFree || {})[del.pre] = DB.company.fmFree[del.pre] || {})[del.tag] = DB.company.fmFree[del.pre][del.tag] || []);
+        if (k && !fmTaken(del.pre, del.tag, k, del.pid)) {
+          if (k === +S0[del.tag]) {
+            S0[del.tag] = k - 1;
+            while (F.includes(+S0[del.tag])) F.splice(F.indexOf(+S0[del.tag]), 1), (S0[del.tag] -= 1);
+          } else F.includes(k) || F.push(k);
+          audit(d.type, d.id, "number-given-back", { number: del.num }, null, `${del.num} deleted before it was sent: the number is handed out again`);
+          save();
+        }
+      }
+    } catch (e) {}
+    return r;
   };
 }
 {

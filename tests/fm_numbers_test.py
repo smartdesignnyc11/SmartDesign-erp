@@ -92,6 +92,23 @@ async def main():
         t = await pg.evaluate("() => (document.querySelector('#pal') || {}).innerText || ''")
         C.ok('121State-FM14' in t, 'Cmd-K finds it by the full number')
         C.ok(await pg.evaluate("() => DB.audit.some(a => a.action === 'numbered' && /140Prospect-FM1/.test(a.note))"), 'each FM number is written to the audit trail with what it replaced')
+        # a draft deleted before it is sent gives its number back (no FM3 then FM5); a void keeps its number burned
+        g = await pg.evaluate("""async () => { const c = DB.clients.find(x => x.id === 'cl140'), mk = () => { const d = newDoc(c, 'invoice', { mode: 'items', fields: { projectId: 'p140', lines: [] } }); d.projectId = 'p140'; d.template = 'materials'; docMark(d); render(); return d; };
+          const a = mk(), b2 = mk(), keep = appConfirm; appConfirm = () => true;
+          try { await docAction(c, b2, 'del'); await docAction(c, a, 'del'); } finally { appConfirm = keep; }
+          const n1 = mk(), n2 = mk(); return { a: a.number, b: b2.number, n1: n1.number, n2: n2.number, audit: DB.audit.some(r => r.action === 'number-given-back') }; }""")
+        C.ok(g['n1'] == g['a'] and g['n2'] == g['b'] and g['a'] == '140Prospect-FM3', f'two drafts deleted before they were sent give FM3 and FM4 back; the next drafts take them, in order ({g})')
+        C.ok(g['audit'], 'giving a number back writes an audit row')
+        # a sent invoice is never written on a draw; the one-time backfill links the ones already sent, each with an audit row
+        bf = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl121'), it = DB.sel.items.find(i => i.projectId === 'p121');
+          const e = newDoc(c, 'estimate', { template: 'materials', fields: { projectId: 'p121' } }); e.projectId = 'p121'; e.lines = [{ id: 'lbf1', selId: it.id, item: it.name, qty: 1, rate: 90 }];
+          const s = newDoc(c, 'invoice', { mode: 'items' }); s.template = 'materials'; s.projectId = 'p121'; s.status = 'sent'; s.sentAt = today();
+          s.lines = [{ id: uid('l'), item: it.name, qty: 1, rate: 90, fromLine: ctKey(e, e.lines[0]) }]; render();
+          const drawn = !!s.lines[0].selId;
+          delete DB.company.fmLinkBackfill; render();
+          return { drawn: drawn, linked: s.lines[0].selId === it.id, audit: DB.audit.some(r => r.action === 'line-linked' && r.refId === s.id), once: !!DB.company.fmLinkBackfill }; }""")
+        C.ok(not bf['drawn'], 'a sent finished-material invoice is not written to on a draw (drafts only)')
+        C.ok(bf['linked'] and bf['audit'] and bf['once'], f'the one-time backfill links a sent invoice\'s line to its selection, with an audit row ({bf})')
         # the invoice's lines name their selection and the order line that bought it (lane P5's item table reads them)
         await pg.keyboard.press('Escape')
         L = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl121'), it = DB.sel.items.find(i => i.projectId === 'p121');
