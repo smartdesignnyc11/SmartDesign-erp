@@ -981,7 +981,9 @@ if ("function" == typeof tvApply) {
       const u = (currentUser() || {}).id || "";
       if (u && u !== ydTkFirst && ydOffice()) {
         ydTkFirst = u;
-        (tkWho = "me"), (t2View = "all"), (tkProject = ""), (tkArea = ""), (tkPri = "");
+        // only the person's own Tasks: a job's Tasks (its job chip) and Sales Tasks (the Sales chip its link set) keep
+        // the chip they were opened with (tasks_phone_test: the reset emptied Projects > Tasks and dropped Sales)
+        "tkall" === view && "__sales" !== tkProject && ((tkWho = "me"), (t2View = "all"), (tkProject = ""), (tkArea = ""), (tkPri = ""));
       }
     } catch (e) {}
     const r = base.apply(this, arguments);

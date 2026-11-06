@@ -3230,6 +3230,9 @@ ${
       }
       d ? (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0)) : toast("No chase could be drafted for this one: write it from the task");
     });
+  // every task opens this one sheet: the old Edit form ("Their Email", "Code") is not a way in (capture 11-05 #6); a
+  // schedule line keeps Edit Schedule
+  /^(action|firm|hub)$/.test(x.kind) && m.querySelectorAll("[data-tksedit]").forEach((b) => b.remove());
   ph && tvSheetPhone(m, I);
 }
 // ---- Remind: a reminder at a set time (PM review 11-05 #6) -----------------------------------------------------------
@@ -3415,8 +3418,6 @@ function tvSheetPhone(m, I) {
       !0,
     );
   }
-  // every task opens this one sheet: the old Edit form ("Their Email", "Code") is not a way in (capture 11-05 #6)
-  /^(action|firm|hub)$/.test(I.x.kind) && m.querySelectorAll("[data-tksedit]").forEach((b) => b.remove());
   ft.querySelectorAll("#mbm-cancel, [data-tvsho]").forEach((b) => (b.hidden = !0));
   const ok = ft.querySelector("#mbm-ok"),
     cam = m.querySelector("[data-tkscam]"),
