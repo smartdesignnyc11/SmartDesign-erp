@@ -297,6 +297,15 @@ function puVendorRecord() {
 
 // ---- read-only Purchasing for the controller and billing: they see every page, and buy nothing --------------------------
 const puReadOnly = () => ["controller", "billing"].includes(role());
+// Reading Orders does not let them make one: the job's + offers no Purchase Order to the read-only seats
+// (job_structure_test ROLES: billing's + offered a Purchase Order once billing could read Orders)
+if ("function" == typeof jpNewItems) {
+  const base = jpNewItems;
+  jpNewItems = function () {
+    const L = base.apply(this, arguments);
+    return puReadOnly() ? L.filter((x) => "po" !== x[0]) : L;
+  };
+}
 // Reading Purchasing does not make a job page the controller's or billing's: their Projects still lists no job (the
 // menu's rule, mnJobLanding: "" when the role opens no job page), so the Buy Board is never a job's landing for them.
 if ("function" == typeof mnJobLanding) {
