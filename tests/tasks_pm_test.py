@@ -340,7 +340,7 @@ async def counts(c, pg):
     # counts his). Every open task that waits on someone is on its owner's Waiting On chip, as drawn, and on everyone's
     # (Team with Waiting On), as drawn
     W = await pg.evaluate("() => openTasks('all').filter(x => t2ViewOf([x], 'blocked').length).map(x => ({ key: t2Key(x), owner: x.assignee, title: x.title }))")
-    c.ok(any('Shop drawings for the parlor bookcases' in x['title'] for x in W), f'waiting: the demo\\'s shop-drawings task waits on someone ({[x["title"][:30] for x in W]})')
+    c.ok(any('Shop drawings for the parlor bookcases' in x['title'] for x in W), f'waiting: the demo’s shop-drawings task waits on someone ({[x["title"][:30] for x in W]})')
     lost = []
     owners = {x['owner'] for x in W if x['owner']}
     uid_of = await pg.evaluate("names => Object.fromEntries(names.map(n => [n, ((DB.users || []).find(u => tkOwnerMatch(n, u.name)) || {}).id || '']))", list(owners))
@@ -353,7 +353,7 @@ async def counts(c, pg):
     await sign_in(pg, 'u_alan'); await go(pg, 'tkall')
     team = await pg.evaluate("() => { tvApply('b:all'); t2View = 'blocked'; renderTkAll(); return [...document.querySelectorAll('#tkall-body .tk2-row, #tkall-body .yd-row')].map(r => r.dataset.tkkey || r.dataset.ydtask); }")
     lost += [('team', x['title'][:40]) for x in W if x['key'] not in team]
-    c.ok(not lost, f'waiting: every waiting task is on its owner\\'s Waiting On and on Team with Waiting On ({lost})')
+    c.ok(not lost, f'waiting: every waiting task is on its owner’s Waiting On and on Team with Waiting On ({lost})')
     await pg.evaluate("() => { tvApply('b:open'); }")
     # the Team view: each person's count is that person's open tasks, the same function as Mine
     await sign_in(pg, 'u_alan'); await go(pg, 'tkall')
