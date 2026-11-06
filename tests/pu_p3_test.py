@@ -243,6 +243,24 @@ async def s_owed(pg, c, dev):
     await js(pg, "() => { puShowAll.tile = ''; render(); }", None, 200)
 
 
+# every text run in the price history, measured by its own box (a Range per text node): two runs from different nodes
+# that share pixels overlap; a run past its section's right edge is cut
+PRICE_PHONE = r"""() => { const g = document.querySelector('#pu-vg .pu-vg-ph'); if (!g) return null;
+  const items = [...g.querySelectorAll('.pu-vg-pi')].map(li => ({ name: (li.querySelector('b') || {}).textContent || '',
+    labels: [...li.querySelectorAll('dt')].map(d => d.textContent.trim()) }));
+  const runs = [], W = g.getBoundingClientRect();
+  const tw = document.createTreeWalker(g, NodeFilter.SHOW_TEXT, { acceptNode: n => n.nodeValue.trim() ? 1 : 3 });
+  for (let n; (n = tw.nextNode());) { const r = document.createRange(); r.selectNodeContents(n);
+    [...r.getClientRects()].filter(b => b.width > 0 && b.height > 0).forEach(b => runs.push({ t: n.nodeValue.trim().slice(0, 24), b })); }
+  const overlap = [];
+  for (let i = 0; i < runs.length; i++) for (let j = i + 1; j < runs.length; j++) {
+    const a = runs[i].b, b = runs[j].b;
+    if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) overlap.push(runs[i].t + ' / ' + runs[j].t);
+  }
+  const cut = runs.filter(x => x.b.right > W.right + 1).map(x => x.t);
+  return { items, overlap: overlap.slice(0, 4), cut: cut.slice(0, 4), side: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth }; }"""
+
+
 async def s_vendors(pg, c, dev, phone):
     await page(pg, 'vendors')
     if not phone:
@@ -269,6 +287,12 @@ async def s_vendors(pg, c, dev, phone):
          f'VENDORS {dev}: the record opens on open orders, owed back (with what was paid over an order), insurance, W-9 and price history ({g and g["text"][:260]!r})')
     if not phone:
         c.ok(g and g['th'] == ['Item', 'Last', 'Best', 'Trend'], f'VENDORS {dev}: price history reads last, best and trend per item ({g and g["th"]})')
+    else:
+        # the phone: each item's Last, Best and Trend are labelled values, and no two pieces of text run into each other
+        # (11-06: "$3,300.00/ea8/12 · $3,300.00Window Works" ran together once a row pass flattened the table)
+        ph = await js(pg, PRICE_PHONE)
+        c.ok(ph and ph['items'] and all(it['labels'] == ['Last', 'Best', 'Trend'] for it in ph['items']) and not ph['overlap'] and not ph['cut'] and ph['side'] <= 0,
+             f'VENDORS {dev}: each price is a labelled Last, Best and Trend, nothing overlapping or cut ({ph})')
     await reset(pg)
 
 
