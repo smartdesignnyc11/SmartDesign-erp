@@ -533,7 +533,9 @@ function puBtnMove(v, host) {
 }
 // What stays on screen of the old page: on the desktop the receiving line by line is Deliveries' Arriving (the phone has
 // the Receive sheet); Orders keeps the per-line New PO table (buying starts from the line) until Reports' Cash holds it.
-const PU_KEEP = { po: ["po-funds"], recv: ["recv-body"] },
+// (Orders' Client Funds card folds under Matching, Promises and Client Funds: its per-line New PO buttons were a second
+// New, and Reports' Cash holds it; CoS 11-06)
+const PU_KEEP = { recv: ["recv-body"] },
   puKeep = (v, c) => (PU_KEEP[v] || []).includes(c.id) && !("recv" === v && puPhone());
 // the old page's parts are hidden inline (a phone rule with !important on an id would show them otherwise).
 // A part's own display is put back only while our hide still holds it (display none, !important): once the old page's
@@ -637,7 +639,7 @@ function puOrders() {
     cnbSum = cnb.total,
     t = puShowAll.tile || "",
     f = puFilter.po,
-    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))).sort((a, b) => ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[a.status] ?? 4) - ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[b.status] ?? 4)),
+    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? !0 : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))).sort((a, b) => ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[a.status] ?? 4) - ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[b.status] ?? 4)),
     poRow = (po) => {
       const st = "function" == typeof poState ? poState(po) : { msg: po.status };
       // one line names the order, its vendor, its job and what it buys: an order is found by any of them

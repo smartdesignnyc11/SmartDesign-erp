@@ -1247,6 +1247,10 @@ the checks go in through the main session.
    W-9, and Alberto M Plumbing $9,800 "paid" on a bill that cannot be paid (verify against the build). Class fix: a payment to a vendor with
    no W-9 on file is a Needs You row for the controller (backup withholding, the year-end 1099). Check: the payment-run suite asserts the
    Payment Check holds it, and the finance cross-check lists any vendor paid without one.
+8. **Separation of duties: who creates a vendor is not who pays it** (CoS, 11-06, follow-up from lane P3). Lane P3 took New Vendor
+   from the controller and billing (they read Purchasing); the rule behind it is not built yet: whoever sets up a vendor (or changes its
+   bank) cannot release that vendor's payment, and the Payment Check says so. Check: a payment-run case where the releaser also created
+   the vendor is held with that reason.
 
 ## §10 Mock-up review: Your Day, Sales and Clients, Company and Settings (chief of staff, 2026-11-03)
 Defects the mock-up authors and the review found in the live build (census bd3180c27e33, demo day 9/3), written as class fixes,

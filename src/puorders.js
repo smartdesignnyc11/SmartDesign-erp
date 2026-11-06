@@ -83,6 +83,8 @@ function puPoNext(po, doc) {
     const b = puPoBills(po).sort((a, c) => String(c.date || "").localeCompare(String(a.date || "")))[0];
     return { over: over, make: b ? { label: "Open the Bill", run: () => flowGo.bill(b)() } : null, say: `Paid or billed ${money(over.out)} on an order of ${money(over.tot)}: ${money(over.over)} over. Ask ${po.vendor || "the vendor"} for the credit on the bill, or approve the difference with a reason; do not close the order until it is settled.` };
   }
+  // an order waiting on the owner's approval has no next step for anyone else: it says who it waits on (CoS, 11-06)
+  if ("pending" === po.status && "owner" !== role()) return { wait: "Waiting on the owner's approval." };
   const own = [...doc.querySelectorAll("button.primary")].filter((x) => !x.closest("#pu-poh, #mbm, .modal") && !x.disabled && x.offsetParent !== null);
   const pick = own.find((x) => x.closest(".docacts")) || own[0] || ("draft" === po.status || "pending" === po.status ? [...doc.querySelectorAll(".docacts button")].find((x) => /^(Submit for Approval|Issue|Send to Vendor|Approve)/i.test(x.textContent.trim()) && !x.disabled) : null);
   return { btn: pick || null };
@@ -121,9 +123,19 @@ function puPoBlue(po, doc) {
   const slot = doc.querySelector("#pu-ponext");
   if (!slot) return;
   let keep = slot.querySelector("button:not(#pu-potask)");
+  const ro = puReadOnly();
   if (!keep && !slot.querySelector(".pu-poh-why")) {
     const nx = puPoNext(po, doc);
-    if (nx.over) {
+    if (ro) {
+      // the controller and billing read the order; the coordinator acts on it. An order paid over its total still
+      // links to its bill (theirs, in Accounting), plain.
+      slot.innerHTML = `<p class="pu-poh-why" data-nocase>Read only: the coordinator acts on this order.${nx.over ? ` ${esc(nx.say)}` : ""}</p>`;
+      if (nx.over && nx.make) {
+        const b = document.createElement("button");
+        (b.type = "button"), (b.className = "btn"), (b.id = "pu-ponext-b"), (b.textContent = nx.make.label), (b.onclick = nx.make.run), slot.appendChild(b);
+      }
+    } else if (nx.wait) slot.innerHTML = `<p class="pu-poh-why" data-nocase>${esc(nx.wait)}</p>`;
+    else if (nx.over) {
       slot.innerHTML = `<p class="pu-poh-why bad" data-nocase>${esc(nx.say)}</p>`;
       if (nx.make) {
         keep = document.createElement("button");
@@ -146,9 +158,21 @@ function puPoBlue(po, doc) {
       });
     slot.appendChild(t);
   }
+  // an order paid over its total is never closed until it is settled: Close PO is not offered
+  "function" == typeof puOverOrder && puOverOrder(po.projectId).some((x) => x.po.id === po.id) && doc.querySelectorAll('[data-poact="close"]').forEach((b) => ((b.hidden = !0), b.style.setProperty("display", "none", "important")));
+  ro && (puPoReadOnly(doc), (keep = null));
   const sec = document.getElementById("v-po") || doc;
   sec.querySelectorAll(".btn.primary").forEach((x) => x !== keep && !x.closest("#mbm") && (x.classList.remove("primary"), (x.dataset.flowDemoted = "1")));
   keep && (keep.classList.add("primary"), delete keep.dataset.flowDemoted);
+}
+// The order's page for a read-only seat: every control that writes is taken off the page and every field is shut; what
+// stays is the way back, Print / PDF and the links that open another record. The action functions refuse as well
+// (below), so nothing reached another way writes either.
+const PU_RO_KEEP = (b) => b.matches('[data-poback], [data-poact="print"], #pu-ponext-b, [data-polopen]');
+function puPoReadOnly(doc) {
+  doc.querySelectorAll("button, [role=button]").forEach((b) => PU_RO_KEEP(b) || ((b.hidden = !0), b.style.setProperty("display", "none", "important")));
+  doc.querySelectorAll("a[data-match], a[data-unmatch], [data-rmline], [data-lkover], label.btn").forEach((a) => a.style.setProperty("display", "none", "important"));
+  doc.querySelectorAll("input, select, textarea").forEach((f) => ((f.disabled = !0), f.setAttribute("aria-readonly", "true")));
 }
 function puPoRecord(final) {
   const sec = document.getElementById("v-po");
@@ -297,6 +321,43 @@ function puVendorRecord() {
 
 // ---- read-only Purchasing for the controller and billing: they see every page, and buy nothing --------------------------
 const puReadOnly = () => ["controller", "billing"].includes(role());
+// Refused at the functions too, so a call from anywhere (a row's act, a toast's Open, Ask's proposal, a later wrapper)
+// writes nothing for a read-only seat: the order's actions (Print stays), matching a payment to an order, receiving,
+// billing from an order, a new order from lines or blank, and a new vendor. Who pays a vendor stays Accounting's.
+const puRefuse = (what) => (toast(`Read only: ${what} is the coordinator's to do. You can see it here.`), !1);
+{
+  const guard = (name, what, allow) => {
+    const f = globalThis[name];
+    if ("function" != typeof f) return;
+    globalThis[name] = function () {
+      if (puReadOnly() && !(allow && allow.apply(this, arguments))) return puRefuse(what);
+      return f.apply(this, arguments);
+    };
+  };
+  guard("poAction", "acting on an order", (po, a) => "print" === a);
+  guard("matchPO", "matching a payment to an order");
+  guard("newPODialog", "a new purchase order");
+  guard("ctPOPicker", "a new purchase order");
+  guard("billFromPO", "billing from an order");
+  guard("lkBillReceived", "billing from an order");
+  guard("lkOverBill", "billing past an order");
+  guard("puReceive", "receiving");
+  guard("puReceiveLine", "receiving");
+  guard("puNewPOFromLines", "a new purchase order");
+  guard("puBuyFromDoc", "buying from lines");
+  guard("openVendor", "a new vendor", (id) => !!id);
+}
+// and on the page: a tap on a control the read-only page does not offer is stopped before any handler runs
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!puReadOnly()) return;
+    const t = e.target && e.target.closest ? e.target.closest("#po-doc button, #po-doc a[data-match], #po-doc a[data-unmatch], #po-doc [data-rmline], #btn-newvendor, [data-fundpo]") : null;
+    if (!t || (t.closest("#po-doc") && PU_RO_KEEP(t))) return;
+    e.preventDefault(), e.stopPropagation(), e.stopImmediatePropagation(), puRefuse("this");
+  },
+  !0,
+);
 // Reading Orders does not let them make one: the job's + offers no Purchase Order to the read-only seats
 // (job_structure_test ROLES: billing's + offered a Purchase Order once billing could read Orders)
 if ("function" == typeof jpNewItems) {
@@ -416,7 +477,7 @@ document.addEventListener("click", (e) => {
 table.pu-vg-pt{width:100%} table.pu-vg-pt td.warn{color:var(--warn)}
 .pu-ro-note{margin:4px 0 0;font-size:13px;color:var(--ink-3)}
 body.pu-ro :is(#v-proc,#v-rfq,#v-recv,#v-po) :is(.pu-plus,.bb-pick,.pu-bar,[data-purecv]){display:none !important}
-body.pu-ro #buy-board .bb-panel .btn,body.pu-ro #v-recv #recv-body :is(button,input,select),body.pu-ro #v-recv [data-pufull="recv"]{display:none !important}
+body.pu-ro #btn-newvendor,body.pu-ro [data-fundpo],body.pu-ro #buy-board .bb-panel .btn,body.pu-ro #v-recv #recv-body :is(button,input,select),body.pu-ro #v-recv [data-pufull="recv"]{display:none !important}
 .pu-ro-note{margin:-6px 0 12px}
 table.pu-vt td.warn{color:var(--warn);font-weight:600}
 table.pu-vt tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
