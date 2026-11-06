@@ -503,7 +503,9 @@ PR_PAGE.ftoday = (v) => {
   if (!body) return;
   v.classList.add("pr-ftoday");
   const hero = body.querySelector(":scope > .f-hero"),
-    keep = [hero, body.querySelector(":scope > .f-work"), body.querySelector(":scope > .f3-arriving"), body.querySelector(":scope > .f-you")].filter(Boolean),
+    // what was offered to him and what is put on him stay on the first screen with their Accept and Done (lane T1);
+    // Materials to Check (a request for quote's quantities, src/app.js rfqForemanCardHtml) is his to do today: never folded
+    keep = [hero, body.querySelector(":scope > .tkr-offers"), body.querySelector(":scope > .f-work"), body.querySelector(":scope > .f-mine"), body.querySelector(":scope > .f3-arriving"), body.querySelector(":scope > .rfq-fm"), body.querySelector(":scope > .f-you")].filter(Boolean),
     clock = hero && hero.querySelector("[data-fclock]");
   clock && clock.classList.add("primary");
   // the one blue button is the clock: a blue elsewhere on the first two screens would be a second

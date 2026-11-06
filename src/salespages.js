@@ -855,7 +855,7 @@ function slForward() {
       // a client's page and the Clients list share the view: the host belongs to whichever is on
       "clients" === view && (docOpen || (clientOpen && slClOld)) && ydHost("clients", !1);
       ("clients" !== view || !clientOpen) && (slClOld = !1);
-      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === "v-" + view));
+      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === tkViewId(view)));
     } catch (e) {
       console.warn("sales", e);
     }

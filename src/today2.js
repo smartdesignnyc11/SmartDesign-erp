@@ -1203,11 +1203,13 @@ function td2Chrome() {
     ["tkall", "Tasks", "tasks"],
     ["chat", "Messages", "chat"],
   ]);
+  // the coordinator's five (purchasing SPEC §4 adds Deliveries; the approved task design keeps Tasks), as the PM's five
   set("coord", [
     ["home", "Today", "today"],
-    ["chat", "Messages", "chat"],
-    ["tkall", "Tasks", "tasks"],
     ["proc", "Buy Board", "buy"],
+    ["recv", "Deliveries", "truck"],
+    ["tkall", "Tasks", "tasks"],
+    ["chat", "Messages", "chat"],
   ]);
   set("billing", [
     ["home", "Today", "today"],

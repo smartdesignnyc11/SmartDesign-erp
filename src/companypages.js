@@ -644,7 +644,7 @@ function ydCoForward() {
       ydInsRender();
       ydConnRender();
       ydStdRender();
-      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === "v-" + view));
+      document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === tkViewId(view)));
     } catch (e) {
       console.warn("company", e);
     }

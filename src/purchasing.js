@@ -99,7 +99,7 @@ function puDecWho(r) {
 }
 function puLineWord(r) {
   const ref = r.lineKey ? findLine(r.lineKey) : null;
-  if (ref && ref.doc) return `${ref.doc.number || ""}${ref.line && ref.line.num ? ` line ${ref.line.num}` : ""}${"sub" === r.kind ? " · subcontract" : ""}${r.budget ? ` · ${money(r.budget)}` : ""}`.trim();
+  if (ref && ref.doc) return `${ref.doc.number || ""}${ref.line && ref.line.num ? ` line ${ref.line.num}` : ""}${"sub" === r.kind ? " · subcontract" : ""}`.trim();
   if ("ffe" === r.kind) return `FF&E, ${r.room || "selection"}${r.it && r.it.line ? "" : " · No estimate line"}`;
   if ("request" === r.kind) return `Request from ${r.askedBy || "the site"} · No estimate line`;
   return "No estimate line: link one";
@@ -118,11 +118,21 @@ function puOnRoute() {
   } catch (e) {}
   return (puRouteMemo = { k: k, ids: ids }), ids;
 }
+// A need's one money figure (11-05: the rows read the line's whole budget, $21,500 and $75,000, while the pick bar added
+// what was left, $19,850, and the countertop read "$0 priced"): what is left to buy on a contract line or a subcontract
+// scope, the price of an FF&E item or a priced material; none when nothing prices it. The row shows it and the pick bar
+// adds it, so the bar is always the sum of the picked rows.
+function puNeedValue(r) {
+  const amt = r && +r.price > 0 ? r2(+r.price) : 0;
+  return { amt: amt, say: amt ? `${money(amt)}${(r.draftPOs || []).length ? " in a draft order" : ["line", "sub"].includes(r.kind) ? " left on the line" : ""}` : "" };
+}
 function puNeed(r) {
   if (!r || r.received || "done" === r.tab) return null;
   const td = today(),
     stock = r.ordered ? [] : puStockFor(r.name),
-    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: puLineWord(r), stock: stock, pick: !r.ordered };
+    val = puNeedValue(r),
+    drafts = r.draftPOs || [],
+    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: [puLineWord(r), val.say].filter(Boolean).join(" · "), val: val, stock: stock, pick: !r.ordered && !drafts.length };
   if (r.ordered && r.po) return Object.assign(base, { b: "gone" });
   // due: the board's own sections (bbFinish): late, to acknowledge, or to order within five working days
   const due = r.late || ["ack", "week", "late"].includes(r.section);
@@ -133,6 +143,9 @@ function puNeed(r) {
     const h = "function" == typeof reqAgeH ? Math.round(reqAgeH(r.q)) : 0;
     o = { actor: "coord", why: `Not acknowledged${h ? ` in ${h} hours` : ""}. ${r.askedBy || "The crew"} needs it on site ${r.needBy ? fmt(r.needBy) : "soon"}.`, act: "Acknowledge and Link", k: "ack", tone: "warn" };
   } else if ("request" === r.kind && r.q && puOnRoute().has(r.q.id)) o = { b: "route", actor: "coord", why: "On today's store run.", act: "Open the Route", k: "route" };
+  // covered only by a draft order: nothing is ordered until it is issued, so it stays the coordinator's, with its date
+  else if (drafts.length)
+    o = { b: "draft", actor: "coord", why: `${drafts.map((po) => po.number).join(", ")} drafted for ${money(r.price)}${drafts[0].vendor ? ` with ${drafts[0].vendor}` : ""}, not issued: nothing is ordered yet.`, act: "Issue the Draft", k: "draftpo", tone: r.late ? "bad" : "warn" };
   else if (r.dec) {
     const w = puDecWho(r),
       late = r.dec.due && r.dec.due < td ? `, ${dayDiff(r.dec.due, td)} days late` : "";
@@ -141,14 +154,11 @@ function puNeed(r) {
     const s = puSubmittalOf(r);
     o = "revise" === s.status ? { actor: "sub", who: s.sub || "the sub", why: `submittal ${s.number} came back Revise and Resubmit; the order waits for it.`, act: "Open the Submittal", k: "subm" } : { actor: "designer", who: "the architect", why: `submittal ${s.number} is in review; the order waits for it.`, act: "Open the Submittal", k: "subm" };
   } else if (r.matUnknown) o = { actor: "pm", who: "the PM", why: "the material portion of the line is not set; the line includes labour.", act: "Set the Material Portion", k: "split" };
-  else if ((r.rfqs || []).length) {
-    const q = r.rfqs[0];
-    o = { actor: "vendor", who: (q.vendors || []).length ? `${(q.vendors || []).length} vendors` : "the vendors", why: `${q.number}: quotes due ${q.dueDate ? fmt(q.dueDate) : "soon"}.`, act: "Open the Request", k: "rfq" };
-  } else if ("sub" === r.kind) o = { actor: "coord", why: "No sub contracted. Over $2,500: three bids, or a reason.", act: "Ask for Bids", k: "quote", tone: r.late ? "bad" : "warn" };
+  else if ((r.rfqs || []).length || puQuoteStage(r)) o = puQuoteStep(r); else if ("sub" === r.kind) o = { actor: "coord", why: "No sub contracted. Over $2,500: three bids, or a reason.", act: "Ask for Bids", k: "quote", tone: r.late ? "bad" : "warn" };
   else if (!r.price) o = { actor: "coord", why: "No price yet.", act: "Ask for Quotes", k: "quote", tone: r.late ? "bad" : "" };
   else o = { actor: "coord", why: `Order by ${fmt(r.orderBy)}.`, act: "Order", k: "order", tone: r.late ? "bad" : "" };
   const st = puStockSay(stock),
-    b = o.b || (!due ? "later" : o.actor === puMe() ? "mine" : "others");
+    b = "draft" === o.b ? (o.actor === puMe() ? "mine" : "others") : o.b || (!due ? "later" : o.actor === puMe() ? "mine" : "others");
   return Object.assign(base, o, { b: b, why: [o.why, st].filter(Boolean).join(" "), when: r.ordered && r.eta ? `Promised ${fmt(r.eta)}${r.needBy ? `, needed on site ${fmt(r.needBy)}` : ""}` : r.orderBy ? `Order by ${fmt(r.orderBy)}${r.orderBy < td ? ", passed" : ""}` : r.needBy ? `On site ${fmt(r.needBy)}` : "No date yet" });
 }
 function puNeeds(pid) {
@@ -217,6 +227,8 @@ function puReceivedValue(po) {
 function puOrderRows(pid) {
   const R = [],
     put = (o) => R.push(Object.assign({ actor: "coord", b: "mine" }, o));
+  puLineOverRows(pid).forEach(put);
+  puPreAwardRows(pid).forEach(put);
   puOverOrder(pid).forEach((x) =>
     put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
   );
@@ -233,7 +245,7 @@ function puOrderRows(pid) {
       (po.issues || [])
         .filter((i) => (i.claim || ["short", "damaged", "wrong"].includes(i.type)) && "open" === (i.status || "open"))
         .forEach((i, k) =>
-          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad" }),
+          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", actRun: () => puCloseClaimSheet(po, i), run: () => flowGo.po(po)(), tone: "bad" }),
         );
     });
   try {
@@ -242,7 +254,7 @@ function puOrderRows(pid) {
       .forEach((c) => {
         const it = selItem(c.itemId),
           age = dayDiff(c.raisedAt, today());
-        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: "It does not go to the site until the claim closes.", act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad" });
+        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: `It does not go to the site until the claim closes. ${c.vendor || "The vendor"} owes a replacement${it && +it.cost ? `, or a ${money(r2(+it.cost * (+c.qty || 1)))} credit` : ""}.`, act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad", tile: "owed", money: 0, claim: 1 });
       });
   } catch (e) {}
   try {
@@ -252,7 +264,7 @@ function puOrderRows(pid) {
         const risk = retRisk(r),
           exp = retExpected(r),
           credit = ["shipped", "received"].includes(r.status);
-        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(retValue(r))} to send back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
+        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(exp)} owed back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}${Math.abs(retValue(r) - exp) > 0.5 ? ` · ${money(retValue(r))} of goods, less ${money(r2(retValue(r) - exp))} in fees` : ""}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
       });
   } catch (e) {}
   try {
@@ -314,15 +326,15 @@ function puVendorRows() {
       lapsed = v.insuranceExp && v.insuranceExp < td,
       open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po));
     if (lapsed && (open.length || (DB.bills || []).some((b) => b.vendor === v.name && !["paid", "void"].includes(b.status)) || /window|plumb|electr|tile|mill/i.test(v.trade || "")))
-      return R.push({ b: "mine", actor: "coord", id: "v:coi:" + v.id, name: `${v.name}: blocked`, job: v.trade || "", line: `Insurance lapsed ${fmt(v.insuranceExp)}`, why: "No new order and no one on site until the certificate lands.", act: "Chase the Certificate", run: () => puVendorOpen(v), tone: "bad" });
+      return R.push({ b: "mine", actor: "coord", id: "v:coi:" + v.id, name: `${v.name}: blocked`, job: v.trade || "", line: `Insurance lapsed ${fmt(v.insuranceExp)}`, why: "No new order and no one on site until the certificate lands.", act: "Chase the Certificate", run: () => puChasePaper(v, "coi"), tone: "bad" });
     const unpaid = (DB.bills || []).filter((b) => b.vendor === v.name && !["paid", "verified", "void", "rejected"].includes(b.status) && !b.paidAt);
     if (!v.w9 && unpaid.length) {
       const b = unpaid[0],
         out = "function" == typeof billBankCovers && billBankCovers(b);
-      return R.push({ b: "mine", actor: "coord", id: "v:w9:" + v.id, name: `${v.name}: W-9 before ${b.number}`, job: v.trade || "", line: `${b.number} · ${money(billTotal(b))}${out ? " · the bank shows it already left" : ""}`, why: "Ask for the W-9 today: without it the year-end 1099 is wrong and the payment may need backup withholding.", act: "Ask for the W-9", run: () => puVendorOpen(v), tone: "warn" });
+      return R.push({ b: "mine", actor: "coord", id: "v:w9:" + v.id, name: `${v.name}: W-9 before ${b.number}`, job: v.trade || "", line: `${b.number} · ${money(billTotal(b))}${out ? " · the bank shows it already left" : ""}`, why: "Ask for the W-9 today: without it the year-end 1099 is wrong and the payment may need backup withholding.", act: "Ask for the W-9", run: () => puChasePaper(v, "w9"), tone: "warn" });
     }
     const site = !v.insuranceExp && puVendorOnSite(v);
-    site && R.push({ b: "mine", actor: "coord", id: "v:site:" + v.id, name: `${v.name}: no certificate on file`, job: v.trade || "", line: site, why: "Anyone coming on site or inside needs a current certificate of insurance.", act: "Chase the Certificate", run: () => puVendorOpen(v), tone: "warn" });
+    site && R.push({ b: "mine", actor: "coord", id: "v:site:" + v.id, name: `${v.name}: no certificate on file`, job: v.trade || "", line: site, why: "Anyone coming on site or inside needs a current certificate of insurance.", act: "Chase the Certificate", run: () => puChasePaper(v, "coi"), tone: "warn" });
   });
   // the controller's: money already out to vendors with no W-9 (backup withholding, the year-end 1099)
   const W9 = puNoW9Paid();
@@ -355,13 +367,29 @@ function puQuoteRows() {
   try {
     Q = rfqInit().filter((q) => !["awarded", "closed", "cancelled"].includes(q.status));
   } catch (e) {}
-  const td = today();
   Q.forEach((q) => {
-    const got = (q.quotes || []).length,
-      asked = (q.vendors || []).length || (q.sent || []).length,
-      due = q.dueDate && q.dueDate < td,
-      mine = !asked || got >= asked || (due && got < asked) || (got > 0 && got >= 3);
-    R.push({ b: mine ? "mine" : "others", actor: mine ? "coord" : "vendor", who: mine ? "" : `${asked - got} of ${asked} vendors`, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: `${got} of ${asked || 0} quotes in${q.dueDate ? ` · due ${fmt(q.dueDate)}` : ""}`, why: !asked ? "Not sent yet." : got >= asked || got >= 3 ? "Every quote is in: level them and award." : due ? "Past its due date: chase the vendors who have not quoted." : "Out to the vendors.", act: !asked ? "Send It" : got >= asked || got >= 3 ? "Level and Award" : due ? "Chase" : "Open", run: () => rfqOpenFor(q.id) });
+    // the request's one stage (rfqStateOf: the same reading rfqLineState gives the line's need status); a request not
+    // sent yet is the coordinator's or the foreman's, never "waiting on the vendors"
+    const st = rfqStateOf(q),
+      asked = (q.vendors || []).length,
+      got = (q.vendors || []).filter((iv) => {
+        const x = rfqQuoteOf(q, iv.id, 1);
+        return x && !x.unreadable;
+      }).length,
+      budget = (() => {
+        let t = 0,
+          any = !1;
+        try {
+          rfqBudgetsNow(q).forEach((b) => {
+            const c = "function" == typeof lineCommitment && !String(b.key).startsWith("sel:") ? lineCommitment(b.key) : null,
+              v = c && null != c.left ? +c.left : null != b.budget ? +b.budget : null != b.whole ? +b.whole : null;
+            null != v && ((t += v), (any = !0));
+          });
+        } catch (e) {}
+        return any ? r2(t) : null;
+      })(),
+      mine = "coord" === st.actor;
+    R.push({ b: mine ? "mine" : "others", actor: st.actor, who: mine ? "" : st.who, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: st.label, why: `Budget ${null != budget ? money(budget) : "none on the line"} · Quotes In ${got} of ${asked || 0} · Due ${q.dueDate ? fmt(q.dueDate) : q.dueWanted ? fmt(q.dueWanted) : "not set"}. ${st.why}`, act: st.act, run: () => rfqOpenFor(q.id) });
   });
   return R;
 }
@@ -410,7 +438,7 @@ function puRowHtml(x, o) {
   const pick = o.pick && x.pick ? bbPickBox(x.r) : "",
     who = o.others ? `<span class="pu-who">Waiting on ${esc(x.who || "someone")}</span>` : "",
     sub = [x.job, x.line].filter(Boolean).join(" · ");
-  return `<div class="pu-row ${x.tone || ""}${pick ? " pu-pickable" : ""}${o.sel && o.sel === x.id ? " sel" : ""}" data-purow="${esc(x.id)}">${pick}<button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(x.name)}</b>${sub ? `<span class="pu-sub" data-nocase>${esc(sub)}</span>` : ""}${who}<span class="pu-why" data-nocase>${esc(x.why || "")}</span>${x.when ? `<span class="pu-when ${x.r && x.r.late ? "bad" : ""}">${esc(x.when)}</span>` : ""}</button>${x.act && !o.others && !o.quiet ? `<button type="button" class="btn sm pu-act" data-puact="${esc(x.id)}">${esc(x.act)}</button>` : ""}</div>`;
+  return `<div class="pu-row ${x.tone || ""}${pick ? " pu-pickable" : ""}${o.sel && o.sel === x.id ? " sel" : ""}" data-purow="${esc(x.id)}"${x.val ? ` data-puamt="${x.val.amt}"` : ""}>${pick}<button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(x.name)}</b>${sub ? `<span class="pu-sub" data-nocase>${esc(sub)}</span>` : ""}${who}<span class="pu-why" data-nocase>${esc(x.why || "")}</span>${x.when ? `<span class="pu-when ${x.r && x.r.late ? "bad" : ""}">${esc(x.when)}</span>` : ""}</button>${x.act && !o.others && !o.quiet ? `<button type="button" class="btn sm pu-act" data-puact="${esc(x.id)}">${esc(x.act)}</button>` : ""}</div>`;
 }
 function puSecHtml(key, title, rows, o) {
   o = o || {};
@@ -431,8 +459,11 @@ function puPlusItems(v) {
       ["Restock the Warehouse", "From Stock items at or under their reorder point", () => puPlus("inv", "restock")],
       ["Blank Need", "Only when no line covers it; the line is asked for first", () => puNewNeed()],
     ],
+    // One New on Orders (SPEC: from lines first, a blank order behind More). Both open the one New PO sheet: Which
+    // Lines? for the job, with its job switch (src/puorders.js); the blank order is the same sheet's Start Blank.
     po: [
-      ["New Purchase Order From Lines", "Pick the job's estimate or change-order lines", () => puBuyFromDoc()],
+      ["New Purchase Order From Lines", "Pick the job's estimate, change-order or invoice lines", () => puNewPOFromLines()],
+      ["Blank Purchase Order", "Only when no line covers it: shop supplies, tools", () => puNewPOFromLines(!0), { more: 1 }],
     ],
     rfq: [["New Request for Quote", "Starts from the lines you are buying for", () => ("function" == typeof rfqNewSheet ? rfqNewSheet() : puBuyFromDoc("quote"))]],
     recv: [["Log Something That Arrived", "With no order behind it", () => ("function" == typeof openEditor ? openEditor("mat", null) : null)]],
@@ -444,16 +475,23 @@ function puPlusItems(v) {
     ],
   }[v] || [];
 }
-let puPlusOpen = "";
+let puPlusOpen = "",
+  puPlusMore = "";
+// the menu's items; an item marked more sits behind More (a blank start is secondary, never first)
+function puMenuHtml(v, items) {
+  const more = items.some((it) => it[3] && it[3].more) && puPlusMore !== v;
+  return items.map((it, i) => (it[3] && it[3].more && more ? "" : `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`)).join("") + (more ? `<button type="button" role="menuitem" class="pu-mi pu-mimore" data-pumore="${v}" aria-expanded="false"><b>More</b><span>A blank order</span></button>` : "");
+}
 function puHeadHtml(v, extra) {
   // inside a job the page is the job's Purchasing tab: its name, the job's words, and the job's one + (src/jobpage.js)
   const job = "function" == typeof jpOn && jpOn(),
-    items = job ? [] : puPlusItems(v),
+    // the controller and billing read Purchasing and buy nothing (src/puorders.js puReadOnly): no + for them
+    items = job || ["controller", "billing"].includes(role()) ? [] : puPlusItems(v),
     name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
     lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
   // on the phone the job's header names the section (src/jobpage.js): no second heading under it
   if (job && puPhone()) return "";
-  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
+  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${puMenuHtml(v, items)}</div>` : ""}</div>` : ""}</div></div>`;
 }
 // the old page's tools, one tap down, until their records move here (P4, P5)
 function puFullHtml(v, label) {
@@ -471,7 +509,7 @@ function puHost(v) {
 }
 // The old page's own New button (its handlers, its id) rides in the new head, not blue (housekeeping is never blue); it
 // goes home before each draw and when the old page shows (a record open)
-const PU_MOVE = { vendors: ["btn-newvendor"], po: ["btn-newpo"] },
+const PU_MOVE = { vendors: ["btn-newvendor"] },
   PU_BTN = {};
 // v: only that page's buttons (dropping another page never takes this page's button away)
 function puBtnHome(v) {
@@ -495,7 +533,9 @@ function puBtnMove(v, host) {
 }
 // What stays on screen of the old page: on the desktop the receiving line by line is Deliveries' Arriving (the phone has
 // the Receive sheet); Orders keeps the per-line New PO table (buying starts from the line) until Reports' Cash holds it.
-const PU_KEEP = { po: ["po-funds"], recv: ["recv-body"] },
+// (Orders' Client Funds card folds under Matching, Promises and Client Funds: its per-line New PO buttons were a second
+// New, and Reports' Cash holds it; CoS 11-06)
+const PU_KEEP = { recv: ["recv-body"] },
   puKeep = (v, c) => (PU_KEEP[v] || []).includes(c.id) && !("recv" === v && puPhone());
 // the old page's parts are hidden inline (a phone rule with !important on an id would show them otherwise).
 // A part's own display is put back only while our hide still holds it (display none, !important): once the old page's
@@ -550,12 +590,12 @@ function puBuyRender() {
   // Quotes the one blue, and the other reads Order, With a Reason
   let bar = "";
   if (picked.length) {
-    const priced = picked.filter((x) => +x.r.price > 0),
-      unpriced = picked.filter((x) => !(+x.r.price > 0)),
-      total = r2(priced.reduce((a, x) => a + +x.r.price, 0)),
+    const priced = picked.filter((x) => x.val && x.val.amt > 0),
+      unpriced = picked.filter((x) => !(x.val && x.val.amt > 0)),
+      total = r2(priced.reduce((a, x) => a + x.val.amt, 0)),
       quotes = unpriced.length > 0 || total > 2500,
       jobs = [...new Set(picked.map((x) => x.job))];
-    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase> · ${money(total)}${unpriced.length ? ` priced, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span></span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${quotes ? "" : "primary"}" id="bb-order">${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${quotes ? "primary" : ""}" id="bb-quote">Ask for Quotes</button></span></div>`;
+    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase data-pubar="${total}" data-punoprice="${unpriced.length}"> · ${priced.length ? `${money(total)} for ${priced.length === picked.length ? (1 === picked.length ? "it" : "all") : priced.length} priced` : "none priced"}${unpriced.length ? `, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span></span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${quotes ? "" : "primary"}" id="bb-order">${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${quotes ? "primary" : ""}" id="bb-quote">Ask for Quotes</button></span></div>`;
   }
   const laterFirst = later[0] && later[0].r.orderBy,
     laterLast = later.length && later[later.length - 1].r.orderBy,
@@ -568,7 +608,7 @@ function puBuyRender() {
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1, sel: bbSel }) +
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
     panel = !phone ? `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${sel ? bbPanelHtml(sel.r, picked.length) : bbPanelHtml(null)}</aside>` : "",
-    foot = `<div class="pu-foot"><button type="button" class="pu-link" id="bb-more">FF&amp;E Buy Runs, Receiving and Returns</button></div>`;
+    foot = `<div class="pu-foot"><button type="button" class="pu-link" id="bb-more">FF&amp;E Buying Tools</button></div>`;
   root.innerHTML = `<div class="pu pr-keep bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" data-pupage="proc" id="buy-board" data-os-keep>${puHeadHtml("proc")}${filters}<div class="bb-main"><div class="bb-list pu-list" data-nocase>${list}${foot}</div>${panel}</div>${bar}</div>`;
   bbWire(root);
   const q = (s) => root.querySelector(s);
@@ -588,8 +628,10 @@ function puOrders() {
     rows = puOrderRows(pid),
     me = puMe(),
     mine = rows.filter((x) => x.actor === me),
-    others = rows.filter((x) => x.actor !== me).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
+    others = rows.filter((x) => x.actor !== me && "tile" !== x.actor).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
     owed = rows.filter((x) => "owed" === x.tile),
+    lineOver = rows.filter((x) => "lineover" === x.tile),
+    lineOverSum = r2(lineOver.reduce((a, x) => a + (x.money || 0), 0)),
     over = rows.filter((x) => "over" === x.tile),
     cnb = puCommitted(pid),
     owedSum = r2(owed.reduce((a, x) => a + (x.money || 0), 0)),
@@ -597,27 +639,27 @@ function puOrders() {
     cnbSum = cnb.total,
     t = puShowAll.tile || "",
     f = puFilter.po,
-    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? "cancelled" !== po.status : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))).sort((a, b) => ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[a.status] ?? 4) - ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[b.status] ?? 4)),
+    pos = (DB.pos || []).filter((po) => (!pid || po.projectId === pid) && ("all" === f ? !0 : "draft" === f ? "draft" === po.status : "received" === f ? "received" === po.status : puLive(po))).sort((a, b) => ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[a.status] ?? 4) - ({ draft: 0, pending: 1, issued: 2, partial: 2, received: 3 }[b.status] ?? 4)),
     poRow = (po) => {
       const st = "function" == typeof poState ? poState(po) : { msg: po.status };
       // one line names the order, its vendor, its job and what it buys: an order is found by any of them
       return { id: "po:" + po.id, name: `${po.number} · ${po.vendor || "No vendor"} · ${puJob(DB.projects.find((p) => p.id === po.projectId))}: ${(po.lines || []).map((l) => l.item).filter(Boolean).slice(0, 3).join(", ")}`, job: "", line: `Total ${money(poTotal(po).total)} · Paid ${money(poPaid(po))} · Billed ${money(puPoBilled(po))}${po.expected ? ` · Expected ${fmt(po.expected)}` : ""}`, why: st.msg || po.status, run: () => flowGo.po(po)() };
     },
-    tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
+    tileRows = "lineover" === t ? lineOver : "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
     tiles =
       puTile("mine", "Needs You", String(mine.length), "rows whose next tap is yours") +
-      puTile("owed", "Owed Back", money(owedSum), `${owed.length} return${1 === owed.length ? "" : "s"} and credits`) +
+      puTile("owed", "Owed Back", money(owedSum), `${owed.filter((x) => !x.claim).length} return${1 === owed.filter((x) => !x.claim).length ? "" : "s"} and credits${owed.some((x) => x.claim) ? `, ${owed.filter((x) => x.claim).length} claim${owed.filter((x) => x.claim).length > 1 ? "s" : ""} for a replacement` : ""}`) +
       puTile("over", "Over the Order", money(overSum), over.length ? over.map((x) => x.po.number).join(", ") : "nothing paid past an order") +
+      puTile("lineover", "Over the Line", money(lineOverSum), lineOver.length ? `${lineOver.length} line${1 === lineOver.length ? "" : "s"}: spent and ordered past the budget` : "every line within its budget") +
       puTile("cnb", "Committed, Not Yet Billed", money(cnbSum), `${cnb.pos.length} open order${1 === cnb.pos.length ? "" : "s"}, net of their bills`, puPrepaidSay(cnb.prepaid)),
     chips = [["draft", "Draft"], ["open", "Open"], ["received", "Received"], ["all", "All"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Orders:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-pupof="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
     body =
-      (tileRows ? puSecHtml("tile", { owed: "Owed Back", over: "Over the Order", cnb: "Committed, Not Yet Billed" }[t], tileRows, { empty: "Nothing here." }) : "") +
+      (tileRows ? puSecHtml("tile", { owed: "Owed Back", over: "Over the Order", lineover: "Over the Line", cnb: "Committed, Not Yet Billed" }[t], tileRows, { empty: "Nothing here." }) : "") +
       puSecHtml("mine", "Needs You", mine, { count: "po", empty: "Nothing waits on you." }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
       filters +
       puSecHtml("orders", "Orders", pos.map(poRow), { quiet: 1, empty: "draft" === f ? "Nothing sits in draft." : "No orders in this filter." }) +
-      `<p class="pu-note2" data-nocase>Store runs join as orders with P5; until then their receipts sit with the route and Price Watch. Missing invoice copies are chased by the assistant.</p>` +
       puFullHtml("po", "Matching, Promises and Client Funds");
   return puPageHtml("po", { tiles: tiles, body: body });
 }
@@ -631,7 +673,7 @@ function puDeliveries() {
     arriving = (DB.pos || [])
       .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
       .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
-    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
+    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: puHeldBy(it) ? `Held: ${puHeldBy(it).kind} on arrival, claim open with ${puHeldBy(it).vendor || it.vendor || "the vendor"}. It does not go to the site until the claim closes.` : "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, tone: puHeldBy(it) ? "bad" : "", run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
     back = (() => {
       try {
         return retOpen().filter((r) => ["raise", "authorised", "toship"].includes(r.status) && (!pid || r.projectId === pid)).map((r) => ({ id: "back:" + r.id, name: r.name, job: r.vendor, line: retRisk(r).label || "", why: r.rma ? `${r.rma}: ship it back` : "No return authorisation yet", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) }));
@@ -653,6 +695,15 @@ function puDeliveries() {
       (puPhone() ? puFullHtml("recv", "Receive Line by Line") : `<h3 class="pu-h3">Arriving: Receive Line by Line</h3>`);
   return puPageHtml("recv", { body: body });
 }
+// an item at the office under an open claim on arrival (damaged, short, wrong) is held there, never sent with the route
+// (the coordinator expert, 11-05: the damaged range read "deliver it with the route")
+function puHeldBy(it) {
+  try {
+    return selClaims().find((c) => c.itemId === it.id && ("undefined" == typeof CLAIM_OPEN || CLAIM_OPEN.includes(c.status))) || null;
+  } catch (e) {
+    return null;
+  }
+}
 let puVendFilter = "all";
 function puFilterVendors(k) {
   (puVendFilter = k), setView("vendors");
@@ -670,24 +721,18 @@ function puVendors() {
         return [];
       }
     })(),
-    perf = (v) => {
-      try {
-        const s = "function" == typeof selVendorStats ? selVendorStats()[v.name] : null;
-        return s && s.onTimePct != null ? `${s.onTimePct}% on time` : "";
-      } catch (e) {
-        return "";
-      }
-    },
     phone = puPhone(),
+    // one row per vendor, the same facts on both devices (puVendorFacts, src/puorders.js): every row opens the record
     list = phone
       ? `<div class="pu-rows">${V.map((v) => {
-          const x = { id: "vend:" + v.id, name: v.name, job: v.trade || "", line: `Insurance ${v.insuranceExp ? fmt(v.insuranceExp) : "none on file"} · W-9 ${v.w9 ? "on file" : "none"} · Paid ${money(vendorSpend(v))}`, why: perf(v), run: () => puVendorOpen(v) };
+          const F = puVendorFacts(v),
+            x = { id: "vend:" + v.id, name: v.name, job: v.trade || "", line: "", why: "", run: () => puVendorOpen(v) };
           puOpenRows[x.id] = x;
-          return `<div class="pu-row" data-purow="${esc(x.id)}"><button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(v.name)}</b><span class="pu-sub" data-nocase>${esc(x.job)}</span><span class="pu-why" data-nocase>Insurance ${esc(v.insuranceExp ? fmt(v.insuranceExp) : "none on file")} · <span data-puw9="${v.w9 ? "on" : "none"}">W-9 ${v.w9 ? "on file" : "none"}</span> · Paid ${money(vendorSpend(v))}${perf(v) ? ` · ${esc(perf(v))}` : ""}</span></button></div>`;
+          return `<div class="pu-row ${F.tone}" data-purow="${esc(x.id)}"><button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(v.name)}</b><span class="pu-sub" data-nocase>${esc([v.trade, F.openSay].filter(Boolean).join(" · "))}</span><span class="pu-why" data-nocase>${F.owed > 0.5 ? `Owed back ${money(F.owed)} · ` : ""}${F.over.length ? `${money(F.overAmt)} paid over ${esc(F.over.map((x) => x.po.number).join(", "))} · ` : ""}${esc(F.papersSay)} · <span data-puw9="${v.w9 ? "on" : "none"}">W-9 ${v.w9 ? "on file" : "none"}</span> · Paid ${money(F.paid)}${F.perf ? ` · ${esc(F.perf)}` : ""}</span></button></div>`;
         }).join("")}</div>`
-      : `<table class="t pu-vt"><thead><tr><th>Vendor</th><th>Trade</th><th>Insurance</th><th>W-9</th><th class="num">Paid</th><th>Open Orders</th><th>On Time</th></tr></thead><tbody>${V.map((v) => {
-          const open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po));
-          return `<tr data-puvend="${esc(v.id)}"><td><b data-nocase>${esc(v.name)}</b></td><td data-nocase>${esc(v.trade || "")}</td><td class="${v.insuranceExp && v.insuranceExp < today() ? "bad" : ""}">${v.insuranceExp ? fmt(v.insuranceExp) : "none"}</td><td data-puw9="${v.w9 ? "on" : "none"}">${v.w9 ? "On file" : "None"}</td><td class="num">${money(vendorSpend(v))}</td><td data-nocase>${open.length ? open.map((po) => po.number).join(", ") : ""}</td><td data-nocase>${esc(perf(v))}</td></tr>`;
+      : `<table class="t pu-vt"><thead><tr><th>Vendor</th><th>Open Orders</th><th class="num">Owed Back</th><th>Insurance</th><th>W-9</th><th class="num">Paid</th><th>On Time</th></tr></thead><tbody>${V.map((v) => {
+          const F = puVendorFacts(v);
+          return `<tr data-puvend="${esc(v.id)}" tabindex="0"><td><b data-nocase>${esc(v.name)}</b>${v.trade ? `<div class="small muted" data-nocase>${esc(v.trade)}</div>` : ""}</td><td data-nocase>${F.open.length ? `${esc(F.open.map((po) => po.number).join(", "))}<div class="small muted">${money(F.openAmt)}</div>` : '<span class="muted">none open</span>'}</td><td class="num ${F.owed > 0.5 || F.over.length ? "warn" : ""}">${F.owed > 0.5 ? money(F.owed) : ""}${F.over.length ? `<div class="small">${money(F.overAmt)} paid over ${esc(F.over.map((x) => x.po.number).join(", "))}</div>` : ""}</td><td class="${F.coiTone}" data-nocase>${esc(F.coiSay)}</td><td data-puw9="${v.w9 ? "on" : "none"}">${v.w9 ? "On file" : "None"}</td><td class="num">${money(F.paid)}</td><td data-nocase>${esc(F.perf)}</td></tr>`;
         }).join("")}</tbody></table>`,
     filters = `<div class="pu-filters"><span class="pu-fl">Show:</span>${[["all", "All"], ["now9", "No W-9"], ["suggested", "Suggested"]].map(([k, l]) => `<button type="button" class="pu-chip ${puVendFilter === k ? "on" : ""}" data-puvf="${k}" aria-pressed="${puVendFilter === k}">${l}</button>`).join("")}</div>`,
     body =
@@ -711,7 +756,11 @@ function puStock() {
   puNeeds("").filter((x) => !x.r.ordered && "gone" !== x.b && (x.stock || []).length).forEach((x) => x.stock.forEach((s) => want.push({ id: `want:${x.id}:${s.id}`, name: `${puUnits(s.qty, s.unit)} of ${s.name}`, job: x.job, line: `at the ${String(s.where).toLowerCase()}`, why: `Wanted by ${x.name}`, run: () => ((bbSel = x.id), setView("proc")) })));
   const chips = [["all", "All"], ["mat", "Materials"], ["tool", "Tools"], ["job", "At a Job"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Show:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-puinvf="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
-    list = I.map((i) => ({ id: "item:" + i.id, name: i.name, job: "", line: `${puUnits(invAvailable(i), i.unit)} · ${locName(i.loc)}`, why: "tool" === i.type ? "Tool" : puReorder(i) ? `Reorder at ${puUnits(puReorder(i), i.unit)}` : "", run: () => ("function" == typeof openEditor ? openEditor("inv", i.id) : null) })),
+    wantOf = (i) => want.filter((w) => w.id.endsWith(":" + i.id)),
+    list = I.map((i) => {
+      const W = wantOf(i);
+      return { id: "item:" + i.id, name: i.name, job: "", line: `${puUnits(invAvailable(i), i.unit)} on hand · ${locName(i.loc)}`, why: W.length ? `Needed by ${W.map((w) => `${w.why.replace(/^Wanted by /, "")}${w.job ? ` (${w.job})` : ""}`).join("; ")}` : "tool" === i.type ? "Tool" : puReorder(i) ? `Reorder at ${puUnits(puReorder(i), i.unit)}` : "", tone: W.length ? "warn" : "", run: () => ("function" == typeof openEditor ? openEditor("inv", i.id) : null) };
+    }),
     body =
       puSecHtml("mine", "Needs You", mine, { count: "inv", empty: "Nothing waits on you: nothing is at its reorder point." }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
@@ -767,6 +816,8 @@ function puCrumbs() {
 }
 // the field roles keep their own pages (the crew's Deliveries is the site's receiving)
 const puOffice = () => !["foreman", "crew", "client"].includes(role());
+// a role's first Purchasing page: the Buy Board for those who buy, Orders for the controller and billing (SPEC §2)
+const puHomeView = () => ((ROLE_VIEWS[role()] || []).includes("proc") && !["controller", "billing"].includes(role()) ? "proc" : "po");
 function puDraw() {
   const v = view;
   Object.keys(PU_PAGES).forEach((x) => x !== v && puDrop(x));
@@ -785,16 +836,106 @@ function puDraw() {
 function puVendorOpen(v) {
   "function" == typeof vendorPage ? vendorPage(v.id) : openVendor(v.id);
 }
+// A chase opens its draft, never the vendor's page (Chase the Certificate opened the page and drafted nothing): the one
+// chase sheet (eaNudge) with the address, the subject and a message naming the missing paper and the date it is needed
+// by; it goes to the person's mailbox to read and send, an expectation is logged and the follow-up set. The lapsed or
+// lapsing certificate uses the coordinator's Do Now chase (coiChaseItem, the booking named); the rest says the same.
+// A claim on an order closes three ways: the credit came (its amount), the replacement came (received on the sheet),
+// or it is written off with a reason. Until then it holds its row on Orders; it could not close at all before (the
+// CoS, 11-06), so the row never left. Every close is an audit row with who, when, how and why.
+function puClaimClose(po, c, res) {
+  if (!po || !c) return;
+  (c.status = "closed"), (c.resolution = Object.assign({ at: appNowIso(), by: ((currentUser() || {}).name) || role() }, res || {}));
+  try {
+    audit("po", po.id, "claim-closed", { type: c.type, qty: c.qty, item: c.item || "" }, c.resolution, (res && res.why) || "");
+  } catch (e) {}
+  const still = (po.issues || []).filter((x) => x.claim && "open" === (x.status || "open"));
+  still.length || delete po.flag;
+  log(`${po.number}: the ${c.type} claim on ${c.item || "a line"} closed — ${"credit" === res.how ? `credit ${money(+res.amount || 0)}` : "replaced" === res.how ? "replaced" : `written off: ${res.why}`}`);
+}
+function puCloseClaimSheet(po, c) {
+  if (!po || !c) return;
+  const m = mbModal(
+    `Close the Claim — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(c.type)}: ${esc(String(c.qty || ""))} ${esc(c.unit || "")} ${esc(c.item || "")}${c.amount ? ` · ${money(c.amount)}` : ""}</p><label class="f"><span>How It Closed</span><select data-f="how"><option value="credit">The credit came</option><option value="replaced">The replacement came</option><option value="writeoff">Written off</option></select></label><label class="f"><span>Credit Amount</span><input type="number" inputmode="decimal" step="0.01" min="0" data-f="amount" value="" placeholder="${c.amount ? r2(c.amount) : "0.00"}"></label><label class="f"><span>Why (Required to Write It Off)</span><input data-f="why" placeholder="e.g. under $50; the vendor will not credit glass breakage"></label>`,
+    {
+      submit: "Close the Claim",
+      onSubmit: (f) => {
+        const how = f.how || "credit",
+          why = String(f.why || "").trim(),
+          amount = +f.amount || 0;
+        if ("writeoff" === how && !why) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="why"]'), "Say why it is written off"), !1;
+        if ("credit" === how && !(amount > 0)) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), "How much was credited"), !1;
+        puClaimClose(po, c, { how: how, amount: "credit" === how ? amount : 0, why: why });
+        save(), render();
+        toast(`${po.number}: the ${c.type} claim is closed${"credit" === how ? `, ${money(amount)} credited` : "replaced" === how ? "; receive the replacement on the sheet" : ", written off"}`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+  return m;
+}
+function puChasePaper(v, kind) {
+  if (!v) return;
+  if ("function" != typeof eaNudge) return puVendorOpen(v);
+  const r = "coi" === kind && PRED.vendorsCoiLapsing && PRED.vendorsCoiLapsing.row(v);
+  if (r && "function" == typeof coiChaseItem) return void eaNudge(coiChaseItem(r));
+  const open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po)),
+    need = open.map((po) => po.needBy || po.expected).filter(Boolean).sort()[0] || "",
+    by = need && need > today() ? ("function" == typeof addWork ? addWork(need, -2) : need) : "function" == typeof addWork ? addWork(today(), 3, !1) : today(),
+    byW = "function" == typeof fmtL ? fmtL(by) : fmt(by),
+    lapsed = v.insuranceExp && v.insuranceExp < today();
+  if ("w9" === kind)
+    return void eaNudge({ kind: "w9", n: "W-9", t: `${esc(v.name)} — W-9`, sub: "before the next payment", vendor: v, subject: `W-9 for ${v.name}`,
+      msg: `Hi — we need a signed W-9 for ${v.name} before we can release the next payment. Could you send it by ${byW}? Thanks.` });
+  eaNudge({ kind: "coi", n: "!COI", t: `${esc(v.name)} — insurance ${lapsed ? "expired " + fmt(v.insuranceExp) : "not on file"}`, sub: "no new order until it arrives", vendor: v,
+    msg: `Hi — ${lapsed ? `the certificate of insurance we have for ${v.name} expired ${fmtL(v.insuranceExp)}` : `we do not have a certificate of insurance on file for ${v.name}`}${open.length ? `, and ${open.map((po) => po.number).join(", ")} ${1 === open.length ? "is" : "are"} open with you` : ""}. Could you send a current one by ${byW}, with SmartDesign named as certificate holder? Thanks.` });
+}
 function puPlus(v, what) {
   if ("restock" === what) {
     const low = (DB.inventory || []).filter((i) => "tool" !== i.type && puReorder(i) > 0 && invAvailable(i) <= puReorder(i));
     if (!low.length) return toast("Nothing is at its reorder point");
-    return mbModal(
-      "Restock the Warehouse",
-      `<p class="small muted" style="margin:0 0 8px">At or under the reorder point. The next store run buys them, or order them from a supplier.</p>${low.map((i) => `<div class="pu-kv"><span data-nocase>${esc(i.name)}</span><b>${puUnits(invAvailable(i), i.unit)} at the ${esc(String(locName(i.loc)).toLowerCase())}</b></div>`).join("")}`,
-      { submit: null },
-    );
+    return puRestockSheet(low);
   }
+}
+// Restock the Warehouse: the sheet offered only Cancel. Its action is the restock order: a draft purchase order for the
+// firm's own stock (no job: overhead, shipped to the warehouse), numbered like every PO (nextPO), one line per stock item
+// with the quantity to buy and the last cost, each line linked to its stock item (invId) so receiving it can restock the
+// shelf. The vendor is picked from the vendors on file (an unknown name is not created here); the draft is issued from
+// the order like any other, so the order's own checks (insurance, W-9, approval over the limit) apply.
+function puRestockSheet(low) {
+  const V = (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    want = (i) => Math.max(1, r2(puReorder(i) * 2 - invAvailable(i)));
+  const m = mbModal(
+    "Restock the Warehouse",
+    `<p class="small muted" style="margin:0 0 8px">At or under the reorder point. Draft one order for what to buy; it waits as a draft for you to check and issue.</p>${low.map((i) => `<label class="pu-rq"><span data-nocase><b>${esc(i.name)}</b><span class="small muted">${puUnits(invAvailable(i), i.unit)} at the ${esc(String(locName(i.loc)).toLowerCase())} · reorder at ${puUnits(puReorder(i), i.unit)}</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purs="${esc(i.id)}" value="${want(i)}" aria-label="${esc(i.name)}: how many to buy (${esc(i.unit || "")})"></label>`).join("")}<label class="f"><span>Vendor</span><select data-f="vendor" data-pursv="1"><option value="">Choose the vendor…</option>${V.map((v) => `<option value="${esc(v.name)}">${esc(v.name)}</option>`).join("")}</select></label>`,
+    {
+      submit: "Draft the Restock Order",
+      onSubmit: () => {
+        const vendor = (m.querySelector("[data-pursv]") || {}).value || "";
+        if (!vendor) {
+          const s = m.querySelector("[data-pursv]");
+          return s && "function" == typeof vfMark ? vfMark(s, "Choose who to buy it from") : toast("Choose who to buy it from"), !1;
+        }
+        const lines = low
+          .map((i) => ({ i: i, q: Math.max(0, +((m.querySelector(`[data-purs="${i.id}"]`) || {}).value || 0)) }))
+          .filter((x) => x.q > 0)
+          .map(({ i, q }) => ({ id: uid("pl"), item: i.name, desc: "Warehouse stock", qty: q, unit: i.unit || "ea", price: +i.cost || 0, materialId: "", invId: i.id, code: i.code || "", line: "", received: 0 }));
+        if (!lines.length) return toast("Nothing to buy: every quantity is 0"), !1;
+        const v = (DB.vendors || []).find((x) => x.name === vendor),
+          po = { id: uid("po"), number: nextPO(), projectId: "", vendor: vendor, vendorId: v ? v.id : "", date: today(), expected: "", needBy: "", status: "draft", shipTo: "Warehouse", notes: `Restock: ${lines.length} stock item${1 === lines.length ? "" : "s"} at or under the reorder point`, lines: lines, tax: 0, shipping: 0, matchedTxns: [], createdBy: ((currentUser() || {}).name) || role(), restock: !0 };
+        DB.pos.push(po);
+        try {
+          audit("po", po.id, "created", null, { number: po.number, vendor: vendor, from: "restock", items: lines.map((l) => `${l.qty} ${l.unit} ${l.item}`).join("; ") });
+        } catch (e) {}
+        try {
+          log(`${po.number} drafted to restock the warehouse from ${vendor}: ${lines.map((l) => `${l.qty} ${l.unit} ${l.item}`).join(", ")}`);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number} drafted for ${vendor} — ${lines.length} stock item${1 === lines.length ? "" : "s"}, ${money(poTotal(po).total)}. Check it and issue it`, { label: "Open", run: () => ((poOpen = po.id), setView("po")) });
+      },
+    },
+  );
+  return m;
 }
 // Buy from a document's lines: the job, the document, then its lines (the order sheet the Buy Board's picks use)
 function puBuyFromDoc(kind) {
@@ -822,62 +963,151 @@ function puBuyFromDoc(kind) {
     });
   return m;
 }
-// One receipt line, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on
-// the order's own job, not the job on screen
-function puReceiveLine(po, l, qty, note, slip) {
-  const p = (DB.projects || []).find((x) => x.id === po.projectId);
-  l.received = r2((+l.received || 0) + qty);
-  const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
-  m && l.received >= l.qty - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
+// One receipt, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on the
+// order's own job, not the job on screen: every line that came, in one receipt row and one audit row. Every receiving
+// path writes through here (the receive sheet, the desktop's line cards, the Selections box, a slip read from a file),
+// so the cap is here: no line is received past what is still to come on it (the CoS, 11-06: 1,000 sf received on a
+// 900 sf line). What is over is returned in `capped`, never written; a caller that can ask the person refuses first.
+function puReceiveLines(po, got, note, slip) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId),
+    left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
+    capped = [],
+    ok = [];
+  (got || []).forEach(({ l, q }) => {
+    const want = r2(+q || 0),
+      take = Math.min(want, left(l));
+    want > take + 0.001 && capped.push({ l: l, asked: want, left: left(l) });
+    take > 0 && ok.push({ l: l, q: take });
+  });
+  if (!ok.length) return { full: !1, capped: capped, got: ok };
+  ok.forEach(({ l, q }) => {
+    l.received = r2((+l.received || 0) + q);
+    const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
+    m && l.received >= (+l.qty || 0) - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
+    // a restock order's line puts what came on the shelf it was bought for
+    const iv = l.invId && (DB.inventory || []).find((x) => x.id === l.invId);
+    iv && (iv.qty = r2((+iv.qty || 0) + q));
+  });
   const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
   (po.status = full ? "received" : "partial"), full && (po.receivedOn = today());
-  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: [{ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: qty }], slip: slip || "", note: note || "" });
+  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: ok.map(({ l, q }) => ({ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: q })), slip: slip || "", note: note || "" });
   try {
-    audit("po", po.id, "received", "", `${l.item || l.desc}: ${qty}`, note || "");
+    audit("po", po.id, "received", "", ok.map(({ l, q }) => `${l.item || l.desc}: ${q}`).join("; "), note || "");
   } catch (e) {}
+  try {
+    log(`${po.number}: received ${ok.map(({ l, q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ")).join(", ")}${note ? " — " + note : ""}`);
+  } catch (e) {}
+  return { full: full, capped: capped, got: ok };
 }
-// Receive (the phone's sheet, the desktop's too): the count starts empty; Good, Short, Damaged or Wrong; a photo of the
-// slip; Short, Damaged or Wrong opens a claim on the order (its delivery issue), with Open
+const puReceiveLeft = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0)));
+// The one receive sheet (BACKLOG 1.36), however receiving starts: the phone's Deliveries (Receive), the order's Receive
+// Some…, the foreman's It Arrived on Site and Check In on Today (rcReceiveSome opens this one). Receiving counts what
+// came: every count starts empty, what is still to come is only the hint, and a line left empty records nothing. A count
+// over what is still to come is refused: what was not ordered is not received onto the order. A photo of the slip.
+// Condition is per line (the coordinator's day, S1: one choice for the whole delivery put the damage claim on the good
+// studs and no claim on the short): Good, Short, Damaged or Wrong on each line. Short claims what did not come; Damaged
+// and Wrong ask how many and claim those. Only the good quantity is received, so Bill What Arrived bills only what can
+// be used, and each claim holds the difference against the vendor on its own line.
 function puReceive(po) {
   if (!po) return;
-  let cond = "good";
-  const L = (po.lines || []).filter((l) => (+l.received || 0) < (+l.qty || 0));
+  const left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
+    L = (po.lines || []).filter((l) => left(l) > 0);
+  if ("function" == typeof poIsSub && poIsSub(po)) return void toast(poSubWords(po));
+  if (!L.length) return void toast(`${po.number} has nothing left to receive`);
+  const field = ["foreman", "crew", "driver"].includes(role()),
+    early = po.expected && "function" == typeof workdays && po.expected > today() ? workdays(today(), po.expected) - 1 : 0;
+  const cond = {},
+    CONDS = [["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]];
+  L.forEach((l) => (cond[l.id] = "good"));
+  const lineHtml = (l) => {
+    const item = esc(l.item || l.desc || "Line"),
+      u = esc(l.unit || "");
+    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}"><button type="button" class="pu-chip" data-puall="${esc(l.id)}" data-left="${left(l)}">All Here</button>${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span><b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span></span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
+  };
   const m = mbModal(
-    `Receive <span data-nocase>${esc(po.number)}</span>`,
-    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here.</p>${L.map((l) => `<label class="pu-rq"><span data-nocase><b>${esc(l.item)}</b><span class="small muted">${r2((+l.qty || 0) - (+l.received || 0))} ${esc(l.unit || "")} expected</span></span><input type="number" inputmode="decimal" min="0" data-purq="${esc(l.id)}" value="" placeholder="Count" aria-label="Count of ${esc(l.item)}"></label>`).join("")}<div class="pu-conds" role="radiogroup" aria-label="Condition">${[["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]].map(([k, l]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" aria-pressed="${"good" === k}">${l}</button>`).join("")}</div><label class="f"><span>Photo of the Slip</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>What Is Wrong</span><input data-punote="1" placeholder="Only if something is short, damaged or wrong"></label>`,
+    `Receive Some — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(puJob(DB.projects.find((p) => p.id === po.projectId)))}. Count what is really here; leave a line empty if none of it came. Mark each line's condition.</p>${early > 3 ? `<p class="note warn pu-early" style="margin:0 0 10px">${esc(po.vendor)} promised this for ${fmt(po.expected)}, ${early} working days from now. Check the slip says ${esc(po.number)} before you count it in.</p>` : ""}${L.map(lineHtml).join("")}<label class="f"><span>Photo of the Slip${field ? "" : ' <span class="muted">(optional)</span>'}</span><input type="file" accept="image/*" capture="environment" data-puslip="1"></label><label class="f"><span>Note</span><input data-punote="1" data-f="note" placeholder="What is short, damaged or wrong; the slip number"></label>`,
     {
-      submit: "Receive",
+      submit: "Record Receipt",
       onSubmit: () => {
-        const got = L.map((l) => ({ l: l, q: m.querySelector(`[data-purq="${l.id}"]`).value })).filter((x) => "" !== x.q);
-        if (!got.length) return toast("Count at least one line, even if it is 0"), !1;
-        const slip = m.querySelector("[data-puslip]"),
-          slipName = slip && slip.files && slip.files[0] ? slip.files[0].name : "";
-        got.forEach((x) => +x.q > 0 && puReceiveLine(po, x.l, +x.q, "", slipName));
-        slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
-        let claim = null;
-        if ("good" !== cond) {
-          const x = got[0],
-            short = Math.max(0, r2((+x.l.qty || 0) - (+x.l.received || 0)));
-          claim = { t: nowStamp(), at: appNowIso(), by: ((currentUser() || {}).name) || role(), type: cond, lineId: x.l.id, qty: "short" === cond ? short : +x.q || 0, note: (m.querySelector("[data-punote]") || {}).value || "", claim: !0, status: "open" };
-          (po.issues = po.issues || []).push(claim);
-          x.l.issue = cond;
-          po.flag = `${cond}: ${x.l.item} ${claim.qty}`;
-          try {
-            audit("po", po.id, "delivery-claim", "", cond, `${claim.qty} ${x.l.item}`);
-          } catch (e) {}
+        const mark = (i, msg) => (i && "function" == typeof vfMark ? vfMark(i, msg) : toast(msg), !1),
+          rows = L.map((l) => {
+            const i = m.querySelector(`[data-purq="${l.id}"]`),
+              bi = m.querySelector(`[data-pubad="${l.id}"]`);
+            return { l: l, i: i, bi: bi, k: cond[l.id] || "good", raw: String((i && i.value) || "").trim(), badRaw: String((bi && bi.value) || "").trim() };
+          });
+        // a line marked Short, Damaged or Wrong needs its count (0 when none of it came)
+        const sl = m.querySelector("[data-puslip]");
+        if (field && !(sl && sl.files && sl.files.length)) return mark(sl, "Take a photo of the packing slip first");
+        const unCounted = rows.find((x) => "good" !== x.k && "" === x.raw);
+        if (unCounted) return mark(unCounted.i, "Count what arrived on this line (0 if none of it came)");
+        const R = rows.filter((x) => "" !== x.raw);
+        if (!R.length) return mark(m.querySelector("[data-purq]"), "Count what arrived (0 if none of it came)");
+        const over = R.find((x) => +x.raw > left(x.l) + 0.001);
+        if (over) return mark(over.i, `Only ${left(over.l)} ${over.l.unit || ""} are still to come: the rest goes back, or onto a change to the order`);
+        for (const x of R) {
+          const c = Math.max(0, +x.raw || 0);
+          if ("short" === x.k && c >= left(x.l) - 0.001) return mark(x.i, `Nothing is short: ${c} is everything still to come`);
+          if (["damaged", "wrong"].includes(x.k)) {
+            const bad = +x.badRaw;
+            if ("" === x.badRaw || !(bad > 0)) return mark(x.bi, `How many are ${x.k}?`);
+            if (bad > c + 0.001) return mark(x.bi, `Only ${c} came: count the ${x.k} among them`);
+          }
         }
+        const note = String((m.querySelector("[data-punote]") || {}).value || "").trim(),
+          slip = m.querySelector("[data-puslip]"),
+          slipName = slip && slip.files && slip.files[0] ? slip.files[0].name : "",
+          claims = [],
+          came = [];
+        R.forEach((x) => {
+          const c = Math.max(0, +x.raw || 0),
+            bad = ["damaged", "wrong"].includes(x.k) ? +x.badRaw || 0 : 0,
+            good = r2(c - bad),
+            q = "short" === x.k ? r2(left(x.l) - c) : bad;
+          good > 0 && came.push({ l: x.l, q: good });
+          "good" !== x.k && q > 0 && claims.push({ l: x.l, type: x.k, qty: q });
+        });
+        if (!came.length && !claims.length) return mark(R[0].i, "Nothing is counted as arrived: type what came, or mark the line Short");
+        const full = came.length ? puReceiveLines(po, came, note, slipName).full : !1;
+        slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
+        // one claim per line and kind, on its own line: what did not come, or what came damaged or wrong
+        claims.forEach((k) => {
+          const claim = { t: nowStamp(), at: appNowIso(), by: ((currentUser() || {}).name) || role(), type: k.type, lineId: k.l.id, item: k.l.item || k.l.desc || "", qty: k.qty, unit: k.l.unit || "", amount: r2(k.qty * (+k.l.price || 0)), note: note, claim: !0, status: "open" };
+          (po.issues = po.issues || []).push(claim);
+          k.l.issue = k.type;
+          try {
+            audit("po", po.id, "delivery-claim", "", k.type, `${k.qty} ${k.l.unit || ""} ${k.l.item}`.replace(/\s+/g, " "));
+          } catch (e) {}
+        });
+        claims.length && (po.flag = claims.map((k) => `${k.type}: ${k.l.item} ${k.qty}`).join("; "));
         save(), render();
-        claim
-          ? toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received; a ${cond} claim is open with ${po.vendor}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
-          : toast(`${po.number}: ${got.length} line${1 === got.length ? "" : "s"} received`, { label: "Open", run: () => flowGo.po(po)() });
+        const amt = r2(came.reduce((a, x) => a + x.q * (+x.l.price || 0), 0)),
+          what = full ? "received in full" : came.length ? `${came.length} line${1 === came.length ? "" : "s"} received` : "nothing received",
+          held = r2(claims.reduce((a, k) => a + k.qty * (+k.l.price || 0), 0));
+        claims.length
+          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
+          : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards
+            "function" == typeof rcReceiptToast
+            ? rcReceiptToast(po, `${po.number} · ${po.vendor} — ${what}${amt ? `, ${money(amt)}` : ""}`)
+            : toast(`${po.number}: ${what}`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
+  );
+  m.querySelectorAll("[data-puall]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const i = m.querySelector(`[data-purq="${b.dataset.puall}"]`);
+        i && ((i.value = b.dataset.left), i.dispatchEvent(new Event("input", { bubbles: !0 })));
+      }),
   );
   m.querySelectorAll("[data-pucond]").forEach(
     (b) =>
       (b.onclick = () => {
-        cond = b.dataset.pucond;
-        m.querySelectorAll("[data-pucond]").forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
+        const id = b.dataset.pul;
+        cond[id] = b.dataset.pucond;
+        m.querySelectorAll(`[data-pucond][data-pul="${id}"]`).forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
+        const w = m.querySelector(`[data-pubadw="${id}"]`);
+        w && (w.hidden = !["damaged", "wrong"].includes(cond[id]));
       }),
   );
   return m;
@@ -919,7 +1149,8 @@ document.addEventListener(
     if (!t) return;
     const at = (s) => t.closest(s);
     let b;
-    if ((b = at("[data-puplus]"))) return e.preventDefault(), e.stopPropagation(), (puPlusOpen = puPlusOpen === b.dataset.puplus ? "" : b.dataset.puplus), render();
+    if ((b = at("[data-puplus]"))) return e.preventDefault(), e.stopPropagation(), (puPlusMore = ""), (puPlusOpen = puPlusOpen === b.dataset.puplus ? "" : b.dataset.puplus), render();
+    if ((b = at("[data-pumore]"))) return e.preventDefault(), e.stopPropagation(), (puPlusMore = b.dataset.pumore), render();
     if ((b = at("[data-pumi]"))) {
       e.preventDefault(), e.stopPropagation();
       const it = puPlusItems(puPlusOpen)[+b.dataset.pumi];
@@ -966,24 +1197,65 @@ function puDo(x) {
       return r.lineKey ? render() : bbLinkLine(r);
     }
     if ("find" === x.k) return r.m ? openEditor("mat", r.m.id) : bbDo(r, "open");
+    if ("draftpo" === x.k && (r.draftPOs || [])[0]) return flowGo.po(r.draftPOs[0])();
     if ("route" === x.k) return setView("recv");
-    if ("split" === x.k) return "function" == typeof jpOpenJob ? jpOpenJob(r.p.id, "costs") : (setCurrent(r.p.id), setView("costs"));
+    if ("split" === x.k) return puMatSheet(r.lineKey || r.key);
     if ("subm" === x.k) return setCurrent(r.p.id), setView("subm");
     if ("quote" === x.k) return puStockGate([r], () => bbQuote([r]));
     if ("order" === x.k) return puStockGate([r], () => bbOrder([r]));
     return bbDo(r, x.k);
   }
-  return x.run && x.run();
+  // a row whose button does something other than open it (Close the Claim) carries actRun; its name still opens it
+  return x.actRun ? x.actRun() : x.run && x.run();
 }
 // The stock check at the door: before money is committed on a need the shelf may cover, the person is asked
+// (11-05, the coordinator expert: its blue was Buy It Anyway, with no way to use the stock.) The blue takes what the
+// person says from the shelf (a pick for the driver, on the need's job) and buys the rest; a need the shelf covers in
+// full is not bought at all. Buy It Anyway stays, second.
 function puStockGate(R, go) {
   const S0 = R.flatMap((r) => (r.ordered ? [] : puStockFor(r.name).map((s) => Object.assign({ need: r }, s))));
   if (!S0.length) return go();
-  return mbModal(
+  const want = (s) => {
+    const q = "function" == typeof bbNum ? bbNum(s.need.qty) : { n: 0, unit: "" },
+      one = puParts(s.need.name).length <= 1;
+    return one && q.n > 0 && (!q.unit || !s.unit || String(q.unit).replace(/s$/, "") === String(s.unit).replace(/s$/, "")) ? Math.min(q.n, s.qty) : "";
+  };
+  const m = mbModal(
     "Check the Stock First",
-    `<p class="small" style="margin:0 0 8px">${S0.map((s) => `<b data-nocase>${esc(puUnits(s.qty, s.unit))} of ${esc(s.name)}</b> at the ${esc(String(s.where).toLowerCase())}, for <span data-nocase>${esc(s.need.name)}</span>`).join("<br>")}</p><p class="small muted" style="margin:0">Use what we own before buying: money spent on what is on the shelf cannot go to raises, bonuses or the client.</p>`,
-    { submit: "Buy It Anyway", onSubmit: () => void setTimeout(go, 0) },
+    `<p class="small muted" style="margin:0 0 8px">On the shelf now. Say how many to take; the driver picks them for the job, and the order buys the rest.</p>${S0.map((s, i) => `<div class="pu-rq"><span><b data-nocase>${esc(s.name)}</b><span class="small muted" data-nocase>${esc(puUnits(s.qty, s.unit))} at the ${esc(String(s.where).toLowerCase())}, for ${esc(s.need.name)}${s.sure ? "" : " (may be it: check)"}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" step="any" data-pustk="${i}" value="${want(s)}" aria-label="How many to take of ${esc(s.name)}"></div>`).join("")}<p class="small muted" style="margin:8px 0 0">Use what we own before buying: money spent on what is on the shelf cannot go to raises, bonuses, the client or charity.</p>`,
+    {
+      submit: "Use the Stock, Buy the Rest",
+      alt: { label: "Buy It Anyway", run: () => void setTimeout(go, 0) },
+      onSubmit: () => {
+        const took = [];
+        S0.forEach((s, i) => {
+          const n = Math.min(+((m.querySelector(`[data-pustk="${i}"]`) || {}).value || 0), s.qty);
+          if (!(n > 0)) return;
+          const q = "function" == typeof stockTakeForLine ? stockTakeForLine({ projectId: s.need.p.id, invId: s.id, qty: n, unit: s.unit, needBy: s.need.needBy, note: `From stock for ${s.need.name}` }) : null;
+          q && took.push({ s: s, n: n, q: q });
+        });
+        if (!took.length) return toast("Say how many to take, or tap Buy It Anyway"), !1;
+        // a need the shelf covers in full is not bought: its request goes the stock path (it leaves the store run)
+        const full = R.filter((r) => {
+          const q = "function" == typeof bbNum ? bbNum(r.qty) : { n: 0 },
+            got = took.filter((t) => t.s.need === r).reduce((a, t) => a + t.n, 0);
+          return puParts(r.name).length <= 1 && q.n > 0 && got >= q.n;
+        });
+        full.forEach((r) => {
+          try {
+            r.q && "function" == typeof bbReqPath ? bbReqPath(r.p, r.q, "stock", "taken from stock") : r.m && "on-site" !== r.m.status && ((r.m.status = "ordered"), (r.m.notes = `${r.m.notes ? r.m.notes + " · " : ""}taken from stock`));
+            r.q && r.q.status === "new" && ((r.q.status = "ack"), (r.q.ackAt = appNowIso()));
+          } catch (e) {}
+        });
+        save();
+        const rest = R.filter((r) => !full.includes(r));
+        rcToast(`${took.map((t) => `${puUnits(t.n, t.s.unit)} ${t.s.name}`).join(", ")} from stock: a pick for the driver${rest.length ? "; now the order for the rest" : ""}`, [{ label: "Open", run: () => setView("recv") }]);
+        rest.length && setTimeout(go, 0);
+        render();
+      },
+    },
   );
+  return m;
 }
 // the Buy Board's own Order and Ask for Quotes run the same stock check
 {
@@ -1002,7 +1274,7 @@ function puStockGate(R, go) {
       args = arguments;
     if (R.some((r) => r.__puChecked)) return bq.apply(self, args);
     let out = null;
-    puStockGate(R, () => (R.forEach((r) => (r.__puChecked = 1)), (out = bq.apply(self, args)), R.forEach((r) => delete r.__puChecked)));
+    puStockGate(R, () => (R.forEach((r) => (r.__puChecked = 1)), (out = puQuoteDoor(R) || bq.apply(self, args)), R.forEach((r) => delete r.__puChecked)));
     return out;
   };
 }
@@ -1023,7 +1295,7 @@ function puStockGate(R, go) {
   } catch (e) {}
   // the Purchasing overview and the store run's Route open their new homes; Stock for those it is not listed for
   if ("object" == typeof MN_ALIAS) {
-    Object.defineProperty(MN_ALIAS, "ovbuy", { configurable: !0, enumerable: !0, get: () => ((ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po") });
+    Object.defineProperty(MN_ALIAS, "ovbuy", { configurable: !0, enumerable: !0, get: () => puHomeView() });
     Object.assign(MN_ALIAS, { route: "recv", req: "proc", inv: "proc" });
   }
   "object" == typeof OC_RETIRED && delete OC_RETIRED.ovbuy;
@@ -1160,10 +1432,10 @@ function puNewNeed() {
 {
   const base = render;
   render = function () {
-    if ("ovbuy" === view) view = (ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po";
+    if ("ovbuy" === view) view = puHomeView();
     const r = base.apply(this, arguments);
     try {
-      puDemoLines(), puDraw(), puCrumbs();
+      puDemoLines(), puDraw(), puCrumbs(), puDocDecorate(), puFfeCrumb();
     } catch (e) {
       console.warn("purchasing", e);
     }
@@ -1175,7 +1447,13 @@ function puNewNeed() {
   const base = renderProc;
   renderProc = function () {
     const pane = "undefined" != typeof procPane ? procPane : "board";
-    if ("finish" === procMode || "board" !== pane) return base.apply(this, arguments);
+    if ("finish" === procMode || "board" !== pane) {
+      const out = base.apply(this, arguments);
+      try {
+        puFfeDress(document.getElementById("proc-body"));
+      } catch (e) {}
+      return out;
+    }
     try {
       return puBuyRender();
     } catch (e) {
@@ -1184,6 +1462,633 @@ function puNewNeed() {
     }
   };
 }
+
+// ---- one status per need (11-05): Today, the Buy Board, Quotes and Deliveries read puNeedStatus -----------------------
+// The quote stage of a need: lane P4's rfqLineState when it is there, else the request's own status. A draft request is the
+// coordinator's to send (it read "Waiting on 1 vendors"); an awarded one is not a quote any more.
+function puQuoteStage(r) {
+  const key = r && (r.lineKey || r.key);
+  if (key && "function" == typeof rfqLineState) {
+    try {
+      const s = rfqLineState(key);
+      if (s && s.stage && "awarded" !== s.stage) return s;
+      if (s && "awarded" === s.stage) return null;
+    } catch (e) {}
+  }
+  const q = ((r && r.rfqs) || [])[0];
+  if (!q) return null;
+  const st = q.status,
+    nq = (q.quotes || []).filter((x) => !x.unreadable).length,
+    nv = (q.vendors || []).length;
+  return { stage: "draft" === st ? "draft" : "foreman-review" === st ? "foreman" : "purchasing" === st ? "pick" : ["leveled", "negotiating"].includes(st) || (nv && nq >= nv) ? "leveled" : (q.quotes || []).some((x) => x.unreadable) ? "price-needed" : "out", rfq: q, label: (("undefined" != typeof RFQ_STATUS && RFQ_STATUS[st]) || st) };
+}
+function puQuoteStep(r) {
+  const s = puQuoteStage(r) || { stage: "out", rfq: (r.rfqs || [])[0] || {} },
+    q = s.rfq || {},
+    n = q.number || "The request",
+    nv = (q.vendors || []).length,
+    base = { act: "Open the Request", k: "rfq" };
+  if ("draft" === s.stage) return Object.assign(base, { actor: "coord", why: `${n} is a draft: add the vendors and send it.` });
+  if ("pick" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: pick the vendors and send it.` });
+  if ("foreman" === s.stage) return Object.assign(base, { actor: "foreman", who: q.foreman || "the foreman", why: `checks the quantities on ${n}.` });
+  if ("price-needed" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: a reply is in that needs its prices entered.` });
+  if ("leveled" === s.stage) return Object.assign(base, { actor: "coord", why: `${n}: the quotes are in; level and award.`, act: "Open the Quotes" });
+  return Object.assign(base, { actor: "vendor", who: nv ? `${nv} vendor${1 === nv ? "" : "s"}` : "the vendors", why: `${n}: quotes due ${q.dueDate ? fmt(q.dueDate) : "soon"}.` });
+}
+// The one status of a need (a buyList row): its bucket (mine, others, later, route, gone), whose tap it is, why, and the
+// next step. Lane P4 reads it for Quotes, P1 for Deliveries; Today's Buy Board cards read it below.
+function puNeedStatus(r) {
+  const x = puNeed(r);
+  return x ? { b: x.b, actor: x.actor, who: x.who || "", why: x.why, act: x.act, k: x.k, tone: x.tone || "", when: x.when } : null;
+}
+// The status of the open need on a contract line (or null when nothing on the line is left to buy)
+function puNeedStatusFor(lineKey) {
+  const r = buyList("").find((x) => (x.lineKey === lineKey || x.key === lineKey) && !x.received && !(x.ordered && x.po));
+  return r ? puNeedStatus(r) : null;
+}
+// Today's Buy Board card says what the board says (11-05: "Ask for Bids" after the award), and does what its row does
+if ("function" == typeof bbTodayCard) {
+  const base = bbTodayCard;
+  bbTodayCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      const x = it && it.x && puNeed(it.x);
+      // the card leads with the date it is due by (Order by 9/1, passed), then the reason, as the row says both: the card's
+      // line is cut to a few words, and the date is what Today ranks by
+      x && x.act && ((c.verb = x.act), (c.run = () => puDo(x)), (c.why = esc(`Buy Board · ${x.when ? `${x.when}. ` : ""}${x.why}`)));
+    } catch (e) {}
+    return c;
+  };
+}
+// Ask for Quotes on the Buy Board opens the request sheet (lane P4's rfqStartFromLines) prefilled from the picked lines;
+// until it is there, the request is made as before
+function puQuoteDoor(R) {
+  if ("function" != typeof rfqStartFromLines || !R.length) return null;
+  if (new Set(R.map((r) => r.p.id)).size > 1 || R.some((r) => "request" === r.kind)) return null;
+  const items = R.map((r) => ("ffe" === r.kind && r.it ? "sel:" + r.it.id : r.m ? (r.lineKey ? { key: r.lineKey, materialId: r.m.id } : null) : r.lineKey || null));
+  if (items.some((i) => !i)) return null;
+  const subs = R.filter((r) => "sub" === r.kind);
+  if (subs.length && subs.length !== R.length) return null;
+  const category = subs.length ? (((("undefined" != typeof COST_CODES && COST_CODES.find((c) => c[0] === subs[0].code)) || [])[1]) || "Subcontract").split(/[ &,]/)[0] : void 0;
+  bbPick.clear();
+  return rfqStartFromLines(items, { pid: R[0].p.id, sub: !!subs.length, category: category }) || !0;
+}
+// The best price known for a need's item, from the one price history (itemPriceHistory: our orders, bills, receipts and
+// quotes), read per part of its name (11-05: the studs read "no buys on file" while Price Watch had four stores)
+function puBookPrice(r) {
+  if (!r || "function" != typeof itemPriceHistory || ["sub", "line"].includes(r.kind)) return null;
+  const k = "pb|" + r.id + "|" + ("function" == typeof dataVer ? dataVer() : "");
+  puBookPrice.memo = puBookPrice.memo || new Map();
+  if (puBookPrice.memo.has(k)) return puBookPrice.memo.get(k);
+  let out = null;
+  for (const part of puParts(String(r.name || "").replace(/^\d+\.\s*/, ""))) {
+    let H = null;
+    try {
+      H = itemPriceHistory(part);
+    } catch (e) {}
+    if (H && H.best && +H.best.price > 0) {
+      out = { label: H.label, unit: H.unit || "", price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "", say: `${unitMoney(H.best.price)}/${H.unit || "ea"} at ${H.best.vendor || "a store"}${H.best.date ? `, ${fmt(H.best.date)}` : ""} (${H.label})` };
+      break;
+    }
+  }
+  puBookPrice.memo.size > 400 && puBookPrice.memo.clear();
+  return puBookPrice.memo.set(k, out), out;
+}
+// The best price known for a name typed or read on the order sheet (the item, or the request the order covers)
+function puBestFor(name, unit) {
+  if ("function" != typeof itemPriceHistory) return null;
+  for (const part of puParts(name)) {
+    let H = null;
+    try {
+      H = itemPriceHistory(part);
+    } catch (e) {}
+    if (!H || !H.best || !(+H.best.price > 0)) continue;
+    const u = (x) => String(x || "").toLowerCase().replace(/s$/, "");
+    if (unit && H.unit && u(unit) !== u(H.unit) && !["ls", "lot"].includes(u(unit))) continue;
+    if (["ls", "lot"].includes(u(unit))) continue;
+    return { label: H.label, unit: H.unit, price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "" };
+  }
+  return null;
+}
+
+// ---- the job's Orders: lines spent and ordered past their budget (the one budget test, lineCommitment) ---------------
+// A draft that puts its line over is the coordinator's (Needs You); a line already over with nothing drafted is shown on
+// the tile only (it is the PM's change order or reason, and Over the Order already carries a paid overrun).
+function puLineOverRows(pid) {
+  if ("function" != typeof lineCommitment) return [];
+  const keys = new Set();
+  (DB.pos || []).filter((po) => "cancelled" !== po.status && (!pid || po.projectId === pid)).forEach((po) => (po.lines || []).forEach((l) => l.line && keys.add(l.line)));
+  const out = [];
+  keys.forEach((k) => {
+    const c = lineCommitment(k);
+    if (!c || !(c.budget > 0) || !(c.over > Math.max(1, 0.001 * c.budget))) return;
+    let ref = null;
+    try {
+      ref = findLine(k);
+    } catch (e) {}
+    if (!ref) return;
+    "function" == typeof ctNumber && ctNumber(ref.doc);
+    const p = (DB.projects || []).find((x) => x.id === ref.doc.projectId) || null,
+      draft = c.drafts[0] || null;
+    out.push({
+      id: "lineover:" + k,
+      name: `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""}: ${money(c.over)} over its budget`,
+      job: puJob(p),
+      line: `${ref.line.item || ref.line.desc || ""} · budget ${money(c.budget)} · spent ${money(c.actual)} · on order ${money(c.onOrder)}${c.drafted ? ` (${money(c.drafted)} in draft ${c.drafts.map((po) => po.number).join(", ")})` : ""}`,
+      why: draft ? `Draft ${draft.number} puts the line over. Cut it to what is left, or issue it with a reason.` : "Spent and ordered past the line's budget: a change order, or the reason it is absorbed.",
+      act: draft ? "Open the Draft" : "Open the Line",
+      run: draft ? () => flowGo.po(draft)() : () => ("function" == typeof finLineModal ? finLineModal(k) : null),
+      tone: "bad",
+      money: c.over,
+      tile: "lineover",
+      actor: draft ? "coord" : "tile",
+    });
+  });
+  return out;
+}
+
+// ---- Set the Material Portion: one field, the PM's (11-05: it opened the Budget page, which has no split field) --------
+function puMatSheet(key) {
+  let ref = null;
+  try {
+    ref = key ? findLine(key) : null;
+  } catch (e) {}
+  if (!ref) return toast("This need is on no contract line yet: link it to a line first");
+  const name = `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""} · ${ref.line.item || ref.line.desc || ""}`;
+  if (!["owner", "pm"].includes(role())) {
+    ref.line.matAsk = { by: ((currentUser() || {}).name) || role(), at: appNowIso() };
+    save(), render();
+    return toast(`Asked the PM to set the material portion of ${name}: it is in his Approvals`, { label: "Open", run: () => setView("proc") });
+  }
+  const M = "function" == typeof rfqMatBudget ? rfqMatBudget(key, ref.line, ref.doc) : { whole: +ref.line.cost || 0 },
+    whole = M.whole || +ref.line.cost || 0;
+  return mbModal(
+    "Set the Material Portion",
+    `<p class="small" style="margin:0 0 8px" data-nocase>${esc(name)}: a budget of ${money(whole)} for labour and material together. Enter the material part in dollars, or as a percent of the line ("40%"); the rest is labour. The price and the client's document do not change.</p>${mbF("Material", `<input data-f="mat" inputmode="decimal" placeholder="e.g. 12000 or 40%" value="${M.split ? esc(String(M.budget)) : ""}">`)}`,
+    {
+      submit: "Save the Portion",
+      onSubmit: (f) => {
+        const s = String(f.mat || "").trim(),
+          v = /%\s*$/.test(s) ? r2((whole * parseFloat(s)) / 100) : +s.replace(/[$,\s]/g, "");
+        if (!s || !isFinite(v)) return toast("Enter dollars, or a percent like 40%"), !1;
+        const out = rfqSetMatBudget(key, v);
+        return out ? (delete ref.line.matAsk, save(), void 0) : !1;
+      },
+    },
+  );
+}
+// the PM's Approvals: every line on his jobs whose material portion the buying waits on
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "pm" === role())) return out;
+      const me = String(((currentUser() || {}).name) || "").toLowerCase().split(" ")[0];
+      const R = buyList("").filter((r) => r.matUnknown && !r.ordered && (r.lineKey || r.key) && (!me || !r.p.project.pm || String(r.p.project.pm).toLowerCase().includes(me)));
+      const seen = new Set();
+      return out.concat(
+        R.filter((r) => !seen.has(r.lineKey || r.key) && seen.add(r.lineKey || r.key)).map((r) => {
+          const k = r.lineKey || r.key,
+            ask = r.l && r.l.matAsk;
+          return { kind: "matsplit", id: k, sev: "warn", n: "Split", title: `Set the material portion: ${r.name}`, detail: `${puJob(r.p)} · ${puLineWord(r)} · budget ${money(r.budget || 0)} for labour and material together · the coordinator buys against the material part${ask ? ` · asked by ${ask.by}` : ""}`, yes: "Set the Portion", who: "pm", due: r.orderBy || "", open: { puMat: k } };
+        }),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.puMat) return void puMatSheet(go.puMat);
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the order sheet from lines (ctPOPicker), the one order path's sheet ----------------------------------------------
+// On the phone each line is a card: the item in full, its estimate line, quantity with unit, unit cost, then a full-width
+// vendor (11-05: a desktop table that opened scrolled sideways, names cut, the vendor box reading "ve"). On both devices
+// each ticked line shows the one budget test as it is typed (lineBudgetTest), the best price known for the item, and the
+// field request the order covers (ticked, it leaves the store run, so the studs are bought once).
+function puCtpDecorate(pid, m) {
+  if (!m || !m.querySelector("table.ctp")) return;
+  const p = (DB.projects || []).find((x) => x.id === pid) || null,
+    cl = p && (DB.clients || []).find((c) => c.id === p.clientId),
+    docs = cl ? [...cl.estimates, ...cl.changeOrders, ...cl.invoices] : [],
+    route = puOnRoute();
+  m.classList.add("pu-ctp");
+  m.classList.toggle("pu-ctp-ph", puPhone());
+  const LAB = ["", "Line", "Quantity", "Unit", "Unit Cost", "Vendor", "On Order"];
+  m.querySelectorAll("table.ctp tr.ctp-line, table.ctp tr.ctp-item").forEach((tr) => {
+    if (tr.dataset.pudone) return;
+    tr.dataset.pudone = "1";
+    const cb = tr.querySelector("[data-ctpsel]");
+    if (!cb) return;
+    const sel = cb.dataset.ctpsel,
+      lid = sel.split("#")[0],
+      d = docs.find((x) => (x.lines || []).some((l) => l.id === lid)),
+      l = d && d.lines.find((x) => x.id === lid),
+      key = d && l ? ctKey(d, l) : "";
+    tr.dataset.pukey = key;
+    [...tr.cells].forEach((td, i) => LAB[i] && td.setAttribute("data-lab", LAB[i]));
+    const lab = { ctpq: "Quantity", ctpu: "Unit", ctpc: "Unit cost", ctpv: "Vendor" };
+    Object.keys(lab).forEach((k) => {
+      const inp = tr.querySelector(`[data-${k}]`);
+      inp && inp.setAttribute("aria-label", `${lab[k]}, ${(l && l.item) || "line"}`);
+    });
+    cb.setAttribute("aria-label", `Buy ${(l && l.item) || "this line"}`);
+    // before award only the long-lead lines can be ticked; the rest wait for the estimate's approval
+    d && l && "function" == typeof docBuyable && !docBuyable(d) && !puLongLead(l) && ((cb.checked = !1), (cb.disabled = !0), tr.classList.add("pu-ctpwait"), tr.cells[1] && tr.cells[1].insertAdjacentHTML("beforeend", `<div class="pu-ctpn">Waits for ${esc(d.number)} to be approved</div>`));
+    const cell = tr.cells[1];
+    if (!cell) return;
+    tr.classList.contains("ctp-line") && d && cell.insertAdjacentHTML("beforeend", `<div class="pu-ctpdoc small muted" data-nocase>${esc(d.number)}${l.num ? ` line ${l.num}` : ""}</div>`);
+    // the field requests on this line that this order may cover
+    if (tr.classList.contains("ctp-line") && p && key) {
+      const Q = (p.requests || []).filter((q) => q.line === key && !["ordered", "delivered", "closed", "declined"].includes(q.status) && "order" !== q.path && "stock" !== q.path);
+      Q.length &&
+        cell.insertAdjacentHTML(
+          "beforeend",
+          Q.map((q) => `<label class="pu-ctpreq"><input type="checkbox" data-ctpreq="${esc(sel)}" value="${esc(q.id)}" checked><span data-nocase>This order covers ${esc(q.by || "the site")}'s request: ${esc([q.qty, q.unit, q.what].filter(Boolean).join(" "))}${route.has(q.id) ? ", now on today's store run (it comes off the run)" : ""}</span></label>`).join(""),
+        );
+    }
+    cell.insertAdjacentHTML("beforeend", `<div class="pu-ctpn" data-puctpn="${esc(sel)}" data-nocase></div>`);
+  });
+  puCtpCheck(m);
+}
+function puCtpCheck(m) {
+  const rows = [...m.querySelectorAll("table.ctp tr[data-pukey]")],
+    v = (tr, k) => (tr.querySelector(`[data-${k}]`) || {}).value || "",
+    on = (tr) => !!(tr.querySelector("[data-ctpsel]") || {}).checked,
+    adds = {};
+  rows.forEach((tr) => on(tr) && tr.dataset.pukey && (adds[tr.dataset.pukey] = (adds[tr.dataset.pukey] || 0) + (+v(tr, "ctpq") || 1) * (+v(tr, "ctpc") || 0)));
+  // one Why in the sheet when a ticked line needs a reason: a second subcontract order on its line, or a long-lead line
+  // bought before its estimate is approved (create reads it; a prompt over the sheet would close the sheet)
+  const keys = Object.keys(adds),
+    refOf = (k) => {
+      try {
+        return findLine(k);
+      } catch (e) {
+        return null;
+      }
+    },
+    second = keys.filter((k) => {
+      const r = refOf(k);
+      return r && "function" == typeof bbSubScope && bbSubScope(r.line) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k));
+    }),
+    early = keys.filter((k) => {
+      const r = refOf(k);
+      return r && "function" == typeof docBuyable && !docBuyable(r.doc);
+    });
+  let box = m.querySelector(".pu-ctpwhy");
+  if (second.length || early.length) {
+    const lab = early.length ? `Why buy before ${refOf(early[0]).doc.number} is approved? The owner reads it before approving.` : `Why a second subcontract order on this line (it has ${(DB.pos || []).filter((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === second[0])).map((po) => po.number).join(", ")})?`;
+    if (!box) {
+      const bd = m.querySelector(".mbm-bd");
+      bd && bd.insertAdjacentHTML("afterbegin", `<div class="f pu-ctpwhy"><label for="pu-ctpwhy"></label><input id="pu-ctpwhy" placeholder="A sentence: e.g. the scope is split, or the lead time is 14 weeks"></div>`);
+      box = m.querySelector(".pu-ctpwhy");
+    }
+    box && ((box.hidden = !1), (box.querySelector("label").textContent = lab));
+  } else box && (box.hidden = !0);
+  rows.forEach((tr) => {
+    const n = tr.querySelector("[data-puctpn]"),
+      key = tr.dataset.pukey;
+    if (!n || !key) return;
+    const say = [];
+    let tone = "";
+    if (on(tr)) {
+      const t = lineBudgetTest(key, adds[key] || 0);
+      t.ok ? t.c && t.c.budget > 0 && say.push(`${money(Math.max(0, r2(t.c.budget - t.after)))} left on the line after this buy`) : ((tone = "bad"), say.push(`Over budget: ${t.say}.`));
+      // the price against the best known for the item (the request it covers names the item when the line does not)
+      const req = tr.querySelector("[data-ctpreq]:checked"),
+        q = req && ((DB.projects || []).flatMap((p) => p.requests || []).find((x) => x.id === req.value) || null),
+        name = q ? q.what || "" : ((tr.cells[1] || {}).querySelector ? (tr.cells[1].querySelector("b") || tr.cells[1]).textContent : "").replace(/^\d+\.\s*/, ""),
+        unit = q ? q.unit : v(tr, "ctpu"),
+        price = +v(tr, "ctpc") || 0,
+        qty = +v(tr, "ctpq") || 1;
+      // one verdict at entry and at Issue: lane P1's poLinePriceCheck (the item's own price-book key, no look-alikes)
+      // when it is in the build; this sheet's own reading of the price history until it is
+      if ("function" == typeof poLinePriceCheck) {
+        const P = price > 0 && name ? poLinePriceCheck(name, unit, price, qty) : null;
+        P && !P.ok && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${unitMoney(P.gap)} above the ${"best" === P.kind ? "best recent" : "last"} price, ${unitMoney(P.ref)}${P.vendor ? ` at ${P.vendor}` : ""}${P.date ? `, ${fmt(P.date)}` : ""}.`));
+      } else {
+        const best = price > 0 && name ? puBestFor(name, unit) : null;
+        best && price > best.price * 1.03 + 0.005 && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${unitMoney(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
+      }
+    } else {
+      const c = lineCommitment(key);
+      c && c.budget > 0 && c.left < 1 && ((tone = "warn"), say.push(c.over ? `${money(c.over)} over the line already` : "Nothing left to buy on this line"));
+    }
+    n.className = `pu-ctpn ${tone}`;
+    n.textContent = say.join(" ");
+  });
+}
+{
+  const base = ctPOPicker;
+  ctPOPicker = function (projectId, preferId, preKey) {
+    const r = base.apply(this, arguments);
+    puPreAwardId = "";
+    try {
+      const m = document.getElementById("mbm");
+      if (m && m.querySelector("table.ctp")) {
+        puCtpDecorate(projectId, m);
+        m.addEventListener("input", () => puCtpCheck(m));
+        m.addEventListener("change", (e) => (e.target && "ctp-doc" === e.target.id ? setTimeout(() => puCtpDecorate(projectId, m), 0) : puCtpCheck(m)));
+        // a request ticked as covered names the item on the order's line: keep the request's words on the line
+      }
+    } catch (e) {
+      console.warn("order sheet", e);
+    }
+    return r;
+  };
+}
+
+// ---- the document's door: Buy These Lines on the estimate, change order and invoice (SPEC: one order path, two doors) --
+// Tap Buy These Lines, tick one line or several on the document itself (phone cards too), then the bar's Buy These Lines
+// opens the same order sheet with those lines ticked and linked.
+let puDocPick = null;
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = function (c, d, a) {
+    if ("pos" === a && d && d.projectId && "function" == typeof docBuyable && docBuyable(d)) {
+      puDocPick = { id: d.id, cid: c.id, type: d.type, keys: new Set() };
+      return void render();
+    }
+    return base.apply(this, arguments);
+  };
+}
+const PU_TICK = {
+  on: '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="#2456C9"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  off: '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="4.5" fill="none" stroke="#8A93A3" stroke-width="1.6"/></svg>',
+};
+function puDocDoc() {
+  if (!puDocPick || "undefined" == typeof docOpen || !docOpen || docOpen.id !== puDocPick.id) return null;
+  const c = (DB.clients || []).find((x) => x.id === puDocPick.cid);
+  return (c && findDoc(c, puDocPick.type, puDocPick.id)) || null;
+}
+function puDocDecorate() {
+  document.querySelectorAll(".pu-docbar").forEach((b) => b.remove());
+  if (!puDocPick) return;
+  const v = document.querySelector(".view.on"),
+    d = puDocDoc(),
+    rows = v ? [...v.querySelectorAll("table.rx-lines tr[data-rxline]")] : [];
+  if (!d || !rows.length) return void (puDocPick = null);
+  const keyOf = (lid) => ctKey(d, d.lines.find((l) => l.id === lid) || { id: lid });
+  rows.forEach((tr) => {
+    const lid = tr.dataset.rxline,
+      l = d.lines.find((x) => x.id === lid);
+    if (!l || tr.querySelector(".pu-docpick")) return;
+    const key = keyOf(lid),
+      c = lineCommitment(key),
+      cell = tr.cells[0],
+      item = tr.cells[1];
+    tr.classList.add("pu-docrow");
+    cell && cell.insertAdjacentHTML("afterbegin", `<button type="button" class="pu-docpick" data-pubuy="${esc(lid)}" aria-pressed="${puDocPick.keys.has(key)}" aria-label="Buy ${esc(l.item || "this line")}">${puDocPick.keys.has(key) ? PU_TICK.on : PU_TICK.off}</button>`);
+    c && c.budget > 0 && item && item.insertAdjacentHTML("beforeend", `<div class="small pu-docleft ${c.left < 1 ? "bad" : ""}" data-nocase>${c.over ? `${money(c.over)} over the line` : `${money(c.left)} left to buy`}${c.pos.length ? ` · ${c.pos.map((po) => po.number).join(", ")}` : ""}</div>`);
+  });
+  // one blue on the screen while picking: the bar's
+  v.querySelectorAll(".btn.primary").forEach((b) => b.closest(".pu-docbar") || (b.classList.remove("primary"), b.classList.add("pu-wasprimary")));
+  const bar = document.createElement("div");
+  bar.className = "pu-docbar";
+  v.appendChild(bar);
+  const draw = () => {
+    const K = [...puDocPick.keys],
+      left = r2(K.reduce((a, k) => a + ((lineCommitment(k) || {}).left || 0), 0));
+    bar.innerHTML = `<span class="pu-bt" data-nocase><b>${K.length ? `${K.length} line${1 === K.length ? "" : "s"} picked` : "Tick the lines to buy"}</b>${K.length ? ` · ${money(left)} left on ${1 === K.length ? "it" : "them"}` : ` on ${esc(d.number)}`}</span><span class="pu-bb"><button type="button" class="btn" id="pu-docbuy-x">Cancel</button><button type="button" class="btn primary" id="pu-docbuy-go">Buy These Lines</button></span>`;
+    bar.querySelector("#pu-docbuy-x").onclick = () => ((puDocPick = null), render());
+    bar.querySelector("#pu-docbuy-go").onclick = () => {
+      if (!puDocPick.keys.size) return toast("Tick at least one line");
+      const keys = [...puDocPick.keys];
+      puDocPick = null;
+      render();
+      ctPOPicker(d.projectId, d.id, keys);
+    };
+  };
+  draw();
+  v.querySelectorAll("[data-pubuy]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.stopPropagation();
+        const k = keyOf(b.dataset.pubuy),
+          on = !puDocPick.keys.has(k);
+        on ? puDocPick.keys.add(k) : puDocPick.keys.delete(k);
+        b.setAttribute("aria-pressed", String(on));
+        b.innerHTML = on ? PU_TICK.on : PU_TICK.off;
+        b.closest("tr") && b.closest("tr").classList.toggle("pu-docon", on);
+        draw();
+      }),
+  );
+}
+
+// ---- FF&E Buying Tools: its own name, a buy run only when there is something to buy, labels that stay Title Case ------
+// (11-05: the page was headed "Buy Board" under the Buy Board's own button, its blue New Buy Run only toasted with nothing
+// ticked, and its tabs fell to sentence case after a tap, because a tab redraws the board alone and the label pass runs
+// on render(); it now runs on every draw of this page.)
+function puFfeDress(root) {
+  if (!root || "undefined" == typeof procMode || "finish" !== procMode) return;
+  const pane = "undefined" != typeof procPane ? procPane : "board";
+  root.querySelectorAll('[data-ppane="board"]').forEach((b) => (b.textContent = "FF&E Items"));
+  if ("board" === pane) {
+    const h = root.querySelector(".ph h2");
+    h && ((h.textContent = "FF&E Buying Tools"), (h.dataset.iaKeep = "1"));
+    const run = root.querySelector("#proc-run");
+    if (run && !(procSel && procSel.size)) run.outerHTML = `<span class="small muted pu-runhint">Tick the items to buy: a buy run makes one order per vendor.</span>`;
+  }
+  try {
+    "function" == typeof tcLabels && tcLabels(root);
+  } catch (e) {}
+}
+// the phone's header names the page (the desktop's crumb is the menu's place, Buy Board)
+function puFfeCrumb() {
+  if ("proc" !== view || "undefined" == typeof procMode || "finish" !== procMode || ("undefined" != typeof procPane && "board" !== procPane) || !puPhone()) return;
+  const c = document.getElementById("crumbs");
+  c && (c.innerHTML = "<b>FF&amp;E Buying Tools</b>");
+}
+
+// ---- a second subcontract on one line: a reason, on every path (the chief of staff, 11-05) -----------------------------
+// The order sheet asks for it at create; an award, a copy or any other path that makes a second subcontract order on the
+// same contract line is held at Issue by the one validator (poValid) until the reason is on the order.
+function puSecondSub(po) {
+  if (!po || "cancelled" === po.status) return [];
+  const out = [],
+    at = (DB.pos || []).indexOf(po);
+  [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))].forEach((k) => {
+    let ref = null;
+    try {
+      ref = findLine(k);
+    } catch (e) {}
+    const l = ref && ref.line;
+    if (!l) return;
+    // a subcontract scope line (demolition, scaffold, abatement: bbSubScope): a tile or plumbing line rightly carries a
+    // material order and an install sub side by side, so the order's type alone is not the test (chain step 10)
+    const sub = "function" == typeof bbSubScope && bbSubScope(l) && !("function" == typeof bbBuysLine && bbBuysLine(l));
+    if (!sub) return;
+    const others = (DB.pos || []).filter((x, i) => x !== po && i < at && "cancelled" !== x.status && (x.lines || []).some((y) => y.line === k));
+    others.length && out.push({ key: k, name: `${ref.doc.number}${l.num ? ` line ${l.num}` : ""} (${l.item || l.desc || ""})`, others: others.map((x) => x.number) });
+  });
+  return out;
+}
+function puSecondSheet(po) {
+  const S0 = puSecondSub(po);
+  if (!S0.length) return;
+  return mbModal(
+    "A Second Order on This Line",
+    `<p class="small" style="margin:0 0 8px" data-nocase>${S0.map((x) => `${esc(x.name)} already has ${esc(x.others.join(", "))}.`).join(" ")} A second sub for the same scope buys it twice unless the scope is split.</p>${mbF("Why", `<input data-f="why" value="${esc(po.secondOrderWhy || "")}" placeholder="e.g. the scope is split: the garden unit goes to a second sub">`)}`,
+    {
+      submit: "Save the Reason",
+      onSubmit: (f) => {
+        if (!f.why || f.why.trim().length < 8) return toast("A sentence, so the owner and the job cost know why"), !1;
+        po.secondOrderWhy = f.why.trim();
+        try {
+          audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number}: the reason for a second order on the line is saved`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+}
+
+// ---- long-lead lines before award: an owner-approved exception (the chief of staff, 11-05, for Alan's call) ----------
+// The Standard releases long-lead items at design approval. A long-lead line of an estimate not yet approved can be
+// drafted (marked "Long-Lead, Before Award", with the reason); it is issued only once the owner approves it in Approvals
+// (exceptions only); if the estimate is lost the order is held and flagged on Orders to cancel. Every other line waits
+// for approval (docBuyable).
+const PU_LONG_LEAD_WEEKS = 4;
+const puLongLead = (l) => !!l && (!!l.longLead || +l.leadWeeks >= PU_LONG_LEAD_WEEKS || /\blong[- ]lead\b/i.test(`${l.item || ""} ${l.desc || ""}`));
+const puPreAwardDoc = (d) => !!d && "estimate" === d.type && ["draft", "sent"].includes(d.status) && (d.lines || []).some(puLongLead);
+let puPreAwardId = "";
+const puPreAwardOpen = (d) => !!d && d.id === puPreAwardId && puPreAwardDoc(d);
+const puEstOf = (po) => {
+  const a = po && po.preAward;
+  if (!a) return null;
+  for (const c of DB.clients || []) {
+    const d = (c.estimates || []).find((e) => e.id === a.estimateId);
+    if (d) return d;
+  }
+  return null;
+};
+const puPreAwardLost = (po) => {
+  const d = puEstOf(po);
+  return !!d && ["rejected", "expired"].includes(d.status);
+};
+if ("function" == typeof docActions) {
+  const base = docActions;
+  docActions = function (c, d, st) {
+    let h = base.apply(this, arguments);
+    try {
+      d && d.projectId && !docBuyable(d) && puPreAwardDoc(d) && !/data-docact="preaward"/.test(h) && (h += `<button class="btn sm" data-docact="preaward">Long-Lead Lines Before Award</button>`);
+    } catch (e) {}
+    return h;
+  };
+}
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = function (c, d, a) {
+    if ("preaward" === a && d && puPreAwardDoc(d)) {
+      puPreAwardId = d.id;
+      ctPOPicker(d.projectId, d.id, (d.lines || []).filter(puLongLead).map((l) => ctKey(d, l)));
+      return;
+    }
+    return base.apply(this, arguments);
+  };
+}
+function puPreAwardSheet(po) {
+  if (!po || !po.preAward) return;
+  const d = puEstOf(po),
+    owner = "owner" === role(),
+    a = po.preAward;
+  return mbModal(
+    `Long-Lead, Before Award: <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small" style="margin:0 0 8px" data-nocase>${esc(po.vendor || "No vendor")} · ${money(poTotal(po).total)} on ${esc(a.number)}, which is ${esc(d ? d.status : "not found")}. ${esc((po.lines || []).map((l) => l.item).join(", "))}.</p><p class="small" style="margin:0 0 8px" data-nocase><b>Why now:</b> ${esc(a.why || "no reason given")} (${esc(a.by || "")})</p>${a.approved ? `<p class="small muted">Approved by ${esc(a.approved.by)}, ${esc(stampText(a.approved.at))}.</p>` : `<p class="small muted">${owner ? "Approving lets it be issued before the estimate is approved. If the estimate is lost, the order is flagged to cancel." : "The owner approves it in Approvals before it can be issued."}</p>`}`,
+    {
+      submit: owner && !a.approved ? "Approve Before Award" : null,
+      onSubmit: () => {
+        a.approved = { by: ((currentUser() || {}).name) || "Owner", at: appNowIso() };
+        try {
+          audit("po", po.id, "long-lead before award approved", "", po.number, a.why);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number} approved before award: it can be issued`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+}
+// the owner's Approvals (exceptions only): each long-lead order waiting before award
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "owner" === role())) return out;
+      const P = (DB.pos || []).filter((po) => po.preAward && !po.preAward.approved && ["draft", "pending"].includes(po.status) && !puPreAwardLost(po));
+      return out.concat(P.map((po) => ({ kind: "preaward", id: po.id, sev: "warn", n: money(poTotal(po).total), title: `${po.number}: long-lead before award`, detail: `${po.vendor || "No vendor"} · ${po.preAward.number} not approved yet · why: ${po.preAward.why || "no reason given"}`, yes: "Review the Order", who: "owner", due: po.needBy || "", open: { puPreAward: po.id } })));
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.puPreAward) return void puPreAwardSheet((DB.pos || []).find((x) => x.id === go.puPreAward));
+    return base.apply(this, arguments);
+  };
+}
+// Orders: a long-lead order whose estimate was lost is flagged to cancel (it is the coordinator's)
+function puPreAwardRows(pid) {
+  return (DB.pos || [])
+    .filter((po) => po.preAward && !["cancelled", "received"].includes(po.status) && (!pid || po.projectId === pid) && puPreAwardLost(po))
+    .map((po) => ({ id: "preaward:" + po.id, name: `${po.number}: ${po.preAward.number} was lost`, job: puJob((DB.projects || []).find((p) => p.id === po.projectId)), line: `Long-Lead, Before Award · ${po.vendor || "no vendor"} · ${money(poTotal(po).total)}`, why: "The estimate it was bought for is lost. Cancel the order, or ask the vendor what a cancellation costs.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad", actor: "coord" }));
+}
+// the one validator: a second sub with no reason, and a long-lead order before award without the owner, are held at Issue
+if ("function" == typeof poValid) {
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status || "draft")) {
+        const S0 = puSecondSub(po);
+        S0.length && !po.secondOrderWhy && R.push(`a second subcontract order on ${S0.map((x) => `${x.name}, which has ${x.others.join(", ")}`).join("; ")}: say why on the order`);
+        po.preAward && puPreAwardLost(po) && R.push(`${po.preAward.number} was lost: cancel this long-lead order`);
+        po.preAward && !po.preAward.approved && !puPreAwardLost(po) && R.push(`a long-lead order before ${po.preAward.number} is approved: the owner approves it first (Approvals)`);
+      }
+    } catch (e) {
+      console.warn("second sub and pre-award", e);
+    }
+    return R;
+  };
+}
+// the order page says both before anyone presses Issue, each with its one next step
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    let h = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status) && "string" == typeof h) {
+        const S0 = puSecondSub(po),
+          box =
+            (S0.length && !po.secondOrderWhy ? `<div class="qcheck po-second" role="alert"><b>A Second Order on This Line</b><span data-nocase>${esc(S0.map((x) => `${x.name} already has ${x.others.join(", ")}`).join("; "))}.</span><div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pu2nd="${esc(po.id)}">Give the Reason</button></div></div>` : "") +
+            (po.preAward ? `<div class="qcheck po-preaward ${puPreAwardLost(po) ? "" : "warn"}" role="alert"><b>Long-Lead, Before Award</b><span data-nocase>${esc(po.preAward.number)}${puPreAwardLost(po) ? " was lost: cancel this order." : po.preAward.approved ? `: approved by ${esc(po.preAward.approved.by)}.` : " is not approved yet: the owner approves this order before it is issued."}</span><div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pupre="${esc(po.id)}">Open the Approval</button></div></div>` : "");
+        box && (h = box + h);
+      }
+    } catch (e) {
+      console.warn("po second and pre-award", e);
+    }
+    return h;
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest("[data-pu2nd],[data-pupre]");
+    if (!b) return;
+    const po = (DB.pos || []).find((x) => x.id === (b.dataset.pu2nd || b.dataset.pupre));
+    po && (b.dataset.pu2nd ? puSecondSheet(po) : puPreAwardSheet(po));
+  },
+  !0,
+);
 
 // ---- the look ---------------------------------------------------------------------------------------------------------
 (() => {
@@ -1237,12 +2142,26 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
 .pu-rq{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
 .pu-rq>span{flex:1;display:flex;flex-direction:column;gap:2px} .pu-rq input{width:96px;min-height:44px}
 .pu-conds{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#mbm .pu-rql, #mbm .pu-rql .small, #mbm .pu-rql .pu-chip, #mbm .pu-early, .mbm-bd:has(.pu-rql) > p, .mbm-bd:has(.pu-rql) label.f > span{font-size:15px}
+/* the foreman's request (the field expert): Urgent is a 44px target, and Send stays in reach with the keyboard up */
+label:has(> #cp-urgent){min-height:44px;min-width:44px;display:inline-flex;align-items:center;gap:8px;padding:0 10px 0 4px;cursor:pointer} #cp-urgent{width:24px;height:24px}
+@media (max-width:600px){ .sendbar:has(#cp-urgent), .frq-when-row + .sendbar{position:sticky;bottom:0;z-index:3;background:var(--paper);padding:8px 0;box-shadow:0 -1px 0 var(--rule-2)} }
+.pu-rql{border-top:1px solid var(--rule-2);padding-bottom:4px} .pu-rql .pu-rq{border-top:0} .pu-rql .pu-conds{margin:4px 0 8px} .pu-rql .pu-bad[hidden]{display:none}
 .pu-lines{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin-top:8px}
 .pu-line{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--rule-2)} .pu-line>span{display:flex;flex-direction:column}
 .pu-kv{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--rule-2)}
 #buy-board.pu .bb-main{display:flex;gap:16px;align-items:flex-start}
 #buy-board.pu .bb-list{flex:1;min-width:0}
 #buy-board.pu .pu-row .bb-pick{flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:0;background:none;cursor:pointer;padding:0}
+.pu-ctpn{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.35} .pu-ctpn:empty{display:none}
+.pu-ctpn.bad{color:var(--bad);font-weight:600} .pu-ctpn.warn{color:var(--warn);font-weight:600}
+.pu-ctpreq{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-top:6px;color:var(--ink-2);font-weight:400}
+.pu-ctpreq input{margin-top:2px;flex:none}
+.pu-runhint{align-self:center}
+.pu-docpick{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:none;padding:0;cursor:pointer;vertical-align:middle}
+tr.pu-docon{background:var(--accent-2)}
+.pu-docleft{color:var(--ink-3)} .pu-docleft.bad{color:var(--bad);font-weight:600}
+.pu-docbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:10px 14px;box-shadow:0 -6px 20px rgba(17,26,46,.08);z-index:25;margin-top:12px}
 @media (max-width:760px){
   .pu-ph{flex-direction:column;gap:8px}
   .pu-ph .acts{width:100%}
@@ -1263,6 +2182,31 @@ table.pu-vt{width:100%} table.pu-vt td.bad{color:var(--bad);font-weight:600} tab
   .pu-bb{width:100%} .pu-bb .btn{flex:1;min-height:44px}
   #buy-board.pu .bb-main{display:block}
   .pu-tile{min-height:84px}
+  /* the order sheet from lines: a card per line, nothing sideways (11-05) */
+  #mbm.pu-ctp-ph .tw{max-height:none !important;overflow:visible !important}
+  #mbm.pu-ctp-ph table.ctp{display:block;width:100%;min-width:0 !important;border:0}
+  #mbm.pu-ctp-ph table.ctp thead{display:none}
+  #mbm.pu-ctp-ph table.ctp tbody{display:block;width:100%}
+  #mbm.pu-ctp-ph table.ctp tr{display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);gap:6px 8px;padding:12px 0;border-top:1px solid var(--rule-2);width:100%;box-sizing:border-box}
+  #mbm.pu-ctp-ph table.ctp tr.ctp-doc{display:block}
+  #mbm.pu-ctp-ph table.ctp td{display:block;padding:0 !important;border:0 !important;width:auto !important;min-width:0;white-space:normal;height:auto !important;min-height:0 !important;max-height:none !important;overflow:visible}
+  #mbm.pu-ctp-ph table.ctp tr{height:auto !important}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1){grid-column:1;grid-row:1;align-self:start}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1) .ctp-tick{display:flex;width:44px;height:44px;align-items:center;justify-content:center}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(1) input{width:22px;height:22px}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(2){grid-column:2 / -1;grid-row:1;padding-left:0 !important}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(3){grid-column:2;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(4){grid-column:3;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(5){grid-column:4;grid-row:2}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(6){grid-column:1 / -1;grid-row:3}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(n+7){grid-column:1 / -1}
+  #mbm.pu-ctp-ph table.ctp td:nth-child(7):empty{display:none}
+  #mbm.pu-ctp-ph table.ctp td[data-lab]:not(:nth-child(2))::before{content:attr(data-lab);display:block;font-size:12px;color:var(--ink-3);margin-bottom:2px}
+  #mbm.pu-ctp-ph table.ctp td input:not([type=checkbox]){width:100% !important;min-height:44px;font-size:16px;box-sizing:border-box}
+  #mbm.pu-ctp-ph table.ctp td b{white-space:normal;overflow-wrap:anywhere}
+  .pu-docbar{position:fixed;left:8px;right:8px;bottom:calc(var(--bb-tabs, 64px) + 8px)}
+  .pu-docbar .pu-bb{width:100%} .pu-docbar .pu-bb .btn{flex:1;min-height:44px}
+  .view.on:has(.pu-docbar){padding-bottom:180px}
 }
 `;
   const st = document.createElement("style");

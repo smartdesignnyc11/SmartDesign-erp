@@ -1211,6 +1211,13 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
     const v = Math.round(+n || 0);
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString();
   },
+  // A unit price, always with its cents (11-05: the studs' $4.60 read "$5" on the phone, against a best of $3.98). Only
+  // for unit prices and the last or best price of an item; totals and every client document keep money() (whole dollars,
+  // so the lines of an estimate or invoice add up to its total as printed).
+  unitMoney = (n) => {
+    const v = +n || 0;
+    return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
 function lineAmount(l, doc) {
   if (doc && "sov" === doc.mode) {
@@ -1935,6 +1942,25 @@ function poTotal(po) {
     total: r2(sub + sub * ((+po.tax || 0) / 100) + (+po.shipping || 0)),
   };
 }
+// How much of an order is in, counted against its quantities and units, never its lines: "0 of 900 sf received" (the
+// foreman's Site read "0 of 1 received" for a 900 sf order). Lines in one unit add up; mixed units are listed, and past
+// two lines the count is of lines in full.
+function poRecvWords(po) {
+  const L = (po && po.lines) || [],
+    q = (x) => r2(+x || 0),
+    units = [...new Set(L.map((l) => String(l.unit || "").trim().toLowerCase()))];
+  if (!L.length) return "nothing on it";
+  if (1 === units.length) return `${q(L.reduce((a, l) => a + (+l.received || 0), 0))} of ${q(L.reduce((a, l) => a + (+l.qty || 0), 0))}${L[0].unit ? " " + L[0].unit : ""} received`;
+  if (L.length <= 2) return L.map((l) => `${q(l.received)} of ${q(l.qty)}${l.unit ? " " + l.unit : ""}`).join(", ") + " received";
+  return `${L.filter((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001).length} of ${L.length} lines received in full`;
+}
+// A subcontract is not a delivery: its progress is measured on the job or approved on its bill, never received (the
+// field expert: the foreman received the $76,000 Carlos subcontract "in full" in two taps, 15 days early, and that
+// cleared its $38,000 balance bill). Every receive entry asks this first.
+// The type alone is a guess (vendorDefaultType calls a tile supply house's 1 ls order a subcontract), so a subcontract
+// here is one the books treat as one: retainage held, or a subcontract agreement behind it.
+const poIsSub = (po) => !!po && "subcontract" === po.type && (+po.retainagePct > 0 || !!po.sc || !!po.subId);
+const poSubWords = (po) => `${po.number} is a subcontract with ${po.vendor}: its progress is measured on the job and approved on its bill, not received`;
 function poPaid(po) {
   return DB.txns.filter((t) => (po.matchedTxns || []).includes(t.id)).reduce((a, t) => a - t.amt, 0);
 }
@@ -4891,15 +4917,13 @@ function matRow(m) {
   return `<tr class="click" data-edit="mat:${m.id}"><td><span class="name">${esc(m.name)}</span><br><span class="sub">${"rough" === m.cat ? "Rough" : "Finish"}${m.vendor ? " · " + esc(m.vendor) : ""}${m.po ? " · PO " + esc(m.po) : ""}${m.qty ? " · " + esc(m.qty) : ""}</span></td><td>${t ? `<span class="dot" style="background:${TRADES[t.trade]?.c}"></span> ${esc(t.name)}<br><span class="sub">${"end" === m.when ? "ends" : "starts"} ${fmt("end" === m.when ? t.end : t.start)}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmt(orderBy)}</td><td class="num">${fmt(needBy)}</td><td class="num">${m.lead}d</td><td><span class="pill ${sevPill(st.sev)}">${esc(m.status.replace("-", " "))}</span><br><span class="sub">${esc(st.msg)}</span></td><td class="num">${m.eta ? fmt(m.eta) : "—"}</td><td class="num">${m.cost ? "$" + esc(m.cost) : ""}</td><td>${"on-site" !== m.status ? `<button class="btn sm" data-onsite="${m.id}">On site</button>` : ""}</td></tr>`;
 }
 function renderMats() {
+  // One question, one number (11-05): the card under the Order This Week chip lists the chip's own rows, the Buy Board's
+  // predicate for this job (estimate and change-order lines and site requests included), not a second count of the
+  // job's materials that also held the late ones ("Order This Week 1" over "3 items · 2 already late").
   const td = today(),
-    weekEnd = addWork(td, 5),
-    wk = S.materials
-      .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
-      .map((m) => ({ m: m, ...matDates(m), st: matState(m) }))
-      .filter((x) => x.orderBy && parse(x.orderBy) <= parse(weekEnd))
-      .sort((a, b) => parse(a.orderBy) - parse(b.orderBy));
+    wk = "object" == typeof PRED && PRED.orderThisWeek ? PRED.orderThisWeek.rows(S.id) : [];
   $("#mat-week").innerHTML = wk.length
-    ? `<div class="week"><h3>Order this week · ${wk.length} item${wk.length > 1 ? "s" : ""}${wk.some((x) => 3 === x.st.sev) ? " · " + wk.filter((x) => 3 === x.st.sev).length + " already late" : ""}</h3>${wk.map((x) => `<div class="it"><span class="d" style="${parse(x.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${fmt(x.orderBy)}</span><span class="grow"><b>${esc(x.m.name)}</b> <span class="muted">${x.m.vendor ? "· " + esc(x.m.vendor) : ""} · needed ${fmt(x.needBy)} for ${esc(task(x.m.taskId)?.name || "")}</span>${"needs-decision" === x.m.status || openDecisionFor("mat", x.m.id) ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" data-go="mat:${x.m.id}">Open</a></div>`).join("")}</div>`
+    ? `<div class="week"><h3>Order This Week · ${wk.length}</h3>${wk.map((r) => `<div class="it"><span class="d" style="${r.orderBy && parse(r.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${r.orderBy ? fmt(r.orderBy) : ""}</span><span class="grow"><b>${esc(r.name)}</b> <span class="muted">${r.vendor ? "· " + esc(r.vendor) + " " : ""}${r.needBy ? `· needed ${fmt(r.needBy)}` : ""}${r.task ? ` for ${esc(r.task.name || "")}` : ""}</span>${r.dec ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" class="mat-wk-open" ${r.m ? `data-go="mat:${r.m.id}"` : `data-matwk="${esc(r.id)}"`}>Open</a></div>`).join("")}</div>`
     : "";
   const rows = S.materials
       .filter(
@@ -9193,8 +9217,14 @@ const DOC_EDIT_KEYS = [
     "internal", "internalNotes", "scheduleDays", "retainagePct", "depositPct", "billFrom", "template", "mode",
     "estimateId", "taskId", "clientId", "exhibits",
   ],
+  // A line's derived fields are not edits: its number (ctNumber writes l.num when a sheet lists the lines, such as
+  // Purchase Orders from Lines) read as a change, and leaving the estimate toasted "Kept your changes" when nothing
+  // was typed (the field expert, 11-05). The snapshot leaves them out; a real edit still reads as one.
+  DOC_DERIVED_LINE = ["num"],
+  docSnapLine = (l) => (l && "object" == typeof l ? Object.fromEntries(Object.entries(l).filter(([f]) => !DOC_DERIVED_LINE.includes(f))) : l),
   docSnap = (d) => (
-    "construction" === d.template && ctNumber(d), JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, d[k]]))
+    "construction" === d.template && ctNumber(d),
+    JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, "lines" === k && Array.isArray(d[k]) ? d[k].map(docSnapLine) : d[k]]))
   ),
   docDirty = (d) => void 0 !== d._base && d._base !== docSnap(d);
 function docMark(d) {
@@ -9461,16 +9491,9 @@ function docActions(c, d, st) {
       "construction" !== d.template &&
       ["approved", "converted"].includes(d.status) &&
       (h += B("invoice", "Invoice from this estimate…", "primary")),
-    ("estimate" !== k && "co" !== k) ||
-      "draft" === d.status ||
-      ["rejected", "expired"].includes(d.status) ||
-      !d.lines.length ||
-      (h += B("pos", "Purchase orders from lines…")),
-    "invoice" === k &&
-      "sov" !== d.mode &&
-      "void" !== d.status &&
-      d.lines.length &&
-      (h += B("pos", "Purchase orders from lines…")),
+    // the document's buying door (docs/mockups/purchasing/SPEC.md: "Buy These Lines"): only a document the firm may buy
+    // from (docBuyable: an approved or converted estimate, an approved change order, a sent invoice), on both devices
+    docBuyable(d) && d.lines.length && (h += B("pos", "Buy These Lines")),
     "estimate" === k &&
       ("sent" === d.status &&
         (h += B("approve", "Client approved", "primary") + B("reject", "Rejected") + B("expire", "Expired")),
@@ -11677,11 +11700,36 @@ function poScopeList() {
 const poScopeCommitted = () =>
   poScope ? poCommitted((DB.projects || []).find((p) => p.id === poScope) || { id: poScope }) : (DB.projects || []).reduce((a, p) => a + poCommitted(p), 0);
 const poJobName = (po) => String((((DB.projects || []).find((p) => p.id === po.projectId) || {}).project || {}).name || "Overhead").replace(/ —.*$/, "");
+// The one number every purchase order gets, however it was made (New PO, a line moved to another vendor, a split, a
+// buy run from Selections, the Buy Board, a quote award, the assistant): PO-<year>-nnn on the firm's one sequence.
+// The FM / invoice group of a Selections buy is po.fm, never the number (BACKLOG 1.36: a moved line became "FM-1").
+// The sequence never hands out a number already on an order (an import or a synced device can be ahead of it).
 function nextPO() {
-  return (
-    (DB.company.seq.po = (DB.company.seq.po || 0) + 1),
-    `${DB.company.poPrefix || "PO"}-${appNow().getFullYear()}-${String(DB.company.seq.po).padStart(3, "0")}`
-  );
+  const pre = `${DB.company.poPrefix || "PO"}-${today().slice(0, 4)}-`,
+    taken = new Set((DB.pos || []).map((p) => String(p.number || "")));
+  let n = (DB.company.seq.po || 0) + 1;
+  while (taken.has(pre + String(n).padStart(3, "0"))) n++;
+  return (DB.company.seq.po = n), pre + String(n).padStart(3, "0");
+}
+// The orders numbered by the old selPONumber (FM-1, FM12-2) get a number in the one series (Alan's call via the
+// coordinator, 11-06): each is renumbered with nextPO, keeps its old number in po.aliases (search and the bill reader
+// still find it by the number the vendor was sent), and writes one audit row. It runs only when called, never on
+// boot: { dryRun: true } lists what it would do; the result says what it did. The seed holds none (checked 11-05).
+function poRenumberFM(o) {
+  o = o || {};
+  const FM = /^FM\d*-\d+$/i,
+    hits = (DB.pos || []).filter((po) => FM.test(String(po.number || "")));
+  if (o.dryRun) return hits.map((po) => ({ id: po.id, number: po.number, vendor: po.vendor, status: po.status }));
+  const done = hits.map((po) => {
+    const was = po.number,
+      now = nextPO();
+    (po.aliases = [...new Set([...(po.aliases || []), was])]), (po.number = now);
+    try {
+      audit("po", po.id, "renumbered", { number: was }, { number: now }, "one PO series (BACKLOG 1.36): the FM number is kept as an alias");
+    } catch (e) {}
+    return { id: po.id, was: was, now: now };
+  });
+  return done.length && (log(`Renumbered ${done.length} order${1 === done.length ? "" : "s"} into the PO series: ${done.map((x) => `${x.was} is ${x.now}`).join(", ")}`), save()), done;
 }
 function renderPOFunds() {
   const el = $("#po-funds");
@@ -11816,7 +11864,9 @@ function renderPODoc(po) {
           parse(x.date) >= parse(addDays(po.date, -3)),
       )
       .slice(0, 6);
-  return `<div class="crumb"><a href="#" data-poback>Purchasing</a><span>›</span>${esc(po.number)}</div><div class="docwrap" id="po-${po.id}">\n    <div class="row no-doc-print" style="margin-bottom:10px"><span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${"cancelled" === po.status ? '<span class="pill bad">cancelled</span>' : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>Purchase order <span class="num">${esc(po.number)}</span></h2><div class="small muted">Vendor: <b>${esc(po.vendor)}</b> · Project: ${esc(S.project.name)} · Ship to: ${esc(po.shipTo || "Site")}${po.createdBy ? ` · by ${esc(po.createdBy)}` : ""}</div></div><div style="text-align:right"><div class="small muted">PO total</div><div style="font-size:26px;font-weight:600">${money(t.total)}</div><div class="small muted">${paid ? `${money(paid)} paid · ${money(t.total - paid)} open` : "nothing paid yet"}</div></div></div>\n    ${st.flags.length ? `<div class="note warn" style="margin-bottom:10px"><b>Flagged:</b> ${st.flags.map(esc).join(" · ")}</div>` : ""}\n    <div class="docmeta"><div class="f"><label>Vendor</label><input data-p="vendor" value="${esc(po.vendor)}" ${editable ? "" : "readonly"}></div><div class="f"><label>PO date</label><input type="date" data-p="date" value="${po.date}" ${editable ? "" : "readonly"}></div><div class="f"><label>Expected delivery</label><input type="date" data-p="expected" value="${po.expected || ""}"></div><div class="f"><label>Ship to</label><input data-p="shipTo" value="${esc(po.shipTo || "Site")}"></div></div>\n    <table class="lines"><thead><tr><th style="width:24%">Item</th><th>Description</th><th style="width:70px">Qty</th><th style="width:56px">Unit</th><th style="width:100px">Unit price</th><th class="money">Amount</th><th style="width:170px">Estimate line</th><th style="width:90px" class="int">Received</th><th></th></tr></thead><tbody>${po.lines
+  // the way back names the list it returns to (Orders), and the steps are joined by a line chevron, not a glyph (11-05)
+  const chev = ICON_SVG('<path d="M9 6l6 6-6 6"/>', 12, 2);
+  return `<div class="crumb"><a href="#" data-poback>${ICON_SVG('<path d="M15 6l-6 6 6 6"/>', 14, 2.2)} Orders</a><span class="crumb-sep" aria-hidden="true">${chev}</span>${esc(po.number)}</div><div class="docwrap" id="po-${po.id}">\n    <div class="row no-doc-print" style="margin-bottom:10px"><span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join(`<span class="sf-sep" style="background:none;padding:0" aria-hidden="true">${chev}</span>`)}${"cancelled" === po.status ? '<span class="pill bad">cancelled</span>' : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>Purchase order <span class="num">${esc(po.number)}</span></h2><div class="small muted">Vendor: <b>${esc(po.vendor)}</b> · Project: ${esc(S.project.name)} · Ship to: ${esc(po.shipTo || "Site")}${po.createdBy ? ` · by ${esc(po.createdBy)}` : ""}</div></div><div style="text-align:right"><div class="small muted">PO total</div><div style="font-size:26px;font-weight:600">${money(t.total)}</div><div class="small muted">${paid ? `${money(paid)} paid · ${money(t.total - paid)} open` : "nothing paid yet"}</div></div></div>\n    ${st.flags.length ? `<div class="note warn" style="margin-bottom:10px"><b>Flagged:</b> ${st.flags.map(esc).join(" · ")}</div>` : ""}\n    <div class="docmeta"><div class="f"><label>Vendor</label><input data-p="vendor" value="${esc(po.vendor)}" ${editable ? "" : "readonly"}></div><div class="f"><label>PO date</label><input type="date" data-p="date" value="${po.date}" ${editable ? "" : "readonly"}></div><div class="f"><label>Expected delivery</label><input type="date" data-p="expected" value="${po.expected || ""}"></div><div class="f"><label>Ship to</label><input data-p="shipTo" value="${esc(po.shipTo || "Site")}"></div></div>\n    <table class="lines"><thead><tr><th style="width:24%">Item</th><th>Description</th><th style="width:70px">Qty</th><th style="width:56px">Unit</th><th style="width:100px">Unit price</th><th class="money">Amount</th><th style="width:170px">Estimate line</th><th style="width:90px" class="int">Received</th><th></th></tr></thead><tbody>${po.lines
     .map(
       (l) =>
         `<tr data-line="${l.id}"><td><input data-f="item" value="${esc(l.item)}" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="price" value="${l.price}" ${editable ? "" : "readonly"}></td><td class="amt">${money((+l.qty || 0) * (+l.price || 0))}</td><td><select data-f="line" style="font-size:12px"><option value="">—</option>${lineOptions(
@@ -13511,34 +13561,47 @@ async function readFile(f) {
 }
 function applyFileSpecial(c, src, by) {
   if ("po" === c.kind && c._receive) {
+    // A slip read from a file or by the assistant receives through the one writer (puReceiveLines: one receipt row,
+    // the cap at what is still to come), and only on a line it matches for sure: the line's own id, the same words, or
+    // the one line whose name holds the slip's whole description. Anything else is left for the person on the receive
+    // sheet (the CoS, 11-06: a 12-letter prefix match set "received" outright, uncapped, with no receipt row).
     const po = DB.pos.find((p) => p.id === c.id);
     if (!po) return !1;
+    const nz = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      sure = (l) => {
+        const byId = po.lines.find((x) => x.id === l.id);
+        if (byId) return byId;
+        const w = nz(l.item);
+        if (!w) return null;
+        const same = po.lines.filter((x) => nz(x.item) === w);
+        if (1 === same.length) return same[0];
+        const holds = w.length >= 8 ? po.lines.filter((x) => nz(x.item).includes(w)) : [];
+        return 1 === holds.length ? holds[0] : null;
+      },
+      got = [],
+      unsure = [];
     (c.lines || []).forEach((l) => {
-      const pl =
-        po.lines.find((x) => x.id === l.id) ||
-        po.lines.find((x) =>
-          x.item.toLowerCase().includes(
-            String(l.item || "")
-              .toLowerCase()
-              .slice(0, 12),
-          ),
-        );
-      pl && null != l.received && (pl.received = +l.received || 0);
+      if (null == l.received || !(+l.received > 0)) return;
+      const pl = sure(l);
+      pl ? got.push({ l: pl, q: +l.received }) : unsure.push(l);
     });
-    const anyShort = po.lines.some((l) => (l.received || 0) < l.qty);
-    return (
-      po.lines.some((l) => l.received > 0) && (po.status = anyShort ? "partial" : "received"),
-      po.lines.forEach((l) => {
-        const m = l.materialId && mat(l.materialId);
-        m && l.received >= l.qty && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
-      }),
-      log(
-        `${po.number} receipts recorded from document: ${po.lines.map((l) => `${l.received || 0}/${l.qty} ${l.unit}`).join(", ")}`,
-        src,
-        by,
-      ),
-      !0
+    const r = got.length && "function" == typeof puReceiveLines ? puReceiveLines(po, got, "read from the delivery slip", c.slip || c.file || "slip") : { got: [], capped: [] };
+    log(
+      `${po.number} receipt read from the slip: ${r.got.map((x) => `${x.q} ${x.l.unit || ""} ${x.l.item}`.replace(/\s+/g, " ")).join(", ") || "nothing received"}${r.capped.length ? `; ${r.capped.map((x) => `${x.asked} ${x.l.item} is more than the ${x.left} still to come`).join("; ")}` : ""}${unsure.length ? `; ${unsure.length} slip line${1 === unsure.length ? "" : "s"} not matched for sure, left to receive on the sheet` : ""}`,
+      src,
+      by,
     );
+    (unsure.length || r.capped.length) &&
+      setTimeout(
+        () =>
+          toast(
+            `${po.number}: ${unsure.length ? `${unsure.map((l) => l.item).join(", ")} did not match a line for sure` : ""}${unsure.length && r.capped.length ? "; " : ""}${r.capped.length ? `${r.capped.map((x) => x.l.item).join(", ")} came over what is still to come` : ""}. Check them on the receive sheet`,
+            { label: "Open", run: () => ("function" == typeof puReceive ? puReceive(po) : flowGo.po(po)()) },
+            9e3,
+          ),
+        0,
+      );
+    return r.got.length > 0 || unsure.length > 0;
   }
   if ("permit" === c.kind && "update" === c.op) {
     const p = S.permits.find((x) => x.id === c.id);
@@ -15227,7 +15290,7 @@ function renderDaySheet(emp) {
           })()}</select><input type="number" step="0.25" min="0" data-wh="${i}" value="${w.hours || ""}" placeholder="hrs" ${locked ? "readonly" : ""}><input class="wnote" data-wn="${i}" value="${esc(w.note || "")}" placeholder="e.g. rough plumbing garden bath" ${locked ? "readonly" : ""}>${locked ? "<span></span>" : `<span class="rm" data-wx="${i}"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>`}</div>`,
       )
       .join("");
-  card.innerHTML = `<div class="hd"><h3>What did you work on ${e.date === td ? "today" : fmt(e.date)}?</h3><span class="grow"></span><span class="small muted">${clocked.toFixed(2)} h clocked · ${logged.toFixed(2)} h logged${Math.abs(diff) > 0.26 ? ` · <b style="color:var(--bad)">${diff > 0 ? diff.toFixed(2) + " h not accounted for" : Math.abs(diff).toFixed(2) + " h over"}</b>` : " · " + ICON_CHECK + " balanced"}</span></div>\n    <div class="daybar ${logged > clocked + 0.26 ? "over" : Math.abs(diff) <= 0.26 && logged ? "done" : ""}"><i style="width:${Math.min(100, clocked ? (logged / clocked) * 100 : 0)}%"></i></div>\n    <p class="small muted" style="margin:0 0 8px">One line per job and task. Two jobs in one day? Two lines. Hours must add up to the clocked time before the day goes to your supervisor.</p>\n    ${rows || '<div class="muted small" style="margin-bottom:6px">No work logged yet.</div>'}\n    ${locked ? "" : renderMaterialAsk(e, emp)}\n    ${locked ? "" : `<div class="row"><button class="btn sm" id="work-add">+ Add a line</button>${diff > 0.26 && e.work.length ? `<button class="btn sm" id="work-fill">Put the remaining ${diff.toFixed(2)} h on the last line</button>` : ""}<span class="grow"></span>${e.out && Math.abs(diff) <= 0.26 && logged ? ("open" === e.status ? (e.materialsAsked ? '<button class="btn sm primary" id="work-submit">Send day for approval</button>' : '<span class="small muted">Answer the material question above to send the day.</span>') : `<span class="pill ${"submitted" === e.status ? "info" : "ok"}">${"submitted" === e.status ? "sent for approval" : e.status}</span>`) : ""}</div>`}`;
+  card.innerHTML = `<div class="hd"><h3>What did you work on ${e.date === td ? "today" : fmt(e.date)}?</h3><span class="grow"></span><span class="small muted">${clocked.toFixed(2)} h clocked · ${logged.toFixed(2)} h logged${Math.abs(diff) > 0.26 ? ` · <b style="color:var(--bad)">${diff > 0 ? diff.toFixed(2) + " h not accounted for" : Math.abs(diff).toFixed(2) + " h over"}</b>` : !logged && clocked > 0 ? ` · <b style="color:var(--bad)">nothing logged yet</b>` : " · " + ICON_CHECK + " balanced"}</span></div>\n    <div class="daybar ${logged > clocked + 0.26 ? "over" : Math.abs(diff) <= 0.26 && logged ? "done" : ""}"><i style="width:${Math.min(100, clocked ? (logged / clocked) * 100 : 0)}%"></i></div>\n    <p class="small muted" style="margin:0 0 8px">One line per job and task. Two jobs in one day? Two lines. Hours must add up to the clocked time before the day goes to your supervisor.</p>\n    ${rows || '<div class="muted small" style="margin-bottom:6px">No work logged yet.</div>'}\n    ${locked ? "" : renderMaterialAsk(e, emp)}\n    ${locked ? "" : `<div class="row"><button class="btn sm" id="work-add">+ Add a line</button>${diff > 0.26 && e.work.length ? `<button class="btn sm" id="work-fill">Put the remaining ${diff.toFixed(2)} h on the last line</button>` : ""}<span class="grow"></span>${e.out && Math.abs(diff) <= 0.26 && logged ? ("open" === e.status ? (e.materialsAsked ? '<button class="btn sm primary" id="work-submit">Send day for approval</button>' : '<span class="small muted">Answer the material question above to send the day.</span>') : `<span class="pill ${"submitted" === e.status ? "info" : "ok"}">${"submitted" === e.status ? "sent for approval" : e.status}</span>`) : ""}</div>`}`;
   const upd = (i, k, v) => {
     (e.work[i][k] = "hours" === k ? +v || 0 : v),
       "submitted" === e.status && (e.status = "open"),
@@ -17435,7 +17498,7 @@ function stockReceiptHtml(r) {
   if (!sps.length && !qs.length) return "";
   return `<div class="stk-receipt">${sps
     .map((sp) => `<div class="stk-line"><b>${esc(stockSplitWords(sp))}</b><div class="small muted">${esc(sp.invName)} · ${esc(stockFirst("driver"))} picks ${sp.fromStock} up at ${esc(locName(sp.loc))}${sp.toBuy > 0 ? `; ${esc(stockFirst("coord"))} buys the other ${sp.toBuy}` : ""}. The split is set; only ${esc(stockFirst("driver"))} or ${esc(stockFirst("coord"))} can change it.</div></div>`)
-    .join("")}${qs.map((q) => `<div class="stk-line"><b>Checking the stock for ${esc(q.what)}</b><div class="small muted">${esc(stockFirst("coord"))} confirms whether ${esc(((DB.inventory || []).find((i) => i.id === q.invId) || {}).name || "the stock")} is the same item; until then it is bought as asked.</div></div>`).join("")}</div>`;
+    .join("")}${qs.map((q) => `<div class="stk-line"><b>Checking the stock for <span data-nocase>${esc(q.what)}</span></b><div class="small muted">${esc(stockFirst("coord"))} confirms whether <span data-nocase>${esc(((DB.inventory || []).find((i) => i.id === q.invId) || {}).name || "the stock")}</span> is the same item; until then it is bought as asked.</div></div>`).join("")}</div>`;
 }
 {
   const base = frqReceipt;
@@ -18950,6 +19013,16 @@ function reqLabel(r) {
           .map((x) => x.what)
           .join(", ")}${it.length > 3 ? "…" : ""}`;
 }
+// reqLabel as markup: the person's own words (the items) are marked as theirs, the app's words around them are not
+function reqLabelHtml(r) {
+  const it = reqItems(r),
+    w = (x) => `<span data-nocase>${esc(x)}</span>`;
+  return 1 === it.length && it[0].garbage
+    ? w(it[0].what)
+    : 1 === it.length
+      ? `${esc(`${it[0].qty} ${it[0].unit}`)} ${w(it[0].what)}`
+      : `${esc(`${it.length} items`)} ${w(`— ${it.slice(0, 3).map((x) => x.what).join(", ")}${it.length > 3 ? "…" : ""}`)}`;
+}
 async function readListPhoto(dataUrl) {
   const [meta, b64] = dataUrl.split(","),
     mime = (meta.match(/data:([^;]+)/) || [])[1] || "image/jpeg",
@@ -19105,7 +19178,7 @@ function renderRunCard(emp) {
                       .filter((x) => !x.it.garbage)
                       .map(
                         (x) =>
-                          `<div class="shopitem ${run.bought[x.key] ? "done" : ""}"><input type="checkbox" data-buy="${x.key}" ${run.bought[x.key] ? "checked" : ""}><div>${x.it.invId ? `<span class="pill info" style="margin-right:6px">pickup · ${esc(locName(x.it.pickupFrom))}</span>` : ""}${esc(String(x.it.qty))} ${esc(x.it.unit)} ${esc(x.it.what)}<div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}${"urgent" === x.r.urgency ? ' · <b style="color:var(--bad)">urgent</b>' : ""}${x.r.note ? ` · ${esc(x.r.note)}` : ""}</div></div>${"new" === x.r.status ? '<span class="pill warn">not acked</span>' : ""}</div>`,
+                          `<div class="shopitem ${run.bought[x.key] ? "done" : ""}"><input type="checkbox" data-buy="${x.key}" ${run.bought[x.key] ? "checked" : ""}><div>${x.it.invId ? `<span class="pill info" style="margin-right:6px">pickup · ${esc(locName(x.it.pickupFrom))}</span>` : ""}${esc(String(x.it.qty))} ${esc(x.it.unit)} <span data-nocase>${esc(x.it.what)}</span><div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}${"urgent" === x.r.urgency ? ' · <b style="color:var(--bad)">urgent</b>' : ""}${x.r.note ? ` · ${esc(x.r.note)}` : ""}</div></div>${"new" === x.r.status ? '<span class="pill warn">not acked</span>' : ""}</div>`,
                       )
                       .join("")}`,
                 )
@@ -19165,14 +19238,14 @@ function renderRunCard(emp) {
   const open = runItems({ bought: {} }),
     near = clockState.geo ? nearStore(clockState.geo) : null,
     pickups = open.filter((x) => x.it.invId && !x.it.done);
-  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" aria-label="Store" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" aria-label="Run Length" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
+  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" aria-label="Store" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" aria-label="Run Length" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b data-nocase>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
     open.length
       ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Preview the shopping list (${open.length})</summary><div class="shop">${Object.entries(
           open.reduce((a, x) => ((a[x.p.project.name] = a[x.p.project.name] || []).push(x), a), {}),
         )
           .map(
             ([pn, xs]) =>
-              `<h4>${esc(pn)}</h4>${xs.map((x) => `<div class="shopitem"><span></span><div>${esc(String(x.it.qty))} ${esc(x.it.unit)} ${esc(x.it.what)}<div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}</div></div></div>`).join("")}`,
+              `<h4>${esc(pn)}</h4>${xs.map((x) => `<div class="shopitem"><span></span><div>${esc(String(x.it.qty))} ${esc(x.it.unit)} <span data-nocase>${esc(x.it.what)}</span><div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}</div></div></div>`).join("")}`,
           )
           .join("")}</div></details>`
       : ""
@@ -19614,7 +19687,7 @@ function renderComposer() {
       .join("");
   box.innerHTML = `${run ? `<div class="nudge" style="background:#1F2A44;color:#fff"><div><b>${esc(run.driver)} is at ${esc(run.store)}</b>Add what you need now — he leaves at ${new Date(run.closesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</div></div>` : ""}\n    <div class="composer"><textarea id="cp-text" placeholder="${tk ? `What do you need for ${esc(tk.name)}?` : 'What do you need? e.g. 40 2x4x8, a box of 3 inch screws, bring the table saw'}">${esc(comp.text)}</textarea>${speech ? '<button class="mic" id="cp-mic" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>' : ""}</div>\n    <div class="chips">${kitNow && !comp.kit ? `<button class="chip" data-ckit="${kitNow.code}">${esc(kitNow.n)} kit</button>` : ""}<button class="chip" id="cp-morekits">Kits ▾</button><label class="chip" style="cursor:pointer">Photo of a list<input type="file" id="cp-photo" accept="image/*" capture="environment" hidden></label>${freq
     .slice(0, 4)
-    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} ${esc(w)}</button>`)
+    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} <span data-nocase>${esc(w)}</span></button>`)
     .join(
       "",
     )}</div>\n    ${comp.kitPick ? `<div class="chips">${kits.map(([c, k]) => `<button class="chip" data-ckit="${c}">${esc(k.n)}</button>`).join("")}</div>` : ""}\n    ${
@@ -19837,7 +19910,7 @@ function renderRequestsPage() {
                                 : "declined" === st
                                   ? "Declined" + (r.declineReason ? ` — ${r.declineReason}` : "")
                                   : st;
-              return `<div class="myreq" data-myreq="${r.id}"><div><b>${esc(reqLabel(r))}</b><div class="s">needed ${fmt(r.neededBy)}${r.timeWindow && "Any time" !== r.timeWindow ? ` · ${esc(r.timeWindow.toLowerCase())}` : ""}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${it.some((i) => i.invId) ? " · pickup" : ""}${it.some((i) => i.garbage) ? " · debris" : ""}${r.note && it.some((i) => i.garbage) ? ` · ${esc(r.note)}` : ""}</div><div class="status-line ${cls}">${esc(text)}</div></div><span class="pill ${REQ_STATUS[st]?.[0] || "neutral"}">${"new" === st ? "sent" : "ack" === st ? "acknowledged" : st}</span></div>`;
+              return `<div class="myreq" data-myreq="${r.id}"><div><b>${reqLabelHtml(r)}</b><div class="s">needed ${fmt(r.neededBy)}${r.timeWindow && "Any time" !== r.timeWindow ? ` · ${esc(r.timeWindow.toLowerCase())}` : ""}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${it.some((i) => i.invId) ? " · pickup" : ""}${it.some((i) => i.garbage) ? " · debris" : ""}${r.note && it.some((i) => i.garbage) ? ` · ${esc(r.note)}` : ""}</div><div class="status-line ${cls}">${esc(text)}</div></div><span class="pill ${REQ_STATUS[st]?.[0] || "neutral"}">${"new" === st ? "sent" : "ack" === st ? "acknowledged" : st}</span></div>`;
             })
             .join("")
         : '<div class="muted" style="padding:8px 0">Nothing yet.</div>'
@@ -20073,7 +20146,7 @@ function renderRequestCard(emp) {
           .slice(0, 8)
           .map((r) => {
             const st = REQ_STATUS[r.status] || ["neutral", r.status];
-            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}"><div><b>${esc(reqLabel(r))}</b><div class="s">${r.neededBy ? `needed ${fmt(r.neededBy)} · ` : ""}${esc(r.by)} · ${new Date(r.at).toLocaleDateString([], { month: "numeric", day: "numeric" })}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${r.eta ? ` · arriving ${fmt(r.eta)}` : ""}${"declined" === r.status && r.declineReason ? ` · ${esc(r.declineReason)}` : ""}</div></div><span class="pill ${st[0]}">${"new" === r.status ? "sent" : "ack" === r.status ? "acknowledged" : r.status}</span></div>`;
+            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}"><div><b>${reqLabelHtml(r)}</b><div class="s">${r.neededBy ? `needed ${fmt(r.neededBy)} · ` : ""}${esc(r.by)} · ${new Date(r.at).toLocaleDateString([], { month: "numeric", day: "numeric" })}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${r.eta ? ` · arriving ${fmt(r.eta)}` : ""}${"declined" === r.status && r.declineReason ? ` · ${esc(r.declineReason)}` : ""}</div></div><span class="pill ${st[0]}">${"new" === r.status ? "sent" : "ack" === r.status ? "acknowledged" : r.status}</span></div>`;
           })
           .join("")}</div>`
       : ""
@@ -20320,12 +20393,12 @@ function renderRequestQueue() {
             const st = reqState(r);
             (S = keep), applyHolidays();
             const status = REQ_STATUS[r.status] || ["neutral", r.status];
-            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}" style="grid-template-columns:1fr auto auto"><div><b>${esc(reqLabel(r))}</b>${
+            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}" style="grid-template-columns:1fr auto auto"><div><b>${reqLabelHtml(r)}</b>${
               reqItems(r).length > 1
                 ? `<div class="s">${reqItems(r)
                     .map(
                       (it) =>
-                        `${it.bought || it.done ? ICON_CHECK + " " : ""}${it.invId ? "🧰 " : ""}${it.qty} ${esc(it.unit)} ${esc(it.what)}${it.invId ? ` (pickup ${esc(locName(it.pickupFrom))})` : ""}`,
+                        `${it.bought || it.done ? ICON_CHECK + " " : ""}${it.invId ? "🧰 " : ""}${it.qty} ${esc(it.unit)} <span data-nocase>${esc(it.what)}</span>${it.invId ? ` (pickup ${esc(locName(it.pickupFrom))})` : ""}`,
                     )
                     .join(" · ")}</div>`
                 : reqItems(r)[0].invId
@@ -25533,6 +25606,44 @@ function lineBillIsBankDup(b) {
     return !1;
   }
 }
+// What an order's bills and its card or bank payments cover on one contract line (11-05, the chief of staff's review of
+// lineCommitment, which reads lineFin):
+//   billed     bills on the order for this line (their own line), plus this line's share of the order's bills with no
+//              line: shared across the order's lines by what is still open on each (a line-less bill was taken off every
+//              line whole, so a $5,000 bill on a three-line order freed $15,000)
+//   txnPaid    card or bank lines matched to the order with no bill behind them: paid, so no longer committed (a card
+//              line on the line was counted as actual and again as committed)
+//   billShare, txnShare   the line-less parts that fall on this line, which are its cost (they were nobody's actual, and a
+//              vendor credit, being negative, frees the line's budget)
+function lineOrderPaid(po, key) {
+  const out = { billed: 0, txnPaid: 0, billShare: 0, txnShare: 0 };
+  if (!po) return out;
+  const amt = (k) => (po.lines || []).filter((l) => l.line === k).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    keys = [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))],
+    B = (DB.bills || []).filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id),
+    lined = (k) => B.filter((b) => b.line === k).reduce((a, b) => a + billCost(b), 0),
+    open = (k) => Math.max(0, amt(k) - lined(k)),
+    openSum = keys.reduce((a, k) => a + open(k), 0),
+    grossSum = keys.reduce((a, k) => a + amt(k), 0),
+    share = (k) => (openSum > 0.005 ? open(k) / openSum : grossSum > 0.005 ? amt(k) / grossSum : 1 === keys.length ? 1 : 0),
+    s = keys.includes(key) ? share(key) : 0,
+    unl = B.filter((b) => !b.line),
+    // the bills' own cost on the line follows job cost (less rebilled or disputed parts); what they take off the order is
+    // their whole amount
+    cost = (b) => billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0);
+  out.billed = r2(lined(key) + unl.reduce((a, b) => a + billCost(b), 0) * s);
+  out.billShare = r2(unl.filter((b) => !lineBillIsBankDup(b)).reduce((a, b) => a + cost(b), 0) * s);
+  // card or bank lines matched to the order. With no bill on it, a payment is what is paid (no longer committed): one on
+  // this line is already its actual (lineFin's own bank lines), one with no line is shared. With bills, the bills carry the
+  // payments. Either way a vendor credit (money in) is cost back to its line, or shared, and frees its budget.
+  const T = (DB.txns || []).filter((t) => ((po.matchedTxns || []).includes(t.id) || (t.poId && t.poId === po.id)) && !t.billId && !txnRebilled(t)),
+    part = (t) => (t.line === key ? -t.amt : t.line ? 0 : -t.amt * s);
+  if (!B.length) {
+    out.txnPaid = r2(T.filter((t) => +t.amt < 0).reduce((a, t) => a + part(t), 0));
+    out.txnShare = r2(T.filter((t) => !t.line).reduce((a, t) => a - t.amt * s, 0));
+  } else out.txnShare = r2(T.filter((t) => +t.amt > 0).reduce((a, t) => a + part(t), 0));
+  return out;
+}
 function lineFin(key) {
   const ref = findLine(key);
   if (!ref) return null;
@@ -25602,17 +25713,10 @@ function lineFin(key) {
         0,
       ),
     ),
-    poBilled = r2(
-      DB.bills
-        .filter(
-          (b) =>
-            "void" !== b.status &&
-            "rejected" !== b.status &&
-            pos.some((po) => po.id === b.poId) &&
-            (b.line === key || !b.line),
-        )
-        .reduce((a, b) => a + billCost(b), 0),
-    ),
+    // what the orders' bills and card or bank payments cover on this line (lineOrderPaid): a bill or payment with no line
+    // on an order of several lines is shared across the order's open lines, never taken off each of them whole (11-05)
+    paidOn = pos.map((po) => lineOrderPaid(po, key)),
+    poBilled = r2(paidOn.reduce((a, x) => a + x.billed + x.txnPaid, 0)),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     // A bill awaiting approval that the bank has already paid, where the bank line carries the cost, is the same
@@ -25636,7 +25740,9 @@ function lineFin(key) {
               (b.poId && (DB.pos.find((p) => p.id === b.poId)?.matchedTxns || []).includes(t.id)),
           ))(t),
     ),
-    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
+    // the share of the orders' line-less bills and payments (a vendor credit too) that falls on this line is its cost
+    shareAmt = r2(paidOn.reduce((a, x) => a + x.billShare + x.txnShare, 0)),
+    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0) + shareAmt),
     laborAmt = lineLabor(doc, line),
     // stock issued to the job on this line at carried cost, less returns
     stockAmt = r2(stockUseIn("", null, key).reduce((a, u) => a + (+u.amount || 0), 0)),
@@ -29799,7 +29905,7 @@ function clientFundsLedger() {
               actual = f.actual,
               committed = f.committed,
               paidOut = actual,
-              remainingToBuy = Math.max(0, r2(budget - actual - committed)),
+              remainingToBuy = (lineCommitment(key) || { left: Math.max(0, r2(budget - actual - committed)) }).left,
               reserved = Math.max(0, r2(Math.min(collected - paidOut, budget - paidOut))),
               floated = Math.max(0, r2(paidOut - collected)),
               kind =
@@ -34240,7 +34346,7 @@ function renderRecv() {
   const root = $("#recv-body");
   if (!root) return;
   const pos = DB.pos
-    .filter((po) => po.projectId === S.id && ["issued", "partial"].includes(po.status))
+    .filter((po) => po.projectId === S.id && ["issued", "partial"].includes(po.status) && !poIsSub(po))
     .sort((a, b) => (a.expected || "").localeCompare(b.expected || ""));
   root.innerHTML = `<div class="ph"><div><h2>Deliveries</h2><p class="lead">Check in what arrived, line by line. Materials on the schedule update themselves.</p></div></div>${
     pos
@@ -34248,10 +34354,10 @@ function renderRecv() {
         const tot = po.lines.reduce((a, l) => a + (+l.qty || 0), 0),
           got = po.lines.reduce((a, l) => a + (+l.received || 0), 0),
           late = po.expected && parse(po.expected) < parse(today());
-        return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${got}/${tot} received</span></div>\n    ${po.lines
+        return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${esc(poRecvWords(po))}</span></div>\n    ${po.lines
           .map((l) => {
             const left = Math.max(0, (+l.qty || 0) - (+l.received || 0));
-            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="${left}" data-rq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
+            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="" placeholder="${left} to come" aria-label="${esc(l.item || l.desc || "Line")}: how many arrived (${left} still to come)" data-rcq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
           })
           .join(
             "",
@@ -34260,6 +34366,8 @@ function renderRecv() {
       .join("") || '<div class="card muted">Nothing on order for this job.</div>'
   }${recvTodayHtml()}`;
   const receive = (po, l, qty, note) => {
+    // one receipt writer (puReceiveLines, the receive sheet's): the material is read on the order's own job
+    if ("function" == typeof puReceiveLines) return void puReceiveLines(po, [{ l: l, q: qty }], note || "", "");
     l.received = r2((+l.received || 0) + qty);
     const m = l.materialId && mat(l.materialId);
     m && l.received >= l.qty - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
@@ -34285,22 +34393,25 @@ function renderRecv() {
         const [pid, lid] = b.dataset.rin.split(":"),
           po = DB.pos.find((x) => x.id === pid),
           l = po.lines.find((x) => x.id === lid),
-          qty = +root.querySelector(`[data-rq="${pid}:${lid}"]`).value || 0;
-        qty <= 0 ||
-          (receive(po, l, qty), save(), render(), toast(`${qty} ${l.unit || ""} ${l.item || ""} checked in`));
+          inp = root.querySelector(`[data-rcq="${pid}:${lid}"]`),
+          qty = +inp.value || 0;
+        // Receiving counts what arrived: the box starts empty (what is still to come is only its hint), so an
+        // untouched Received records nothing and asks for the count (BACKLOG 1.36: pre-filled at the full order,
+        // one tap recorded what never came and the bill was then matched to it).
+        if (qty <= 0) return void (toast(`Type how many ${l.item || l.desc || "of this line"} arrived first`), inp.focus());
+        // never past what is still to come (the writer caps too; here the person is told and nothing is written)
+        const rest = Math.max(0, r2((+l.qty || 0) - (+l.received || 0)));
+        if (qty > rest + 0.001) return void (toast(`Only ${rest} ${l.unit || ""} of ${l.item || "this line"} are still to come: the rest goes back, or onto a change to the order`), inp.focus());
+        receive(po, l, qty), save(), render(), toast(`${qty} ${l.unit || ""} ${l.item || ""} checked in`);
       }),
   ),
     root.querySelectorAll("[data-rall]").forEach(
       (b) =>
         (b.onclick = () => {
+          // Everything Arrived opens the one receive sheet, where All Here on each line is the person's count (the CoS,
+          // 11-06: one tap received the whole remainder with nothing counted)
           const po = DB.pos.find((x) => x.id === b.dataset.rall);
-          po.lines.forEach((l) => {
-            const left = (+l.qty || 0) - (+l.received || 0);
-            left > 0 && receive(po, l, left);
-          }),
-            save(),
-            render(),
-            toast(`${po.number} received in full`);
+          po && rcReceiveSome(po);
         }),
     ),
     root.querySelectorAll("[data-rissue]").forEach(
@@ -37934,13 +38045,8 @@ const docActionsBase6 = docActions;
 docActions = function (c, d, st) {
   let h = docActionsBase6(c, d, st);
   return (
-    "estimate" === d.type &&
-      "draft" === d.status &&
-      d.lines.length &&
-      !/data-docact="pos"/.test(h) &&
-      mbCanEdit() &&
-      (h +=
-        '<button class="btn sm" data-docact="pos" title="Buy out long-lead items before award; the PO cannot be issued until the estimate is approved">Purchase orders from lines… (pre-award)</button>'),
+    // (11-05, the coordinator expert: a draft estimate was buyable; Alan's rule: only approved estimates and change
+    // orders are bought from, so the pre-award door is gone; docBuyable is the one test)
     h
   );
 };
@@ -37961,11 +38067,17 @@ poAction = function (po, a) {
   return poActionBase2(po, a);
 };
 const poStateBase2 = poState;
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-fprob]");
+  if (!b) return;
+  const po = (DB.pos || []).find((x) => x.id === b.dataset.fprob);
+  po && (e.preventDefault(), deliveryProblem(po));
+});
 function deliveryProblem(po, host) {
   const p = DB.projects.find((x) => x.id === po.projectId);
   mbModal(
     `Delivery problem — ${esc(po.number)}`,
-    `<label class="f"><span>What happened</span><select id="dp-type"><option value="short">Short — fewer than ordered</option><option value="damaged">Damaged</option><option value="wrong">Wrong item</option><option value="backorder">Back-ordered</option></select></label><label class="f"><span>Line</span><select id="dp-line">${po.lines.map((l) => `<option value="${l.id}">${esc(l.item || l.desc || "")}</option>`).join("")}</select></label><label class="f"><span>Quantity affected</span><input type="number" step="any" id="dp-qty" value="${po.lines[0] ? Math.max(0, (+po.lines[0].qty || 0) - (+po.lines[0].received || 0)) : 0}"></label><label class="f"><span>New ETA (if known)</span><input type="date" id="dp-eta"></label><label class="f"><span>Note</span><input id="dp-note" placeholder="what the driver / vendor said"></label>`,
+    `<label class="f"><span>What happened</span><select id="dp-type"><option value="short">Short — fewer than ordered</option><option value="damaged">Damaged</option><option value="wrong">Wrong item</option><option value="backorder">Back-ordered</option></select></label><label class="f"><span>Line</span><select id="dp-line">${po.lines.map((l) => `<option value="${l.id}">${esc(l.item || l.desc || "")}</option>`).join("")}</select></label><label class="f"><span>Quantity affected</span><input type="number" step="any" min="0" inputmode="decimal" id="dp-qty" value="" placeholder="How many"></label><label class="f"><span>New ETA (if known)</span><input type="date" id="dp-eta"></label><label class="f"><span>Note</span><input id="dp-note" placeholder="what the driver / vendor said"></label>`,
     {
       submit: "Report",
       onSubmit: () => {
@@ -37975,15 +38087,19 @@ function deliveryProblem(po, host) {
           eta = $("#dp-eta").value,
           note = $("#dp-note").value,
           l = po.lines.find((x) => x.id === lid);
-        (po.issues = po.issues || []).push({
+        if (!(qty > 0)) return "function" == typeof vfMark ? vfMark($("#dp-qty"), "How many are affected?") : toast("How many are affected?"), !1;
+        // short, damaged and wrong are claims against the vendor on their own line (held off the bill and the route
+        // until resolved); a back-order is a new date, not a claim
+        const claim = "backorder" !== type;
+        (po.issues = po.issues || []).push(Object.assign({
           t: nowStamp(),
-          by: S.project.userName || role(),
+          by: (currentUser() || {}).name || S.project.userName || role(),
           type: type,
           lineId: lid,
           qty: qty,
           eta: eta,
           note: note,
-        }),
+        }, claim ? { claim: !0, status: "open", at: appNowIso(), item: (l && (l.item || l.desc)) || "", unit: (l && l.unit) || "", amount: r2(qty * (+(l && l.price) || 0)) } : {})),
           l && ((l.backordered = qty), (l.issue = type)),
           (po.flag = `${type}: ${l?.item || ""} ${qty}`);
         const wasEta = po.expected || "";
@@ -38006,7 +38122,7 @@ function deliveryProblem(po, host) {
         ),
           save(),
           render(),
-          toast("Reported to purchasing");
+          toast(`${type} on ${po.number} reported${claim ? `: ${qty} ${(l && l.unit) || ""} ${(l && l.item) || ""} claimed from ${po.vendor}`.replace(/\s+/g, " ") : ""}`, { label: "Open", run: () => flowGo.po(po)() });
       },
     },
   );
@@ -39521,7 +39637,7 @@ renderPODoc = function (po) {
       return `${x.qty} ${esc(x.unit ?? pl?.unit ?? "")} ${esc(x.item ?? pl?.item ?? pl?.desc ?? "")}`;
     },
     recHtml = rec.length
-      ? `<div class="small" style="margin-top:6px"><b>Receipts</b>${rec.map((r) => `<div class="chg"><span>${fmt(r.date || (r.t ? today() : ""))}</span>${esc(r.by || "")} · ${((r) => (Array.isArray(r.lines) ? r.lines : r.lineId ? [{ lineId: r.lineId, qty: r.qty }] : []))(r).map(recLine).join(", ")}${r.slip ? ` · slip ${esc(r.slip)}` : ""}${r.note ? ` · ${esc(r.note)}` : ""}</div>`).join("")}</div>`
+      ? `<div class="small" style="margin-top:6px"><b>Receipts</b>${rec.map((r) => `<div class="chg"><span>${fmt(r.date || (r.t ? today() : ""))}</span>${esc(r.by || "")} · ${((r) => (Array.isArray(r.lines) ? r.lines : r.lineId ? [{ lineId: r.lineId, qty: r.qty }] : []))(r).map(recLine).join(", ")}${r.slip ? ` · slip ${esc(r.slip)}` : ` · <span class="warn-t">no slip</span>`}${r.note ? ` · ${esc(r.note)}` : ""}</div>`).join("")}</div>`
       : "";
   (h = h.replace(
     '<div class="small muted" style="margin-top:8px">Three-way check:',
@@ -41322,7 +41438,7 @@ const ctPOPickerBase_wf2b = (ctPOPicker = function (projectId, preferId, preKey)
       setTimeout(() => {
         row?.scrollIntoView({ block: "center" });
         const v = row?.querySelector("[data-ctpv]");
-        v && !v.value && v.focus();
+        v && !v.value && !("function" == typeof mOn && mOn()) && v.focus();
       }, 60);
   }
 });
@@ -44080,11 +44196,11 @@ function renderSDay() {
       .map((p) => ({ p: p, n: roomsOf(p.id).filter((r) => 0 === roomProv(r)).length }))
       .filter((x) => x.n);
   root.innerHTML = `<div class="ph"><div><h2>${u ? `${esc(u.name.split(" ")[0])}, ` : ""}${fmtL(td)}</h2><div class="small muted">${projs.length} project${1 === projs.length ? "" : "s"} · ${logged} hrs logged today${yLogged ? "" : ' · <b class="bad">nothing logged yesterday</b>'}</div></div><div class="acts">${tm ? `<button class="btn sm" data-stoptimer>Stop timer · ${esc(tm.label)}</button>` : ""}</div></div>\n    <div class="grid2">\n      <div>\n        <div class="card"><h3>Today</h3>${due.map(({ p: p, t: t }) => `<div class="st-item"><span class="k">${dayDiff(td, t.end) < 0 ? "Late" : 0 === dayDiff(td, t.end) ? "Due today" : `Due ${fmt(t.end)}`}</span><b>${esc(t.name)}</b><span class="small muted">${esc(p.project.name)}${t.hours ? ` · est. ${t.hours} hrs` : ""}</span></div>`).join("") || '<div class="muted small">Nothing due this week.</div>'}</div>\n        <div class="card" style="margin-top:10px"><h3>Waiting on a decision</h3>${
+    // every open decision, the same set the Waiting on Decisions tile counts (it showed 6 of 11), and each one opens
     dec
-      .slice(0, 6)
       .map(
         ({ p: p, d: d }) =>
-          `<div class="st-item ${d.due && d.due < td ? "late" : ""}"><span class="k">${d.gate ? `Gate · ${esc(d.gate)}` : "Decision"} · ${fmt(d.due)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · ${esc(p.project.name)}</span></div>`,
+          `<div class="st-item ${d.due && d.due < td ? "late" : ""}" data-stdec="${esc(p.id)}|${esc(d.id)}" role="button" tabindex="0" style="cursor:pointer"><span class="k">${d.gate ? `Gate · ${esc(d.gate)}` : "Decision"} · ${fmt(d.due)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · ${esc(p.project.name)}</span></div>`,
       )
       .join("") || '<div class="muted small">Nothing open.</div>'
   }</div>\n        ${stale.length || unv.length ? `<div class="card" style="margin-top:10px"><h3>Drawings</h3>${stale.map(({ p: p, s: s }) => `<div class="st-item late"><span class="k">Re-issue · ${esc(p.project.name)}</span><b>${esc(s.number)} ${esc(s.title)}</b><span class="small muted">${esc(s.staleWhy || "")}</span></div>`).join("")}${unv.map(({ p: p, n: n }) => `<div class="st-item"><span class="k">Survey · ${esc(p.project.name)}</span><b>${n} room${1 === n ? "" : "s"} still on listing dimensions</b><span class="small muted">DD, set issue and fabrication orders wait for it</span></div>`).join("")}</div>` : ""}\n      </div>\n      <div>\n        <div class="card st-day"><h3>Day sheet <span class="small muted">— what you touched; tap to make it hours</span></h3>\n          ${mtgs.map((m) => `<button class="st-chip" data-mtg="${m.id}"><span class="k">Meeting · ${m.date === td ? "today" : "yesterday"} · ${Math.round((m.minutes / 60) * 4) / 4} hrs</span><b>${esc(m.title)}</b><span class="small muted">${esc(DB.projects.find((p) => p.id === m.projectId)?.project.name || "")}</span></button>`).join("")}\n          ${T.slice()
@@ -49027,11 +49143,11 @@ function fRenderToday() {
       ? act
           .map((t) => {
             const need = fTaskNeeds(t).filter((n) => "pred" !== n.k);
-            return `<div class="f-row ${need.length ? "warn" : ""}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ends ${fmt(t.end)}${need.length ? ` · <span class="bad-t">${need.length} thing${need.length > 1 ? "s" : ""} missing</span>` : ""}</span></div><div class="row" style="gap:4px">${"in-progress" !== t.status ? `<button class="btn sm" data-fstart="${t.id}">Started</button>` : ""}<button class="btn sm" data-fdone="${t.id}">Done</button></div></div>`;
+            return `<div class="f-row ${need.length ? "warn" : ""}" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ends ${fmt(t.end)}${need.length ? ` · <span class="bad-t">${need.length} thing${need.length > 1 ? "s" : ""} missing</span>` : ""}</span></div><div class="row" style="gap:4px">${"in-progress" !== t.status ? `<button class="btn sm" data-fstart="${t.id}">Started</button>` : ""}<button class="btn sm" data-fdone="${t.id}">Done</button></div></div>`;
           })
           .join("")
       : '<div class="small muted">Nothing scheduled for today on the build track.</div>'
-  }\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fraise="blocker" data-ph="e.g. Pull Alex onto taping tomorrow, framing is done" data-title="Plan change: ">Change the plan → PM</button>${fCall(people.pm)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Who's here</h3><span class="small muted">${(() => {
+  }\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fraise="blocker" data-to="pm" data-ph="e.g. Pull Alex onto taping tomorrow, framing is done" data-title="Plan change: ">Change the plan → PM</button>${fCall(people.pm)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Who's here</h3><span class="small muted">${(() => {
     const onNow = crew.filter((e) => inToday(e).some((x) => !x.out)).length,
       came = crew.filter((e) => inToday(e).length).length,
       sb = subs.filter((s) => "onsite" === s.status).length;
@@ -49045,7 +49161,7 @@ function fRenderToday() {
     })
     .join(
       "",
-    )}\n      ${subs.map((s) => `<div class="f-row"><div class="grow"><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)} · ${esc(s.lead)} · ${esc(task(s.taskId)?.name || "")}</span></div><div class="row" style="gap:4px">${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}${"onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${"noshow" !== s.status && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("")}\n      ${subs.length ? "" : '<div class="small muted" style="margin-top:6px">No subs due today.</div>'}</div>\n    ${dels.length || insp.length ? `<div class="card f-card"><div class="hd"><h3>Coming to site</h3></div>\n      ${dels.map((d) => `<div class="f-row"><div class="grow"><b>${esc(d.n)}</b><span class="small muted">Delivery expected today</span></div><div class="row" style="gap:4px"><button class="btn sm" data-frecv="${d.k}:${d.id}">Received</button><button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button></div></div>`).join("")}\n      ${insp.map((i) => `<div class="f-row"><div class="grow"><b>${esc(i.name)}</b><span class="small muted">${esc(i.agency)} · ${fmtL(i.date)}${i.notes ? ` · ${esc(i.notes)}` : ""}</span></div><a href="#" class="btn sm" data-fview="fsite">Prep list</a></div>`).join("")}</div>` : ""}\n    <div class="card f-card ${blockers.length ? "warn" : ""}"><div class="hd"><h3>Tomorrow — ${fmtL(tom)}</h3><span class="small muted">${blockers.length ? `${blockers.length} task${blockers.length > 1 ? "s" : ""} not ready` : "all set"}</span></div>\n      ${
+    )}\n      ${subs.map((s) => `<div class="f-row"><div class="grow"><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)} · ${esc(s.lead)} · ${esc(task(s.taskId)?.name || "")}</span></div><div class="row" style="gap:4px">${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}${"onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${"noshow" !== s.status && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("")}\n      ${subs.length ? "" : '<div class="small muted" style="margin-top:6px">No subs due today.</div>'}</div>\n    ${dels.length || insp.length ? `<div class="card f-card"><div class="hd"><h3>Coming to site</h3></div>\n      ${dels.map((d) => `<div class="f-row"><div class="grow"><b>${esc(d.n)}</b><span class="small muted">Delivery expected today</span></div><div class="row" style="gap:4px"><button class="btn sm" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}</div></div>`).join("")}\n      ${insp.map((i) => `<div class="f-row"><div class="grow"><b>${esc(i.name)}</b><span class="small muted">${esc(i.agency)} · ${fmtL(i.date)}${i.notes ? ` · ${esc(i.notes)}` : ""}</span></div><a href="#" class="btn sm" data-fview="fsite">Prep list</a></div>`).join("")}</div>` : ""}\n    <div class="card f-card ${blockers.length ? "warn" : ""}"><div class="hd"><h3>Tomorrow — ${fmtL(tom)}</h3><span class="small muted">${blockers.length ? `${blockers.length} task${blockers.length > 1 ? "s" : ""} not ready` : "all set"}</span></div>\n      ${
     tomTasks.length
       ? tomTasks
           .map((t) => {
@@ -49138,7 +49254,34 @@ function fRenderToday() {
         }),
     );
 }
+// An order is received on the one receive sheet, line by line (fReceiveQuiet marked every line received in full in two
+// taps). A material with no order behind it cannot be received against nothing: it arrived without an order, which
+// tells the coordinator, who orders it or finds who did (the field expert: Insulation "Received" with no PO).
+const fMatHasPO = (m) => !!m && (DB.pos || []).some((po) => "cancelled" !== po.status && ((po.lines || []).some((l) => l.materialId === m.id) || (m.po && (m.po === po.number || m.po === po.id))));
+function fArrivedNoOrder(m) {
+  mbModal(
+    "Arrived Without an Order",
+    `<div class="note warn">${esc(m.name)} came to site, and no purchase order is behind it. Nothing is received against nothing: The coordinator finds the order or raises one, so the bill has something to match.</div><div class="f" style="margin-top:10px"><label>What Came</label><input data-f="what" placeholder="e.g. 12 bags, Owens Corning R-15" enterkeyhint="next"></div><div class="f"><label>Where It Is Staged</label><input data-f="where" placeholder="e.g. garden level, by the door" enterkeyhint="done"></div>`,
+    {
+      submit: "Tell the Coordinator",
+      onSubmit: (v) => {
+        const by = fWho(),
+          what = String(v.what || "").trim(),
+          where = String(v.where || "").trim();
+        (m.arrivedNoOrder = { at: appNowIso(), by: by, what: what, where: where }), where && (m.staged = where);
+        "function" == typeof fSend &&
+          fSend({ type: "delivery", title: `${m.name} arrived on site with no order behind it${what ? ` (${what})` : ""}`, taskId: m.taskId || "", note: `Checked by ${by}${where ? `, staged ${where}` : ""}. Find the order or raise one before its bill comes in.` });
+        log(`${m.name} arrived with no order behind it — ${by} told the coordinator${where ? ` · staged ${where}` : ""}`, "field", by), save(), render();
+      },
+    },
+  );
+}
 function fReceive(k, id) {
+  if ("po" === k) {
+    const po = (DB.pos || []).find((x) => x.id === id);
+    return void (po && rcReceiveSome(po));
+  }
+  if (mat(id) && !fMatHasPO(mat(id))) return fArrivedNoOrder(mat(id));
   const name =
     "po" === k
       ? (() => {
@@ -49360,7 +49503,7 @@ function fRenderSite() {
       .sort((a, b) => (a.when || "z").localeCompare(b.when || "z"))
       .slice(0, 4),
     punch = DB.field.punch.filter((x) => x.projectId === S.id && "verified" !== x.status);
-  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button><button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || '<div class="small muted">Nothing due in the next two weeks.</div>'}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
+  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || '<div class="small muted">Nothing due in the next two weeks.</div>'}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
     insp
       .map(({ i: i, when: when }) => {
         const prep = fPrepFor(i);
@@ -49383,7 +49526,7 @@ function fRenderSite() {
         (c.onchange = () => {
           const [id, k] = c.dataset.fprep.split(":"),
             i = S.inspections.find((x) => x.id === id);
-          (i.prep = i.prep || {}), (i.prep[k] = c.checked), save(), fRenderSite();
+          (i.prep = i.prep || {}), (i.prep[k] = c.checked), save(), render();
         }),
     ),
     root.querySelectorAll("[data-fready]").forEach(
@@ -49438,12 +49581,16 @@ function fRenderSite() {
       (b) =>
         (b.onclick = () => {
           const [id, st] = b.dataset.fpunch.split(":"),
-            x = DB.field.punch.find((y) => y.id === id);
-          (x.status = st),
-            (x[st + "At"] = fNow()),
-            save(),
-            fRenderSite(),
-            toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
+            x = DB.field.punch.find((y) => y.id === id),
+            set = () => {
+              (x.status = st),
+                (x[st + "At"] = fNow()),
+                save(),
+                render(),
+                toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
+            };
+          // done means done: a punch item closes with a photo of the finished work (src/taskfield.js)
+          "done" === st && "function" == typeof tkPunchProof ? tkPunchProof(x, set) : set();
         }),
     ),
     ($("#fsub-add").onclick = () => {
@@ -51242,6 +51389,16 @@ const CT_TEMPLATES = {
   simple: "Simple (one line per item)",
 };
 let ctInternal = !0;
+// The one test of a document the firm may buy from (11-05): an approved or converted estimate, an approved or billed
+// change order, a sent invoice that is not a schedule of values. The document's Buy These Lines and the order sheet's
+// document list read it, on both devices (a draft estimate was buyable from the phone's order sheet).
+function docBuyable(d) {
+  if (!d) return !1;
+  if ("estimate" === d.type) return ["approved", "converted"].includes(d.status);
+  if ("co" === d.type) return ["approved", "billed"].includes(d.status);
+  if ("invoice" === d.type) return "sov" !== d.mode && !["void", "draft"].includes(d.status);
+  return !1;
+}
 const ctKey = (d, l) => `${"co" === d.type ? "co" : d.type}:${d.id}:${l.id}`,
   ctCode = (l) =>
     (LINE_KW.find(([w]) => (l.item || "").toLowerCase().includes(w)) || [
@@ -51670,14 +51827,63 @@ function ctPrint(c, d) {
 }
 // The budget left on a line after the orders already on it (buying day finding 14: the whole line showed while
 // PO-2026-041 and PO-2026-048 were already on it), the same number the order sheet and the Buy Board show.
-function ctpLeftText(key, l, have) {
+// One commitment per line (11-05, the coordinator expert: Demolition read $19,850 left on the order sheet, $0 committed
+// on the Buy Board and "—" on Client Funds, after a draft PO-2026-049 of $13,900; the drafts were counted nowhere, so the
+// line was bought twice). What a contract line has spent and has on order, and what is left to buy:
+//   actual      bills, bank and card lines, store runs, stock and labour on the line (lineFin)
+//   committed   issued orders, net of what is billed against them (lineFin; the books' committed)
+//   drafted     draft orders on the line, not yet issued (a buy in hand: counted here so it is never bought twice)
+//   used        actual + committed + drafted;  left = budget - used;  over = used - budget
+// Every screen that shows a line's committed or left reads this: the order sheet, the Buy Board's row and panel,
+// Client Funds, the job's Orders, and the issue gate (lineBudgetTest below).
+function lineCommitment(key) {
   let f = null;
   try {
     f = lineFin(key);
   } catch (e) {}
-  if (!f || !(+f.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
-  const left = Math.max(0, r2(f.budget - f.actual - f.committed));
-  return ` · budget ${money(f.budget)} · ${money(left)} left${(have || []).length ? ` after ${have.map((po) => po.number).join(", ")}` : ""}`;
+  if (!f) return null;
+  const amt = (po) => (po.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    drafts = f.draftPOs || (DB.pos || []).filter((po) => "draft" === po.status && (po.lines || []).some((l) => l.line === key)),
+    budget = +f.budget || 0,
+    actual = r2(+f.actual || 0),
+    committed = r2(+f.committed || 0),
+    drafted = r2(drafts.reduce((a, po) => a + amt(po), 0)),
+    used = r2(actual + committed + drafted);
+  return { key: key, budget: budget, actual: actual, committed: committed, drafted: drafted, onOrder: r2(committed + drafted), used: used, left: Math.max(0, r2(budget - used)), over: budget > 0 ? Math.max(0, r2(used - budget)) : 0, pos: (f.pos || []).concat(drafts), drafts: drafts };
+}
+// The one budget test (11-05, the field expert: the create check read committed and ignored actual, so Windows, with $0
+// left, made a $29,700 order with no warning). Actual plus committed plus drafted plus what this buy adds, against the
+// line. add: the dollars being added; opts.excludePo: an order already counted, taken out first (to issue a draft as it
+// stands: lineBudgetTest(key, 0); to test an order's new amount: lineBudgetTest(key, newAmount, { excludePo: po.id })).
+// Read at the tick and at create (the order sheet), at issue (the issue gate), and on the job's Orders (Over the Line).
+function lineBudgetTest(key, add, opts) {
+  const o = opts || {},
+    c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return { ok: !0, c: c, by: 0, after: c ? r2(c.used + (+add || 0)) : +add || 0, say: "" };
+  const ex = o.excludePo ? (DB.pos || []).find((po) => po.id === o.excludePo) : null,
+    mine = ex && "cancelled" !== ex.status ? r2((ex.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)) : 0,
+    after = r2(c.used - mine + (+add || 0)),
+    by = r2(after - c.budget),
+    ok = by <= Math.max(1, 0.001 * c.budget);
+  let ref = null;
+  try {
+    ref = findLine(key);
+  } catch (e) {}
+  const name = ref ? `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""} (${ref.line.item || ref.line.desc || ""})` : "the line";
+  return {
+    ok: ok,
+    c: c,
+    by: ok ? 0 : by,
+    after: after,
+    mine: mine,
+    say: ok ? "" : `${money(by)} over the ${money(c.budget)} budget of ${name}: ${money(c.actual)} spent, ${money(c.onOrder)} on order${c.drafted ? ` (${money(c.drafted)} in draft)` : ""}${+add ? `, and this buy adds ${money(+add)}` : ""}`,
+  };
+}
+function ctpLeftText(key, l, have) {
+  const c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
+  const P = c.pos.map((po) => po.number + ("draft" === po.status ? " (draft)" : ""));
+  return ` · budget ${money(c.budget)} · ${c.over ? `${money(c.over)} over` : `${money(c.left)} left`}${P.length ? ` after ${P.join(", ")}` : c.actual ? ` after ${money(c.actual)} spent` : ""}`;
 }
 const ROWFN = (d, l, key, have, its, lq, lc, preKey) =>
   `<tr class="ctp-line"><td><label class="ctp-tick"><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></label></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${ctpLeftText(key, l, have)}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
@@ -51691,17 +51897,9 @@ function ctPOPicker(projectId, preferId, preKey) {
   const p = DB.projects.find((x) => x.id === projectId) || S,
     cl = DB.clients.find((c) => c.id === p.clientId);
   if (!cl) return void toast("This project has no client yet");
-  const docs = [
-    ...cl.estimates.filter(
-      (e) => "rejected" !== e.status && "expired" !== e.status && (!e.projectId || e.projectId === p.id),
-    ),
-    ...cl.changeOrders.filter(
-      (x) => ["approved", "billed"].includes(x.status) && (!x.projectId || x.projectId === p.id),
-    ),
-    ...cl.invoices.filter(
-      (x) => "sov" !== x.mode && "void" !== x.status && (!x.projectId || x.projectId === p.id),
-    ),
-  ];
+  // an unapproved estimate is listed only when its long-lead lines are being bought before award (docPreAward, opened
+  // from the estimate's own door; the owner approves each such order before it is issued)
+  const docs = [...cl.estimates, ...cl.changeOrders, ...cl.invoices].filter((x) => (docBuyable(x) || ("function" == typeof puPreAwardOpen && puPreAwardOpen(x))) && (!x.projectId || x.projectId === p.id));
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
   let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
@@ -51731,7 +51929,10 @@ function ctPOPicker(projectId, preferId, preKey) {
                   have = ctPOsForKey(key),
                   its = l.items || [],
                   lq = +l.qty || 1,
-                  lc = l.cost
+                  lcm = lineCommitment(key),
+                  lc = lcm && lcm.budget > 0
+                    ? r2(lcm.left / lq)
+                    : l.cost
                     ? r2(l.cost / lq)
                     : (() => {
                         const o =
@@ -51753,27 +51954,44 @@ function ctPOPicker(projectId, preferId, preKey) {
         const docOf = (lid) => docs.find((x) => x.lines.some((l) => l.id === lid)),
           picks = [...m.querySelectorAll("[data-ctpsel]:checked")].map((cb) => cb.dataset.ctpsel);
         if (!picks.length) return toast("Tick at least one line or item"), !1;
-        const over = [];
-        if (
-          (picks.forEach((sel) => {
-            const [lid] = sel.split("#"),
-              d = docOf(lid),
-              l = d.lines.find((x) => x.id === lid),
-              g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
-              add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
-              f = lineFin(ctKey(d, l));
-            l.cost &&
-              f &&
-              f.committed + add > 1.001 * l.cost &&
-              !over.some((o) => o.l === l) &&
-              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
-          }),
-          over.length &&
-            !appConfirm(
-              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
-            ))
-        )
-          return !1;
+        // the one budget test per line (lineBudgetTest: actual plus on order plus this buy), every pick on a line summed
+        const adds = {};
+        picks.forEach((sel) => {
+          const [lid] = sel.split("#"),
+            d = docOf(lid),
+            l = d.lines.find((x) => x.id === lid),
+            g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
+            k = ctKey(d, l);
+          (adds[k] = adds[k] || { l: l, add: 0 }).add += (+g("ctpq") || 1) * (+g("ctpc") || 0);
+        });
+        const over = Object.entries(adds).map(([k, x]) => lineBudgetTest(k, x.add)).filter((t) => !t.ok);
+        if (over.length && !appConfirm(`This order would put ${over.length === 1 ? "the line" : `${over.length} lines`} over budget. ${over.map((t) => t.say).join("; ")}. Create it anyway?`)) return !1;
+        // a second order on a subcontract line is a second sub for the same scope: warned, and the reason kept on the order
+        const subAgain = Object.entries(adds).filter(([k, x]) => "function" == typeof bbSubScope && bbSubScope(x.l) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)));
+        let againWhy = "";
+        // before award (Alan's Standard: long-lead items are released early only as an owner-approved exception): only
+        // long-lead lines of an unapproved estimate, with the reason the owner reads before approving
+        const early = picks.map((sel) => docOf(sel.split("#")[0])).filter((d) => d && !docBuyable(d));
+        let earlyWhy = "";
+        if (early.length) {
+          const bad = picks.filter((sel) => {
+            const d = docOf(sel.split("#")[0]);
+            return d && !docBuyable(d) && !("function" == typeof puLongLead && puLongLead(d.lines.find((x) => x.id === sel.split("#")[0])));
+          });
+          if (bad.length) return toast(`Only long-lead lines can be bought before ${early[0].number} is approved`), !1;
+        }
+        // the reason for a second subcontract on a line, or for buying before award, is asked in the sheet itself (its Why
+        // field, src/purchasing.js puCtpCheck), so the lines ticked are kept: a prompt over the sheet closed it
+        if (early.length || subAgain.length) {
+          const whyEl = m.querySelector("#pu-ctpwhy"),
+            why = String((whyEl && whyEl.value) || "").trim();
+          if (why.length < 8) {
+            whyEl && (whyEl.closest(".pu-ctpwhy").hidden = !1, whyEl.focus(), whyEl.scrollIntoView({ block: "center" }));
+            return toast(early.length ? `Say why ${early[0].number}'s long-lead line is bought before award: the owner reads it before approving` : "Say why a second subcontract order goes on this line: a second sub for the same scope buys it twice unless the scope is split"), !1;
+          }
+          early.length && (earlyWhy = why);
+          subAgain.length && (againWhy = why);
+        }
         const byVendor = {},
           srcDocs = new Set();
         picks.forEach((sel) => {
@@ -51795,6 +52013,8 @@ function ctPOPicker(projectId, preferId, preKey) {
             line: ctKey(d, l),
             code: l.code || codeForLine(l),
             received: 0,
+            // the field request this order covers (ticked under the line): it leaves the store run, so it is bought once
+            requestId: (m.querySelector(`[data-ctpreq="${sel}"]:checked`) || {}).value || "",
           }),
             it && !it.vendor && (it.vendor = vendor),
             it || l.vendor || (l.vendor = vendor);
@@ -51816,7 +52036,34 @@ function ctPOPicker(projectId, preferId, preKey) {
             matchedTxns: [],
             createdBy: S.project.userName || DB.me || "",
           };
+          // the need-by is set as the order is made: the earliest the site needs any of its lines (lineNeedBy). The
+          // listeners that refine it run on the button's click, and a confirm's replay (the budget test) skipped them, so
+          // an order made after "Yes, Continue" had no need-by and could not be issued (chain step 10, 11-05).
+          try {
+            lines.forEach((pl) => {
+              const ref = pl.line ? findLine(pl.line) : null,
+                nb = ref && "function" == typeof lineNeedBy ? lineNeedBy(p, ref.line) : null;
+              nb && nb.needBy && (!po.needBy || nb.needBy < po.needBy) && ((po.needBy = nb.needBy), (po.needTask = (nb.task && nb.task.name) || ""));
+            });
+          } catch (e) {}
+          againWhy && lines.some((pl) => subAgain.some(([k]) => k === pl.line)) && (po.secondOrderWhy = againWhy);
+          if (earlyWhy) {
+            const d0 = early[0];
+            (po.preAward = { estimateId: d0.id, number: d0.number, why: earlyWhy, at: appNowIso(), by: (currentUser() || {}).name || role() }), (po.notes = `Long-Lead, Before Award (${d0.number}). ${po.notes || ""}`.trim());
+          }
           return DB.pos.push(po), po;
+        });
+        made.forEach((po) => {
+          try {
+            // a line bought for a field request names what the site asked for (not the estimate line's title)
+            (po.lines || []).forEach((pl) => {
+              const q = pl.requestId && (p.requests || []).find((x) => x.id === pl.requestId);
+              q && q.what && ((pl.desc = pl.desc || pl.item), (pl.item = q.what));
+            });
+            (po.lines || []).some((pl) => pl.requestId) && "function" == typeof bbAfterOrder && bbAfterOrder(po, "from the order sheet");
+            po.secondOrderWhy && audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+            po.preAward && audit("po", po.id, "long-lead before award", "", po.preAward.number, po.preAward.why);
+          } catch (e) {}
         });
         audit(
           "po",
@@ -54568,13 +54815,6 @@ function selFromClip(c, extra) {
     );
   return selVerifyLocal(it), it;
 }
-function selPONumber(fm, projectId) {
-  const base = fm || "FM",
-    n =
-      DB.pos.filter((po) => po.projectId === projectId && String(po.number).startsWith(base + "-")).length +
-      1;
-  return `${base}-${n}`;
-}
 function selPORun(ids, opts) {
   opts = opts || {};
   const all = ids.map(selItem).filter(Boolean);
@@ -54617,7 +54857,7 @@ function selPORun(ids, opts) {
   for (const { pid: pid, fm: fm, fms: fms, vendor: vendor, list: list } of Object.values(groups)) {
     const po = {
       id: uid("po"),
-      number: selPONumber(fm, pid),
+      number: nextPO(),
       projectId: pid,
       vendor: vendor,
       date: today(),
@@ -54806,6 +55046,17 @@ function selReceive(it, where, o) {
           qty: null != o.shortQty ? +o.shortQty : Math.max(0, selQty(it) - (+o.qty || 0)),
           note: o.note,
         });
+    // the box's receipt is the order's receipt too: the PO line it was bought on takes the good count through the one
+    // writer (capped, one receipt row), so the order, Deliveries and Bill What Arrived agree (the CoS, 11-06: the
+    // Selections receipt never moved its PO line)
+    try {
+      const po = it.poId && (DB.pos || []).find((x) => x.id === it.poId && "cancelled" !== x.status),
+        pl = po && (po.lines || []).find((l) => l.selId === it.id),
+        good = ["ok", "short", "partial"].includes(cond) ? Math.max(0, +(null != o.qty ? o.qty : selQty(it)) || 0) : 0;
+      pl && good > 0 && "function" == typeof puReceiveLines && puReceiveLines(po, [{ l: pl, q: good }], `${it.name} received at the office${"ok" === cond ? "" : ` (${cond})`}`, "");
+    } catch (e) {
+      console.warn("selection receipt to its order", e);
+    }
   }
   if ("site" === where) {
     if (selHeld(it))
@@ -56091,10 +56342,15 @@ function procRecvModal() {
 function procReceiveModal(it, tag) {
   mbModal(
     `Receiving — ${esc(it.name)}`,
-    `\n    <p class="small muted" style="margin:0 0 10px">${selQty(it)} ${SEL_UNIT_LABEL[it.unit] || it.unit} expected from ${esc(it.vendor || "the vendor")}${it.sku ? ` · ${esc(it.sku)}` : ""}${it.finish ? ` · ${esc(it.finish)}` : ""}. Open it and look before it goes on a shelf — a short count found at installation is a four-week hole.</p>\n    <div class="grid2">\n      <div class="f"><label>Office tag</label><input data-f="tag" placeholder="121-4" value="${esc(tag || it.tag || "")}"></div>\n      <div class="f"><label>Quantity in the box</label><input data-f="qty" type="number" step="0.01" value="${selQty(it)}"></div>\n    </div>\n    <div class="f"><label>Condition</label>\n      <div class="recv-cond">${SEL_CONDITIONS.map(([k, l, c, why]) => `<label class="recv-opt"><input type="radio" name="cond" value="${k}" ${"ok" === k ? "checked" : ""}><span><b>${l}</b>${why ? `<span class="small muted">${why}</span>` : ""}</span></label>`).join("")}</div>\n    </div>\n    <div class="f"><label>Note</label><textarea data-f="note" rows="2" placeholder="Chip on the spout, photographed. Spoke to Dana at Ferguson."></textarea></div>`,
+    `\n    <p class="small muted" style="margin:0 0 10px">${selQty(it)} ${SEL_UNIT_LABEL[it.unit] || it.unit} expected from ${esc(it.vendor || "the vendor")}${it.sku ? ` · ${esc(it.sku)}` : ""}${it.finish ? ` · ${esc(it.finish)}` : ""}. Open it and look before it goes on a shelf — a short count found at installation is a four-week hole.</p>\n    <div class="grid2">\n      <div class="f"><label>Office tag</label><input data-f="tag" placeholder="121-4" value="${esc(tag || it.tag || "")}"></div>\n      <div class="f"><label>Quantity in the box</label><input data-f="qty" type="number" inputmode="decimal" step="0.01" value="" placeholder="${selQty(it)} expected"></div>\n    </div>\n    <div class="f"><label>Condition</label>\n      <div class="recv-cond">${SEL_CONDITIONS.map(([k, l, c, why]) => `<label class="recv-opt"><input type="radio" name="cond" value="${k}" ${"ok" === k ? "checked" : ""}><span><b>${l}</b>${why ? `<span class="small muted">${why}</span>` : ""}</span></label>`).join("")}</div>\n    </div>\n    <div class="f"><label>Note</label><textarea data-f="note" rows="2" placeholder="Chip on the spout, photographed. Spoke to Dana at Ferguson."></textarea></div>`,
     {
       submit: "Record it",
       onSubmit: (f) => {
+        // the count in the box is typed, never assumed: the expected quantity is only the hint
+        if ("" === String(f.qty == null ? "" : f.qty).trim()) {
+          const i = document.querySelector('#mbm [data-f="qty"]');
+          return i && "function" == typeof vfMark && vfMark(i, "Count what is in the box"), !1;
+        }
         const cond = document.querySelector('input[name="cond"]:checked')?.value || "ok";
         selReceive(it, "office", { tag: f.tag, qty: f.qty, condition: cond, note: f.note }),
           selVerifyLocal(it),
@@ -57684,6 +57940,12 @@ function rmConfirm(r, t, kind) {
   const it = selItem(r.itemId);
   it && selVerifyLocal(it), save();
 }
+// A return recorded from the credit that pays for it (a claim on an order, or a return nobody recorded): the returns
+// ledger is where a vendor credit is matched, so the credit has a home and the claim's money is accounted for.
+function rmReturnFrom(t, o) {
+  const it = { id: "", projectId: o.projectId || "", vendor: o.vendor || "", name: o.name || "Credit", dates: { office: t.date || today() } };
+  return retRaise(it, { qty: 1, unitCost: r2(+o.value || +t.amt || 0), reason: "credit", restockPct: 0, expect: "refund", note: o.note || "" });
+}
 function rmReject(r, t, why) {
   (rmRejects()[`${r.id}|${t.id}`] = { at: today(), by: currentUser()?.name || DB.me || "", why: why || "" }),
     audit("sel-return", r.id, "credit-rejected", null, { txn: t.id }),
@@ -57755,17 +58017,43 @@ function rmModal() {
         (b.onclick = () => {
           const t = DB.txns.find((x) => x.id === b.dataset.orphan);
           if (!t) return;
-          const open = retList().filter((r) => !RET_DONE.includes(r.status));
+          // A stray credit is matched to the return it belongs to, to an open claim on an order (short, damaged or
+          // wrong), or recorded as the return it was for when there is none yet (the coordinator's day: the Bedrosians
+          // credit could only be offered another vendor's return). The same vendor's come first.
+          const vn = String(t.vendor || t.desc || "").toLowerCase(),
+            same = (v) => !!v && vn.includes(String(v).toLowerCase().split(" ")[0]),
+            open = retList().filter((r) => !RET_DONE.includes(r.status)).sort((x, y) => same(y.vendor) - same(x.vendor)),
+            claims = (DB.pos || []).flatMap((po) => (po.issues || []).map((c, k) => ({ po, c, k })).filter((x) => x.c.claim && "open" === (x.c.status || "open"))).sort((x, y) => same(y.po.vendor) - same(x.po.vendor)),
+            V = [...new Set([t.vendor, ...(DB.vendors || []).map((v) => v.name)].filter(Boolean))];
           mbCloseModal(),
             mbModal(
-              "Attach a credit to a return",
-              `\n      <p class="small muted" style="margin:0 0 10px">${money(t.amt)} · ${esc(t.desc || "")} · ${fmt(t.date)}</p>\n      ${open.length ? `<div class="f"><label>Which return is this for?</label><select data-f="rid">${open.map((r) => `<option value="${r.id}">${esc(r.name)} — ${esc(r.vendor)}, paid ${money(retValue(r))}</option>`).join("")}</select></div>` : '<p class="small muted">There is no open return for this to belong to. If it is a credit for something else, categorise it in Banking.</p>'}`,
+              "Attach a Credit to a Return or Claim",
+              `\n      <p class="small muted" style="margin:0 0 10px">${money(t.amt)} · ${esc(t.desc || "")} · ${fmt(t.date)}</p>
+      <div class="f"><label>What Is It For</label><select data-f="for">${open.map((r) => `<option value="ret:${r.id}">Return: ${esc(r.name)} — ${esc(r.vendor)}, paid ${money(retValue(r))}</option>`).join("")}${claims.map((x) => `<option value="claim:${x.po.id}:${x.k}">Claim: ${esc(x.c.type)} on ${esc(x.po.number)} — ${esc(x.po.vendor)}, ${esc(String(x.c.qty || ""))} ${esc(x.c.item || "")}${x.c.amount ? `, ${money(x.c.amount)}` : ""}</option>`).join("")}<option value="new">A return not recorded yet: record it now</option></select></div>
+      <div class="f rm-new"><label>Vendor (for a new return)</label><select data-f="vendor">${V.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></div>
+      <div class="f rm-new"><label>What Went Back (for a new return)</label><input data-f="what" placeholder="e.g. 12 boxes Cloe 2.5x8, over-ordered"></div>`,
               {
-                submit: open.length ? "Attach it" : null,
+                submit: "Attach It",
                 onSubmit: (f) => {
-                  const r = retList().find((x) => x.id === f.rid);
+                  const k = String(f.for || "");
+                  let r = null,
+                    label = "";
+                  if (k.startsWith("ret:")) r = retList().find((x) => x.id === k.slice(4));
+                  else if (k.startsWith("claim:")) {
+                    const [, pid, ix] = k.split(":"),
+                      po = (DB.pos || []).find((x) => x.id === pid),
+                      c = po && (po.issues || [])[+ix];
+                    if (!c) return !1;
+                    r = rmReturnFrom(t, { vendor: po.vendor, projectId: po.projectId, name: `${c.item || "Line"}: ${c.type} on ${po.number}`, value: +c.amount || +t.amt, note: `Claim on ${po.number}` });
+                    "function" == typeof puClaimClose && puClaimClose(po, c, { how: "credit", amount: +t.amt, txnId: t.id, why: `Credit ${t.desc || ""} ${fmt(t.date)}`.trim() });
+                    label = ` (the ${c.type} claim on ${po.number} is closed)`;
+                  } else {
+                    const what = String(f.what || "").trim();
+                    if (!what) return "function" == typeof vfMark && vfMark(document.querySelector('#mbm [data-f="what"]'), "Say what went back"), !1;
+                    r = rmReturnFrom(t, { vendor: f.vendor || t.vendor || "", projectId: t.projectId || "", name: what, value: +t.amt, note: "Recorded from the credit" });
+                  }
                   if (!r) return !1;
-                  rmConfirm(r, t), renderProc(), toast(`${money(t.amt)} attached to ${r.name}`);
+                  rmConfirm(r, t), renderProc(), toast(`${money(t.amt)} attached to ${r.name}${label}`, { label: "Open", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) });
                 },
               },
             );
@@ -57916,6 +58204,26 @@ function poFunding(po) {
   const c = fundCheck(items);
   return c.rows.length ? c : null;
 }
+// A new draft made from an existing draft (a line moved to another vendor, a line split onto its own order): the
+// job, ship-to, dates, tax status, entity and FM group carry over; the number is the next PO-2026-nnn (nextPO); what
+// belongs to the first order's history does not: its approvals, sends, receipts, problems and payments, and its
+// shipping amount (copied, it counted twice; the tax rate carries). A different vendor also drops the old vendor's
+// id, contact, terms and sourcing choice.
+const PO_CHILD_DROP = ["approvedAt", "approvedBy", "issuedAt", "emailedAt", "emailDraft", "sentBack", "submittedAt", "submittedBy",
+    "supersededAt", "cancelReason", "overReason", "dupWarned", "flag", "followups", "issues", "receipts", "receivedOn", "slips",
+    "staged", "stale", "etaFrom", "repaired", "taxRepair", "templateFirst", "submittalId", "submOverride", "tradeVerified",
+    "tradeVerifiedBy"],
+  PO_VENDOR_DROP = ["vendorId", "contact", "termsPreset", "depositPct", "retainagePct", "sc", "sourcing"];
+function poChildOf(po, over) {
+  const kid = Object.assign({}, po);
+  PO_CHILD_DROP.forEach((k) => delete kid[k]);
+  if (over && over.vendor && String(over.vendor).toLowerCase() !== String(po.vendor || "").toLowerCase()) {
+    PO_VENDOR_DROP.forEach((k) => delete kid[k]);
+    const v = (DB.vendors || []).find((x) => String(x.name || "").toLowerCase() === String(over.vendor).toLowerCase());
+    v && (kid.vendorId = v.id);
+  }
+  return Object.assign(kid, { id: uid("po"), number: nextPO(), date: today(), status: "draft", matchedTxns: [], shipping: 0, madeFrom: po.number }, over || {});
+}
 function poMoveLine(po, lineId, vendor) {
   vendor = String(vendor || "").trim();
   const l = (po.lines || []).find((x) => x.id === lineId);
@@ -57930,16 +58238,7 @@ function poMoveLine(po, lineId, vendor) {
   );
   const fresh = !target;
   if (!target) {
-    (target = Object.assign({}, po, {
-      id: uid("po"),
-      number: selPONumber(po.fm || "", po.projectId),
-      vendor: vendor,
-      lines: [],
-      matchedTxns: [],
-      date: today(),
-      status: "draft",
-    })),
-      DB.pos.push(target);
+    (target = poChildOf(po, { vendor: vendor, lines: [] })), DB.pos.push(target);
     const run = (DB.sel.runs || []).find((r) => (r.poIds || []).includes(po.id));
     run && run.poIds.push(target.id);
   }
@@ -57971,13 +58270,7 @@ function poSplitLine(po, lineId) {
   const l = (po.lines || []).find((x) => x.id === lineId);
   if (!l || (po.lines || []).length < 2) return;
   if ("draft" !== po.status) return void toast("This order has been issued");
-  const target = Object.assign({}, po, {
-    id: uid("po"),
-    number: selPONumber(po.fm || "", po.projectId),
-    lines: [l],
-    matchedTxns: [],
-    status: "draft",
-  });
+  const target = poChildOf(po, { lines: [l] });
   DB.pos.push(target);
   const run = (DB.sel.runs || []).find((r) => (r.poIds || []).includes(po.id));
   if ((run && run.poIds.push(target.id), (po.lines = po.lines.filter((x) => x.id !== lineId)), l.selId)) {
@@ -61852,7 +62145,7 @@ if ("function" == typeof spCaptureModal) {
         (bar.className = "rc-go"),
           (bar.innerHTML = s.read
             ? `<span class="pill info">read</span><span class="small muted">${esc(s.read.source)} · ${(s.read.lines || []).length} printed lines · ${(s.read.ink || []).length} handwritten note${1 === (s.read.ink || []).length ? "" : "s"}${Math.abs(s.read.gap || 0) > 0.02 ? ` · ${money2(s.read.gap)} unclassified` : ""}</span><span class="grow"></span><button class="btn sm" id="rc-again">Read it again</button>`
-            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm primary" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
+            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
           shot.parentNode.insertBefore(bar, shot.nextSibling),
           bar.querySelector("#rc-go")?.addEventListener("click", () => rcRun(s)),
           bar.querySelector("#rc-again")?.addEventListener("click", () => rcRun(s));
@@ -63586,6 +63879,17 @@ function rtFor(o) {
           msg: `Takes ${po.number} to ${money(sofar)} on a ${money(t)} order`,
         });
     }
+  }
+  // Exceptions only (Alan, 10-26; the 11-05 call before Purchasing deploys): a bill against an order already issued,
+  // inside what the order holds, is routine whatever its size (the owner approved the commitment when the order went
+  // out), so the amount ladder stops at the project manager. Paid before approval, over the PO or with none, a bank
+  // change and a first payment still reach the owner, through their own reasons above.
+  if ("bill" === s.kind && s.poId && "owner" === byAmount && why.length && "amount" === why[0].kind) {
+    const po = (DB.pos || []).find((p) => p.id === s.poId);
+    po &&
+      ["issued", "partial", "received", "closed"].includes(po.status) &&
+      !why.some((w) => "over-po" === w.kind) &&
+      ((byAmount = "pm"), Object.assign(why[0], { role: "pm", msg: `${money(s.amount)} against ${po.number}, issued at ${money(poTotal(po).total)}: routine, the project manager approves it` }));
   }
   c.noLine &&
     (s.lines || []).length &&
@@ -65738,6 +66042,17 @@ if ("function" == typeof dsWire) {
   };
 }
 let frqLast = null;
+// back online: what was saved on the phone goes now, and the foreman is told it went
+"undefined" != typeof window &&
+  window.addEventListener("online", () => {
+    try {
+      const Q = (DB.projects || []).flatMap((p) => (p.requests || []).filter((r) => r.queued));
+      if (!Q.length) return;
+      Q.forEach((r) => ((r.sentAt = appNowIso()), delete r.queued));
+      const who = (DB.users || []).find((u) => "coord" === u.role)?.name || "the coordinator";
+      save(), render(), toast(`Back online: ${Q.length} request${1 === Q.length ? "" : "s"} sent to ${who}`, { label: "Open", run: () => setView("req") });
+    } catch (e) {}
+  });
 function frqReceipt(r) {
   if (!r) return;
   frqLast = r;
@@ -65745,10 +66060,14 @@ function frqReceipt(r) {
     garbage = "garbage" === r.kind,
     who = garbage
       ? DB.users.find((u) => "driver" === u.role)?.name || "the driver"
-      : r.ackBy || DB.users.find((u) => "coord" === u.role)?.name || "procurement";
+      : r.ackBy || DB.users.find((u) => "coord" === u.role)?.name || "procurement",
+    // offline, the request is on this phone only: it says so, and goes when the phone is back online (the field
+    // expert: "Chen has it now" with no signal, when she did not)
+    off = "undefined" != typeof navigator && !1 === navigator.onLine;
+  off && ((r.queued = appNowIso()), "function" == typeof save && save());
   mbModal(
-    garbage ? "Dump Run Requested" : "Request sent",
-    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${esc(who)} has it now${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}${esc(i.what)}</b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
+    garbage ? "Dump Run Requested" : off ? "Request Saved on This Phone" : "Request sent",
+    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${off ? `Saved on this phone. It goes to ${esc(who)} when you are back online` : `${esc(who)} has it now`}${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}<span data-nocase>${esc(i.what)}</span></b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
     {
       submit: "Done",
       onSubmit: () => {
@@ -65873,6 +66192,21 @@ function frqTidy() {
       box.querySelector(".sendbar") ||
         readBtn.disabled ||
         (readBtn.textContent = readBtn.textContent.replace(/^Read it$/, "Send the Request"));
+    // "Send the Request" sends: it reads the words and, when nothing needs asking, sends them in the same tap (the field
+    // expert: it only read them, and a second Send appeared under the list)
+    "Send the Request" !== readBtn.textContent.trim() ||
+      readBtn.dataset.frqOne ||
+      ((readBtn.dataset.frqOne = "1"),
+      (readBtn.dataset.frqN = String((comp.lines || []).length)),
+      readBtn.addEventListener("click", () => {
+        const n0 = +readBtn.dataset.frqN || 0,
+          t0 = Date.now(),
+          tick = () => {
+            if (comp.busy && Date.now() - t0 < 6e4) return void setTimeout(tick, 200);
+            !comp.busy && (comp.lines || []).length > n0 && !(comp.questions || []).length && "function" == typeof compSend && compSend();
+          };
+        setTimeout(tick, 0);
+      }));
   }
   const chips = box.querySelector(".chips"),
     stray = chips && chips.querySelector("#frq-dump");
@@ -66354,18 +66688,15 @@ if ("function" == typeof fRenderSite) {
                   got = (po.lines || []).filter((l) => (+l.received || 0) >= (+l.qty || 0)).length,
                   when = po.expected || po.needBy || "",
                   late = when && when < today() && got < n;
-                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${got} of ${n} received</div></div>\n          <button class="btn sm" data-f3recv="${esc(po.id)}">${got ? "Receive the rest" : "It arrived"}</button></div>`;
+                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}</div></div>\n          ${poIsSub(po) ? `<span class="small muted">Subcontract: progress, not a delivery</span>` : `<button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the rest" : "It arrived"}</button>`}</div>`;
               })
               .join("")
           : '<p class="small muted" style="margin:8px 0 0">Nothing is on order for this job.</p>'
       }\n    </div>`,
     ),
-      root.querySelectorAll("[data-f3recv]").forEach(
-        (b) =>
-          (b.onclick = () => {
-            "function" == typeof fReceive && fReceive("po", b.dataset.f3recv);
-          }),
-      );
+      // It Arrived opens the one receive sheet (the [data-f3recv] listener below, rcReceiveSome); its own onclick here
+      // also opened the staging sheet (fReceive) underneath it
+      void 0;
   };
 }
 if ("function" == typeof renderNav) {
@@ -66762,6 +67093,8 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "bank",
       "spend",
       "vendors",
+      // Orders: the PO behind a bill before it is paid (purchasing SPEC §4), read only
+      "po",
       "reports",
       "dashboard",
       "port",
@@ -66779,6 +67112,10 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "billing",
       "vendors",
       "po",
+      // every Purchasing page, read only (purchasing SPEC §4, decision 1; src/puorders.js puReadOnly)
+      "proc",
+      "rfq",
+      "recv",
       "reports",
       "dashboard",
       "port",
@@ -67704,7 +68041,14 @@ function f3ArrivingHtml() {
         // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
         const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
           got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
-        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
+        // what, when and where, and the office's note for the drop (the field expert, 11-05: the card showed the PO number
+        // but not the items, the time or the drop point, and "Curb drop, call Angel" never reached the foreman). No money.
+        const L = (po.lines || []).filter((l) => l.item || l.desc),
+          what = L.slice(0, 2).map((l) => `${r2(+l.qty || 0)} ${l.unit || ""} ${l.item || l.desc}`.replace(/\s+/g, " ").trim()).join(", ") + (L.length > 2 ? `, and ${L.length - 2} more` : ""),
+          v = (DB.vendors || []).find((x) => x.id === po.vendorId || x.name === po.vendor),
+          win = po.deliveryWindow || (v && v.deliveryWindow) || "",
+          where = po.shipToText || ({ site: "the job site", office: "the office", wh: "the warehouse" }[po.shipTo] || po.shipTo || "the job site");
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small f3-what" data-nocase>${esc(what || `${L.length} line${1 === L.length ? "" : "s"}`)}</div><div class="small ${late ? "bad-t" : "muted"}" data-nocase>${win ? `${esc(win)} · ` : ""}to ${esc(where)} · ${esc(po.number)}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div>${po.notes ? `<div class="small f3-note" data-nocase>Note: ${esc(po.notes)}</div>` : ""}</div>${poIsSub(po) ? "" : `<button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button>`}</div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -74571,7 +74915,7 @@ function cmRead(c) {
     push(
       "bill",
       amt
-        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}, matched to what was received` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}${poIsSub(poOf) ? ", a subcontract: approve it against the work in place" : (poOf.lines || []).some((l) => +l.received > 0) ? ", to be matched to what was received" : ", and nothing on it has been received yet: hold it until it arrives"}` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
         : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
@@ -74666,31 +75010,57 @@ function cmRead(c) {
             { out: !0, clientId: R.clientId, amount: amt },
           )
         : (() => {
-            // Which Buy Board line does it price? The material on the routed job whose words the quote uses.
+            // Which Buy Board line does it price? The material on the routed job whose trade is the quote's (the
+            // vendor's trade on file, else the trade the quote's words name) and whose own words the quote uses; words
+            // every room shares ("floor", "wall") never make a match on their own. Coordinator review 11-05: a windows
+            // quote priced the paint line because both said "3rd floor".
             const mats = proj ? proj.materials || [] : [],
+              // the trade gate below stops a match across trades; within a trade the room words ("garden bath") pick the line
+              GENERIC = /^(replacement|install|supply|quote|quoted|attached|price|prices|turnover)$/,
               words = new Set(
                 low
                   .replace(/[^a-z0-9 ]+/g, " ")
                   .split(/\s+/)
-                  .filter((w) => w.length > 3),
+                  .filter((w) => w.length > 3 && !GENERIC.test(w)),
               ),
+              qv = R.vendorId && (DB.vendors || []).find((x) => x.id === R.vendorId),
+              tr = (t) => {
+                try {
+                  return "function" == typeof rfqTradesOf ? rfqTradesOf(t) : new Set();
+                } catch (e) {
+                  return new Set();
+                }
+              },
+              cc = (k) => {
+                const ref = k && "function" == typeof findLine ? findLine(k) : null,
+                  c = ref && ("function" == typeof codeForLine ? codeForLine(ref.line) : ref.line.code);
+                return (("undefined" != typeof COST_CODES && COST_CODES.find((x) => x[0] === c)) || [])[1] || "";
+              },
+              VT = (() => {
+                const v = qv ? tr(`${qv.trade || ""} ${(qv.cats || []).join(" ")} ${qv.name || ""}`) : new Set();
+                return v.size ? v : tr(low);
+              })(),
               scored = mats
                 .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
-                .map((m) => ({
-                  m: m,
-                  n: String(m.name || "")
-                    .toLowerCase()
-                    .replace(/[^a-z0-9 ]+/g, " ")
-                    .split(/\s+/)
-                    .filter((w) => w.length > 3 && words.has(w)).length,
-                }))
+                .map((m) => {
+                  const MT = tr(`${m.name || ""} ${cc(m.line)}`),
+                    both = [...MT].filter((k) => VT.has(k)),
+                    hits = String(m.name || "")
+                      .toLowerCase()
+                      .replace(/[^a-z0-9 ]+/g, " ")
+                      .split(/\s+/)
+                      .filter((w) => w.length > 3 && words.has(w));
+                  return { m: m, both: both, hits: hits, n: both.length ? hits.length + 2 * both.length : 0 };
+                })
                 .filter((x) => x.n > 0)
                 .sort((a, b) => b.n - a.n),
               lead = (all.match(/(\d{1,3})\s*(?:-\s*\d{1,3}\s*)?(?:working |business )?(?:days|weeks)\b/i) || [])[0] || "",
-              mat = scored[0] ? scored[0].m : null;
+              best = scored[0] || null,
+              mat = best ? best.m : null,
+              because = best ? `because both are ${best.both.join(" and ")}${qv && qv.trade ? ` (${qv.name} is on file as ${qv.trade})` : ""}${best.hits.length ? ` and the quote names ${best.hits.slice(0, 3).map((w) => `“${w}”`).join(", ")}` : ""}; Apply to confirm` : "";
             push(
               "quote",
-              `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}${mat ? " · prices the Buy Board line “" + mat.name + "”" : ""}${lead ? " · " + lead + " lead" : ""}`,
+              `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}${mat ? " · prices the Buy Board line “" + mat.name + "” " + because : " · no Buy Board line of the same trade: it waits on a person"}${lead ? " · " + lead + " lead" : ""}`,
               {
                 out: !1,
                 vendorId: R.vendorId,
@@ -75389,7 +75759,7 @@ function renderComms() {
     )
     .join(
       "",
-    )}</div><span class="grow"></span>${open.length ? '<button class="btn sm primary" id="cm-applyall">Apply everything I\'m sure of</button>' : ""}<label class="btn sm">Import mail<input type="file" id="cm-file" accept=".json" hidden></label><button class="btn sm" id="cm-paste">Paste a message</button></div>\n    ${DB.comms.length ? "" : '<div class="empty">Nothing has come in yet. When the mailbox, the firm\'s number and the call line are connected, every message lands here already routed to its person, project and document, with what it means proposed underneath. Until then, import a mail export or paste a message.</div>'}\n    ${L.map(
+    )}</div><span class="grow"></span>${open.length ? '<button class="btn sm" id="cm-applyall">Apply everything I\'m sure of</button>' : ""}<label class="btn sm">Import mail<input type="file" id="cm-file" accept=".json" hidden></label><button class="btn sm" id="cm-paste">Paste a message</button></div>\n    ${DB.comms.length ? "" : '<div class="empty">Nothing has come in yet. When the mailbox, the firm\'s number and the call line are connected, every message lands here already routed to its person, project and document, with what it means proposed underneath. Until then, import a mail export or paste a message.</div>'}\n    ${L.map(
     (c) => {
       const P = c.proposals || [],
         isOpen = (P.filter((p) => !p.applied), cmOpen === c.id);
@@ -75461,6 +75831,7 @@ function cmWire(host) {
             p.applied ||
               !1 === p.on ||
               ["escalation", "bill", "question"].includes(p.kind) ||
+              ("quote" === p.kind && !p.out) ||
               (cmApply(c, p), n++);
           }),
         ),
@@ -89402,7 +89773,7 @@ function fmClockHome() {
     reqs = (S.requests || []).filter(
       (r) => r.by === fmMe() && !["delivered", "closed", "declined"].includes(r.status),
     );
-  card.innerHTML = `<div class="hd"><h3>Today</h3><span class="small muted">${esc(S.project.name)} · ${sh.start}–${sh.end}</span></div>\n    ${mine.length ? mine.map((t) => `<div class="fm-row"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${t.owner && "Crew" !== t.owner ? esc(t.owner) + " · " : ""}ends ${fmt(t.end)}${"in-progress" === t.status ? " · under way" : ""}</span></div><div class="fm-acts">${"in-progress" !== t.status ? `<button class="btn sm" data-fm-start="${t.id}">Started</button>` : ""}<button class="btn sm" data-fm-done="${t.id}">Done</button><button class="btn sm" data-fm-need="${t.id}">Need Something</button></div></div>`).join("") : `<div class="small muted">Nothing on the schedule with your name today — ask in Chat or check with ${esc(("function" == typeof fPeople && fPeople().pm?.name) || "the PM")}.</div>`}\n    ${reqs.length ? `<div class="fm-sub">Your requests</div>${reqs.map((r) => `<div class="fm-row" data-fm-req><div class="grow"><b>${esc("function" == typeof reqLabel ? reqLabel(r) : r.what || "")}</b><span class="small muted">${"new" === r.status ? "sent — not acknowledged yet" : void 0 !== REQ_STATUS && REQ_STATUS[r.status] ? REQ_STATUS[r.status][1] : r.status}${r.neededBy ? " · needed " + fmt(r.neededBy) : ""}</span></div></div>`).join("")}` : ""}`;
+  card.innerHTML = `<div class="hd"><h3>Today</h3><span class="small muted">${esc(S.project.name)} · ${sh.start}–${sh.end}</span></div>\n    ${mine.length ? mine.map((t) => `<div class="fm-row" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${t.owner && "Crew" !== t.owner ? esc(t.owner) + " · " : ""}ends ${fmt(t.end)}${"in-progress" === t.status ? " · under way" : ""}</span></div><div class="fm-acts">${"in-progress" !== t.status ? `<button class="btn sm" data-fm-start="${t.id}">Started</button>` : ""}<button class="btn sm" data-fm-done="${t.id}">Done</button><button class="btn sm" data-fm-need="${t.id}">Need Something</button><button class="btn sm" data-fm-block="${t.id}">Blocked</button></div></div>`).join("") : `<div class="small muted">Nothing on the schedule with your name today — ask in Chat or check with ${esc(("function" == typeof fPeople && fPeople().pm?.name) || "the PM")}.</div>`}\n    ${reqs.length ? `<div class="fm-sub">Your requests</div>${reqs.map((r) => `<div class="fm-row" data-fm-req><div class="grow"><b>${esc("function" == typeof reqLabel ? reqLabel(r) : r.what || "")}</b><span class="small muted">${"new" === r.status ? "sent — not acknowledged yet" : void 0 !== REQ_STATUS && REQ_STATUS[r.status] ? REQ_STATUS[r.status][1] : r.status}${r.neededBy ? " · needed " + fmt(r.neededBy) : ""}</span></div></div>`).join("")}` : ""}`;
   const mark = (id, st) => {
     const t = task(id);
     if (!t) return;
@@ -89414,21 +89785,16 @@ function fmClockHome() {
       log(`${t.name}: ${"done" === st ? "finished" : "started"} by ${fmMe()}`);
     } catch (e) {}
     save(), render();
-    const el = document.getElementById("toast");
-    el
-      ? ((el.innerHTML = `${esc(t.name.slice(0, 40))} — ${"done" === st ? "marked done" : "marked started"} <a href="#" data-fmundo style="margin-left:8px;color:inherit;text-decoration:underline">Undo</a>`),
-        el.classList.add("on"),
-        clearTimeout(el._t),
-        (el._t = setTimeout(() => el.classList.remove("on"), 5e3)),
-        (el.querySelector("[data-fmundo]").onclick = (e) => {
-          e.preventDefault(),
-            (t.status = was),
-            "done" === st && ((t.actualEnd = ""), (t.pct = 0)),
-            save(),
-            render(),
-            el.classList.remove("on");
-        }))
-      : toast(`${t.name} — ${"done" === st ? "marked done" : "marked started"}`);
+    // the one toast with its actions (44px targets); the inline Undo link was 30 by 16
+    toast(`${t.name.slice(0, 40)}: ${"done" === st ? "marked done" : "marked started"}`, [
+      { label: "Open", run: () => ("function" == typeof tkSheet ? tkSheet(`sched:${t.id}:${S.id}`) : setView("sched")) },
+      {
+        label: "Undo",
+        run: () => {
+          (t.status = was), "done" === st && ((t.actualEnd = ""), (t.pct = 0)), save(), render();
+        },
+      },
+    ]);
   };
   card
     .querySelectorAll("[data-fm-start]")
@@ -89441,6 +89807,8 @@ function fmClockHome() {
         (b.onclick = () => {
           try {
             (DB.field = DB.field || {}), (DB.field.draft = `for ${task(b.dataset.fmNeed)?.name || ""}: `);
+            // the request carries the task it is for (and so its job and cost line): the composer reads comp.taskId
+            "undefined" != typeof comp && comp && (comp.taskId = b.dataset.fmNeed);
           } catch (e) {}
           fmGoReq();
         }),
@@ -89465,7 +89833,7 @@ function fmWeek() {
     .map((d) => {
       const list = fmActive(d).filter(fmMine),
         all = fmActive(d).filter((t) => !fmMine(t));
-      return `<div class="card fm-card fm-day ${d === td ? "today" : ""}"><div class="hd"><h3>${d === td ? "Today · " : ""}${fmtL(d)}</h3><span class="small muted">${list.length ? list.length + " for you" : "—"}${all.length ? " · " + all.length + " other" : ""}</span></div>\n      ${list.map((t) => `<div class="fm-row"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ${fmt(t.start)} → ${fmt(t.end)}</span></div></div>`).join("") || '<div class="small muted">Nothing with your name.</div>'}\n      ${all.length ? `<details class="fm-others"><summary>Also on site that day</summary>${all.map((t) => `<div class="small muted">${esc(t.name)} · ${esc(t.owner || "crew")}</div>`).join("")}</details>` : ""}</div>`;
+      return `<div class="card fm-card fm-day ${d === td ? "today" : ""}"><div class="hd"><h3>${d === td ? "Today · " : ""}${fmtL(d)}</h3><span class="small muted">${list.length ? list.length + " for you" : "—"}${all.length ? " · " + all.length + " other" : ""}</span></div>\n      ${list.map((t) => `<div class="fm-row" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · <span>${fmt(t.start)}</span> – <span>${fmt(t.end)}</span></span></div></div>`).join("") || '<div class="small muted">Nothing with your name.</div>'}\n      ${all.length ? `<details class="fm-others"><summary>Also on site that day</summary>${all.map((t) => `<div class="small muted">${esc(t.name)} · ${esc(t.owner || "crew")}</div>`).join("")}</details>` : ""}</div>`;
     })
     .join(
       "",
@@ -104151,7 +104519,10 @@ if ("function" == typeof fRenderToday) {
             .slice(0, 8)
             .map(
               (x) =>
-                `<div class="f-row"><div class="grow"><b>${esc(x.title)}</b><span class="small muted">${esc(x.project || "")}${x.due ? ` · ${x.late ? "was due " : "due "}${fmt(x.due)}` : ""}</span></div>${x.late ? '<span class="pill bad">late</span>' : ""}</div>`,
+                // the one task row (src/taskfield.js): it opens the sheet and has Done
+                "function" == typeof tkRowOpenHtml
+                  ? tkRowOpenHtml(x)
+                  : `<div class="f-row"><div class="grow"><b>${esc(x.title)}</b><span class="small muted">${esc(x.project || "")}${x.due ? ` · ${x.late ? "was due " : "due "}${fmt(x.due)}` : ""}</span></div>${x.late ? '<span class="pill bad">late</span>' : ""}</div>`,
             )
             .join("") +
           (mine.length > 8
@@ -107134,7 +107505,7 @@ function rpOpen(preset) {
   const p = document.createElement("div");
   (p.id = "rp-panel"),
     (p.className = phone ? "rp-sheet" : "rp-drawer"),
-    (p.innerHTML = `<div class="rp-hd"><h3>${"client" === role() ? "Something Wrong?" : "Report a Problem"}</h3><button class="btn ghost sm" id="rp-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>\n    <div class="rp-bd">\n      ${rpMineHtml()}\n      <p class="small muted rp-at">On <b>${esc(ctx.screenTitle || ctx.screen)}</b>${ctx.subTab && ctx.subTab !== (ctx.screenTitle || ctx.screen) ? ` · ${esc(ctx.subTab)}` : ""}. I already know where you were and what you pressed — just say what went wrong.</p>\n      <div class="f"><label>What Went Wrong</label>${rpChips("what", RP_WHAT, rpDraft.what)}</div>\n      <div class="f"><label>Tell Me More${"other" === rpDraft.what ? "" : ' <span class="muted">(optional)</span>'}</label><textarea id="rp-text" rows="3" placeholder="What were you doing right before it went wrong?">${esc(rpDraft.text)}</textarea></div>\n      ${phone ? "" : `<div class="f"><label>What Should Have Happened <span class="muted">(optional)</span></label><textarea id="rp-expect" rows="2" placeholder="The total should have been the change order plus the base contract.">${esc(rpDraft.expect)}</textarea></div>`}\n      <div class="f"><label>How Bad Is It</label>${rpChips("bad", RP_BAD, rpDraft.bad)}</div>\n      ${phone ? "" : `<div class="f"><label>How Often <span class="muted">(optional)</span></label>${rpChips("often", RP_OFTEN, rpDraft.often)}</div>`}\n      <div class="f"><label>Add a Picture <span class="muted">(optional)</span></label>\n        <label class="btn rp-pic">${phone ? "Take a Photo" : "Attach a Screenshot"}<input type="file" accept="image/*" ${phone ? 'capture="environment"' : ""} id="rp-photo" hidden></label>\n        <div id="rp-photo-note" class="small muted">${rpDraft.photo ? "A picture is attached. Remove it with the button above." : "Nothing is captured from the screen unless you attach it. Whatever is in the picture is in the report."}</div></div>\n      <label class="chk"><input type="checkbox" id="rp-ok" ${rpDraft.ok ? "checked" : ""}><span class="chk-t">Okay to Ask You About This<span class="small muted"> — your name goes on the report. Leave it off and only your role does.</span></span></label>\n      <details class="rp-what"><summary>What Gets Sent</summary><pre class="rp-pre">${esc(rpPreview(ctx))}</pre></details>\n    </div>\n    <div class="rp-ft"><button class="btn" id="rp-cancel">Cancel</button><button class="btn primary" id="rp-send">Send the Report</button></div>`),
+    (p.innerHTML = `<div class="rp-hd"><h3>${"client" === role() ? "Something Wrong?" : "Report an App Problem"}</h3><button class="btn ghost sm" id="rp-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>\n    <div class="rp-bd">\n      ${rpMineHtml()}\n      <p class="small muted rp-at">On <b>${esc(ctx.screenTitle || ctx.screen)}</b>${ctx.subTab && ctx.subTab !== (ctx.screenTitle || ctx.screen) ? ` · ${esc(ctx.subTab)}` : ""}. I already know where you were and what you pressed — just say what went wrong.</p>\n      <div class="f"><label>What Went Wrong</label>${rpChips("what", RP_WHAT, rpDraft.what)}</div>\n      <div class="f"><label>Tell Me More${"other" === rpDraft.what ? "" : ' <span class="muted">(optional)</span>'}</label><textarea id="rp-text" rows="3" placeholder="What were you doing right before it went wrong?">${esc(rpDraft.text)}</textarea></div>\n      ${phone ? "" : `<div class="f"><label>What Should Have Happened <span class="muted">(optional)</span></label><textarea id="rp-expect" rows="2" placeholder="The total should have been the change order plus the base contract.">${esc(rpDraft.expect)}</textarea></div>`}\n      <div class="f"><label>How Bad Is It</label>${rpChips("bad", RP_BAD, rpDraft.bad)}</div>\n      ${phone ? "" : `<div class="f"><label>How Often <span class="muted">(optional)</span></label>${rpChips("often", RP_OFTEN, rpDraft.often)}</div>`}\n      <div class="f"><label>Add a Picture <span class="muted">(optional)</span></label>\n        <label class="btn rp-pic">${phone ? "Take a Photo" : "Attach a Screenshot"}<input type="file" accept="image/*" ${phone ? 'capture="environment"' : ""} id="rp-photo" hidden></label>\n        <div id="rp-photo-note" class="small muted">${rpDraft.photo ? "A picture is attached. Remove it with the button above." : "Nothing is captured from the screen unless you attach it. Whatever is in the picture is in the report."}</div></div>\n      <label class="chk"><input type="checkbox" id="rp-ok" ${rpDraft.ok ? "checked" : ""}><span class="chk-t">Okay to Ask You About This<span class="small muted"> — your name goes on the report. Leave it off and only your role does.</span></span></label>\n      <details class="rp-what"><summary>What Gets Sent</summary><pre class="rp-pre">${esc(rpPreview(ctx))}</pre></details>\n    </div>\n    <div class="rp-ft"><button class="btn" id="rp-cancel">Cancel</button><button class="btn primary" id="rp-send">Send the Report</button></div>`),
     document.body.appendChild(p),
     p.querySelectorAll("[data-rpchips]").forEach((g) =>
       g.querySelectorAll("[data-rpv]").forEach(
@@ -107480,9 +107851,10 @@ function rpMount() {
     const b = document.createElement("button");
     (b.id = "rp-btn"),
       (b.className = "btn rp-btn no-print"),
-      (b.title = "Report a Problem"),
-      b.setAttribute("aria-label", "Report a Problem");
-    const mine = "client" === role() ? "Something Wrong?" : "Report a Problem";
+      (b.title = "Report an App Problem"),
+      b.setAttribute("aria-label", "Report an App Problem");
+    // the app's own feedback, not a problem on site (the crew read the flag as "report a site problem", lane T1)
+    const mine = "client" === role() ? "Something Wrong?" : "Report an App Problem";
     (b.title = mine),
       b.setAttribute("aria-label", mine),
       (b.innerHTML = `${RP_FLAG}<span class="rp-btn-t">${mine}</span>`),
@@ -108818,7 +109190,7 @@ function renderCommsInbox() {
     }</div>`,
     tools =
       (open.length
-        ? '<button class="btn sm primary" id="cm-applyall">Apply Everything I\'m Sure Of</button>'
+        ? '<button class="btn sm" id="cm-applyall">Apply Everything I\'m Sure Of</button>'
         : "") +
       '<label class="btn sm">Import Mail<input type="file" id="cm-file" accept=".json" hidden></label><button class="btn sm" id="cm-paste">Paste a Message</button>';
   (host.innerHTML = `<div class="row wrap no-print ib-bar" style="gap:8px;align-items:center;margin-bottom:10px">\n      <div class="ctabs" style="margin:0;border:0">${[
@@ -111875,7 +112247,7 @@ function csScan() {
       }),
     ),
     (DB.pos || []).forEach((po) =>
-      push("purchase order", `${po.number || "PO"} · ${po.vendor}`, {
+      push("purchase order", `${po.number || "PO"}${(po.aliases || []).length ? ` (was ${po.aliases.join(", ")})` : ""} · ${po.vendor}`, {
         d: po.date || "",
         amt: (() => {
           try {
@@ -121798,7 +122170,7 @@ function rxReadLines(c, d) {
     lines
       .map(
         (l, i) =>
-          `<tr class="${l.parent ? "rx-child" : ""}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
+          `<tr class="${l.parent ? "rx-child" : ""}" data-rxline="${esc(l.id)}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
             int
               ? `<td class="int money">${l.cost ? money(l.cost) : ""}</td><td class="int money">${((l) => {
                   const a = lineAmount(l, d),
@@ -122399,13 +122771,6 @@ if (
       const k = { estimate: "est", co: "co", invoice: "inv" }[kind];
       DB.company.seq[k] = (DB.company.seq[k] || 0) + 1;
       return `${{ estimate: DB.company.pe, co: DB.company.pc, invoice: DB.company.pi }[kind]}-${today().slice(0, 4)}-${String(DB.company.seq[k]).padStart(3, "0")}`;
-    }),
-  "function" == typeof nextPO &&
-    (nextPO = function () {
-      return (
-        (DB.company.seq.po = (DB.company.seq.po || 0) + 1),
-        `${DB.company.poPrefix || "PO"}-${today().slice(0, 4)}-${String(DB.company.seq.po).padStart(3, "0")}`
-      );
     }),
   "function" == typeof mReadPhoto)
 ) {
@@ -148851,70 +149216,10 @@ function rcPORead(po) {
   const lock = root.querySelector(".rx-lock");
   lock && (lock.textContent = rcPOStatusLine(po));
 }
+// Receive Some on the order, and the foreman's It Arrived and Check In: the one receive sheet (puReceive, the
+// Purchasing pages). It had its own sheet here, pre-filled at what was still to come (BACKLOG 1.36).
 function rcReceiveSome(po) {
-  const left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
-    rows = (po.lines || []).filter((l) => left(l) > 0);
-  rows.length
-    ? mbModal(
-        `Receive Some — ${esc(po.number)}`,
-        `<p class="small muted" style="margin:0 0 8px">${esc(po.vendor)} · enter what arrived today. Leave a line at 0 if nothing came.</p>\n    <div class="rc-recv">${rows.map((l) => `<label class="rc-recvrow"><span class="grow"><b>${esc(l.item || l.desc || "Line")}</b><span class="small muted"> · ${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")} in</span></span><input type="number" inputmode="decimal" min="0" max="${left(l)}" step="any" value="${left(l)}" data-f="q_${esc(l.id)}" aria-label="${esc(l.item || "Line")} received"></label>`).join("")}</div>\n    ${mbF("Note", '<input data-f="note" placeholder="Optional — packing slip, condition">')}`,
-        {
-          submit: "Record Receipt",
-          onSubmit: (f) => {
-            const got = rows
-              .map((l) => ({ l: l, q: Math.min(left(l), Math.max(0, +f["q_" + l.id] || 0)) }))
-              .filter((x) => x.q > 0);
-            if (!got.length) {
-              const i = document.querySelector('#mbm [data-f^="q_"]');
-              return i && "function" == typeof vfMark && vfMark(i, "Enter how many arrived"), !1;
-            }
-            got.forEach(({ l: l, q: q }) => {
-              l.received = r2((+l.received || 0) + q);
-              const m = l.materialId && mat(l.materialId);
-              m &&
-                l.received >= (+l.qty || 0) - 0.001 &&
-                ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
-            });
-            const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
-            (po.status = full ? "received" : "partial"),
-              full && (po.receivedOn = today()),
-              (po.receipts = po.receipts || []).push({
-                date: today(),
-                t: nowStamp(),
-                by: rcWho(),
-                lines: got.map(({ l: l, q: q }) => ({
-                  lineId: l.id,
-                  item: l.item || l.desc || "",
-                  unit: l.unit || "",
-                  qty: q,
-                })),
-                slip: "",
-                note: f.note || "",
-              });
-            try {
-              audit(
-                "po",
-                po.id,
-                "received",
-                "",
-                got.map(({ l: l, q: q }) => `${l.item || l.desc}: ${q}`).join("; "),
-                f.note || "",
-              );
-            } catch (e) {}
-            log(
-              `${po.number}: received ${got.map(({ l: l, q: q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`).join(", ")}${f.note ? " — " + f.note : ""}`,
-            ),
-              save(),
-              render();
-            const amt = r2(got.reduce((a, x) => a + x.q * (+x.l.price || 0), 0));
-            rcReceiptToast(
-              po,
-              `${po.number} · ${po.vendor} — ${full ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt ? `, ${money(amt)}` : ""}`,
-            );
-          },
-        },
-      )
-    : toast(`${po.number} has nothing left to receive`);
+  return po && "function" == typeof puReceive ? puReceive(po) : void 0;
 }
 function rcReceiptToast(po, text) {
   const L = [];
@@ -148934,6 +149239,11 @@ function rcReceiptToast(po, text) {
 if ("function" == typeof poAction) {
   const base = poAction;
   poAction = function (po, a) {
+    // a subcontract's progress is measured or approved on its bill, never received (Receive All cleared Carlos's balance)
+    if (("receive" === a || "receivepartial" === a) && po && poIsSub(po)) return void toast(poSubWords(po));
+    // Receive All on the order is the same class as Everything Arrived (the CoS, 11-06): the whole remainder in one tap
+    // with nothing counted. It opens the one receive sheet, where All Here on each line is the person's count.
+    if ("receive" === a && po && "draft" !== po.status && "function" == typeof puReceive) return void rcReceiveSome(po);
     if ("receivepartial" === a && po && "draft" !== po.status) return void rcReceiveSome(po);
     const was = po ? po.status : "",
       r = base.apply(this, arguments);
@@ -165804,7 +166114,8 @@ if ("function" == typeof fReceive) {
     base.apply(this, arguments);
     try {
       const m = document.getElementById("mbm");
-      if (!m || m.querySelector("[data-rcvshot]")) return;
+      // an order's receive sheet has its own photo of the slip
+      if ("po" === k || !m || m.querySelector("[data-rcvshot], [data-puslip]")) return;
       let shot = null;
       m.querySelector(".mbm-bd").insertAdjacentHTML(
         "beforeend",
@@ -181455,6 +181766,10 @@ function cmBillPO(c, p) {
     nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
     byNum = nums.map((n) => (DB.pos || []).find((po) => String(po.number).toUpperCase() === n)).filter((po) => po && "cancelled" !== po.status);
   if (byNum.length) return byNum[0];
+  // an order renumbered from an FM-style number is still found by the number the vendor was sent (po.aliases)
+  const old = [...new Set((text.match(/\bFM\d*-\d+\b/gi) || []).map((x) => x.toUpperCase()))],
+    byOld = old.map((n) => (DB.pos || []).find((po) => (po.aliases || []).some((a) => String(a).toUpperCase() === n))).filter((po) => po && "cancelled" !== po.status);
+  if (byOld.length) return byOld[0];
   const vn = String((p && p.vendor) || "").toLowerCase(),
     open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)) : [];
   return 1 === open.length ? open[0] : null;
@@ -182181,6 +182496,58 @@ function coiChaseItem(r) {
     return c;
   };
 }
+// The coordinator's Do Now: an order due today (or past due) and not all in is a card, its yes the one receive sheet
+// (count, All Here, Record Receipt); a subcontract's due date is its pay application, never a receipt. The month on
+// integ15: "Receive the Tino white oak on 9/18" was on no card of Chen's (E163). Not a new list: it rides mApprovals.
+// ranked as the Standard ranks a delivery: schedule (the work waits on it), checked against the order the same day
+"undefined" != typeof STD_MAP && (STD_MAP.podue = STD_MAP.podue || { p: "schedule", c: ["pb", "procurement", "standards", /deliver/i] });
+const poDueRows = () =>
+  (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && po.expected && po.expected <= today() && ("function" == typeof poIsSub && poIsSub(po) ? !("function" == typeof lkPOBillState && lkPOBillState(po).full) : (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 0.001)));
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "coord" === role())) return out;
+      return out.concat(
+        poDueRows().map((po) => {
+          const sub = "function" == typeof poIsSub && poIsSub(po),
+            late = po.expected < today(),
+            what = (po.lines || []).slice(0, 2).map((l) => `${r2(+l.qty || 0)} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ").trim()).join(", ");
+          return {
+            kind: "podue",
+            id: po.id,
+            sev: late ? "bad" : "warn",
+            n: sub ? "Pay App" : "Delivery",
+            title: `${po.number} · ${po.vendor}: ${sub ? "its pay application" : what} ${late ? `was due ${fmt(po.expected)}` : "due today"}`,
+            detail: sub ? "a subcontract: its progress is billed by pay application, not received" : `${poRecvWords(po)} · count what came`,
+            yes: sub ? "New Pay Application" : "Receive",
+            amount: r2(poTotal(po).total || 0),
+            due: po.expected,
+            who: "coord",
+            open: { view: "po" },
+          };
+        }),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "podue" === it.kind) {
+        const po = (DB.pos || []).find((x) => x.id === it.id);
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes);
+        po && (c.run = () => ("function" == typeof poIsSub && poIsSub(po) ? lkBillPO(po) : rcReceiveSome(po)));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
 const coiWords = (r) =>
   `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
@@ -182513,7 +182880,10 @@ const RFQ_REGIONS = ["NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT",
     closed: "Closed",
   },
   RFQ_OPEN = ["sent", "quoting", "leveled", "negotiating"],
-  rfqOutNyc = (v) => !!v && ["NY-NJ-CT", "Out of state"].includes(v.region || ""),
+  // the vendor record keeps region as a short code (nyc, boroughs, tristate, out); the RFQ's own words are longer
+  RFQ_REGION_WORD = { nyc: "NYC Manhattan/Brooklyn", boroughs: "NYC other boroughs", tristate: "NY-NJ-CT", out: "Out of state" },
+  rfqRegionWord = (g) => RFQ_REGION_WORD[String(g || "").toLowerCase()] || g || "",
+  rfqOutNyc = (v) => !!v && ["NY-NJ-CT", "Out of state"].includes(rfqRegionWord(v.region)),
   rfqInit = () => ((DB.rfqs = DB.rfqs || []), (DB.rfqProspects = DB.rfqProspects || []), (DB.sourcing = DB.sourcing || { research: {}, outcomes: [] }), DB.rfqs),
   rfqById = (id) => rfqInit().find((r) => r.id === id || r.number === id) || null,
   rfqJob = (r) => (DB.projects || []).find((p) => p.id === (r && r.projectId)) || null,
@@ -182760,7 +183130,7 @@ function rfqCreate(o) {
 
 // ---- 2. the foreman's review: the For You card on Today and a sheet built for the phone
 function rfqForemanRows() {
-  return rfqInit().filter((r) => "foreman-review" === r.status);
+  return rfqInit().filter((r) => "foreman-review" === r.status || ("open" === r.fmBeside && RFQ_OPEN.includes(r.status)));
 }
 const RFQ_ICON = {
   minus: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>',
@@ -182770,7 +183140,7 @@ const RFQ_ICON = {
 function rfqForemanCardHtml() {
   const R = rfqForemanRows();
   return R.length
-    ? `<div class="card f-card rfq-fm"><div class="hd"><h3>Materials to Check</h3><span class="small muted">${R.length}</span></div>${R.map((r) => `<div class="f-row rfq-fm-row"><div class="grow"><b data-nocase>${esc(r.number)} · ${esc(r.title)}</b><span class="small">${r.lines.length} lines for ${esc(rfqJobName(r))} · on site by ${fmt(r.needBy)} · the assistant drafted it from the plans</span></div><button class="btn rfq-tap" data-rfqrev="${esc(r.id)}">Review</button></div>`).join("")}</div>`
+    ? `<div class="card f-card rfq-fm"><div class="hd"><h3>Materials to Check</h3><span class="small muted">${R.length}</span></div>${R.map((r) => `<div class="f-row rfq-fm-row"><div class="grow"><b data-nocase>${esc(r.number)} · ${esc(r.title)}</b><span class="small">${r.lines.length} lines for ${esc(rfqJobName(r))} · on site by ${fmt(r.needBy)} · ${r.takeoff ? "the assistant drafted it from the plans" : "from the estimate lines"}${RFQ_OPEN.includes(r.status) ? "; already out to the vendors, so a change goes to them" : ""}</span></div><button class="btn rfq-tap" data-rfqrev="${esc(r.id)}">Review</button></div>`).join("")}</div>`
     : "";
 }
 function rfqLineCardHtml(l, edit) {
@@ -182779,13 +183149,14 @@ function rfqLineCardHtml(l, edit) {
 function rfqForemanSheet(id) {
   const r = rfqById(id);
   if (!r) return toast("That request is gone");
-  const can = "foreman-review" === r.status,
+  const can = "foreman-review" === r.status || ("open" === r.fmBeside && RFQ_OPEN.includes(r.status)),
+    beside = "foreman-review" !== r.status,
     work = JSON.parse(JSON.stringify(r.lines)),
     body = () =>
       `<div class="rfq-sheet"><p class="small" style="margin:0 0 8px" data-nocase>${esc(rfqJobName(r))} · on site by ${fmtL(r.needBy)}. ${esc(r.drawingsNote || "")}</p>${(r.assumptions || []).length ? `<div class="note small" style="margin:0 0 8px"><b>Assumed:</b> <span data-nocase>${esc(r.assumptions.join("; "))}</span></div>` : ""}${r.note ? `<div class="note warn small" style="margin:0 0 8px" data-nocase>${esc(r.note)}</div>` : ""}<div id="rfq-fm-lines">${work.map((l) => rfqLineCardHtml(l, can)).join("")}</div>${can ? `<div class="rfq-add"><b class="small">Add a Line</b><input id="rfq-add-item" placeholder="What, e.g. 2x6 x 10' stud" aria-label="Item"><div class="rfq-add-row"><input id="rfq-add-qty" type="number" min="1" inputmode="numeric" placeholder="How many" aria-label="How many"><input id="rfq-add-unit" placeholder="ea" value="ea" aria-label="Unit"><button class="btn rfq-tap" id="rfq-add-go">Add</button></div><label class="small" for="rfq-fm-note" style="display:block;margin-top:10px">A note for the assistant, to send it back</label><textarea id="rfq-fm-note" rows="2" placeholder="e.g. use 12 inch spacing at the bath walls, waste 15%"></textarea></div>` : `<p class="small muted">${esc(RFQ_STATUS[r.status] || r.status)}: nothing here waits on you.</p>`}</div>`;
   const m = mbModal(`${esc(r.number)} · Check the Quantities`, body(), {
     submit: can ? "Approve" : null,
-    alt: can ? { label: "Send Back", keep: !0, run: () => rfqForemanBack(r, work) } : null,
+    alt: can && !beside ? { label: "Send Back", keep: !0, run: () => rfqForemanBack(r, work) } : null,
     onSubmit: () => (rfqForemanApprove(r, work), !0),
   });
   m && m.classList.add("rfq-mbm");
@@ -182845,6 +183216,14 @@ function rfqDiff(before, after) {
 }
 function rfqForemanApprove(r, work) {
   const ch = rfqDiff(r.lines, work.filter((l) => +l.qty > 0));
+  if ("foreman-review" !== r.status) {
+    // the check beside a request that already went out: his changes are recorded for the coordinator to tell the vendors
+    const co0 = rfqUserOf("coord");
+    (r.foremanOk = { by: rfqMe(), at: appNowIso(), changes: ch, beside: !0 }), (r.fmBeside = "done"), ch.length && ((r.fmChanges = ch), (r.fmLinesWas = JSON.parse(JSON.stringify(r.lines))), (r.lines = work.filter((l) => +l.qty > 0)), delete r.fmTold);
+    rfqHist(r, "checked by the foreman", ch.length ? `${ch.join("; ")}: ${co0 ? co0.name : "the coordinator"} tells the vendors` : "quantities as sent");
+    save(), render();
+    return rcToast(`${r.number} checked${ch.length ? ` with ${ch.length} change${1 === ch.length ? "" : "s"} — ${co0 ? co0.name : "purchasing"} tells the vendors` : ""}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  }
   (r.lines = work.filter((l) => +l.qty > 0)), (r.status = "purchasing"), (r.foremanOk = { by: rfqMe(), at: appNowIso(), changes: ch });
   rfqHist(r, "approved by the foreman", ch.length ? ch.join("; ") : "quantities as drafted");
   const co = rfqUserOf("coord");
@@ -182948,23 +183327,71 @@ function rfqVendorRecord(v) {
     onTime = due.filter((po) => (po.receipts || []).every((x) => !x.date || x.date <= (po.expected || po.needBy))).length;
   return { pos: P.length, spent: r2(P.reduce((a, po) => a + poTotal(po).total, 0)), bills: B.length, delivered: due.length, onTime: onTime };
 }
+// The trade a request buys and the trade a vendor sells, in the words the firm uses (cost code, item, the vendor's
+// trade and name). A vendor is suggested and ticked only when the trades meet: the coordinator review (11-05) found a
+// lumber yard ticked for millwork because it was the one vendor outside NYC.
+const RFQ_TRADES = [
+  ["millwork", /millwork|cabinet|casework|built-?ins?|vanit/],
+  ["stone", /\bstone|slab|countertop|marble|quartz|granite|soapstone/],
+  ["windows", /window|glazing|sash/],
+  ["doors", /\bdoors?\b/],
+  ["tile", /\btiles?\b|porcelain|ceramic|mosaic/],
+  ["plumbing", /plumb|faucet|valve|toilet|lavatory|\bsinks?\b|shower|drain|fixtures?\b/],
+  ["electrical", /electric|wiring|panel|circuit/],
+  ["lighting", /lighting|light fixture|picture light|sconce|pendant|\blamps?\b/],
+  // a lumber yard sells the trim package too (casing, base, stool: primed poplar or pine; "trim" alone is left out, it is also shower trim and painted trim), so a trim line is the
+  // yard's trade (the month, 11-06: Brooklyn Lumber's BLQ-2210 for casing and base found no Buy Board line of its trade)
+  ["lumber", /lumber|framing|\bstuds?\b|joist|plywood|timber|blocking|rough carpentry|casing|mouldings?|moldings?|baseboard|\bstool\b|poplar/],
+  ["drywall", /drywall|\bgwb\b|gypsum|cement board|taping/],
+  ["insulation", /insulation|\bbatts?\b/],
+  ["paint", /\bpaint|primer|restoration/],
+  ["flooring", /flooring|hardwood|white oak|\blvp\b|stair runner/],
+  ["demolition", /demo(lition)?\b|strip-?out|wrecking|dumpster|disposal/],
+  ["scaffold", /scaffold|sidewalk shed/],
+  ["masonry", /masonry|\bbrick|pointing|brownstone repair/],
+  ["appliances", /appliance|\brange\b|washer|dryer|refrigerator|dishwasher/],
+  // door and cabinet hardware, never "framing hardware" (hangers and nails go with the lumber)
+  ["hardware", /door hardware|cabinet hardware|antique hardware|\bknobs?\b|hinges?\b|door sets?\b|centre post|\bpulls\b/],
+  ["hvac", /hvac|radiator|radiant|boiler|heating/],
+];
+function rfqTradesOf(text) {
+  const t = String(text || "").toLowerCase();
+  return new Set(RFQ_TRADES.filter(([, re]) => re.test(t)).map(([k]) => k));
+}
+function rfqReqTrades(r) {
+  const cc = (c) => (("undefined" != typeof COST_CODES && COST_CODES.find((x) => x[0] === c)) || [])[1] || "",
+    T = rfqTradesOf([r.category, r.title].concat((r.lines || []).map((l) => `${l.item || ""} ${l.spec || ""} ${cc(l.costCode)}`)).join(" "));
+  // a request in a broad category alone ("Materials", "Subcontract") names no trade
+  return T;
+}
+const rfqVendorTrades = (v) => rfqTradesOf(`${v.trade || ""} ${(v.cats || []).join(" ")} ${v.name || ""}`);
+function rfqTradeMatch(v, r, RT) {
+  const R = RT || rfqReqTrades(r),
+    V = rfqVendorTrades(v);
+  return [...V].filter((k) => R.has(k));
+}
 function rfqProposeVendors(r) {
-  // when no vendor on file is tagged with the category (a sub scope, a new trade), every vendor is offered unticked so the
-  // coordinator picks by hand; subs first for a subcontract scope (buying day findings 7 and 8: it dead-ended)
-  const V0 = (DB.vendors || []).filter((v) => rfqCatMatch(v, r.category) || v.rfqSuggest),
-    V = V0.length ? V0 : (DB.vendors || []).slice(),
-    big = rfqBasketGuess(r) > 2500,
+  // the vendors whose trade meets the request's (or who carry its category); when none does (a new trade, a broad
+  // scope), every vendor is offered unticked so the coordinator picks by hand; subs first for a subcontract scope
+  const RT = rfqReqTrades(r),
+    hit = (v) => rfqCatMatch(v, r.category) || rfqTradeMatch(v, r, RT).length > 0,
+    V0 = (DB.vendors || []).filter((v) => !v.archived && (hit(v) || v.rfqSuggest)),
+    V = V0.length ? V0 : (DB.vendors || []).filter((v) => !v.archived),
+    big = rfqBasketGuess(r) > 2500 || !!r.sub,
     out = V.map((v) => {
       const rec = rfqVendorRecord(v),
+        tm = rfqTradeMatch(v, r, RT),
         because = [];
-      rfqCatMatch(v, r.category) && because.push({ t: `sells ${String(r.category).toLowerCase()} (on file as ${v.trade || (v.cats || [])[0]})`, rule: "" });
+      tm.length
+        ? because.push({ t: `sells ${tm.join(" and ")} (on file as ${v.trade || (v.cats || [])[0] || "a " + tm[0] + " vendor"})`, rule: "" })
+        : rfqCatMatch(v, r.category) && because.push({ t: `sells ${String(r.category).toLowerCase()} (on file as ${v.trade || (v.cats || [])[0]})`, rule: "" });
       because.push(
         rec.pos
           ? { t: `${rec.pos} order${1 === rec.pos ? "" : "s"} with us, ${money(rec.spent)}${rec.delivered ? `; ${rec.onTime} of ${rec.delivered} delivered on time` : ""}${rec.bills ? `; ${rec.bills} bill${1 === rec.bills ? "" : "s"}` : ""}`, rule: "landed" }
-          : { t: "no orders with us yet: this RFQ sets the benchmark", rule: "" },
+          : { t: "no orders with us yet: this request sets the benchmark", rule: "" },
       );
       v.region
-        ? because.push({ t: `region ${v.region}${rfqOutNyc(v) ? " — outside NYC" : ""}`, rule: rfqOutNyc(v) && r.shippable ? "beyond" : "" })
+        ? because.push({ t: `region ${rfqRegionWord(v.region)}${rfqOutNyc(v) ? " — outside NYC" : ""}`, rule: rfqOutNyc(v) && r.shippable && hit(v) ? "beyond" : "" })
         : because.push({ t: "no region on file — set it below", rule: "" });
       v.channel &&
         because.push(
@@ -182973,24 +183400,36 @@ function rfqProposeVendors(r) {
             : { t: big ? "a yard (middleman): fine for one delivery, and it can hold the price for this job" : "a yard (middleman): fine for a one-off order", rule: "direct" },
         );
       v.rfqSuggest && because.push({ t: `added from ${v.rfqSuggest}`, rule: "" });
-      V0.length || because.unshift({ t: `on file${v.trade ? ` as ${v.trade}` : ""}, not tagged ${String(r.category || "this category").toLowerCase()}: tick to ask them`, rule: "" });
-      const score = (rfqCatMatch(v, r.category) ? 4 : 0) + (r.sub && "function" == typeof scIsSub && scIsSub(v) ? 3 : 0) + (rec.pos ? 2 : 0) + (rfqOutNyc(v) && r.shippable ? 2 : 0) + (v.rfqSuggest ? 1 : 0) - ("harlem" === String(v.id).replace("vrfq_", "") ? 0 : 0);
-      return { v: v, rec: rec, because: because, score: score };
+      v.email || because.push({ t: "no email on file: add it here to ask them", rule: "" });
+      V0.length || because.unshift({ t: `on file${v.trade ? ` as ${v.trade}` : ""}, not a ${[...RT][0] || String(r.category || "this").toLowerCase()} vendor: tick to ask them`, rule: "" });
+      const score = (hit(v) ? 4 : 0) + (r.sub && "function" == typeof scIsSub && scIsSub(v) ? 3 : 0) + (rec.pos ? 2 : 0) + (rfqOutNyc(v) && r.shippable && hit(v) ? 2 : 0) + (v.rfqSuggest ? 1 : 0);
+      return { v: v, rec: rec, because: because, score: score, trade: tm };
     }).sort((a, b) => b.score - a.score || String(a.v.name).localeCompare(b.v.name));
-  // pick: everyone in the category up to five, and at least one outside NYC for a shippable material
+  // pick: the trade's vendors, best first, up to five; one outside NYC for a shippable material, from the same trade
+  // (a ticked vendor with no email shows a box for it on its row; Send asks for it rather than drop the vendor)
   const pick = V0.length ? out.slice(0, 5).map((x) => x.v.id) : [];
-  if (r.shippable && !out.some((x) => pick.includes(x.v.id) && rfqOutNyc(x.v))) {
-    const o = out.find((x) => rfqOutNyc(x.v));
+  if (r.shippable && V0.length && !out.some((x) => pick.includes(x.v.id) && rfqOutNyc(x.v))) {
+    const o = out.find((x) => rfqOutNyc(x.v) && hit(x.v));
     o && pick.push(o.v.id);
   }
-  return { list: out, pick: pick, need3: big, rule: big ? rfqWhy("quotes3") : "" };
+  // the rest of the vendors on file, unticked, for a person to add by hand (folded under More Vendors)
+  const others = V0.length ? (DB.vendors || []).filter((v) => !v.archived && !V0.includes(v)).sort((a, b) => String(a.name).localeCompare(b.name)).map((v) => ({ v: v, rec: null, because: [{ t: `on file${v.trade ? ` as ${v.trade}` : ""}, not this trade: tick to ask them`, rule: "" }].concat(v.email ? [] : [{ t: "no email on file", rule: "" }]), score: 0, trade: [] })) : [];
+  return { list: out, others: others, pick: pick, need3: big, trades: [...RT], short: big && pick.length < 3, rule: big ? rfqWhy("quotes3") : "" };
 }
 // The size of the buy before any price comes back: the cheapest landed basket once quotes are in; before that
 // the estimate line's budget left, capped (a guess is never shown as a price, only used to apply the 3-quote rule).
 function rfqBasketGuess(r) {
   const L = r.quotes && r.quotes.length ? rfqLevel(r) : null;
   if (L && L.baskets.length) return L.baskets[0].landed;
-  return r.estLine ? Math.min((null != r.estLine.matLeft ? r.estLine.matLeft : r.estLine.left) || 0, 1e9) : 0;
+  if (r.estLine) return Math.min((null != r.estLine.matLeft ? r.estLine.matLeft : r.estLine.left) || 0, 1e9);
+  // a request started from lines: their budgets (material, else the whole line). Only the size of the buy for the
+  // three-quote rule, never a price. Never what is LEFT on the line (integ15: a line its other orders had used up read
+  // $0 left, so a $75,000 millwork line went to one vendor with no reason): what is left is not what this buy costs.
+  let t = 0;
+  try {
+    rfqBudgetsNow(r).forEach((b) => (t += +(null != b.budget ? b.budget : b.whole) || 0));
+  } catch (e) {}
+  return r2(t);
 }
 
 // ---- 4. out to vendors: one email per vendor, the line sheet in the body and as a CSV
@@ -183058,7 +183497,29 @@ function rfqStockTake(r, lineId) {
   rcToast(`${n} ${x.line.unit || x.chk.match.unit} ${x.chk.match.name} come from stock: a pick for ${stockFirst("driver")}; ${r.number} ${left > 0 ? `asks for ${left}` : "drops the line"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
   return req;
 }
-function rfqSend(r, vendorIds, due) {
+// The three-quote rule (Standard: three quotes on any purchase over $2,500 and on every subcontract), checked at Send:
+// fewer than three vendors goes out only with a reason, logged with who and when and named in the Standard's words.
+function rfqThreeCheck(r, n, reason) {
+  const need = rfqBasketGuess(r) > 2500 || !!r.sub;
+  if (!need || n >= 3) return { ok: !0, need: need };
+  const why = String(reason || "").trim();
+  return rfqReasonOk(why) ? { ok: !0, need: need, reason: why } : { ok: !1, need: need, msg: `${r.number} is not sent: ${r.sub ? "a subcontract" : "a buy over $2,500"} needs three quotes (${rfqWhy("quotes3")}). Pick ${3 - n} more vendor${3 - n === 1 ? "" : "s"}, or write why fewer will do${why ? " as a sentence (15 characters or more)" : ""}.` };
+}
+// A reason the owner can read: a sentence, never a word ("ok", "urgent").
+const rfqReasonOk = (s) => {
+  const t = String(s || "").trim();
+  return t.length >= 15 && t.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length >= 3;
+};
+// Priced first-round quotes: one per vendor, a price someone read (never a reply with no price).
+const rfqPricedCount = (r) => new Set((r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).map((q) => q.vendorId)).size;
+const rfqNeedsThree = (r) => !!r.sub || rfqBasketGuess(r) > 2500;
+function rfqAwardThree(r, reason) {
+  const n = rfqPricedCount(r);
+  if (!rfqNeedsThree(r) || n >= 3) return { ok: !0, priced: n };
+  const why = String(reason || "").trim();
+  return rfqReasonOk(why) ? { ok: !0, priced: n, reason: why } : { ok: !1, priced: n, msg: `${r.number}: ${n} priced quote${1 === n ? "" : "s"} on ${r.sub ? "a subcontract" : "a buy over $2,500"}. ${rfqWhy("quotes3")}. Write why you are awarding on fewer than three${why ? " as a sentence (15 characters or more)" : ""}, or wait for more quotes.` };
+}
+function rfqSend(r, vendorIds, due, opts) {
   if ("purchasing" !== r.status) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status} — it was sent already`), !1;
   try {
     const g = stockRfqGuard(r);
@@ -183071,6 +183532,12 @@ function rfqSend(r, vendorIds, due) {
   const noMail = V.filter((v) => !v.email);
   if (noMail.length) return toast(`${noMail.map((v) => v.name).join(", ")} ${1 === noMail.length ? "has" : "have"} no email on file — add it under Vendors, or leave them out`), !1;
   if (!due || due < today()) return toast("Set the date the quotes are due — today or later"), !1;
+  const three = rfqThreeCheck(r, V.length, (opts || {}).reason);
+  if (!three.ok) return toast(three.msg), !1;
+  three.reason && ((r.fewerQuotes = { reason: three.reason, n: V.length, by: rfqMe(), at: appNowIso(), on: today(), rule: rfqWhy("quotes3") }), rfqHist(r, "fewer than three vendors", `${V.length} asked; ${rfqMe()}'s reason: ${three.reason} (${rfqWhy("quotes3")})`));
+  try {
+    three.reason && audit("rfq", r.id, "fewer-quotes", "3", String(V.length), three.reason);
+  } catch (e) {}
   (r.vendors = V.map((v) => ({ id: v.id, name: v.name, region: v.region || "", invitedAt: appNowIso() }))), (r.dueDate = due);
   const csv = { filename: `${r.number}.csv`, mime: "text/csv", text: rfqCsv(r) };
   V.forEach((v) => rfqDeliver(r, v, `${r.number} — request for quote: ${r.title}`, rfqMailBody(r, v), "rfq", csv));
@@ -183080,8 +183547,79 @@ function rfqSend(r, vendorIds, due) {
     audit("rfq", r.id, "sent", "purchasing", "sent", `${V.length} vendors, due ${due}`);
   } catch (e) {}
   save(), render();
-  rcToast(`${r.number} ${"gmail-draft" === (r.sent[0] || {}).via ? "drafted in your mailbox for" : "sent to"} ${V.length} vendor${1 === V.length ? "" : "s"} — quotes due ${fmtL(due)}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  rcToast(`${r.number} ${"gmail-draft" === (r.sent[0] || {}).via ? "drafted in your mailbox for" : "sent to"} ${V.length} vendor${1 === V.length ? "" : "s"} — quotes due ${fmtL(due)}${opts && opts.note ? ` · ${opts.note}` : ""}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
   return !0;
+}
+// A vendor added after the request went out gets the same request (the line sheet and the due date); the three-quote
+// count and the leveling include them from then on.
+function rfqAddVendor(r, vid) {
+  if (!r || !["sent", "quoting", "leveled"].includes(r.status)) return toast(`${r ? r.number : "The request"} is not out to vendors`), null;
+  const v = rfqVendor(vid);
+  if (!v) return toast("Pick a vendor"), null;
+  if ((r.vendors || []).some((x) => x.id === v.id)) return toast(`${v.name} is on ${r.number} already`), null;
+  if (!v.email) return toast(`${v.name} has no email on file — add it under Vendors first`), null;
+  (r.vendors = r.vendors || []).push({ id: v.id, name: v.name, region: v.region || "", invitedAt: appNowIso(), added: !0 });
+  rfqDeliver(r, v, `${r.number} — request for quote: ${r.title}`, rfqMailBody(r, v), "rfq", { filename: `${r.number}.csv`, mime: "text/csv", text: rfqCsv(r) });
+  "leveled" === r.status && (r.status = "quoting");
+  r.fewerQuotes && r.vendors.length >= 3 && (r.fewerQuotes.closedBy = `${v.name} added ${fmtL(today())}`);
+  rfqHist(r, "vendor added", `${v.name}, after the request went out; quotes due ${fmtL(r.dueDate)}`);
+  try {
+    audit("rfq", r.id, "vendor-added", "", v.name, "");
+  } catch (e) {}
+  save(), render();
+  rcToast(`${r.number} sent to ${v.name} — ${r.vendors.length} vendor${1 === r.vendors.length ? "" : "s"} asked, quotes due ${fmtL(r.dueDate)}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  return v;
+}
+// The foreman changed a quantity after the request went out: Tell the Vendors shows the email, and the coordinator's
+// tap sends it to every invited vendor (her tap is the approval, as Send RFQ's is). The award waits until it went.
+const rfqChangeMail = (r, v) => ({
+  subject: `Change to ${r.number} — revised quantities`,
+  body: `Hi ${String(v.contact || v.name).split(" ")[0]},\n\nOur foreman checked the quantities on ${r.number} (${r.title}). Please quote these instead:\n\n${(r.fmChanges || []).map((c) => `- ${c}`).join("\n")}\n\nThe updated line sheet:\nLine | Item | Qty | Unit\n${r.lines.map((l) => `${l.id} | ${l.item} | ${l.qty} | ${l.unit}`).join("\n")}\n\nEverything else stands; quotes are still due ${fmtL(r.dueDate)}. If you have quoted already, send the new totals.\n\nThank you,\n${rfqMe()}\nSmartDesign`,
+});
+function rfqTellVendors(r) {
+  if (!r || !(r.fmChanges || []).length) return toast("No change to tell the vendors"), null;
+  const V = (r.vendors || []).map((iv) => rfqVendor(iv.id)).filter(Boolean);
+  if (!V.length) return toast("Nobody was asked on this request"), null;
+  const m = mbModal(
+    `Tell the Vendors · ${esc(r.number)}`,
+    `<div class="rfq-sheet"><p class="small">To ${esc(V.map((v) => v.name).join(", "))}: one email each, ${esc(r.number)} in the subject.</p><div class="note small" data-nocase style="white-space:pre-wrap">${esc(rfqChangeMail(r, V[0]).body)}</div></div>`,
+    { submit: `Send to ${V.length} Vendor${1 === V.length ? "" : "s"}`, onSubmit: () => void rfqTellSend(r) },
+  );
+  m && m.classList.add("rfq-mbm");
+  return m;
+}
+function rfqTellSend(r) {
+  const V = (r.vendors || []).map((iv) => rfqVendor(iv.id)).filter(Boolean);
+  V.forEach((v) => {
+    const M = rfqChangeMail(r, v);
+    rfqDeliver(r, v, M.subject, M.body, "change", null);
+  });
+  const draft = "gmail-draft" === ((r.sent || []).slice(-1)[0] || {}).via;
+  r.fmTold = { n: V.length, by: rfqMe(), at: appNowIso(), on: today(), via: draft ? "gmail-draft" : "outbox" };
+  rfqHist(r, "the change sent to the vendors", `${V.length} email${1 === V.length ? "" : "s"}, approved by ${rfqMe()}: ${r.fmChanges.join("; ")}`);
+  save(), render();
+  rcToast(`${r.number}: the change ${draft ? "drafted in your mailbox for" : "sent to"} ${V.length} vendor${1 === V.length ? "" : "s"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  return V.length;
+}
+function rfqAddVendorHtml(r) {
+  // every vendor not asked yet, the request's trade first
+  const have = new Set((r.vendors || []).map((x) => x.id)),
+    RT = rfqReqTrades(r),
+    P = (DB.vendors || [])
+      .filter((v) => !v.archived && !have.has(v.id))
+      .map((v) => ({ v: v, trade: rfqTradeMatch(v, r, RT) }))
+      .sort((a, b) => b.trade.length - a.trade.length || String(a.v.name).localeCompare(b.v.name));
+  return P.length
+    ? `<div class="rfq-row rfq-addvrow" style="margin-top:10px"><select id="rfq-addv-sel" aria-label="Vendor to add">${P.map((x) => `<option value="${esc(x.v.id)}">${esc(x.v.name)}${x.trade.length ? ` (${esc(x.trade.join(", "))})` : ""}${x.v.email ? "" : " (no email on file)"}</option>`).join("")}</select><button class="btn" id="rfq-addv">Add a Vendor</button></div>`
+    : "";
+}
+// An email typed on a vendor row is kept on the vendor (the person typed it to ask them): the next request finds it.
+function rfqTakeEmails(host) {
+  (host || document).querySelectorAll("[data-rfqem]").forEach((i) => {
+    const v = rfqVendor(i.dataset.rfqem),
+      e = String(i.value || "").trim();
+    v && !v.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && (v.email = e);
+  });
 }
 // Did the vendor get it? The outbox path sends on the press; a Gmail draft counts once it left Drafts (the
 // Demo Workspace marks it SENT); a real mailbox's draft is the person's to send, and the reply is what tells us.
@@ -183273,7 +183811,10 @@ function rfqParseQuote(r, text) {
     amt = (s) => (String(s).match(/\$?\d[\d,]*\.\d{2}\b/g) || []).map((x) => +x.replace(/[$,]/g, ""));
   r.lines.forEach((l) => {
     const re = new RegExp(`^\\s*${l.id}\\b(.*)$`, "im"),
-      m = T.match(re);
+      // prose names the line inside a sentence ("We can do L1 the studs at $6.40 (300 ea, $1,920.00), and L2 ..."):
+      // the line's own clause, up to the next line number, with the lot's breakdown ("incl. ... @ $4.50") left out
+      inl = T.match(new RegExp(`\\b${l.id}\\b([^\\n]*?)(?=,?\\s*(?:and\\s+)?\\bL\\d+\\b|\\n|$)`, "i")),
+      m = T.match(re) || (inl ? [inl[0], inl[1].replace(/\(\s*incl[^)]*\)/gi, " ")] : null);
     if (!m) return void lines.push({ lineId: l.id, missing: !0, unit: null, note: "not in the reply" });
     const rest = m[1];
     if (/no quote|not stocked|not available|can'?t (?:do|quote)|n\/a/i.test(rest)) return void lines.push({ lineId: l.id, missing: !0, unit: null, note: rest.replace(/^[\s|]+/, "").trim() });
@@ -183289,13 +183830,87 @@ function rfqParseQuote(r, text) {
       return m ? +m[1].replace(/,/g, "") : null;
     },
     freight = /free delivery|delivered free|no charge for delivery/i.test(T) ? 0 : money1(/(?:freight|delivery)[^$\n\d]*\$?\s*(\d[\d,]*(?:\.\d{2})?)/i),
-    lead = money1(/lead time[^\d\n]*(\d+)\s*(?:working |business )?days?/i),
+    // lead time as a table says it, or as a sub writes it ("start 5 working days from award", "two weeks out")
+    lead = (() => {
+      const d = money1(/lead time[^\d\n]*(\d+)\s*(?:working |business )?days?/i) ?? money1(/\b(?:start|starts|can start|mobili[sz]e)\b[^\d\n]{0,20}(\d+)\s*(?:working |business )?days?/i);
+      if (null != d) return d;
+      const w = T.match(/\b(\d+|one|two|three|four|five|six|eight|ten|twelve)\s+weeks?\b(?:\s+(?:out|lead|from award|to start))?/i);
+      return w && /out|lead|award|start|deliver/i.test(T.slice(w.index, w.index + w[0].length + 20)) ? 7 * (+w[1] || RFQ_NUMW[w[1].toLowerCase()] || 0) || null : null;
+    })(),
     valid = money1(/(?:valid|holds?|good)\s*(?:for)?\s*(\d+)\s*days/i),
     min = money1(/minimum order[^$\n\d]*\$?\s*(\d[\d,]*(?:\.\d{2})?)/i),
     refer = (T.match(/try ([A-Z][\w&.' -]+?),\s*([\w.+-]+@[\w.-]+)/) || []).slice(1);
-  return { lines: lines, freight: freight, lead: lead, valid: valid, min: min, refer: refer.length ? { name: refer[0].trim(), email: refer[1] } : null };
+  // a reply that never echoes the line numbers: a sub's bid in a sentence prices the request as one sum. On a one-line
+  // request (a sub scope, a lump sum) that sum is the line's price; on several lines it cannot be split by guess, so
+  // the bid waits on a person (price needed) with the sum named.
+  const P = lines.every((x) => x.missing) ? rfqProsePrice(T) : null;
+  if (P && 1 === r.lines.length) {
+    const l = r.lines[0],
+      q = +l.qty || 1;
+    lines[0] = { lineId: l.id, unit: r2(P.total / q), ext: P.total, check: !1, sub: !1, subText: "", missing: !1, prose: P.how };
+  }
+  const lot = P && r.lines.length > 1 ? P : null;
+  return { lines: lines, freight: freight, lead: lead, valid: valid, min: min, refer: refer.length ? { name: refer[0].trim(), email: refer[1] } : null, prose: P ? P.how : "", lot: lot ? lot.total : null, scope: rfqScopeOf(T) };
+}
+// Prices written as people write them: "$19,400 lump sum", "Total 15,550", "twenty one thousand eight hundred".
+const RFQ_NUMW = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+function rfqWordsToNum(s) {
+  let total = 0,
+    cur = 0,
+    any = !1;
+  for (const w of String(s || "").toLowerCase().split(/[\s-]+/).filter(Boolean)) {
+    if ("and" === w) continue;
+    if (null != RFQ_NUMW[w]) (cur += RFQ_NUMW[w]), (any = !0);
+    else if ("hundred" === w) (cur = (cur || 1) * 100), (any = !0);
+    else if ("thousand" === w) (total += (cur || 1) * 1e3), (cur = 0), (any = !0);
+    else return null;
+  }
+  return any ? total + cur : null;
+}
+function rfqProsePrice(text) {
+  const T = String(text || ""),
+    num = (s) => +String(s).replace(/[$,\s]/g, ""),
+    ok = (n) => isFinite(n) && n >= 50;
+  // a stated total or lump sum wins: the last one said, since a reply may itemise before it totals
+  const tot = [...T.matchAll(/\b(?:grand total|total|lump[- ]sum|all[- ]in|for the lot|our price|our number|our bid|price is|bid is)\b[^$\d\n]{0,12}\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/gi)].map((m) => num(m[1])).filter(ok);
+  if (tot.length) return { total: tot[tot.length - 1], how: "the total stated in the reply" };
+  const ls = [...T.matchAll(/\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)\s*(?:lump[- ]sum|total|all[- ]in|for (?:the|everything)|ls\b)/gi)].map((m) => num(m[1])).filter(ok);
+  if (ls.length) return { total: ls[ls.length - 1], how: "the lump sum in the reply" };
+  const W = T.toLowerCase().match(/\b(?:(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)(?:[\s-]+(?:and[\s-]+)?|\b)){2,}/);
+  const wn = W && rfqWordsToNum(W[0].replace(/\band\s*$/, "").trim());
+  if (wn && ok(wn) && /hundred|thousand/.test(W[0])) return { total: wn, how: `"${W[0].trim()}" in words` };
+  const D = [...T.matchAll(/\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d{3,}(?:\.\d{2})?)/g)].map((m) => num(m[1])).filter(ok);
+  return 1 === D.length ? { total: D[0], how: "the one price in the reply" } : null;
+}
+// What a bid says it covers and leaves out, in its own words: subs are leveled on scope, not only on price.
+function rfqScopeOf(text) {
+  const T = String(text || ""),
+    clip = (s) => String(s || "").replace(/\s+/g, " ").replace(/[:;,.\s]+$/, "").trim().slice(0, 140),
+    inc = [],
+    exc = [];
+  [...T.matchAll(/\b(?:incl\.?|including|includes|included:)\s+([^.:\n$]{3,140})/gi)].forEach((m) => inc.push(clip(m[1])));
+  /\beverything included\b|\ball[- ]in\b|\bturn[- ]?key\b/i.test(T) && inc.push((T.match(/\beverything included\b|\ball[- ]in\b|\bturn[- ]?key\b/i) || [""])[0].toLowerCase());
+  [...T.matchAll(/\b(?:excl\.?|excluding|excludes|not included:?|does not include)\s+([^.:\n$]{3,140})/gi)].forEach((m) => exc.push(clip(m[1])));
+  [...T.matchAll(/([A-Za-z][A-Za-z ,&/-]{2,60}?)\s+(?:by others|not included|excluded)\b/gi)].forEach((m) => exc.push(clip(m[1]) + " by others"));
+  // an itemised bid names what it carries: "labor $11,200, dumpsters 3 @ $1,150 = $3,450, protection $900"
+  if (!inc.length) {
+    const it = [...T.matchAll(/(?:^|[,:;.]\s*)([a-z][a-z /&-]{2,30}?)\s+(?:\d+\s*@\s*)?\$\s?\d/gi)].map((m) => m[1].trim().replace(/^(?:and|plus)\s+/i, "")).filter((w) => !/total|price|sum|bid|for|do it/i.test(w));
+    it.length > 1 && inc.push(it.join(", "));
+  }
+  return { includes: [...new Set(inc)].join("; "), excludes: [...new Set(exc)].join("; ") };
 }
 const rfqQuoteOf = (r, vid, round) => (r.quotes || []).filter((q) => q.vendorId === vid && (!round || q.round === round)).sort((a, b) => b.round - a.round)[0] || null;
+// Leveled once every invited vendor answered or the due date passed, and only on prices: a reply with no price read
+// (Price Needed) holds the leveling until a person enters it.
+function rfqLevelCheck(r) {
+  if (!r || "quoting" !== r.status) return !1;
+  const Q1 = (r.vendors || []).map((iv) => rfqQuoteOf(r, iv.id, 1)).filter(Boolean),
+    priced = Q1.filter((q) => !q.unreadable).length;
+  if (Q1.length > priced) return r.priceNeededAt || ((r.priceNeededAt = today()), rfqHist(r, "price needed", `${Q1.length - priced} of ${Q1.length} replies carry no price I could read`)), !1;
+  if (!priced || !(Q1.length >= (r.vendors || []).length || (r.dueDate && today() > r.dueDate))) return !1;
+  return (r.status = "leveled"), delete r.priceNeededAt, rfqHist(r, "leveled", `${priced} of ${(r.vendors || []).length} vendors priced`), !0;
+}
+const rfqPriceNeeded = (r) => (r.quotes || []).filter((q) => q.unreadable && RFQ_OPEN.includes(r.status));
 function rfqIngest(opts) {
   const o = opts || {};
   let n = 0;
@@ -183318,7 +183933,7 @@ function rfqIngest(opts) {
         text = [c.text].concat(c.att.map((a) => a.text || "")).join("\n"),
         P = rfqParseQuote(r, text),
         read = P.lines.filter((x) => !x.missing).length,
-        q = { id: rfqIdOf("q"), vendorId: v.id, vendor: v.name, round: round, sourceId: c.id, commId: c.commId || "", file: pdf ? pdf.filename : "", from: c.from, date: c.date || today(), readAt: appNowIso(), unreadable: !1, confirmed: null, lines: [], freight: 0, lead: null, validUntil: "", min: 0, flags: [] };
+        q = { id: rfqIdOf("q"), vendorId: v.id, vendor: v.name, round: round, sourceId: c.id, commId: c.commId || "", file: pdf ? pdf.filename : "", from: c.from, date: c.date || today(), readAt: appNowIso(), unreadable: !1, priceNeeded: !1, confirmed: null, lines: [], freight: 0, lead: null, validUntil: "", min: 0, flags: [], replyText: String(text || "").slice(0, 2000), includes: P.scope.includes, excludes: P.scope.excludes };
       if (2 === round && prev) {
         // round two restates only what moved: the rest carries over from round one, said as such
         q.lines = prev.lines.map((pl) => {
@@ -183328,9 +183943,11 @@ function rfqIngest(opts) {
         (q.freight = null != P.freight ? P.freight : prev.freight), (q.lead = null != P.lead ? P.lead : prev.lead), (q.min = null != P.min ? P.min : prev.min), (q.validUntil = prev.validUntil);
         q.flags.push(read ? `${read} line${1 === read ? "" : "s"} revised; the rest as quoted in round one` : "no change: prices firm as quoted");
       } else if (!read) {
-        (q.unreadable = !0), q.flags.push(`I could not read prices from this reply${pdf && !String(pdf.text || "").trim() ? ` — ${pdf.filename} is a scan with no text` : ""}. Open it and enter the prices, or ask ${v.name} to send them in the email body.`);
+        // no price read: the bid is Price Needed, and the request is never leveled on it
+        (q.unreadable = !0), (q.priceNeeded = !0), q.flags.push(null != P.lot ? `Price needed: ${v.name} quoted ${money(P.lot)} for all ${r.lines.length} lines together (${P.prose}), not line by line. Enter the line prices from the reply, or ask ${v.name} to split them.` : `Price needed: I could not read a price from this reply${pdf && !String(pdf.text || "").trim() ? ` — ${pdf.filename} is a scan with no text` : ""}. Open it and enter the prices, or ask ${v.name} for the figure.`);
       } else {
         (q.lines = P.lines), (q.freight = P.freight || 0), (q.lead = P.lead), (q.min = P.min || 0), (q.validUntil = P.valid ? iso(addDays(q.date, P.valid)) : "");
+        P.prose && q.flags.push(`price read from the words of the reply (${P.prose}): confirm it against the reply`);
         P.freight == null && q.flags.push("no freight stated — ask, or count delivery as unknown");
         P.lead == null && q.flags.push("no lead time stated");
       }
@@ -183346,17 +183963,14 @@ function rfqIngest(opts) {
       }
       P.refer && rfqProspectAdd({ key: "mail:" + P.refer.email, name: P.refer.name, email: P.refer.email, category: r.category, source: "mail", evidence: `named in ${v.name}'s reply to ${r.number} (${fmtL(q.date)}) for the lines they do not stock` });
       r.quotes.push(q), used.add(c.id), n++;
-      rfqHist(r, `quote read: round ${round}`, `${v.name}${q.unreadable ? " — unreadable, waits on a person" : `: ${q.lines.filter((x) => !x.missing).length} of ${r.lines.length} lines priced`}`);
+      rfqHist(r, `quote read: round ${round}`, `${v.name}${q.unreadable ? " — price needed, waits on a person" : `: ${q.lines.filter((x) => !x.missing).length} of ${r.lines.length} lines priced`}`);
       "sent" === r.status && (r.status = "quoting");
       try {
         rfqResearchOutcome(r, v, q);
       } catch (e) {}
     });
     // leveled once every invited vendor answered or the due date passed (round one); round two once the asked answered
-    if ("quoting" === r.status) {
-      const answered = (r.vendors || []).filter((iv) => rfqQuoteOf(r, iv.id, 1)).length;
-      (answered >= (r.vendors || []).length || (r.dueDate && today() > r.dueDate)) && answered && ((r.status = "leveled"), rfqHist(r, "leveled", `${answered} of ${(r.vendors || []).length} vendors answered`));
-    }
+    rfqLevelCheck(r);
     if ("negotiating" === r.status) {
       const asked = (r.neg || []).filter((x) => "sent" === x.status);
       asked.length && asked.every((x) => rfqQuoteOf(r, x.vendorId, 2)) && !r.round2In && ((r.round2In = today()), rfqHist(r, "round two in", `${asked.length} answers; ready to award`));
@@ -183387,7 +184001,7 @@ const rfqUnconfirmed = (r, vids) => rfqLevel(r).quotes.filter((q) => !q.confirme
 function rfqEnterPrices(r, q) {
   mbModal(
     `${esc(q.vendor)} · Enter the Prices`,
-    `<p class="small muted">From ${esc(q.file || "the reply")}. Leave a line blank if they did not quote it.</p>${r.lines.map((l) => mbF(`${esc(l.id)} · <span data-nocase>${esc(l.item)}</span> (${l.qty} ${esc(l.unit)})`, `<input type="number" step="0.01" min="0" data-f="${esc(l.id)}">`)).join("")}<div class="grid2">${mbF("Freight", '<input type="number" step="0.01" min="0" data-f="_freight">')}${mbF("Lead Time (days)", '<input type="number" min="0" data-f="_lead">')}</div>`,
+    `<p class="small muted">From ${esc(q.file || "the reply")}. Leave a line blank if they did not quote it.</p>${q.replyText ? `<div class="note small rfq-reply" data-nocase style="white-space:pre-wrap;max-height:180px;overflow:auto;margin:0 0 10px">${esc(q.replyText)}</div>` : ""}${r.lines.map((l) => mbF(`${esc(l.id)} · <span data-nocase>${esc(l.item)}</span> (${l.qty} ${esc(l.unit)})`, `<input type="number" step="0.01" min="0" data-f="${esc(l.id)}">`)).join("")}<div class="grid2">${mbF("Freight", '<input type="number" step="0.01" min="0" data-f="_freight">')}${mbF("Lead Time (days)", '<input type="number" min="0" data-f="_lead">')}</div>`,
     {
       submit: "Save the Quote",
       onSubmit: (f) => {
@@ -183395,10 +184009,11 @@ function rfqEnterPrices(r, q) {
           (q.freight = +f._freight || 0),
           (q.lead = "" === f._lead ? null : +f._lead),
           (q.unreadable = !1),
+          (q.priceNeeded = !1),
           (q.enteredBy = rfqMe()),
           (q.confirmed = { by: rfqMe(), at: appNowIso(), how: "entered by hand" }),
           (q.flags = [`prices entered by ${rfqMe()} from ${q.file || "the reply"}`]);
-        rfqHist(r, "prices entered by hand", q.vendor), save(), render();
+        rfqHist(r, "prices entered by hand", q.vendor), rfqLevelCheck(r), save(), render();
         rcToast(`${q.vendor}'s quote entered`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
       },
     },
@@ -183507,63 +184122,326 @@ function rfqFromLines(pid, keys, opts) {
     status: fieldMat && !sub ? "foreman-review" : "purchasing",
   });
   r && sub && ((r.sub = !0), (r.shippable = !1), rfqHist(r, "a subcontract scope", "bids level by scope; the award is a subcontract with the COI gate"));
+  if (r && o.quiet) return rfqHist(r, "started from lines", pick.map((s) => s.key).join(", ")), r;
   return r && (rfqHist(r, "started from lines", pick.map((s) => s.key).join(", ")), save(), render(), rcToast(`${r.number} started from ${pick.length} line${1 === pick.length ? "" : "s"} — ${"foreman-review" === r.status ? `${r.foreman} checks the quantities next` : "pick the vendors next"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])), r;
 }
-// The sheet: which lines? Checkboxes on the phone (44px rows), one blue Create RFQ. A lump-sum framing line gets
-// the assistant's material list as a proposal the person approves before it goes on the request.
-function rfqLinesSheet(pid, pre) {
-  const P = (DB.projects || []).filter((p) => !p.archived),
-    p = (DB.projects || []).find((x) => x.id === pid) || S || P[0];
-  if (!p) return;
-  const S0 = rfqLineSources(p.id),
-    sel = new Set(pre || []),
-    row = (s) => `<label class="rfq-pick"><input type="checkbox" data-rfqpk="${esc(s.key)}" ${sel.has(s.key) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(s.item)}</b><span class="small muted" data-nocase>${esc(s.docNo || "Selection")} · ${s.qty} ${esc(s.unit)} · ${null == s.budget ? RFQ_NO_MAT : `material budget ${money(s.budget)}`}${s.coarse && s.framing ? " · lump sum: I will propose a material list" : ""}${(rfqOpenOnLine(s.key) || []).length ? ` · ${rfqOpenOnLine(s.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`;
-  const m = mbModal(
-    "Which Lines?",
-    `<div class="rfq-sheet">${mbF("Job", `<select data-f="job" id="rfq-ls-job">${P.map((x) => `<option value="${x.id}" ${x.id === p.id ? "selected" : ""}>${esc(shortName(x))}</option>`).join("")}</select>`)}<p class="small muted" style="margin:4px 0 8px">Pick the estimate, change order, invoice and selection lines this request buys for. Each RFQ line keeps its link and its material budget.</p><div id="rfq-ls-rows">${S0.map(row).join("") || '<p class="small muted">This job has no approved estimate, change order or invoice lines.</p>'}</div></div>`,
-    {
-      submit: "Create RFQ",
-      onSubmit: () => {
-        const keys = [...m.querySelectorAll("[data-rfqpk]:checked")].map((i) => i.dataset.rfqpk),
-          jid = m.querySelector("#rfq-ls-job").value;
-        if (!keys.length) return toast("Pick at least one line"), !1;
-        const S1 = rfqLineSources(jid),
-          coarse = keys.map((k) => S1.find((s) => s.key === k)).filter((s) => s && s.coarse && s.framing);
-        if (coarse.length) return void setTimeout(() => rfqBreakdownSheet(jid, keys, coarse), 0);
-        rfqFromLines(jid, keys);
-      },
+// ---- the request sheet: one path, two doors (coordinator review 11-05; the coordinator's call 11-06). Ask for Quotes on
+// Buy Board rows opens it prefilled with the picked lines; New Request for Quote opens it empty, and the job and its
+// lines are picked in the sheet. Nothing is created until Send or Save. items: line keys ("estimate:es1:l9", "co:...",
+// "invoice:...", "sel:...") or { key, materialId } for a Buy Board material on a line (the request's line is the
+// material, linked to the line, never the whole lump-sum line). opts: { pid, sub, category, title }.
+// What a request line is measured against, said the way the leveling says it: a sub's bid against the line's whole
+// budget; a material against the line's material portion, else no budget (never the whole line as if it were
+// material). Beside it, what is left on the line (lane P2's lineCommitment: actual, committed and drafted), so the
+// person sees a line already used up before asking for more.
+function rfqSheetBudget(s, sub) {
+  if (!s) return { budget: null, word: "no estimate line: link one", left: null };
+  let left = null;
+  try {
+    const c = "selection" !== s.kind && "function" == typeof lineCommitment ? lineCommitment(s.key) : null;
+    c && null != c.left && (left = +c.left);
+  } catch (e) {}
+  if (sub && null != s.budgetWhole) return { budget: s.budgetWhole, word: "the line's budget", left: left };
+  return null != s.budget ? { budget: s.budget, word: "material budget", left: left } : { budget: null, word: RFQ_NO_MAT, left: left };
+}
+const rfqLeftWords = (c) => (null != c.left ? ` · ${money(c.left)} left on the line` : "");
+// The rows the sheet can quote: the Buy Board materials it was opened with, then every line of the job.
+function rfqSheetCands(pid, items) {
+  const p = (DB.projects || []).find((x) => x.id === pid);
+  if (!p) return [];
+  const S0 = rfqLineSources(pid),
+    out = [],
+    isSub = (it, sp) => "function" == typeof bbSubScope && !!bbSubScope({ item: it, desc: sp });
+  (items || []).forEach((it) => {
+    const o = "string" == typeof it ? { key: it } : it || {};
+    if (!o.materialId) return;
+    const m = (p.materials || []).find((x) => x.id === o.materialId);
+    if (!m) return;
+    const s = S0.find((x) => x.key === (o.key || m.line)) || null,
+      qm = String(m.qty || "").match(/^\s*(\d+(?:\.\d+)?)\s*([a-z][a-z. ]*)?/i),
+      B = rfqSheetBudget(s, isSub(m.name, ""));
+    out.push({ ck: "m:" + m.id, key: s ? s.key : "", materialId: m.id, item: m.name, spec: m.notes || "", qty: qm ? +qm[1] : 1, unit: qm && qm[2] ? qm[2].trim() : "ea", doc: s ? `${s.docNo || "Selection"} · ${s.item}` : "No estimate line: link one", budget: B.budget, word: B.word, left: B.left, code: s ? s.code : "", src: s, coarse: !1, framing: !1 });
+  });
+  S0.forEach((s) => {
+    const B = rfqSheetBudget(s, isSub(s.item, s.spec));
+    out.push({ ck: "k:" + s.key, key: s.key, materialId: "", item: s.item, spec: s.spec || "", qty: s.qty, unit: s.unit, doc: `${s.docNo || "Selection"} · ${s.qty} ${s.unit}`, budget: B.budget, word: B.word, left: B.left, code: s.code, src: s, coarse: s.coarse, framing: s.framing });
+  });
+  return out;
+}
+function rfqStartFromLines(items, opts) {
+  const o = opts || {},
+    P = (DB.projects || []).filter((p) => !p.archived && rfqLineSources(p.id).length),
+    pidOf = () => {
+      if (o.pid) return o.pid;
+      for (const it of items || []) {
+        const x = "string" == typeof it ? { key: it } : it || {};
+        const hit = (DB.projects || []).find((pp) => (x.materialId && (pp.materials || []).some((m) => m.id === x.materialId)) || (x.key && rfqLineSources(pp.id).some((s) => s.key === x.key)));
+        if (hit) return hit.id;
+      }
+      return (S && S.id && P.some((p) => p.id === S.id) ? S.id : (P[0] || {}).id) || "";
     },
-  );
-  m && m.classList.add("rfq-mbm");
-  const jobSel = m.querySelector("#rfq-ls-job");
-  jobSel &&
-    (jobSel.onchange = () => {
-      sel.clear(), (m.querySelector("#rfq-ls-rows").innerHTML = rfqLineSources(jobSel.value).map(row).join("") || '<p class="small muted">This job has no approved estimate, change order or invoice lines.</p>');
+    st = { pid: pidOf(), on: [], edits: {}, bd: {}, ticks: {}, scope: null, due: null, reason: "", pre: !!(items || []).length };
+  if (!st.pid) return toast("No job has an estimate, change order, invoice or selection line to quote from"), null;
+  rfqDemoReady();
+  const seed = () => {
+    st.cands = rfqSheetCands(st.pid, items);
+    st.on = (items || [])
+      .map((it) => {
+        const x = "string" == typeof it ? { key: it } : it || {};
+        return x.materialId ? "m:" + x.materialId : x.key ? "k:" + x.key : "";
+      })
+      .filter((ck) => st.cands.some((c) => c.ck === ck));
+  };
+  seed();
+  const proj = () => (DB.projects || []).find((x) => x.id === st.pid),
+    cand = (ck) => st.cands.find((c) => c.ck === ck),
+    isSub = () => {
+      const C = st.on.map(cand).filter(Boolean);
+      return !!o.sub || (!!C.length && "function" == typeof bbSubScope && C.every((c) => bbSubScope({ item: c.item, desc: c.spec })));
+    },
+    // the request's lines as the sheet holds them: one per picked row, or the approved material list of a lump sum
+    lines = () =>
+      st.on.map(cand).filter(Boolean).flatMap((c) =>
+        st.bd[c.ck]
+          ? st.bd[c.ck].map((b, i) => Object.assign({}, b, { id: `${c.ck}#${i}`, ck: c.ck, key: c.key, materialId: "", doc: c.doc, budget: null, word: "", code: c.code || "03", src: c.src, takeoff: !0 }, st.edits[`${c.ck}#${i}`] || {}))
+          : [Object.assign({ id: c.ck }, c, st.edits[c.ck] || {})],
+      ),
+    need = () => {
+      const p = proj();
+      return st.on.map(cand).filter(Boolean).reduce((a, c) => {
+        const n = c.src ? rfqLineNeed(p, c.src) : { needBy: addWork(today(), RFQ_LEAD_ASSUMED + 3) };
+        return !a || n.needBy < a.needBy ? n : a;
+      }, null) || { needBy: addWork(today(), RFQ_LEAD_ASSUMED + 3) };
+    },
+    // the size of the buy for the three-quote rule (rfqBasketGuess's reading): what the line holds, material or not;
+    // never shown as a budget
+    // (the line's budget, material or whole, never what is left on it: see rfqBasketGuess)
+    sizeOf = (L) => L.reduce((a, l) => a + (+((l.src || {}).budget != null ? l.src.budget : (l.src || {}).budgetWhole) || 0), 0),
+    mockOf = (L) => {
+      const sub = isSub();
+      return { category: sub ? o.category || "Subcontract" : o.category || (L.some((l) => l.src && l.src.framing) ? "Lumber" : "Materials"), title: o.title || L.map((l) => l.item).join(", "), lines: L.map((l) => ({ item: l.item, spec: l.spec, costCode: l.code })), shippable: !sub, sub: sub, estLine: { left: sizeOf(L) } };
+    },
+    takeoffOf = () => {
+      const p = proj(),
+        tk = p && rfqFramingTask(p),
+        Rm = p ? rfqRoomsFor(p, tk) : { rooms: [], scope: "" };
+      return { T: rfqFramingTakeoff(Rm.rooms), Rm: Rm, p: p };
+    };
+  // ---- the parts of the sheet; each redraws on its own so a tick never moves what is above it
+  const pickRow = (c) =>
+      `<label class="rfq-pick"><input type="checkbox" data-rsp="${esc(c.ck)}" ${st.on.includes(c.ck) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(c.item)}</b><span class="small muted" data-nocase>${esc(c.doc)} · ${null != c.budget ? `${esc(c.word)} ${money(c.budget)}` : esc(c.word)}${rfqLeftWords(c)}${c.coarse && c.framing ? " · a lump sum: I can propose a material list" : ""}${c.key && rfqOpenOnLine(c.key).length ? ` · ${rfqOpenOnLine(c.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`,
+    pickHtml = () => {
+      const on = st.cands.filter((c) => st.on.includes(c.ck) || c.materialId),
+        off = st.cands.filter((c) => !on.includes(c));
+      return `${on.map(pickRow).join("")}${st.pre ? (off.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>Add More Lines (${off.length})</b></summary>${off.map(pickRow).join("")}</details>` : "") : off.map(pickRow).join("") || '<p class="small muted">This job has no approved estimate, change order, invoice or selection lines.</p>'}`;
+    },
+    cardsHtml = () => {
+      const L = lines();
+      if (!L.length) return '<p class="small muted">Tick the lines this request buys for. Each keeps its link and its budget.</p>';
+      const tk = takeoffOf();
+      return L.map((l) => {
+        const c = cand(l.ck),
+          lump = c && c.coarse && c.framing && !st.bd[c.ck] && tk.T.lines.length > 0,
+          first = st.bd[l.ck] && l.id === `${l.ck}#0`;
+        return `${first ? `<div class="note small" data-nocase style="margin:0 0 8px"><b>${esc(c.item)}: a material list from the takeoff (${esc(tk.Rm.scope)}).</b> Assumed: ${esc(Object.entries(tk.T.assumptions).map(([k, v]) => `${k} ${v}`).join(", "))}. <button type="button" class="btn sm" data-rsbdx="${esc(l.ck)}">Keep the Line as Is</button></div>` : ""}<div class="rfq-lc rsq-l" data-rsl="${esc(l.id)}"><div class="rfq-lc-hd"><input class="rsq-item" data-rsi="${esc(l.id)}" value="${esc(l.item)}" aria-label="Item"></div><div class="small muted" data-nocase>${esc(l.doc)}${null != l.budget ? ` · ${esc(l.word)} ${money(l.budget)}` : l.word ? ` · ${esc(l.word)}` : ""}${rfqLeftWords(l)}${l.derivation && l.takeoff ? ` · ${esc(l.derivation)}` : ""}</div><div class="rfq-step"><input type="number" inputmode="decimal" min="0" step="any" class="rfq-qty" data-rsq="${esc(l.id)}" value="${+l.qty || 1}" aria-label="Quantity"><input class="rsq-unit" data-rsu="${esc(l.id)}" value="${esc(l.unit || "ea")}" aria-label="Unit"></div>${lump ? `<button type="button" class="btn sm rfq-tap" data-rsbd="${esc(l.ck)}">Propose a Material List</button><span class="small muted"> a lump sum a vendor may not price: ${tk.T.lines.length} materials from the takeoff</span>` : ""}</div>`;
+      }).join("");
+    },
+    scopeText = () => {
+      const L = lines(),
+        p = proj(),
+        sub = isSub();
+      return L.length ? `${L.map((l) => `${l.item}${l.qty ? ` (${l.qty} ${l.unit})` : ""}`).slice(0, 8).join("; ")}${L.length > 8 ? `; and ${L.length - 8} more` : ""} for ${p ? shortName(p) : "the job"}, on site by ${fmtL(need().needBy)}. ${sub ? "Labour and material to complete the scope; say what your price includes and leaves out." : "Same spec only: list any alternate on its own line, with its own price."}` : "";
+    },
+    vrow = (x, pick) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rsv="${esc(x.v.id)}" ${(null != st.ticks[x.v.id] ? st.ticks[x.v.id] : pick.includes(x.v.id)) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`,
+    vendHtml = () => {
+      const L = lines();
+      if (!L.length) return '<p class="small muted">Vendors are suggested once a line is picked: by its trade and our record with them.</p>';
+      const M = mockOf(L),
+        VP = rfqProposeVendors(M),
+        big = M.sub || sizeOf(L) > 2500,
+        n = VP.list.concat(VP.others).filter((x) => (null != st.ticks[x.v.id] ? st.ticks[x.v.id] : VP.pick.includes(x.v.id))).length;
+      return `<p class="small muted">Suggested by trade (${esc(VP.trades.length ? VP.trades.join(", ") : String(M.category).toLowerCase())}) and by our record with them. ${big ? esc(rfqWhy("quotes3")) + "." : ""}</p>${big && n < 3 ? `<p class="small warn">${n} of 3 ticked: tick more, or write why fewer will do.</p>` : ""}${VP.list.slice(0, 12).map((x) => vrow(x, VP.pick)).join("") || '<p class="small muted">No vendor on file sells this. Add one under Vendors.</p>'}${VP.others.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>More Vendors (${VP.others.length})</b></summary>${VP.others.map((x) => vrow(x, VP.pick)).join("")}</details>` : ""}${big ? mbF("Why Fewer Than Three, If You Ask Fewer", `<textarea data-f="reason" rows="2" placeholder="Logged on the request with your name">${esc(st.reason)}</textarea>`) : ""}`;
+    },
+    due0 = () => {
+      const N = need(),
+        ob = addWork(N.needBy, -RFQ_LEAD_ASSUMED),
+        d = addWork(today(), isSub() ? 3 : 1);
+      return d <= ob || ob < today() ? d : ob;
+    },
+    body = `<div class="rfq-sheet rsq">${mbF("Job", `<select id="rsq-job" aria-label="Job">${(P.some((p) => p.id === st.pid) ? P : P.concat([proj()].filter(Boolean))).map((x) => `<option value="${x.id}" ${x.id === st.pid ? "selected" : ""}>${esc(shortName(x))}</option>`).join("")}</select>`)}
+    <h4 class="rsq-h">Lines</h4><p class="small muted" style="margin:0 0 6px">The estimate, change order, invoice and selection lines this request buys for. Each keeps its link and its budget.</p><div id="rsq-pick">${pickHtml()}</div><div id="rsq-cards">${cardsHtml()}</div>
+    ${mbF("Scope", `<textarea data-f="scope" id="rsq-scope" rows="3">${esc(scopeText())}</textarea>`)}
+    ${mbF("Quotes Due", `<input type="date" data-f="due" id="rsq-due" value="${esc(due0())}" min="${esc(today())}">`)}
+    <h4 class="rsq-h">Vendors</h4><div id="rsq-vend">${vendHtml()}</div>
+    <div class="rfq-row" style="margin-top:12px"><button type="button" class="btn sm" id="rfq-plans">From Plans</button><button type="button" class="btn sm" id="rfq-blank">Start Blank</button></div><p class="small muted">From Plans drafts a framing list from the job's takeoff for the foreman to check; Start Blank is a request with no lines yet.</p></div>`;
+  let m = null;
+  // keep what the person typed before a part redraws
+  const grab = () => {
+    if (!m) return;
+    m.querySelectorAll("[data-rsq],[data-rsu],[data-rsi]").forEach((i) => {
+      const id = i.dataset.rsq || i.dataset.rsu || i.dataset.rsi,
+        e = (st.edits[id] = st.edits[id] || {});
+      i.dataset.rsq ? (e.qty = +i.value || 0) : i.dataset.rsu ? (e.unit = i.value.trim()) : (e.item = i.value.trim());
     });
+    m.querySelectorAll("[data-rsv]").forEach((i) => (st.ticks[i.dataset.rsv] = i.checked));
+    const rs = m.querySelector('[data-f="reason"]');
+    rs && (st.reason = rs.value);
+  };
+  const redraw = (parts) => {
+    grab();
+    const $ = (s) => m.querySelector(s);
+    parts.includes("pick") && ($("#rsq-pick").innerHTML = pickHtml());
+    parts.includes("cards") && ($("#rsq-cards").innerHTML = cardsHtml());
+    null == st.scope && ($("#rsq-scope").value = scopeText());
+    null == st.due && ($("#rsq-due").value = due0());
+    parts.includes("vend") && ($("#rsq-vend").innerHTML = vendHtml());
+  };
+  const read = () => {
+    grab();
+    return { lines: lines().filter((l) => +l.qty > 0 && l.item), vids: [...m.querySelectorAll("[data-rsv]:checked")].map((i) => i.dataset.rsv), scope: (m.querySelector("#rsq-scope") || {}).value || "", due: (m.querySelector("#rsq-due") || {}).value || "", reason: st.reason || "" };
+  };
+  const make = (F, send) => {
+    if (!F.lines.length) return toast("Pick at least one line"), null;
+    const sub = isSub(),
+      N = need(),
+      orderBy = addWork(N.needBy, -RFQ_LEAD_ASSUMED);
+    rfqTakeEmails(m);
+    if (send) {
+      const V = F.vids.map(rfqVendor).filter(Boolean);
+      if (!V.length) return toast("Pick at least one vendor"), null;
+      const noMail = V.filter((v) => !v.email);
+      if (noMail.length) return toast(`${noMail.map((v) => v.name).join(", ")} ${1 === noMail.length ? "has" : "have"} no email on file — type it on the row, or leave them out`), null;
+      if (!F.due || F.due < today()) return toast("Set the date the quotes are due — today or later"), null;
+      const three = rfqThreeCheck({ number: "This request", sub: sub, quotes: [], estLine: { left: sizeOf(F.lines) } }, V.length, F.reason);
+      if (!three.ok) return toast(three.msg), null;
+    }
+    const keys = [...new Set(F.lines.map((l) => l.key).filter(Boolean))],
+      title = o.title || (1 === F.lines.length ? F.lines[0].item : ""),
+      cat = mockOf(F.lines).category,
+      // a Buy Board material with no estimate line behind it still gets its request (the line says so: link one)
+      r = keys.length
+        ? rfqFromLines(st.pid, keys, { quiet: !0, sub: sub, category: o.category || (sub ? cat : ""), title: title })
+        : (() => {
+            const x = rfqCreate({ projectId: st.pid, title: title || F.lines.map((l) => l.item).join(", "), category: cat, needBy: N.needBy, orderBy: orderBy, facts: ["no estimate line behind these items: link one so the award commits against it"], lines: [] });
+            return x && ((x.status = "purchasing"), (x.sub = sub), x);
+          })();
+    if (!r) return null;
+    // the request's lines are the sheet's: item level, each keeping its estimate line, its material and its budget
+    const tpl = (k) => r.lines.find((x) => x.fromLine === k) || null;
+    r.lines = F.lines.map((l, i) => {
+      const t = tpl(l.key) || {};
+      return Object.assign({}, rfqLinkOf(t), { id: `L${i + 1}`, key: l.takeoff ? l.key0 || l.key : "line", item: l.item, spec: l.spec || "", qty: l.qty, unit: l.unit, needBy: t.needBy || N.needBy, costCode: t.costCode || l.code || "", budget: l.takeoff ? null : tpl(l.key) ? (null != t.budget ? t.budget : null) : null, fromLine: l.key, materialId: l.materialId || "", selId: t.selId || "", invoiceLineId: t.invoiceLineId || "", invoiceId: t.invoiceId || "", coId: t.coId || "", derivation: l.derivation || `from ${l.doc}: ${l.qty} ${l.unit}`, assumption: l.assumption || "", ai: !!l.takeoff });
+    });
+    if (Object.keys(st.bd).some((ck) => st.on.includes(ck))) {
+      const tk = takeoffOf();
+      (r.takeoff = { assumptions: tk.T.assumptions, totals: tk.T.totals, scope: tk.Rm.scope, source: ((tk.p || {}).takeoff || {}).source || "the takeoff" }), rfqHist(r, "a lump sum broken into materials", `from the takeoff (${tk.Rm.scope}), approved by ${rfqMe()}`);
+    }
+    (r.scope = F.scope.trim()), (r.vendorPick = F.vids), (r.dueWanted = F.due), (r.reasonDraft = F.reason.trim());
+    const field = !sub && r.lines.some((l) => !String(l.fromLine).startsWith("sel:"));
+    if (send) {
+      (r.status = "purchasing"), field && ((r.fmBeside = "open"), rfqHist(r, "the foreman's check runs beside it", `${r.foreman} checks the quantities on his phone; the request went out without waiting`));
+      rfqSend(r, F.vids, F.due, { reason: F.reason, note: field ? `${r.foreman} checks the quantities beside it` : "" }) || (save(), render());
+      return r;
+    }
+    rfqHist(r, "saved as a draft", `${F.vids.length} vendor${1 === F.vids.length ? "" : "s"} picked, quotes due ${fmtL(F.due)}`);
+    save(), render();
+    rcToast(`${r.number} saved — ${"foreman-review" === r.status ? `${r.foreman} checks the quantities next` : "send it to the vendors from the request"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+    return r;
+  };
+  m = mbModal("Request for Quote", body, {
+    submit: "Send to Vendors",
+    alt: { label: "Save as Draft", keep: !0, run: () => make(read(), !1) && mbCloseModal() },
+    onSubmit: () => (make(read(), !0) ? void 0 : !1),
+  });
+  if (!m) return null;
+  m.classList.add("rfq-mbm");
+  // the wiring: delegated, so the parts can redraw
+  m.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.id === "rsq-job") {
+      grab();
+      (st.pid = t.value), (items = []), (st.pre = !1), (st.edits = {}), (st.bd = {}), (st.ticks = {}), seed();
+      return redraw(["pick", "cards", "vend"]);
+    }
+    if (t.dataset && t.dataset.rsp) {
+      const ck = t.dataset.rsp;
+      t.checked ? st.on.includes(ck) || st.on.push(ck) : (st.on = st.on.filter((x) => x !== ck));
+      return redraw(["cards", "vend"]);
+    }
+    if (t.dataset && (t.dataset.rsq || t.dataset.rsu || t.dataset.rsi)) return redraw([]);
+  });
+  m.addEventListener("input", (e) => {
+    e.target.id === "rsq-scope" && (st.scope = e.target.value);
+    e.target.id === "rsq-due" && (st.due = e.target.value);
+  });
+  m.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-rsbd],[data-rsbdx],#rfq-plans,#rfq-blank");
+    if (!b) return;
+    e.preventDefault();
+    if (b.dataset.rsbd) {
+      // the assistant's material list for a lump-sum framing line; the person's tap is the approval
+      const tk = takeoffOf(),
+        c = cand(b.dataset.rsbd);
+      grab();
+      tk.T.lines.length && (st.bd[b.dataset.rsbd] = tk.T.lines.map((l) => Object.assign({}, l, { key0: l.key, ai: !0 })));
+      c && delete st.edits[c.ck];
+      return redraw(["cards", "vend"]);
+    }
+    if (b.dataset.rsbdx) return grab(), delete st.bd[b.dataset.rsbdx], redraw(["cards", "vend"]);
+    if ("rfq-plans" === b.id) {
+      const p = proj();
+      if (!p || !(p.takeoff && (p.takeoff.rooms || []).length)) return toast("This job has no takeoff — add rooms under Field & Plans, or start from its lines");
+      mbCloseModal(), rfqDemoReady();
+      const r = rfqDraftFromPlans(st.pid);
+      return r && ((window.rfqOpen = r.id), render(), rcToast(`${r.number} drafted from the plans — ${r.foreman} checks the quantities next`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]));
+    }
+    if ("rfq-blank" === b.id) {
+      mbCloseModal();
+      const r = rfqCreate({ projectId: st.pid, title: "New request for quote", category: "Materials", lines: [] });
+      return (window.rfqOpen = r.id), render(), rcToast(`${r.number} started blank — add the lines`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+    }
+  });
   return m;
 }
-function rfqBreakdownSheet(pid, keys, coarse) {
-  const p = (DB.projects || []).find((x) => x.id === pid),
-    tk = rfqFramingTask(p),
-    Rm = rfqRoomsFor(p, tk),
-    T = rfqFramingTakeoff(Rm.rooms),
-    prop = T.lines.map((l, i) => Object.assign({}, l, { ai: !0 }));
-  mbModal(
-    "A Material List for the Lump Sum",
-    `<div class="rfq-sheet"><p class="small">${coarse.map((s) => `<b data-nocase>${esc(s.item)}</b>`).join(", ")} ${1 === coarse.length ? "is" : "are"} a lump sum a vendor cannot price. I propose these ${prop.length} materials from the takeoff (${esc(Rm.scope)}).</p><div class="note small"><b>Assumed:</b> <span data-nocase>${esc(Object.entries(T.assumptions).map(([k, v]) => `${k} ${v}`).join(", "))}</span></div>${prop.map((l) => rfqLineCardHtml(l, !1)).join("")}<p class="small muted">Nothing goes on the request until you approve it. Keep the Line As Is quotes the lump sum as one line.</p></div>`,
-    {
-      submit: "Use This List",
-      alt: { label: "Keep the Line As Is", run: () => rfqFromLines(pid, keys) },
-      onSubmit: () => {
-        const bd = {};
-        coarse.forEach((s, i) => (bd[s.key] = 0 === i ? prop : []));
-        setTimeout(() => {
-          const r = rfqFromLines(pid, keys, { breakdown: bd });
-          r && r.takeoff == null && ((r.takeoff = { assumptions: T.assumptions, totals: T.totals, scope: Rm.scope, source: (p.takeoff || {}).source || "the takeoff" }), save());
-        }, 0);
-      },
-    },
-  ).classList.add("rfq-mbm");
+// One status per need, the quote side: what the latest request on a line says (lane P2's puNeedStatusFor reads it for
+// the Buy Board, Today and Quotes). A pure read: it writes nothing and keeps no memo.
+//   none | draft (not sent: drafting, the foreman's check, picking vendors) | out (with the vendors) | price-needed (a
+//   reply with no price read) | leveled (priced, to negotiate and award) | awarded (with the PO it made)
+function rfqLineState(lineKey) {
+  const k = String(lineKey || "");
+  if (!k) return null;
+  const R = (DB.rfqs || []).filter((r) => "closed" !== r.status && "cancelled" !== r.status && (r.lines || []).some((l) => l.fromLine === k || l.line === k));
+  if (!R.length) return null;
+  const open = R.filter((r) => "awarded" !== r.status),
+    r = (open.length ? open : R)[(open.length ? open : R).length - 1],
+    st = rfqStateOf(r),
+    po = "awarded" === r.status && r.award ? (DB.pos || []).find((x) => (r.award.pos || []).includes(x.id) && (x.lines || []).some((l) => l.line === k)) || (DB.pos || []).find((x) => (r.award.pos || []).includes(x.id)) || null : null;
+  return { stage: st.stage, rfq: r, po: po, label: st.label, actor: st.actor, who: st.who, why: st.why, act: st.act };
+}
+// The one reading of a request's stage, for its row on Quotes, its line's status and Today.
+function rfqStateOf(r) {
+  const s = r.status,
+    asked = (r.vendors || []).length,
+    Q1 = (r.vendors || []).map((iv) => rfqQuoteOf(r, iv.id, 1)).filter(Boolean),
+    need = Q1.filter((q) => q.unreadable).length,
+    got = Q1.length - need,
+    co = (rfqUserOf("coord") || {}).name || "the coordinator";
+  if (["draft", "purchasing"].includes(s)) return { stage: "draft", label: "Draft", actor: "coord", who: co, why: "draft" === s ? "Not sent yet: add the lines." : "Not sent yet: pick the vendors and send it.", act: "Send It" };
+  if ("foreman-review" === s) return { stage: "draft", label: "Foreman Review", actor: "foreman", who: r.foreman || "the foreman", why: "Not sent yet: the foreman checks the quantities.", act: "Open" };
+  if (["sent", "quoting"].includes(s)) {
+    if (need) return { stage: "price-needed", label: "Price Needed", actor: "coord", who: co, why: `${need} repl${1 === need ? "y has" : "ies have"} no price I could read: enter it from the reply.`, act: "Enter Prices" };
+    const late = r.dueDate && r.dueDate < today();
+    return { stage: "out", label: late ? "Quotes Late" : "Out to Vendors", actor: late ? "coord" : "vendor", who: late ? co : `${asked - got} of ${asked} vendors`, why: late ? "Past its due date: chase the vendors who have not quoted." : `${got} of ${asked} quotes in; due ${fmt(r.dueDate)}.`, act: late ? "Chase" : "Open" };
+  }
+  if ("leveled" === s) return { stage: "leveled", label: "Leveled", actor: "coord", who: co, why: "Every price is in: negotiate once, then award.", act: "Level and Award" };
+  if ("negotiating" === s) return { stage: "leveled", label: r.round2In ? "Ready to Award" : "Negotiating", actor: r.round2In ? "coord" : "vendor", who: r.round2In ? co : "the vendors", why: r.round2In ? "Round two is in: award." : "Waiting on round two.", act: r.round2In ? "Award" : "Open" };
+  if ("awarded" === s) return { stage: "awarded", label: "Awarded", actor: "coord", who: co, why: r.award ? `Awarded: ${(r.award.numbers || []).join(", ")}.` : "Awarded.", act: "Open" };
+  return { stage: s || "none", label: RFQ_STATUS[s] || s, actor: "coord", who: co, why: "", act: "Open" };
+}
+// The Which Lines? picker and Create RFQ are retired (11-06): every door opens the one request sheet above. The old
+// name stays for its callers (the line drill-down's Ask for Quotes).
+function rfqLinesSheet(pid, pre) {
+  return rfqStartFromLines(pre || [], { pid: pid });
 }
 const rfqOpenOnLine = (key) => rfqInit().filter((r) => !["awarded", "closed"].includes(r.status) && (r.lines || []).some((l) => l.fromLine === key || l.line === key));
 // The line drill-down (finLineModal) shows the line's RFQs and offers Create RFQ.
@@ -183579,7 +184457,7 @@ if ("function" == typeof finLineModal) {
       if (bd && p && !bd.querySelector(".rfq-onl") && (ROLE_VIEWS[role()] || []).includes("rfq")) {
         const d = document.createElement("div");
         (d.className = "rfq-onl"),
-          (d.innerHTML = `<div style="margin-bottom:10px"><b>Requests for Quote</b>${R.length ? `<table class="t" style="margin-top:4px"><tbody>${R.map((r) => `<tr class="click" data-rfqgo="${esc(r.id)}"><td data-nocase>${esc(r.number)} · ${esc(r.title)}</td><td>${esc(RFQ_STATUS[r.status] || r.status)}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}<button class="btn sm" data-rfqfromline="${esc(key)}" data-rfqjob="${esc(p.id)}" style="margin-top:6px">Create RFQ</button></div>`),
+          (d.innerHTML = `<div style="margin-bottom:10px"><b>Requests for Quote</b>${R.length ? `<table class="t" style="margin-top:4px"><tbody>${R.map((r) => `<tr class="click" data-rfqgo="${esc(r.id)}"><td data-nocase>${esc(r.number)} · ${esc(r.title)}</td><td>${esc(RFQ_STATUS[r.status] || r.status)}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}<button class="btn sm" data-rfqfromline="${esc(key)}" data-rfqjob="${esc(p.id)}" style="margin-top:6px">Ask for Quotes</button></div>`),
           bd.appendChild(d);
       }
     } catch (e) {
@@ -183608,7 +184486,7 @@ if ("function" == typeof renderTakeoff) {
         hd = card && card.querySelector(".hd");
       if (hd && S && S.takeoff && (S.takeoff.rooms || []).length && !hd.querySelector("[data-rfqplans]") && (ROLE_VIEWS[role()] || []).includes("rfq")) {
         const b = document.createElement("button");
-        (b.className = "btn sm"), (b.dataset.rfqplans = S.id), (b.textContent = "Create RFQ"), hd.appendChild(b);
+        (b.className = "btn sm"), (b.dataset.rfqplans = S.id), (b.textContent = "Ask for Quotes"), hd.appendChild(b);
         b.onclick = () => {
           const r = rfqDemoReady() && rfqDraftFromPlans(S.id);
           r && (render(), rcToast(`${r.number} drafted from the takeoff — ${r.foreman} checks the quantities next`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]));
@@ -183630,6 +184508,8 @@ const rfqDemoReady = () => (rfqDemoSuppliers(), !0);
 const RFQ_HANDLING = 120,
   rfqTaxRate = () => +(((DB.company || {}).taxRate) || 8.875),
   rfqChargesTax = (v) => (v && null != v.chargesTax ? !!v.chargesTax : /^NYC/.test((v && v.region) || "")),
+  // a subcontract scope is labour: no sales or use tax on the bid (the award's subPO rule, now in the leveling too)
+  rfqTaxFree = (r, v) => !!(r && r.sub) || (!!v && "function" == typeof scIsSub && !!scIsSub(v)) || (!!r && (r.lines || []).length > 0 && "function" == typeof bbSubScope && (r.lines || []).every((l) => bbSubScope({ item: l.item, desc: l.spec }))),
   rfqHandling = (v) => (v && v.delivery && !v.delivery.liftGate && !v.delivery.carryIn ? RFQ_HANDLING : 0),
   rfqRisk = (v) => {
     const d = (v && v.delivery) || null;
@@ -183649,6 +184529,8 @@ function rfqBudgetsNow(r) {
     return B.map((b) => {
       if (String(b.key).startsWith("sel:")) return Object.assign({ note: "a selection: the whole budget is material" }, b);
       const M = rfqMatBudget(b.key);
+      // a sub's bid prices the line's labour and material together, so it is leveled against the whole line
+      if (rfqTaxFree(r) && null != M.whole) return Object.assign({}, b, { budget: M.whole, whole: M.whole, split: M.split, sub: !0, note: "the line's whole budget: a sub prices labour and material together" });
       return Object.assign({}, b, { budget: M.budget, whole: M.whole, split: M.split, note: M.note });
     });
   if (!r.estLine) return [];
@@ -183677,7 +184559,7 @@ function rfqLevel(r, opts) {
     vinfo = (q) => {
       const v = rfqVendor(q.vendorId) || {},
         arrive = null == q.lead ? "" : iso(addDays(td, q.lead));
-      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "", confirmed: !!q.confirmed, taxCharged: rfqChargesTax(v), handling: rfqHandling(v), risk: rfqRisk(v), relation: rfqRelation(v) };
+      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "", confirmed: !!q.confirmed, taxCharged: rfqChargesTax(v), taxFree: rfqTaxFree(r, rfqVendor(q.vendorId)), includes: q.includes || "", excludes: q.excludes || "", handling: rfqHandling(v), risk: rfqRisk(v), relation: rfqRelation(v) };
     },
     cost = (assign) => {
       const by = {};
@@ -183690,7 +184572,7 @@ function rfqLevel(r, opts) {
       Object.values(by).forEach((x) => {
         const q = latest[x.vendorId];
         const v = rfqVendor(x.vendorId);
-        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.tax = r2((x.goods * rate) / 100)), (x.taxCharged = rfqChargesTax(v)), (x.handling = rfqHandling(v)), (x.landed = r2(x.goods + x.freight + x.shortfall + x.tax + x.handling)), (total = r2(total + x.landed));
+        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.tax = rfqTaxFree(r, v) ? 0 : r2((x.goods * rate) / 100)), (x.taxCharged = rfqChargesTax(v)), (x.handling = rfqHandling(v)), (x.landed = r2(x.goods + x.freight + x.shortfall + x.tax + x.handling)), (total = r2(total + x.landed));
       });
       return { by: by, total: total };
     };
@@ -183700,8 +184582,8 @@ function rfqLevel(r, opts) {
       const goods = r2(r.lines.reduce((a, l) => r2(a + r2(unitOf(q, l.id) * l.qty)), 0)),
         I = vinfo(q),
         shortfall = r2(Math.max(0, I.min - goods)),
-        tax = r2((goods * rate) / 100);
-      return Object.assign(I, { goods: goods, shortfall: shortfall, tax: tax, landed: r2(goods + I.freight + shortfall + tax + I.handling) });
+        tax = I.taxFree ? 0 : r2((goods * rate) / 100);
+      return Object.assign(I, { goods: goods, shortfall: shortfall, tax: tax, landed: r2(goods + I.freight + shortfall + tax + I.handling), pre: r2(goods + I.freight + shortfall + I.handling) });
     })
       .filter(Boolean)
       .sort((a, b) => a.landed - b.landed),
@@ -183709,7 +184591,7 @@ function rfqLevel(r, opts) {
     perLine = r.lines.map((l) => {
       const P = Q.map((q) => ({ vendorId: q.vendorId, vendor: q.vendor, unit: unitOf(q, l.id) })).filter((x) => null != x.unit).sort((a, b) => a.unit - b.unit || String(a.vendor).localeCompare(b.vendor)),
         alts = Q.map((q) => ({ q: q, x: q.lines.find((y) => y.lineId === l.id) })).filter((y) => y.x && y.x.sub && !ok.has(`${y.q.vendorId}:${l.id}`)).map((y) => ({ vendorId: y.q.vendorId, vendor: y.q.vendor, unit: y.x.unit, text: y.x.subText }));
-      return { lineId: l.id, item: l.item, qty: l.qty, unit: l.unit, budget: rfqLineBudgetNow(l), best: P[0] || null, prices: P, alts: alts };
+      return { lineId: l.id, item: l.item, qty: l.qty, unit: l.unit, budget: rfqTaxFree(r) && l.fromLine && !String(l.fromLine).startsWith("sel:") ? rfqMatBudget(l.fromLine).whole : rfqLineBudgetNow(l), best: P[0] || null, prices: P, alts: alts };
     });
   // the best split: every subset of vendors, each line to the cheapest vendor in the subset, freight and minimums
   // counted for each vendor used; the cheapest feasible plan wins (fewer vendors on a tie)
@@ -183743,7 +184625,7 @@ function rfqLevel(r, opts) {
     budgetComplete = !!budgets.length && known.length === budgets.length,
     // one figure or none: a basket measured against a budget that is missing for some of its lines is misleading
     budgetTotal = budgetComplete ? r2(known.reduce((a, b) => a + (+b.budget || 0), 0)) : 0;
-  return { taxRate: rate, unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, budgetComplete: budgetComplete, budgetMissing: budgets.filter((b) => null == b.budget).map((b) => b.label), needBy: r.needBy };
+  return { taxRate: rate, taxFree: rfqTaxFree(r), unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, budgetComplete: budgetComplete, budgetMissing: budgets.filter((b) => null == b.budget).map((b) => b.label), needBy: r.needBy };
 }
 // The recommendation, in the Standard's escalation format. Schedule outranks cost (decision principles), so a
 // split that lands after the need-by date is never recommended over one that lands in time.
@@ -183757,7 +184639,7 @@ function rfqRecommend(r, L) {
   const vendors = plan.by.map((x) => `${vn(x.vendorId)} (${x.lines.length} line${1 === x.lines.length ? "" : "s"}, ${money(x.landed)} landed)`);
   return {
     what: `${L.quotes.length} readable quote${1 === L.quotes.length ? "" : "s"} on ${r.number}. Cheapest whole basket: ${L.baskets[0] ? `${L.baskets[0].vendor} at ${money(L.baskets[0].landed)} landed` : "nobody quoted every line on the same spec"}. Best split: ${money(plan.total)} landed across ${vendors.join(", ")}.`,
-    impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetComplete ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the material budget on the line${L.budgets.length === 1 ? "" : "s"}` : L.budgets.length ? `; no comparison with budget: ${RFQ_NO_MAT.toLowerCase()}${L.budgets.length > 1 ? ` (${L.budgetMissing.join(", ")})` : ""}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
+    impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetComplete ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the ${L.taxFree ? "line's" : "material"} budget${L.budgets.length === 1 ? "" : "s"}` : L.budgets.length ? `; no comparison with budget: ${RFQ_NO_MAT.toLowerCase()}${L.budgets.length > 1 ? ` (${L.budgetMissing.join(", ")})` : ""}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
     options: [`award the split (${money(plan.total)})`].concat(L.baskets[0] ? [`award the whole basket to ${L.baskets[0].vendor} (${money(L.baskets[0].landed)})`] : []).concat(["negotiate first: ask each vendor to beat the best figure we hold"]),
     rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once, then award the split. ${rfqWhy("firstPrice")}.`,
     by: (r.orderBy || r.needBy) < today() ? today() : r.orderBy || r.needBy,
@@ -183824,7 +184706,7 @@ function rfqNegSend(r, ids, edits) {
 }
 
 // ---- 8. award: POs through the house path, the sourcing choice recorded, savings stamped
-function rfqAward(r, assign) {
+function rfqAward(r, assign, opts) {
   if (!["leveled", "negotiating"].includes(r.status)) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status}`), null;
   const L = rfqLevel(r),
     first = rfqLevel(r, { round: 1 }),
@@ -183832,10 +184714,20 @@ function rfqAward(r, assign) {
   if (!A || r.lines.some((l) => !A[l.id])) return toast("Every line needs a vendor before the award"), null;
   const U = rfqUnconfirmed(r, [...new Set(Object.values(A))]);
   if (U.length) return toast(`Confirm the prices first: ${U.map((q) => q.vendor).join(", ")} ${1 === U.length ? "is" : "are"} read by AI, not confirmed`), null;
+  // no PO is cut on quantities the vendors never priced (the foreman's change after the request went out)
+  if (r.fmChanges && !r.fmTold) return toast(`${r.number}: ${r.foreman} changed quantities the vendors have not been told about (${r.fmChanges.join("; ")}). Tell the Vendors first.`), null;
+  // the three-quote rule at the award, not only at Send (CoS review 11-06: three asked, one priced, Level Now, award)
+  const T3 = rfqAwardThree(r, (opts || {}).reason);
+  if (!T3.ok) return toast(T3.msg), null;
+  T3.reason && ((r.awardReason = { reason: T3.reason, n: T3.priced, by: rfqMe(), at: appNowIso(), on: today(), rule: rfqWhy("quotes3") }), rfqHist(r, "awarded on fewer than three", `${T3.priced} priced; ${rfqMe()}'s reason: ${T3.reason} (${rfqWhy("quotes3")})`));
+  try {
+    T3.reason && audit("rfq", r.id, "award-fewer-quotes", "3", String(T3.priced), T3.reason);
+  } catch (e) {}
   const p = rfqJob(r),
     by = {};
   r.lines.forEach((l) => (by[A[l.id]] = by[A[l.id]] || []).push(l));
-  const made = [];
+  const made = [],
+    preOf = {};
   Object.entries(by).forEach(([vid, lines]) => {
     const v = rfqVendor(vid),
       q = L.quotes.find((x) => x.vendorId === vid);
@@ -183889,6 +184781,7 @@ function rfqAward(r, assign) {
         __v2: 1,
       };
     DB.pos.push(po);
+    preOf[po.id] = r2(goods + (+q.freight || 0) + shortfall + handling);
     try {
       audit("po", po.id, "from-rfq", "", `${po.number} ${v.name} ${money(poTotal(po).total)}`, `${r.number}: ${why}`);
     } catch (e) {}
@@ -183911,13 +184804,14 @@ function rfqAward(r, assign) {
       console.warn("rfq award links", e);
     }
   });
-  const final = r2(made.reduce((a, po) => a + po.landed, 0)),
-    firstQuote = first.baskets[0] ? first.baskets[0].landed : first.split ? first.split.total : final,
+  const landed = r2(made.reduce((a, po) => a + po.landed, 0)),
+    final = r2(made.reduce((a, po) => a + (preOf[po.id] || 0), 0)),
+    SB = rfqSavingsBasis(r, A, final, first),
     budget = L.budgetComplete ? L.budgetTotal : null;
-  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: firstQuote, firstBasis: first.baskets[0] ? `the cheapest whole first-round basket (${first.baskets[0].vendor})` : "the best first-round split", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: null != budget ? r2(budget - final) : null, budgetBasis: "material", budgetNote: null == budget && L.budgets.length ? `${RFQ_NO_MAT}${L.budgets.length > 1 ? `: ${L.budgetMissing.join(", ")}` : ""}` : "" };
-  (r.status = "awarded"), rfqHist(r, "awarded", `${made.map((x) => `${x.number} ${x.vendor} ${money(poTotal(x).total)} (${x.status})`).join("; ")}; saved ${money(r.award.savingsVsFirst)} against the first quote`);
+  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, landed: landed, preTax: !0, basis: RFQ_SAVE_BASIS, negotiated: SB.negotiated, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: SB.firstQuote, firstBasis: SB.firstBasis, savingsVsFirst: SB.savingsVsFirst, priced: rfqPricedCount(r), fewer: r.awardReason || null, budget: budget, savingsVsBudget: null != budget ? r2(budget - final) : null, budgetBasis: rfqTaxFree(r) ? "line" : "material", budgetNote: null == budget && L.budgets.length ? `${RFQ_NO_MAT}${L.budgets.length > 1 ? `: ${L.budgetMissing.join(", ")}` : ""}` : "" };
+  (r.status = "awarded"), rfqHist(r, "awarded", `${made.map((x) => `${x.number} ${x.vendor} ${money(poTotal(x).total)} (${x.status})`).join("; ")}; saved ${money(r.award.savingsVsFirst)} against ${r.award.firstBasis}`);
   save(), render();
-  rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} under the first quote`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
+  rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} saved against ${SB.short}, before tax`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
   return made;
 }
 // The month's savings: final price against the first quote, for every RFQ awarded in the month (Standard:
@@ -183926,15 +184820,55 @@ function rfqAward(r, assign) {
 function rfqSavings(ym) {
   const m = ym || today().slice(0, 7),
     A = rfqInit().filter((r) => r.award && String(r.award.on).slice(0, 7) === m);
-  A.forEach(rfqAwardBudgetFix);
+  A.forEach(rfqAwardBudgetFix), A.forEach(rfqAwardBasisFix);
   const B = A.filter((r) => null != r.award.savingsVsBudget);
-  return { ym: m, rfqs: A, n: A.length, vsFirst: r2(A.reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(B.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), nBudget: B.length, noBudget: A.length - B.length, final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+  // one basis: an award that could not be re-read on it is counted apart, never added in
+  return { ym: m, rfqs: A, n: A.length, oldBasis: A.filter((r) => r.award.oldBasis).length, vsFirst: r2(A.filter((r) => !r.award.oldBasis).reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(B.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), nBudget: B.length, noBudget: A.length - B.length, final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+}
+// The saving, one basis (11-05/11-06): pre-tax totals, against the next-best first-round bid for a one-vendor award,
+// the cheapest whole basket for a split, else the awarded vendors' own first-round price (what negotiation saved);
+// the negotiation figure is kept beside it. final is the awarded total before tax.
+const RFQ_SAVE_BASIS = "pre-tax, next-best bid";
+function rfqSavingsBasis(r, A, final, first) {
+  const F = first || rfqLevel(r, { round: 1 }),
+    won = [...new Set(Object.values(A || {}))],
+    ownFirst = (() => {
+      let t = 0;
+      for (const vid of won) {
+        const q = rfqQuoteOf(r, vid, 1);
+        if (!q || q.unreadable) return null;
+        const ls = r.lines.filter((l) => A[l.id] === vid),
+          g = r2(ls.reduce((a, l) => r2(a + r2(((q.lines.find((x) => x.lineId === l.id) || {}).unit || 0) * l.qty)), 0));
+        t = r2(t + g + (+q.freight || 0) + Math.max(0, (+q.min || 0) - g) + rfqHandling(rfqVendor(vid)));
+      }
+      return t;
+    })(),
+    pre = (b) => (null != b.pre ? b.pre : r2(b.landed - (b.tax || 0))),
+    alt = F.baskets.filter((b) => (1 === won.length ? !won.includes(b.vendorId) : !0)).sort((a, b) => pre(a) - pre(b))[0] || null,
+    firstQuote = alt ? pre(alt) : null != ownFirst ? ownFirst : final;
+  return { firstQuote: firstQuote, savingsVsFirst: r2(firstQuote - final), negotiated: null != ownFirst ? r2(ownFirst - final) : 0, firstBasis: alt ? (1 === won.length ? `the next-best bid, ${alt.vendor} at ${money(pre(alt))} before tax` : `the cheapest whole basket, ${alt.vendor} at ${money(pre(alt))} before tax`) : "the first-round price before tax", short: alt ? (1 === won.length ? "the next-best bid" : "the cheapest whole basket") : "the first price" };
+}
+// An award stamped before the one basis (landed with tax, against the cheapest first-round basket) is re-read once on
+// it from its own quotes and POs, so the month's total adds one kind of saving; the old figure is kept beside it.
+function rfqAwardBasisFix(r) {
+  const A = r && r.award;
+  if (!A || A.basis === RFQ_SAVE_BASIS) return A;
+  try {
+    const P = (DB.pos || []).filter((po) => (A.pos || []).includes(po.id)),
+      final = r2(P.reduce((a, po) => a + (+po.landed || 0) - ((po.useTax && +po.useTax.amount) || (+po.tax > 0 ? r2((((po.lines || []).reduce((g, l) => g + (+l.qty || 0) * (+l.price || 0), 0)) * po.tax) / 100) : 0)), 0)),
+      SB = P.length && A.assign ? rfqSavingsBasis(r, A.assign, final) : null;
+    if (!SB) return Object.assign(A, { basis: "old: landed with tax, not re-read", oldBasis: !0 });
+    Object.assign(A, { was: { savingsVsFirst: A.savingsVsFirst, firstQuote: A.firstQuote, final: A.final, firstBasis: A.firstBasis }, landed: A.landed || A.final, final: final, preTax: !0, firstQuote: SB.firstQuote, firstBasis: SB.firstBasis, savingsVsFirst: SB.savingsVsFirst, negotiated: SB.negotiated, basis: RFQ_SAVE_BASIS });
+  } catch (e) {
+    Object.assign(A, { basis: "old: landed with tax, not re-read", oldBasis: !0 });
+  }
+  return A;
 }
 // An award stamped before the material rule measured against the whole line, labour included: re-read it once
 // from the lines as they are (the material budget, or none), so no screen or answer repeats the old figure.
 function rfqAwardBudgetFix(r) {
   const A = r && r.award;
-  if (!A || "material" === A.budgetBasis) return A;
+  if (!A || "material" === A.budgetBasis || "line" === A.budgetBasis) return A;
   try {
     const B = rfqBudgetsNow(r),
       ok = B.length && B.every((b) => null != b.budget),
@@ -184218,8 +185152,8 @@ function sourcingCadence() {
 // carry what waits on a person (the foreman's For You card; the coordinator's Approvals through DELEGATION
 // "rfq"); CATCH carries the house rules the RFQ broke. Nothing appears in two of them.
 const rfqScoped = (scope) => rfqInit().filter((r) => !scope || r.projectId === scope);
-predDef("rfqForeman", { label: "RFQs Waiting on the Foreman", rule: "drafted RFQs the foreman has not approved or sent back", rows: (s) => rfqScoped(s).filter((r) => "foreman-review" === r.status) });
-predDef("rfqPurchasing", { label: "RFQs Waiting on Purchasing", rule: "RFQs the foreman approved that have not gone to vendors", rows: (s) => rfqScoped(s).filter((r) => "purchasing" === r.status) });
+predDef("rfqForeman", { label: "Requests for Quote Waiting on the Foreman", rule: "drafted RFQs the foreman has not approved or sent back", rows: (s) => rfqScoped(s).filter((r) => "foreman-review" === r.status) });
+predDef("rfqPurchasing", { label: "Requests for Quote Waiting on Purchasing", rule: "RFQs the foreman approved that have not gone to vendors", rows: (s) => rfqScoped(s).filter((r) => "purchasing" === r.status) });
 predDef("rfqNoReply", {
   label: "Quotes Due Today, No Reply",
   rule: "an invited vendor who has not answered an RFQ due today",
@@ -184230,11 +185164,12 @@ predDef("rfqNoReply", {
 });
 predDef("rfqLeveledNoNeg", { label: "Leveled, No Negotiation Sent", rule: "leveled RFQs with no negotiation email sent (Standard: negotiate every quote at least once)", rows: (s) => rfqScoped(s).filter((r) => "leveled" === r.status && !(r.neg || []).some((n) => "sent" === n.status)) });
 predDef("rfqUnderQuoted", {
-  label: "RFQs Over $2,500, Under 3 Quotes",
+  label: "Requests Over $2,500, Under 3 Quotes",
   rule: "RFQs worth over $2,500 with fewer than three readable quotes once the due date passed (Standard: three quotes over $2,500)",
-  rows: (s) => rfqScoped(s).filter((r) => (["leveled", "negotiating"].includes(r.status) || (["sent", "quoting"].includes(r.status) && r.dueDate && r.dueDate < today())) && rfqBasketGuess(r) > 2500 && (r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).length < 3),
+  // an award on fewer than three stays in the check with its logged reason (CoS 11-06: a reason never hides it)
+  rows: (s) => rfqScoped(s).filter((r) => (["leveled", "negotiating", "awarded"].includes(r.status) || (["sent", "quoting"].includes(r.status) && r.dueDate && r.dueDate < today())) && rfqNeedsThree(r) && rfqPricedCount(r) < 3),
 });
-predDef("rfqNoOutNyc", { label: "Material RFQs, No Vendor Outside NYC", rule: "a material RFQ sent with no invited vendor outside Manhattan, Brooklyn and the other boroughs (Standard: look beyond the five boroughs)", rows: (s) => rfqScoped(s).filter((r) => r.shippable && RFQ_OPEN.includes(r.status) && !(r.vendors || []).some((iv) => rfqOutNyc(rfqVendor(iv.id)))) });
+predDef("rfqNoOutNyc", { label: "Material Requests, No Vendor Outside NYC", rule: "a material RFQ sent with no invited vendor outside Manhattan, Brooklyn and the other boroughs (Standard: look beyond the five boroughs)", rows: (s) => rfqScoped(s).filter((r) => r.shippable && RFQ_OPEN.includes(r.status) && !(r.vendors || []).some((iv) => rfqOutNyc(rfqVendor(iv.id)))) });
 // What waits on the coordinator, in the one queue (Approvals and the classic Home's Needs Me), by DELEGATION.
 DELEGATION.rfq = {
   role: "coord",
@@ -184242,7 +185177,7 @@ DELEGATION.rfq = {
   who: (it) => ("foreman-review" === it.stage ? "foreman" : "coord"),
 };
 "undefined" != typeof APPR_WHO && (APPR_WHO.foreman = "the foreman");
-APPR_CHIPS.splice(Math.max(0, APPR_CHIPS.findIndex(([k]) => "other" === k)), 0, ["rfq", "RFQs"]);
+APPR_CHIPS.splice(Math.max(0, APPR_CHIPS.findIndex(([k]) => "other" === k)), 0, ["rfq", "Quotes"]);
 function rfqQueueItems() {
   const out = [];
   rfqInit().forEach((r) => {
@@ -184301,7 +185236,7 @@ CATCH.push(
   {
     name: "rfqUnderQuoted",
     label: "Under Three Quotes",
-    rows: () => PRED.rfqUnderQuoted.rows().map((r) => ({ key: "rfq3:" + r.id, what: `Under three quotes: ${r.number}`, sub: `${(r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).length} readable on ${money(rfqBasketGuess(r))} · ${rfqWhy("quotes3")}`, amount: rfqBasketGuess(r), verb: "Review", run: () => rfqOpenFor(r.id) })),
+    rows: () => PRED.rfqUnderQuoted.rows().map((r) => ({ key: "rfq3:" + r.id, what: r.awardReason ? `Awarded on fewer than three, because ${r.awardReason.reason}: ${r.number}` : r.fewerQuotes ? `Sent to fewer than three, because ${r.fewerQuotes.reason}: ${r.number}` : `Under three quotes: ${r.number}`, sub: `${rfqPricedCount(r)} priced on ${money(rfqBasketGuess(r))}${r.awardReason ? ` · ${r.awardReason.by}, ${fmtL(r.awardReason.on)}` : r.fewerQuotes ? ` · ${r.fewerQuotes.by}, ${fmtL(r.fewerQuotes.on)}` : ""} · ${rfqWhy("quotes3")}`, amount: rfqBasketGuess(r), verb: "Review", run: () => rfqOpenFor(r.id) })),
   },
   {
     name: "rfqNoOutNyc",
@@ -184361,7 +185296,7 @@ if ("function" == typeof palIndex) {
     const items = base.apply(this, arguments);
     try {
       (ROLE_VIEWS[role()] || []).includes("rfq") &&
-        (items.push({ k: "view", t: "RFQs", s: "Requests for quote", go: () => setView("rfq") }),
+        (items.push({ k: "view", t: "Quotes", s: "Requests for quote", go: () => setView("rfq") }),
         rfqInit().forEach((r) => items.push({ k: "RFQ", t: `${r.number} ${r.title}`, s: `${RFQ_STATUS[r.status] || r.status} · ${rfqJobName(r)}`, go: () => rfqOpenFor(r.id) })));
     } catch (e) {}
     return items;
@@ -184470,6 +185405,97 @@ AG_ASST.unshift(
     },
   },
 );
+// The assistant's purchasing answers the coordinator expert found missing (11-05): "warehouse" is Stock; "what is
+// owed back" is the Orders page's Owed Back figure, the same number as the tile; and a field person asking what was
+// ordered for his job gets the items, quantities, dates and drop point, with no dollars. Each reads the function its
+// screen reads. Pinned in tests/ask_bank_tune.json (P4W1 to P4W3) and tests/pu_p4_test.py.
+const AG_PU_FIELD = () => ["foreman", "crew", "driver"].includes(role());
+AG_ASST.unshift(
+  {
+    id: "pustock",
+    first: !0,
+    kind: "ops",
+    re: /\bwarehouse\b|\bin stock\b.*\?|\bwhat(?:'s| is| do we have)\b.*\b(?:in stock|on the shelf|in the shop)\b/,
+    not: /\b(bought|buy|purchased|paid for|ordered)\b.*\b(had|have|was|were|already)\b/,
+    run(P) {
+      const I = (DB.inventory || []).filter((i) => +i.qty > 0),
+        stop = /^(what|whats|what's|is|are|the|in|at|our|we|do|does|have|any|there|warehouse|stock|shelf|shop|left|got|how|many|much|some)$/,
+        words = P.l.replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2 && !stop.test(w)),
+        hit = words.length ? I.filter((i) => words.some((w) => `${i.name} ${(i.tags || []).join(" ")} ${i.type || ""}`.toLowerCase().includes(w.replace(/s$/, "")))) : [],
+        at = (i) => ("function" == typeof locName ? locName(i.loc) : i.loc || ""),
+        L = (words.length ? hit : I).slice().sort((a, b) => String(at(a)).localeCompare(at(b)) || String(a.name).localeCompare(b.name)),
+        inWh = L.filter((i) => "wh" === i.loc);
+      return {
+        headline: words.length && !hit.length
+          ? `Stock (the warehouse, the truck and the sites) has no ${words.join(" ")} on the shelf.`
+          : `Stock: ${agN(L.length, "item")} on hand${inWh.length !== L.length ? `, ${inWh.length} in the warehouse` : " in the warehouse"}: ${agList(L.map((i) => i.name), 5)}.`,
+        work: L.slice(0, 25).map((i) => `${i.name}: ${i.qty} ${i.unit || "ea"} at ${at(i)}`),
+        interp: 'I read "warehouse" as Stock.',
+        go: agGo("inv"),
+        ran: agRan("stock", words.length ? [`name matches ${words.join(" or ")}`, "quantity over 0"] : ["quantity over 0"], "", L.length),
+      };
+    },
+  },
+  {
+    id: "puowed",
+    first: !0,
+    kind: "money",
+    re: /\bowed back\b|\bowe[sd]? (?:us|back)\b|\b(?:returns?|credits?|refunds?) (?:owed|due|outstanding|open|we are owed)\b|\bwhat are we owed\b/,
+    not: /\b(client|customer|invoice|receivable|ar)\b/,
+    run(P) {
+      let R = [];
+      try {
+        R = "function" == typeof puOrderRows ? puOrderRows("").filter((x) => "owed" === x.tile) : [];
+      } catch (e) {}
+      if (P.vendors && P.vendors.length) return null; // "what does Nemo Tile owe us": the vendor's own reader answers
+      const sum = r2(R.reduce((a, x) => a + (x.money || 0), 0));
+      return {
+        headline: R.length ? `Owed back to us: ${money(sum)} on ${agN(R.length, "return or credit", "returns and credits")}, the Owed Back figure on Orders.` : "Nothing is owed back to us: no open return, claim or credit (the Owed Back figure on Orders is $0).",
+        work: R.map((x) => `${x.name}${x.line ? ` · ${x.line}` : ""}`),
+        go: agGo("po"),
+        ran: agRan("orders", ["owed back (returns, claims and credits not yet credited)"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "puordered",
+    first: !0,
+    kind: "ops",
+    re: /\b(?:what|which|anything)\b.*\b(?:ordered|on order|coming|arriving|being delivered)\b.*\b(?:job|site|project|house|jobs)\b|\bwhat did we order\b|\bwhat(?:'s| is) on order\b/,
+    not: /\b(cost|spend|spent|paid|price|how much)\b/,
+    run(P) {
+      const field = AG_PU_FIELD(),
+        J = P.jobs && P.jobs.length ? P.jobs : field ? ("function" == typeof agHomeJobs && agHomeJobs().length ? agHomeJobs() : (DB.projects || []).filter((p) => p.project && !p.archived && "design" !== p.kind)) : (DB.projects || []).filter((p) => p.project && !p.archived),
+        ids = new Set(J.map((p) => p.id)),
+        drop = (w) => (/^site$/i.test(w || "") ? "the site" : /warehouse|wh/i.test(w || "") ? "the warehouse" : w || "the site"),
+        rows = [];
+      (DB.pos || [])
+        .filter((po) => ids.has(po.projectId) && ["issued", "partial", "pending", "approved"].includes(po.status))
+        .forEach((po) =>
+          (po.lines || []).forEach((l) => {
+            const left = (+l.qty || 0) - (+l.received || 0);
+            left > 0 && rows.push({ job: po.projectId, item: l.item || l.desc || "item", qty: `${left} ${l.unit || "ea"}`, when: po.expected || po.needBy || "", where: drop(po.shipTo), who: po.vendor || "", ref: po.number, money: (+l.price || 0) * left });
+          }),
+        );
+      J.forEach((p) =>
+        (p.materials || [])
+          .filter((m) => ["ordered", "shipped"].includes(m.status) && !rows.some((x) => x.job === p.id && String(x.item).toLowerCase() === String(m.name).toLowerCase()))
+          .forEach((m) => rows.push({ job: p.id, item: m.name, qty: m.qty || "", when: m.eta || "", where: drop(m.deliverTo), who: m.vendor || "", ref: m.po || "", money: null })),
+      );
+      rows.sort((a, b) => String(a.when || "9999").localeCompare(String(b.when || "9999")));
+      const jn = (id) => shortName((DB.projects || []).find((p) => p.id === id) || { project: { name: "" } }),
+        one = 1 === J.length;
+      return {
+        headline: rows.length
+          ? `${agN(rows.length, "thing")} on order for ${one ? jn(J[0].id) : agList(J.map((p) => shortName(p)), 3)}: ${agList(rows.map((x) => x.item), 4)}${rows[0].when ? `; the first is due ${fmtL(rows[0].when)}` : ""}.`
+          : `Nothing is on order for ${one ? jn(J[0].id) : "your jobs"} right now.`,
+        work: rows.slice(0, 20).map((x) => `${x.item}${x.qty ? `: ${x.qty}` : ""} · ${x.when ? `due ${fmtL(x.when)}` : "no date yet"} · drops at ${x.where}${one ? "" : ` (${jn(x.job)})`}${field ? "" : `${x.who ? ` · ${x.who}` : ""}${x.ref ? ` · ${x.ref}` : ""}${null != x.money && x.money > 0 ? ` · ${money(x.money)}` : ""}`}`),
+        go: agGo(field ? "today" : "po"),
+        ran: agRan("purchase orders and materials", ["on order (issued, not yet received)", one ? `job is ${jn(J[0].id)}` : ""], "", rows.length),
+      };
+    },
+  },
+);
 // The mail reader leaves an RFQ reply to the RFQ reader: no second proposal (a quote or a bill) for the same message.
 if ("function" == typeof cmRead) {
   const base = cmRead;
@@ -184498,7 +185524,7 @@ APP_DAY_HOOKS.push(["rfqDayTick", rfqDayTick]);
 // ---- the RFQ page (Purchasing › RFQs): Requests, Prospects, Sourcing Research; one RFQ at a time when opened
 (function rfqRegisterView() {
   const id = "rfq",
-    label = "RFQs";
+    label = "Quotes";
   try {
     const g = IA_GROUPS.find((x) => "buy" === x.id);
     g && !g.views.includes(id) && g.views.splice(Math.max(0, g.views.indexOf("po") + 1), 0, id), (IA_LABELS[id] = label);
@@ -184550,6 +185576,16 @@ APP_DAY_HOOKS.push(["rfqDayTick", rfqDayTick]);
 .rfq-hyp{margin:2px 0;font-style:italic}
 .rfq-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .rfq-tw{overflow-x:auto;max-width:100%}
+.rfq-vrow{min-height:44px;display:flex;gap:12px;align-items:center;box-sizing:border-box;padding:6px 0;border-bottom:1px solid var(--rule)}
+.rfq-vrow .grow{display:flex;flex-direction:column;min-width:0}
+.rfq-em{width:100%;max-width:320px;min-height:36px;margin-top:4px;box-sizing:border-box}
+.rsq-h{margin:12px 0 6px;font-size:14px}
+.rsq-item{width:100%;min-height:40px;font-weight:600;box-sizing:border-box;min-width:0}
+.rsq-unit{width:96px;min-height:44px;box-sizing:border-box}
+.rsq textarea,.rsq input[type=date]{width:100%;box-sizing:border-box;max-width:100%}
+.rfq-scope{margin-top:4px}
+.rfq-more>summary{cursor:pointer}
+.rfq-addvrow select{min-height:44px;max-width:100%;min-width:0;flex:1 1 200px}
 @media (max-width:700px){.rfq-cards{grid-template-columns:1fr}.rfq-tiles{grid-template-columns:1fr 1fr}.rfq-row .btn{min-height:44px}}
 `),
       document.head.appendChild(st);
@@ -184583,7 +185619,7 @@ function rfqNext(r) {
     "foreman-review": `${r.foreman} checks the quantities on his phone`,
     purchasing: "pick the vendors, set the due date and send",
     sent: `quotes due ${fmtL(r.dueDate)}`,
-    quoting: `${(r.quotes || []).length} of ${(r.vendors || []).length} replies in; due ${fmtL(r.dueDate)}`,
+    quoting: `${rfqPriceNeeded(r).length ? `${rfqPriceNeeded(r).length} price${1 === rfqPriceNeeded(r).length ? "" : "s"} needed: enter ${1 === rfqPriceNeeded(r).length ? "it" : "them"} from the reply; ` : ""}${(r.quotes || []).filter((q) => !q.unreadable).length} of ${(r.vendors || []).length} priced; due ${fmtL(r.dueDate)}`,
     leveled: (r.neg || []).some((n) => "draft" === n.status) ? "approve the negotiation emails" : "negotiate once, then award",
     negotiating: r.round2In ? "round two is in: award" : "waiting on round two",
     awarded: r.award ? `${r.award.numbers.join(", ")} · saved ${money(r.award.savingsVsFirst)}` : "",
@@ -184614,7 +185650,7 @@ function renderRfq() {
     body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
   } else if ("pricewatch" === tab) body = pwPageHtml();
   else body = rfqResearchHtml();
-  host.innerHTML = `<div class="ph"><div><h2>RFQs</h2><div class="lead">${open} open${mine ? ` · ${mine} waiting on you` : ""}</div></div><div class="acts"><button class="btn ${["research", "pricewatch"].includes(tab) ? "" : "primary"}" id="rfq-new">New RFQ</button></div></div>${seg}<div style="margin-top:12px">${body}</div>`;
+  host.innerHTML = `<div class="ph"><div><h2>Quotes</h2><div class="lead">${open} open${mine ? ` · ${mine} waiting on you` : ""}</div></div><div class="acts"><button class="btn ${["research", "pricewatch"].includes(tab) ? "" : "primary"}" id="rfq-new">New Request for Quote</button></div></div>${seg}<div style="margin-top:12px">${body}</div>`;
   host.querySelectorAll("[data-rfqtab]").forEach((b) => (b.onclick = () => ((window.rfqTab = b.dataset.rfqtab), renderRfq())));
   host.querySelector("#rfq-new").onclick = () => rfqNewSheet();
   host.querySelectorAll("[data-rfqopen]").forEach((b) => (b.onclick = () => ((window.rfqOpen = b.dataset.rfqopen), renderRfq(), window.scrollTo(0, 0))));
@@ -184635,30 +185671,9 @@ function renderRfq() {
   rfqWireResearch(host);
   "pricewatch" === tab && pwWirePage(host);
 }
+// New Request for Quote: the one request sheet, opened empty (11-06: one path, two doors)
 function rfqNewSheet() {
-  const m = rfqLinesSheet(S && S.id);
-  if (!m) return;
-  const bd = m.querySelector(".rfq-sheet");
-  bd &&
-    bd.insertAdjacentHTML(
-      "beforeend",
-      `<div class="rfq-row" style="margin-top:10px"><button class="btn" id="rfq-plans">From Plans</button><button class="btn" id="rfq-blank">Start Blank</button></div><p class="small muted">From Plans drafts a framing list from the job's takeoff; Start Blank is a request with no lines yet.</p>`,
-    );
-  const job = () => m.querySelector("#rfq-ls-job").value;
-  m.querySelector("#rfq-plans").onclick = () => {
-    const pid = job(),
-      p = (DB.projects || []).find((x) => x.id === pid);
-    if (!p || !(p.takeoff && (p.takeoff.rooms || []).length)) return toast("This job has no takeoff — add rooms under Field & Plans, or start from its lines");
-    mbCloseModal(), rfqDemoReady();
-    const r = rfqDraftFromPlans(pid);
-    r && ((window.rfqOpen = r.id), render(), rcToast(`${r.number} drafted from the plans — ${r.foreman} checks the quantities next`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]));
-  };
-  m.querySelector("#rfq-blank").onclick = () => {
-    const pid = job();
-    mbCloseModal();
-    const r = rfqCreate({ projectId: pid, title: "New request for quote", category: "Materials", lines: [] });
-    (window.rfqOpen = r.id), render(), rcToast(`${r.number} started blank — add the lines`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
-  };
+  return rfqStartFromLines([], { pid: S && S.id });
 }
 // ---- one RFQ
 function rfqLevelHtml(r, L) {
@@ -184666,13 +185681,15 @@ function rfqLevelHtml(r, L) {
     R = rfqRecommend(r, L),
     V = L.vendors,
     vn = (id) => (V.find((v) => v.vendorId === id) || {}).vendor || id,
-    taxNote = `<p class="small muted">Landed cost counts NY sales tax where the vendor charges it and NY use tax (${L.taxRate}%) where it does not — confirm with the accountant; it is not tax advice.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`,
-    tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">Material Budget</span><b>${L.budgetComplete ? money(L.budgetTotal) : L.budgets.length ? "None on the Line" : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgetComplete ? L.budgets.map((b) => b.label).join("; ").slice(0, 80) : L.budgets.length ? RFQ_NO_MAT : "")}</span></div></div>`,
+    taxNote = L.taxFree
+      ? `<p class="small muted">A sub's bid is labour, so no tax is added: the bids are leveled on price, on what each includes and leaves out, and against the line's budget.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`
+      : `<p class="small muted">Landed cost counts NY sales tax where the vendor charges it and NY use tax (${L.taxRate}%) where it does not — confirm with the accountant; it is not tax advice.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`,
+    tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">${L.taxFree ? "Line Budget" : "Material Budget"}</span><b>${L.budgetComplete ? money(L.budgetTotal) : L.budgets.length ? "None on the Line" : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgetComplete ? L.budgets.map((b) => b.label).join("; ").slice(0, 80) : L.budgets.length ? RFQ_NO_MAT : "")}</span></div></div>`,
     vcards = `<div class="rfq-cards">${V.map((v) => {
       const b = L.baskets.find((x) => x.vendorId === v.vendorId),
         p = L.partial.find((x) => x.vendorId === v.vendorId),
         q = L.quotes.find((x) => x.vendorId === v.vendorId);
-      return `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(v.vendor)}</b><div class="small" data-nocase>${esc(v.region || "region not on file")}${v.channel ? ` · ${esc(v.channel)}` : ""} · round ${v.round}</div><div class="small">Landed: <b>${b ? money(b.landed) : `${p ? p.priced : 0} of ${r.lines.length} lines priced`}</b>${b ? ` (goods ${money(b.goods)}, freight ${money(b.freight)}${b.shortfall ? `, minimum ${money(b.shortfall)}` : ""}, ${v.taxCharged ? "NY sales tax" : "NY use tax due"} ${money(b.tax)}${b.handling ? `, hand unload ${money(b.handling)}` : ""})` : ""}</div><div class="small">${v.confirmed ? '<span class="pill ok">Confirmed</span>' : `<span class="pill warn">Read by AI, Not Confirmed</span> <button class="btn sm" data-rfqconf="${esc(q.id)}">Confirm</button>`}</div><div class="small muted" data-nocase>Delivery: ${esc(v.risk)}</div><div class="small muted" data-nocase>Relationship: ${esc(v.relation)}</div><div class="small">Freight ${money(v.freight)}${v.min ? ` · minimum ${money(v.min)}` : ""} · lead ${null == v.lead ? "not stated" : `${v.lead} day${1 === v.lead ? "" : "s"}`} · ${v.onTime ? `lands ${fmt(v.arrive)}, in time` : `<b class="bad">${v.arrive ? `lands ${fmt(v.arrive)}, after ${fmt(r.needBy)}` : "no lead time"}</b>`}${v.validUntil ? ` · price holds to ${fmt(v.validUntil)}` : ""}</div>${(q.flags || []).length ? `<ul class="small" style="margin:6px 0 0 16px;padding:0">${q.flags.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>` : ""}</div>`;
+      return `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(v.vendor)}</b><div class="small" data-nocase>${esc(v.region || "region not on file")}${v.channel ? ` · ${esc(v.channel)}` : ""} · round ${v.round}</div><div class="small">Landed: <b>${b ? money(b.landed) : `${p ? p.priced : 0} of ${r.lines.length} lines priced`}</b>${b ? (v.taxFree ? ` (${b.freight ? `bid ${money(b.goods)}, freight ${money(b.freight)}, ` : ""}no tax on labour)` : ` (goods ${money(b.goods)}, freight ${money(b.freight)}${b.shortfall ? `, minimum ${money(b.shortfall)}` : ""}, ${v.taxCharged ? "NY sales tax" : "NY use tax due"} ${money(b.tax)}${b.handling ? `, hand unload ${money(b.handling)}` : ""})`) : ""}</div>${v.includes || v.excludes || v.taxFree ? `<div class="small rfq-scope" data-nocase><b>Includes</b> ${esc(v.includes || "not said")} · <b>Excludes</b> ${esc(v.excludes || "not said: ask before the award")}</div>` : ""}<div class="small">${v.confirmed ? '<span class="pill ok">Confirmed</span>' : `<span class="pill warn">Read by AI, Not Confirmed</span> <button class="btn sm" data-rfqconf="${esc(q.id)}">Confirm</button>`}</div><div class="small muted" data-nocase>Delivery: ${esc(v.risk)}</div><div class="small muted" data-nocase>Relationship: ${esc(v.relation)}</div><div class="small">Freight ${money(v.freight)}${v.min ? ` · minimum ${money(v.min)}` : ""} · lead ${null == v.lead ? "not stated" : `${v.lead} day${1 === v.lead ? "" : "s"}`} · ${v.onTime ? `lands ${fmt(v.arrive)}, in time` : `<b class="bad">${v.arrive ? `lands ${fmt(v.arrive)}, after ${fmt(r.needBy)}` : "no lead time"}</b>`}${v.validUntil ? ` · price holds to ${fmt(v.validUntil)}` : ""}</div>${(q.flags || []).length ? `<ul class="small" style="margin:6px 0 0 16px;padding:0">${q.flags.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>` : ""}</div>`;
     }).join("")}</div>`,
     lineCell = (pl, v) => {
       const x = pl.prices.find((y) => y.vendorId === v.vendorId),
@@ -184683,7 +185700,8 @@ function rfqLevelHtml(r, L) {
       ? `<div class="rfq-cards">${L.perLine.map((pl) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(pl.lineId)} · ${esc(pl.item)}</b><div class="small">${pl.qty} ${esc(pl.unit)}${null != pl.budget ? ` · budget ${money(pl.budget)}` : ""}</div>${V.map((v) => `<div class="small" data-nocase>${esc(v.vendor)}: ${lineCell(pl, v)}</div>`).join("")}<div class="small">Best: <b data-nocase>${pl.best ? `${esc(pl.best.vendor)} ${rfqU(pl.best.unit)}` : "no same-spec price"}</b></div></div>`).join("")}</div>`
       : `<div class="rfq-tw"><table class="t rfq-grid"><thead><tr><th>Line</th><th>Item</th><th class="money">Qty</th><th class="money">Budget</th>${V.map((v) => `<th class="money" data-nocase>${esc(v.vendor)}</th>`).join("")}<th>Best</th></tr></thead><tbody>${L.perLine.map((pl) => `<tr><td>${esc(pl.lineId)}</td><td data-nocase>${esc(pl.item)}</td><td class="money">${pl.qty} ${esc(pl.unit)}</td><td class="money">${null != pl.budget ? money(pl.budget) : "—"}</td>${V.map((v) => `<td class="money">${lineCell(pl, v)}</td>`).join("")}<td data-nocase>${pl.best ? esc(pl.best.vendor) : "—"}</td></tr>`).join("")}</tbody></table></div>`,
     rec = `<dl class="rfq-rec small"><dt>What Happened</dt><dd data-nocase>${esc(R.what)}</dd><dt>Impact on Cost, Schedule and Quality</dt><dd data-nocase>${esc(R.impact)}</dd><dt>Options</dt><dd data-nocase>${esc(R.options.join("; "))}</dd><dt>Recommendation</dt><dd data-nocase><b>${esc(R.rec)}</b></dd><dt>Decide By</dt><dd>${fmtL(R.by)} (the order-by date)</dd></dl><p class="small muted">${esc(rfqWhy("landed"))}. ${esc(rfqWhy("escalate"))}.</p>`;
-  return `${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>Material Budget by Line</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
+  const pn = rfqPricedCount(r);
+  return `<p class="small" data-rfqpriced="${pn}">Priced quotes in: ${pn} of ${(r.vendors || []).length} asked${rfqNeedsThree(r) && pn < 3 ? ": under the three the Standard asks for, so the award asks why" : ""}.</p>${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>${L.taxFree ? "Line Budget" : "Material Budget by Line"}</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
 }
 function rfqDetailHtml(r) {
   const p = rfqJob(r),
@@ -184697,19 +185715,19 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Lines</h3>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("") || '<p class="small muted">No lines yet.</p>'}<div class="rfq-add"><input id="rfq-b-item" placeholder="Item" aria-label="Item"><div class="rfq-add-row"><input id="rfq-b-qty" type="number" min="1" placeholder="How many" aria-label="How many"><input id="rfq-b-unit" value="ea" aria-label="Unit"><button class="btn" id="rfq-b-add">Add</button></div></div><div class="rfq-row" style="margin-top:10px"><button class="btn primary" id="rfq-to-fm">Send to the Foreman</button><button class="btn" id="rfq-to-buy">Skip to Purchasing</button></div></div>`;
   else if ("foreman-review" === stage) act = `<div class="note">${esc(r.foreman)} checks the quantities on his phone (his For You card on Today). Nothing goes to a vendor before he approves.</div>`;
   else if ("purchasing" === stage && vprop)
-    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3>${rfqStockHtml(r)}<p class="small muted">The assistant's picks are ticked. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.list
+    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3>${rfqStockHtml(r)}<p class="small muted">The assistant's picks are ticked: vendors who sell ${esc(vprop.trades.length ? vprop.trades.join(" and ") : String(r.category || "this").toLowerCase())}, best record first. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.short ? `<p class="small warn rfq-short">Only ${vprop.pick.length} vendor${1 === vprop.pick.length ? "" : "s"} on file sell${1 === vprop.pick.length ? "s" : ""} this: tick more below, add one under Vendors, or write why fewer will do.</p>` : ""}${vprop.list
       .map(
         (x) =>
-          `<label class="rfq-pick"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${vprop.pick.includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}</span></label>`,
+          `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || vprop.pick).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`,
       )
-      .join("") || '<p class="small muted">No vendor on file sells this category. Add one under Prospects.</p>'}<div class="f" style="margin-top:10px;max-width:260px"><label for="rfq-due">Quotes Due</label><input type="date" id="rfq-due" value="${esc(r.dueDate || (addWork(today(), 1) <= (r.orderBy || "9999") ? addWork(today(), 1) : today()))}"></div><button class="btn primary" id="rfq-send" style="margin-top:8px">Send RFQ</button><p class="small muted">Send RFQ is the approval: one email per vendor, ${esc(r.number)} in the subject, the line sheet in the body and as a CSV.</p></div>`;
+      .join("") || '<p class="small muted">No vendor on file sells this category. Add one under Vendors.</p>'}${vprop.others.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>More Vendors (${vprop.others.length})</b></summary>${vprop.others.map((x) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || []).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`).join("")}</details>` : ""}${vprop.need3 ? `<div class="f" style="margin-top:10px"><label for="rfq-reason">Why Fewer Than Three, If You Ask Fewer</label><textarea id="rfq-reason" rows="2" placeholder="e.g. the only shop that builds to our drawings; logged on the request">${esc(r.reasonDraft || "")}</textarea></div>` : ""}<div class="f" style="margin-top:10px;max-width:260px"><label for="rfq-due">Quotes Due</label><input type="date" id="rfq-due" value="${esc(r.dueDate || r.dueWanted || (addWork(today(), 1) <= (r.orderBy || "9999") ? addWork(today(), 1) : today()))}"></div><button class="btn primary" id="rfq-send" style="margin-top:8px">Send RFQ</button><p class="small muted">Send RFQ is the approval: one email per vendor, ${esc(r.number)} in the subject, the line sheet in the body and as a CSV.</p></div>`;
   else if (["sent", "quoting"].includes(stage))
     act = `<div class="card rfq-sec"><h3>Out to Vendors</h3>${(r.vendors || []).map((iv) => {
       const q = rfqQuoteOf(r, iv.id, 1),
         s = (r.sent || []).find((x) => x.vendorId === iv.id && "rfq" === x.kind);
-      return `<div class="small" data-nocase><b>${esc(iv.name)}</b> · ${esc(iv.region || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? "replied, unreadable" : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</div>`;
-    }).join("")}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? '<button class="btn primary" id="rfq-level">Level Now</button>' : ""}</div></div>`;
-  if (unread.length && RFQ_OPEN.includes(stage)) act += `<div class="card rfq-sec"><h3>Replies I Could Not Read</h3>${unread.map((q) => `<div class="rfq-row small" data-nocase><span class="grow">${esc(q.vendor)}: ${esc(q.flags[0] || "")}</span><button class="btn sm" data-rfqenter="${esc(q.id)}">Enter Prices</button></div>`).join("")}</div>`;
+      return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
+    }).join("")}${r.fewerQuotes ? `<p class="small muted" data-nocase>Fewer than three: ${esc(r.fewerQuotes.reason)} (${esc(r.fewerQuotes.by)}, ${fmt(r.fewerQuotes.on)}).</p>` : ""}${"open" === r.fmBeside ? `<p class="small muted">${esc(r.foreman)} checks the quantities beside it, on his phone.</p>` : r.fmChanges && !r.fmTold ? `<div class="rfq-row small warn" data-nocase><span class="grow">${esc(((r.foremanOk || {}).by) || r.foreman)} changed the quantities after it went out: ${esc(r.fmChanges.join("; "))}.</span><button type="button" class="btn sm primary" id="rfq-tell">Tell the Vendors</button></div>` : r.fmTold ? `<p class="small muted" data-nocase>The change went to ${r.fmTold.n} vendor${1 === r.fmTold.n ? "" : "s"}, sent by ${esc(r.fmTold.by)} (${fmt(r.fmTold.on)}).</p>` : ""}${rfqAddVendorHtml(r)}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? `<button class="btn ${unread.length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-level">Level Now</button>` : ""}</div>${unread.length && (r.quotes || []).some((q) => !q.unreadable) ? `<p class="small muted">Level Now leaves out the ${unread.length === 1 ? "bid" : "bids"} with no price; a bid is leveled only on a price someone read.</p>` : ""}</div>`;
+  if (unread.length && RFQ_OPEN.includes(stage)) act += `<div class="card rfq-sec"><h3>Price Needed</h3>${unread.map((q, i) => `<div class="rfq-row small" data-nocase><span class="grow">${esc(q.vendor)}: ${esc(q.flags[0] || "")}</span><button class="btn sm ${0 === i && ["sent", "quoting"].includes(stage) ? "primary" : ""}" data-rfqenter="${esc(q.id)}">Enter Prices</button></div>`).join("")}</div>`;
   if (L && ["quoting", "leveled", "negotiating", "awarded"].includes(stage)) act += `<div class="rfq-sec"><h3>Leveling${"negotiating" === stage || "awarded" === stage ? " — Latest Round" : ""}</h3>${rfqLevelHtml(r, L)}</div>`;
   if ("leveled" === stage) {
     const D = (r.neg || []).filter((n) => "draft" === n.status);
@@ -184724,19 +185742,20 @@ function rfqDetailHtml(r) {
         const pl = L.perLine.find((x) => x.lineId === l.id);
         return `<div class="f"><label data-nocase>${esc(l.id)} · ${esc(l.item)} (${l.qty} ${esc(l.unit)})</label><select data-rfqaw="${esc(l.id)}">${(pl.prices || []).map((x) => `<option value="${esc(x.vendorId)}" ${plan[l.id] === x.vendorId ? "selected" : ""}>${esc(x.vendor)} ${rfqU(x.unit)}</option>`).join("") || '<option value="">no same-spec price</option>'}</select></div>`;
       })
-      .join("")}<div class="rfq-row"><button class="btn primary" id="rfq-award">Award and Create POs</button><button class="btn" id="rfq-check">Check Replies</button></div></div>`;
+      .join("")}${rfqNeedsThree(r) && rfqPricedCount(r) < 3 ? `<div class="f"><label for="rfq-award-reason">Why Award on Fewer Than Three</label><textarea id="rfq-award-reason" rows="2" placeholder="${rfqPricedCount(r)} priced: say why, in a sentence; it stays on the Standard's check"></textarea></div>` : ""}<div class="rfq-row"><button class="btn primary" id="rfq-award">Award and Create POs</button><button class="btn" id="rfq-check">Check Replies</button></div></div>`;
   }
   if ("awarded" === stage && r.award) {
+    rfqAwardBasisFix(r);
     const A = rfqAwardBudgetFix(r);
     act += `<div class="card rfq-sec"><h3>Awarded</h3><p class="small">${fmtL(A.on)} by ${esc(A.by)}: ${A.pos.map((id) => {
       const po = (DB.pos || []).find((x) => x.id === id);
       return po ? `<a href="#" data-rfqpo="${esc(po.id)}">${esc(po.number)}</a> ${esc(po.vendor)} ${money(poTotal(po).total)} (${esc(po.status)})` : "";
-    }).join("; ")}.</p><p class="small">Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>${null != A.savingsVsBudget ? `; ${money(Math.abs(A.savingsVsBudget))} ${A.savingsVsBudget >= 0 ? "under" : "over"} the material budget of ${money(A.budget)}` : A.budgetNote ? `. Against budget: ${esc(A.budgetNote)}` : ""}.</p></div>`;
+    }).join("; ")}.</p><p class="small">${A.preTax ? `Final ${money(A.final)} before tax against ${esc(A.firstBasis)}: <b>${money(A.savingsVsFirst)} saved</b>. Negotiation: ${money(A.negotiated || 0)} off the awarded ${1 === (A.pos || []).length ? "vendor's" : "vendors'"} first price` : `Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>`}${null != A.savingsVsBudget ? `; ${money(Math.abs(A.savingsVsBudget))} ${A.savingsVsBudget >= 0 ? "under" : "over"} the ${A.budgetBasis === "line" ? "line's" : "material"} budget of ${money(A.budget)}` : A.budgetNote ? `. Against budget: ${esc(A.budgetNote)}` : ""}.${A.preTax && A.landed && Math.abs(A.landed - A.final) > 0.005 ? ` <span class="muted">Landed with tax: ${money(A.landed)}.</span>` : ""}</p>${A.fewer ? `<p class="small warn" data-nocase>Awarded on fewer than three (${A.fewer.n} priced), because ${esc(A.fewer.reason)}: ${esc(A.fewer.by)}, ${fmt(A.fewer.on)}. It stays on the Standard's three-quote check.</p>` : ""}${A.oldBasis ? `<p class="small muted">An award from before the pre-tax basis: its saving is not added to the month's total.</p>` : ""}</div>`;
   }
   const facts = `<div class="card rfq-sec"><h3>What the Draft Rests On</h3><p class="small"><b>Facts:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${(r.facts || []).map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>${(r.assumptions || []).length ? `<p class="small"><b>Assumptions:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${r.assumptions.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}${r.takeoff ? `<li data-nocase>${esc(Object.entries(r.takeoff.assumptions || {}).map(([k, v]) => `${k} ${v}`).join(", "))}</li>` : ""}</ul>` : ""}${r.drawingsNote ? `<p class="small muted" data-nocase>${esc(r.drawingsNote)}</p>` : ""}<p class="small muted">${esc(rfqWhy("facts"))}.</p></div>`,
     lines = "draft" === stage ? "" : `<details class="card rfq-sec"><summary><b>Lines (${r.lines.length})</b></summary>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("")}</details>`,
     hist = `<details class="card rfq-sec"><summary><b>History</b></summary><ul class="small" style="margin:6px 0 0 16px;padding:0">${(r.history || []).map((h) => `<li data-nocase>${fmtL(h.on)} · ${esc(h.by)}: ${esc(h.what)}${h.note ? ` — ${esc(h.note)}` : ""}</li>`).join("")}</ul></details>`;
-  return `<div class="ph"><div><h2>RFQs — ${esc(r.number)}</h2><div class="lead" data-nocase>${esc(r.title)} · ${esc(p ? shortName(p) : "")} · on site by ${fmtL(r.needBy)}</div></div><div class="acts"><button class="btn" id="rfq-back">All RFQs</button></div></div><div class="rfq-row">${rfqPill(r.status)}<span class="small" data-nocase>${esc(rfqNext(r) || "")}</span></div>${canBuy ? act : ""}${facts}${lines}${hist}`;
+  return `<div class="ph"><div><h2>Request for Quote — ${esc(r.number)}</h2><div class="lead" data-nocase>${esc(r.title)} · ${esc(p ? shortName(p) : "")} · on site by ${fmtL(r.needBy)}</div></div><div class="acts"><button class="btn" id="rfq-back">All Quotes</button></div></div><div class="rfq-row">${"quoting" === r.status && rfqPriceNeeded(r).length ? '<span class="pill warn">Price Needed</span>' : rfqPill(r.status)}<span class="small" data-nocase>${esc(rfqNext(r) || "")}</span></div>${canBuy ? act : ""}${facts}${lines}${hist}`;
 }
 function rfqWireDetail(host, r) {
   const $q = (s) => host.querySelector(s),
@@ -184778,7 +185797,12 @@ function rfqWireDetail(host, r) {
         v && s.value && !v.region && ((v.region = s.value), save(), renderRfq(), rcToast(`${v.name}: region ${v.region}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]));
       }),
   );
-  on("#rfq-send", () => rfqSend(r, [...host.querySelectorAll("[data-rfqv]:checked")].map((i) => i.dataset.rfqv), $q("#rfq-due").value));
+  on("#rfq-send", () => {
+    rfqTakeEmails(host);
+    rfqSend(r, [...host.querySelectorAll("[data-rfqv]:checked")].map((i) => i.dataset.rfqv), $q("#rfq-due").value, { reason: ($q("#rfq-reason") || {}).value || "" });
+  });
+  on("#rfq-addv", () => rfqAddVendor(r, ($q("#rfq-addv-sel") || {}).value));
+  on("#rfq-tell", () => rfqTellVendors(r));
   host.querySelectorAll("[data-rfqstktake]").forEach((b) => (b.onclick = () => rfqStockTake(r, b.dataset.rfqstktake)));
   host.querySelectorAll("[data-rfqstkov]").forEach(
     (b) =>
@@ -184788,7 +185812,7 @@ function rfqWireDetail(host, r) {
       }),
   );
   host.querySelectorAll("#rfq-check").forEach((b) => (b.onclick = () => (rfqIngest({ toast: !0, rfq: r.id }), render())));
-  on("#rfq-level", () => ((r.status = "leveled"), rfqHist(r, "leveled", `by ${rfqMe()}, ${(r.quotes || []).filter((q) => !q.unreadable).length} readable quotes`), save(), render(), rcToast(`${r.number} leveled`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
+  on("#rfq-level", () => ((r.status = "leveled"), delete r.priceNeededAt, rfqHist(r, "leveled", `by ${rfqMe()}, ${(r.quotes || []).filter((q) => !q.unreadable).length} priced quotes${rfqPriceNeeded(r).length ? `; ${rfqPriceNeeded({ status: "sent", quotes: r.quotes }).length} with no price left out` : ""}`), save(), render(), rcToast(`${r.number} leveled`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
   host.querySelectorAll("[data-rfqenter]").forEach((b) => (b.onclick = () => rfqEnterPrices(r, r.quotes.find((q) => q.id === b.dataset.rfqenter))));
   host.querySelectorAll("[data-rfqconf]").forEach((b) => (b.onclick = () => rfqConfirmSheet(r, r.quotes.find((q) => q.id === b.dataset.rfqconf))));
   on("#rfq-negdraft", () => (rfqNegDrafts(r), render(), rcToast(`${(r.neg || []).filter((n) => "draft" === n.status).length} negotiation emails drafted on ${r.number} — read them and approve`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
@@ -184809,7 +185833,7 @@ function rfqWireDetail(host, r) {
   on("#rfq-award", () => {
     const A = {};
     host.querySelectorAll("[data-rfqaw]").forEach((s) => s.value && (A[s.dataset.rfqaw] = s.value));
-    rfqAward(r, A);
+    rfqAward(r, A, { reason: ($q("#rfq-award-reason") || {}).value || "" });
   });
   host.querySelectorAll("[data-rfqpo]").forEach(
     (a) =>
@@ -185045,6 +186069,28 @@ const pwFresh = () => (pwMemo = null);
 function pwData() {
   return pwMemoGet("data", pwBuild);
 }
+// The PO line a bill line pays for: its own link (poLineId), else the PO line whose item shares the bill line's words;
+// a bill of one goods line takes the one PO line on its estimate line, or the order's only line. Never by position.
+function pwBillPoLine(po, goods, l, desc, nBill) {
+  if (l.poLineId) return (po.lines || []).find((x) => x.id === l.poLineId) || null;
+  const words = (s) => String(pwNorm(s) || "").split(" ").filter((w) => w.length > 2),
+    W = words(desc);
+  let best = null,
+    bs = 0;
+  W.length &&
+    goods.forEach((x) => {
+      const H = words(x.item || x.desc || "");
+      if (!H.length) return;
+      const s = W.filter((w) => H.some((h) => h === w || (w.length > 3 && h.startsWith(w)) || (h.length > 3 && w.startsWith(h)))).length / Math.min(W.length, H.length);
+      s > bs && ((bs = s), (best = x));
+    });
+  if (bs >= 0.5) return best;
+  // a bill of one goods line: the one PO line on its estimate line, or the order's only line (the same estimate line can
+  // carry other things, as the windows line carries the brick mold, so this is never used for a bill of several lines)
+  if (1 !== nBill) return null;
+  const m = l.line ? goods.filter((x) => x.line === l.line) : [];
+  return 1 === m.length ? m[0] : 1 === goods.length ? goods[0] : null;
+}
 function pwBuild() {
   const rate = rfqTaxRate(),
     buys = [],
@@ -185071,24 +186117,41 @@ function pwBuild() {
     +po.shipping > 0 && ((fee = r2(fee + +po.shipping)), what.push("shipping on the PO"));
     fee > 0 && fees.push({ id: "po:" + po.id, kind: "po", date: po.date, vendor: po.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: po.number, poId: po.id, projectId: po.projectId || "" });
   });
+  // the bills priced onto the PO lines they pay for (11-05, P3 and the chief of staff): WW-2026-118's $500 "Additional brick
+  // mold" was laid on PO-2026-044's only line by position and read as the windows at $55.56/ea, with the bill listed
+  // twice; CM-0091, a $38,000 deposit on a $76,000 lump sum, read $38,000 each. Now each bill line finds its PO (its own,
+  // or the bill's) and its PO line by the line's id or the item's words, never by position. A bill line with no quantity,
+  // or a part of a lump sum, is a payment, not a price. The quantities and amounts billed on one PO line add up across
+  // its bills (a later bill never overwrites an earlier one), and each bill is one source.
+  const paid = new Map(),
+    goodsOf = (po) => (po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : []),
+    poById = (id) => (id ? (DB.pos || []).find((p) => p.id === id) : null),
+    poOfLine = (lid) => (lid ? (DB.pos || []).find((p) => (p.lines || []).some((x) => x.id === lid)) : null);
   (DB.bills || []).forEach((b) => {
     if (["void", "rejected", "draft"].includes(b.status)) return;
-    const po = b.poId ? (DB.pos || []).find((p) => p.id === b.poId) : null,
-      goodsLines = po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : [];
+    const po = poById(b.poId);
     let fee = 0,
       goods = 0;
-    const what = [];
+    const what = [],
+      billGoods = (b.lines || []).filter((l) => {
+        const d = String(l.desc || l.item || "").split(" — ")[0];
+        return !/^(sales |use )?tax\b/i.test(d) && !PW_FEE_RE.test(d);
+      });
     (b.lines || []).forEach((l, i) => {
       const desc = String(l.desc || l.item || "").split(" — ")[0],
         amt = +l.amount || 0,
         lid = l.id || `l${i}`;
       if (/^(sales |use )?tax\b/i.test(desc)) return;
       if (PW_FEE_RE.test(desc)) return (fee = r2(fee + amt)), void what.push(desc);
-      const pl = po && ((l.poLineId && po.lines.find((x) => x.id === l.poLineId)) || (1 === goodsLines.length ? goodsLines[0] : null)),
-        B = pl && byId[`po:${po.id}:${pl.id}`];
+      // a bill across several orders: each line to its own order
+      const lpo = poById(l.poId) || poOfLine(l.poLineId) || po,
+        pl = lpo && pwBillPoLine(lpo, goodsOf(lpo), l, desc, lpo === po ? billGoods.length : 1),
+        B = pl && byId[`po:${lpo.id}:${pl.id}`];
       if (B) {
-        const q = +l.qty || +pl.qty || 0;
-        q > 0 && amt > 0 && ((B.paidPrice = pwR4(amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = lid), (B.billNo = b.number), (B.billDate = b.date), B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id }));
+        const P = paid.get(B) || { amt: 0, q: 0, pl: pl, bills: [] };
+        +l.qty > 0 && amt > 0 && ((P.amt += amt), (P.q += +l.qty));
+        P.bills.some((x) => x.b === b) || P.bills.push({ b: b, lid: lid });
+        paid.set(B, P);
         return void (goods += amt);
       }
       const q = +l.qty || 0;
@@ -185099,6 +186162,17 @@ function pwBuild() {
       po && (fees = fees.filter((f) => f.id !== "po:" + po.id));
       fees.push({ id: "bill:" + b.id, kind: "bill", date: b.date, vendor: b.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: b.number, billId: b.id, poId: b.poId || "", projectId: b.projectId || "" });
     }
+  });
+  // the billed price of each PO line: what its bills charged for the quantity they name. A lump sum (ls, lot, or one of
+  // one) billed in part is a progress payment, so it keeps the order's price until the bills reach the whole amount.
+  paid.forEach((P, B) => {
+    const lump = /^(ls|lot|lump)/i.test(String(P.pl.unit || "")) || 1 === +P.pl.qty,
+      gross = (+P.pl.qty || 0) * (+P.pl.price || 0);
+    if (P.q > 0 && P.amt > 0 && !(lump && P.amt < gross * 0.98)) {
+      const last = P.bills[P.bills.length - 1];
+      (B.paidPrice = pwR4(P.amt / P.q / B.packF)), (B.price = B.paidPrice), (B.billId = last.b.id), (B.billLineId = last.lid), (B.billNo = last.b.number), (B.billDate = last.b.date);
+    }
+    P.bills.forEach((x) => B.sources.some((s) => s.billId === x.b.id) || B.sources.push({ kind: "bill", label: `bill ${x.b.number} · ${x.b.vendor}`, date: x.b.date, unitPrice: B.price, billId: x.b.id }));
   });
   const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id));
   (DB.txns || []).forEach((t) => {
@@ -185221,11 +186295,14 @@ function itemPriceHistory(q, opts) {
     I && (I.alsoMatched = cand.slice(1, 4).map((x) => x.it.label));
   }
   if (!I) return null;
+  // opts.vendor or opts.vendorId: one vendor's history of the item (the vendor record's last, best and trend, 11-05)
+  const vn = o.vendorId ? ((DB.vendors || []).find((v) => v.id === o.vendorId) || {}).name || "" : o.vendor || "",
+    ofV = (L) => (vn ? L.filter((x) => String(x.vendor || "").toLowerCase() === String(vn).toLowerCase()) : L);
   const at = o.at || today(),
-    rows = I.buys.concat(o.quotes === !1 ? [] : I.quotes).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
-    buys = I.buys,
+    rows = ofV(I.buys.concat(o.quotes === !1 ? [] : I.quotes)).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
+    buys = ofV(I.buys),
     recent = iso(addDays(at, -pwSet().recentDays)),
-    rec = I.buys.concat(I.quotes).filter((x) => x.date >= recent && x.date <= at),
+    rec = ofV(I.buys.concat(I.quotes)).filter((x) => x.date >= recent && x.date <= at),
     best = rec.length ? rec.reduce((a, x) => (pwAdj(I, x.price, x.date, at) < pwAdj(I, a.price, a.date, at) ? x : a)) : null,
     last = buys[buys.length - 1] || null;
   return { key: I.key, label: I.label, cat: I.cat, unit: I.unit, rows: rows, n: buys.length, median: buys.length ? pwMedian(buys.map((x) => pwAdj(I, x.price, x.date, at))) : null, last: last && pwHistRow(last, I, at), best: best && pwHistRow(best, I, at), alsoMatched: I.alsoMatched || [], vendors: [...new Set(buys.map((x) => x.vendor))], item: I };
@@ -196935,6 +198012,120 @@ function poDoubleOrder(po) {
     return base.apply(this, arguments);
   };
 }
+// The one price check for a PO line, against the item's own history (itemPriceHistory: the last price paid and the best
+// recent price, adjusted to today): above the lower of the two by more than half a percent is flagged, with the gap per
+// unit and on the line's quantity. P2's entry-time flag and the issue gate below call this, so both give one verdict.
+// Units must agree (no conversion is guessed); with no history, or another unit, there is no verdict (ok, ref null).
+function poLinePriceCheck(item, unit, price, qty) {
+  const out = { ok: !0, ref: null, kind: "", gap: 0, gapTotal: 0, say: "" };
+  try {
+    // the item itself, by the price book's own key and unit (pwMake: a box of 10 is priced per piece), never a
+    // look-alike by words (a fuzzy match priced windows against a $56 part)
+    const B = "function" == typeof pwMake && item ? pwMake({ item: item, unit: unit, qty: +qty || 1, price: +price }) : null,
+      D = B ? pwData() : null,
+      // the same item said another way ("40 ea 2x4x8 KD studs" for the book's "2x4x8 KD stud") is the same item when
+      // their words are the same words: every word of each, singular, numbers and units aside, is in the other
+      words = (x) => new Set(String(x || "").toLowerCase().replace(/[^a-z0-9/.]+/g, " ").split(" ").filter((w) => w.length > 1 && !/^\d+$/.test(w) && !["ea", "pc", "pcs", "lf", "sf", "sheet", "sheets", "box", "boxes", "bag", "bags"].includes(w)).map((w) => w.replace(/s$/, ""))),
+      same = (a, b) => {
+        const A = words(a),
+          Bw = words(b);
+        return A.size > 0 && [...A].every((w) => Bw.has(w)) && [...Bw].every((w) => A.has(w));
+      },
+      F = B && !D.items[B.key] && "function" == typeof itemPriceHistory ? itemPriceHistory(item) : null,
+      H = B && D.items[B.key] ? itemPriceHistory(B.key) : F && same(item, F.label) ? F : null;
+    // no history of this item: a look-alike by words is named as a question, never a verdict, and never stops Issue
+    if (!H || (H.unit && B.normUnit && H.unit !== B.normUnit)) {
+      const L = +price > 0 && "function" == typeof itemPriceHistory ? itemPriceHistory(item) : null,
+        r = L && (L.best || L.last);
+      return r && +r.adjusted > 0 ? Object.assign(out, { unsure: !0, ref: r2(+r.adjusted), vendor: r.vendor || "", say: `${item}: the price book's nearest item, ${L.label}, was ${money(+r.adjusted)} per ${L.unit || "unit"}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` }) : out;
+    }
+    if (!(+price > 0)) return out;
+    const C = [H.best && ["best", H.best], H.last && ["last", H.last]].filter(Boolean).filter(([, r]) => +r.adjusted > 0);
+    if (!C.length) return out;
+    const [kind, r] = C.reduce((a, x) => (+x[1].adjusted < +a[1].adjusted ? x : a)),
+      f = +B.packF || 1,
+      refN = +r.adjusted,
+      ref = r2(refN * f);
+    Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "" });
+    if (+B.price <= refN * 1.005 + 0.0005) return out;
+    // more than 2.5 times the reference is likely another thing priced the same way (a deposit, another size): no verdict
+    // that stops Issue, but never silence; the line is flagged to check it is the same item
+    if (+B.price > refN * 2.5)
+      return Object.assign(out, { unsure: !0, say: `${item}: ${money(+price)} per ${unit || "unit"} is more than 2.5 times the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` });
+    const gap = r2(+price - ref),
+      gapTotal = r2((+B.price - refN) * (+B.normQty || 0));
+    return Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${money(+price)} per ${unit || "unit"} is ${money(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor}${r.date ? ", " + fmt(r.date) : ""})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
+  } catch (e) {
+    return out;
+  }
+}
+// the lines to check, without stopping Issue: no exact history (a look-alike), or a price far from it
+const poPriceUnsure = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => x.ok && x.unsure);
+const poPriceFlags = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => !x.ok);
+// Issue gate: a line priced above its last or best price is said before the order goes out, in dollars, with Use the
+// Best Price or Issue Anyway with a reason (the coordinator's day: studs issued at $4.60 against a best of $3.98).
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    try {
+      if (po && "issue" === a && "draft" === po.status) {
+        const F = poPriceFlags(po),
+          key = F.map((x) => `${x.l.id}:${x.l.price}`).join("|");
+        if (F.length && po.priceOk !== key) {
+          const go = () => poAction(po, "issue"),
+            total = r2(F.reduce((s, x) => s + x.gapTotal, 0));
+          return void mbModal(
+            "Priced Above What We Pay",
+            `<p class="small" style="margin:0 0 8px">${esc(po.number)} pays ${money(total)} more than the best or last price on ${F.length} line${1 === F.length ? "" : "s"}. Money paid above the price we know cannot go to raises, bonuses or the client.</p>${F.map((x) => `<div class="small" data-nocase style="margin:4px 0">${esc(x.say)}</div>`).join("")}<label class="f" style="margin-top:10px"><span>Reason to Issue Anyway</span><input data-f="why" placeholder="e.g. the best price was a yard sale; this is the vendor on site Tuesday"></label>`,
+            {
+              submit: "Use the Best Price",
+              onSubmit: () => {
+                F.forEach((x) => {
+                  const was = x.l.price;
+                  (x.l.price = x.ref), audit("po", po.id, "price-to-best", { item: x.l.item, price: was }, { price: x.ref, kind: x.kind, vendor: x.vendor });
+                }),
+                  (po.priceOk = poPriceFlags(po).map((x) => `${x.l.id}:${x.l.price}`).join("|")),
+                  save(),
+                  setTimeout(go, 0);
+              },
+              alt: {
+                label: "Issue Anyway",
+                keep: !0,
+                run: () => {
+                  const i = document.querySelector('#mbm [data-f="why"]'),
+                    why = String((i && i.value) || "").trim();
+                  if (!why) return void ("function" == typeof vfMark ? vfMark(i, "Say why it is worth paying more") : toast("Say why it is worth paying more"));
+                  (po.priceOk = key), (po.priceReason = { why: why, by: (currentUser() || {}).name || role(), at: appNowIso(), over: total });
+                  audit("po", po.id, "price-over-accepted", null, { over: total, lines: F.map((x) => x.say) }, why);
+                  save(), "function" == typeof mbCloseModal && mbCloseModal(), setTimeout(go, 0);
+                },
+              },
+            },
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("price gate", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    try {
+      if (!po || !["draft", "pending"].includes(po.status)) return h;
+      const F = poPriceFlags(po),
+        U = poPriceUnsure(po);
+      return F.length || U.length
+        ? `<div class="note ${F.length ? "warn" : ""} po-price" role="status"><b>${F.length ? "Priced above what we pay" : "Check the price"}</b>${F.concat(U).map((x) => `<div class="small" data-nocase>${esc(x.say)}</div>`).join("")}</div>` + h
+        : h;
+    } catch (e) {
+      return h;
+    }
+  };
+}
 {
   const base = renderPODoc;
   renderPODoc = function (po) {
@@ -199514,7 +200705,7 @@ function tdyDecideSheet(x) {
   const H = (tdyRec(x) || {}).handoff || {};
   mbModal(
     `Offered to You — ${esc(tdWords(x.title, 8))}`,
-    `<p>${esc(H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
+    `<p>${esc(H.by || H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
     {
       submit: "Accept",
       alt: {
@@ -199816,7 +201007,8 @@ function tdyModel() {
   // Today shows them on All with Accept and as one line above the Tasks rows
   let offered = [];
   try {
-    offered = me.id ? tkAll({ open: !0, uid: me.id }).filter((t) => !t.approval && t.offeredToUid === me.id).map(tdyTaskItem) : [];
+    // the one list of offers (tkOfferedToMe, src/tasks.js): the Clock, the foreman's Today and this read the same set
+    offered = me.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(me.id) : tkAll({ open: !0, uid: me.id }).filter((t) => t.offeredToUid === me.id)).filter((t) => !t.approval).map(tdyTaskItem) : [];
   } catch (e) {}
   // the coordinator's orders are the Buy Board's own Late to Order and Order This Week: a chip of their own, never
   // counted as tasks (they were five of the coordinator's "Tasks 9")
@@ -199865,7 +201057,7 @@ function tdyTeam() {
     .filter((u) => u.name !== me.name && !("pm" === role() && "owner" === u.role))
     .map((u) => {
       const own = T.filter((t) => (u.id ? t.ownerUid === u.id : !t.ownerUid && t.owner === u.name)),
-        offered = u.id ? T.filter((t) => t.offeredToUid === u.id) : [];
+        offered = u.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(u.id) : T.filter((t) => t.offeredToUid === u.id)) : [];
       return { kind: "tdyPerson", id: u.id || "name:" + u.name, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
     })
     .filter((x) => x.own.length || x.offered.length)
@@ -199906,7 +201098,7 @@ function tdyTeamSheet(x) {
     let why = it.detail,
       verb = "Done",
       run = () => tdyDone(t);
-    if (t.offeredToUid === me.id) (why = `${H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
+    if (t.offeredToUid === me.id) (why = `${H.by || H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
     else if (H && "offered" === H.state) (why = `offered to ${H.to}, not accepted yet · ${why}`), (verb = "Open"), (run = sheet);
     else if (H && "declined" === H.state && H.fromUid === me.id && t.ownerUid === me.id) (why = `${H.to} declined: ${H.reason} · ${why}`), (verb = "Hand Off"), (run = () => tdyHandOffSheet(t));
     else if (t.proofNeed && !tdyProofMet(t.row, t.proofNeed, tdyRec(t.row))) (why = `${why} · needs ${t.proofNeed.label.toLowerCase()}`);
@@ -200834,6 +202026,8 @@ function mnPhoneBars() {
     people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/></svg>',
     // Chat in the office bar (2026-10-19): two square bubbles, the same mark as the desktop header's Chat
     chat: '<svg viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/></svg>',
+    // Deliveries on the coordinator's bar (purchasing SPEC §4, 11-05): a box truck, line-drawn
+    truck: '<svg viewBox="0 0 24 24"><path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8z"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
   });
 if ("function" == typeof mRenderTabs) {
   const base = mRenderTabs;
@@ -202455,8 +203649,10 @@ renderChat = function () {
     cam = document.getElementById("msg-cam"),
     rec = document.getElementById("msg-rec"),
     tx = document.getElementById("chat-text");
-  lab && (lab.hidden = !!T.t);
-  cam && (cam.hidden = !!T.t);
+  // a direct or group thread takes a photo and the camera too (it offered only Share a Record, lane T1); the photo is
+  // filed on the thread's job when it has one, else kept on the thread only (src/taskfield.js, tkDmPhoto)
+  lab && (lab.hidden = !1);
+  cam && (cam.hidden = !1);
   rec && (rec.hidden = msgIsClient(u));
   tx &&
     !msgIsClient(u) &&
@@ -202977,7 +204173,8 @@ function msgBadges() {
         const cr = document.getElementById("crumbs");
         cr && (cr.innerHTML = "<b>Chat</b>");
         const lab = document.querySelector("#v-chat .chat-compose label.btn");
-        lab && T && (lab.hidden = !!T.t);
+        // a direct thread takes a photo too (lane T1, tkDmPhoto)
+        lab && T && (lab.hidden = !1);
         // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
         document.getElementById("v-chat")?.classList.contains("msg-listmode") && window.scrollTo(0, 0);
       }

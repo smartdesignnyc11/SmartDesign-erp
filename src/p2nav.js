@@ -902,3 +902,94 @@ if ("function" == typeof finishBoot) {
     return r;
   };
 }
+
+// ---- Ask: what we owe a client, and what the crew owes (PM review 11-05 #8) ---------------------------------------------
+// "What do I owe the Kleins" answered with the $68,265 the Kleins owe us: the money question caught a task question.
+// Owing a client a thing is a task or a promise, so it is answered from the open tasks on the client's jobs that the
+// client waits for (tkOwedBy, the same predicate as the list's Owed filter), and the answer opens that filtered list.
+// "What does the crew owe me" reads the tasks the foreman, crew and driver own. What a client owes us stays money.
+const P2N_OWE = /^\s*(?:so\s+)?what\s+(?:do|does|did)\s+(i|we|the firm|the office|the crew|the field|my crew|the guys|[a-z]+)\s+(?:still\s+)?owe\s+(?:to\s+)?(.+?)\s*\??\s*$/i;
+function p2nClientNamed(s) {
+  const t = ` ${String(s || "").toLowerCase().replace(/[^a-z ]+/g, " ")} `;
+  return (
+    (DB.clients || []).find((c) =>
+      String(c.name || "")
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter((w) => w.length > 2 && !/^(and|the|llc|inc|group)$/.test(w))
+        .some((w) => t.includes(` ${w} `) || t.includes(` ${w}s `) || t.includes(` ${w}'s `)),
+    ) || null
+  );
+}
+function p2nOweAnswer(raw) {
+  const m = String(raw || "").match(P2N_OWE);
+  if (!m || "client" === role() || "function" != typeof tkOwedBy) return null;
+  const subj = m[1].toLowerCase(),
+    obj = m[2],
+    crew = /^(the crew|the field|my crew|the guys|crew)$/.test(subj);
+  const me = "function" == typeof tkMe ? tkMe() : "";
+  const line = (x) => `${x.code ? x.code + " " : ""}${tdWords(x.title, 9)}${x.due ? `, ${x.due < today() ? "late since" : "due"} ${fmtL(x.due)}` : ", no date"}${crew || "i" !== subj ? ` (${tkFirst(x.assignee) || "nobody yet"})` : ""}`;
+  if (crew) {
+    const T = t2Sort(openTasks("all").filter((x) => tkOwedBy(x, "crew")));
+    return paOut({
+      kind: "tasks",
+      headline: T.length ? `The crew owes ${T.length} open task${1 === T.length ? "" : "s"}${T.filter((x) => x.late).length ? `, ${T.filter((x) => x.late).length} late` : ""}.` : "The crew owes no open task.",
+      work: T.slice(0, 8).map(line),
+      note: `Tasks the foreman, crew and driver own. The same list is Tasks with the filter Owed by the Crew.`,
+      go: paGo({ view: "tkall", tkOwed: "crew" }),
+    });
+  }
+  const c = p2nClientNamed(obj);
+  if (!c) return null;
+  const all = openTasks("all").filter((x) => tkOwedBy(x, "client") && (tkClientOfTask(x) || {}).id === c.id),
+    mine = all.filter((x) => tkOwnerMatch(x.assignee, me)),
+    T = t2Sort("i" === subj ? mine : all);
+  const others = "i" === subj ? all.length - mine.length : 0;
+  return paOut({
+    kind: "tasks",
+    headline: T.length ? `${"i" === subj ? "You owe" : "We owe"} ${c.name} ${T.length} thing${1 === T.length ? "" : "s"}${T.filter((x) => x.late).length ? `, ${T.filter((x) => x.late).length} late` : ""}.` : `${"i" === subj ? "You owe" : "We owe"} ${c.name} nothing open right now.`,
+    work: T.slice(0, 8).map(line),
+    note: `From the open tasks and promises on ${c.name}'s jobs that they are waiting for${others ? `; ${others} more ${1 === others ? "is" : "are"} on others at the firm` : ""}. What ${c.name} owes us is a money question: ask "what do the ${String(c.name).split(/\s+/).pop()}s owe us".`,
+    go: paGo({ view: "tkall", tkOwed: "client", project: "" }),
+  });
+}
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    try {
+      const a = p2nOweAnswer(q);
+      if (a) return a;
+    } catch (e) {
+      console.warn("owe question", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// the answer's Open lands on Tasks with the Owed filter on, for everyone
+{
+  const base = csGo;
+  csGo = function (go) {
+    if (go && go.tkOwed && "undefined" != typeof tvFF) {
+      try {
+        tvFF = Object.assign({}, tvFF, { owed: go.tkOwed });
+        tkWho = "all";
+        tkProject = "";
+        t2View = "all";
+      } catch (e) {}
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// The Tasks page redraws its own header without a full render (a chip, a filter, a search): Ask went with it until the
+// next render (capture 11-05 #3: after choosing Overdue or Done the Ask button was gone). It is put back on each draw.
+{
+  const base = renderTkAll;
+  renderTkAll = function () {
+    const r = base.apply(this, arguments);
+    try {
+      p2nAskOwnHeads();
+    } catch (e) {}
+    return r;
+  };
+}

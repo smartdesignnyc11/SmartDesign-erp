@@ -76,9 +76,11 @@ KIDS = {
     ('u_chen', 'buy'): BUY + ['Stock'],
     ('u_chen', 'sales'): ['Pipeline', 'Clients'],
     ('u_chen', 'money'): ['Time and Crew'],
-    ('u_billing', 'buy'): ['Vendors'],
+    # billing and the controller (purchasing SPEC §4, lane P3 11-05): billing reads Orders beside Vendors (the PO behind
+    # a bill); the controller reads Alan's five, read only (decision 1: everyone with the menu but the coordinator)
+    ('u_billing', 'buy'): ['Orders', 'Vendors'],
     ('u_billing', 'money'): ['Billing', 'Banking'],
-    ('u_controller', 'buy'): ['Orders', 'Vendors'],
+    ('u_controller', 'buy'): BUY,
     ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Books'],
     ('u_sarah', 'studio'): ['Selections', 'Drawings'],
     ('u_sarah', 'setup'): ['Company and Settings', 'Team', 'Connections', 'The SmartDesign Standard'],
@@ -100,7 +102,9 @@ PHONE_BAR = {
     # the PM's holds five (TodayPM)
     'u_owner': ['Today', 'Projects', 'Sales', 'Messages'],
     'u_alan': ['Today', 'Projects', 'Clients', 'Tasks', 'Messages'],
-    'u_chen': ['Today', 'Messages', 'Tasks', 'Buy Board'],
+    # five, as the PM's: purchasing SPEC §4 adds Deliveries (receiving is daily work), the approved task design keeps
+    # Tasks (lane P3, CoS 11-06)
+    'u_chen': ['Today', 'Buy Board', 'Deliveries', 'Tasks', 'Messages'],
     'u_billing': ['Today', 'Billing', 'Clients', 'Messages'],
     'u_controller': ['Today', 'Banking', 'Bills and Payroll', 'Messages'],
     'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],
@@ -289,7 +293,8 @@ async def phone(c, p, users):
         bar = await pg.evaluate("s => [...document.querySelectorAll(s)].filter(b => b.getClientRects().length).map(b => (b.innerText || '').replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim())", sel)
         c.ok(bar == PHONE_BAR[u], f'{u} phone: bar {bar}\n      want {PHONE_BAR[u]}')
         # at most four shortcuts (Alan, 2026-10-19), five where an approved board draws five (TodayPM, TodayForeman)
-        cap = 5 if u in ('u_alan', 'u_angel') else 4
+        # and the coordinator's five (CoS 11-06: the approved task design keeps Tasks; purchasing SPEC §4 adds Deliveries)
+        cap = 5 if u in ('u_alan', 'u_angel', 'u_chen') else 4
         c.ok(len([x for x in bar if x != 'More']) <= cap and 'Messages' in bar, f'{u} phone: at most {cap} shortcuts, Messages one of them {bar}')
         await check_screen(c, pg, f'{u} phone landing', errs, HOME[u], phone=True)
         n = await pg.evaluate("s => document.querySelectorAll(s).length", sel)

@@ -65,10 +65,12 @@ async def desktop(c, p):
         td = await pg.evaluate("""() => { const M = tdyModel(); const B = M.all.filter(i => i.kind === 'tdyBuy');
           const want = PRED.buyNeeds.rows().map(r => r.id);
           return { all: B.map(i => i.id).sort(), chip: (M.buy || []).map(i => i.id).sort(), want: want.sort(), top: B.filter(i => i.tier !== 9).length,
-                   fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]), ins: (M.buy || []).some(i => /Insulation/.test(i.x.name)) }; }""")
+                   fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb, (puNeed(i.x) || {}).act]), ins: (M.buy || []).some(i => /Insulation/.test(i.x.name)) }; }""")
         c.ok(td['chip'] == td['want'] and td['all'] == td['want'], f"Today: the Buy Board chip and All hold PRED.buyNeeds, the badge's set ({len(td['chip'])}, {len(td['all'])} vs {len(td['want'])})")
         c.ok(0 < td['top'] <= 3, f"Do Now: at most three Buy Board lines rank first; the rest follow the day's other work ({td['top']} of {len(td['all'])})")
-        c.ok(any(v == 'Fix' for n, v in td['fix']) and td['ins'], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the chip {td['fix']}")
+        # one status per need (lane P2, 11-05, Alan's purchasing push: Today said "Ask for Bids" after the award): a late
+        # promise's card says what its Buy Board row says (an order with nothing behind it: Find the Order)
+        c.ok(td['fix'] and all(v == a for n, v, a in td['fix']) and td['ins'], f"Do Now: a late promise is there, its verb the Buy Board row's, and the insulation (promised 9/16 for 9/11) is in the chip {td['fix']}")
         a = await pg.evaluate("() => paAsk(\"what's late to order\").headline")
         c.ok(str(L['pred']) in a, f'Ask: "what\'s late to order" says {L["pred"]} ({a[:90]})')
         # the late promise opens with the fix choices
@@ -124,26 +126,30 @@ async def desktop(c, p):
           const po = made[0], q = DB.projects.find(p => p.id === 'p121').requests.find(x => x.id === 'rq2');
           return { po: po && po.number, st: po && po.status, type: po && po.type, req: po && po.lines[0].requestId, qpo: q.poId === (po && po.id), qst: q.status, path: q.path }; }""")
         c.ok(aw['po'] and aw['req'] == 'rq2' and aw['qpo'] and aw['qst'] in ('ordered', 'ack') and aw['path'] == 'order' and aw['type'] == 'materials', f'links: the award copies the request into the PO line and moves the request {aw}')
+        # a sub awarded on one bid gives its logged reason (the three-quote rule at the award, CoS 11-06). Ask for Bids opens
+        # the request sheet (lane P2 wired it to rfqStartFromLines): Save as Draft makes the request the rest of the step awards
         sb = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name));
-          const q = bbQuote([r0]); if (!q) return null;
+          const n0 = DB.rfqs.length, sheet = bbQuote([r0]); if (!sheet) return null;
+          const sv = document.querySelector('#mbm #mbm-alt'); sv && sv.click();
+          const q = DB.rfqs.length > n0 ? DB.rfqs[DB.rfqs.length - 1] : null; if (!q) return { sheet: !!sheet, made: false };
           const vp = rfqProposeVendors(q);
           const v = ensureVendor('Brick City Demolition', { trade: 'Demolition' }); v.kind = 'sub'; delete v.insuranceExp;
           q.status = 'leveled'; q.vendors = [v.id];
           q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 18000, ext: 18000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
-          const made = rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [];
+          const made = rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [];
           const po = made[0];
           return { sub: !!q.sub, cat: q.category, st0: q.status, offered: vp.list.length, picked: vp.pick.length, type: po && po.type, status: po && po.status, why: po ? poValid(po).join(' | ').slice(0, 160) : '' }; }""")
         c.ok(sb and sb['sub'] and sb['cat'] != 'Materials' and sb['offered'] > 0, f'sub: Ask for Bids on demolition starts a sub RFQ, the vendors offered by hand {sb}')
         c.ok(sb and sb['type'] == 'subcontract' and sb['status'] == 'draft' and 'insurance' in sb['why'], f'sub: the award is a subcontract and a sub with no COI is held {sb}')
         # the P0 lane saw it: an RFQ for demolition started from the line (the plain Ask for Quotes, no sub flag), awarded
         # to a vendor not marked as a sub, was typed "materials" and carried use tax; sub scope is read off the lines
-        sl = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name)); const pid = r0.p.id;
+        sl = await pg.evaluate("""() => { const pid = 'p121';   // (the award above bought Demolition out: it has left the Buy Board, lane P2)
           const s = rfqLineSources(pid).find(x => /Demolition/i.test(x.item)); if (!s) return { src: null };
           const q = rfqFromLines(pid, [s.key]); if (!q) return { src: s.key, q: null };
           const v = ensureVendor('Five Boro Wrecking', { trade: 'General' }); delete v.kind; v.insuranceExp = '2027-06-30';
           q.status = 'leveled'; q.vendors = [v.id];
           q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 9000, ext: 9000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
-          const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [])[0];
+          const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [])[0];
           return { sub: !!q.sub, cat: q.category, st0: q.status, type: po && po.type, tax: po && po.tax, use: po && po.useTax, note: po && /use tax/.test(po.notes) }; }""")
         c.ok(sl and sl.get('sub') and sl['type'] == 'subcontract' and not sl['tax'] and not sl['use'] and not sl['note'], f"sub: a demolition line's RFQ is a sub package from the line itself; its award is a subcontract with no purchase or use tax {sl}")
         # ---- ONE PATH: order a request and it leaves the route; a run buy cancels the draft
@@ -232,11 +238,12 @@ async def phone(c, p):
         ar = await pg.evaluate("() => ({ n: document.querySelectorAll('#v-recv [data-pusec=\"arriving\"] [data-purow]').length, acts: [...document.querySelectorAll('#v-recv [data-purecv]')].map(b => [b.innerText, Math.round(b.getBoundingClientRect().height)]) })")
         c.ok(ar['n'] >= 1 and ar['n'] == len(ar['acts']) and all(h >= 44 for _, h in ar['acts']), f'phone: Deliveries lists what is arriving, each with a 44px Receive {ar}')
         await shot(pg, 'p4_arriving.png')
-        # the bottom tab: Orders and Deliveries light Buy Board (F19)
-        for v in ['po', 'recv']:
+        # the bottom tab: Orders lights Buy Board (F19); Deliveries has its own tab on the coordinator's bar and lights it
+        # (purchasing SPEC §4, lane P3 11-05: Today, Buy Board, Deliveries, Messages)
+        for v, want in [('po', 'Buy Board'), ('recv', 'Deliveries')]:
             await pg.evaluate("v => { view = v; render(); }", v); await pg.wait_for_timeout(200)
             lit = await pg.evaluate("() => (document.querySelector('#mtabs button.on') || {}).innerText || ''")
-            c.ok('Buy Board' in lit, f'phone: {v} lights the Buy Board tab ({lit!r})')
+            c.ok(want in lit, f'phone: {v} lights the {want} tab ({lit!r})')
         c.ok(not errs, f'phone: page errors {errs[:3]}')
     finally:
         await b.close()

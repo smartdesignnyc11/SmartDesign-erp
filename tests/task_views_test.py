@@ -341,15 +341,17 @@ async def phone_targets(c, pg, who):
     await pg.wait_for_timeout(400)
     sh = await pg.evaluate("""() => { const m = document.getElementById('mbm'); if (!m) return null; const r = e => e ? e.getBoundingClientRect() : null;
       const dates = [...m.querySelectorAll('.tvs-dates > *')].map(b => { const q = r(b); return [b.textContent.trim(), Math.round(q.height), Math.round(q.top)]; });
-      const rows = [...m.querySelectorAll('.tvs-f')].map(b => Math.round(r(b).height));
+      const rows = [...m.querySelectorAll('.tvs-f')].filter(b => b.getClientRects().length).map(b => Math.round(r(b).height));
+      const first = [...m.querySelectorAll('.tvs-f')].filter(b => b.getClientRects().length).map(b => b.dataset.tvsf);
       const ft = [...m.querySelectorAll('.mbm-ft button')].filter(b => b.getClientRects().length).map(b => [b.getAttribute('aria-label') || b.textContent.trim(), Math.round(r(b).height), b.classList.contains('primary')]);
       const h3 = m.querySelector('.mbm-hd h3'); const x = m.querySelector('.mbm-x');
-      return { kp: !!m.querySelector('.tvs-kp'), title: h3 ? parseFloat(getComputedStyle(h3).fontSize) : 0, close: x ? Math.round(r(x).width) : 0, dates, rows, latest: [...m.querySelectorAll('.tks-h')].some(h => h.textContent === 'Latest'), ft,
+      return { kp: !!m.querySelector('.tvs-kp'), title: h3 ? parseFloat(getComputedStyle(h3).fontSize) : 0, close: x ? Math.round(r(x).width) : 0, dates, rows, first, latest: [...m.querySelectorAll('.tks-h')].some(h => h.textContent === 'Latest'), ft,
         sw: document.documentElement.scrollWidth }; }""")
     c.ok(sh and sh['kp'] and sh['title'] == 22 and sh['close'] >= 44, f'{who}: the phone sheet has ID and job, a 22px title, a 44px close ({sh and (sh["title"], sh["close"])})')
-    c.ok(sh and len(sh['dates']) == 4 and all(d[1] >= 44 for d in sh['dates']) and len({d[2] for d in sh['dates']}) == 1 and sh['dates'][0][0] == 'Today' and sh['dates'][2][0].endswith('Mtg') and sh['dates'][3][0] == 'Pick',
-         f'{who}: Move the Date is four 44px buttons in a row: Today, Tomorrow, the meeting, Pick ({sh and sh["dates"]})')
-    c.ok(sh and sh['rows'] and all(h >= 52 for h in sh['rows']) and sh['latest'], f'{who}: Owner, Due and Follow-Up are 52px rows, and Latest is there ({sh and sh["rows"]})')
+    # PM review 11-05 #6 (Alan's task module on the phone, lane T2): the sheet leads with Due, Owner and Remind; the four
+    # Move the Date buttons were a second way to set Due and went; Follow-up folds under More
+    c.ok(sh and not sh['dates'] and sh['first'][:3] == ['due', 'owner', 'remind'], f'{who}: the sheet leads with Due, Owner and Remind, with no second set of date buttons ({sh and (sh["first"], sh["dates"])})')
+    c.ok(sh and sh['rows'] and all(h >= 52 for h in sh['rows']) and sh['latest'], f'{who}: Due, Owner and Remind are 52px rows, and Latest is there ({sh and sh["rows"]})')
     c.ok(sh and len(sh['ft']) == 3 and sh['ft'][0][1] >= 52 and sh['ft'][1][1] >= 52 and sh['ft'][2][2], f'{who}: the footer is photo, note and the blue next step ({sh and sh["ft"]})')
     c.ok(sh and sh['sw'] <= 390, f'{who}: the sheet does not scroll sideways ({sh and sh["sw"]})')
     await pg.screenshot(path=os.path.join(SHOTS, f'ph_{who}_task_sheet.png'))
@@ -668,7 +670,9 @@ async def polish(c, p):
         c.ok(t['av'] and all(len(a) == 1 and a.isalnum() for a in t['av']), f'{w}: owner avatars are initials ({t["av"][:6]})')
         c.ok(t['wait'] >= 2, f'{w}: the Waiting On column shows who the demo waits on ({t["wait"]} chips)')
         c.ok(not t['clip'], f'{w}: no cell is cut mid-word without an ellipsis ({t["clip"]})')
-        await pg.evaluate("() => tvApply('b:wait')"); await pg.wait_for_timeout(300)
+        # everyone's waiting (Team with Waiting On): the Waiting On chip is the person's own since the capture of 11-05
+        # (lane T2: one label, one number with the filter sheet), so the names are read on the whole team's list
+        await pg.evaluate("() => { tvApply('b:all'); t2View = 'blocked'; renderTkAll(); }"); await pg.wait_for_timeout(300)
         t2 = await pg.evaluate(TABLE_FIT)
         c.ok(t2['wait'] >= 2 and not t2['clip'], f'{w}: Waiting on Others shows every name whole or with an ellipsis ({t2["wait"]} chips; cut {t2["clip"]})')
         await pg.evaluate("() => { tkWho = 'me'; t2View = 'week'; renderTkAll(); }"); await pg.wait_for_timeout(300)
@@ -789,24 +793,28 @@ async def match(c, p):
     n7 = await pg.evaluate("""() => { const bar = document.getElementById('mtabs'), floor = bar ? bar.getBoundingClientRect().top : innerHeight;
       const R = [...document.querySelectorAll('#tkall-body .tk2-row')].map(r => r.getBoundingClientRect()).filter(r => r.top >= 0 && r.bottom <= floor);
       return { n: R.length, h: R.slice(0, 3).map(r => Math.round(r.height)) }; }""")
-    c.ok(n7['n'] >= 7 and all(h >= 64 for h in n7['h']), f'mockup 390: at least 7 task rows on the first screen, 64px each ({n7})')
+    # the capture of every task screen (11-05 #8, lane T2): a title wraps to two lines rather than end in an ellipsis, so a
+    # two-line row is about 85px and the first screen holds five or more rows (it held seven one-line rows)
+    c.ok(n7['n'] >= 5 and all(64 <= h <= 96 for h in n7['h']), f'mockup 390: at least 5 task rows on the first screen, 64 to 96px each ({n7})')
     await pg.screenshot(path=os.path.join(SHOTS, 'ph_match_list.png'))
     # the bar: Tasks for the coordinator and billing, its badge the one Tasks number (tkTasksN, the person's Due Soon;
     # taskfix #1); billing's bar starts with Today like everyone's (taskfix #14)
     # the approved Today boards (2026-10-25) keep Tasks on the coordinator's and the PM's bars; the owner's and billing's
     # bars no longer carry it (Tasks stays in their menu with the same number)
-    for uid, at in (('u_chen', 2), ('u_alan', 3)):
+    # the coordinator's five (CoS 11-06, lane P3): Today, Buy Board, Deliveries, Tasks, Messages, so her Tasks is at 3
+    for uid, at in (('u_chen', 3), ('u_alan', 3)):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
           return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")
         # (the Your Day mock-up: the bar's Tasks carries no number either, as the menu's)
         c.ok(t['i'] == at and t['n'] == 0, f'mockup 390: {uid} has Tasks in the bar at {at}, with no number ({t})')
     # the quick add: invented sentences, filled in by the rules; the fourth names its job by part of its address (the
-    # whole phrase leaves the title: taskfix #13)
+    # whole phrase leaves the title: taskfix #13). PM review 11-05 #3 (lane T2): the first person named owns it unless
+    # the sentence says who is in charge, so "Sarah to confirm ..." is Sarah's
     await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
     P = await pg.evaluate("""() => ["Angel, measure the windows at 206 Lenox tomorrow, I'm in charge", 'Sarah to confirm the tile selection for 121 State Street by Friday', 'Call the plumbing inspector next meeting, Alan is in charge', 'Angel, measure the windows at 121 State tomorrow, I am in charge'].map(tvQaParse)""")
     td = await pg.evaluate("() => ({ tom: iso(addDays(parse(today()), 1)), fri: (() => { const d = parse(today()); const n = (5 - d.getDay() + 7) % 7 || 7; return iso(addDays(d, n)); })(), nm: tvNextMeeting() })")
-    want = [('Measure the windows', 'p206', 'Chen Biron', 'Angel', td['tom']), ('Confirm the tile selection', 'p121', 'Chen Biron', 'Sarah Davis', td['fri']), ('Call the plumbing inspector', '', 'Alan', '', td['nm']), ('Measure the windows', 'p121', 'Chen Biron', 'Angel', td['tom'])]
+    want = [('Measure the windows', 'p206', 'Chen Biron', 'Angel', td['tom']), ('Confirm the tile selection', 'p121', 'Sarah Davis', 'Sarah Davis', td['fri']), ('Call the plumbing inspector', '', 'Alan', '', td['nm']), ('Measure the windows', 'p121', 'Chen Biron', 'Angel', td['tom'])]
     for got, w in zip(P, want):
         c.ok((got['title'], got['pid'], got['owner'], got['doer'], got['due']) == w, f'quick add: "{got["text"]}" reads {w} ({got})')
     c.ok(await pg.evaluate("() => tvQaParse('Finish the overhead rate before billing').doer === ''"), 'quick add: "before billing" names nobody (a seat named for its job is a person only as a name)')

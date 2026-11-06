@@ -142,6 +142,16 @@ class Chain:
         await self.pg.locator(sel).first.click(timeout=timeout)
         await self.wait(wait)
 
+    async def receive_all(self, po_id, wait=700):
+        """Everything Arrived opens the one receive sheet (the CoS, 11-06: one tap received the whole remainder with
+        nothing counted); the coordinator taps All Here on each line, as the person counts, then Record Receipt."""
+        await self.pg.locator(f"section.view.on [data-rall='{po_id}']").first.click(timeout=30000)
+        await self.wait(400)
+        for b in await self.pg.locator('#mbm [data-puall]').all():
+            await b.click(); await self.wait(80)
+        await self.pg.locator('#mbm #mbm-ok').click(timeout=10000)
+        await self.wait(wait)
+
     async def click_text(self, scope, rx, wait=400, timeout=30000):
         loc = self.pg.locator(f'{scope} button:visible, {scope} a:visible').filter(has_text=re.compile(rx)).first
         await loc.click(timeout=timeout)
@@ -486,9 +496,11 @@ async def s2_buy(C):
     for po in (mill, tile, fix):
         if po:
             C.ok(all(l['line'] for l in po['lines']), f"{po['number']} lines point at their estimate line", po['lines'])
-    # the sub commitment: Purchase Orders > Client Funds > Rough plumbing > New PO, ticked, priced, then submitted
+    # the sub commitment: Orders > New > New Purchase Order From Lines > Rough plumbing, ticked, priced, then submitted
+    # (Orders' Client Funds card and its per-line New PO folded away, lane P3 / CoS 11-06: one New on Orders)
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click(f"section.view.on [data-fundpo='estimate:{est}:{L['Rough plumbing']}']", 600)
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumi="0"]', 600)
     row = C.pg.locator('#mbm table tr').filter(has_text='3. Rough plumbing').first
     cb = row.locator('input[type=checkbox]').first
     if not await cb.is_checked(): await cb.check()
@@ -593,10 +605,10 @@ async def s3_receive(C):
     await C.day('2026-09-10')
     # the millwork arrives whole
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{POS['millwork']['id']}']", 700)
+    await C.receive_all(POS['millwork']['id'])
     t = await C.toast()
     C.ok('received in full' in t and 'Bill It' in t, 'Everything Arrived: the millwork PO is received in full, the toast offers Bill It', t)
-    C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived → \"{t}\"")
+    C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived > All Here > Record Receipt → \"{t}\"")
     await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
     m = await C.modal()
     C.ok(m and 'Bill This PO' in m['title'], 'Bill It opens Bill This PO', m and m['title'])
@@ -609,8 +621,8 @@ async def s3_receive(C):
     C.t(f"Bill It > Vendor Invoice # FC-20417 > Save Bill → bill `{fc and fc['id']}` {fmtm(fc and fc['total'])} ({await C.toast()})")
     await C.day('2026-09-11')
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{POS['fixtures']['id']}']", 700)
-    C.t(f"Receiving > {POS['fixtures']['number']} > Everything Arrived → \"{await C.toast()}\"")
+    await C.receive_all(POS['fixtures']['id'])
+    C.t(f"Receiving > {POS['fixtures']['number']} > Everything Arrived > All Here > Record Receipt → \"{await C.toast()}\"")
     # two vendor bills by mail: the coordinator's mailbox (a Loaded Workspace of invented threads), synced
     ws = {'email': 'chen@smartdesign.nyc', 'name': 'Chen Biron', 'exportedAt': '2026-09-11T18:00:00Z',
           'mail': {'threads': [
@@ -695,6 +707,10 @@ async def s3_receive(C):
         await C.pcheck('Receive Some')
         await C.pfill(f"#mbm [data-f='q_{tl}']", '80', 'square feet that arrived')
         await C.pfill('#mbm [data-f=note]', '80 sf on two pallets; 60 sf back-ordered', 'note')
+        # the foreman photographs the packing slip before he records the receipt (the one receive sheet, BACKLOG 1.36:
+        # the field expert's day; the slip is the proof the bill is matched to)
+        await C.ph.set_input_files('#mbm [data-puslip]', files=[{'name': 'slip.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xff\xe0' + b'\x00' * 64 + b'\xff\xd9'}])
+        C.plog('photo of the packing slip')
         await C.ptap('#mbm #mbm-ok', 'Record Receipt')
         C.plog(f"→ {await C.ph.evaluate(TOAST)}")
     await C.to_desk()
@@ -1556,9 +1572,11 @@ async def s10_polinks(C):
     pid = C.ids['project']['id']; est = C.ids['estimate']['id']; L = C.ids['estimate']['lines']
     tile_id = L['Tile – primary bath']; tile_key = f'estimate:{est}:{tile_id}'
     await C.day('2026-10-02')
-    # the coordinator's New PO opens on the job's lines
+    # the coordinator's New PO opens on the job's lines: Orders has one New, its first item New Purchase Order From Lines
+    # (purchasing SPEC §2, lane P3 11-05: the old "New PO" button beside "+ New" was a second door to the same sheet)
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 700)
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumi="0"]', 700)
     m = await C.modal()
     cls = await C.js("() => { const b = document.querySelector('#mbm-blank'); return b ? b.className : null; }")
     C.ok(m and m['title'] == 'Which Lines?', 'Purchasing > New PO opens on "Which Lines?" (the estimate, change-order and invoice lines of the job)', m and m['title'])
@@ -1570,6 +1588,12 @@ async def s10_polinks(C):
     await C.fill(f"#mbm [data-ctpv='{tile_id}']", 'Arcadia Tile Supply')
     n0 = await C.js("() => DB.pos.length")
     await C.modal_ok(900)
+    # the one budget test (lane P2, 11-05, the field expert's ask: actual plus committed against the line, not committed
+    # alone): the tile line has $3,800 spent and $2,850 on order of its $6,800, so $640 more is over and is confirmed
+    cf = await C.modal()
+    if cf and cf['title'] == 'Please Confirm':
+        C.ok('over budget' in (cf.get('text') or '') or 'over the' in (cf.get('text') or ''), 'the order sheet says the tile line goes over budget, counting what is spent as well as what is on order', cf)
+        await C.modal_ok(900)
     po = await C.js("n0 => { const po = DB.pos.slice(n0)[0]; return po && {id: po.id, number: po.number, status: po.status, vendor: po.vendor, lines: po.lines.map(l => ({id: l.id, item: l.item, line: l.line || '', code: l.code || ''}))}; }", n0)
     C.ok(po and po['lines'] and po['lines'][0]['line'] == tile_key, 'tick the tile line > Create the Purchase Orders: the PO line carries its estimate line from the start', po)
     C.t(f"tick \"Tile – primary bath\", 1 ls at $640, Arcadia Tile Supply > Create the Purchase Orders → {po and po['number']} ({await C.toast()})")
@@ -1622,7 +1646,7 @@ async def s10_polinks(C):
     C.ok(st == 'issued', 'with every line linked and the overage explained, Issue PO issues it', f'{st} {await C.toast()}')
     # it arrives; the bill from the receipt; the reimbursable is waiting to be billed back, once
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{po['id']}']", 700)
+    await C.receive_all(po['id'])
     await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
     await C.fill('#mbm [data-f=number]', 'AT-7802')
     await C.modal_ok(700)
@@ -1644,8 +1668,10 @@ async def s10_polinks(C):
     # an order for the shop, no job: Start Blank, then the line linked to overhead on the phone
     await C.js("() => mbCloseModal()")
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 600)
-    await C.click('#mbm #mbm-blank', 600)
+    # the blank order sits behind More on Orders' New (purchasing SPEC §2); it opens the same blank form Start Blank opens
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumore]', 400)
+    await C.click('.pu-menu [role=menuitem]:has-text("Blank Purchase Order")', 600)
     d = await C.js("() => (document.querySelector('#d-title') || {}).textContent")
     C.ok(d and 'purchase order' in d.lower(), 'Start Blank opens the blank purchase order', d)
     await C.pg.select_option('#e-vendorsel', 'Arcadia Tile Supply')
