@@ -232,11 +232,12 @@ async def phone(c, p):
         ar = await pg.evaluate("() => ({ n: document.querySelectorAll('#v-recv [data-pusec=\"arriving\"] [data-purow]').length, acts: [...document.querySelectorAll('#v-recv [data-purecv]')].map(b => [b.innerText, Math.round(b.getBoundingClientRect().height)]) })")
         c.ok(ar['n'] >= 1 and ar['n'] == len(ar['acts']) and all(h >= 44 for _, h in ar['acts']), f'phone: Deliveries lists what is arriving, each with a 44px Receive {ar}')
         await shot(pg, 'p4_arriving.png')
-        # the bottom tab: Orders and Deliveries light Buy Board (F19)
-        for v in ['po', 'recv']:
+        # the bottom tab: Orders lights Buy Board (F19); Deliveries has its own tab on the coordinator's bar and lights it
+        # (purchasing SPEC §4, lane P3 11-05: Today, Buy Board, Deliveries, Messages)
+        for v, want in [('po', 'Buy Board'), ('recv', 'Deliveries')]:
             await pg.evaluate("v => { view = v; render(); }", v); await pg.wait_for_timeout(200)
             lit = await pg.evaluate("() => (document.querySelector('#mtabs button.on') || {}).innerText || ''")
-            c.ok('Buy Board' in lit, f'phone: {v} lights the Buy Board tab ({lit!r})')
+            c.ok(want in lit, f'phone: {v} lights the {want} tab ({lit!r})')
         c.ok(not errs, f'phone: page errors {errs[:3]}')
     finally:
         await b.close()

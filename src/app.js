@@ -4891,15 +4891,13 @@ function matRow(m) {
   return `<tr class="click" data-edit="mat:${m.id}"><td><span class="name">${esc(m.name)}</span><br><span class="sub">${"rough" === m.cat ? "Rough" : "Finish"}${m.vendor ? " · " + esc(m.vendor) : ""}${m.po ? " · PO " + esc(m.po) : ""}${m.qty ? " · " + esc(m.qty) : ""}</span></td><td>${t ? `<span class="dot" style="background:${TRADES[t.trade]?.c}"></span> ${esc(t.name)}<br><span class="sub">${"end" === m.when ? "ends" : "starts"} ${fmt("end" === m.when ? t.end : t.start)}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmt(orderBy)}</td><td class="num">${fmt(needBy)}</td><td class="num">${m.lead}d</td><td><span class="pill ${sevPill(st.sev)}">${esc(m.status.replace("-", " "))}</span><br><span class="sub">${esc(st.msg)}</span></td><td class="num">${m.eta ? fmt(m.eta) : "—"}</td><td class="num">${m.cost ? "$" + esc(m.cost) : ""}</td><td>${"on-site" !== m.status ? `<button class="btn sm" data-onsite="${m.id}">On site</button>` : ""}</td></tr>`;
 }
 function renderMats() {
+  // One question, one number (11-05): the card under the Order This Week chip lists the chip's own rows, the Buy Board's
+  // predicate for this job (estimate and change-order lines and site requests included), not a second count of the
+  // job's materials that also held the late ones ("Order This Week 1" over "3 items · 2 already late").
   const td = today(),
-    weekEnd = addWork(td, 5),
-    wk = S.materials
-      .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
-      .map((m) => ({ m: m, ...matDates(m), st: matState(m) }))
-      .filter((x) => x.orderBy && parse(x.orderBy) <= parse(weekEnd))
-      .sort((a, b) => parse(a.orderBy) - parse(b.orderBy));
+    wk = "object" == typeof PRED && PRED.orderThisWeek ? PRED.orderThisWeek.rows(S.id) : [];
   $("#mat-week").innerHTML = wk.length
-    ? `<div class="week"><h3>Order this week · ${wk.length} item${wk.length > 1 ? "s" : ""}${wk.some((x) => 3 === x.st.sev) ? " · " + wk.filter((x) => 3 === x.st.sev).length + " already late" : ""}</h3>${wk.map((x) => `<div class="it"><span class="d" style="${parse(x.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${fmt(x.orderBy)}</span><span class="grow"><b>${esc(x.m.name)}</b> <span class="muted">${x.m.vendor ? "· " + esc(x.m.vendor) : ""} · needed ${fmt(x.needBy)} for ${esc(task(x.m.taskId)?.name || "")}</span>${"needs-decision" === x.m.status || openDecisionFor("mat", x.m.id) ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" data-go="mat:${x.m.id}">Open</a></div>`).join("")}</div>`
+    ? `<div class="week"><h3>Order This Week · ${wk.length}</h3>${wk.map((r) => `<div class="it"><span class="d" style="${r.orderBy && parse(r.orderBy) < parse(td) ? "color:var(--bad)" : ""}">${r.orderBy ? fmt(r.orderBy) : ""}</span><span class="grow"><b>${esc(r.name)}</b> <span class="muted">${r.vendor ? "· " + esc(r.vendor) + " " : ""}${r.needBy ? `· needed ${fmt(r.needBy)}` : ""}${r.task ? ` for ${esc(r.task.name || "")}` : ""}</span>${r.dec ? ' <span class="pill warn">needs decision</span>' : ""}</span><a href="#" class="mat-wk-open" ${r.m ? `data-go="mat:${r.m.id}"` : `data-matwk="${esc(r.id)}"`}>Open</a></div>`).join("")}</div>`
     : "";
   const rows = S.materials
       .filter(
@@ -9193,8 +9191,14 @@ const DOC_EDIT_KEYS = [
     "internal", "internalNotes", "scheduleDays", "retainagePct", "depositPct", "billFrom", "template", "mode",
     "estimateId", "taskId", "clientId", "exhibits",
   ],
+  // A line's derived fields are not edits: its number (ctNumber writes l.num when a sheet lists the lines, such as
+  // Purchase Orders from Lines) read as a change, and leaving the estimate toasted "Kept your changes" when nothing
+  // was typed (the field expert, 11-05). The snapshot leaves them out; a real edit still reads as one.
+  DOC_DERIVED_LINE = ["num"],
+  docSnapLine = (l) => (l && "object" == typeof l ? Object.fromEntries(Object.entries(l).filter(([f]) => !DOC_DERIVED_LINE.includes(f))) : l),
   docSnap = (d) => (
-    "construction" === d.template && ctNumber(d), JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, d[k]]))
+    "construction" === d.template && ctNumber(d),
+    JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, "lines" === k && Array.isArray(d[k]) ? d[k].map(docSnapLine) : d[k]]))
   ),
   docDirty = (d) => void 0 !== d._base && d._base !== docSnap(d);
 function docMark(d) {
@@ -11816,7 +11820,9 @@ function renderPODoc(po) {
           parse(x.date) >= parse(addDays(po.date, -3)),
       )
       .slice(0, 6);
-  return `<div class="crumb"><a href="#" data-poback>Purchasing</a><span>›</span>${esc(po.number)}</div><div class="docwrap" id="po-${po.id}">\n    <div class="row no-doc-print" style="margin-bottom:10px"><span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${"cancelled" === po.status ? '<span class="pill bad">cancelled</span>' : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>Purchase order <span class="num">${esc(po.number)}</span></h2><div class="small muted">Vendor: <b>${esc(po.vendor)}</b> · Project: ${esc(S.project.name)} · Ship to: ${esc(po.shipTo || "Site")}${po.createdBy ? ` · by ${esc(po.createdBy)}` : ""}</div></div><div style="text-align:right"><div class="small muted">PO total</div><div style="font-size:26px;font-weight:600">${money(t.total)}</div><div class="small muted">${paid ? `${money(paid)} paid · ${money(t.total - paid)} open` : "nothing paid yet"}</div></div></div>\n    ${st.flags.length ? `<div class="note warn" style="margin-bottom:10px"><b>Flagged:</b> ${st.flags.map(esc).join(" · ")}</div>` : ""}\n    <div class="docmeta"><div class="f"><label>Vendor</label><input data-p="vendor" value="${esc(po.vendor)}" ${editable ? "" : "readonly"}></div><div class="f"><label>PO date</label><input type="date" data-p="date" value="${po.date}" ${editable ? "" : "readonly"}></div><div class="f"><label>Expected delivery</label><input type="date" data-p="expected" value="${po.expected || ""}"></div><div class="f"><label>Ship to</label><input data-p="shipTo" value="${esc(po.shipTo || "Site")}"></div></div>\n    <table class="lines"><thead><tr><th style="width:24%">Item</th><th>Description</th><th style="width:70px">Qty</th><th style="width:56px">Unit</th><th style="width:100px">Unit price</th><th class="money">Amount</th><th style="width:170px">Estimate line</th><th style="width:90px" class="int">Received</th><th></th></tr></thead><tbody>${po.lines
+  // the way back names the list it returns to (Orders), and the steps are joined by a line chevron, not a glyph (11-05)
+  const chev = ICON_SVG('<path d="M9 6l6 6-6 6"/>', 12, 2);
+  return `<div class="crumb"><a href="#" data-poback>${ICON_SVG('<path d="M15 6l-6 6 6 6"/>', 14, 2.2)} Orders</a><span class="crumb-sep" aria-hidden="true">${chev}</span>${esc(po.number)}</div><div class="docwrap" id="po-${po.id}">\n    <div class="row no-doc-print" style="margin-bottom:10px"><span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join(`<span class="sf-sep" style="background:none;padding:0" aria-hidden="true">${chev}</span>`)}${"cancelled" === po.status ? '<span class="pill bad">cancelled</span>' : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>Purchase order <span class="num">${esc(po.number)}</span></h2><div class="small muted">Vendor: <b>${esc(po.vendor)}</b> · Project: ${esc(S.project.name)} · Ship to: ${esc(po.shipTo || "Site")}${po.createdBy ? ` · by ${esc(po.createdBy)}` : ""}</div></div><div style="text-align:right"><div class="small muted">PO total</div><div style="font-size:26px;font-weight:600">${money(t.total)}</div><div class="small muted">${paid ? `${money(paid)} paid · ${money(t.total - paid)} open` : "nothing paid yet"}</div></div></div>\n    ${st.flags.length ? `<div class="note warn" style="margin-bottom:10px"><b>Flagged:</b> ${st.flags.map(esc).join(" · ")}</div>` : ""}\n    <div class="docmeta"><div class="f"><label>Vendor</label><input data-p="vendor" value="${esc(po.vendor)}" ${editable ? "" : "readonly"}></div><div class="f"><label>PO date</label><input type="date" data-p="date" value="${po.date}" ${editable ? "" : "readonly"}></div><div class="f"><label>Expected delivery</label><input type="date" data-p="expected" value="${po.expected || ""}"></div><div class="f"><label>Ship to</label><input data-p="shipTo" value="${esc(po.shipTo || "Site")}"></div></div>\n    <table class="lines"><thead><tr><th style="width:24%">Item</th><th>Description</th><th style="width:70px">Qty</th><th style="width:56px">Unit</th><th style="width:100px">Unit price</th><th class="money">Amount</th><th style="width:170px">Estimate line</th><th style="width:90px" class="int">Received</th><th></th></tr></thead><tbody>${po.lines
     .map(
       (l) =>
         `<tr data-line="${l.id}"><td><input data-f="item" value="${esc(l.item)}" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="price" value="${l.price}" ${editable ? "" : "readonly"}></td><td class="amt">${money((+l.qty || 0) * (+l.price || 0))}</td><td><select data-f="line" style="font-size:12px"><option value="">—</option>${lineOptions(
@@ -61852,7 +61858,7 @@ if ("function" == typeof spCaptureModal) {
         (bar.className = "rc-go"),
           (bar.innerHTML = s.read
             ? `<span class="pill info">read</span><span class="small muted">${esc(s.read.source)} · ${(s.read.lines || []).length} printed lines · ${(s.read.ink || []).length} handwritten note${1 === (s.read.ink || []).length ? "" : "s"}${Math.abs(s.read.gap || 0) > 0.02 ? ` · ${money2(s.read.gap)} unclassified` : ""}</span><span class="grow"></span><button class="btn sm" id="rc-again">Read it again</button>`
-            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm primary" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
+            : `<span class="small muted">A photograph of a receipt is a list of what was bought, at the price paid. Read it and every line lands on its own cost code.</span><span class="grow"></span><button class="btn sm" id="rc-go" ${s.receipt ? "" : "disabled"}>Read the receipt</button>`),
           shot.parentNode.insertBefore(bar, shot.nextSibling),
           bar.querySelector("#rc-go")?.addEventListener("click", () => rcRun(s)),
           bar.querySelector("#rc-again")?.addEventListener("click", () => rcRun(s));
@@ -66762,6 +66768,8 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "bank",
       "spend",
       "vendors",
+      // Orders: the PO behind a bill before it is paid (purchasing SPEC §4), read only
+      "po",
       "reports",
       "dashboard",
       "port",
@@ -66779,6 +66787,10 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "billing",
       "vendors",
       "po",
+      // every Purchasing page, read only (purchasing SPEC §4, decision 1; src/puorders.js puReadOnly)
+      "proc",
+      "rfq",
+      "recv",
       "reports",
       "dashboard",
       "port",
@@ -67704,7 +67716,14 @@ function f3ArrivingHtml() {
         // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
         const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
           got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
-        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
+        // what, when and where, and the office's note for the drop (the field expert, 11-05: the card showed the PO number
+        // but not the items, the time or the drop point, and "Curb drop, call Angel" never reached the foreman). No money.
+        const L = (po.lines || []).filter((l) => l.item || l.desc),
+          what = L.slice(0, 2).map((l) => `${r2(+l.qty || 0)} ${l.unit || ""} ${l.item || l.desc}`.replace(/\s+/g, " ").trim()).join(", ") + (L.length > 2 ? `, and ${L.length - 2} more` : ""),
+          v = (DB.vendors || []).find((x) => x.id === po.vendorId || x.name === po.vendor),
+          win = po.deliveryWindow || (v && v.deliveryWindow) || "",
+          where = po.shipToText || ({ site: "the job site", office: "the office", wh: "the warehouse" }[po.shipTo] || po.shipTo || "the job site");
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small f3-what" data-nocase>${esc(what || `${L.length} line${1 === L.length ? "" : "s"}`)}</div><div class="small ${late ? "bad-t" : "muted"}" data-nocase>${win ? `${esc(win)} · ` : ""}to ${esc(where)} · ${esc(po.number)}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div>${po.notes ? `<div class="small f3-note" data-nocase>Note: ${esc(po.notes)}</div>` : ""}</div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -200834,6 +200853,8 @@ function mnPhoneBars() {
     people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/></svg>',
     // Chat in the office bar (2026-10-19): two square bubbles, the same mark as the desktop header's Chat
     chat: '<svg viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/></svg>',
+    // Deliveries on the coordinator's bar (purchasing SPEC §4, 11-05): a box truck, line-drawn
+    truck: '<svg viewBox="0 0 24 24"><path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8z"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
   });
 if ("function" == typeof mRenderTabs) {
   const base = mRenderTabs;

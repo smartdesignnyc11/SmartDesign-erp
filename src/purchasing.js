@@ -242,7 +242,7 @@ function puOrderRows(pid) {
       .forEach((c) => {
         const it = selItem(c.itemId),
           age = dayDiff(c.raisedAt, today());
-        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: "It does not go to the site until the claim closes.", act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad" });
+        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: `It does not go to the site until the claim closes. ${c.vendor || "The vendor"} owes a replacement${it && +it.cost ? `, or a ${money(r2(+it.cost * (+c.qty || 1)))} credit` : ""}.`, act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad", tile: "owed", money: 0, claim: 1 });
       });
   } catch (e) {}
   try {
@@ -252,7 +252,7 @@ function puOrderRows(pid) {
         const risk = retRisk(r),
           exp = retExpected(r),
           credit = ["shipped", "received"].includes(r.status);
-        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(retValue(r))} to send back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
+        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(exp)} owed back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}${Math.abs(retValue(r) - exp) > 0.5 ? ` · ${money(retValue(r))} of goods, less ${money(r2(retValue(r) - exp))} in fees` : ""}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
       });
   } catch (e) {}
   try {
@@ -431,8 +431,11 @@ function puPlusItems(v) {
       ["Restock the Warehouse", "From Stock items at or under their reorder point", () => puPlus("inv", "restock")],
       ["Blank Need", "Only when no line covers it; the line is asked for first", () => puNewNeed()],
     ],
+    // One New on Orders (SPEC: from lines first, a blank order behind More). Both open the one New PO sheet: Which
+    // Lines? for the job, with its job switch (src/puorders.js); the blank order is the same sheet's Start Blank.
     po: [
-      ["New Purchase Order From Lines", "Pick the job's estimate or change-order lines", () => puBuyFromDoc()],
+      ["New Purchase Order From Lines", "Pick the job's estimate, change-order or invoice lines", () => puNewPOFromLines()],
+      ["Blank Purchase Order", "Only when no line covers it: shop supplies, tools", () => puNewPOFromLines(!0), { more: 1 }],
     ],
     rfq: [["New Request for Quote", "Starts from the lines you are buying for", () => ("function" == typeof rfqNewSheet ? rfqNewSheet() : puBuyFromDoc("quote"))]],
     recv: [["Log Something That Arrived", "With no order behind it", () => ("function" == typeof openEditor ? openEditor("mat", null) : null)]],
@@ -444,16 +447,23 @@ function puPlusItems(v) {
     ],
   }[v] || [];
 }
-let puPlusOpen = "";
+let puPlusOpen = "",
+  puPlusMore = "";
+// the menu's items; an item marked more sits behind More (a blank start is secondary, never first)
+function puMenuHtml(v, items) {
+  const more = items.some((it) => it[3] && it[3].more) && puPlusMore !== v;
+  return items.map((it, i) => (it[3] && it[3].more && more ? "" : `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`)).join("") + (more ? `<button type="button" role="menuitem" class="pu-mi pu-mimore" data-pumore="${v}" aria-expanded="false"><b>More</b><span>A blank order</span></button>` : "");
+}
 function puHeadHtml(v, extra) {
   // inside a job the page is the job's Purchasing tab: its name, the job's words, and the job's one + (src/jobpage.js)
   const job = "function" == typeof jpOn && jpOn(),
-    items = job ? [] : puPlusItems(v),
+    // the controller and billing read Purchasing and buy nothing (src/puorders.js puReadOnly): no + for them
+    items = job || ["controller", "billing"].includes(role()) ? [] : puPlusItems(v),
     name = job && "proc" === v ? "Purchasing" : PU_NAME[v],
     lead = job ? "This job's needs, orders and deliveries: what to buy and what is coming." : PU_LEAD[v];
   // on the phone the job's header names the section (src/jobpage.js): no second heading under it
   if (job && puPhone()) return "";
-  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${items.map((it, i) => `<button type="button" role="menuitem" class="pu-mi" data-pumi="${i}"><b>${esc(it[0])}</b><span>${esc(it[1])}</span></button>`).join("")}</div>` : ""}</div>` : ""}</div></div>`;
+  return `<div class="ph pu-ph bb-ph0"><div class="pu-tt bb-title"><h2>${esc(name)}</h2><p class="lead" data-nocase>${esc(lead)}</p></div><div class="acts">${extra || ""}${items.length ? `<div class="pu-plus"><button type="button" class="btn pu-plusb" data-puplus="${v}" aria-expanded="${puPlusOpen === v}" aria-label="New">${PU_IC.plus}<span>New</span></button>${puPlusOpen === v ? `<div class="pu-menu" role="menu">${puMenuHtml(v, items)}</div>` : ""}</div>` : ""}</div></div>`;
 }
 // the old page's tools, one tap down, until their records move here (P4, P5)
 function puFullHtml(v, label) {
@@ -471,7 +481,7 @@ function puHost(v) {
 }
 // The old page's own New button (its handlers, its id) rides in the new head, not blue (housekeeping is never blue); it
 // goes home before each draw and when the old page shows (a record open)
-const PU_MOVE = { vendors: ["btn-newvendor"], po: ["btn-newpo"] },
+const PU_MOVE = { vendors: ["btn-newvendor"] },
   PU_BTN = {};
 // v: only that page's buttons (dropping another page never takes this page's button away)
 function puBtnHome(v) {
@@ -606,7 +616,7 @@ function puOrders() {
     tileRows = "owed" === t ? owed : "over" === t ? over : "cnb" === t ? cnb.pos.map((po) => Object.assign(poRow(po), { id: "cnb:" + po.id, why: `Ordered ${money(poTotal(po).total)} · billed ${money(puPoBilled(po))}${poPaidDirect(po) > 0.5 ? ` · paid before a bill ${money(poPaidDirect(po))}` : ""}` })) : null,
     tiles =
       puTile("mine", "Needs You", String(mine.length), "rows whose next tap is yours") +
-      puTile("owed", "Owed Back", money(owedSum), `${owed.length} return${1 === owed.length ? "" : "s"} and credits`) +
+      puTile("owed", "Owed Back", money(owedSum), `${owed.filter((x) => !x.claim).length} return${1 === owed.filter((x) => !x.claim).length ? "" : "s"} and credits${owed.some((x) => x.claim) ? `, ${owed.filter((x) => x.claim).length} claim${owed.filter((x) => x.claim).length > 1 ? "s" : ""} for a replacement` : ""}`) +
       puTile("over", "Over the Order", money(overSum), over.length ? over.map((x) => x.po.number).join(", ") : "nothing paid past an order") +
       puTile("cnb", "Committed, Not Yet Billed", money(cnbSum), `${cnb.pos.length} open order${1 === cnb.pos.length ? "" : "s"}, net of their bills`, puPrepaidSay(cnb.prepaid)),
     chips = [["draft", "Draft"], ["open", "Open"], ["received", "Received"], ["all", "All"]],
@@ -617,7 +627,6 @@ function puOrders() {
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
       filters +
       puSecHtml("orders", "Orders", pos.map(poRow), { quiet: 1, empty: "draft" === f ? "Nothing sits in draft." : "No orders in this filter." }) +
-      `<p class="pu-note2" data-nocase>Store runs join as orders with P5; until then their receipts sit with the route and Price Watch. Missing invoice copies are chased by the assistant.</p>` +
       puFullHtml("po", "Matching, Promises and Client Funds");
   return puPageHtml("po", { tiles: tiles, body: body });
 }
@@ -631,7 +640,7 @@ function puDeliveries() {
     arriving = (DB.pos || [])
       .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
       .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
-    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
+    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: puHeldBy(it) ? `Held: ${puHeldBy(it).kind} on arrival, claim open with ${puHeldBy(it).vendor || it.vendor || "the vendor"}. It does not go to the site until the claim closes.` : "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, tone: puHeldBy(it) ? "bad" : "", run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
     back = (() => {
       try {
         return retOpen().filter((r) => ["raise", "authorised", "toship"].includes(r.status) && (!pid || r.projectId === pid)).map((r) => ({ id: "back:" + r.id, name: r.name, job: r.vendor, line: retRisk(r).label || "", why: r.rma ? `${r.rma}: ship it back` : "No return authorisation yet", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) }));
@@ -653,6 +662,15 @@ function puDeliveries() {
       (puPhone() ? puFullHtml("recv", "Receive Line by Line") : `<h3 class="pu-h3">Arriving: Receive Line by Line</h3>`);
   return puPageHtml("recv", { body: body });
 }
+// an item at the office under an open claim on arrival (damaged, short, wrong) is held there, never sent with the route
+// (the coordinator expert, 11-05: the damaged range read "deliver it with the route")
+function puHeldBy(it) {
+  try {
+    return selClaims().find((c) => c.itemId === it.id && ("undefined" == typeof CLAIM_OPEN || CLAIM_OPEN.includes(c.status))) || null;
+  } catch (e) {
+    return null;
+  }
+}
 let puVendFilter = "all";
 function puFilterVendors(k) {
   (puVendFilter = k), setView("vendors");
@@ -670,24 +688,18 @@ function puVendors() {
         return [];
       }
     })(),
-    perf = (v) => {
-      try {
-        const s = "function" == typeof selVendorStats ? selVendorStats()[v.name] : null;
-        return s && s.onTimePct != null ? `${s.onTimePct}% on time` : "";
-      } catch (e) {
-        return "";
-      }
-    },
     phone = puPhone(),
+    // one row per vendor, the same facts on both devices (puVendorFacts, src/puorders.js): every row opens the record
     list = phone
       ? `<div class="pu-rows">${V.map((v) => {
-          const x = { id: "vend:" + v.id, name: v.name, job: v.trade || "", line: `Insurance ${v.insuranceExp ? fmt(v.insuranceExp) : "none on file"} · W-9 ${v.w9 ? "on file" : "none"} · Paid ${money(vendorSpend(v))}`, why: perf(v), run: () => puVendorOpen(v) };
+          const F = puVendorFacts(v),
+            x = { id: "vend:" + v.id, name: v.name, job: v.trade || "", line: "", why: "", run: () => puVendorOpen(v) };
           puOpenRows[x.id] = x;
-          return `<div class="pu-row" data-purow="${esc(x.id)}"><button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(v.name)}</b><span class="pu-sub" data-nocase>${esc(x.job)}</span><span class="pu-why" data-nocase>Insurance ${esc(v.insuranceExp ? fmt(v.insuranceExp) : "none on file")} · <span data-puw9="${v.w9 ? "on" : "none"}">W-9 ${v.w9 ? "on file" : "none"}</span> · Paid ${money(vendorSpend(v))}${perf(v) ? ` · ${esc(perf(v))}` : ""}</span></button></div>`;
+          return `<div class="pu-row ${F.tone}" data-purow="${esc(x.id)}"><button type="button" class="pu-rb" data-puopen="${esc(x.id)}"><b data-nocase>${esc(v.name)}</b><span class="pu-sub" data-nocase>${esc([v.trade, F.openSay].filter(Boolean).join(" · "))}</span><span class="pu-why" data-nocase>${F.owed > 0.5 ? `Owed back ${money(F.owed)} · ` : ""}${F.over.length ? `${money(F.overAmt)} paid over ${esc(F.over.map((x) => x.po.number).join(", "))} · ` : ""}${esc(F.papersSay)} · <span data-puw9="${v.w9 ? "on" : "none"}">W-9 ${v.w9 ? "on file" : "none"}</span> · Paid ${money(F.paid)}${F.perf ? ` · ${esc(F.perf)}` : ""}</span></button></div>`;
         }).join("")}</div>`
-      : `<table class="t pu-vt"><thead><tr><th>Vendor</th><th>Trade</th><th>Insurance</th><th>W-9</th><th class="num">Paid</th><th>Open Orders</th><th>On Time</th></tr></thead><tbody>${V.map((v) => {
-          const open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po));
-          return `<tr data-puvend="${esc(v.id)}"><td><b data-nocase>${esc(v.name)}</b></td><td data-nocase>${esc(v.trade || "")}</td><td class="${v.insuranceExp && v.insuranceExp < today() ? "bad" : ""}">${v.insuranceExp ? fmt(v.insuranceExp) : "none"}</td><td data-puw9="${v.w9 ? "on" : "none"}">${v.w9 ? "On file" : "None"}</td><td class="num">${money(vendorSpend(v))}</td><td data-nocase>${open.length ? open.map((po) => po.number).join(", ") : ""}</td><td data-nocase>${esc(perf(v))}</td></tr>`;
+      : `<table class="t pu-vt"><thead><tr><th>Vendor</th><th>Open Orders</th><th class="num">Owed Back</th><th>Insurance</th><th>W-9</th><th class="num">Paid</th><th>On Time</th></tr></thead><tbody>${V.map((v) => {
+          const F = puVendorFacts(v);
+          return `<tr data-puvend="${esc(v.id)}" tabindex="0"><td><b data-nocase>${esc(v.name)}</b>${v.trade ? `<div class="small muted" data-nocase>${esc(v.trade)}</div>` : ""}</td><td data-nocase>${F.open.length ? `${esc(F.open.map((po) => po.number).join(", "))}<div class="small muted">${money(F.openAmt)}</div>` : '<span class="muted">none open</span>'}</td><td class="num ${F.owed > 0.5 || F.over.length ? "warn" : ""}">${F.owed > 0.5 ? money(F.owed) : ""}${F.over.length ? `<div class="small">${money(F.overAmt)} paid over ${esc(F.over.map((x) => x.po.number).join(", "))}</div>` : ""}</td><td class="${F.coiTone}" data-nocase>${esc(F.coiSay)}</td><td data-puw9="${v.w9 ? "on" : "none"}">${v.w9 ? "On file" : "None"}</td><td class="num">${money(F.paid)}</td><td data-nocase>${esc(F.perf)}</td></tr>`;
         }).join("")}</tbody></table>`,
     filters = `<div class="pu-filters"><span class="pu-fl">Show:</span>${[["all", "All"], ["now9", "No W-9"], ["suggested", "Suggested"]].map(([k, l]) => `<button type="button" class="pu-chip ${puVendFilter === k ? "on" : ""}" data-puvf="${k}" aria-pressed="${puVendFilter === k}">${l}</button>`).join("")}</div>`,
     body =
@@ -711,7 +723,11 @@ function puStock() {
   puNeeds("").filter((x) => !x.r.ordered && "gone" !== x.b && (x.stock || []).length).forEach((x) => x.stock.forEach((s) => want.push({ id: `want:${x.id}:${s.id}`, name: `${puUnits(s.qty, s.unit)} of ${s.name}`, job: x.job, line: `at the ${String(s.where).toLowerCase()}`, why: `Wanted by ${x.name}`, run: () => ((bbSel = x.id), setView("proc")) })));
   const chips = [["all", "All"], ["mat", "Materials"], ["tool", "Tools"], ["job", "At a Job"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Show:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-puinvf="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
-    list = I.map((i) => ({ id: "item:" + i.id, name: i.name, job: "", line: `${puUnits(invAvailable(i), i.unit)} · ${locName(i.loc)}`, why: "tool" === i.type ? "Tool" : puReorder(i) ? `Reorder at ${puUnits(puReorder(i), i.unit)}` : "", run: () => ("function" == typeof openEditor ? openEditor("inv", i.id) : null) })),
+    wantOf = (i) => want.filter((w) => w.id.endsWith(":" + i.id)),
+    list = I.map((i) => {
+      const W = wantOf(i);
+      return { id: "item:" + i.id, name: i.name, job: "", line: `${puUnits(invAvailable(i), i.unit)} on hand · ${locName(i.loc)}`, why: W.length ? `Needed by ${W.map((w) => `${w.why.replace(/^Wanted by /, "")}${w.job ? ` (${w.job})` : ""}`).join("; ")}` : "tool" === i.type ? "Tool" : puReorder(i) ? `Reorder at ${puUnits(puReorder(i), i.unit)}` : "", tone: W.length ? "warn" : "", run: () => ("function" == typeof openEditor ? openEditor("inv", i.id) : null) };
+    }),
     body =
       puSecHtml("mine", "Needs You", mine, { count: "inv", empty: "Nothing waits on you: nothing is at its reorder point." }) +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1 }) +
@@ -767,6 +783,8 @@ function puCrumbs() {
 }
 // the field roles keep their own pages (the crew's Deliveries is the site's receiving)
 const puOffice = () => !["foreman", "crew", "client"].includes(role());
+// a role's first Purchasing page: the Buy Board for those who buy, Orders for the controller and billing (SPEC §2)
+const puHomeView = () => ((ROLE_VIEWS[role()] || []).includes("proc") && !["controller", "billing"].includes(role()) ? "proc" : "po");
 function puDraw() {
   const v = view;
   Object.keys(PU_PAGES).forEach((x) => x !== v && puDrop(x));
@@ -919,7 +937,8 @@ document.addEventListener(
     if (!t) return;
     const at = (s) => t.closest(s);
     let b;
-    if ((b = at("[data-puplus]"))) return e.preventDefault(), e.stopPropagation(), (puPlusOpen = puPlusOpen === b.dataset.puplus ? "" : b.dataset.puplus), render();
+    if ((b = at("[data-puplus]"))) return e.preventDefault(), e.stopPropagation(), (puPlusMore = ""), (puPlusOpen = puPlusOpen === b.dataset.puplus ? "" : b.dataset.puplus), render();
+    if ((b = at("[data-pumore]"))) return e.preventDefault(), e.stopPropagation(), (puPlusMore = b.dataset.pumore), render();
     if ((b = at("[data-pumi]"))) {
       e.preventDefault(), e.stopPropagation();
       const it = puPlusItems(puPlusOpen)[+b.dataset.pumi];
@@ -1023,7 +1042,7 @@ function puStockGate(R, go) {
   } catch (e) {}
   // the Purchasing overview and the store run's Route open their new homes; Stock for those it is not listed for
   if ("object" == typeof MN_ALIAS) {
-    Object.defineProperty(MN_ALIAS, "ovbuy", { configurable: !0, enumerable: !0, get: () => ((ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po") });
+    Object.defineProperty(MN_ALIAS, "ovbuy", { configurable: !0, enumerable: !0, get: () => puHomeView() });
     Object.assign(MN_ALIAS, { route: "recv", req: "proc", inv: "proc" });
   }
   "object" == typeof OC_RETIRED && delete OC_RETIRED.ovbuy;
@@ -1160,7 +1179,7 @@ function puNewNeed() {
 {
   const base = render;
   render = function () {
-    if ("ovbuy" === view) view = (ROLE_VIEWS[role()] || []).includes("proc") ? "proc" : "po";
+    if ("ovbuy" === view) view = puHomeView();
     const r = base.apply(this, arguments);
     try {
       puDemoLines(), puDraw(), puCrumbs();

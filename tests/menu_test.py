@@ -76,9 +76,11 @@ KIDS = {
     ('u_chen', 'buy'): BUY + ['Stock'],
     ('u_chen', 'sales'): ['Pipeline', 'Clients'],
     ('u_chen', 'money'): ['Time and Crew'],
-    ('u_billing', 'buy'): ['Vendors'],
+    # billing and the controller (purchasing SPEC §4, lane P3 11-05): billing reads Orders beside Vendors (the PO behind
+    # a bill); the controller reads Alan's five, read only (decision 1: everyone with the menu but the coordinator)
+    ('u_billing', 'buy'): ['Orders', 'Vendors'],
     ('u_billing', 'money'): ['Billing', 'Banking'],
-    ('u_controller', 'buy'): ['Orders', 'Vendors'],
+    ('u_controller', 'buy'): BUY,
     ('u_controller', 'money'): ['Billing', 'Banking', 'Bills and Payroll', 'Books'],
     ('u_sarah', 'studio'): ['Selections', 'Drawings'],
     ('u_sarah', 'setup'): ['Company and Settings', 'Team', 'Connections', 'The SmartDesign Standard'],
@@ -100,7 +102,8 @@ PHONE_BAR = {
     # the PM's holds five (TodayPM)
     'u_owner': ['Today', 'Projects', 'Sales', 'Messages'],
     'u_alan': ['Today', 'Projects', 'Clients', 'Tasks', 'Messages'],
-    'u_chen': ['Today', 'Messages', 'Tasks', 'Buy Board'],
+    # purchasing SPEC §4 (lane P3, 11-05): receiving is the coordinator's daily work; Tasks stays under Your Day
+    'u_chen': ['Today', 'Buy Board', 'Deliveries', 'Messages'],
     'u_billing': ['Today', 'Billing', 'Clients', 'Messages'],
     'u_controller': ['Today', 'Banking', 'Bills and Payroll', 'Messages'],
     'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],
