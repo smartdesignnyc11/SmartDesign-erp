@@ -12348,9 +12348,11 @@ function poDrawings(p) {
 // vendor record is not changed behind their back.
 // A vendor's ordering address and where it came from. Only the vendor card is verified; an address read from mail is
 // offered marked "not verified", with the mail it came from (CoS 11-06: a display name can be spoofed, and the draft's
-// save wrote it into the vendor record unseen). Mail is read only when its address carries the vendor's own name
-// (sales@nemotile.example for Nemo Tile) or a person routed it to this vendor, and never mail marked spoofed or failing
-// its sender checks. Returns { email, src, verified, commId }.
+// save wrote it into the vendor record unseen). Mail is read only when the address's own domain is the vendor's full
+// name, normalised (sales@nemotile.example or nemo-tile.com for Nemo Tile; never nemo-tiles-supply.com, a look-alike),
+// and never mail marked spoofed or failing its sender checks. Mail with no sender check on it says so: the mail pull
+// does not set one yet. Returns { email, src, verified, commId }.
+const commAuthOk = (c) => !!c && /pass/i.test(String((c.auth && (c.auth.dmarc || c.auth.result)) || c.authResult || ""));
 const commSpoofed = (c) => !!c && (!!c.spoofed || !!c.spoof || /fail|spoof/i.test(String((c.auth && (c.auth.dmarc || c.auth.spf || c.auth.result)) || c.authResult || "")) || (c.flags || []).includes("spoofed"));
 function vendorEmailFind(name) {
   const v = "function" == typeof vendorRec ? vendorRec(name) : null,
@@ -12361,15 +12363,20 @@ function vendorEmailFind(name) {
   const nm = String(name || "").trim();
   if (!nm) return none;
   const own = /@smartdesign|@mercerandbond|@mercer-bond/i,
-    // the vendor's name in the address's domain: "nemotile" for Nemo Tile, or its first long word
-    squash = nm.toLowerCase().replace(/[^a-z0-9]+/g, ""),
-    first = (nm.toLowerCase().match(/[a-z0-9]{4,}/) || [""])[0],
+    // the vendor's full name, normalised (a legal suffix aside), must be the domain's own name: the label before the
+    // top-level domain (before .co.uk and the like), hyphens and dots dropped. A word of it, or the name inside a longer
+    // label, is a look-alike (CoS 11-06: "nemo-tiles-supply.com" passed for Nemo Tile)
+    norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    squash = norm(nm),
+    core = norm(nm.replace(/[,.]?\s+(inc|llc|l\.l\.c|co|corp|corporation|company|ltd|limited)\.?$/i, "")),
     domOk = (e) => {
-      const d = String(e || "").toLowerCase().split("@")[1] || "";
-      return !!d && ((squash.length >= 4 && d.replace(/[^a-z0-9]/g, "").includes(squash)) || (!!first && d.split(".")[0].includes(first)));
+      const L = (String(e || "").toLowerCase().split("@")[1] || "").split(".").filter(Boolean);
+      if (L.length < 2) return !1;
+      const sld = L.length >= 3 && /^(co|com|org|net|ac|gov)$/.test(L[L.length - 2]) ? L[L.length - 3] : L[L.length - 2];
+      return squash.length >= 3 && (norm(sld) === squash || norm(sld) === core);
     },
     C = (DB.comms || []).filter((c) => !commSpoofed(c)).sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))),
-    said = (c) => `their mail of ${c.date ? fmt(String(c.date).slice(0, 10)) : "an earlier date"}`;
+    said = (c) => `their mail of ${c.date ? fmt(String(c.date).slice(0, 10)) : "an earlier date"}${commAuthOk(c) ? "" : ", sender not checked"}`;
   for (const c of C) {
     const f = c.from || {};
     if (!f.email || own.test(f.email)) continue;
@@ -12386,6 +12393,23 @@ function vendorEmailFind(name) {
 }
 function vendorEmailOf(name) {
   return vendorEmailFind(name).email;
+}
+// Confirmed with the Vendor: the person checked the address with the vendor (a call, their letterhead, a known
+// contact). It goes on the card as verified, with who and when and an audit row, and the warning clears.
+function vendorEmailConfirm(name, address) {
+  const v = "function" == typeof vendorRec ? vendorRec(name) : null,
+    to = String(address || "").trim();
+  if (!v || !/@/.test(to)) return null;
+  const who = (currentUser() || {}).name || role(),
+    was = v.email || "",
+    from = (v.emailSrc && v.emailSrc.from) || (was === to ? "the vendor card" : "typed in the order's mail");
+  v.email = to;
+  v.emailSrc = Object.assign({}, v.emailSrc || {}, { from: from, verified: !0, confirmedBy: who, confirmedAt: appNowIso() });
+  try {
+    audit("vendor", v.id, "email-confirmed", was, to, `confirmed with the vendor by ${who}; source: ${from}`);
+  } catch (e) {}
+  save();
+  return v;
 }
 function poEmailTemplate(po) {
   const t = poTotal(po),
@@ -12416,10 +12440,19 @@ async function draftPOEmail(po) {
     ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address">${T.vendorEmail && T.vendorEmailFrom.src ? `<span class="hint em-to-src${T.vendorEmailFrom.verified ? "" : " warn-t"}" data-nocase>From ${esc(T.vendorEmailFrom.src)}${T.vendorEmailFrom.verified ? "" : ", not verified: check it with the vendor before the order goes"}.</span>` : ""}</div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address">${T.vendorEmail && T.vendorEmailFrom.src ? `<span class="hint em-to-src${T.vendorEmailFrom.verified ? "" : " warn-t"}" data-nocase>From ${esc(T.vendorEmailFrom.src)}${T.vendorEmailFrom.verified ? "" : ", not verified: check it with the vendor before the order goes"}.</span>${T.vendorEmailFrom.verified ? "" : '<button type="button" class="btn sm" id="em-confirm" style="margin-top:6px">Confirmed with the Vendor</button>'}` : ""}</div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
       navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
+    $("#em-confirm") &&
+      ($("#em-confirm").onclick = () => {
+        const v = vendorEmailConfirm(po.vendor, $("#em-to").value);
+        if (!v) return void toast(`Put ${po.vendor}'s address in To first`);
+        const h = $(".em-to-src");
+        h && (h.classList.remove("warn-t"), (h.textContent = `On the vendor card, confirmed with the vendor by ${v.emailSrc.confirmedBy}.`));
+        $("#em-confirm").remove();
+        rcToast(`${v.email} confirmed for ${v.name} and kept on the vendor card`, [{ label: "Open", run: () => vendorPage(v.id) }]);
+      }),
     ($("#d-save").textContent = mail ? "Save to Mailbox Drafts" : "Open in Mail App"),
     ($("#d-save").onclick = () => {
       const to = $("#em-to").value.trim(),
@@ -52092,8 +52125,6 @@ function ctPOPicker(projectId, preferId, preKey) {
             expected: "",
             status: "draft",
             shipTo: "Site",
-            // curb or carried inside (the COI rule): guessed from what it buys, changed on the order page
-            dropAt: "function" == typeof poDropGuess ? poDropGuess(lines.map((x) => x.item).join(" ")) : "",
             notes: `From ${[...srcDocs].join(", ")}`,
             lines: lines,
             tax: 0,
@@ -181545,15 +181576,21 @@ const poOverTotal = (po) => r2(poLineOver(po).reduce((a, x) => a + x.over, 0)),
 // needs only a W-9 before the first payment. (CoS 11-06: the gate treated any open order as "on site", so a curb
 // supplier with an order out was stopped, and J6's second plumbing buy from Ferguson could not issue.) One rule, read
 // by the order's papers, the Blocked vendors, the COI bookings and the Purchasing Vendors rows.
+// Where an order is delivered, when nobody has said: guessed from what it buys. Goods set in place (an appliance, a
+// slab, cabinets, millwork, flooring to acclimate) are carried inside; goods that drop or ship (lumber, drywall, tile,
+// wire, pipe and fittings, fixtures, paint, hardware) go to the curb; anything else, or nothing to read, is carried
+// inside, because safety comes first (CoS 11-06: an unset order counted as curb, so every blank New PO, every award or
+// change-order order and every older open order cleared the COI gate silently). A washer is an appliance only as one.
 const PO_DROP = { curb: "Curb or Shipped", inside: "Carried Inside" },
+  PO_DROP_IN = /applianc|refrigerat|fridge|freezer|(?<!price )\b(range|cooktop|wall oven)\b|dishwasher|washing machine|(clothes|laundry|front[- ]load|top[- ]load)\s+washer|washer\s*(\/|and|&)\s*dryer|(clothes|laundry|gas|electric)\s+dryer|countertop|slab|\bstone\b|cabinet|millwork|\bvanit(y|ies)\b(?!\s+(faucet|light|mirror|top))|flooring|hardwood|white oak/i,
+  PO_DROP_CURB = /lumber|\bstuds?\b|plywood|\bosb\b|drywall|sheetrock|gypsum|cement board|joist|framing|blocking|\btiles?\b|grout|thinset|mortar|\bwire\b|wiring|cable|romex|nm-?b|conduit|\bpipe\b|piping|\bpex\b|copper|fittings?|fasteners?|screws?|\bnails?\b|anchors?|faucet|toilet|valve|fixture|\btrim\b|mouldings?|moldings?|casing|baseboard|paint|primer|caulk|insulation|membrane|underlayment|\bbox(es)?\b|breakers?|receptacles?|switch|devices?|bulbs?|adhesive|sealant|hardware|hinges?|supply and waste|\bdrains?\b|washers?\b/i,
+  poDropGuessOf = (s) => (PO_DROP_IN.test(s || "") ? { at: "inside", sure: !0 } : PO_DROP_CURB.test(s || "") ? { at: "curb", sure: !0 } : { at: "inside", sure: !1 }),
+  // what the order sheet starts from (a need row, or words)
+  poDropGuess = (r) => poDropGuessOf("string" == typeof r ? r : r ? `${r.name || ""} ${(r.it && r.it.category) || ""} ${(r.m && r.m.name) || ""}` : "").at,
   poDropAt = (po) => (po && PO_DROP[po.dropAt] ? po.dropAt : ""),
-  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === po.dropAt && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()))),
-  // what the order sheet starts from: goods that are set in place (an appliance, a slab, cabinets, millwork, flooring to
-  // acclimate) are carried inside; everything else drops at the curb or ships. The person changes it on the sheet.
-  poDropGuess = (r) => {
-    const s = "string" == typeof r ? r : r ? `${r.name || ""} ${(r.it && r.it.category) || ""} ${(r.m && r.m.name) || ""}` : "";
-    return /applianc|refrigerat|fridge|range\b|dishwasher|washer|dryer|countertop|slab|stone|cabinet|millwork|vanit|flooring|hardwood|white oak/i.test(s) ? "inside" : "curb";
-  };
+  // the order's delivery as the papers read it: as said on the order, else guessed from its lines
+  poDropOf = (po) => (poDropAt(po) ? { at: po.dropAt, guessed: !1, sure: !0 } : Object.assign({ guessed: !0 }, poDropGuessOf(((po && po.lines) || []).map((l) => `${l.item || ""} ${l.desc || ""}`).join(" ; ")))),
+  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase())));
 // a vendor's open orders that bring them on site (the papers' rule, for every reader)
 function vendorOnSitePOs(name, exceptId) {
   const n = String(name || "").toLowerCase();
@@ -181570,7 +181607,9 @@ function poPaper(po) {
     const open = vendorOnSitePOs(v.name, po.id),
       here = poOnSite(po);
     (open.length || here) &&
-      out.stop.push(`${v.name} has ${v.insuranceExp ? "a certificate of insurance that expired " + fmtL(v.insuranceExp) : "no certificate of insurance on file"}${here ? ` and ${["subcontract", "service"].includes(po.type) ? "this order puts them on site" : "this delivery is carried inside"}` : ` and ${open.map((x) => x.number).join(", ")} open with them on site`}: no new purchase order until it lands`);
+      out.stop.push(
+        `${v.name} has ${v.insuranceExp ? "a certificate of insurance that expired " + fmtL(v.insuranceExp) : "no certificate of insurance on file"}${here ? ` and ${["subcontract", "service"].includes(po.type) ? "this order puts them on site" : poDropOf(po).guessed ? "this delivery is carried inside (guessed from the items: change the delivery on the order if it drops at the curb)" : "this delivery is carried inside"}` : ""}${open.length ? `${here ? "," : ""} and ${open.map((x) => x.number).join(", ")} open with them on site` : ""}: no new purchase order until it lands`,
+      );
   }
   !v.w9 && poTotal(po).total >= 600 && out.warn.push(`No W-9 from ${v.name}: their bill is held until it lands, so ask for it with this order`);
   return out;
@@ -181600,19 +181639,41 @@ function poApprovalWhy(po) {
     return R;
   };
 }
-// the order's Delivery choice: saved with who and when, said in a toast with Open
-document.addEventListener("change", (e) => {
-  const el = e.target && e.target.closest && e.target.closest("[data-podrop]");
-  if (!el) return;
-  const po = (DB.pos || []).find((x) => x.id === el.dataset.podrop);
-  if (!po || !PO_DROP[el.value] || po.dropAt === el.value) return;
-  const was = po.dropAt || "";
-  po.dropAt = el.value;
+// The order's delivery, changed in one tap (Change): saved with who, when and an audit row, said in a toast with Open.
+// Carried inside to the curb for a vendor with no current certificate asks why first, and the reason is in the audit
+// row: it is the step that lifts the COI gate.
+function poDropSet(po, to, why) {
+  const D = poDropOf(po),
+    was = po.dropAt || "";
+  po.dropAt = to;
   try {
-    audit("po", po.id, "delivery", was, el.value, `${PO_DROP[el.value]}, set on the order`);
+    audit("po", po.id, "delivery", was || `${D.at} (guessed)`, to, `${PO_DROP[to]}, set on the order${why ? `: ${why}` : ""}`);
   } catch (x) {}
   save(), render();
-  rcToast(`${po.number || "The order"}: delivery ${PO_DROP[el.value].toLowerCase()}${poPaper(po).stop.length ? `. ${poPaper(po).stop[0]}` : ""}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+  const P = poPaper(po);
+  rcToast(`${po.number || "The order"}: delivery ${PO_DROP[to].toLowerCase()}${P.stop.length ? `. ${P.stop[0]}` : ""}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+}
+function poDropChange(po) {
+  if (!po) return;
+  const to = "inside" === poDropOf(po).at ? "curb" : "inside",
+    v = poVendorReal(po.vendor),
+    noCoi = !!v && (!v.insuranceExp || v.insuranceExp < today());
+  if ("curb" !== to || !noCoi) return poDropSet(po, to);
+  mbModal(
+    `Curb or Shipped — <span data-nocase>${esc(po.number || "this order")}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(v.name)} has ${v.insuranceExp ? "a certificate of insurance that expired " + esc(fmtL(v.insuranceExp)) : "no certificate of insurance on file"}. At the curb nobody comes inside, so no certificate is needed. Say how you know it drops at the curb or ships.</p>${mbF("Why", `<input data-f="why" placeholder="e.g. they confirmed a curbside drop; our crew carries it in">`)}`,
+    {
+      submit: "Set Curb or Shipped",
+      onSubmit: (f) => {
+        if (!f.why || f.why.trim().length < 8) return toast("A sentence, so the audit trail says why no certificate is needed"), !1;
+        poDropSet(po, "curb", f.why.trim());
+      },
+    },
+  );
+}
+document.addEventListener("click", (e) => {
+  const el = e.target && e.target.closest && e.target.closest("[data-podropchg]");
+  el && poDropChange((DB.pos || []).find((x) => x.id === el.dataset.podropchg));
 });
 // over the line by more than $1,000: the owner approves it before it goes, whoever orders
 {
@@ -181653,7 +181714,8 @@ if ("function" == typeof renderPODoc) {
           O = poLineOver(po),
           // where it is delivered rules the papers (a COI only for who comes inside): the choice sits on the order, set
           // or not, while it can still change
-          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><label class="small muted" for="po-drop-${esc(po.id)}">Delivery</label><select id="po-drop-${esc(po.id)}" data-podrop="${esc(po.id)}">${poDropAt(po) ? "" : '<option value="" selected>Not Said</option>'}${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === po.dropAt ? " selected" : ""}>${t}</option>`).join("")}</select><span class="small muted">${"inside" === po.dropAt ? "A certificate of insurance is needed: they come inside." : "Curb or shipped: a W-9 before the first payment, no certificate needed."}</span></div>`,
+          D = poDropOf(po),
+          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
           w =
             dr +
             P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
