@@ -1153,7 +1153,17 @@ async def s_claimclose(p, c):
         await sign_in(pg, 'u_chen')
         await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); po.lines[0].received = 860;
           (po.issues = po.issues || []).push({ claim: true, status: 'open', type: 'damaged', lineId: po.lines[0].id, item: po.lines[0].item, qty: 40, unit: 'sf', amount: 356, at: appNowIso() }); save(); }""")
-        c.ok(await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); return typeof puCloseClaimSheet === 'function' && !!puCloseClaimSheet(po, po.issues.find(i => i.claim)); }"), 'claimclose: the claim row opens Close the Claim')
+        # on Orders, the claim row's name still opens the order (the J7 walk opens the order from it); its button closes the claim
+        await pg.evaluate("() => { view = 'po'; poOpen = null; render(); }"); await pg.wait_for_timeout(500)
+        row = pg.locator('.view.on .pu-row').filter(has_text='damaged on PO-2026-047').first
+        c.ok(await row.count() > 0, 'claimclose: the open claim is a row on Orders')
+        if await row.count():
+            await row.locator('.pu-rb').click(); await pg.wait_for_timeout(500)
+            o = await pg.evaluate("() => [view, poOpen && DB.pos.find(x => x.id === poOpen)?.number]")
+            c.ok(o == ['po', 'PO-2026-047'], f"claimclose: the row's name opens the order ({o})")
+            await pg.evaluate("() => { view = 'po'; poOpen = null; render(); }"); await pg.wait_for_timeout(500)
+            await pg.locator('.view.on .pu-row').filter(has_text='damaged on PO-2026-047').first.locator('[data-puact]').click(); await pg.wait_for_timeout(500)
+        c.ok(bool(await modal(pg)), 'claimclose: the claim row opens Close the Claim')
         m = await modal(pg)
         c.ok(m and 'Close the Claim' in m['buttons'], f'claimclose: the sheet has Close the Claim ({m and m["buttons"]})')
         if m:

@@ -233,7 +233,7 @@ function puOrderRows(pid) {
       (po.issues || [])
         .filter((i) => (i.claim || ["short", "damaged", "wrong"].includes(i.type)) && "open" === (i.status || "open"))
         .forEach((i, k) =>
-          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", run: () => puCloseClaimSheet(po, i), tone: "bad" }),
+          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", actRun: () => puCloseClaimSheet(po, i), run: () => flowGo.po(po)(), tone: "bad" }),
         );
     });
   try {
@@ -1152,7 +1152,8 @@ function puDo(x) {
     if ("order" === x.k) return puStockGate([r], () => bbOrder([r]));
     return bbDo(r, x.k);
   }
-  return x.run && x.run();
+  // a row whose button does something other than open it (Close the Claim) carries actRun; its name still opens it
+  return x.actRun ? x.actRun() : x.run && x.run();
 }
 // The stock check at the door: before money is committed on a need the shelf may cover, the person is asked
 function puStockGate(R, go) {
