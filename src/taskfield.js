@@ -42,8 +42,8 @@ function tkRowOpenHtml(x, o) {
   const O = o || {},
     key = x.key || t2Key(x),
     late = !x.done && x.due && x.due < today(),
-    meta = [O.meta, x.project, tkrDueSay(x.due)].filter(Boolean).join(" · ");
-  return `<div class="tkr-row ${late ? "late" : ""}" data-tkopen="${esc(key)}" role="button" tabindex="0" aria-label="Open ${esc(x.title || "the task")}"><div class="tkr-mid"><b>${esc(x.title || "")}</b>${meta ? `<span class="tkr-m">${esc(meta)}</span>` : ""}</div>${
+    meta = [O.meta, x.project, tkrDueSay(x.due)].filter(Boolean).map((m) => esc(m)).join('<span class="tk2-dot"> · </span>');
+  return `<div class="tkr-row ${late ? "late" : ""}" data-tkopen="${esc(key)}" role="button" tabindex="0" aria-label="Open ${esc(x.title || "the task")}"><div class="tkr-mid"><b>${esc(x.title || "")}</b>${meta ? `<span class="tkr-m">${meta}</span>` : ""}</div>${
     O.noDone || x.done ? "" : `<button type="button" class="btn tkr-done" data-tkrowdone="${esc(key)}" aria-label="Done: ${esc(x.title || "")}">${tkrSvg("check", 16)}<span>Done</span></button>`
   }</div>`;
 }
@@ -223,7 +223,7 @@ function tkNeedsPhoto(x, rec) {
       at &&
         at.insertAdjacentHTML(
           at.classList.contains("tks-more") ? "beforebegin" : "beforeend",
-          `<label class="chk tkr-needphoto"><input type="checkbox" data-tkrneedphoto ${on ? "checked" : ""}> <span class="chk-t">Needs a Photo<span class="small muted"> · Done asks for one${"boolean" != typeof rec.needsPhoto && on ? " (from the title; untick if not)" : ""}</span></span></label>`,
+          `<label class="chk tkr-needphoto"><input type="checkbox" data-tkrneedphoto ${on ? "checked" : ""}> <span class="chk-t"><span>Needs a Photo</span> <span class="small muted">${"boolean" != typeof rec.needsPhoto && on ? "Done asks for one (from the title; untick if not)" : "Done asks for one"}</span></span></label>`,
         );
       const box = m.querySelector("[data-tkrneedphoto]");
       box &&
@@ -331,8 +331,8 @@ if ("undefined" != typeof PR_SPECS) {
     if (!t) return { title: prTxt(c) };
     const late = "done" !== t.status && t.end && t.end < today();
     return {
-      title: prTxt(c) + ("milestone" === t.type ? " (milestone)" : ""),
-      meta: [t.blocked && "function" == typeof tkBlockSay ? tkBlockSay(t) : "", t.owner, t.start ? `${fmt(t.start)} – ${fmt(t.end)}` : "", "done" === t.status ? "done" : late ? "late" : ""].filter(Boolean).join(" · "),
+      title: prTxt(c),
+      meta: [t.blocked && "function" == typeof tkBlockSay ? tkBlockSay(t) : "", "milestone" === t.type ? "milestone" : "", t.owner, t.start ? `${fmt(t.start)} – ${fmt(t.end)}` : "", "done" === t.status ? "done" : late ? "late" : ""].filter(Boolean).join(" · "),
       late: late || !!t.blocked,
       actEl: chip || null,
     };
@@ -504,7 +504,10 @@ function tkBlockSweep() {
       if (!a || "done" === a.status) return void (tkBlockClear(p, t, a), n++);
       // touched: the foreman moved it, wrote on it or handed it on (the crew's own note at creation is not a touch)
       const touched = "todo" !== (a.status || "todo") || (a.thread || []).some((e) => e.by && tkFirst(e.by) !== tkFirst(B.by || "")) || !!a.handoff;
-      if (B.escalated || touched || now < tkShiftEnd(String(B.at).slice(0, 10))) return;
+      // the end of the shift it was raised in; raised after hours, the end of the next working day's
+      let due = tkShiftEnd(String(B.at).slice(0, 10));
+      String(B.at) >= due && (due = tkShiftEnd(nextWork(iso(addDays(parse(String(B.at).slice(0, 10)), 1)))));
+      if (B.escalated || touched || now < due) return;
       B.escalated = now;
       const w = (p.actions || []).find((x) => x.id === B.watchId);
       w && ((w.priority = "high"), (w.title = w.title.replace(/^Watch:/, "Escalated:")), (w.due = today()), (w.waitsOn = ""), "waiting" === w.status && (w.status = "todo"));

@@ -253,7 +253,7 @@ async def s_blocked(pg, c):
         await tap(pg, '#mbm [data-tkrwhy]', 'Waiting on material')
         await pg.fill('#mbm [data-f="note"]', 'no LVL on site')
         await tap(pg, '#mbm #mbm-ok')
-    r = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), a = p.actions.find(x => /^Blocked:/.test(x.title)), w = p.actions.find(x => /^Watch:/.test(x.title)),
+    r = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), a = p.actions.find(x => /^Blocked:/.test(x.title)), w = p.actions.find(x => /^(Watch|Escalated):/.test(x.title)),
       t = a && p.tasks.find(q => q.blocked && q.blocked.taskId === a.id), fore = (DB.users || []).find(u => (p.team || []).includes(u.id) && u.role === 'foreman');
       return a ? { who: a.assignee, t: a.title, fore: fore ? fore.name : '', pm: w ? w.assignee : '', waits: w ? w.waitsOn : '', line: t ? t.id : '' } : null; }""")
     c.ok(bool(r and r['who'] == (r['fore'] or r['who']) and r['who'].startswith('Angel') and 'no LVL' in r['t']), f"blocked: the job's foreman has the task with the reason ({r})")
