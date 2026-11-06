@@ -2191,6 +2191,8 @@ function tvDecorateRows(scope) {
         bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : ""].concat(tvPhoneRow().map(one)).filter(Boolean);
       sub.innerHTML = bits.join('<span class="tk2-dot"> · </span>');
       I.wait && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait">Waiting on ${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(DOW[parse(I.wait.promised).getDay()])}` : ""}</span>`);
+      // a removed task under Done says so, with its reason
+      I.rec && I.rec.removed && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait tv-mrm">Removed · ${esc(tdWords(I.rec.removed.why || "", 8))}</span>`);
       // a hand-off waiting on the other person's yes, on the sender's row too (PM review 11-05 #4)
       const H = "function" == typeof tkOfferOf ? tkOfferOf(x) : null;
       H && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait tv-moff" data-tvoffer="${esc(H.to)}">Offered to ${esc(tkFirst(H.to))} · not accepted yet</span>`);
@@ -2301,15 +2303,18 @@ function tvQaParse(text) {
     .filter((o) => !/^(owner|billing|controller|design|designer|office|crew|driver|foreman)$/i.test(tkFirst(o.u.name)) || new RegExp(`\\b${tkFirst(o.u.name)}\\b`).test(raw))
     .filter((o) => o.i >= 0 &&!cut.some((c) => c.toLowerCase().includes(low.substr(o.i, o.len))))
     .sort((a, b) => a.i - b.i);
-  // The first person named does it and owns it (PM review 11-05: "Angel check joist sistering" made the speaker the
-  // owner and put Angel in a field nobody sees), unless the sentence says who is in charge. A name said after tell,
-  // ask, have or remind is who the speaker must reach: it stays in the title ("Tell Angel to photograph the rear wall"
-  // was saved as "Tell photograph the rear wall") and the speaker owns it.
+  // Who owns it (PM review 11-05; chief of staff 11-06). A name owns the task only when the sentence starts with it
+  // ("Angel, ...", "Angel: ...", "Sarah to ...", "Angel check ..."): it leaves the title and owns it, unless the
+  // sentence says who is in charge. A name anywhere else stays in the title as said ("Call Wren about Angel's hours",
+  // "Order tile for Sarah's selection", "Tell Angel to photograph the rear wall") and the speaker owns it; the Owner
+  // chip offers the people named first, one tap away.
   const d0 = named.find((o) => !owner || o.u.name !== owner.name || !ownerSaid);
   let relay = !1;
   if (d0) {
-    relay = /\b(tell|ask|have|remind|call|email|text|ping|let|get)\s*,?\s*$/i.test(low.slice(0, d0.i));
-    if (!relay) {
+    const lead = low.slice(0, d0.i).trim(),
+      after = low.slice(d0.i + d0.len, d0.i + d0.len + 2);
+    relay = /\b(tell|ask|have|remind|call|email|text|ping|let|get)\s*,?$/i.test(lead);
+    if ((!lead || /^(please|pls|ok|okay|so|hey)[,]?$/.test(lead)) && !/^['’]s/.test(after)) {
       doer = d0.u;
       cut.push(low.substr(d0.i, d0.len));
       ownerSaid || (owner = d0.u);
@@ -2416,7 +2421,7 @@ function tvQaParse(text) {
     .replace(/^(please|pls|can you|could you)\s+/i, "")
     .replace(/[\s,]+$/g, "");
   t = t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
-  return { text: raw, title: t, pid: proj ? proj.id : "", owner: owner ? owner.name : "", doer: doer ? doer.name : "", due: due, refs: refs, relay: relay };
+  return { text: raw, title: t, pid: proj ? proj.id : "", owner: owner ? owner.name : "", doer: doer ? doer.name : "", due: due, refs: refs, relay: relay, named: named.map((o) => o.u.name).filter((n, i, a) => a.indexOf(n) === i) };
 }
 // ---- what was heard, before it is saved (PM review 11-05 #3 and #7) ----------------------------------------------------
 // The quick-add line on Tasks and Meeting Mode's add line show the parse as chips under the sentence: the owner, the
@@ -2454,7 +2459,11 @@ function tvQaWire(input, box, O) {
         (b.onclick = (e) => {
           e.preventDefault();
           const f = b.dataset.tvqc;
-          if ("owner" === f) return tvPersonPop(b, F.owner, (n) => ((fix.owner = n), draw()), "Owner", tvQaTeam().map((u) => ({ name: u.name, sub: "" })));
+          if ("owner" === f) {
+            const N = F.named || [],
+              L = tvQaTeam().sort((a, b2) => (N.includes(b2.name) ? 1 : 0) - (N.includes(a.name) ? 1 : 0));
+            return tvPersonPop(b, F.owner, (n) => ((fix.owner = n), draw()), "Owner", L.map((u) => ({ name: u.name, sub: N.includes(u.name) ? "named in the task" : "" })));
+          }
           if ("due" === f) return tvDatePop(b, "Due", F.due, (d) => ((fix.due = d), draw()), !0);
           if ("ref" === f) {
             const r = (F.refs || [])[+b.dataset.tvqcref];
@@ -2733,7 +2742,8 @@ function tvWireBar(host) {
     };
   }
   host.querySelectorAll("[data-tvqaopen]").forEach((b) => (b.onclick = () => tvQuickAddSheet(qa ? qa.value.trim() : "")));
-  host.querySelectorAll("[data-tvqamic]").forEach((b) => (b.onclick = () => tvListen((t) => qa && (qa.value = t), b)));
+  // what was heard fills the line and the chips read it again, every time, before anything is saved
+  host.querySelectorAll("[data-tvqamic]").forEach((b) => (b.onclick = () => tvListen((t) => qa && ((qa.value = t), qa.dispatchEvent(new Event("input", { bubbles: !0 }))), b)));
   host.querySelectorAll("[data-tvview]").forEach((b) => (b.onclick = () => tvApply(b.dataset.tvview)));
   host.querySelectorAll("[data-tvsave]").forEach((b) => (b.onclick = () => tvSaveDialog()));
   host.querySelectorAll("[data-tvfadd]").forEach((b) => (b.onclick = () => tvFilterPick("", b)));
@@ -3230,6 +3240,14 @@ ${
       }
       d ? (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0)) : toast("No chase could be drafted for this one: write it from the task");
     });
+  // Rename, Move to Another Job and Remove: first in More, so a mis-heard quick add can be put right
+  const fx = tvFixRowHtml(x);
+  if (fx) {
+    const mo = body.querySelector(".tvs-more"),
+      sm = mo && mo.querySelector("summary");
+    sm ? sm.insertAdjacentHTML("afterend", fx) : body.insertAdjacentHTML("beforeend", fx);
+    tvFixWire(m, key);
+  }
   // every task opens this one sheet: the old Edit form ("Their Email", "Code") is not a way in (capture 11-05 #6); a
   // schedule line keeps Edit Schedule
   /^(action|firm|hub)$/.test(x.kind) && m.querySelectorAll("[data-tksedit]").forEach((b) => b.remove());
@@ -3276,7 +3294,7 @@ function tvRemindPop(anchor, key) {
     anchor,
     "Remind Me",
     `<div class="tv-people">${choices.map(([n, v]) => `<button type="button" class="tv-person ${cur === v ? "on" : ""}" data-tvrm="${esc(v)}"><span class="grow"><b>${esc(n)}</b></span><small>${esc(tvRemindSay(v))}</small></button>`).join("")}</div>
-<div class="tvrm-pick"><input type="date" data-tvrmd value="${esc(cur.slice(0, 10) || td)}" aria-label="Day"><input type="time" data-tvrmt value="${esc(cur.slice(11, 16) || "09:00")}" aria-label="Time"><button type="button" class="btn" data-tvrmset>Set</button></div>${cur ? '<button type="button" class="btn" data-tvrmx>Clear the Reminder</button>' : ""}`,
+<p class="small muted tvrm-say">Reminds you while SmartDesigns is open on your phone or computer.</p><div class="tvrm-pick"><input type="date" data-tvrmd value="${esc(cur.slice(0, 10) || td)}" aria-label="Day"><input type="time" data-tvrmt value="${esc(cur.slice(11, 16) || "09:00")}" aria-label="Time"><button type="button" class="btn" data-tvrmset>Set</button></div>${cur ? '<button type="button" class="btn" data-tvrmx>Clear the Reminder</button>' : ""}`,
     (d) => {
       d.querySelectorAll("[data-tvrm]").forEach((b) => (b.onclick = () => (tvPopClose(), mbCloseModal(), tvSetRemind(key, b.dataset.tvrm), setTimeout(() => tkSheet(key), 0))));
       const s = d.querySelector("[data-tvrmset]");
@@ -3292,6 +3310,130 @@ function tvRemindPop(anchor, key) {
     },
   );
 }
+// ---- a bad parse can be put right (chief of staff 11-06): Rename, Move to Another Job, Remove -----------------------
+// Each writes the record's own log and an audit row and toasts with Open. Remove is never a delete: the task is closed
+// with removed {at, by, why} and stays findable under Done, marked Removed, with its reason.
+const tvFixable = (x) => /^(action|firm|hub)$/.test(x.kind);
+function tvRename(key, title) {
+  const R = tkResolve(key),
+    rec = R && R.rec,
+    t = String(title || "").trim();
+  if (!rec || !t) return toast("Say what the task is"), !1;
+  const was = rec.title || "";
+  if (was === t) return !1;
+  rec.title = t;
+  tkLog(rec, { ev: "title", from: was, to: t });
+  try {
+    audit("task", rec.id, "title", was, t, "");
+  } catch (e) {}
+  try {
+    const M = "function" == typeof mtCurrent ? mtCurrent() : null;
+    M && rec.code && mtLog({ taskKey: rec.code, field: "title", from: was, to: t }, M);
+  } catch (e) {}
+  save();
+  tvRedraw();
+  toast(`Renamed: ${tdWords(t, 8)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+  return !0;
+}
+// another job, or none: a job's task moves with tvSetProject (its key follows the board); between a job and the firm's
+// own list the record itself moves, keeping its id, thread and checklist
+function tvMoveJob(key, pid) {
+  const R = tkResolve(key);
+  if (!R || !R.rec) return !1;
+  const x = R.x,
+    rec = R.rec,
+    from = x.projectId || "";
+  if ((pid || "") === from) return !1;
+  if ("action" === x.kind && pid) return tvSetProject(tvFind(key) || { x: x }, pid), !0;
+  const to = pid ? (DB.projects || []).find((p) => p.id === pid) : null,
+    fromP = from ? (DB.projects || []).find((p) => p.id === from) : null;
+  if ("action" === x.kind && !pid && fromP) {
+    const i = (fromP.actions || []).indexOf(rec);
+    if (i < 0) return !1;
+    fromP.actions.splice(i, 1);
+    delete rec.projectId;
+    asFirmTasks().push(rec);
+  } else if ("firm" === x.kind && to) {
+    const L = asFirmTasks(),
+      i = L.indexOf(rec);
+    if (i < 0) return !1;
+    L.splice(i, 1);
+    delete rec.section;
+    rec.projectId = to.id;
+    try {
+      const meta = tkBoardMeta("p:" + to.id);
+      if (meta && meta.prefix) {
+        rec.code && (rec.keyWas = (rec.keyWas || []).concat([rec.code]));
+        const k = tkNextKey("p:" + to.id);
+        meta.keyNext = +String(k).split("-").pop() + 1;
+        rec.code = k;
+      }
+    } catch (e) {}
+    (to.actions = to.actions || []).push(rec);
+  } else return toast("This task cannot move to that job"), !1;
+  const fn = fromP ? shortName(fromP) : "No job",
+    tn = to ? shortName(to) : "No job";
+  tkLog(rec, { ev: "job", from: fn, to: tn });
+  try {
+    audit("task", rec.id, "job", fn, tn, "");
+  } catch (e) {}
+  save();
+  tvRedraw();
+  const nk = `${to ? "action" : "firm"}:${rec.id}:${to ? to.id : ""}`;
+  toast(`Moved to ${tn}: ${tdWords(rec.title || "", 8)}`, [{ label: "Open", run: () => tkOpen(nk) }]);
+  return !0;
+}
+function tvRemove(key, why) {
+  const R = tkResolve(key),
+    rec = R && R.rec,
+    w = String(why || "").trim();
+  if (!rec) return !1;
+  if (!w) return toast("Say why it is removed: the reason is kept with it"), !1;
+  const me = tdyMe();
+  rec.removed = { at: appNowIso(), by: me.name || "", why: w };
+  "hub" === R.x.kind ? (rec.completed = rec.completed || today()) : ((rec.status = "done"), (rec.completedAt = rec.completedAt || today()));
+  tkLog(rec, { ev: "removed", why: w });
+  try {
+    audit("task", rec.id, "removed", R.x.title || "", "removed", w);
+  } catch (e) {}
+  save();
+  tvRedraw();
+  toast(`Removed: ${tdWords(R.x.title || "", 8)}. It stays under Done, with your reason`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+  return !0;
+}
+function tvFixRowHtml(x) {
+  return tvFixable(x) && !x.done ? `<div class="tvs-fix"><button type="button" class="btn" data-tvsfix="rename">Rename</button><button type="button" class="btn" data-tvsfix="move">Move to Another Job</button><button type="button" class="btn" data-tvsfix="remove">Remove</button></div>` : "";
+}
+function tvFixWire(m, key) {
+  const R = tkResolve(key);
+  if (!R) return;
+  m.querySelectorAll("[data-tvsfix]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const f = b.dataset.tvsfix;
+        if ("rename" === f)
+          return tvPop(b, "Rename", `<div class="tvrm-pick"><input data-tvrn value="${esc(R.x.title || "")}" aria-label="Task"><button type="button" class="btn" data-tvrnok>Save</button></div>`, (d) => {
+            const i = d.querySelector("[data-tvrn]");
+            d.querySelector("[data-tvrnok]").onclick = () => (tvPopClose(), mbCloseModal(), tvRename(key, i.value) && setTimeout(() => tkSheet(R.key), 0));
+          });
+        if ("move" === f)
+          return tvPop(
+            b,
+            "Move to Another Job",
+            `<div class="tv-people">${[["", "No job: the firm's own list"]]
+              .concat((DB.projects || []).map((p) => [p.id, shortName(p)]))
+              .map(([id, n], i) => `<button type="button" class="tv-person ${(R.x.projectId || "") === id ? "on" : ""}" data-tvmv="${esc(id)}" ${0 === i ? "data-tvfirst" : ""}><span class="grow"><b>${esc(n)}</b></span></button>`)
+              .join("")}</div>`,
+            (d) => d.querySelectorAll("[data-tvmv]").forEach((y) => (y.onclick = () => (tvPopClose(), mbCloseModal(), tvMoveJob(key, y.dataset.tvmv)))),
+          );
+        if ("remove" === f)
+          return tvPop(b, "Remove the Task", `<p class="small muted">It is closed, kept under Done as Removed, with your reason and who removed it.</p><div class="tvrm-pick"><input data-tvrmwhy placeholder="Why: made by mistake, a duplicate…" aria-label="Why it is removed"><button type="button" class="btn" data-tvrmok>Remove</button></div>`, (d) => {
+            const i = d.querySelector("[data-tvrmwhy]");
+            d.querySelector("[data-tvrmok]").onclick = () => tvRemove(key, i.value) && (tvPopClose(), mbCloseModal());
+          });
+      }),
+  );
+}
 // the reminders that are due for the signed-in person, sent once each
 function tvRemindSweep() {
   let n = 0;
@@ -3303,14 +3445,19 @@ function tvRemindSweep() {
       const R = tkResolve(t.key),
         rec = R && R.rec,
         rm = rec && rec.remind;
+      // once per person: the record says it fired, and every other device skips it after the sync
       if (!rm || rm.sent || rm.uid !== me.id || String(rm.at) > now) return;
       rm.sent = appNowIso();
-      tkLog(rec, { ev: "reminded", to: rm.at });
+      // the app was closed at the time: it fires at the next open and says when it was due
+      const lateMin = (parse(now.slice(0, 10)) - parse(String(rm.at).slice(0, 10))) / 6e4 + ((+now.slice(11, 13) * 60 + +now.slice(14, 16)) - (+String(rm.at).slice(11, 13) * 60 + +String(rm.at).slice(14, 16))),
+        late = lateMin > 5 ? `, was due ${tvRemindSay(rm.at).replace(/^Today, /, "")}` : "";
+      rm.late = !!late;
+      tkLog(rec, { ev: "reminded", to: rm.at, late: !!late });
       n++;
       try {
-        notify(`Reminder: ${tdWords(R.x.title, 10)}`, R.x.due ? `Due ${fmtL(R.x.due)}` : "");
+        notify(`Reminder${late}: ${tdWords(R.x.title, 10)}`, R.x.due ? `Due ${fmtL(R.x.due)}` : "");
       } catch (e) {}
-      toast(`Reminder: ${tdWords(R.x.title, 10)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+      toast(`Reminder${late}: ${tdWords(R.x.title, 10)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
     });
     n && save();
   } catch (e) {}
@@ -3321,6 +3468,19 @@ setInterval(() => {
     document.body && "1" === document.body.dataset.booted && tvRemindSweep();
   } catch (e) {}
 }, 3e4);
+// and at each sign-in (the app's open on this device), so a reminder due while it was closed is not lost
+{
+  const base = signIn;
+  signIn = function () {
+    const r = base.apply(this, arguments);
+    setTimeout(() => {
+      try {
+        "1" === document.body.dataset.booted && tvRemindSweep();
+      } catch (e) {}
+    }, 1500);
+    return r;
+  };
+}
 // the assistant's drafted chase for this task, if it wrote one (an outbox draft that names the task or the party owed)
 function tvChaseDraft(I) {
   try {
@@ -4155,6 +4315,8 @@ textarea.tv-fin{min-height:120px;resize:vertical}
 .tvrm-pick .btn,.tvs-next{min-height:44px}
 .tvs-next{width:100%;margin:8px 0}
 .tvs-fields2{margin-top:8px}
+.tvs-fix{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.tvs-fix .btn{min-height:44px}
 .mm-ndrow{align-items:center;gap:8px;min-height:44px}
 @media (max-width:760px){
   /* the phone's Tasks page (Phone.dc.html): its own compact header; the app's header extras and sub-tabs step aside */
