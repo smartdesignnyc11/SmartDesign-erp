@@ -644,6 +644,7 @@ async def s_polish(p, c):
         # Carlos: a subcontract is billed from its order, never received
         await pg.evaluate("() => { view = 'recv'; render(); }"); await pg.wait_for_timeout(400)
         cr = pg.locator('.view.on .pu-row').filter(has_text='PO-2026-048').filter(has=pg.locator('[data-purecv]')).first
+        c.ok(await cr.count() > 0, "polish: the Carlos order is on the phone's Deliveries, where its Receive must refuse")
         if await cr.count():
             await cr.locator('[data-purecv]').first.click(); await pg.wait_for_timeout(500)
             t = await toast(pg)
@@ -1044,9 +1045,10 @@ async def s_price(p, c):
                 c.ok(bool(await modal(pg)), 'price: Issue Anyway asks for the reason first')
                 await pg.locator('#mbm [data-f="why"]').fill('The yard at the best price is out until October')
                 await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(900)
-                r = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_pr'); return { st: po.status, why: (po.priceReason || {}).why || '', aud: (DB.audit || []).some(a => a.action === 'price-over-accepted' && a.id === po.id || a.recordId === po.id && a.action === 'price-over-accepted') }; }")
+                r = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_pr'); return { st: po.status, why: (po.priceReason || {}).why || '', aud: (DB.audit || []).filter(a => a.action === 'price-over-accepted' && a.refId === po.id).map(a => ({ note: a.note, by: a.by, over: (a.after || {}).over })) }; }")
                 t = await toast(pg)
                 c.ok(r['st'] != 'draft' and r['why'], f'price: Issue Anyway with a reason issues it and keeps the reason ({r}; {t["text"]!r}; {await modal(pg)})')
+                c.ok(len(r['aud']) == 1 and r['aud'][0]['note'] == 'The yard at the best price is out until October' and r['aud'][0]['over'] > 0, f'price: one audit row holds the reason and the dollars over ({r["aud"]})')
         c.ok(not errs, f'price: page errors {errs[:2]}')
     finally:
         await b.close()
@@ -1080,6 +1082,118 @@ async def s_request(p, c):
         q = await pg.evaluate("() => (DB.projects.find(p => p.id === 'p121').requests || []).filter(r => r.queued).length")
         c.ok(q == 0 and 'Back online' in t['text'] and t['open'], f"request: back online, it goes and the foreman is told, with Open ({t['text']!r}, {q} waiting)")
         c.ok(not errs, f'request: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_cap(p, c):
+    """The CoS, 11-06: three paths could receive more than ordered. Every path writes through puReceiveLines, capped at
+    what is still to come; one check per caller, through the screens where the person has one."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        rec = "() => DB.pos.find(x => x.number === 'PO-2026-047').lines[0].received || 0"
+        # 1. the desktop's line card: 1,000 sf typed on the 900 sf line receives nothing and says why
+        await pg.evaluate("() => { setCurrent('p121'); view = 'recv'; render(); }"); await pg.wait_for_timeout(500)
+        box = pg.locator('#recv-body input[data-rcq="po3:pl3"]')
+        c.ok(await box.count() > 0, "cap: Tino's flooring line is on the desktop's Deliveries")
+        if await box.count():
+            await box.fill('1000')
+            await pg.locator('#recv-body [data-rin="po3:pl3"]').click(); await pg.wait_for_timeout(400)
+            t = await toast(pg)
+            c.ok(await pg.evaluate(rec) == 0 and 'still to come' in t['text'], f'cap: 1,000 sf on the 900 sf line is refused on the desktop ({await pg.evaluate(rec)}, {t["text"]!r})')
+        # 2. Everything Arrived opens the one sheet with All Here, and records nothing until the person counts
+        ea = pg.locator('#recv-body [data-rall="po3"]')
+        c.ok(await ea.count() > 0, 'cap: Everything Arrived is on the card')
+        if await ea.count():
+            await ea.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Receive Some' in m['title'] and await pg.evaluate(rec) == 0 and await pg.locator('#mbm [data-puall]').count() > 0, f'cap: Everything Arrived opens the receive sheet with All Here, nothing received yet ({m and m["title"]!r})')
+            if m: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
+        # 3. a slip read from a file: a sure line is received through the writer, capped, with a receipt row; an unsure one is left for the person
+        r = await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); const n0 = (po.receipts || []).length;
+          applyChanges([{ kind: 'po', id: po.id, _receive: true, lines: [{ item: '5" white oak flooring, select', received: 1000 }, { item: 'oak', received: 5 }] }], 'file', 'test');
+          return { rec: po.lines[0].received, rows: (po.receipts || []).length - n0, status: po.status }; }""")
+        c.ok(r['rec'] == 900 and r['rows'] == 1, f'cap: a slip read from a file receives through the writer, capped at the 900 sf ordered, one receipt row; the unsure line is not received ({r})')
+        await pg.wait_for_timeout(300)
+        t = await toast(pg)
+        c.ok('did not match a line for sure' in t['text'] and t['open'], f'cap: the unsure slip line is left for the person, with Open ({t["text"]!r})')
+        # 4. the writer itself never goes past the order, whoever calls it
+        w = await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-048'); const l = po.lines[0]; const r = puReceiveLines(po, [{ l, q: 5 }], 'test', ''); return { rec: l.received, capped: r.capped.length }; }")
+        c.ok(w['rec'] == 1 and w['capped'] == 1, f'cap: puReceiveLines writes no more than is still to come and reports what it capped ({w})')
+        c.ok(not errs, f'cap: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_selrecv(p, c):
+    """The CoS, 11-06: the Selections box receipt never moved its PO line. A box counted at the office receives its PO
+    line through the one writer."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        made = await pg.evaluate("""() => { setCurrent('p121'); const it = (DB.sel.items || []).find(i => !i.poId && i.stage !== 'po' && !selBlocked(i) && i.projectId === 'p121');
+          if (!it) return null; const m = selPORun([it.id]); const po = m && m[0]; if (!po) return null; po.status = 'issued'; it.stage = 'ship'; save();
+          return { item: it.id, po: po.id, qty: selQty(it) }; }""")
+        c.ok(bool(made), f'selrecv: a Selections item bought on a PO ({made})')
+        if made:
+            await pg.evaluate("id => { procReceiveModal(selItem(id)); }", made['item']); await pg.wait_for_timeout(400)
+            q = pg.locator('#mbm [data-f="qty"]')
+            c.ok(await q.count() > 0 and await q.input_value() == '', 'selrecv: the box count starts empty')
+            await q.fill(str(made['qty'])); await modal_ok(pg, 600)
+            r = await pg.evaluate("id => { const po = DB.pos.find(x => x.id === id); return { rec: po.lines[0].received, rows: (po.receipts || []).length }; }", made['po'])
+            c.ok(r['rec'] == made['qty'] and r['rows'] == 1, f"selrecv: the box's receipt moves its PO line through the writer ({r})")
+        c.ok(not errs, f'selrecv: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_claimclose(p, c):
+    """The CoS, 11-06: a claim could not close, so its Orders row never left; a stray credit could not be recorded
+    against a claim or a return of its own."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); po.lines[0].received = 860;
+          (po.issues = po.issues || []).push({ claim: true, status: 'open', type: 'damaged', lineId: po.lines[0].id, item: po.lines[0].item, qty: 40, unit: 'sf', amount: 356, at: appNowIso() }); save(); }""")
+        c.ok(await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); return typeof puCloseClaimSheet === 'function' && !!puCloseClaimSheet(po, po.issues.find(i => i.claim)); }"), 'claimclose: the claim row opens Close the Claim')
+        m = await modal(pg)
+        c.ok(m and 'Close the Claim' in m['buttons'], f'claimclose: the sheet has Close the Claim ({m and m["buttons"]})')
+        if m:
+            await pg.locator('#mbm [data-f="how"]').select_option('writeoff'); await modal_ok(pg, 300)
+            c.ok(bool(await modal(pg)), 'claimclose: writing it off asks why first')
+            await pg.locator('#mbm [data-f="why"]').fill('Forty sf of offcuts; the vendor will not credit them'); await modal_ok(pg, 600)
+            r = await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); const c = po.issues.find(i => i.claim); return { st: c.status, how: (c.resolution || {}).how, aud: (DB.audit || []).filter(a => a.action === 'claim-closed' && a.refId === po.id).length }; }")
+            t = await toast(pg)
+            c.ok(r['st'] == 'closed' and r['how'] == 'writeoff' and r['aud'] == 1 and t['open'], f'claimclose: written off with a reason, an audit row and a toast with Open ({r}, {t["text"]!r})')
+        # the stray Bedrosians credit: recorded as the return it belongs to
+        tx = await pg.evaluate("() => { const t = (typeof rmOrphans === 'function' ? rmOrphans() : [])[0]; return t ? { id: t.id, amt: t.amt, desc: t.desc } : null; }")
+        c.ok(bool(tx), f'claimclose: a vendor credit with no return to match ({tx})')
+        if tx:
+            await pg.evaluate("id => { view = 'proc'; render(); rmModal(); const b = document.querySelector(`[data-orphan='${id}']`); b && b.click(); }", tx['id']); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and 'Attach' in m['title'], f'claimclose: the credit opens Attach a Credit ({m and m["title"]!r})')
+            if m:
+                await pg.locator('#mbm [data-f="for"]').select_option('new')
+                await pg.locator('#mbm [data-f="what"]').fill('12 boxes Cloe 2.5x8, over-ordered'); await modal_ok(pg, 700)
+                r = await pg.evaluate("id => { const t = DB.txns.find(x => x.id === id); const r = t && retList().find(x => x.id === t.retId); return { ret: !!r, name: r && r.name, status: r && r.status, orphan: rmOrphans().some(x => x.id === id) }; }", tx['id'])
+                c.ok(r['ret'] and not r['orphan'] and 'Cloe' in (r['name'] or ''), f'claimclose: the credit is recorded as its return and is no longer a stray ({r})')
+        c.ok(not errs, f'claimclose: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_route(p, c):
+    """Exceptions only (Alan 10-26; the 11-05 call before Purchasing deploys): the Carlos balance bill from mail,
+    $19,000 against an issued order and inside it, is the PM's; the same bill taking the order over still reaches the
+    owner."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        r = await pg.evaluate("""() => { const po = DB.pos.find(x => x.number === 'PO-2026-048');
+          const mk = (amt) => ({ id: uid('b'), number: 'CM-T' + amt, vendor: po.vendor, poId: po.id, projectId: po.projectId, date: today(), createdBy: 'Chen Biron',
+            lines: [{ desc: 'Millwork balance', amount: amt, line: (po.lines[0] || {}).line || 'x' }], status: 'submitted' });
+          const a = rtFor(mk(19000)), o = rtFor(mk(90000));
+          return { routine: [a.top, a.need], over: [o.top, o.why.map(w => w.kind)] }; }""")
+        c.ok(r['routine'][0] == 'pm' and 'owner' not in r['routine'][1], f"route: a routine $19,000 bill inside its issued order is the PM's, not the owner's ({r['routine']})")
+        c.ok(r['over'][0] == 'owner' and 'over-po' in r['over'][1], f"route: a bill that takes the order over still reaches the owner ({r['over']})")
+        c.ok(not errs, f'route: page errors {errs[:2]}')
     finally:
         await b.close()
 
@@ -1219,7 +1333,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('cap', s_cap), ('selrecv', s_selrecv), ('claimclose', s_claimclose), ('route', s_route), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

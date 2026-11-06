@@ -142,6 +142,16 @@ class Chain:
         await self.pg.locator(sel).first.click(timeout=timeout)
         await self.wait(wait)
 
+    async def receive_all(self, po_id, wait=700):
+        """Everything Arrived opens the one receive sheet (the CoS, 11-06: one tap received the whole remainder with
+        nothing counted); the coordinator taps All Here on each line, as the person counts, then Record Receipt."""
+        await self.pg.locator(f"section.view.on [data-rall='{po_id}']").first.click(timeout=30000)
+        await self.wait(400)
+        for b in await self.pg.locator('#mbm [data-puall]').all():
+            await b.click(); await self.wait(80)
+        await self.pg.locator('#mbm #mbm-ok').click(timeout=10000)
+        await self.wait(wait)
+
     async def click_text(self, scope, rx, wait=400, timeout=30000):
         loc = self.pg.locator(f'{scope} button:visible, {scope} a:visible').filter(has_text=re.compile(rx)).first
         await loc.click(timeout=timeout)
@@ -593,10 +603,10 @@ async def s3_receive(C):
     await C.day('2026-09-10')
     # the millwork arrives whole
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{POS['millwork']['id']}']", 700)
+    await C.receive_all(POS['millwork']['id'])
     t = await C.toast()
     C.ok('received in full' in t and 'Bill It' in t, 'Everything Arrived: the millwork PO is received in full, the toast offers Bill It', t)
-    C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived → \"{t}\"")
+    C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived > All Here > Record Receipt → \"{t}\"")
     await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
     m = await C.modal()
     C.ok(m and 'Bill This PO' in m['title'], 'Bill It opens Bill This PO', m and m['title'])
@@ -609,8 +619,8 @@ async def s3_receive(C):
     C.t(f"Bill It > Vendor Invoice # FC-20417 > Save Bill → bill `{fc and fc['id']}` {fmtm(fc and fc['total'])} ({await C.toast()})")
     await C.day('2026-09-11')
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{POS['fixtures']['id']}']", 700)
-    C.t(f"Receiving > {POS['fixtures']['number']} > Everything Arrived → \"{await C.toast()}\"")
+    await C.receive_all(POS['fixtures']['id'])
+    C.t(f"Receiving > {POS['fixtures']['number']} > Everything Arrived > All Here > Record Receipt → \"{await C.toast()}\"")
     # two vendor bills by mail: the coordinator's mailbox (a Loaded Workspace of invented threads), synced
     ws = {'email': 'chen@smartdesign.nyc', 'name': 'Chen Biron', 'exportedAt': '2026-09-11T18:00:00Z',
           'mail': {'threads': [
@@ -1626,7 +1636,7 @@ async def s10_polinks(C):
     C.ok(st == 'issued', 'with every line linked and the overage explained, Issue PO issues it', f'{st} {await C.toast()}')
     # it arrives; the bill from the receipt; the reimbursable is waiting to be billed back, once
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    await C.click(f"section.view.on [data-rall='{po['id']}']", 700)
+    await C.receive_all(po['id'])
     await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
     await C.fill('#mbm [data-f=number]', 'AT-7802')
     await C.modal_ok(700)

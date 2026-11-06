@@ -233,7 +233,7 @@ function puOrderRows(pid) {
       (po.issues || [])
         .filter((i) => (i.claim || ["short", "damaged", "wrong"].includes(i.type)) && "open" === (i.status || "open"))
         .forEach((i, k) =>
-          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad" }),
+          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", run: () => puCloseClaimSheet(po, i), tone: "bad" }),
         );
     });
   try {
@@ -789,6 +789,40 @@ function puVendorOpen(v) {
 // chase sheet (eaNudge) with the address, the subject and a message naming the missing paper and the date it is needed
 // by; it goes to the person's mailbox to read and send, an expectation is logged and the follow-up set. The lapsed or
 // lapsing certificate uses the coordinator's Do Now chase (coiChaseItem, the booking named); the rest says the same.
+// A claim on an order closes three ways: the credit came (its amount), the replacement came (received on the sheet),
+// or it is written off with a reason. Until then it holds its row on Orders; it could not close at all before (the
+// CoS, 11-06), so the row never left. Every close is an audit row with who, when, how and why.
+function puClaimClose(po, c, res) {
+  if (!po || !c) return;
+  (c.status = "closed"), (c.resolution = Object.assign({ at: appNowIso(), by: ((currentUser() || {}).name) || role() }, res || {}));
+  try {
+    audit("po", po.id, "claim-closed", { type: c.type, qty: c.qty, item: c.item || "" }, c.resolution, (res && res.why) || "");
+  } catch (e) {}
+  const still = (po.issues || []).filter((x) => x.claim && "open" === (x.status || "open"));
+  still.length || delete po.flag;
+  log(`${po.number}: the ${c.type} claim on ${c.item || "a line"} closed — ${"credit" === res.how ? `credit ${money(+res.amount || 0)}` : "replaced" === res.how ? "replaced" : `written off: ${res.why}`}`);
+}
+function puCloseClaimSheet(po, c) {
+  if (!po || !c) return;
+  const m = mbModal(
+    `Close the Claim — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px" data-nocase>${esc(po.vendor)} · ${esc(c.type)}: ${esc(String(c.qty || ""))} ${esc(c.unit || "")} ${esc(c.item || "")}${c.amount ? ` · ${money(c.amount)}` : ""}</p><label class="f"><span>How It Closed</span><select data-f="how"><option value="credit">The credit came</option><option value="replaced">The replacement came</option><option value="writeoff">Written off</option></select></label><label class="f"><span>Credit Amount</span><input type="number" inputmode="decimal" step="0.01" min="0" data-f="amount" value="" placeholder="${c.amount ? r2(c.amount) : "0.00"}"></label><label class="f"><span>Why (Required to Write It Off)</span><input data-f="why" placeholder="e.g. under $50; the vendor will not credit glass breakage"></label>`,
+    {
+      submit: "Close the Claim",
+      onSubmit: (f) => {
+        const how = f.how || "credit",
+          why = String(f.why || "").trim(),
+          amount = +f.amount || 0;
+        if ("writeoff" === how && !why) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="why"]'), "Say why it is written off"), !1;
+        if ("credit" === how && !(amount > 0)) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), "How much was credited"), !1;
+        puClaimClose(po, c, { how: how, amount: "credit" === how ? amount : 0, why: why });
+        save(), render();
+        toast(`${po.number}: the ${c.type} claim is closed${"credit" === how ? `, ${money(amount)} credited` : "replaced" === how ? "; receive the replacement on the sheet" : ", written off"}`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+  return m;
+}
 function puChasePaper(v, kind) {
   if (!v) return;
   if ("function" != typeof eaNudge) return puVendorOpen(v);
@@ -879,10 +913,23 @@ function puBuyFromDoc(kind) {
   return m;
 }
 // One receipt, as the old Deliveries page writes it (its helper lives inside renderRecv), with the material read on the
-// order's own job, not the job on screen: every line that came, in one receipt row and one audit row
+// order's own job, not the job on screen: every line that came, in one receipt row and one audit row. Every receiving
+// path writes through here (the receive sheet, the desktop's line cards, the Selections box, a slip read from a file),
+// so the cap is here: no line is received past what is still to come on it (the CoS, 11-06: 1,000 sf received on a
+// 900 sf line). What is over is returned in `capped`, never written; a caller that can ask the person refuses first.
 function puReceiveLines(po, got, note, slip) {
-  const p = (DB.projects || []).find((x) => x.id === po.projectId);
-  got.forEach(({ l, q }) => {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId),
+    left = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0))),
+    capped = [],
+    ok = [];
+  (got || []).forEach(({ l, q }) => {
+    const want = r2(+q || 0),
+      take = Math.min(want, left(l));
+    want > take + 0.001 && capped.push({ l: l, asked: want, left: left(l) });
+    take > 0 && ok.push({ l: l, q: take });
+  });
+  if (!ok.length) return { full: !1, capped: capped, got: ok };
+  ok.forEach(({ l, q }) => {
     l.received = r2((+l.received || 0) + q);
     const m = l.materialId && p && (p.materials || []).find((x) => x.id === l.materialId);
     m && l.received >= (+l.qty || 0) - 0.001 && ((m.status = "on-site"), (m.onSiteDate = m.onSiteDate || today()));
@@ -892,15 +939,16 @@ function puReceiveLines(po, got, note, slip) {
   });
   const full = po.lines.every((x) => (+x.received || 0) >= (+x.qty || 0) - 0.001);
   (po.status = full ? "received" : "partial"), full && (po.receivedOn = today());
-  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: got.map(({ l, q }) => ({ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: q })), slip: slip || "", note: note || "" });
+  (po.receipts = po.receipts || []).push({ date: today(), t: nowStamp(), by: ((currentUser() || {}).name) || role(), lines: ok.map(({ l, q }) => ({ lineId: l.id, item: l.item || l.desc || "", unit: l.unit || "", qty: q })), slip: slip || "", note: note || "" });
   try {
-    audit("po", po.id, "received", "", got.map(({ l, q }) => `${l.item || l.desc}: ${q}`).join("; "), note || "");
+    audit("po", po.id, "received", "", ok.map(({ l, q }) => `${l.item || l.desc}: ${q}`).join("; "), note || "");
   } catch (e) {}
   try {
-    log(`${po.number}: received ${got.map(({ l, q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ")).join(", ")}${note ? " — " + note : ""}`);
+    log(`${po.number}: received ${ok.map(({ l, q }) => `${q} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ")).join(", ")}${note ? " — " + note : ""}`);
   } catch (e) {}
-  return full;
+  return { full: full, capped: capped, got: ok };
 }
+const puReceiveLeft = (l) => Math.max(0, r2((+l.qty || 0) - (+l.received || 0)));
 // The one receive sheet (BACKLOG 1.36), however receiving starts: the phone's Deliveries (Receive), the order's Receive
 // Some…, the foreman's It Arrived on Site and Check In on Today (rcReceiveSome opens this one). Receiving counts what
 // came: every count starts empty, what is still to come is only the hint, and a line left empty records nothing. A count
@@ -969,7 +1017,7 @@ function puReceive(po) {
           "good" !== x.k && q > 0 && claims.push({ l: x.l, type: x.k, qty: q });
         });
         if (!came.length && !claims.length) return mark(R[0].i, "Nothing is counted as arrived: type what came, or mark the line Short");
-        const full = came.length ? puReceiveLines(po, came, note, slipName) : !1;
+        const full = came.length ? puReceiveLines(po, came, note, slipName).full : !1;
         slipName && (po.slips = (po.slips || []).concat([{ at: appNowIso(), name: slipName }]));
         // one claim per line and kind, on its own line: what did not come, or what came damaged or wrong
         claims.forEach((k) => {

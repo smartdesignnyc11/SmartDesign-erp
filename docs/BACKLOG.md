@@ -1303,6 +1303,8 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
 - **A line moved to a new vendor is numbered with the vendor's FM prefix** (FM-1), not PO-2026-nnn (`selPONumber`). Check: J6.
 - **Desktop receiving cards start at the full order** instead of empty. Check: J7.
 - **purchasing_test chase (4) and polish (1)** fail since integ8: Tino's typed email is not saved, no draft, no Open link on its toast.
+- **A bill entered from mail does not carry its PDF** (the Carlos CM-0102 invoice from the coordinator's day, 11-06). Waits for the hosted mail watchers, which hold the attachment; the demo's mail has only the text. Check: the bill entered from a mail with a PDF has the PDF on the bill.
+- **FM-numbered orders on live data** (11-06): `poRenumberFM({dryRun: true})` lists them; `poRenumberFM()` renumbers each into the PO series with an audit row and keeps the FM number as an alias (search and the bill reader match it). Not run on live data yet: run the dry run on the hosted copy first.
 - **The 13-week forecast releases a job's set-aside by calendar**, not as earned (121 State's $47K by 9/23 at 25% done). Needs each job's forecast cost by week. Also on Reports › Cash (11-05): "Set aside: 214 Lincoln Place, $22,780 received less $0 earned" after $5,760 of work was billed, $1,440 of it taken from the deposit.
 - **J10's fourth owner answer varies between runs** (passed once on this build, 3 of 4 the next).
 - **drafts_shards.sh reports FAILED when every shard passes**: it reads the last log line, which is now the DRAFTS count.
