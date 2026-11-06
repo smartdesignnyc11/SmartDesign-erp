@@ -37,7 +37,22 @@ let dvCur = null, // { kind, id, cid }: the record open in the viewer
   dvEditing = null, // the document the person chose to edit: its editor draws as before
   dvMore = !1,
   dvBillEdit = null;
-const dvFresh = new Set(); // documents made this turn (New Invoice, Draft, Duplicate, a revision): they open in the editor
+// documents made this turn (New Invoice, Draft, Duplicate, a revision): they open in the editor. "This turn" is the
+// next two seconds: a document made by a path that never opened it (a fixture, a sweep, an import) opens as its
+// document later. The wall clock here is a timer on this device, never stored as a date.
+const dvFresh = {
+  m: new Map(),
+  add(id) {
+    this.m.set(id, Date.now());
+  },
+  has(id) {
+    const t = this.m.get(id);
+    return null != t && Date.now() - t < 2e3;
+  },
+  delete(id) {
+    return this.m.delete(id);
+  },
+};
 const dvOn = () => DV_ROLES.includes(role());
 const dvWho = () => (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
 
