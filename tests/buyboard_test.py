@@ -126,9 +126,12 @@ async def desktop(c, p):
           const po = made[0], q = DB.projects.find(p => p.id === 'p121').requests.find(x => x.id === 'rq2');
           return { po: po && po.number, st: po && po.status, type: po && po.type, req: po && po.lines[0].requestId, qpo: q.poId === (po && po.id), qst: q.status, path: q.path }; }""")
         c.ok(aw['po'] and aw['req'] == 'rq2' and aw['qpo'] and aw['qst'] in ('ordered', 'ack') and aw['path'] == 'order' and aw['type'] == 'materials', f'links: the award copies the request into the PO line and moves the request {aw}')
-        # a sub awarded on one bid gives its logged reason (the three-quote rule at the award, CoS 11-06)
+        # a sub awarded on one bid gives its logged reason (the three-quote rule at the award, CoS 11-06). Ask for Bids opens
+        # the request sheet (lane P2 wired it to rfqStartFromLines): Save as Draft makes the request the rest of the step awards
         sb = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name));
-          const q = bbQuote([r0]); if (!q) return null;
+          const n0 = DB.rfqs.length, sheet = bbQuote([r0]); if (!sheet) return null;
+          const sv = document.querySelector('#mbm #mbm-alt'); sv && sv.click();
+          const q = DB.rfqs.length > n0 ? DB.rfqs[DB.rfqs.length - 1] : null; if (!q) return { sheet: !!sheet, made: false };
           const vp = rfqProposeVendors(q);
           const v = ensureVendor('Brick City Demolition', { trade: 'Demolition' }); v.kind = 'sub'; delete v.insuranceExp;
           q.status = 'leveled'; q.vendors = [v.id];

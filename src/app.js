@@ -183358,15 +183358,12 @@ function rfqBasketGuess(r) {
   const L = r.quotes && r.quotes.length ? rfqLevel(r) : null;
   if (L && L.baskets.length) return L.baskets[0].landed;
   if (r.estLine) return Math.min((null != r.estLine.matLeft ? r.estLine.matLeft : r.estLine.left) || 0, 1e9);
-  // a request started from lines: what is left on its lines (the commitment, when the purchasing lane has it), else
-  // their budgets (material, else the whole line). Only the size of the buy for the three-quote rule, never a price.
+  // a request started from lines: their budgets (material, else the whole line). Only the size of the buy for the
+  // three-quote rule, never a price. Never what is LEFT on the line (integ15: a line its other orders had used up read
+  // $0 left, so a $75,000 millwork line went to one vendor with no reason): what is left is not what this buy costs.
   let t = 0;
   try {
-    rfqBudgetsNow(r).forEach((b) => {
-      const c = "function" == typeof lineCommitment && !String(b.key).startsWith("sel:") ? lineCommitment(b.key) : null,
-        left = c && null != c.left ? +c.left : null;
-      t += null != left ? left : +(null != b.budget ? b.budget : b.whole) || 0;
-    });
+    rfqBudgetsNow(r).forEach((b) => (t += +(null != b.budget ? b.budget : b.whole) || 0));
   } catch (e) {}
   return r2(t);
 }
@@ -184151,7 +184148,8 @@ function rfqStartFromLines(items, opts) {
     },
     // the size of the buy for the three-quote rule (rfqBasketGuess's reading): what the line holds, material or not;
     // never shown as a budget
-    sizeOf = (L) => L.reduce((a, l) => a + (null != l.budget ? +l.budget || 0 : +((l.src || {}).budgetWhole || 0)), 0),
+    // (the line's budget, material or whole, never what is left on it: see rfqBasketGuess)
+    sizeOf = (L) => L.reduce((a, l) => a + (+((l.src || {}).budget != null ? l.src.budget : (l.src || {}).budgetWhole) || 0), 0),
     mockOf = (L) => {
       const sub = isSub();
       return { category: sub ? o.category || "Subcontract" : o.category || (L.some((l) => l.src && l.src.framing) ? "Lumber" : "Materials"), title: o.title || L.map((l) => l.item).join(", "), lines: L.map((l) => ({ item: l.item, spec: l.spec, costCode: l.code })), shippable: !sub, sub: sub, estLine: { left: sizeOf(L) } };

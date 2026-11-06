@@ -148,11 +148,13 @@ async def desktop(c, p):
             c.ok(R2['n'] == n0 + 1 and R2['why'] and not R2['valid'], f'commit: with the reason the second order is made and carries it ({R2})')
             await closeall(pg)
             # every path: an award that makes a second subcontract on the line is held at Issue until the reason is on the order
+            # (a sub awarded on one bid gives the three-quote reason the award asks for, lane P4 / CoS 11-06; the second-sub
+            # hold at Issue is a separate check and still must hold)
             AW = await pg.evaluate("""k => { const s = rfqLineSources('p121').find(x => x.key === k); const q = rfqFromLines('p121', [k]); if (!q) return null;
               const v = ensureVendor('Five Boro Wrecking', { trade: 'Demolition' }); v.kind = 'sub'; v.insuranceExp = '2027-06-30';
               q.status = 'leveled'; q.vendors = [v.id];
               q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 4000, ext: 4000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
-              const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [])[0]; if (!po) return { po: null };
+              const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [])[0]; if (!po) return { po: null };
               const before = poValid(po).filter(x => /second subcontract/.test(x)); po.secondOrderWhy = 'the scope is split: the garden unit goes to a second sub'; const after = poValid(po).filter(x => /second subcontract/.test(x));
               return { po: po.number, before, after }; }""", L1)
             c.ok(AW and AW.get('po') and AW['before'] and not AW['after'], f'commit: the award path holds a second subcontract at Issue until the reason is given ({AW})')
