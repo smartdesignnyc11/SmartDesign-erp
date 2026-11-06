@@ -491,7 +491,7 @@ async def walk_coord(w):
     # recorded what never came); here the first line came in full, its "to come" hint
     left = await pg.evaluate("""n => { document.querySelectorAll('[data-dw-rq]').forEach(e => e.removeAttribute('data-dw-rq'));
       const c = [...document.querySelectorAll('.view.on .recv-po')].find(x => x.getClientRects().length && (x.innerText || '').includes(n));
-      const i = c && c.querySelector('input[data-rq]'); if (!i) return '';
+      const i = c && c.querySelector('input[data-rcq]'); if (!i) return '';
       i.setAttribute('data-dw-rq', '1'); return i.value === '' ? (i.getAttribute('max') || '1') : 'prefilled:' + i.value; }""", po)
     if left.startswith('prefilled:'):
         await w.flag('prefilled', f'{po}: the received count starts at {left[10:]}, not empty')

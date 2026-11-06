@@ -902,8 +902,15 @@ async def s_onesheet(p, c):
         c.ok(s and s['counts'] and all(v == '' for v in s['counts']) and s['conds'] == 4 and s['slip'] == 1, f"onesheet: the order's Receive Some is the one sheet, its count empty ({s})")
         if s: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
         # the desktop's Deliveries line cards start empty too
-        q = await pg.evaluate("() => { view = 'recv'; render(); return [...document.querySelectorAll('#recv-body input[data-rq]')].map(i => i.value); }")
+        q = await pg.evaluate("() => { view = 'recv'; render(); return [...document.querySelectorAll('#recv-body input[data-rcq]')].map(i => i.value); }")
         c.ok(q and all(v == '' for v in q), f"onesheet: Deliveries' line-by-line counts start empty ({q})")
+        # tapping into the count is the first thing a person does now that it starts empty; the box carried the requests
+        # page's data-rq, whose page-wide click handler then threw (the day walk: "reading 'requests'" in requestAction)
+        n_err = len(errs)
+        box = pg.locator('#recv-body input[data-rcq]').first
+        if await box.count():
+            await box.click(); await box.fill('1'); await pg.wait_for_timeout(300)
+        c.ok(await box.count() > 0 and len(errs) == n_err, f'onesheet: tapping into a Deliveries count throws nothing ({errs[n_err:][:1]})')
         # Vendors: Chase the Certificate opens the chase draft, not the vendor's page
         await pg.evaluate("() => { view = 'vendors'; render(); }"); await pg.wait_for_timeout(500)
         ch = pg.locator('.view.on button:visible').filter(has_text=re.compile(r'^Chase the Certificate$'))

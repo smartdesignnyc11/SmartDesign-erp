@@ -34275,7 +34275,7 @@ function renderRecv() {
         return `<div class="card recv-po"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · expected ${po.expected ? fmt(po.expected) : "—"}${late ? ' <span class="pill bad">late</span>' : ""}</span><span class="grow"></span><span class="small">${esc(poRecvWords(po))}</span></div>\n    ${po.lines
           .map((l) => {
             const left = Math.max(0, (+l.qty || 0) - (+l.received || 0));
-            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="" placeholder="${left} to come" aria-label="${esc(l.item || l.desc || "Line")}: how many arrived (${left} still to come)" data-rq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
+            return `<div class="recv-line ${left ? "" : "done"}"><div class="recv-item"><b>${esc(l.item || l.desc || "")}</b><span class="small muted">${l.qty} ${esc(l.unit || "")} ordered · ${l.received || 0} received</span></div>${left ? `<div class="recv-ctl"><input type="number" inputmode="decimal" min="0" max="${left}" step="any" value="" placeholder="${left} to come" aria-label="${esc(l.item || l.desc || "Line")}: how many arrived (${left} still to come)" data-rcq="${po.id}:${l.id}"><button class="btn sm primary" data-rin="${po.id}:${l.id}">Received</button></div>` : '<span class="pill ok">complete</span>'}</div>`;
           })
           .join(
             "",
@@ -34311,7 +34311,7 @@ function renderRecv() {
         const [pid, lid] = b.dataset.rin.split(":"),
           po = DB.pos.find((x) => x.id === pid),
           l = po.lines.find((x) => x.id === lid),
-          inp = root.querySelector(`[data-rq="${pid}:${lid}"]`),
+          inp = root.querySelector(`[data-rcq="${pid}:${lid}"]`),
           qty = +inp.value || 0;
         // Receiving counts what arrived: the box starts empty (what is still to come is only its hint), so an
         // untouched Received records nothing and asks for the count (BACKLOG 1.36: pre-filled at the full order,
