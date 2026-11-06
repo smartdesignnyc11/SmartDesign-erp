@@ -1237,6 +1237,29 @@ async def s_duecard(p, c):
     finally:
         await b.close()
 
+HINT_FIT = """() => [...document.querySelectorAll('#mbm input[data-purq]')].filter(i => i.getClientRects().length).map(i => {
+  const cs = getComputedStyle(i), cv = document.createElement('canvas').getContext('2d'); cv.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const need = Math.ceil(cv.measureText(i.placeholder).width), room = i.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const r = i.getBoundingClientRect();
+  return { hint: i.placeholder, need, room: Math.floor(room), inView: r.right <= innerWidth + 0.5 && r.left >= -0.5 }; })"""
+async def s_hint(p, c):
+    """The final screen capture: the count box read "900 to con". The whole hint fits the box, on the desktop and at
+    390px, and the box stays on the screen."""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await fresh(p, phone)
+        try:
+            await sign_in(pg, 'u_chen')
+            # the widest real hint: a 1,000-unit line still to come
+            await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); po.lines[0].qty = 1000; save(); setCurrent('p121'); poOpen = po.id; view = 'po'; render(); }")
+            await pg.wait_for_timeout(400)
+            await pg.evaluate("() => rcReceiveSome(DB.pos.find(x => x.number === 'PO-2026-047'))"); await pg.wait_for_timeout(400)
+            F = await pg.evaluate(HINT_FIT)
+            c.ok(F and all(x['need'] <= x['room'] and x['inView'] for x in F) and any(x['hint'] == '1000 to come' for x in F), f'hint ({dev}): the count box shows its whole hint and stays on the screen ({F})')
+            c.ok(not errs, f'hint ({dev}): page errors {errs[:2]}')
+        finally:
+            await b.close()
+
 async def s_leaks(p, c):
     """The money leaks the review found (BACKLOG section 9, items 4, 5 and 7), each caught where the person works."""
     b, pg, errs = await fresh(p)
@@ -1373,7 +1396,7 @@ async def s_clock(p, c):
 
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
             ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest),
-            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('cap', s_cap), ('selrecv', s_selrecv), ('claimclose', s_claimclose), ('route', s_route), ('duecard', s_duecard), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
+            ('pages', s_pages), ('picks', s_picks), ('receive', s_receive), ('onesheet', s_onesheet), ('claims', s_claims), ('price', s_price), ('request', s_request), ('cap', s_cap), ('selrecv', s_selrecv), ('claimclose', s_claimclose), ('route', s_route), ('duecard', s_duecard), ('hint', s_hint), ('leaks', s_leaks), ('lines', s_lines), ('rows', s_rows), ('clock', s_clock)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')
