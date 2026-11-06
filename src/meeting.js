@@ -132,7 +132,7 @@ function tkInternal_(n) {
   return null;
 }
 // the people an owner is picked from: everyone who signs in on the team (never a client)
-const tkOwnersList = () => tdyUsers().slice().sort((a, b) => (/^(crew|driver)$/.test(a.role) ? 1 : 0) - (/^(crew|driver)$/.test(b.role) ? 1 : 0) || a.name.localeCompare(b.name));
+const tkOwnersList = () => tdyUsers().filter((u) => "function" != typeof tkSeatOnly || !tkSeatOnly(u)).sort((a, b) => (/^(crew|driver)$/.test(a.role) ? 1 : 0) - (/^(crew|driver)$/.test(b.role) ? 1 : 0) || a.name.localeCompare(b.name));
 // who an outside party is, from the records the firm already keeps
 function tkContactRef(name) {
   const n = String(name || "").trim().toLowerCase();
@@ -452,7 +452,7 @@ function tkWaitSay(W, short) {
   return `Waiting on ${W.name}${W.what ? `: ${W.what}` : ""}${W.promised ? `, promised ${tkDay(W.promised)}` : ""}`.slice(0, short ? 80 : 400);
 }
 // the link kinds a task already uses (rec.link), plus vendor, bill, file and mail
-const TK_LINK_SAY = { vendor: "Vendor", po: "Purchase Order", bill: "Bill", dec: "Decision", file: "File", comm: "Email", co: "Change Order", mat: "Material", task: "Schedule Line", insp: "Inspection" };
+const TK_LINK_SAY = { vendor: "Vendor", po: "Purchase Order", bill: "Bill", dec: "Decision", file: "File", comm: "Email", co: "Change Order", estimate: "Estimate", invoice: "Invoice", sel: "Selection", mat: "Material", task: "Schedule Line", insp: "Inspection" };
 function tkLinks(rec) {
   const out = [];
   [rec && rec.link].concat((rec && rec.links) || []).forEach((l) => l && l.kind && l.id && !out.some((o) => o.kind === l.kind && o.id === l.id) && out.push(l));
@@ -467,11 +467,11 @@ function tkLinkInfo(l, pid) {
     }
     if ("po" === l.kind) {
       const po = (DB.pos || []).find((x) => x.id === l.id);
-      return po && { label: `Purchase Order ${po.number} · ${po.vendor || ""}`.trim(), go: () => flowGo.po(po)() };
+      return po && { label: `Purchase Order ${po.number} · ${po.vendor || ""}${tkPoAmt(po) ? ` · ${money(tkPoAmt(po))}` : ""}`.trim(), go: () => flowGo.po(po)() };
     }
     if ("bill" === l.kind) {
       const b = (DB.bills || []).find((x) => x.id === l.id);
-      return b && { label: `Bill ${b.number || ""} · ${b.vendor || ""} · ${money(+b.amount || 0)}`.replace(/\s+/g, " "), go: () => flowGo.bill(b)() };
+      return b && { label: `Bill ${b.number || ""} · ${b.vendor || ""} · ${money(tkBillAmt(b))}`.replace(/\s+/g, " "), go: () => flowGo.bill(b)() };
     }
     if ("dec" === l.kind) {
       const q = p || (DB.projects || []).find((x) => (x.decisions || []).some((d) => d.id === l.id));
@@ -487,7 +487,17 @@ function tkLinkInfo(l, pid) {
       const c = (DB.comms || []).find((x) => x.id === l.id);
       return c && { label: `Email · ${tdWords(c.subject || "(no subject)", 8)}`, go: () => ((cmOpen = c.id), (view = "comms"), render()) };
     }
-    if ("co" === l.kind) return { label: "Change Order", go: () => (p && setCurrent(p.id), (view = "billing"), render()) };
+    // a client document (change order, estimate, invoice): its number, title and amount, opened as the document
+    if (/^(co|estimate|invoice)$/.test(l.kind)) {
+      const D = tkDocById(l.id);
+      if (D) return { label: `${TK_LINK_SAY[l.kind]} ${D.d.number || ""} · ${tdWords(D.d.title || "", 6)}${D.amt ? ` · ${money(D.amt)}` : ""}`.replace(/\s+/g, " ").trim(), go: () => flowGo.doc(D.c, l.kind, D.d)() };
+      if ("co" === l.kind) return { label: "Change Order", go: () => (p && setCurrent(p.id), (view = "billing"), render()) };
+      return null;
+    }
+    if ("sel" === l.kind) {
+      const it = ((DB.sel && DB.sel.items) || []).find((y) => y.id === l.id);
+      return it && { label: `Selection ${it.no ? "#" + it.no + " " : ""}· ${tdWords(it.name || "", 7)}`, go: () => (setCurrent(it.projectId), (view = "sel"), render()) };
+    }
     if (p && TK_LINK_SAY[l.kind]) return { label: TK_LINK_SAY[l.kind], go: () => (setCurrent(p.id), (view = { mat: "mat", task: "sched", insp: "insp" }[l.kind] || "dash"), render()) };
   } catch (e) {}
   return null;
@@ -498,16 +508,157 @@ function tkAddLink(rec, l) {
   rec.link ? (rec.links = rec.links || []).push({ kind: l.kind, id: l.id }) : (rec.link = { kind: l.kind, id: l.id });
   return !0;
 }
-// what a task links to, offered in the picker: the job's records first, then the firm's
+// A record's amount, read by the function its own page reads (a bill's lines, a PO's total, a document's total): the
+// picker showed every bill as "$0" because it read a bill's .amount, which bills do not carry.
+const tkBillAmt = (b) => {
+  try {
+    return "function" == typeof billTotal ? billTotal(b) || +b.amount || 0 : +b.amount || 0;
+  } catch (e) {
+    return +b.amount || 0;
+  }
+};
+const tkPoAmt = (po) => {
+  try {
+    return "function" == typeof poTotal ? +(poTotal(po) || {}).total || 0 : 0;
+  } catch (e) {
+    return 0;
+  }
+};
+const tkDocAmt = (d) => {
+  try {
+    return "function" == typeof docTotal ? +(docTotal(d) || {}).total || 0 : 0;
+  } catch (e) {
+    return 0;
+  }
+};
+// the client's documents (change orders, estimates, invoices) live on the client record
+function tkDocs(pid) {
+  const out = [];
+  (DB.clients || []).forEach((c) =>
+    [
+      ["co", c.changeOrders],
+      ["estimate", c.estimates],
+      ["invoice", c.invoices],
+    ].forEach(([k, L]) => (L || []).forEach((d) => d && (!pid || d.projectId === pid) && out.push({ kind: k, c: c, d: d }))),
+  );
+  return out;
+}
+function tkDocById(id) {
+  const D = tkDocs("").find((x) => x.d.id === id);
+  return D ? Object.assign(D, { amt: tkDocAmt(D.d) }) : null;
+}
+// What a task links to, offered in the picker (PM review 11-05: it could not link a change order, an estimate or an
+// invoice, and opened on twelve firm-wide vendors). The job's own records come first, the ones a task is most often
+// about: its change orders, POs, estimates, invoices and bills, each with its number and amount; then its decisions,
+// selections, files and mail; the firm's vendors last. Search reads every one.
+const TK_DOC_SAY = { co: "Change Order", estimate: "Estimate", invoice: "Invoice" };
 function tkLinkChoices(pid) {
   const p = (DB.projects || []).find((q) => q.id === pid) || null,
-    out = [];
-  (DB.vendors || []).forEach((v) => out.push({ kind: "vendor", id: v.id, label: v.name, sub: "Vendor" }));
-  (DB.pos || []).filter((x) => !pid || x.projectId === pid).forEach((x) => out.push({ kind: "po", id: x.id, label: `${x.number} ${x.vendor || ""}`.trim(), sub: "Purchase Order" }));
-  (DB.bills || []).filter((x) => !pid || x.projectId === pid).forEach((x) => out.push({ kind: "bill", id: x.id, label: `${x.number || "Bill"} ${x.vendor || ""}`.trim(), sub: `Bill · ${money(+x.amount || 0)}` }));
-  p && (p.decisions || []).forEach((d) => out.push({ kind: "dec", id: d.id, label: d.name, sub: "Decision" }));
-  p && (p.files || []).forEach((f) => out.push({ kind: "file", id: f.id, label: f.name, sub: "File" }));
+    out = [],
+    st = (s) => (s ? ` · ${String(s).replace(/-/g, " ")}` : ""),
+    docs = (k) =>
+      tkDocs(pid)
+        .filter((x) => x.kind === k)
+        .forEach((x) => out.push({ kind: k, id: x.d.id, label: `${x.d.number || TK_DOC_SAY[k]} ${x.d.title || ""}`.trim(), sub: `${TK_DOC_SAY[k]} · ${money(tkDocAmt(x.d))}${st(x.d.status)}`, pid: x.d.projectId || "" }));
+  docs("co");
+  (DB.pos || []).filter((x) => !pid || x.projectId === pid).forEach((x) => out.push({ kind: "po", id: x.id, label: `${x.number} ${x.vendor || ""}`.trim(), sub: `Purchase Order · ${money(tkPoAmt(x))}${st(x.status)}`, pid: x.projectId || "" }));
+  docs("estimate");
+  docs("invoice");
+  (DB.bills || []).filter((x) => !pid || x.projectId === pid).forEach((x) => out.push({ kind: "bill", id: x.id, label: `${x.number || "Bill"} ${x.vendor || ""}`.trim(), sub: `Bill · ${money(tkBillAmt(x))}${st(x.status)}`, pid: x.projectId || "" }));
+  p && (p.decisions || []).forEach((d) => out.push({ kind: "dec", id: d.id, label: d.name, sub: "Decision", pid: p.id }));
+  ((DB.sel && DB.sel.items) || []).filter((i) => !pid || i.projectId === pid).forEach((i) => out.push({ kind: "sel", id: i.id, label: `${i.no ? "#" + i.no + " " : ""}${i.name || "Selection"}`, sub: `Selection${i.room ? " · " + i.room : ""}`, pid: i.projectId || "" }));
+  p && (p.files || []).forEach((f) => out.push({ kind: "file", id: f.id, label: f.name, sub: "File", pid: p.id }));
   (DB.comms || []).filter((c) => !pid || ((c.route || {}).projectId || c.projectId) === pid).slice(-40).forEach((c) => out.push({ kind: "comm", id: c.id, label: c.subject || "(no subject)", sub: `Email${c.from && c.from.name ? " · " + c.from.name : ""}` }));
+  (DB.vendors || []).forEach((v) => out.push({ kind: "vendor", id: v.id, label: v.name, sub: "Vendor" }));
+  return out;
+}
+// ---- a hand-off the sender is waiting on (PM review 11-05 #4) -------------------------------------------------------
+// After Hand Off the sender's row said nothing and Waiting On left it out, so an offer nobody accepted could sit for
+// days unseen. One reader for a row's pending offer (tkOfferOf); the sender's offers (tkOfferedByMe, the mirror of
+// tkOfferedToMe); a pending offer counts in Waiting (t2ViewOf "blocked", the one view every Waiting count and list
+// reads); Take Back ends the offer and the task stays the sender's.
+function tkOfferOf(x) {
+  try {
+    const rec = x && (x.handoff ? x : tdyRec(x)),
+      H = rec && rec.handoff;
+    return H && "offered" === H.state ? H : null;
+  } catch (e) {
+    return null;
+  }
+}
+function tkOfferedByMe(personId) {
+  try {
+    const me = tdyMe(),
+      id = personId || me.id,
+      u = (DB.users || []).find((y) => y.id === id) || me;
+    return tkAll({ open: !0 }).filter((t) => {
+      const H = tkOfferOf(t);
+      return !!H && ((H.fromUid && H.fromUid === id) || (!!u.name && (H.by === u.name || (!H.fromUid && H.from === u.name))));
+    });
+  } catch (e) {
+    return [];
+  }
+}
+function tkTakeBack(key) {
+  const R = tkResolve(key),
+    rec = R && R.rec,
+    H = rec && rec.handoff;
+  if (!H || "offered" !== H.state) return toast("That offer was already answered"), !1;
+  const me = tdyMe();
+  Object.assign(H, { state: "taken-back", decidedAt: appNowIso(), takenBy: me.name || "" });
+  tkLog(rec, { ev: "taken-back", from: H.to, by: me.name || "" });
+  try {
+    audit("task", rec.id, "handoff-taken-back", H.to, H.from, "");
+  } catch (e) {}
+  save();
+  try {
+    "tkall" === view || T2_SCOPED[view] ? renderTkAll() : render();
+  } catch (e) {}
+  toast(`Taken back from ${tkFirst(H.to)}: ${tdWords(R.x.title, 8)} stays on ${H.from === me.name ? "your" : tkFirst(H.from) + "'s"} list`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+  return !0;
+}
+{
+  const base = t2ViewOf;
+  t2ViewOf = function (R, v) {
+    const out = base.apply(this, arguments);
+    if ("blocked" !== v) return out;
+    try {
+      const have = new Set(out);
+      return out.concat((R || []).filter((x) => !have.has(x) && !x.done && tkOfferOf(x)));
+    } catch (e) {
+      return out;
+    }
+  };
+}
+// ---- record numbers said in a sentence: one parser for every quick add (the PM's and the coordinator's), Meeting
+// Mode and pasted notes. "PO-2026-041", "CO-01", "EST-2026-014", "INV-2026-031", "SEL-3" or "selection 3" each name one
+// record, and that record names its job. Returns [{kind, id, number, pid, label, said}] in the order said; a number
+// that matches no record is left out (never guessed).
+function tkRefsIn(text) {
+  const s = String(text || ""),
+    out = [],
+    re = /\b(PO|CO|EST|INV|SEL)-([A-Z0-9]+(?:-[A-Z0-9]+)*)\b|\bselection\s+#?(\d{1,4})\b/gi;
+  let m;
+  while ((m = re.exec(s))) {
+    const said = m[0],
+      N = said.toUpperCase();
+    let r = null;
+    try {
+      if (m[3] || /^SEL-/.test(N)) {
+        const no = +(m[3] || m[2]);
+        const it = ((DB.sel && DB.sel.items) || []).find((y) => +y.no === no);
+        it && (r = { kind: "sel", id: it.id, number: `SEL-${it.no}`, pid: it.projectId || "", label: `Selection #${it.no} · ${tdWords(it.name || "", 6)}` });
+      } else if (/^PO-/.test(N)) {
+        const po = (DB.pos || []).find((x) => String(x.number || "").toUpperCase() === N);
+        po && (r = { kind: "po", id: po.id, number: po.number, pid: po.projectId || "", label: `${po.number} · ${po.vendor || "Purchase Order"}` });
+      } else {
+        const k = { CO: "co", EST: "estimate", INV: "invoice" }[m[1].toUpperCase()],
+          D = tkDocs("").find((x) => x.kind === k && String(x.d.number || "").toUpperCase() === N);
+        D && (r = { kind: k, id: D.d.id, number: D.d.number, pid: D.d.projectId || "", label: `${D.d.number} · ${tdWords(D.d.title || TK_DOC_SAY[k], 6)}` });
+      }
+    } catch (e) {}
+    r && !out.some((o) => o.kind === r.kind && o.id === r.id) && out.push(Object.assign(r, { said: said }));
+  }
   return out;
 }
 // attachments: the job's files (or the firm's) linked to the task, and the photos on its thread
@@ -811,12 +962,13 @@ function tkLinkDialog(key) {
     C = tkLinkChoices(R.x.projectId || ""),
     draw = (qs) => {
       const w = String(qs || "").toLowerCase();
-      return C.filter((c) => !w || `${c.label} ${c.sub}`.toLowerCase().includes(w))
-        .slice(0, 30)
+      // with no search: the job's records, its latest mail and the firm's vendors, each part whole; a search reads all
+      const hit = C.filter((c) => !w || `${c.label} ${c.sub}`.toLowerCase().includes(w));
+      return (w ? hit.slice(0, 40) : hit.filter((c) => !/^(comm|vendor)$/.test(c.kind)).slice(0, 40).concat(hit.filter((c) => "comm" === c.kind).slice(-8), hit.filter((c) => "vendor" === c.kind)))
         .map((c) => `<button type="button" class="tks-src" data-tklk="${esc(c.kind)}|${esc(c.id)}"><span class="grow"><b>${esc(c.label)}</b><small class="muted"> · ${esc(c.sub)}</small></span><b>Link</b></button>`)
         .join("") || '<p class="small muted">Nothing matches.</p>';
     };
-  const m = mbModal(`Link a Record · ${esc(a.code || tdWords(R.x.title, 6))}`, `<input class="tks-in" data-tklq placeholder="Search vendors, POs, bills, decisions, files, mail" aria-label="Search records"><div class="tks-offers" data-tklres style="margin-top:8px">${draw("")}</div>`, { submit: null });
+  const m = mbModal(`Link a Record · ${esc(a.code || tdWords(R.x.title, 6))}`, `<input class="tks-in" data-tklq type="search" autocomplete="off" placeholder="Search by number, vendor or name" aria-label="Search records"><div class="tks-offers" data-tklres style="margin-top:8px">${draw("")}</div>`, { submit: null });
   if (!m) return;
   m.classList.add("tks-on");
   const wire = () =>
@@ -996,6 +1148,60 @@ let mmOn = !1,
   mmDateField = "";
 const mmMe = () => tdyMe();
 const mmCanRun = () => ["owner", "coord"].includes(role());
+// A site meeting is one job's tasks walked by the person who runs that job (PM review 11-05 S1: the PM could not run
+// a meeting at all, "The owner or the coordinator starts the team meeting"). It is the same Meeting Mode and the same
+// meeting record, its agenda that job's board only; the team meeting stays the owner's and the coordinator's.
+const mmCanSite = () => ["owner", "coord", "pm", "design_mgr"].includes(role());
+// the jobs a person runs first (the job's PM by name), then the rest
+function mmSiteJobs() {
+  const me = tdyMe(),
+    first = String(me.name || "").split(" ")[0].toLowerCase(),
+    mine = (p) => !!first && String((p.project && p.project.pm) || "").toLowerCase().split(/[\s,/&]+/).includes(first);
+  return (DB.projects || []).filter((p) => "closed" !== (p.project && p.project.status)).sort((a, b) => (mine(b) ? 1 : 0) - (mine(a) ? 1 : 0));
+}
+function mmSiteDialog(pid) {
+  const J = mmSiteJobs();
+  if (!J.length) return toast("No job to meet about yet"), null;
+  let job = J.find((p) => p.id === pid) || (S && J.find((p) => p.id === S.id)) || J[0];
+  const me = mmMe(),
+    U = tkOwnersList(),
+    pick = new Set(U.filter((u) => u.id === me.id || /^(foreman|coord)$/.test(u.role)).map((u) => u.id));
+  const m = mbModal(
+    "Start a Site Meeting",
+    `<div class="mm-start"><div class="tks-h">Which Job</div><div class="tks-people" data-mmjobs>${J.map((p) => `<button type="button" class="tks-person ${p === job ? "on" : ""}" data-mmjob="${esc(p.id)}" aria-pressed="${p === job}"><b>${esc(shortName(p))}</b><small>${esc((p.project && p.project.pm) || "")}</small></button>`).join("")}</div>
+    <div class="tks-h">Who Is In It</div><div class="tks-people">${U.map((u) => `<button type="button" class="tks-person ${pick.has(u.id) ? "on" : ""}" data-mmatt="${esc(u.id)}" aria-pressed="${pick.has(u.id)}"><b>${esc(u.name)}</b><small>${esc(TK_ROLE_SAY[u.role] || "")}</small></button>`).join("")}</div>
+    <p class="small muted">The agenda is this job's open tasks, in their order. Add what comes up as you go: each new task gets its owner and its date before the meeting ends.</p></div>`,
+    {
+      submit: "Start Site Meeting",
+      onSubmit: () => {
+        const att = tkOwnersList()
+          .filter((u) => pick.has(u.id))
+          .map((u) => u.name);
+        mtStart({ title: `Site Meeting · ${shortName(job)}`, attendees: att, whole: !0, board: "p:" + job.id, projectId: job.id });
+        return !0;
+      },
+    },
+  );
+  if (!m) return null;
+  m.classList.add("tks-on");
+  m.querySelectorAll("[data-mmjob]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        job = J.find((p) => p.id === b.dataset.mmjob) || job;
+        m.querySelectorAll("[data-mmjob]").forEach((y) => (y.classList.toggle("on", y === b), y.setAttribute("aria-pressed", y === b ? "true" : "false")));
+      }),
+  );
+  m.querySelectorAll("[data-mmatt]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const id = b.dataset.mmatt;
+        pick.has(id) ? pick.delete(id) : pick.add(id);
+        b.classList.toggle("on", pick.has(id));
+        b.setAttribute("aria-pressed", pick.has(id) ? "true" : "false");
+      }),
+  );
+  return m;
+}
 const mmPresenter = (m) => !!m && (!m.presenterUid || m.presenterUid === mmMe().id);
 function mmActive() {
   return mmOn && "tkall" === view && !!mtCurrent();
@@ -1046,10 +1252,10 @@ function mmJump(code) {
   renderTkAll();
 }
 // ---- start and end ------------------------------------------------------------------------------------------------
-function mmStartDialog() {
+function mmStartDialog(o) {
   const cur = mtCurrent();
   if (cur) return (mmOn = !0), (mmFollow = !0), renderTkAll();
-  if (!mmCanRun()) return toast("The owner or the coordinator starts the team meeting");
+  if ((o && o.site) || !mmCanRun()) return mmCanSite() ? mmSiteDialog(o && o.pid) : toast("The person who runs the job starts its site meeting");
   const me = mmMe(),
     U = tkOwnersList(),
     pick = new Set(U.filter((u) => /^(owner|pm|coord)$/.test(u.role) || u.id === me.id).map((u) => u.id)),
@@ -1122,6 +1328,15 @@ function mtStart(o) {
     };
   mtInit().push(m);
   m.agenda = mtBuildAgenda(m.whole, m.id);
+  // a site meeting walks its one job (an empty board still gets its card, to add to)
+  if (O.board) {
+    m.site = !0;
+    m.projectId = O.projectId || "";
+    const P = (DB.projects || []).find((p) => p.id === O.projectId);
+    P && (m.clientId = P.clientId || "");
+    m.agenda = m.agenda.filter((b) => b.board === O.board);
+    m.agenda.length || m.agenda.push({ board: O.board, name: tkBoardName(O.board), prefix: (tkBoardMeta(O.board) || {}).prefix || "", items: [], fyi: [], why: {} });
+  }
   m.openAtStart = m.agenda.flatMap((b) => b.items.concat(b.fyi));
   mmOn = !0;
   mmFollow = !0;
@@ -1212,9 +1427,35 @@ function mmEndDialog() {
   mmReconcile(m);
   const M = mtMinutesOf(m),
     n = (k) => M[k].length;
-  const body = `<p class="small muted">${M.discussed} task${1 === M.discussed ? "" : "s"} on screen · ${n("moved")} moved · ${n("created")} new · ${n("done")} done · ${M.decisions.aligned.length + M.decisions.discuss.length} decision${1 === M.decisions.aligned.length + M.decisions.discuss.length ? "" : "s"}. The minutes go on the meeting's record and to each person's Today.</p>${mtMinutesHtml(m, M)}`;
+  // every task the meeting leaves with no date gets one here, before the minutes go (PM review 11-05 #7: the dialog
+  // said "no date yet" three times with no way to set one)
+  const undated = Object.keys(M.owes).flatMap((w) => M.owes[w].filter((x) => !x.by).map((x) => Object.assign({ who: w }, x)));
+  const fix = undated.length
+    ? `<div class="mm-nodate"><div class="tks-h">No Date Yet</div>${undated.map((x) => `<div class="tks-row mm-ndrow"><span class="grow"><b>${esc(x.code)}</b> ${esc(tdWords(x.title, 7))} <small class="muted">· ${esc(tkFirst(x.who))}</small></span><button type="button" class="btn sm" data-mmnd="${esc(x.code)}">Set Date</button></div>`).join("")}</div>`
+    : "";
+  const body = `<p class="small muted">${M.discussed} task${1 === M.discussed ? "" : "s"} on screen · ${n("moved")} moved · ${n("created")} new · ${n("done")} done · ${M.decisions.aligned.length + M.decisions.discuss.length} decision${1 === M.decisions.aligned.length + M.decisions.discuss.length ? "" : "s"}. The minutes go on the meeting's record and to each person's Today.</p>${fix}${mtMinutesHtml(m, M)}`;
   const mm = mbModal("End the Meeting", body, { submit: "End and Send Minutes", onSubmit: () => (mtEnd(m), !0) });
-  mm && mm.classList.add("tks-on");
+  if (!mm) return mm;
+  mm.classList.add("tks-on");
+  mm.querySelectorAll("[data-mmnd]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const code = b.dataset.mmnd,
+          T = tkByCode(code);
+        if (!T || "function" != typeof tvDatePop) return;
+        tvDatePop(b, `Due · ${code}`, T.rec.due || "", (d) => {
+          if (!d) return;
+          const was = T.rec.due || "";
+          T.rec.due = d;
+          tkLog(T.rec, { ev: "due", from: was, to: d });
+          mtLog({ taskKey: code, field: "due", from: was, to: d }, m);
+          save();
+          mbCloseModal();
+          setTimeout(() => mmEndDialog(), 0);
+          toast(`${code} due ${tkDay(d)}`, [{ label: "Open", run: () => tkOpen(T.key) }]);
+        });
+      }),
+  );
   return mm;
 }
 // a task closed through the proof sheet, or from its own sheet during the meeting, is in the minutes too
@@ -1412,9 +1653,9 @@ function mmPanelHtml(m, code) {
     const s = mmWhere(m).seq.find((y) => y.code === mmAt),
       bid = s && "__fyi" !== s.board ? s.board : "";
     return bid
-      ? `<div class="mm-panel"><div class="tks-row mm-addrow"><input class="tks-in" data-mmaddt placeholder="New task on ${esc(tkBoardName(bid))}" aria-label="New task on ${esc(tkBoardName(bid))}"><select class="mm-addo" data-mmaddo aria-label="Owner">${tkOwnersList()
-          .map((u) => `<option ${u.id === mmMe().id ? "selected" : ""}>${esc(u.name)}</option>`)
-          .join("")}</select><button type="button" class="btn" data-mmadd>Save Task</button></div></div>`
+      ? // one sentence, read by the quick-add parser ("Angel sister the joists by Friday"), its owner and date shown as
+        // chips a tap corrects (PM review 11-05 #7: a title and a bare owner list, no date, "by Friday" left in the title)
+        `<div class="mm-panel"><div class="tks-row mm-addrow"><input class="tks-in" data-mmaddt enterkeyhint="done" autocomplete="off" placeholder="Who does what by when, on ${esc(tkBoardName(bid))}" aria-label="New task on ${esc(tkBoardName(bid))}"><button type="button" class="btn" data-mmadd>Save Task</button></div><div class="tvqc-row" data-mmaddchips hidden></div></div>`
       : "";
   }
   if ("addproj" === mmPanel)
@@ -1612,7 +1853,7 @@ function mmAct(k, code) {
     return void mmAfter(`Done: ${code} ${tdWords(a.title || "", 6)}`, code, !0);
   }
 }
-function mmAddTask(m, title, owner) {
+function mmAddTask(m, title, owner, F) {
   const s = mmWhere(m).seq.find((y) => y.code === mmAt),
     bid = s ? s.board : (m.agenda[0] || {}).board;
   if (!bid) return toast("Add a project first");
@@ -1621,10 +1862,11 @@ function mmAddTask(m, title, owner) {
   const me = mmMe(),
     src = { meetingId: m.id, kind: "meeting", label: m.title };
   let made = null;
-  if (/^p:/.test(bid)) made = crCreateTask({ title: title.trim(), for: "p:" + bid.slice(2), assignee: owner, source: src, handoff: !1 });
-  else if ("sales" === bid) made = crCreateTask({ title: title.trim(), for: "sales", assignee: owner, source: src, handoff: !1 });
+  const due = (F && F.due) || "";
+  if (/^p:/.test(bid)) made = crCreateTask({ title: title.trim(), for: "p:" + bid.slice(2), assignee: owner, due: due, source: src, handoff: !1 });
+  else if ("sales" === bid) made = crCreateTask({ title: title.trim(), for: "sales", assignee: owner, due: due, source: src, handoff: !1 });
   else {
-    made = crCreateTask({ title: title.trim(), for: "firm", assignee: owner, source: src, handoff: !1, section: bid.slice(2) });
+    made = crCreateTask({ title: title.trim(), for: "firm", assignee: owner, due: due, source: src, handoff: !1, section: bid.slice(2) });
   }
   if (!made || !made.rec) return toast("The task was not made");
   made.rec.createdBy = made.rec.createdBy || me.name || "";
@@ -1642,10 +1884,15 @@ function mmAddTask(m, title, owner) {
   /^EMPTY:/.test(mmAt) && ((mmAt = code), mmPresenter(m) && mmShow(m, code));
   mtLog({ taskKey: code, field: "created", from: "", to: title.trim() }, m);
   mtLog({ taskKey: code, field: "owner", from: "", to: made.rec.assignee }, m);
+  due && !made.rec.due && (made.rec.due = due);
+  made.rec.due && mtLog({ taskKey: code, field: "due", from: "", to: made.rec.due }, m);
+  try {
+    ((F && F.refs) || []).forEach((r) => tkAddLink(made.rec, { kind: r.kind, id: r.id }) && tkLog(made.rec, { ev: "link", kind: r.kind, id: r.id }));
+  } catch (e) {}
   mmPanel = "";
   save();
   renderTkAll();
-  toast(`${code} added for ${made.rec.assignee}: ${tdWords(title, 8)}`, [{ label: "Open", run: () => tkOpen(tkByCode(code).key) }]);
+  toast(`${code} added for ${made.rec.assignee}${made.rec.due ? `, due ${tkDay(made.rec.due)}` : ", no date yet"}: ${tdWords(title, 8)}`, [{ label: "Open", run: () => tkOpen(tkByCode(code).key) }]);
   return code;
 }
 function mmAddProject(m, f) {
@@ -1934,9 +2181,12 @@ function mmWire(host) {
   // add a task under the project on screen
   const at = q("[data-mmaddt]"),
     ab = q("[data-mmadd]"),
+    cb = q("[data-mmaddchips]"),
+    QC = at && cb && "function" == typeof tvQaWire ? tvQaWire(at, cb, { pid: "board" }) : null,
     addT = () => {
-      const c = mmAddTask(m, (at && at.value) || "", ((q("[data-mmaddo]") || {}).value || "").trim());
-      c && at && (at.value = "");
+      const F = QC ? QC.get() : { title: (at && at.value) || "", owner: mmMe().name || "" },
+        c = mmAddTask(m, F.title || "", F.owner || mmMe().name || "", F);
+      c && at && (QC ? QC.reset() : (at.value = ""));
     };
   ab && (ab.onclick = addT);
   at && at.addEventListener("keydown", (e) => "Enter" === e.key && (e.preventDefault(), addT()));
@@ -2030,7 +2280,7 @@ function mmDecorateTasks() {
   const host = document.getElementById("tkall-body");
   if (!host || host.querySelector("[data-mmbar], [data-mmstart]")) return;
   const m = mtCurrent(),
-    can = mmCanRun();
+    can = mmCanRun() || ("job" === t2Ctx() && mmCanSite()) || ("pm" === role() && mmCanSite());
   if (m) {
     // a meeting under way: one line to rejoin it, for everyone on Tasks
     const bar = document.createElement("div");
@@ -2054,6 +2304,20 @@ function mmDecorateTasks() {
   // the phone's header keeps one search and one add (Phone.dc.html, 2026-10-24). On a meeting day (the team's cadence,
   // by the app clock) the owner and the coordinator get one line above the list, one tap (taskfix #4: it was the last
   // row of the filter sheet, five taps); once today's meeting has ended the line goes. The filter sheet keeps it first.
+  const siteHere = "job" === t2Ctx() && mmCanSite();
+  if (siteHere || (!mmCanRun() && mmCanSite())) {
+    // the job's own list: one line to walk this job's tasks (the PM's Mine reaches it from the filter sheet)
+    if (!siteHere) return;
+    const L = document.createElement("button");
+    L.type = "button";
+    L.className = "mm-startline no-print";
+    L.dataset.mmstartline = "site";
+    L.innerHTML = `${mmSvg("screen", 18)}<span class="grow">Start a Site Meeting</span><small>${esc(shortName(S) || "")}</small>`;
+    L.onclick = () => mmStartDialog({ site: !0, pid: S && S.id });
+    const list = host.querySelector(".tk2-list, .t2-list");
+    list && list.parentNode ? list.parentNode.insertBefore(L, list) : host.appendChild(L);
+    return;
+  }
   if (tkPhone() && line) {
     if (!mmMeetingDay() || "home" !== t2Ctx()) return;
     const L = document.createElement("button");

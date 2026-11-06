@@ -24,7 +24,7 @@ const TK_VIEWS = [
   ["today", "Today"],
   ["overdue", "Overdue"],
   ["nodate", "No Date"],
-  ["blocked", "Waiting"],
+  ["blocked", "Waiting On"],
   ["later", "Later"],
   ["done", "Done"],
   ["all", "All"],
@@ -247,7 +247,8 @@ function tkDayOf(x) {
   const n = dayDiff(td, x.due);
   if (1 === n) return ["1" + x.due, "Tomorrow"];
   if (n <= 7) return ["1" + x.due, fmtL(x.due)];
-  return ["2", "Later On"];
+  // "Later" is a view (put off for later); a date past next week is Further Out (capture 11-05: "Later 0" beside "Later On 1")
+  return ["2", "Further Out"];
 }
 function tkGroupOf(x, gb) {
   if ("day" === gb) return tkDayOf(x);
@@ -411,7 +412,7 @@ function tkFilterSheet() {
   const body = `<div class="tkf">
   ${"home" === ctx ? `<div class="tkf-h">Whose</div><div class="tkf-row">${scope.map(([k, n]) => btn("data-tkfwho", k, tkWho === k, n)).join("")}</div>
   <div class="tkf-h">Job</div><div class="tkf-row">${jobs.map(([k, n]) => btn("data-tkfjob", k, tkProject === k, n)).join("")}</div>` : `<p class="small muted">${esc(tkChipLabel(ctx))}: every open task on it, whoever owns it.</p>`}
-  <div class="tkf-h">Show</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
+  <div class="tkf-h">${own ? "Show · Counts Are Yours" : "Show"}</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
   <div class="tkf-h">Group</div><div class="tkf-row">${[["day", "By Day"], ["project", "By Project"], ["assignee", "By Person"], ["area", "By Area"], ["", "None"]].map(([k, n]) => btn("data-tkfgroup", k, gb === k, n)).join("")}</div>
   <div class="tkf-h">Priority</div><div class="tkf-row">${btn("data-tkfpri", "", !tkPri, "Any")}${btn("data-tkfpri", "high", "high" === tkPri, "High Only")}</div>
   ${"job" === ctx && ["owner", "pm", "coord", "design_mgr"].includes(role()) ? `<div class="tkf-h">This Job</div><div class="tkf-row"><button type="button" class="tkf-b" data-tkfmeeting>Process a Meeting</button></div>` : ""}
@@ -1009,8 +1010,12 @@ function tkCheckDone(key) {
     { label: "Undo", run: () => (tkToggle(kind, id, pid || ""), save(), renderTkAll()) },
   ]);
 }
-// swipe left on a row: Later and Hand Off slide in (the same two are in the sheet for anyone who doesn't swipe)
+// Swipe a row (PM review 11-05 #10): right is Done (the same as the circle, with Undo and the proof gate); left opens
+// Later, Reschedule and Hand Off under the title, which stays in view (the row used to slide 252px and hide it).
 function tkSwipe(r) {
+  // a row is wired once: the list wires its rows on more than one pass, and two listeners made one swipe two toggles
+  if (r.dataset.tkswipe) return;
+  r.dataset.tkswipe = "1";
   let x0 = 0,
     y0 = 0,
     on = !1;
@@ -1031,7 +1036,12 @@ function tkSwipe(r) {
         dy = t.clientY - y0;
       if (Math.abs(dy) > Math.abs(dx)) return void (on = !1);
       dx < -40 && (r.classList.add("swiped"), (on = !1));
-      dx > 30 && (r.classList.remove("swiped"), (on = !1));
+      if (dx > 30 && r.classList.contains("swiped")) return void (r.classList.remove("swiped"), (on = !1));
+      if (dx > 70 && !r.classList.contains("done") && r.querySelector("[data-t2done]")) {
+        on = !1;
+        r.classList.add("tk-swdone");
+        setTimeout(() => tkCheckDone(r.dataset.tkkey), 160);
+      }
     },
     { passive: !0 },
   );

@@ -87,6 +87,10 @@ const tvMayUse = () => {
 };
 const tvPhone = () => ("function" == typeof isMobile ? isMobile() : !1);
 const tvOnTasks = () => "tkall" === view || !!T2_SCOPED[view];
+// The section a view draws in. A job's Tasks and Sales Tasks are the one task list with a chip set (T2_SCOPED), drawn
+// in the list's own section; three later page lanes re-lit "v-" + view after every draw, so the job's Tasks showed the
+// old list (4 open, Overdue 0) while the job held 26 (PM review 11-05 #2). Every view switch reads this one function.
+const tkViewId = (v) => "v-" + ("undefined" != typeof T2_SCOPED && T2_SCOPED[v] ? "tkall" : v);
 const tvMonth = (s) => {
   const d = parse(s);
   return d ? d.toLocaleDateString("en-US", { month: "short" }) : "";
@@ -570,10 +574,13 @@ function tvDatePop(anchor, title, cur, apply, withClear) {
     },
   );
 }
+// a seat the demo names for its role ("Billing", "Controller", "Design director") is not a person: the people pickers
+// list people only (coordinator capture 11-05 #7). The seat still owns what it owns and opens it from its own sign-in.
+const tkSeatOnly = (u) => !!u && /^(owner|billing|controller|design director|office|crew|driver|foreman|coordinator)$/i.test(String(u.name || "").trim());
 function tvPeople() {
   try {
     return tdyUsers()
-      .filter((u) => "client" !== u.role)
+      .filter((u) => "client" !== u.role && !tkSeatOnly(u))
       .sort((a, b) => (/^(crew|driver)$/.test(a.role) ? 1 : 0) - (/^(crew|driver)$/.test(b.role) ? 1 : 0) || a.name.localeCompare(b.name));
   } catch (e) {
     return [];
@@ -1274,7 +1281,39 @@ const TV_FF_DATES = [
 ];
 // the fields the Filter offers beside Owner, Due, Project and Area
 const tvFFFields = () => tvFields().filter((f) => !f.fixed && "long" !== f.kind && "count" !== f.type && !/^(owner|project|due|area|wait|last|updated|created)$/.test(f.k));
+// Who a task is owed to or by (PM review 11-05 #8): "owed to a client" is an open task on a client's job that the
+// client is waiting for (it names the client or a client document, sends, updates, calls or meets the client, or came
+// from a promise), and not one that waits on the client; "owed by the crew" is a task the foreman, crew or driver owns.
+// One predicate (tkOwedBy) for the filter, its chip and Ask.
+const TK_OWED_SAY = { client: "Owed to a Client", crew: "Owed by the Crew" };
+function tkClientOfTask(x) {
+  const p = x && x.projectId ? (DB.projects || []).find((q) => q.id === x.projectId) : null;
+  return p && p.clientId ? (DB.clients || []).find((c) => c.id === p.clientId) || null : null;
+}
+function tkOwedBy(x, what, rec) {
+  try {
+    if (!x || x.done) return !1;
+    if ("crew" === what) {
+      const u = (DB.users || []).find((y) => (x.ownerUid && y.id === x.ownerUid) || (x.assignee && tkOwnerMatch(x.assignee, y.name)));
+      return !!u && /^(foreman|crew|driver)$/.test(u.role);
+    }
+    const c = tkClientOfTask(x);
+    if (!c) return !1;
+    const r = rec || tdyRec(x) || {},
+      W = r.waitingOn || (x.waitsOn ? { name: x.waitsOn } : null),
+      words = String(c.name || "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2 && !/^(and|the|llc|inc)$/.test(w)),
+      t = ` ${String(x.title || "").toLowerCase()} `;
+    if (W && words.some((w) => String(W.name || "").toLowerCase().includes(w))) return !1;
+    if (words.some((w) => t.includes(` ${w}`))) return !0;
+    if ((r.source && (r.source.commit || r.source.promise)) || "client" === x.area || "client" === r.area) return !0;
+    if ((("function" == typeof tkLinks ? tkLinks(r) : []) || []).some((l) => /^(co|estimate|invoice|sel)$/.test(l.kind))) return !0;
+    return /\b(client|send|update|email|call|proposal|quote|estimate|change order|invoice|selection|walk-?through|sign)\b/.test(t);
+  } catch (e) {
+    return !1;
+  }
+}
 function tvFFMatch(I, k, v) {
+  if ("owed" === k) return tkOwedBy(I.x, v, I.rec);
   const f = tvField(k);
   if (!f) return !0;
   const val = f.val(I);
@@ -1845,6 +1884,7 @@ function tvFilterChips() {
   tkArea && L.push(["area", `Area: ${TK_AREA_LABEL[tkArea] || tkArea}`]);
   tkPri && L.push(["pri", "Priority: High"]);
   Object.entries(tvFF || {}).forEach(([k, v]) => {
+    if ("owed" === k) return void L.push(["ff:owed", TK_OWED_SAY[v] || "Owed"]);
     const f = tvField(k);
     f && L.push(["ff:" + k, `${f.n}: ${tvFFSay(k, v)}`]);
   });
@@ -1918,6 +1958,10 @@ function tvFilterPick(what, anchor) {
       d.querySelectorAll("[data-tvfa]").forEach((b) => (b.onclick = () => (tvPopClose(), (tkArea = b.dataset.tvfa), done()))),
     );
   if ("pri" === what) return (tkPri = "high"), done();
+  if ("owed" === what)
+    return tvPop(anchor, "Owed", `<div class="tv-menu">${Object.entries(TK_OWED_SAY).map(([k, n], i) => `<button type="button" class="tv-mi ${(tvFF || {}).owed === k ? "on" : ""}" data-tvfo="${k}" ${0 === i ? "data-tvfirst" : ""}>${esc(n)}</button>`).join("")}</div>`, (d) =>
+      d.querySelectorAll("[data-tvfo]").forEach((b) => (b.onclick = () => (tvPopClose(), (tvFF = Object.assign({}, tvFF, { owed: b.dataset.tvfo })), "me" === tkWho && (tkWho = "all"), done()))),
+    );
   return tvPop(
     anchor,
     "Filter By",
@@ -1926,6 +1970,7 @@ function tvFilterPick(what, anchor) {
       tvOneRow() ? ["due", "Due or Status"] : null,
       "home" === t2Ctx() ? ["project", "Project"] : null,
       ["area", "Area"],
+      ["owed", "Owed To or By"],
     ]
       .concat(tvFFFields().map((f) => ["ff:" + f.k, f.n]))
       .filter(Boolean)
@@ -2075,9 +2120,30 @@ function tvPhoneHead(host) {
     q = (attr, v, on, label, n) => `<button type="button" class="tv-qc ${on ? "on" : ""}" ${attr}="${esc(v)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}${null != n ? `<span class="n">${n}</span>` : ""}</button>`;
   line.insertAdjacentHTML(
     "afterend",
-    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
-<div class="tv-qaw no-print"><div class="tv-qa"><button type="button" class="tv-qa-plus" data-tvqaopen aria-label="New task with details" title="New task with details">${tvSvg("plus", 18)}</button><input class="tv-qa-in" data-tvqa aria-label="Add a task" placeholder="Add a task, e.g. “Call Carlos tomorrow”" enterkeyhint="done" autocomplete="off"><button type="button" class="tv-qa-mic" data-tvqamic aria-label="Speak a task" title="Speak a task"><span>${tvSvg("mic", 18)}</span></button></div></div>`,
+    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting On", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
+${tvPhoneFilterChips()}<div class="tv-qaw no-print"><div class="tv-qa"><button type="button" class="tv-qa-plus" data-tvqaopen aria-label="New task with details" title="New task with details">${tvSvg("plus", 18)}</button><input class="tv-qa-in" data-tvqa aria-label="Add a task" placeholder="Add a task, e.g. “Call Carlos tomorrow”" enterkeyhint="done" autocomplete="off"><button type="button" class="tv-qa-mic" data-tvqamic aria-label="Speak a task" title="Speak a task"><span>${tvSvg("mic", 18)}</span></button></div></div>`,
   );
+}
+// what narrows the phone's list, each a chip with an X (after Overdue or Done nothing said which filter was on)
+function tvPhoneFilterChips() {
+  const L = [];
+  try {
+    // a chip on the bar (Mine, Waiting On, Team) already says its own view and owner; a job's list is everyone's
+    const chipOn = "home" === t2Ctx() && tvBuiltIns().some((v) => tvIsOn(v));
+    t2View && !["week", "blocked", "all"].includes(t2View) && L.push(["due", tkViewName(t2View)]);
+    tkWho && "me" !== tkWho && !chipOn && !("all" === tkWho && "home" !== t2Ctx()) && L.push(["owner", { all: "Everyone", team: "My Team", none: "Unassigned" }[tkWho] || `Owner: ${tkFirst(tkWho)}`]);
+    if (tkProject && "home" === t2Ctx()) {
+      const p = (DB.projects || []).find((q) => q.id === tkProject);
+      L.push(["project", "__sales" === tkProject ? "Sales" : p ? shortName(p) : "A Job"]);
+    }
+    tkArea && L.push(["area", TK_AREA_LABEL[tkArea] || tkArea]);
+    tkPri && L.push(["pri", "High Priority"]);
+    t2Q && L.push(["q", `Search: ${t2Q}`]);
+    Object.entries(tvFF || {}).forEach(([k, v]) => L.push(["ff:" + k, "owed" === k ? TK_OWED_SAY[v] || "Owed" : `${(tvField(k) || {}).n || k}: ${tvFFSay(k, v)}`]));
+  } catch (e) {}
+  return L.length
+    ? `<div class="tv-phf no-print" role="group" aria-label="Filters on">${L.map(([k, n]) => `<button type="button" class="tv-phfc" data-tvphfx="${esc(k)}" aria-label="Remove the filter ${esc(n)}"><span>${esc(n)}</span>${tvSvg("x", 14)}</button>`).join("")}</div>`
+    : "";
 }
 // the phone's rows: one meta line (ID · project · owner · due), the Waiting On chip on its own line under it
 function tvDecorateRows(scope) {
@@ -2095,7 +2161,17 @@ function tvDecorateRows(scope) {
     const I = tvInfo(x);
     r.dataset.tvrow = I.key;
     const acts = r.querySelector(".tk2-acts");
-    acts && !x.done && (acts.insertAdjacentHTML("afterbegin", `<button type="button" class="tk2-act tv-act-done" data-tvdone="${esc(I.key)}" tabindex="-1">Done</button>`), r.classList.add("tv-3acts"));
+    // the phone's swipe strip: Later, Reschedule and Hand Off (a right swipe is Done); the wide screen keeps Done
+    acts &&
+      !x.done &&
+      (ph
+        ? acts.querySelector("[data-tvresched]") || acts.insertAdjacentHTML("afterbegin", `<button type="button" class="tk2-act tv-act-re" data-tvresched="${esc(I.key)}" tabindex="-1">Reschedule</button>`)
+        : acts.insertAdjacentHTML("afterbegin", `<button type="button" class="tk2-act tv-act-done" data-tvdone="${esc(I.key)}" tabindex="-1">Done</button>`),
+      r.classList.add("tv-3acts"));
+    if (acts && ph) {
+      const later = acts.querySelector("[data-t2later]");
+      later && acts.prepend(later);
+    }
     const sub = r.querySelector(".tk2-sub"),
       slide = r.querySelector(".tk2-slide"),
       who = slide && slide.querySelector(".tk2-who");
@@ -2115,6 +2191,9 @@ function tvDecorateRows(scope) {
         bits = [I.ref ? `<span class="tv-ref">${esc(I.ref)}</span>` : ""].concat(tvPhoneRow().map(one)).filter(Boolean);
       sub.innerHTML = bits.join('<span class="tk2-dot"> · </span>');
       I.wait && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait">Waiting on ${esc(I.wait.name.split(/\s+/).slice(0, 2).join(" "))}${I.wait.promised ? ` · ${esc(DOW[parse(I.wait.promised).getDay()])}` : ""}</span>`);
+      // a hand-off waiting on the other person's yes, on the sender's row too (PM review 11-05 #4)
+      const H = "function" == typeof tkOfferOf ? tkOfferOf(x) : null;
+      H && sub.insertAdjacentHTML("afterend", `<span class="tv-mwait tv-moff" data-tvoffer="${esc(H.to)}">Offered to ${esc(tkFirst(H.to))} · not accepted yet</span>`);
       who && who.remove();
       return;
     }
@@ -2145,7 +2224,7 @@ function tvDecorateRows(scope) {
   // the first-time tip: rows swipe left for Later and Hand Off, until the person has swiped once
   if (ph && "home" === t2Ctx() && !tvPrefs().swiped && scope.querySelector(".tk2-row .tk2-acts") && !scope.querySelector(".tv-tip")) {
     const L = scope.querySelector(".tk2-list") || scope;
-    L.insertAdjacentHTML("beforeend", `<div class="tv-tip">${tvSvg("swipe", 16)}<span>Tip: swipe a task left for Later or Hand Off</span></div>`);
+    L.insertAdjacentHTML("beforeend", `<div class="tv-tip">${tvSvg("swipe", 16)}<span>Tip: swipe a task right when it is done, left for Later, Reschedule or Hand Off</span></div>`);
   }
 }
 // a swipe on a row: the tip has done its job, for this person, on every device
@@ -2173,9 +2252,9 @@ document.addEventListener(
 const TV_DOW_FULL = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 function tvQaTeam() {
   try {
-    return tdyUsers().filter((u) => u && u.name && "client" !== u.role);
+    return tdyUsers().filter((u) => u && u.name && "client" !== u.role && !tkSeatOnly(u));
   } catch (e) {
-    return (DB.users || []).filter((u) => u && u.name && "client" !== u.role);
+    return (DB.users || []).filter((u) => u && u.name && "client" !== u.role && !tkSeatOnly(u));
   }
 }
 function tvQaParse(text) {
@@ -2203,6 +2282,7 @@ function tvQaParse(text) {
   let owner = null,
     m = /\b(i'?m|i am|i will be|i'll be)\s+(in charge|the owner)\b|\bi(?:'ll| will)? own it\b/i.exec(low);
   if (m) (owner = me && me.name ? me : null), cut.push(m[0]);
+  const ownerSaid = !!owner || /\b(in charge|owns it|is the owner)\b/i.test(low);
   if (!owner) {
     m = /\b([a-z][a-z'-]+)(?:\s+[a-z][a-z'-]+)?\s+(?:is\s+)?(?:in charge|owns it|is the owner)\b/i.exec(low);
     const u = m && (who(m[0].replace(/\s+(is\s+)?(in charge|owns it|is the owner)$/i, "")) || who(m[1]));
@@ -2221,8 +2301,20 @@ function tvQaParse(text) {
     .filter((o) => !/^(owner|billing|controller|design|designer|office|crew|driver|foreman)$/i.test(tkFirst(o.u.name)) || new RegExp(`\\b${tkFirst(o.u.name)}\\b`).test(raw))
     .filter((o) => o.i >= 0 &&!cut.some((c) => c.toLowerCase().includes(low.substr(o.i, o.len))))
     .sort((a, b) => a.i - b.i);
-  const d0 = named.find((o) => !owner || o.u.name !== owner.name);
-  d0 && ((doer = d0.u), cut.push(low.substr(d0.i, d0.len)));
+  // The first person named does it and owns it (PM review 11-05: "Angel check joist sistering" made the speaker the
+  // owner and put Angel in a field nobody sees), unless the sentence says who is in charge. A name said after tell,
+  // ask, have or remind is who the speaker must reach: it stays in the title ("Tell Angel to photograph the rear wall"
+  // was saved as "Tell photograph the rear wall") and the speaker owns it.
+  const d0 = named.find((o) => !owner || o.u.name !== owner.name || !ownerSaid);
+  let relay = !1;
+  if (d0) {
+    relay = /\b(tell|ask|have|remind|call|email|text|ping|let|get)\s*,?\s*$/i.test(low.slice(0, d0.i));
+    if (!relay) {
+      doer = d0.u;
+      cut.push(low.substr(d0.i, d0.len));
+      ownerSaid || (owner = d0.u);
+    }
+  }
   // the job: its prefix, its short name, its street (a word of four letters or more that only it has)
   let proj = null,
     best = 0;
@@ -2272,6 +2364,13 @@ function tvQaParse(text) {
     flush();
     best && cut.push(best);
   }
+  // the records named by number (one parser with the coordinator's quick add: tkRefsIn, src/meeting.js); the first
+  // one names the job when the sentence did not. The number stays in the title: it is how the team says it.
+  let refs = [];
+  try {
+    refs = "function" == typeof tkRefsIn ? tkRefsIn(raw) : [];
+  } catch (e) {}
+  if (!proj && refs.length) proj = (DB.projects || []).find((p) => p.id === (refs.find((r) => r.pid) || {}).pid) || null;
   // the date
   let due = "";
   const nextDow = (k) => {
@@ -2317,7 +2416,74 @@ function tvQaParse(text) {
     .replace(/^(please|pls|can you|could you)\s+/i, "")
     .replace(/[\s,]+$/g, "");
   t = t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
-  return { text: raw, title: t, pid: proj ? proj.id : "", owner: owner ? owner.name : "", doer: doer ? doer.name : "", due: due };
+  return { text: raw, title: t, pid: proj ? proj.id : "", owner: owner ? owner.name : "", doer: doer ? doer.name : "", due: due, refs: refs, relay: relay };
+}
+// ---- what was heard, before it is saved (PM review 11-05 #3 and #7) ----------------------------------------------------
+// The quick-add line on Tasks and Meeting Mode's add line show the parse as chips under the sentence: the owner, the
+// job, the due date and each record named by number. A tap corrects one; the correction holds while the sentence is
+// edited, and Enter saves exactly what the chips say. O.pid fixes the job (Meeting Mode adds to the card's job).
+function tvQaChipsHtml(F, O) {
+  const me = tkMe(),
+    p = F.pid ? (DB.projects || []).find((q) => q.id === F.pid) : null,
+    du = F.due ? `${tvRel(F.due, !0)}${dayDiff(today(), F.due) < 7 && dayDiff(today(), F.due) > 0 ? `, ${DOW[parse(F.due).getDay()]}` : ""}` : "",
+    who = F.owner || me,
+    c = (f, label, val, none, extra) => `<button type="button" class="tvqc${none ? " tvqc-none" : ""}" data-tvqc="${f}"${extra || ""} aria-label="${esc(label)}: ${esc(val)}"><small>${esc(label)}</small><b>${esc(val)}</b></button>`;
+  return [
+    c("owner", "Owner", tkOwnerMatch(who, me) ? "You" : tkFirst(who), !1),
+    (O || {}).pid ? "" : c("pid", "Job", p ? shortName(p) : "No job", !p),
+    c("due", "Due", du || "No date", !du),
+    ...(F.refs || []).map((r, i) => c("ref", "Linked", r.number || r.label, !1, ` data-tvqcref="${i}"`)),
+  ].join("");
+}
+function tvQaWire(input, box, O) {
+  const o = O || {},
+    fix = {};
+  const get = () => {
+    const F = Object.assign(tvQaParse(input.value), fix);
+    o.pid && (F.pid = o.pid);
+    fix.refsOff && (F.refs = (F.refs || []).filter((r) => !fix.refsOff.includes(r.kind + ":" + r.id)));
+    return F;
+  };
+  const draw = () => {
+    if (!input.value.trim()) return (box.innerHTML = ""), void (box.hidden = !0);
+    const F = get();
+    box.hidden = !1;
+    box.innerHTML = tvQaChipsHtml(F, o);
+    box.querySelectorAll("[data-tvqc]").forEach(
+      (b) =>
+        (b.onclick = (e) => {
+          e.preventDefault();
+          const f = b.dataset.tvqc;
+          if ("owner" === f) return tvPersonPop(b, F.owner, (n) => ((fix.owner = n), draw()), "Owner", tvQaTeam().map((u) => ({ name: u.name, sub: "" })));
+          if ("due" === f) return tvDatePop(b, "Due", F.due, (d) => ((fix.due = d), draw()), !0);
+          if ("ref" === f) {
+            const r = (F.refs || [])[+b.dataset.tvqcref];
+            return r && ((fix.refsOff = (fix.refsOff || []).concat([r.kind + ":" + r.id])), draw(), toast(`${r.number || r.label} will not be linked`));
+          }
+          if ("pid" === f)
+            return tvPop(
+              b,
+              "Job",
+              `<div class="tv-people">${[["", "No job: your own list"]]
+                .concat((DB.projects || []).map((p) => [p.id, shortName(p)]))
+                .map(([id, n], i) => `<button type="button" class="tv-person ${F.pid === id ? "on" : ""}" data-tvqcp="${esc(id)}" ${0 === i ? "data-tvfirst" : ""}><span class="grow"><b>${esc(n)}</b></span></button>`)
+                .join("")}</div>`,
+              (d) => d.querySelectorAll("[data-tvqcp]").forEach((x) => (x.onclick = () => (tvPopClose(), (fix.pid = x.dataset.tvqcp), draw()))),
+            );
+        }),
+    );
+  };
+  input.addEventListener("input", draw);
+  draw();
+  return {
+    get: get,
+    draw: draw,
+    reset: () => {
+      Object.keys(fix).forEach((k) => delete fix[k]);
+      input.value = "";
+      draw();
+    },
+  };
 }
 // the ID the task will take on its job (the board's next number), said before it is made
 function tvQaNextId(pid) {
@@ -2342,6 +2508,9 @@ function tvQaCreate(F, photo) {
   const key = `${made.kind}:${made.id}:${made.projectId || ""}`;
   try {
     photo && tkAddPhoto(tkResolve(key), photo);
+  } catch (e) {}
+  try {
+    (F.refs || []).forEach((r) => made.rec && "function" == typeof tkAddLink && tkAddLink(made.rec, { kind: r.kind, id: r.id }) && tkLog(made.rec, { ev: "link", kind: r.kind, id: r.id }));
   } catch (e) {}
   save();
   try {
@@ -2387,7 +2556,7 @@ function tvQuickAddSheet(text) {
           const u = tvQaTeam().find((x) => x.name === n);
           return u ? `${esc(tkFirst(n))}${"undefined" != typeof TK_ROLE_SAY && TK_ROLE_SAY[u.role] ? ` <span class="tvqa-g">(${esc(String(TK_ROLE_SAY[u.role]).toLowerCase())})</span>` : ""}` : esc(n);
         };
-      return `${row("title", "Task", F.title ? `<b>${esc(F.title)}</b>` : '<span class="tvqa-g">What needs doing</span>')}${row("pid", "Project", F.pid ? `${esc(pName(F.pid))}${id ? ` <span class="tvqa-g">· ${esc(id)}</span>` : ""}` : '<span class="tvqa-g">No project: your own list</span>')}${row("owner", "Owner", `<b>${esc(tkFirst(F.owner || me))}</b><span class="tvqa-g">in charge</span>`)}${row("doer", "Doing It", F.doer ? dr(F.doer) : '<span class="tvqa-g">The owner</span>')}${row("due", "Due", du ? esc(du) : '<span class="tvqa-g">No date</span>')}`;
+      return `${row("title", "Task", F.title ? `<b>${esc(F.title)}</b>` : '<span class="tvqa-g">What needs doing</span>')}${row("pid", "Project", F.pid ? `${esc(pName(F.pid))}${id ? ` <span class="tvqa-g">· ${esc(id)}</span>` : ""}` : '<span class="tvqa-g">No project: your own list</span>')}${row("owner", "Owner", `<b>${esc(tkFirst(F.owner || me))}</b><span class="tvqa-g">in charge</span>`)}${row("doer", "Doing It", F.doer && F.doer !== F.owner ? dr(F.doer) : '<span class="tvqa-g">The owner</span>')}${row("due", "Due", du ? esc(du) : '<span class="tvqa-g">No date</span>')}${(F.refs || []).length ? row("refs", "Linked", F.refs.map((r) => esc(r.label)).join("<br>")) : ""}`;
     };
   let photo = "";
   const m = mbModal(
@@ -2429,7 +2598,7 @@ function tvQuickAddSheet(text) {
             return;
           }
           if ("due" === f) return tvDatePop(b, "Due", F.due, (d) => ((F.due = d), redraw()), !0);
-          if ("owner" === f) return tvPersonPop(b, F.owner, (n) => ((F.owner = n), redraw()), "Owner", tvQaTeam().filter((u) => !/^(crew|driver)$/.test(u.role)).map((u) => ({ name: u.name, sub: "" })));
+          if ("owner" === f) return tvPersonPop(b, F.owner, (n) => ((F.owner = n), redraw()), "Owner", tvQaTeam().map((u) => ({ name: u.name, sub: "" })));
           if ("doer" === f) return tvPersonPop(b, F.doer, (n) => ((F.doer = n), redraw()), "Doing It", tvQaTeam().map((u) => ({ name: u.name, sub: "" })));
           if ("pid" === f)
             return tvPop(
@@ -2547,14 +2716,22 @@ function tvPhoneSorted(host) {
 function tvWireBar(host) {
   host.querySelectorAll("[data-tvmenu]").forEach((b) => (b.onclick = () => (document.getElementById("menu-btn") || { click() {} }).click()));
   const qa = host.querySelector("[data-tvqa]");
-  qa &&
-    (qa.onkeydown = (e) => {
+  if (qa) {
+    // what the sentence says, as chips under the line before it is saved; a tap corrects one (PM review 11-05 #3)
+    const box = document.createElement("div");
+    box.className = "tvqc-row no-print";
+    box.dataset.tvqchips = "1";
+    box.hidden = !0;
+    (qa.closest(".tv-qaw") || qa.parentNode).appendChild(box);
+    const QC = tvQaWire(qa, box);
+    qa.onkeydown = (e) => {
       if ("Enter" !== e.key) return;
       e.preventDefault();
       const v = qa.value.trim();
       if (!v) return tvQuickAddSheet("");
-      tvQaCreate(tvQaParse(v)) && (qa.value = "");
-    });
+      tvQaCreate(QC.get()) && QC.reset();
+    };
+  }
   host.querySelectorAll("[data-tvqaopen]").forEach((b) => (b.onclick = () => tvQuickAddSheet(qa ? qa.value.trim() : "")));
   host.querySelectorAll("[data-tvqamic]").forEach((b) => (b.onclick = () => tvListen((t) => qa && (qa.value = t), b)));
   host.querySelectorAll("[data-tvview]").forEach((b) => (b.onclick = () => tvApply(b.dataset.tvview)));
@@ -2562,6 +2739,14 @@ function tvWireBar(host) {
   host.querySelectorAll("[data-tvfadd]").forEach((b) => (b.onclick = () => tvFilterPick("", b)));
   host.querySelectorAll("[data-tvfedit]").forEach((b) => (b.onclick = () => tvFilterPick(b.dataset.tvfedit, b)));
   host.querySelectorAll("[data-tvfx]").forEach((b) => (b.onclick = () => tvFilterClear(b.dataset.tvfx)));
+  host.querySelectorAll("[data-tvphfx]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const k = b.dataset.tvphfx;
+        "due" === k ? (t2View = "week") : "owner" === k ? (tkWho = "me") : "q" === k ? ((t2Q = ""), (window.__tkSearch = !1)) : null;
+        "due" === k || "owner" === k || "q" === k ? renderTkAll() : tvFilterClear(k);
+      }),
+  );
   host.querySelectorAll("[data-tvqv]").forEach((b) => (b.onclick = () => ((t2View = t2View === b.dataset.tvqv && "week" !== b.dataset.tvqv ? "week" : b.dataset.tvqv), renderTkAll())));
   host.querySelectorAll("[data-tvqg]").forEach(
     (b) =>
@@ -2596,6 +2781,15 @@ function tvWireCells(w) {
         const r = b.closest(".tk2-row");
         r && r.classList.remove("swiped");
         tkCheckDone(b.dataset.tvdone);
+      }),
+  );
+  w.querySelectorAll("[data-tvresched]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.stopPropagation();
+        const r = b.closest(".tk2-row");
+        r && r.classList.remove("swiped");
+        tvEdit(b.dataset.tvresched, "due", b);
       }),
   );
 }
@@ -2880,11 +3074,14 @@ function tvSheetDecorate(m, key) {
     })(),
     field = (f, label, val, cls) => `<button type="button" class="tvs-f ${cls || ""}" data-tvsf="${f}"><small>${label}</small><span>${val}</span></button>`,
     dueSay = x.due ? esc(ph ? fmtL(x.due) : tvRel(x.due, x.done)) : "No date",
-    fuSay = I.follow ? esc(ph ? fmtL(I.follow) : tvRel(I.follow, x.done)) : ph ? "Not set" : "—";
+    fuSay = I.follow ? esc(ph ? fmtL(I.follow) : tvRel(I.follow, x.done)) : ph ? "Not set" : "—",
+    RM = I.rec && I.rec.remind && !I.rec.remind.sent ? I.rec.remind : null,
+    rmSay = RM ? esc(tvRemindSay(RM.at)) : ph ? "Not set" : "—",
+    canRemind = !!I.rec && !x.done;
   body.insertAdjacentHTML(
     "afterbegin",
     `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button>${lateDue && ph ? `<span class="tv-pill tvs-late">${esc(tvRel(x.due))}</span>` : ""}${ph ? "" : `<span class="tvs-ld">${ldSay}</span>`}</div>
-<div class="tvs-fields">${field("owner", "Owner", I.owner ? `${tvAv(I.owner)}<b class="tvs-on">${esc(meOwns ? "You" : ph ? owner1 : I.owner)}</b><em class="tvs-ic">${ph ? "in charge" : "(in charge)"}</em>` : "Pick the owner")}${field("due", "Due", dueSay, lateDue ? "late" : "")}${field("follow", "Follow-up", fuSay, I.follow ? "" : "tvs-none")}</div>
+<div class="tvs-fields">${field("owner", "Owner", I.owner ? `${tvAv(I.owner)}<b class="tvs-on">${esc(meOwns ? "You" : ph ? owner1 : I.owner)}</b><em class="tvs-ic">${ph ? "in charge" : "(in charge)"}</em>` : "Pick the owner")}${field("due", "Due", dueSay, lateDue ? "late" : "")}${canRemind ? field("remind", "Remind", rmSay, RM ? "" : "tvs-none") : ""}${field("follow", "Follow-up", fuSay, I.follow ? "" : "tvs-none")}</div>
 ${
   W
     ? `<div class="tvs-waitbox"><button type="button" class="tvs-wait ${W.promised && W.promised < td && !x.done ? "late" : ""}" data-tvsf="wait"><small>Waiting On${ph ? ` ${esc(W.name)}` : ""}</small>${
@@ -2962,6 +3159,30 @@ ${
     more.prepend(linked);
     more.querySelector("summary") && more.prepend(more.querySelector("summary"));
     body.appendChild(more);
+    // PM review 11-05 #6: the sheet was a wall (twelve property rows first; Hand Off, Link and Checklist under More;
+    // five date controls). The first screen is now Due, Owner, Remind and Hand Off. "Move the Date" was a second way to
+    // set Due (the Due row opens the same dates), so it goes; Follow-up, Track Until, Later and the property rows are
+    // their own data and fold under More, with Linked and the Checklist first in it.
+    const F = body.querySelector(".tvs-fields");
+    if (F) {
+      const due = F.querySelector('[data-tvsf="due"]'),
+        fu = F.querySelector('[data-tvsf="follow"]');
+      due && F.prepend(due);
+      if (fu) {
+        const box = document.createElement("div");
+        box.className = "tvs-fields tvs-fields2";
+        box.appendChild(fu);
+        more.querySelector("summary") ? more.querySelector("summary").after(box) : more.prepend(box);
+      }
+    }
+    const dh = dueH && "Move the Date" === dueH.textContent.trim();
+    dh ? dates.forEach((e) => e.remove()) : dates.forEach((e) => more.appendChild(e));
+    det && more.appendChild(det);
+    const hb = body.querySelector("[data-tkshandopen]");
+    hb && F && F.after(hb);
+    const ck = [...more.querySelectorAll(":scope > .tks-h")].find((h) => "Checklist" === h.textContent.trim());
+    ck && ck.nextElementSibling && linked.after(ck, ck.nextElementSibling);
+    more.querySelector("summary").textContent = "More: Follow-up, Links, Checklist, Details";
   }
   linked.querySelectorAll(".tks-links > .btn, .tks-links > label").length && linked.classList.add("tvs-hasadd");
   const mo = m.querySelector("[data-tvsmoment]");
@@ -2984,7 +3205,17 @@ ${
     b.onclick = () => ho.click();
     ok ? ft.insertBefore(b, ok) : ft.appendChild(b);
   }
-  m.querySelectorAll("[data-tvsf]:not([data-tvro])").forEach((b) => (b.onclick = () => tvEdit(key, b.dataset.tvsf, b)));
+  m.querySelectorAll("[data-tvsf]:not([data-tvro])").forEach((b) => (b.onclick = () => ("remind" === b.dataset.tvsf ? tvRemindPop(b, key) : tvEdit(key, b.dataset.tvsf, b))));
+  // the sender of a pending hand-off takes it back from the sheet (PM review 11-05 #4)
+  try {
+    const H = "function" == typeof tkOfferOf ? tkOfferOf(I.rec || x) : null,
+      me = tdyMe(),
+      hand = m.querySelector(".tks-hand");
+    if (H && hand && H.toUid !== me.id && !hand.querySelector("[data-tvtakeback]")) {
+      hand.insertAdjacentHTML("beforeend", ` <button type="button" class="btn sm" data-tvtakeback>Take Back</button>`);
+      hand.querySelector("[data-tvtakeback]").onclick = () => tkTakeBack(key) && mbCloseModal();
+    }
+  } catch (e) {}
   // the modal focuses its first input a moment after it opens (the date picker, below the fields): the sheet opens at
   // its top, on the title and the fields, not scrolled down to it
   const bd = m.querySelector(".mbm-bd");
@@ -2999,8 +3230,97 @@ ${
       }
       d ? (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0)) : toast("No chase could be drafted for this one: write it from the task");
     });
+  // every task opens this one sheet: the old Edit form ("Their Email", "Code") is not a way in (capture 11-05 #6); a
+  // schedule line keeps Edit Schedule
+  /^(action|firm|hub)$/.test(x.kind) && m.querySelectorAll("[data-tksedit]").forEach((b) => b.remove());
   ph && tvSheetPhone(m, I);
 }
+// ---- Remind: a reminder at a set time (PM review 11-05 #6) -----------------------------------------------------------
+// rec.remind {at, uid, by, sent}: at is the app clock's "YYYY-MM-DDTHH:MM". When the app's clock passes it, the person
+// who set it is reminded through the app's reminder path (notify: the phone's notification where allowed, and a toast
+// with Open), once; the task's history says so. Due stays the date it is owed; Remind is when to be nudged.
+function tvRemindSay(at) {
+  const d = String(at || "").slice(0, 10),
+    t = String(at || "").slice(11, 16);
+  if (!d) return "";
+  const [h, mi] = t.split(":").map((n) => +n || 0),
+    tm = t ? `${h % 12 || 12}${mi ? ":" + String(mi).padStart(2, "0") : ""} ${h >= 12 ? "PM" : "AM"}` : "";
+  return `${d === today() ? "Today" : d === iso(addDays(parse(today()), 1)) ? "Tomorrow" : fmtL(d)}${tm ? ", " + tm : ""}`;
+}
+function tvSetRemind(key, at) {
+  const R = tkResolve(key),
+    rec = R && R.rec;
+  if (!rec) return !1;
+  const me = tdyMe(),
+    was = (rec.remind && rec.remind.at) || "";
+  at ? (rec.remind = { at: at, uid: me.id || "", by: me.name || "", sent: "" }) : delete rec.remind;
+  tkLog(rec, { ev: "remind", from: was, to: at || "" });
+  save();
+  try {
+    "tkall" === view || T2_SCOPED[view] ? renderTkAll() : render();
+  } catch (e) {}
+  toast(at ? `Reminder set for ${tvRemindSay(at)}: ${tdWords(R.x.title, 8)}` : `Reminder cleared: ${tdWords(R.x.title, 8)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+  return !0;
+}
+function tvRemindPop(anchor, key) {
+  const R = tkResolve(key);
+  if (!R || !R.rec) return;
+  const td = today(),
+    tm = iso(addDays(parse(td), 1)),
+    now = String(appNowIso()).slice(11, 16),
+    hr = +now.slice(0, 2),
+    at = (d, t) => `${d}T${t}`,
+    choices = [hr < 15 ? ["This Afternoon", at(td, "15:00")] : null, hr < 17 ? ["In an Hour", at(td, `${String(Math.min(23, hr + 1)).padStart(2, "0")}:${now.slice(3, 5)}`)] : null, ["Tomorrow Morning", at(tm, "08:00")], R.x.due && R.x.due > td ? ["Morning It Is Due", at(R.x.due, "08:00")] : null].filter(Boolean),
+    cur = (R.rec.remind && R.rec.remind.at) || "";
+  tvPop(
+    anchor,
+    "Remind Me",
+    `<div class="tv-people">${choices.map(([n, v]) => `<button type="button" class="tv-person ${cur === v ? "on" : ""}" data-tvrm="${esc(v)}"><span class="grow"><b>${esc(n)}</b></span><small>${esc(tvRemindSay(v))}</small></button>`).join("")}</div>
+<div class="tvrm-pick"><input type="date" data-tvrmd value="${esc(cur.slice(0, 10) || td)}" aria-label="Day"><input type="time" data-tvrmt value="${esc(cur.slice(11, 16) || "09:00")}" aria-label="Time"><button type="button" class="btn" data-tvrmset>Set</button></div>${cur ? '<button type="button" class="btn" data-tvrmx>Clear the Reminder</button>' : ""}`,
+    (d) => {
+      d.querySelectorAll("[data-tvrm]").forEach((b) => (b.onclick = () => (tvPopClose(), mbCloseModal(), tvSetRemind(key, b.dataset.tvrm), setTimeout(() => tkSheet(key), 0))));
+      const s = d.querySelector("[data-tvrmset]");
+      s &&
+        (s.onclick = () => {
+          const dv = d.querySelector("[data-tvrmd]").value,
+            tv = d.querySelector("[data-tvrmt]").value || "09:00";
+          if (!dv) return toast("Pick the day");
+          tvPopClose(), mbCloseModal(), tvSetRemind(key, at(dv, tv)), setTimeout(() => tkSheet(key), 0);
+        });
+      const x = d.querySelector("[data-tvrmx]");
+      x && (x.onclick = () => (tvPopClose(), mbCloseModal(), tvSetRemind(key, ""), setTimeout(() => tkSheet(key), 0)));
+    },
+  );
+}
+// the reminders that are due for the signed-in person, sent once each
+function tvRemindSweep() {
+  let n = 0;
+  try {
+    const me = tdyMe(),
+      now = String(appNowIso()).slice(0, 16);
+    if (!me || !me.id) return 0;
+    tkAll({ open: !0 }).forEach((t) => {
+      const R = tkResolve(t.key),
+        rec = R && R.rec,
+        rm = rec && rec.remind;
+      if (!rm || rm.sent || rm.uid !== me.id || String(rm.at) > now) return;
+      rm.sent = appNowIso();
+      tkLog(rec, { ev: "reminded", to: rm.at });
+      n++;
+      try {
+        notify(`Reminder: ${tdWords(R.x.title, 10)}`, R.x.due ? `Due ${fmtL(R.x.due)}` : "");
+      } catch (e) {}
+      toast(`Reminder: ${tdWords(R.x.title, 10)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
+    });
+    n && save();
+  } catch (e) {}
+  return n;
+}
+setInterval(() => {
+  try {
+    document.body && "1" === document.body.dataset.booted && tvRemindSweep();
+  } catch (e) {}
+}, 3e4);
 // the assistant's drafted chase for this task, if it wrote one (an outbox draft that names the task or the party owed)
 function tvChaseDraft(I) {
   try {
@@ -3044,7 +3364,7 @@ function tvSheetPhone(m, I) {
     body = m.querySelector(".tks");
   box && box.classList.add("tvs-ph");
   const nm = tvNextMeeting(),
-    chips = m.querySelector(".tks-chips");
+    chips = (m.querySelector("[data-tksdue]") || {}).parentNode || null;
   if (chips) {
     chips.classList.add("tvs-dates");
     chips.querySelectorAll("[data-tksdue]").forEach((b) => {
@@ -3062,7 +3382,7 @@ function tvSheetPhone(m, I) {
         n = d ? dayDiff(today(), d) : 0;
       return !d ? "" : 0 === n ? "Today" : n < 0 && n > -7 ? DOW[parse(d).getDay()] : tvD(d);
     };
-  if (body && chips && !m.querySelector(".tvs-latest")) {
+  if (body && !m.querySelector(".tvs-latest")) {
     const html = `<div class="tks-h">Latest</div><div class="tvs-latest">${L ? `<b>${esc(tkFirst(L.by) || "Someone")}</b> <span class="tvs-lw">${esc(when(L.at))}</span> · ${esc(L.text)}` : '<span class="tvs-lw">Nothing written yet.</span>'}</div>`;
     const more = body.querySelector(".tvs-more");
     more ? more.insertAdjacentHTML("beforebegin", html) : body.insertAdjacentHTML("beforeend", html);
@@ -3071,6 +3391,33 @@ function tvSheetPhone(m, I) {
   if (!ft || ft.dataset.tvph) return;
   ft.dataset.tvph = "1";
   ft.classList.add("tvs-ft");
+  // Done is the first action (capture 11-05 #5: Mark Done sat under a closed More at the end, and the blue button was
+  // "Draft the Update"). The blue button marks it done; the suggested next step is a plain button under the fields.
+  const dn = m.querySelector("[data-tksdone]"),
+    ok0 = ft.querySelector("#mbm-ok");
+  if (dn && ok0 && !m.querySelector("[data-tvsnext]")) {
+    const said = ok0.textContent.trim();
+    let pass = !1;
+    const nb = document.createElement("button");
+    nb.type = "button";
+    nb.className = "btn tvs-next";
+    nb.dataset.tvsnext = "1";
+    nb.textContent = said;
+    nb.onclick = () => ((pass = !0), ok0.click());
+    const at = body && (body.querySelector("[data-tkshandopen]") || body.querySelector(".tvs-fields"));
+    at ? at.after(nb) : body && body.prepend(nb);
+    ok0.textContent = "Mark Done";
+    ok0.addEventListener(
+      "click",
+      (e) => {
+        if (pass) return void (pass = !1);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        dn.click();
+      },
+      !0,
+    );
+  }
   ft.querySelectorAll("#mbm-cancel, [data-tvsho]").forEach((b) => (b.hidden = !0));
   const ok = ft.querySelector("#mbm-ok"),
     cam = m.querySelector("[data-tkscam]"),
@@ -3091,6 +3438,20 @@ function tvSheetPhone(m, I) {
 }
 
 // ---- the hooks ------------------------------------------------------------------------------------------------------
+// a search is for this visit to Tasks: leaving the page clears it, so the list is never narrowed by a word typed
+// minutes ago that nothing on screen shows (capture 11-05 #4)
+let tvWasOnTasks = !1;
+{
+  const base = render;
+  render = function () {
+    try {
+      const on = "tkall" === view || !!T2_SCOPED[view];
+      if (tvWasOnTasks && !on && (t2Q || window.__tkSearch)) (t2Q = ""), (window.__tkSearch = !1);
+      tvWasOnTasks = on;
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
 let tvDrawing = "",
   tvLayoutFor = "";
 {
@@ -3213,7 +3574,11 @@ let tvDrawing = "",
       const btn = (attr, v, on, label) => `<button type="button" class="tkf-b ${on ? "on" : ""}" ${attr}="${esc(v)}">${esc(label)}</button>`,
         views = "home" === t2Ctx() ? `<div class="tkf-h">Saved Views</div><div class="tkf-row">${tvViews().map((v) => btn("data-tkfsv", v.id, tvIsOn(v), v.name)).join("")}${btn("data-tkfsvsave", "1", !1, "New View")}</div>` : "",
         lay = `<div class="tkf-h">Layout</div><div class="tkf-row">${tvModesHere().map(([k, n]) => btn("data-tkfmode", k, (tkMode || "cards") === k, n)).join("")}</div>`,
-        meet = "home" === t2Ctx() && "function" == typeof mmCanRun && mmCanRun() && "function" == typeof mmStartDialog ? `<div class="tkf-h">Meeting</div><div class="tkf-row">${btn("data-tkfmeet", "1", !1, mtCurrent && mtCurrent() ? "Rejoin the Meeting" : "Start Meeting")}</div>` : "",
+        // the team meeting for the owner and the coordinator; a site meeting for whoever runs a job (PM review 11-05 S1)
+        meetLive = "function" == typeof mtCurrent && !!mtCurrent(),
+        meetTeam = "home" === t2Ctx() && "function" == typeof mmCanRun && mmCanRun(),
+        meetSite = "function" == typeof mmCanSite && mmCanSite() && !meetLive,
+        meet = "function" == typeof mmStartDialog && (meetTeam || meetSite) ? `<div class="tkf-h">Meeting</div><div class="tkf-row">${meetTeam || meetLive ? btn("data-tkfmeet", "1", !1, meetLive ? "Rejoin the Meeting" : "Start Meeting") : ""}${meetSite ? btn("data-tkfmeet", "site", !1, "Start a Site Meeting") : ""}</div>` : "",
         S = tvSorts()[0],
         // Sort By: the table's fields, both ways (Alan, 10-26); the phone keeps its one-column list, sorted inside its groups
         sortF = tvSortable(),
@@ -3223,8 +3588,21 @@ let tvDrawing = "",
         rowOpts = (cur) => tvRowFields().map((f) => `<option value="${esc(f.k)}" ${cur === f.k ? "selected" : ""}>${esc(f.n)}</option>`).join(""),
         line2 = tvPhone() ? `<div class="tkf-h">Second Line</div><div class="tkf-row tkf-line2"><select class="tkf-sel" data-tkfrow="0" aria-label="First field on the second line">${rowOpts(R2[0])}</select><select class="tkf-sel" data-tkfrow="1" aria-label="Second field on the second line">${rowOpts(R2[1])}</select></div>` : "";
       // the meeting first: it is the coordinator's Monday and Thursday ritual (taskfix #4)
-      box.insertAdjacentHTML("afterbegin", meet + views + lay + sort + line2);
-      m.querySelectorAll("[data-tkfmeet]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), mmStartDialog())));
+      const owed = `<div class="tkf-h">Owed</div><div class="tkf-row">${Object.entries(TK_OWED_SAY).map(([k, n]) => btn("data-tkfowed", k, (tvFF || {}).owed === k, n)).join("")}</div>`;
+      box.insertAdjacentHTML("afterbegin", meet + views + owed + lay + sort + line2);
+      m.querySelectorAll("[data-tkfowed]").forEach(
+        (b) =>
+          (b.onclick = (e) => {
+            e.preventDefault();
+            const k = b.dataset.tkfowed,
+              F = Object.assign({}, tvFF);
+            F.owed === k ? delete F.owed : ((F.owed = k), "me" === tkWho && (tkWho = "all"));
+            tvFF = F;
+            mbCloseModal();
+            renderTkAll();
+          }),
+      );
+      m.querySelectorAll("[data-tkfmeet]").forEach((b) => (b.onclick = (e) => (e.preventDefault(), mbCloseModal(), mmStartDialog("site" === b.dataset.tkfmeet ? { site: !0, pid: "job" === t2Ctx() && S ? S.id : tkProject && "__sales" !== tkProject ? tkProject : "" } : null))));
       // in the Table the grouping is the table's own: Project, Owner, Status, Due Date, or none
       if ("table" === tkMode) {
         const gb = tvTableGroup(),
@@ -3481,6 +3859,14 @@ function tvWaitSeed() {
 #v-tkall .tk2-row .tv-cells>.tv-stc{width:116px}
 #v-tkall .tk2-row .tv-cells>.tv-wait{max-width:200px}
 #v-tkall .tk2-row.tv-3acts.swiped .tk2-slide{transform:translateX(-252px)}
+/* the phone's swipe (PM review 11-05 #10): the title stays; the actions open under it, a right swipe is Done */
+@media (max-width:700px){
+:is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-slide,#v-tkall .tk2-row.tv-3acts.swiped .tk2-slide{transform:none}
+:is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-acts{position:static;display:flex;gap:8px;padding:0 12px 10px 52px;visibility:visible}
+:is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-act{flex:1 1 0;width:auto;min-height:44px;border-radius:10px;font-size:14px}
+#v-tkall .tk2-act.tv-act-re{background:var(--ink-2,#3E4450)}
+:is(#v-tkall,.tk2-host) .tk2-row.tk-swdone .tk2-slide{transform:translateX(40%);opacity:.4;transition:transform .16s ease,opacity .16s ease}
+}
 #v-tkall .tk2-act.tv-act-done{background:#1B6B3E}
 #v-tkall .tv-mwait{display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:0 8px;border-radius:10px;background:var(--tv-amber-bg);color:var(--tv-amber);font-weight:600;font-size:12px;line-height:18px}
 /* groups */
@@ -3757,6 +4143,19 @@ textarea.tv-fin{min-height:120px;resize:vertical}
   #mbm.tks-on.tv-under .mbm-box{height:100%;max-height:100%;box-shadow:none;border-left:1px solid #E7E9EE}
   body:has(#mbm.tks-on.tv-under) #v-tkall .tv-on>.tv-host,body:has(#mbm.tks-on.tv-under) #v-tkall .tv-on>.t2-list{margin-right:420px}
 }
+/* the parsed sentence as chips (quick add, Meeting Mode), Remind, the sheet's next step: every width */
+.tvqc-row{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 0}
+.tvqc{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:44px;max-width:100%;padding:2px 12px;border:1px solid #D7DCE4;border-radius:12px;background:#fff;color:#1A1D23;font-size:13px;line-height:16px;cursor:pointer;text-align:left}
+.tvqc small{font-size:11px;color:#5C6370}
+.tvqc b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.tvqc.tvqc-none b{color:#5C6370;font-weight:400}
+.mm-panel .tvqc-row{padding:8px 0 0}
+.tvrm-pick{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0}
+.tvrm-pick input{min-height:44px;flex:1 1 120px}
+.tvrm-pick .btn,.tvs-next{min-height:44px}
+.tvs-next{width:100%;margin:8px 0}
+.tvs-fields2{margin-top:8px}
+.mm-ndrow{align-items:center;gap:8px;min-height:44px}
 @media (max-width:760px){
   /* the phone's Tasks page (Phone.dc.html): its own compact header; the app's header extras and sub-tabs step aside */
   body:has(#v-tkall.on #tkall-body.tv-on) .topbar,body:has(#v-tkall.on #tkall-body.tv-on) #subnav{display:none !important}
@@ -3766,6 +4165,13 @@ textarea.tv-fin{min-height:120px;resize:vertical}
   #v-tkall .tv-phmenu{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin-left:-10px;padding:0;display:grid;place-items:center;border:0;background:none;color:var(--tv-ink)}
   #v-tkall .tv-phtitle{flex:1 1 auto;margin:0;font-size:22px;line-height:28px;font-weight:700;color:var(--tv-ink)}
   #v-tkall .tv-phhd .grow{display:none}
+  /* large text (PM review 11-05 #10: at 130% the Ask button was cut off): the title gives way, the buttons keep their size */
+  #v-tkall .tv-phhd>*{flex-shrink:0}
+  #v-tkall .tv-phhd .tv-phtitle{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #v-tkall .tv-phhd .tk2-q{flex:1 1 0;min-width:0}
+  /* the filter that is on, as chips with an X (capture 11-05 #3), and the parsed sentence before it is saved (#3) */
+  #v-tkall .tv-phf{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px 0;background:#fff}
+  #v-tkall .tv-phfc{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border:1px solid #C9D3E6;border-radius:999px;background:#EEF3FC;color:var(--tv-accent,#1F4FB8);font-size:13px;font-weight:600;cursor:pointer}
   #v-tkall .tv-on .tk2-hline .tk2-ic,#v-tkall .tv-filterbtn{flex:0 0 44px;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border-radius:12px;border:0;background:#F1F3F6;color:var(--tv-ink)}
   #v-tkall .tv-phhd .tk2-q{flex:1 1 auto;min-width:0;height:44px;border-radius:12px}
   #v-tkall .tv-filterbtn .n{display:none}
@@ -3799,7 +4205,7 @@ textarea.tv-fin{min-height:120px;resize:vertical}
   #v-tkall .tv-on .tk2-check{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:0;display:grid;place-items:center}
   #v-tkall .tv-on .tk2-check>span,#v-tkall .tv-on .tk2-row.late .tk2-check>span{width:21px;height:21px;border:1.6px solid #B8BEC9;border-radius:50%;box-sizing:border-box}
   #v-tkall .tv-on .tk2-mid{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 auto;padding-top:9px}
-  #v-tkall .tv-on .tk2-title{font-size:16px;line-height:1.25;font-weight:600;color:var(--tv-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #v-tkall .tv-on .tk2-title{font-size:16px;line-height:1.25;font-weight:600;color:var(--tv-ink);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
   #v-tkall .tv-on .tk2-title .tk2-key{display:none}
   #v-tkall .tv-on .tk2-sub{display:block;font-size:13px;line-height:16px;color:#5B616E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #v-tkall .tv-on .tk2-sub .tv-ref{font-size:13px;color:#5B616E}
