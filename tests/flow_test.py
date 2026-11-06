@@ -124,9 +124,18 @@ async def s_order(p, c):
         proc = [r for r in R if '"view":"proc"' in r['data']]
         c.ok(not proc, f'order: no Home row sends a line to the FF&E board ({[r["text"][:60] for r in proc]})')
         # the Buy Board's one late reads "order by 8/24, passed" (procurement P1)
-        late = [r for r in R if re.search(r'order.by', r['text']) and '"order"' in r['data']]
-        c.ok(len(late) >= 3 and all(r['verb'] == 'Order' for r in late), f'order: the late lines say Order ({[(r["text"][:40], r["verb"]) for r in late][:4]})')
-        v = await press(pg, r'Parlor kitchen countertop slab', r'^Order$')
+        late = [r for r in R if re.search(r'order.by', r['text'], re.I) and '"order"' in r['data']]
+        # one status per need (purchasing lane P2, 11-05, the coordinator's item 4 and docs/mockups/purchasing/SPEC.md: the
+        # Needs You reasons, "no price" among them, and the Standard's three quotes): a late line's card says what its Buy
+        # Board row says, so a line with no price yet reads Ask for Quotes, not Order. Order stays the need's first step on
+        # the Buy Board, and it opens the same order sheet prefilled with the on-site date, checked below.
+        steps = await pg.evaluate("() => Object.fromEntries(PRED.buyNeeds.rows('').map(r => [r.name, (puNeedStatus(r) || {}).act || '']))")
+        c.ok(len(late) >= 3 and all(any(r['text'].startswith(n) and r['verb'] == a for n, a in steps.items()) for r in late),
+             f'order: the late lines say what their Buy Board row says ({[(r["text"][:40], r["verb"]) for r in late][:4]})')
+        await pg.evaluate("() => { procMode = 'lines'; procPane = 'board'; bbProj = ''; bbVendor = ''; bbTrade = ''; view = 'proc'; render(); const r = buyList('').find(x => x.m && x.m.id === 'm19'); bbSel = r.id; render(); }"); await pg.wait_for_timeout(300)
+        ob = pg.locator('#buy-board .bb-panel [data-bbstep="order"]').first
+        v = (await ob.inner_text()).strip() if await ob.count() else ''
+        if v == 'Order': await ob.click(); await pg.wait_for_timeout(400)
         m = await modal(pg)
         need = await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); return withProject(p, () => matDates(p.materials.find(m => m.id === 'm19')).needBy); }")
         c.ok(v == 'Order' and m and m['title'].startswith('Order') and m['fields'].get('needBy') == need and 'vendor' in m['fields'],
