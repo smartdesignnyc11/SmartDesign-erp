@@ -1043,9 +1043,43 @@ def match_deposit(p, inv, dep):
     raise Stuck(f'record the payment on {inv}', 'the bank line to match (not a typed amount)', p.scr, c.label)
 
 
+def open_document(p, inv):
+    """Alan 11-06: "when you click an invoice, CO, estimate, etc - it should take you to a pdf and from the pdf, you
+    should have options to edit, create credit, refund, etc". Billing taps the deposit invoice on Billing: it opens as the
+    document the client reads (the letterhead, Bill to, the lines), with its actions. The invoice is paid by now, so
+    More offers Create Credit and Refund. A check of the open path, not part of the deposit's outcome: its taps are
+    put back, so J8's tap pin (PINS) stays the deposit's own."""
+    t0, by0, m0 = p._taps, dict(p.by), p.minutes
+    try:
+        p.go('Billing', expect_menu=False)
+        c = p.look().row(inv)
+        if c is None:
+            return p.expect(False, f'{inv} has a row on Billing that opens it', p.scr.excerpt('Billing', 12))
+        p.tap_row(inv)
+        sc = p.look()
+        typed = [c for c in sc.ctls if not c.action and re.match(r'^(item|rate|quantity|qty|description)\b', norm(c.label))]
+        doc = sc.sheet and sc.has('Bill to') and sc.has(inv) and bool(re.search(r'\bInvoice\b', sc.text)) and not typed
+        p.expect(doc, f'{inv} opens on top as the document the client reads (the letterhead, Bill to, the lines), not the editor',
+                 ('the editor: ' + ', '.join(c.label for c in typed[:4]) + ' · ' if typed else '') + sc.excerpt(inv, 10))
+        p.expect(bool(sc.find('More', exact=True)), f'{inv} carries a More for its other actions', ' · '.join(c.label for c in sc.actions()[-14:]))
+        if sc.find('More', exact=True):   # on the phone the bar holds the next step and More; the rest is one tap away
+            p.tap('More', exact=True)
+            sc = p.look()
+        want = ['Edit', 'Download PDF', 'Create Credit', 'Refund']
+        miss = [w for w in want if not sc.find(w, exact=True)]
+        p.expect(not miss, f'the paid {inv} offers Edit, Download PDF, Create Credit and Refund (with More open)',
+                 'missing: ' + ', '.join(miss) + ' · on screen: ' + ' · '.join(c.label for c in sc.actions()[-16:]))
+        if p.look().find('Close', exact=True): p.tap('Close', exact=True)
+    except Stuck as e:
+        p.expect(False, f'{inv} opens as its document from Billing', e.expected)
+    finally:
+        p._taps, p.by, p.minutes = t0, by0, m0
+
+
 def j8_bill_deposit(p):
     """The deposit: the owner records the Ashbys' signature and the contract (the hand-off that starts it), billing
-    invoices 25% and sends it; the next morning the transfer clears and billing matches it to its bank line."""
+    invoices 25% and sends it; the next morning the transfer clears and billing matches it to its bank line. Then the
+    paid invoice opens from Billing as its document (open_document, Alan 11-06)."""
     me, dev = p.uid, p.device
     switch(p, 'u_owner', dev)
     try: record_signature(p)
@@ -1053,6 +1087,7 @@ def j8_bill_deposit(p):
     inv, dep = deposit_invoice(p)
     p.world_step('next')   # Friday morning: the Ashbys' transfer clears; the bank feed brings the line in
     match_deposit(p, inv, dep)
+    open_document(p, inv)
 
 
 # ---------------------------------------------------------------------------------------------------- J5 get three quotes
