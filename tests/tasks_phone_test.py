@@ -123,7 +123,14 @@ async def list_checks(c, pg, label, phone):
             c.ok(any(x == 'Hand Off' or x.startswith('Hand Off') for x in (sh['all'] if phone else sh['ctl'])) and (not phone or all(r['hand'] for r in m['rows'])), f'{who}: Hand Off is one move away ({sh["ctl"][:8]})')
             # PM review 11-05 #6 (lane T2): on the phone the sheet leads with Due, Owner and Remind, and the Due row opens the
             # quick dates (the four Move the Date buttons were a second way to set it); the wide screen keeps its buttons
-            c.ok(any(x.startswith(('Today', 'Tomorrow')) for x in sh['ctl']) or (phone and any(x.startswith('Due') for x in sh['ctl'])), f'{who}: the sheet has quick dates, or the Due row that opens them ({sh["ctl"][:6]})')
+            # (chief of staff 11-06: the Due row is proven to open them, not only to be there)
+            if phone:
+                qd = await pg.evaluate("""() => { const d = document.querySelector('#mbm [data-tvsf="due"]'); if (!d) return null; d.click();
+                  const p = document.getElementById('tv-pop'); const L = p ? [...p.querySelectorAll('button')].map(b => b.innerText.replace(/\\s+/g, ' ').trim()) : [];
+                  try { tvPopClose(); } catch (e) {} return L; }""")
+                c.ok(qd and any(x.startswith(('Today', 'Tomorrow')) for x in qd), f'{who}: the Due row opens the quick dates ({(qd or [])[:5]})')
+            else:
+                c.ok(any(x.startswith(('Today', 'Tomorrow')) for x in sh['ctl']), f'{who}: the sheet has quick dates ({sh["ctl"][:6]})')
             c.ok(sh['primary'] in ('Mark Done', 'Accept') or 'Mark Done' in sh['all'], f'{who}: Done is the blue button or in the sheet (blue: {sh["primary"]})')
             # the capture of every task screen (11-05 #6, lane T2): every task opens this one sheet, so a task's old Edit form
             # is no way in; a schedule line keeps Edit Schedule. Edit is never blue
