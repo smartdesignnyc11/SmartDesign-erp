@@ -3,9 +3,10 @@ Walks the flow as the people who do it, on the seeded demo (app day 2026-09-03, 
 supply houses and their invented replies in the Demo Workspace:
 
   takeoff   rfqFramingTakeoff (the one takeoff function) against an independent Python computation
-  lines     New RFQ opens on "Which Lines?" at 390px: one estimate line, then several (the framing lump sum
+  lines     New Request for Quote (the Quotes page's +) opens the one request sheet empty at 390px (11-06: one path,
+            two doors; Which Lines? and Create RFQ retired): one estimate line, then several (the framing lump sum
             gets the assistant's material list, approved first); each RFQ line keeps estimateLineId/coLineId
-            and the line's budget; the line drill-down shows the line's RFQs
+            and the line's budget; the line drill-down shows the line's RFQs and Ask for Quotes
   foreman   the foreman at 390px: For You > Review, steppers, remove, add, Send Back with a note (redraft), Approve
             (44px targets, no sideways scroll); then it waits on the coordinator
   send      the coordinator picks vendors (each with a because, one outside NYC) and presses Send RFQ
@@ -16,7 +17,7 @@ supply houses and their invented replies in the Demo Workspace:
   award     POs through poAction, linked to the RFQ and the estimate line (po.origin rfq); savings correct
   matbudget savings against budget use the line's MATERIAL portion (merge review): no split shows "No material
             budget on this line" and no figure; a split counts only the material; an old award is re-read
-  invoice   invoice lines (T&M, reimbursable) are RFQ sources: Which Lines?, invoiceLineId on every RFQ and PO
+  invoice   invoice lines (T&M, reimbursable) are RFQ sources: the request sheet, invoiceLineId on every RFQ and PO
             line, the material budget of the line, and the invoice line's drill-down shows its RFQs
   prospect  a supplier named in a reply is a prospect; Add puts it on file and the next RFQ suggests it
   research  sourcing research: facts with sources apart from hypotheses, landed cost against Python, a species or
@@ -154,17 +155,20 @@ async def main():
                 C.ok(js['q'] == takeoff_py(rooms, A), f'takeoff case {i} {A}: JS {js["q"]} vs Python {takeoff_py(rooms, A)}')
                 C.ok(js['d'], f'takeoff case {i}: every line shows its derivation and its assumption')
 
-        # ---- lines: New RFQ opens on Which Lines? (phone), one estimate line, then several with the lump-sum breakdown
+        # ---- lines: New Request for Quote (the page's real +) opens the one request sheet, empty (phone); one estimate
+        # line, then several with the lump-sum breakdown (11-06: Which Lines? and Create RFQ retired, the checks kept)
         await sign_in(pg, 'u_chen')
         await pg.evaluate("() => { setCurrent('p121'); }")
         await go(pg, 'rfq')
-        C.ok(await pg.evaluate(NOSIDE), 'phone: the RFQ page does not scroll sideways (empty)')
-        await pg.locator('#rfq-new').click(); await pg.wait_for_timeout(400)
-        m = await pg.evaluate("() => ({ txt: (document.querySelector('#mbm') || {}).innerText || '', t: (document.querySelector('#mbm h3') || {}).innerText, rows: [...document.querySelectorAll('[data-rfqpk]')].map(i => i.dataset.rfqpk), prim: [...document.querySelectorAll('#mbm .btn.primary')].map(b => b.innerText), plans: !!document.querySelector('#rfq-plans:not(.primary)'), blank: !!document.querySelector('#rfq-blank:not(.primary)') })")
-        C.ok(m['t'] == 'Which Lines?' and m['prim'] == ['Create RFQ'] and m['plans'] and m['blank'], f'New RFQ opens on Which Lines? with one blue Create RFQ; From Plans and Start Blank are secondary ({m})')
+        C.ok(await pg.evaluate(NOSIDE), 'phone: the Quotes page does not scroll sideways (empty)')
+        await pg.locator('#v-rfq .pu-plusb').first.click(); await pg.wait_for_timeout(200)
+        await pg.locator('#v-rfq .pu-mi').filter(has_text='New Request for Quote').first.click(); await pg.wait_for_timeout(400)
+        m = await pg.evaluate("() => ({ txt: (document.querySelector('#mbm') || {}).innerText || '', t: (document.querySelector('#mbm h3') || {}).innerText, rows: [...document.querySelectorAll('[data-rsp]')].map(i => i.dataset.rsp.replace(/^k:/, '')), prim: [...document.querySelectorAll('#mbm .btn.primary')].map(b => b.innerText), plans: !!document.querySelector('#mbm #rfq-plans:not(.primary)'), blank: !!document.querySelector('#mbm #rfq-blank:not(.primary)') })")
+        C.ok(m['t'] == 'Request for Quote' and m['prim'] == ['Send to Vendors'] and m['plans'] and m['blank'], f'New Request for Quote opens the request sheet with one blue Send to Vendors; From Plans and Start Blank are secondary ({m["t"]}, {m["prim"]})')
         C.ok('estimate:es1:l3' in m['rows'] and 'estimate:es1:l2' in m['rows'], f'the sheet lists the job\'s estimate lines ({m["rows"][:6]})')
-        C.ok(await pg.evaluate(NOSIDE), 'phone: Which Lines? does not scroll sideways')
-        await pg.locator('[data-rfqpk="estimate:es1:l3"]').check(); await ok_modal(pg)
+        C.ok(await pg.evaluate(NOSIDE), 'phone: the request sheet does not scroll sideways')
+        await pg.locator('#mbm [data-rsp="k:estimate:es1:l3"]').check(); await pg.wait_for_timeout(300)
+        await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(500)
         one = await pg.evaluate("() => { const r = DB.rfqs.slice(-1)[0]; return JSON.parse(JSON.stringify(r)); }")
         est = await pg.evaluate("() => { const e = DB.clients.flatMap(c => c.estimates).find(e => e.id === 'es1'); return Object.fromEntries(e.lines.map(l => [l.id, +l.cost || 0])); }")
         l1 = one['lines'][0] if one['lines'] else {}
@@ -173,12 +177,12 @@ async def main():
         C.ok(one['status'] == 'foreman-review', f'an estimate line is field material: it goes to the foreman ({one["status"]})')
         await pg.evaluate("() => rfqLinesSheet('p121')"); await pg.wait_for_timeout(300)
         for k in ('estimate:es1:l2', 'estimate:es1:l4'):
-            await pg.locator(f'[data-rfqpk="{k}"]').check()
-        await ok_modal(pg)
-        bd = await pg.evaluate("() => ({ t: (document.querySelector('#mbm h3') || {}).innerText || '', txt: (document.querySelector('#mbm') || {}).innerText || '' })")
-        C.ok('Material List' in bd['t'] and 'Assumed' in bd['txt'], f'a lump-sum framing line gets a proposed material list with its assumptions, approved first ({bd["t"]})')
+            await pg.locator(f'#mbm [data-rsp="k:{k}"]').check(); await pg.wait_for_timeout(250)
+        await pg.locator('#mbm [data-rsbd="k:estimate:es1:l2"]').click(); await pg.wait_for_timeout(300)
+        bd = await pg.evaluate("() => ({ t: (document.querySelector('#mbm h3') || {}).innerText || '', txt: (document.querySelector('#mbm') || {}).innerText || '', n: document.querySelectorAll('#mbm [data-rsl]').length })")
+        C.ok('material list from the takeoff' in bd['txt'] and 'Assumed' in bd['txt'] and bd['n'] >= 9, f'a lump-sum framing line gets a proposed material list with its assumptions, approved first ({bd["n"]} lines)')
         C.ok(await pg.evaluate("() => DB.rfqs.length") == 1, 'nothing is created before the person approves the breakdown')
-        await ok_modal(pg, 800)
+        await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(800)
         multi = await pg.evaluate("() => JSON.parse(JSON.stringify(DB.rfqs.slice(-1)[0]))")
         fr = [l for l in multi['lines'] if l.get('estimateLineId') == 'l2']
         C.ok(len(fr) >= 8 and all(l.get('line') == 'estimate:es1:l2' for l in fr) and any(l.get('estimateLineId') == 'l4' for l in multi['lines']), f'multi-select: the breakdown lines keep l2, the other line keeps l4 ({len(fr)} framing lines)')
@@ -195,23 +199,23 @@ async def main():
         # ---- invoice: T&M and reimbursable invoice lines are RFQ sources (Alan: purchases start from estimate or invoice lines)
         await pg.evaluate(TM_INVOICE)
         await pg.evaluate("() => rfqLinesSheet('p121')"); await pg.wait_for_timeout(300)
-        iv = await pg.evaluate("() => ({ keys: [...document.querySelectorAll('[data-rfqpk]')].map(i => i.dataset.rfqpk), txt: (document.querySelector('#mbm') || {}).innerText || '' })")
-        C.ok('invoice:inTM1:tm1' in iv['keys'] and 'invoice:inTM1:tm2' in iv['keys'] and 'invoice' in iv['txt'].lower(), f'Which Lines? lists the invoice lines ({[k for k in iv["keys"] if k.startswith("invoice")]})')
+        iv = await pg.evaluate("() => ({ keys: [...document.querySelectorAll('#mbm [data-rsp]')].map(i => i.dataset.rsp.replace(/^k:/, '')), txt: (document.querySelector('#mbm') || {}).innerText || '' })")
+        C.ok('invoice:inTM1:tm1' in iv['keys'] and 'invoice:inTM1:tm2' in iv['keys'] and 'invoice' in iv['txt'].lower(), f'the request sheet lists the invoice lines ({[k for k in iv["keys"] if k.startswith("invoice")]})')
         C.ok('No material budget on this line' in iv['txt'] and 'material budget $950' in iv['txt'] and 'material budget $640' in iv['txt'], 'each row shows its material budget, or says there is none')
-        C.ok(await pg.evaluate(NOSIDE), 'phone: Which Lines? with invoice lines does not scroll sideways')
+        C.ok(await pg.evaluate(NOSIDE), 'phone: the request sheet with invoice lines does not scroll sideways')
         for k in ('invoice:inTM1:tm1', 'invoice:inTM1:tm2'):
-            await pg.locator(f'[data-rfqpk="{k}"]').check()
-        await ok_modal(pg, 600)
+            await pg.locator(f'#mbm [data-rsp="k:{k}"]').check(); await pg.wait_for_timeout(250)
+        await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(600)
         inv = await pg.evaluate("() => JSON.parse(JSON.stringify(DB.rfqs.slice(-1)[0]))")
         got = sorted((l.get('invoiceLineId'), l.get('invoiceId'), l.get('line'), l.get('budget')) for l in inv['lines'])
         C.ok(got == [('tm1', 'inTM1', 'invoice:inTM1:tm1', 950), ('tm2', 'inTM1', 'invoice:inTM1:tm2', 640)], f'each RFQ line keeps invoiceLineId and the material budget ({got})')
         ilv = await pg.evaluate("id => { const L = rfqLevel(DB.rfqs.find(r => r.id === id)); return [L.budgetComplete, L.budgetTotal]; }", inv['id'])
         C.ok(ilv == [True, 1590], f'the invoice lines\' material budgets add up: 950 + 640 ({ilv})')
         dr = await pg.evaluate("() => { finLineModal('invoice:inTM1:tm1'); const t = (document.querySelector('#mbm .rfq-onl') || {}).innerText || ''; mbCloseModal(); return t; }")
-        C.ok(inv['number'] in dr and 'Create RFQ' in dr, f'the invoice line drill-down shows its RFQs and Create RFQ ({dr[:120]})')
+        C.ok(inv['number'] in dr and 'Ask for Quotes' in dr, f'the invoice line drill-down shows its RFQs and Ask for Quotes ({dr[:120]})')
         await pg.evaluate("id => { DB.rfqs.find(r => r.id === id).status = 'closed'; save(); }", inv['id'])
         dr = await pg.evaluate("() => { finLineModal('estimate:es1:l2'); const t = (document.querySelector('#mbm .rfq-onl') || {}).innerText || ''; mbCloseModal(); return t; }")
-        C.ok(multi['number'] in dr and 'Create RFQ' in dr, f'the line drill-down shows its open RFQs and Create RFQ ({dr[:120]})')
+        C.ok(multi['number'] in dr and 'Ask for Quotes' in dr, f'the line drill-down shows its open RFQs and Ask for Quotes ({dr[:120]})')
         # the two line-first RFQs stand aside; the walk continues on the plans draft
         await pg.evaluate("ids => { DB.rfqs.forEach(r => ids.includes(r.id) && (r.status = 'closed')); save(); }", [one['id'], multi['id']])
 
@@ -231,9 +235,9 @@ async def main():
         # ---- the foreman, on the phone
         await sign_in(pg, 'u_angel')
         await go(pg, 'ftoday')
-        card = await pg.evaluate("() => (document.querySelector('.rfq-fm') || {}).innerText || ''")
-        C.ok(R0['number'] in card and 'Materials to Check' in card, f'the foreman\'s For You card lists the draft ({card[:80]})')
-        await pg.locator(f'[data-rfqrev="{rid}"]').click(); await pg.wait_for_timeout(400)
+        card = await pg.evaluate("() => (document.querySelector('.view.on .rfq-fm') || {}).innerText || ''")
+        C.ok(R0['number'] in card and 'materials to check' in card.lower(), f'the foreman\'s For You card lists the draft ({card[:80]})')
+        await pg.locator(f'.view.on [data-rfqrev="{rid}"]').click(); await pg.wait_for_timeout(400)
         small = await pg.evaluate(SMALL_TAPS, '#mbm [data-rfqdn], #mbm [data-rfqup], #mbm [data-rfqrm], #mbm #rfq-add-go, #mbm #mbm-ok, #mbm #mbm-alt, #mbm .rfq-qty')
         C.ok(not small, f'every tap target in the sheet is at least 44px ({small[:4]})')
         prim = await pg.evaluate("() => [...document.querySelectorAll('#mbm .btn.primary')].filter(b => b.getClientRects().length).map(b => b.innerText.trim())")
@@ -244,7 +248,7 @@ async def main():
         await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(500)
         R1 = await pg.evaluate(RFQ, rid)
         C.ok(R1['status'] == 'foreman-review' and R1['takeoff']['assumptions']['waste'] == 15 and {l['key']: l['qty'] for l in R1['lines']} == takeoff_py(rooms, {'waste': 15}), f'Send Back with a note: the assistant redrafted at 15% waste ({R1.get("note")})')
-        await pg.locator(f'[data-rfqrev="{rid}"]').click(); await pg.wait_for_timeout(400)
+        await pg.locator(f'.view.on [data-rfqrev="{rid}"]').click(); await pg.wait_for_timeout(400)
         await pg.locator('#mbm [data-rfqup="L1"]').click(); await pg.locator('#mbm [data-rfqup="L1"]').click()
         await pg.locator('#mbm [data-rfqrm="L11"]').click()
         await pg.locator('#rfq-add-item').fill("2x6 x 10' stud"); await pg.locator('#rfq-add-qty').fill('12'); await pg.locator('#rfq-add-go').click()
@@ -264,7 +268,7 @@ async def main():
         qi = await pg.evaluate("() => mApprovals().filter(i => i.kind === 'rfq').map(i => [i.title, i.who])")
         C.ok(len(qi) == 1 and qi[0][1] == 'coord' and 'Pick vendors' in qi[0][0], f'the coordinator\'s Approvals holds Pick Vendors ({qi})')
         await pg.evaluate("id => { rfqOpen = id; view = 'rfq'; render(); }", rid); await pg.wait_for_timeout(300)
-        vp = await pg.evaluate("() => [...document.querySelectorAll('[data-rfqv]')].map(i => [i.dataset.rfqv, i.checked, i.closest('label').innerText])")
+        vp = await pg.evaluate("() => [...document.querySelectorAll('[data-rfqv]')].filter(i => !i.closest('details:not([open])')).map(i => [i.dataset.rfqv, i.checked, i.closest('label').innerText])")
         C.ok(len(vp) >= 5 and all('because' in t for _, _, t in vp), f'every proposed vendor has a because ({len(vp)})')
         C.ok(any(c and 'outside NYC' in t for _, c, t in vp), 'at least one vendor outside NYC is ticked')
         C.ok(any('(Procurement playbook)' in t for _, _, t in vp), 'the because names the line of the Standard and where it is (standardWhy)')
@@ -406,8 +410,9 @@ async def main():
         t = await pg.evaluate("() => ({ text: (document.getElementById('toast') || {}).innerText || '', open: (document.getElementById('toast') || document.body).querySelectorAll('.toast-open').length })")
         C.ok('awarded' in t['text'] and t['open'] >= 1, f'the award toasts with Open ({t})')
 
-        # ---- prospects: add the referral; the next RFQ suggests it
-        await pg.evaluate("() => { rfqOpen = ''; rfqTab = 'prospects'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        # ---- prospects: add the referral; the next RFQ suggests it (the old page's tabs sit behind the 11-03 Quotes page's
+        # Requests, Price Watch and Savings fold, puFull.rfq: the way a person reaches them)
+        await pg.evaluate("() => { rfqOpen = ''; rfqTab = 'prospects'; puFull.rfq = true; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
         pid = await pg.evaluate("() => (DB.rfqProspects.find(x => x.name === 'Tri-State Connector Supply') || {}).id")
         await pg.locator(f'[data-rfqpadd="{pid}"]').click(); await pg.wait_for_timeout(400)
         v = await pg.evaluate("() => DB.vendors.find(v => v.name === 'Tri-State Connector Supply')")
@@ -416,7 +421,7 @@ async def main():
         C.ok(sug and any('added from' in s for s in sug), f'the next RFQ suggests the added prospect ({sug})')
         vv = await pg.evaluate("() => { const po = { number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }; return poValid(po); }")
         C.ok(any('not yet vetted' in x for x in vv), f'a new vendor gets no PO until it is vetted ({vv})')
-        await pg.evaluate("() => { rfqOpen = ''; rfqTab = 'prospects'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        await pg.evaluate("() => { rfqOpen = ''; rfqTab = 'prospects'; puFull.rfq = true; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
         await pg.locator('[data-rfqvet]').first.click(); await pg.wait_for_timeout(300)
         for k in ('w9', 'coi', 'registration', 'address', 'reviews'):
             await pg.locator(f'#mbm [data-f="{k}"]').check()
@@ -428,7 +433,7 @@ async def main():
         await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
         self_ok = await pg.evaluate("() => !!(DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting || {}).approval")
         C.ok(not self_ok, 'the person who added the vendor cannot approve it')
-        await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} signIn('u_owner'); rfqOpen = ''; rfqTab = 'prospects'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} signIn('u_owner'); rfqOpen = ''; rfqTab = 'prospects'; puFull.rfq = true; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
         await pg.evaluate("() => rfqVetSheet(DB.vendors.find(v => v.name === 'Tri-State Connector Supply').id)"); await pg.wait_for_timeout(300)
         await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
         await pg.evaluate("() => { signIn('u_chen'); render(); }"); await pg.wait_for_timeout(200)
@@ -466,7 +471,7 @@ async def main():
         subs = {x['name']: x['quality']['substitution'] for x in R['prospects']}
         C.ok(subs['Susquehanna Valley Sawmill'] and subs['Catskill Family Mill'] and not subs['Tri-County Lumber Wholesale'], f'a species or grade change is a substitution needing approval ({subs})')
         C.ok(all('PM' in x['quality']['substitutionWhy'] for x in R['prospects'] if x['quality']['substitution']), 'the substitution names the PM and designer approval')
-        await pg.evaluate("() => { rfqTab = 'research'; rfqResCat = 'Lumber'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        await pg.evaluate("() => { rfqTab = 'research'; rfqResCat = 'Lumber'; puFull.rfq = true; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
         prim = await pg.evaluate("() => [...document.querySelectorAll('#v-rfq .btn.primary')].filter(b => b.getClientRects().length).map(b => b.innerText.trim())")
         C.ok(prim == ['Add to Next RFQ'], f'research: one blue primary, Add to Next RFQ ({prim})')
         first = await pg.evaluate("() => document.querySelector('[data-srcadd].primary').dataset.srcadd")

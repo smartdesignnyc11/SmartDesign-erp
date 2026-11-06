@@ -2,6 +2,7 @@
 the assistant's purchasing answers (the coordinator expert's review, 11-05: scratchpad pu_review/coord S1_/S2_ shots).
 Each section runs in a fresh browser (fresh seeded DB, app day 2026-09-03).
 
+  new     S1  New Request for Quote is the same sheet opened empty (one path, two doors).
   sheet   S1  Ask for Quotes opens a request sheet prefilled from the picked lines (rfqStartFromLines): item-level
               lines with quantity and unit, scope, due date and vendors suggested by trade and history; nothing is
               created until Send or Save; the record is headed "Request for Quote", the list "Quotes", never "RFQs".
@@ -106,9 +107,44 @@ async def s_sheet(p, c):
         s = await pg.evaluate("() => { const r = DB.rfqs[DB.rfqs.length - 1]; return { status: r.status, v: (r.vendors || []).length, fq: !!r.fewerQuotes, fm: rfqForemanRows().some(x => x.id === r.id), toast: (document.getElementById('toast') || {}).innerText || '' }; }")
         c.ok(s['status'] == 'sent' and s['v'] == 1 and s['fq'], f'sheet: with a reason Send sends it and logs the reason ({s})')
         c.ok(s['fm'], 'sheet: the foreman\'s quantity check runs beside the sent request (on his Today), not as a lock')
+        # the foreman changes a quantity after it went out: Tell the Vendors drafts the change to every invited vendor
+        fm = await pg.evaluate("""() => { const r = DB.rfqs[DB.rfqs.length - 1]; signIn('u_angel'); render(); rfqForemanSheet(r.id); return r.id; }""")
+        await pg.wait_for_timeout(300)
+        await pg.locator('#mbm [data-rfqup="L1"]').click(); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(400)
+        await sign_in(pg, 'u_chen'); await pg.evaluate("id => rfqOpenFor(id)", fm); await pg.wait_for_timeout(300)
+        tell = await pg.locator('#v-rfq #rfq-tell').count()
+        c.ok(tell == 1, 'sheet: a quantity the foreman changed after sending offers Tell the Vendors on the request')
+        if tell:
+            await pg.locator('#v-rfq #rfq-tell').click(); await pg.wait_for_timeout(400)
+        tv = await pg.evaluate("id => { const r = rfqById(id); return { told: r.fmTold && r.fmTold.n, drafts: (DB.outbox || []).filter(o => o.kind === 'rfq-change' && o.about.rfqId === id && o.status === 'draft').length, v: (r.vendors || []).length, appr: mApprovals().filter(i => i.kind === 'draft' && /Change to RFQ/.test(i.title || '')).length, toast: (document.getElementById('toast') || {}).innerText || '' }; }", fm)
+        c.ok(tv['told'] == tv['v'] == tv['drafts'] and tv['drafts'] >= 1, f'sheet: one tap drafts the change to every invited vendor ({tv})')
+        c.ok('Open' in tv['toast'], f'sheet: the drafts toast with Open ({tv["toast"][:120]})')
         c.ok(not errs, f'sheet: page errors {errs[:2]}')
     finally:
         await b.close()
+
+async def s_new(p, c):
+    """New Request for Quote is the same sheet, opened empty, from the page's real + (no Which Lines?, no Create RFQ)"""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await open_app(p, phone=phone)
+        try:
+            await sign_in(pg, 'u_chen')
+            await pg.evaluate("() => { window.rfqOpen = ''; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+            await pg.locator('#v-rfq .pu-plusb').first.click(); await pg.wait_for_timeout(200)
+            await pg.locator('#v-rfq .pu-mi').filter(has_text='New Request for Quote').first.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            c.ok(m and m['title'] == 'Request for Quote' and m['primary'] == ['Send to Vendors'], f'new {dev}: New Request for Quote opens the one request sheet, one blue ({m and (m["title"], m["primary"])})')
+            c.ok(m and 'Create RFQ' not in m['buttons'] and 'Which Lines?' not in m['text'], f'new {dev}: no Which Lines? and no Create RFQ ({m and m["buttons"]})')
+            rows = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-rsp]')].map(i => i.dataset.rsp)")
+            c.ok('k:estimate:es1:l3' in rows and not await pg.evaluate("() => document.querySelectorAll('#mbm [data-rsq]').length"), f"new {dev}: it starts empty with the job's lines to pick ({rows[:4]})")
+            await pg.locator('#mbm [data-rsp="k:estimate:es1:l3"]').check(); await pg.wait_for_timeout(300)
+            n = await pg.evaluate("() => [document.querySelectorAll('#mbm [data-rsq]').length, document.querySelectorAll('#mbm [data-rsv]').length]")
+            c.ok(n[0] == 1 and n[1] >= 1, f'new {dev}: a ticked line becomes a line to quote, and vendors are suggested ({n})')
+            c.ok(await pg.evaluate("() => document.documentElement.scrollWidth - innerWidth") <= 1 and await pg.evaluate("() => { const m = document.querySelector('#mbm .mbm-box'); return m.scrollWidth - m.clientWidth; }") <= 1, f'new {dev}: no sideways scroll')
+            c.ok(not errs, f'new {dev}: page errors {errs[:2]}')
+        finally:
+            await b.close()
 
 async def s_three(p, c):
     b, pg, errs = await open_app(p)
@@ -211,7 +247,7 @@ async def s_award(p, c):
         c.ok('$3,850' in t['text'] and '$1,380' not in t['text'], f'award: the toast says $3,850 ({t["text"][:160]})')
         await pg.evaluate("id => rfqOpenFor(id)", r['id']); await pg.wait_for_timeout(400)
         txt = await pg.evaluate("() => document.getElementById('v-rfq').innerText")
-        c.ok('$3,850' in txt and '$1,380 saved' not in txt, 'award: the record says $3,850 saved')
+        c.ok('$3,850' in txt and '$1,380 saved' not in txt and 'Negotiation:' in txt, 'award: the record says $3,850 saved, with the negotiation figure beside it')
         c.ok(not errs, f'award: page errors {errs[:2]}')
     finally:
         await b.close()
@@ -302,7 +338,7 @@ async def s_phone(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('sheet', s_sheet), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
+SECTIONS = [('sheet', s_sheet), ('new', s_new), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

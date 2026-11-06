@@ -1080,9 +1080,10 @@ def send_drafts(p, rx):
 
 
 def j5_three_quotes(p):
-    """The coordinator: the three yards from the huddle on file, one RFQ from three estimate lines at once, the foreman's
-    quantity check on his phone, the three yards picked and sent; after the replies come in, each quote recorded and
-    confirmed against its reply (one in prose, typed by hand), levelled, awarded."""
+    """The coordinator: the three yards from the huddle on file, one request from three estimate lines at once in the
+    request sheet, the three yards picked there and sent; the foreman's quantity check on his phone beside it; after
+    the replies come in, each quote recorded and confirmed against its reply (prose read by the app, or typed by hand
+    when it cannot), levelled, awarded."""
     me, dev = p.uid, p.device
     p._act('news')
     p.go('Purchasing')
@@ -1092,54 +1093,50 @@ def j5_three_quotes(p):
         p.tap('New Vendor', expect='Add Vendor')
         p.do([('type', 'Name', name), ('type', 'Trade', 'Lumber & drywall'), ('pick', 'Kind', 'Supplier'), ('type', 'Contact', who), ('type', 'Email', mail), ('tap', 'Add Vendor')])
     p.tap('Quotes', exact=True)
-    # the 11-03 Quotes page (docs/mockups/purchasing): one + for new things; its New Request for Quote starts from the
-    # lines (the same Which Lines? sheet the old page's New RFQ opened)
+    # the 11-03 Quotes page (docs/mockups/purchasing): one + for new things. 11-06 (the coordinator's call): one path,
+    # two doors. New Request for Quote opens the same request sheet Ask for Quotes opens, empty: the job and its lines
+    # are picked in the sheet, the vendors ticked there, and Send to Vendors sends it (Which Lines? and Create RFQ are
+    # retired). The foreman's quantity check runs beside it on his phone, never as a lock (the purchasing spec).
+    yards = [y[0] for y in YARDS]
     p.tap('New', exact=True)
-    p.tap('New Request for Quote', expect='Which Lines?')
+    p.tap('New Request for Quote', expect='Request for Quote')
     p.pick('Job', JOB['job'])
     p.look()
     boxes = [p.scr.find(ln, field=True, kinds=('check',)) for ln in RFQ_LINES]
-    p.expect(all(boxes), 'each of the three estimate lines can be ticked in Which Lines?', str(boxes))
+    p.expect(all(boxes), 'each of the three estimate lines can be ticked in the request sheet', str(boxes))
     p.do_ctls([('tap', b) for b in boxes if b])
-    p.tap('Create RFQ', exact=True)
-    while p.scr.sheet and 'material list' in norm(p.scr.sheet_title):   # a lump-sum line: the app proposes a material list
-        sc = p.look(marks=True)
-        m = re.search(r'I propose these (\d+) materials', sc.text)
-        blue = next((c for c in sc.actions('sheet') if c.blue), None)
-        p.expect(not (m and int(m.group(1)) == 0 and blue and 'use this list' in norm(blue.label)),
-                 'the blue button never proposes an empty material list for a lump-sum line', f'"{blue.label if blue else ""}" (blue) on "I propose these 0 materials"')
-        p.tap('Keep the Line as Is', exact=True)
-    rfq = (re.findall(r'RFQ-\d{4}-\d+', p.scr.toast) or re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
-    p.expect(bool(re.search(r'RFQ-\d{4}-\d+', p.scr.toast or '')) or bool(rfq), 'a toast naming the RFQ, with Open', p.scr.toast)
-    if p.look().has('Foreman Review') or p.scr.has('Angel checks'):
-        switch(p, 'u_angel', 'phone')
-        c = p.scr.next_action(rfq or 'RFQ-20')
-        more = p.scr.find('More for Today')
-        p.expect(c is not None, f'{rfq} is on the foreman\'s Today when he opens it (not folded away)',
-                 'folded under "More for Today"' if more else 'not on his Today')
-        if c is None and more:   # a person looks in the fold the Today offers
-            p.tap_ctl(more)
-            c = p.look().next_action(rfq or 'RFQ-20')
-        p.expect(c is not None and bool(re.match(r'[A-Za-z]', c.label or '')), f'the foreman\'s {rfq} card has a labelled button', c.label if c else 'no card')
-        if c is None: raise Stuck('the foreman checks the quantities', f'{rfq} under Materials to Check on his Today', p.scr, '')
-        p.tap_ctl(c, expect='Check the Quantities')
-        p.tap('Approve', exact=True)
-        switch(p, me, dev)
-        p.go('Purchasing')
-        p.tap('Quotes', exact=True)
-    p.look()
-    open_rfq(p, rfq)
-    want = [y[0] for y in YARDS]
-    picks = [c for c in p.scr.ctls if c.kind == 'check' and c.label]
-    steps = [('tap', c) for c in picks if (c.state == 'on') != any(norm(c.label).startswith(norm(w)) for w in want)]
-    p.expect(all(any(norm(c.label).startswith(norm(w)) for c in picks) for w in want), 'the three yards from the huddle among the vendors to pick',
+    sc = p.look(marks=True)
+    if sc.find('Propose a Material List'):   # a lump-sum line: the sheet offers the assistant's material list
+        m = re.search(r'a lump sum a vendor may not price: (\d+) materials', sc.text)
+        p.expect(bool(m) and int(m.group(1)) > 0, 'the sheet never proposes an empty material list for a lump-sum line', m.group(0) if m else 'no count beside the offer')
+    picks = [c for c in p.scr.ctls if c.kind == 'check' and c.label and 'because' in norm(c.label)]
+    steps = [('tap', c) for c in picks if (c.state == 'on') != any(norm(c.label).startswith(norm(w)) for w in yards)]
+    p.expect(all(any(norm(c.label).startswith(norm(w)) for c in picks) for w in yards), 'the three yards from the huddle among the vendors to pick',
              'the picks: ' + '; '.join(c.label[:30] for c in picks))
     if steps: p.do_ctls(steps)
-    p.tap('Send RFQ', exact=True)
+    p.tap('Send to Vendors', exact=True)
+    rfq = (re.findall(r'RFQ-\d{4}-\d+', p.scr.toast) or re.findall(r'RFQ-\d{4}-\d+', p.look().text) or [''])[0]
+    p.expect(bool(re.search(r'RFQ-\d{4}-\d+', p.scr.toast or '')) or bool(rfq), 'a toast naming the RFQ, with Open', p.scr.toast)
     sent = bool(re.search(r'\bsent\b', p.scr.toast, re.I)) and not re.search(r'drafted', p.scr.toast, re.I)
-    p.expect(sent, f'Send RFQ sends {rfq} to the vendors (its own note: "Send RFQ is the approval: one email per vendor")', p.scr.toast)
+    p.expect(sent, f'Send to Vendors sends {rfq} to the vendors (one email per vendor)', p.scr.toast)
+    beside = bool(re.search(r'checks the quantities', p.scr.toast or '', re.I))
     if not sent:
         send_drafts(p, rfq); p.note(f'{rfq} sent from the coordinator\'s mailbox drafts')
+    p.expect(beside, f'the foreman\'s quantity check on {rfq} runs beside it (the toast says so)', p.scr.toast)
+    # the foreman checks the quantities on his phone, beside the request that went out
+    switch(p, 'u_angel', 'phone')
+    c = p.scr.next_action(rfq or 'RFQ-20')
+    more = p.scr.find('More for Today')
+    p.expect(c is not None, f'{rfq} is on the foreman\'s Today when he opens it (not folded away)',
+             'folded under "More for Today"' if more else 'not on his Today')
+    if c is None and more:   # a person looks in the fold the Today offers
+        p.tap_ctl(more)
+        c = p.look().next_action(rfq or 'RFQ-20')
+    p.expect(c is not None and bool(re.match(r'[A-Za-z]', c.label or '')), f'the foreman\'s {rfq} card has a labelled button', c.label if c else 'no card')
+    if c is None: raise Stuck('the foreman checks the quantities', f'{rfq} under Materials to Check on his Today', p.scr, '')
+    p.tap_ctl(c, expect='Check the Quantities')
+    p.tap('Approve', exact=True)
+    switch(p, me, dev)
     p.world_step('work2')   # the yards answer by mail
     record_quotes(p)
     award(p)
