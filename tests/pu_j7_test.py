@@ -43,7 +43,7 @@ async def s_match(p, c):
         b, pg, errs = await open_app(p, phone)
         try:
             await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(SETUP); await sign_in(pg, 'u_owner')
-            r = await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'NEM-5851'), po = DB.pos.find(x => x.id === b.poId); return { left: pay3ArrivedLeft(b), over: pay3OverArrived(b), route: rtFor(b).top, want: r2(169 * 14.5 * (1 + (+po.tax || 0) / 100)), wantS: money(r2(169 * 14.5 * (1 + (+po.tax || 0) / 100))) }; }")
+            r = await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'NEM-5851'), po = DB.pos.find(x => x.id === b.poId); return { left: pay3ArrivedLeft(b), over: pay3OverArrived(b), route: rtFor(b).top, want: r2(169 * 14.5 * (1 + (+po.tax || 0) / 100)), wantS: money2(r2(169 * 14.5 * (1 + (+po.tax || 0) / 100))) }; }")
             want = r['want']
             c.ok(r['left'] == want and r['over'] == want and r['route'] == 'owner', f"match ({dev}): NEM-5851 is read against the receipt, 169 sf at $14.50 and the order's tax, and goes to the Owner ({r})")
             await bill_page(pg, 'NEM-5851')
@@ -140,7 +140,97 @@ async def s_lines(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines)]
+# the walk's J7 order (11-06): lumber and drywall bought as two lump-sum lines (1 ls each) off an RFQ whose awarded quote
+# breaks each lot into pieces; both lots came, 6 cement boards short, reported on the line (Report a Problem)
+LOT = """() => { setCurrent('p121'); const L = lineOptions('p121').map(o => o.key).filter(Boolean);
+  const v = (DB.vendors || []).find(x => x.name === 'Ferguson') || {};
+  const rfq = { id: 'rfq_lot', number: 'RFQ-2026-901', projectId: 'p121', status: 'awarded', lines: [{ id: 'L1', item: 'Framing lumber: supply', qty: 1, unit: 'ls' }, { id: 'L2', item: 'Drywall & cement board: supply', qty: 1, unit: 'ls' }],
+    quotes: [{ id: 'q_lot', vendorId: v.id || '', vendor: 'Ferguson', round: 1, lines: [], replyText: 'QUOTATION\\nRef: RFQ-2026-901\\nL1  Framing lumber: supply  1 LS  826.80  826.80\\n     incl. 60 pc 2x4x8 SPF stud @ $5.95; 12 pc 2x6x10 SPF @ $10.90\\nL2  Drywall & cement board: supply  1 LS  2,169.00  2,169.00\\n     incl. 80 sheet 5/8\\" Type X drywall 4x8 @ $16.95; 30 sheet 1/2\\" cement board 3x5 @ $27.10\\nFreight: $45.00' }] };
+  (DB.rfqs = DB.rfqs || []).push(rfq);
+  const po = { id: 'po_lot', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', vendorId: v.id || '', date: today(), expected: today(), status: 'issued', shipTo: 'Site', tax: 0, shipping: 0, matchedTxns: [], rfqId: rfq.id,
+    lines: [{ id: 'lla', item: 'Framing lumber: supply', qty: 1, unit: 'ls', price: 826.8, received: 0, line: L[0], rfqId: rfq.id, rfqLineId: 'L1' }, { id: 'llb', item: 'Drywall & cement board: supply', qty: 1, unit: 'ls', price: 2169, received: 0, line: L[1], rfqId: rfq.id, rfqLineId: 'L2' }] };
+  DB.pos.push(po); puReceiveLines(po, [{ l: po.lines[0], q: 1 }, { l: po.lines[1], q: 1 }], 'test', 'slip.jpg'); save(); render();
+  return { po: po.number, L: L.slice(0, 2) }; }"""
+
+async def s_lot(p, c):
+    """a short on a lump-sum line: the claim is priced at the quoted piece (6 boards at $27.10, never 6 lots at $2,169), and
+    the bill for the whole order is over what arrived by that much, for the coordinator to hold and the Owner to approve part"""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await open_app(p, phone)
+        try:
+            await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(LOT)
+            await pg.evaluate("() => deliveryProblem(DB.pos.find(x => x.id === 'po_lot'))"); await pg.wait_for_timeout(400)
+            await pg.locator('#dp-type').select_option('short'); await pg.locator('#dp-line').select_option('llb')
+            await pg.locator('#dp-qty').fill('6'); await pg.locator('#dp-note').fill('6 cement boards backordered, balance next week (Angel)')
+            await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(500)
+            iss = await pg.evaluate("() => (DB.pos.find(x => x.id === 'po_lot').issues || []).map(i => [i.type, i.qty, i.amount, i.priceFrom || ''])")
+            c.ok(len(iss) == 1 and iss[0][2] == 162.6 and 'quote' in iss[0][3], f'lot ({dev}): 6 cement boards short on a 1 ls line are claimed at the quoted $27.10 each, $162.60, not at the lot price ({iss})')
+            tax = await pg.evaluate("() => +DB.pos.find(x => x.id === 'po_lot').tax || 0")
+            await pg.evaluate("""() => { const po = DB.pos.find(x => x.id === 'po_lot');
+              DB.bills.push({ id: 'b_lot', number: 'GOW-5482', vendor: 'Ferguson', poId: po.id, projectId: 'p121', date: today(), due: today(), status: 'submitted', createdBy: 'Chen Biron', entityId: 'ent1', cat: 'materials',
+                lines: [{ id: uid('bl'), desc: 'Invoice GOW-5482', amount: poTotal(po).total, poLineId: 'lla', line: po.lines[0].line }], approvals: [] }); save(); render(); }""")
+            want = round((826.8 + 2169 - 162.6) * (1 + tax / 100), 2)
+            r = await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'b_lot'); return { left: pay3ArrivedLeft(b), over: pay3OverArrived(b), top: rtFor(b).top }; }")
+            c.ok(r['over'] is not None and abs(r['left'] - want) < 0.02 and r['top'] == 'owner', f'lot ({dev}): the whole-order bill is over what arrived, ${want:,.2f}, and goes to the Owner ({r})')
+            await pg.evaluate("() => { setCurrent('p121'); poOpen = 'po_lot'; view = 'po'; render(); }"); await pg.wait_for_timeout(500)
+            note = await pg.evaluate("() => { const n = document.querySelector('.view.on .pu-arr'); return n ? n.innerText : ''; }")
+            wantS = await pg.evaluate("x => money2(x)", want)
+            c.ok('GOW-5482' in note and wantS in note and 'cement board' in note and '162.60' in note, f'lot ({dev}): the order says what arrived, {wantS}, less the 6 cement boards claimed ({note[:240]!r})')
+            # a claim whose piece the quote does not name: unknown, never a guess, and the bill still waits on what arrived
+            await pg.evaluate("""() => { const po = DB.pos.find(x => x.id === 'po_lot'); po.issues.push({ claim: true, status: 'open', type: 'damaged', lineId: 'lla', qty: 2, note: 'two came split', item: po.lines[0].item, unit: 'ls',
+              ...puClaimAmount(po, po.lines[0], 2, 'two came split') }); }""")
+            r = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_lot'), i = po.issues[1]; return { amt: i.amount, words: pay3ClaimWords(po) }; }")
+            c.ok(r['amt'] is None and 'not on the order' in r['words'], f'lot ({dev}): a claim the quote cannot price is not guessed ({r})')
+            c.ok(not errs, f'lot ({dev}): page errors {errs[:2]}')
+        finally:
+            await b.close()
+
+async def s_phone(p, c):
+    """the phone's Deliveries: Receive opens the one receive sheet on the order; the lot that came with 6 cement boards
+    short is received and the 6 boards claimed at the quoted price"""
+    b, pg, errs = await open_app(p, True)
+    try:
+        await sign_in(pg, 'u_chen')
+        await pg.evaluate(LOT.replace("puReceiveLines(po, [{ l: po.lines[0], q: 1 }, { l: po.lines[1], q: 1 }], 'test', 'slip.jpg'); ", ''))
+        await pg.evaluate("() => { setCurrent('p121'); view = 'recv'; render(); }"); await pg.wait_for_timeout(600)
+        btn = pg.locator('.view.on [data-purecv="po_lot"]:visible')
+        c.ok(await btn.count() == 1 and (await btn.first.inner_text()).strip() == 'Receive', "phone: the order has Receive on its Deliveries row, under Arriving")
+        if await btn.count():
+            await btn.first.click(); await pg.wait_for_timeout(500)
+            m = await modal(pg)
+            no = await pg.evaluate("() => DB.pos.find(x => x.id === 'po_lot').number")
+            c.ok(m and no in m['title'] and 'Short' in m['buttons'] and 'Damaged' in m['buttons'] and 'Photo of the Slip' in m['text'], f"phone: Receive opens the receive sheet on {no}: a count and a condition per line, the slip's photo ({m and m['title']!r}, {m and m['buttons'][:8]})")
+            if m:
+                await pg.locator('#mbm [data-purq="lla"]').fill('1'); await pg.locator('#mbm [data-purq="llb"]').fill('1')
+                await pg.locator('#mbm [data-pucond="short"][data-pul="llb"]').click(); await pg.wait_for_timeout(200)
+                bad = pg.locator('#mbm [data-pubad="llb"]')
+                c.ok(await bad.is_visible(), 'phone: Short on the 1 ls drywall line asks how many pieces are short')
+                await bad.fill('6'); await pg.locator('#mbm [data-punote]').fill('6 cement boards short: backordered, balance next week')
+                await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(600)
+                r = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_lot'); return { got: po.lines.map(l => l.received), iss: (po.issues || []).map(i => [i.type, i.qty, i.unit, i.amount]) }; }")
+                t = await toast(pg)
+                c.ok(r['got'] == [1, 1] and r['iss'] == [['short', 6, 'pc', 162.6]] and 'claimed' in t['text'], f"phone: both lots received, the 6 boards claimed at $162.60 ({r}, {t['text'][:160]!r})")
+        c.ok(not errs, f'phone: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_stmt(p, c):
+    """a vendor's mail that names no order is put on their one open order only if that order existed when it was sent
+    (Nemo's 9/1 statement was read onto PO-2026-050, issued 9/4, and NEM-5851 was flagged as billed twice)"""
+    b, pg, errs = await open_app(p)
+    try:
+        await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(SETUP)
+        r = await pg.evaluate("""() => { const open = DB.pos.filter(po => po.vendor === 'Nemo Tile' && ['issued', 'partial'].includes(po.status)).map(po => po.number);
+          const m = d => ({ date: d + 'T18:00:00.000Z', subject: 'Statement', text: 'There is 1 invoice outstanding: #88431, $2,140.', attachments: [] });
+          const before = cmBillPO(m('2026-09-01'), { vendor: 'Nemo Tile' }), after = cmBillPO(m(today()), { vendor: 'Nemo Tile' });
+          return { open, before: before && before.number, after: after && after.number }; }""")
+        c.ok(r['open'] == [S0['tile']] and r['before'] is None and r['after'] == S0['tile'], f"stmt: a statement sent before {S0['tile']} existed is not read onto it; one sent after is ({r})")
+        c.ok(not errs, f'stmt: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+SECTIONS = [('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines), ('lot', s_lot), ('phone', s_phone), ('stmt', s_stmt)]
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default=''); a = ap.parse_args()
     want = {x.strip() for x in a.section.split(',') if x.strip()}

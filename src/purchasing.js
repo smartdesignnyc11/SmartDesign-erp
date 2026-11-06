@@ -1022,7 +1022,7 @@ function puReceive(po) {
   const lineHtml = (l) => {
     const item = esc(l.item || l.desc || "Line"),
       u = esc(l.unit || "");
-    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}"><button type="button" class="pu-chip" data-puall="${esc(l.id)}" data-left="${left(l)}">All Here</button>${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span><b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span></span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
+    return `<div class="pu-rql" data-purl="${esc(l.id)}"><label class="pu-rq"><span data-nocase><b>${item}</b><span class="small muted">${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${u} in · ${left(l)} to come</span></span><input type="number" inputmode="decimal" min="0" step="any" data-purq="${esc(l.id)}" data-f="q_${esc(l.id)}" value="" placeholder="${left(l)} to come" aria-label="${item}: how many arrived (${left(l)} ${u} still to come)"></label><div class="pu-conds" role="radiogroup" aria-label="Condition of ${item}"><button type="button" class="pu-chip" data-puall="${esc(l.id)}" data-left="${left(l)}">All Here</button>${CONDS.map(([k, w]) => `<button type="button" class="pu-chip ${"good" === k ? "on" : ""}" data-pucond="${k}" data-pul="${esc(l.id)}" aria-pressed="${"good" === k}">${w}</button>`).join("")}</div><label class="pu-rq pu-bad" data-pubadw="${esc(l.id)}" hidden><span>${puLotLine(l) ? `<b>How Many Pieces Are Short, Damaged or Wrong</b><span class="small muted">the ${u} came; the pieces of it that did not, or came broken, are claimed at the vendor's quoted price</span>` : `<b>How Many Are Damaged or Wrong</b><span class="small muted">of the ${u || "ones"} that came; they are claimed, not received</span>`}</span><input type="number" inputmode="decimal" min="0" step="any" data-pubad="${esc(l.id)}" value="" aria-label="${item}: how many are damaged or wrong"></label></div>`;
   };
   const m = mbModal(
     `Receive Some — <span data-nocase>${esc(po.number)}</span>`,
@@ -1045,8 +1045,15 @@ function puReceive(po) {
         if (!R.length) return mark(m.querySelector("[data-purq]"), "Count what arrived (0 if none of it came)");
         const over = R.find((x) => +x.raw > left(x.l) + 0.001);
         if (over) return mark(over.i, `Only ${left(over.l)} ${over.l.unit || ""} are still to come: the rest goes back, or onto a change to the order`);
+        // a lump-sum line (1 ls) that came whole with pieces of it short, damaged or wrong: the lot is received and the
+        // pieces are claimed (the walk's J7: 6 cement boards short on the 1 ls drywall line could not be said here)
+        const pieces = (x) => puLotLine(x.l) && "good" !== x.k && Math.max(0, +x.raw || 0) >= left(x.l) - 0.001;
         for (const x of R) {
           const c = Math.max(0, +x.raw || 0);
+          if (pieces(x)) {
+            if ("" === x.badRaw || !(+x.badRaw > 0)) return mark(x.bi, `How many pieces of the ${x.l.unit || "lot"} are ${x.k}?`);
+            continue;
+          }
           if ("short" === x.k && c >= left(x.l) - 0.001) return mark(x.i, `Nothing is short: ${c} is everything still to come`);
           if (["damaged", "wrong"].includes(x.k)) {
             const bad = +x.badRaw;
@@ -1060,6 +1067,10 @@ function puReceive(po) {
           claims = [],
           came = [];
         R.forEach((x) => {
+          if (pieces(x)) {
+            came.push({ l: x.l, q: Math.max(0, +x.raw || 0) });
+            return void claims.push({ l: x.l, type: x.k, qty: +x.badRaw, pieces: !0 });
+          }
           const c = Math.max(0, +x.raw || 0),
             bad = ["damaged", "wrong"].includes(x.k) ? +x.badRaw || 0 : 0,
             good = r2(c - bad),
@@ -1073,6 +1084,10 @@ function puReceive(po) {
         // one claim per line and kind, on its own line: what did not come, or what came damaged or wrong
         claims.forEach((k) => {
           const claim = { t: nowStamp(), at: appNowIso(), by: ((currentUser() || {}).name) || role(), type: k.type, lineId: k.l.id, item: k.l.item || k.l.desc || "", qty: k.qty, unit: k.l.unit || "", amount: r2(k.qty * (+k.l.price || 0)), note: note, claim: !0, status: "open" };
+          // a lump-sum line's claim is priced from the vendor's quoted piece, never a count at the lot's price
+          "function" == typeof puClaimAmount && Object.assign(claim, puClaimAmount(po, k.l, k.qty, note));
+          k.pieces && ((claim.unit = "pc"), (claim.of = k.l.unit || ""));
+          k.amount = claim.amount;
           (po.issues = po.issues || []).push(claim);
           k.l.issue = k.type;
           try {
@@ -1083,9 +1098,9 @@ function puReceive(po) {
         save(), render();
         const amt = r2(came.reduce((a, x) => a + x.q * (+x.l.price || 0), 0)),
           what = full ? "received in full" : came.length ? `${came.length} line${1 === came.length ? "" : "s"} received` : "nothing received",
-          held = r2(claims.reduce((a, k) => a + k.qty * (+k.l.price || 0), 0));
+          held = r2(claims.reduce((a, k) => a + (+k.amount || 0), 0));
         claims.length
-          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
+          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.pieces ? "pieces" : k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
           : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards
             "function" == typeof rcReceiptToast
             ? rcReceiptToast(po, `${po.number} · ${po.vendor} — ${what}${amt ? `, ${money(amt)}` : ""}`)
@@ -1106,8 +1121,9 @@ function puReceive(po) {
         const id = b.dataset.pul;
         cond[id] = b.dataset.pucond;
         m.querySelectorAll(`[data-pucond][data-pul="${id}"]`).forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
-        const w = m.querySelector(`[data-pubadw="${id}"]`);
-        w && (w.hidden = !["damaged", "wrong"].includes(cond[id]));
+        const w = m.querySelector(`[data-pubadw="${id}"]`),
+          l = L.find((x) => x.id === id);
+        w && (w.hidden = !(["damaged", "wrong"].includes(cond[id]) || (l && puLotLine(l) && "short" === cond[id])));
       }),
   );
   return m;
@@ -2258,7 +2274,7 @@ if ("function" == typeof renderPODoc) {
       if (!po || "function" != typeof pay3OverArrived || isOwner()) return h;
       const B = (DB.bills || []).filter((b) => b.poId === po.id && !b.short && !b.dispute && pay3Can(b) && null != pay3OverArrived(b));
       return B.length
-        ? `<div class="note warn pu-arr" role="status">${B.map((b) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow" data-nocase><b>${esc(b.number || "A bill")}</b> bills ${money(billTotal(b))}; what arrived on ${esc(po.number)} comes to ${money(pay3ArrivedLeft(b))}${b.arrivedHold ? `. Held at ${money(b.arrivedHold.amount)} by ${esc(b.arrivedHold.by)} for the Owner` : ""}.</span><button type="button" class="btn sm" data-pay3arrpo="${esc(b.id)}">${b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"}</button></div>`).join("")}</div>` + h
+        ? `<div class="note warn pu-arr" role="status">${B.map((b) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow" data-nocase><b>${esc(b.number || "A bill")}</b> bills ${money(billTotal(b))}; what arrived on ${esc(po.number)} comes to ${money2(pay3ArrivedLeft(b))}${"function" == typeof pay3ClaimWords && pay3ClaimWords(po) ? ` (${esc(pay3ClaimWords(po))})` : ""}${b.arrivedHold ? `. Held at ${money(b.arrivedHold.amount)} by ${esc(b.arrivedHold.by)} for the Owner` : ""}.</span><button type="button" class="btn sm" data-pay3arrpo="${esc(b.id)}">${b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"}</button></div>`).join("")}</div>` + h
         : h;
     } catch (e) {
       return h;

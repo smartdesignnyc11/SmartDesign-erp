@@ -38105,7 +38105,7 @@ function deliveryProblem(po, host) {
           qty: qty,
           eta: eta,
           note: note,
-        }, claim ? { claim: !0, status: "open", at: appNowIso(), item: (l && (l.item || l.desc)) || "", unit: (l && l.unit) || "", amount: r2(qty * (+(l && l.price) || 0)) } : {})),
+        }, claim ? Object.assign({ claim: !0, status: "open", at: appNowIso(), item: (l && (l.item || l.desc)) || "", unit: (l && l.unit) || "" }, puClaimAmount(po, l, qty, note)) : {})),
           l && ((l.backordered = qty), (l.issue = type)),
           (po.flag = `${type}: ${l?.item || ""} ${qty}`);
         const wasEta = po.expected || "";
@@ -141388,14 +141388,107 @@ function pay3ArrivedLeft(b) {
   if (!P || !P.received) return null;
   const po = P.po,
     sub = r2((po.lines || []).reduce((a, l) => a + Math.min(+l.received || 0, +l.qty || 0) * (+l.price || 0), 0)),
+    less = puClaimsLess(po).amount,
     all = (po.lines || []).every((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001),
-    val = r2(sub * (1 + (+po.tax || 0) / 100) + (all ? +po.shipping || 0 : 0)),
+    val = r2(Math.max(0, sub - less) * (1 + (+po.tax || 0) / 100) + (all ? +po.shipping || 0 : 0)),
     other = r2(P.total - P.left);
   return r2(Math.max(0, val - other));
 }
+// over what arrived: billed above it, or a claim open on the order whose value the order cannot say (a lump-sum line)
 function pay3OverArrived(b) {
-  const a = pay3ArrivedLeft(b);
-  return null != a && billTotal(b) > a + 1 ? a : null;
+  const a = pay3ArrivedLeft(b),
+    P = null != a && pay3PO(b);
+  return null != a && (billTotal(b) > a + 1 || (P && puClaimsLess(P.po).unknown.length > 0)) ? a : null;
+}
+// The words on a bill or an order for what its open claims take off what arrived ("less 6 cement boards claimed,
+// $162.60 at Gowanus's quote"), and for a claim whose price the order cannot say
+function pay3ClaimWords(po) {
+  const C = puClaimsLess(po);
+  return [
+    C.known.length ? `less ${C.known.map((k) => `${k.qty} ${k.what} ${k.type} (${money2(k.amount)}${k.from ? ", " + k.from : ""})`).join("; ")}` : "",
+    C.unknown.length ? `before ${C.unknown.map((k) => `${k.qty} ${k.what} ${k.type}`).join("; ")}: their price is not on the order (a lump-sum line), so say what arrived` : "",
+  ].filter(Boolean).join("; ");
+}
+// A lump-sum line's pieces as its vendor quoted them ("incl. 30 sheet 1/2" cement board 3x5 @ $27.10"), read from the
+// awarded quote's own text on the order's RFQ line: what a claim of "6 cement boards" on a 1 ls line is worth. The
+// line's price is the lot, never a board's (the walk's J7: 6 boards short on a $2,169 lot was claimed at $13,014).
+const PU_LOT = /^(ls|lot|lots|lump|lump sum|job|allow|allowance)$/i;
+function puLotLine(l) {
+  return !!l && PU_LOT.test(String(l.unit || "").trim());
+}
+function puLotPieces(po, l) {
+  try {
+    const r = l && l.rfqId && (DB.rfqs || []).find((x) => x.id === l.rfqId);
+    if (!r) return [];
+    const Q = (r.quotes || []).filter((q) => (po.vendorId && q.vendorId === po.vendorId) || q.vendor === po.vendor).sort((a, b) => (+b.round || 0) - (+a.round || 0)),
+      txt = String((Q[0] && (Q[0].replyText || Q[0].text)) || "");
+    if (!txt) return [];
+    const id = String(l.rfqLineId || ""),
+      at = id ? txt.search(new RegExp(`\\b${id.replace(/[^\w]/g, "")}\\b`)) : -1;
+    let seg = txt;
+    if (at >= 0) {
+      const rest = txt.slice(at + id.length),
+        nx = rest.search(/\bL\d+\b/);
+      seg = txt.slice(at, at + id.length + (nx >= 0 ? nx : rest.length));
+    }
+    const out = [],
+      rx = /(\d+(?:\.\d+)?)\s+([^@;\n()]+?)\s*@\s*\$\s*([\d,]+(?:\.\d+)?)/g;
+    let m;
+    while ((m = rx.exec(seg))) out.push({ qty: +m[1], desc: m[2].replace(/^(incl\.?|including)\s+/i, "").replace(/^(pc|pcs|sheets?|ea|each|box(es)?|bags?|rolls?|lf|sf|bd|boards?)\s+(?=\S)/i, "").trim(), each: +m[3].replace(/,/g, ""), from: `${Q[0].vendor}'s quote on ${r.number}` });
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+// What a claim on a line is worth: the count at the line's price, or on a lump-sum line the matching quoted piece's
+// price (the claim's note or item names it: "6 cement boards"); null when the order cannot say
+function puClaimValue(po, l, qty, note) {
+  if (!l || !(+qty > 0)) return null;
+  if (!PU_LOT.test(String(l.unit || "").trim())) return { amount: r2(+qty * (+l.price || 0)), each: +l.price || 0, from: "" };
+  const words = (s) => new Set((String(s || "").toLowerCase().match(/[a-z]{3,}/g) || []).map((w) => w.replace(/(es|s)$/, "")).filter((w) => !/^(the|and|for|with|supply|incl|including|backorder|backordered|balance|next|week|short|damaged|broke|broken|cracked|came|sheet|piece|each)$/.test(w))),
+    want = words(note),
+    P = puLotPieces(po, l)
+      .map((p) => {
+        const d = words(p.desc);
+        return Object.assign({ score: [...want].filter((w) => d.has(w)).length }, p);
+      })
+      .filter((p) => p.score > 0)
+      .sort((a, b) => b.score - a.score);
+  if (!P.length || (P[1] && P[1].score === P[0].score)) return null;
+  return { amount: r2(Math.min(+qty * P[0].each, (+l.qty || 1) * (+l.price || 0))), each: P[0].each, from: P[0].from, what: P[0].desc };
+}
+// a claim's stored amount and where it came from: never a count at a lump-sum line's price (that is the lot's); null
+// when the order cannot say, with what the price would rest on
+function puClaimAmount(po, l, qty, note) {
+  const v = puClaimValue(po, l, qty, note);
+  return v ? { amount: v.amount, each: v.each, priceFrom: v.from || "the order's price" } : { amount: null, priceFrom: "not on the order (a lump-sum line): the vendor's credit says it" };
+}
+// The open claims on an order that the count does not already leave out: on a counted line, what is claimed beyond what
+// is still to come; on a lump-sum line received whole, the claim's value (else it is unknown)
+function puClaimsLess(po) {
+  const known = [],
+    unknown = [],
+    per = {};
+  (po.issues || [])
+    .filter((i) => i.claim && "open" === i.status && ["short", "damaged", "wrong"].includes(i.type))
+    .forEach((i) => {
+      const l = (po.lines || []).find((x) => x.id === i.lineId);
+      if (!l) return;
+      const what = String(i.item || l.item || l.desc || "").replace(/:\s*supply$/i, "");
+      if (!PU_LOT.test(String(l.unit || "").trim())) {
+        (per[l.id] = per[l.id] || { l: l, q: 0, I: [] }).q += +i.qty || 0;
+        per[l.id].I.push(i);
+        return;
+      }
+      const v = puClaimValue(po, l, i.qty, i.note || "");
+      v ? known.push({ qty: +i.qty || 0, what: v.what || what, type: i.type, amount: v.amount, from: v.from }) : unknown.push({ qty: +i.qty || 0, what: what, type: i.type });
+    });
+  Object.values(per).forEach(({ l, q, I }) => {
+    const gap = Math.max(0, (+l.qty || 0) - Math.min(+l.received || 0, +l.qty || 0)),
+      over = r2(Math.max(0, q - gap));
+    over > 0 && known.push({ qty: over, what: String(l.item || l.desc || "").replace(/:\s*supply$/i, ""), type: I[0].type, amount: r2(over * (+l.price || 0)), from: "" });
+  });
+  return { amount: r2(known.reduce((a, k) => a + k.amount, 0)), known: known, unknown: unknown };
 }
 const pay3Received = (b) => {
     const P = pay3PO(b);
@@ -141471,7 +141564,7 @@ function pay3ArrivedHold(b) {
     P = pay3PO(b),
     m = mbModal(
       `Hold at What Arrived — ${esc(b.vendor)} ${esc(b.number || "")}`,
-      `<div class="note">Bill ${esc(b.number || "")} is ${money(tot)}. ${P ? `What arrived in good order on ${esc(P.po.number)} comes to ${money(a || 0)} (the receipt).` : ""} Say what to approve and why; the Owner approves that part and disputes the rest with the vendor.</div>
+      `<div class="note">Bill ${esc(b.number || "")} is ${money(tot)}. ${P ? `What arrived in good order on ${esc(P.po.number)} comes to ${money2(a || 0)} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""}).` : ""} Say what to approve and why; the Owner approves that part and disputes the rest with the vendor.</div>
       <div class="grid2" style="margin-top:10px">${mbF("Amount That Arrived", mbIn("amount", "", a ? String(a) : "", "number"))}${mbF("Held Back", `<input data-pay3held readonly value="" tabindex="-1">`)}</div>
       ${mbF("Reason", mbIn("why", "", "e.g. 6 cement boards backordered; 31 sf of tile cracked, claimed"))}`,
       {
@@ -141523,7 +141616,7 @@ function pay3ShortPay(b, amt, why, opts) {
       fl = billFlags(b).filter((f) => !/^Paid from /.test(f)),
       m = mbModal(
         `${pay3Label(b)} — ${esc(b.vendor)}`,
-        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `, and what arrived in good order on it comes to ${money(pay3ArrivedLeft(b))} (the receipt)` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${money(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
+        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `, and what arrived in good order on it comes to ${money2(pay3ArrivedLeft(b))} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""})` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${money(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
         {
           submit: "Approve and Dispute",
           alt: opts && opts.billed ? { label: `Approve as Billed (${money(tot)})` } : null,
@@ -181846,8 +181939,11 @@ function cmBillPO(c, p) {
   const old = [...new Set((text.match(/\bFM\d*-\d+\b/gi) || []).map((x) => x.toUpperCase()))],
     byOld = old.map((n) => (DB.pos || []).find((po) => (po.aliases || []).some((a) => String(a).toUpperCase() === n))).filter((po) => po && "cancelled" !== po.status);
   if (byOld.length) return byOld[0];
+  // the vendor's one open order, if it existed when the mail was sent: Nemo's 9/1 statement (#88431) was matched to
+  // PO-2026-050, issued 9/4, and flagged NEM-5851 as a second invoice on it (the walk's J7, 11-06)
   const vn = String((p && p.vendor) || "").toLowerCase(),
-    open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)) : [];
+    sent = String((c && c.date) || "").slice(0, 10),
+    open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status) && !(sent && po.date && String(po.date).slice(0, 10) > sent)) : [];
   return 1 === open.length ? open[0] : null;
 }
 // Put a bill on its PO: the job, the first PO line's estimate line, cost code and the PO's category (subs,
