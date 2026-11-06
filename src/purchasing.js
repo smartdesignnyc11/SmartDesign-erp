@@ -1513,7 +1513,9 @@ if ("function" == typeof bbTodayCard) {
     const c = base.apply(this, arguments);
     try {
       const x = it && it.x && puNeed(it.x);
-      x && x.act && ((c.verb = x.act), (c.run = () => puDo(x)), (c.why = esc(`Buy Board · ${x.why}`)));
+      // the card leads with the date it is due by (Order by 9/1, passed), then the reason, as the row says both: the card's
+      // line is cut to a few words, and the date is what Today ranks by
+      x && x.act && ((c.verb = x.act), (c.run = () => puDo(x)), (c.why = esc(`Buy Board · ${x.when ? `${x.when}. ` : ""}${x.why}`)));
     } catch (e) {}
     return c;
   };
