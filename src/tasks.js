@@ -396,7 +396,7 @@ function tkFilterSheet() {
   const body = `<div class="tkf">
   ${"home" === ctx ? `<div class="tkf-h">Whose</div><div class="tkf-row">${scope.map(([k, n]) => btn("data-tkfwho", k, tkWho === k, n)).join("")}</div>
   <div class="tkf-h">Job</div><div class="tkf-row">${jobs.map(([k, n]) => btn("data-tkfjob", k, tkProject === k, n)).join("")}</div>` : `<p class="small muted">${esc(tkChipLabel(ctx))}: every open task on it, whoever owns it.</p>`}
-  <div class="tkf-h">Show</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
+  <div class="tkf-h">${own ? "Show · Counts Are Yours" : "Show"}</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
   <div class="tkf-h">Group</div><div class="tkf-row">${[["day", "By Day"], ["project", "By Project"], ["assignee", "By Person"], ["area", "By Area"], ["", "None"]].map(([k, n]) => btn("data-tkfgroup", k, gb === k, n)).join("")}</div>
   <div class="tkf-h">Priority</div><div class="tkf-row">${btn("data-tkfpri", "", !tkPri, "Any")}${btn("data-tkfpri", "high", "high" === tkPri, "High Only")}</div>
   ${"job" === ctx && ["owner", "pm", "coord", "design_mgr"].includes(role()) ? `<div class="tkf-h">This Job</div><div class="tkf-row"><button type="button" class="tkf-b" data-tkfmeeting>Process a Meeting</button></div>` : ""}
