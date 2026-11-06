@@ -66,9 +66,13 @@ async def one_number(c, pg, phone):
         await pg.evaluate(CLOSE); await sign_in(pg, uid); await go(pg, 'home'); await pg.wait_for_timeout(200)
         h = await pg.evaluate(NUMS)
         W = h['want']
-        shown = {k: h[k] for k in ('rail', 'sub', 'bar') if h[k] is not None}
+        shown = {k: h[k] for k in ('sub',) if h[k] is not None}
         # an empty badge is 0
-        c.ok(all(v == W for v in shown.values()), f'{tag} {r}: one number for Tasks ({W}): {shown}')
+        c.ok(all(v == W for v in shown.values()), f'{tag} {r}: one number for Due Soon ({W}): {shown}')
+        # Alan, 11-06: the side menu's and the phone bar's Tasks carry the Tasks badge, late plus due today
+        B = await pg.evaluate("() => tkMyCounts().today || 0")
+        badge = {k: h[k] for k in ('rail', 'bar') if h[k] is not None}
+        c.ok(all(v == B for v in badge.values()), f'{tag} {r}: the Tasks badge is late plus due today ({B}): {badge}')
         rows = await pg.evaluate(TODAY_TASKS)
         ok = rows and rows['n'] == W and rows['rows'] == rows['want'] and all(x['on'] for x in rows['placed']) and rows['buyAsTask'] == 0
         c.ok(ok, f"{tag} {r}: Today's All shows each of the {W} Due Soon tasks once, as its row or the approval holding it, and no orders ({rows})")
@@ -102,9 +106,11 @@ async def one_number(c, pg, phone):
         page = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0;
           const q = [...document.querySelectorAll('.view.on .tv-qchips [data-ydchip="b:open"] .n')].find(vis), m = [...document.querySelectorAll('.view.on [data-ocbadge="tkall"]')].find(vis);
           return { who: tkWho, chip: q ? +q.textContent : null, mark: m ? m.textContent.trim() : null, mine: openTasks('me').length }; }""")
-        # the phone's Mine chip is every open task of the person's (the Your Day mock-up); the desktop's pill is Due Soon
+        # the phone's Mine chip is every open task of the person's (the Your Day mock-up); the desktop's pill is the Tasks
+        # badge, late plus due today (Alan, 11-06; it was Due Soon)
+        B = await pg.evaluate("() => tkMyCounts().today || 0")
         pn = page['chip'] if phone else (int(re.match(r'\d+', page['mark']).group()) if page['mark'] and re.match(r'\d+', page['mark']) else (0 if page['mark'] else None))
-        c.ok(page['who'] == 'me' and pn == (page['mine'] if phone else W), f'{tag} {r}: Tasks opens on Mine and reads {page["mine"] if phone else W} ({page})')
+        c.ok(page['who'] == 'me' and pn == (page['mine'] if phone else B), f'{tag} {r}: Tasks opens on Mine and reads {page["mine"] if phone else B} ({page})')
 
 
 async def hand_off(c, pg):
@@ -205,9 +211,9 @@ async def billing(c, pg, b):
     await p2.goto(URL); await p2.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
     await sign_in(p2, 'u_billing'); await p2.wait_for_timeout(300)
     bar = await p2.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
-    # the approved Today mockup (TodayBilling, 2026-10-25) gives billing's bar Today, Billing, Clients and Messages;
-    # Tasks is in the menu, so billing opens it there
-    c.ok(bar == ['home', 'billing', 'clients', 'chat'], f'#14 billing\'s bar starts with Today, as the approved mockup draws it ({bar})')
+    # the approved Today mockup (TodayBilling, 2026-10-25) gave billing's bar Today, Billing, Clients and Messages; Alan,
+    # 11-06: Tasks joins it, before Messages
+    c.ok(bar == ['home', 'billing', 'clients', 'tkall', 'chat'], f'#14 billing\'s bar starts with Today, as the approved mockup draws it, with Tasks (Alan 11-06) ({bar})')
     await p2.evaluate("() => document.querySelector('#menu-btn').click()"); await p2.wait_for_timeout(300)
     await p2.evaluate("() => [...document.querySelectorAll('button[data-v=\"tkall\"], a.mn-kid')].find(e => e.getClientRects().length && /^Tasks/.test(e.innerText.trim())).click()"); await p2.wait_for_timeout(300)
     who = await p2.evaluate("() => ({ who: tkWho, chip: (document.querySelector('.view.on [data-tkfilter]') || {}).title || '' })")
