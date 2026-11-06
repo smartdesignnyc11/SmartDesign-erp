@@ -1000,7 +1000,12 @@ function tvCmpVal(f, va, vb) {
 function tvSortRows(rows) {
   const S = tvSorts();
   if (!S.length) return rows;
-  const C = S.map((s) => [tvField(s.k), "desc" === s.dir ? -1 : 1]);
+  return tvSortWith(rows, S.map((s) => [tvField(s.k), "desc" === s.dir ? -1 : 1]));
+}
+// The one sort for a list's columns (the task table's and Purchasing's item table, src/puschedule.js): C is
+// [[field, 1 | -1]], each field with val(row) and its own rule (cmp, rank, or type "date"); empties go last both ways.
+function tvSortWith(rows, C) {
+  if (!C.length) return rows;
   // the view's own order breaks ties, so a sort never shuffles rows that read the same
   return rows
     .map((I, i) => [I, i, C.map(([f]) => f.val(I))])

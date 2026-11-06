@@ -1345,6 +1345,22 @@ def j6_buy_it(p):
     p.expect(i >= 0 and bool(re.search(r'(in stock|on hand|at the shop|in the shop|warehouse|from stock)', near, re.I)),
              'the Buy Board shows the firm\'s own stock against the electrical rough-in line before anything is ordered (12/2 NM-B, 1-gang boxes, 5/8 Type X are on the shelf)',
              near[:300] or 'no electrical line on the Buy Board')
+    # the item table (Alan, 11-06: "the purchasing modules should have columns: Invoice / Lead Time / Item # / Description /
+    # Qnty / Room / Budget Price / Purchased Price / Vendor / Status / Delivery Date"): what was just bought is on it, as
+    # purchased, at the order's price, with its vendor, found from the Buy Board in one tap
+    t = p.look().find('Table', exact=True)
+    p.expect(t is not None, 'the Buy Board has a Table view: every item the job buys, one row each, in Alan\'s columns', 'no Table on the Buy Board')
+    if t is not None:
+        p.tap_ctl(t)
+        tx = p.look().text
+        p.expect(all(re.search(h, tx, re.I) for h in ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery')),
+                 'the Table carries Alan\'s columns', tx[:300])
+        j = tx.find(PLUMB_BUYS[0][0][:20])
+        near = tx[max(0, j - 200): j + 400] if j >= 0 else ''
+        p.expect(j >= 0 and 'ferguson' in norm(near) and re.search(r'purchased', near, re.I) and '1,800' in near,
+                 'the plumbing buy just issued is on the Table: purchased from Ferguson at $1,800', near[:300] or 'not on the Table')
+        nd = p.look().find('Needs', exact=True)   # back to the board's queue, as she leaves it
+        if nd is not None: p.tap_ctl(nd)
 
 
 # ---------------------------------------------------------------------------------------------------- J4 review the job (Friday)
