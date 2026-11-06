@@ -199519,7 +199519,7 @@ function tdyDecideSheet(x) {
   const H = (tdyRec(x) || {}).handoff || {};
   mbModal(
     `Offered to You — ${esc(tdWords(x.title, 8))}`,
-    `<p>${esc(H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
+    `<p>${esc(H.by || H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
     {
       submit: "Accept",
       alt: {
@@ -199821,7 +199821,8 @@ function tdyModel() {
   // Today shows them on All with Accept and as one line above the Tasks rows
   let offered = [];
   try {
-    offered = me.id ? tkAll({ open: !0, uid: me.id }).filter((t) => !t.approval && t.offeredToUid === me.id).map(tdyTaskItem) : [];
+    // the one list of offers (tkOfferedToMe, src/tasks.js): the Clock, the foreman's Today and this read the same set
+    offered = me.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(me.id) : tkAll({ open: !0, uid: me.id }).filter((t) => t.offeredToUid === me.id)).filter((t) => !t.approval).map(tdyTaskItem) : [];
   } catch (e) {}
   // the coordinator's orders are the Buy Board's own Late to Order and Order This Week: a chip of their own, never
   // counted as tasks (they were five of the coordinator's "Tasks 9")
@@ -199870,7 +199871,7 @@ function tdyTeam() {
     .filter((u) => u.name !== me.name && !("pm" === role() && "owner" === u.role))
     .map((u) => {
       const own = T.filter((t) => (u.id ? t.ownerUid === u.id : !t.ownerUid && t.owner === u.name)),
-        offered = u.id ? T.filter((t) => t.offeredToUid === u.id) : [];
+        offered = u.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(u.id) : T.filter((t) => t.offeredToUid === u.id)) : [];
       return { kind: "tdyPerson", id: u.id || "name:" + u.name, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
     })
     .filter((x) => x.own.length || x.offered.length)
@@ -199911,7 +199912,7 @@ function tdyTeamSheet(x) {
     let why = it.detail,
       verb = "Done",
       run = () => tdyDone(t);
-    if (t.offeredToUid === me.id) (why = `${H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
+    if (t.offeredToUid === me.id) (why = `${H.by || H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
     else if (H && "offered" === H.state) (why = `offered to ${H.to}, not accepted yet · ${why}`), (verb = "Open"), (run = sheet);
     else if (H && "declined" === H.state && H.fromUid === me.id && t.ownerUid === me.id) (why = `${H.to} declined: ${H.reason} · ${why}`), (verb = "Hand Off"), (run = () => tdyHandOffSheet(t));
     else if (t.proofNeed && !tdyProofMet(t.row, t.proofNeed, tdyRec(t.row))) (why = `${why} · needs ${t.proofNeed.label.toLowerCase()}`);
@@ -202460,11 +202461,10 @@ renderChat = function () {
     cam = document.getElementById("msg-cam"),
     rec = document.getElementById("msg-rec"),
     tx = document.getElementById("chat-text");
-  // a direct or group thread takes a photo and the camera too (it offered only Share a Record, lane T1); the photo
-  // is filed on the sender's current job, where a direct line already looks its files up
-  const noJob = !("undefined" != typeof S && S);
-  lab && (lab.hidden = !!T.t && noJob);
-  cam && (cam.hidden = !!T.t && noJob);
+  // a direct or group thread takes a photo and the camera too (it offered only Share a Record, lane T1); the photo is
+  // filed on the thread's job when it has one, else kept on the thread only (src/taskfield.js, tkDmPhoto)
+  lab && (lab.hidden = !1);
+  cam && (cam.hidden = !1);
   rec && (rec.hidden = msgIsClient(u));
   tx &&
     !msgIsClient(u) &&
@@ -202985,8 +202985,8 @@ function msgBadges() {
         const cr = document.getElementById("crumbs");
         cr && (cr.innerHTML = "<b>Chat</b>");
         const lab = document.querySelector("#v-chat .chat-compose label.btn");
-        // a direct thread takes a photo too, filed on the sender's current job (lane T1)
-        lab && T && (lab.hidden = !!T.t && !("undefined" != typeof S && S));
+        // a direct thread takes a photo too (lane T1, tkDmPhoto)
+        lab && T && (lab.hidden = !1);
         // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
         document.getElementById("v-chat")?.classList.contains("msg-listmode") && window.scrollTo(0, 0);
       }

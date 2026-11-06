@@ -191,13 +191,55 @@ function tkAnswerSheet(x, r, then) {
   };
 }
 
-// ---- a task whose work is a photograph is done with the photograph ---------------------------------------------------
+// ---- "Needs a Photo": a box on the task, ticked from the title, that the person can untick ---------------------------
+// A title match alone was too clever ("Picture frame" asked for a photo). The title only pre-ticks the box (rec.needsPhoto
+// unset); once a person ticks or unticks it, their choice is the record's and the title no longer decides.
+const TKR_PHOTO_TITLE = /^\s*(photograph|(photos?|pictures?) of|take (a |the )?(photo|picture)s?( of)?)\b/i;
+function tkNeedsPhoto(x, rec) {
+  if (!x || !/^(sched|action|firm)$/.test(x.kind)) return !1;
+  if (rec && "boolean" == typeof rec.needsPhoto) return rec.needsPhoto;
+  return TKR_PHOTO_TITLE.test(String(x.title || ""));
+}
 {
   const base = tdyProofNeed;
   tdyProofNeed = function (x, rec) {
     const n = base.apply(this, arguments);
-    if (n || !x || !/^(sched|action|firm)$/.test(x.kind) || (rec && !1 === rec.proofNeed)) return n;
-    return /^\s*(photograph|photo|take (a |the )?(photo|picture)s?|picture)\b/i.test(String(x.title || "")) ? Object.assign({ kind: "photos" }, TDY_PROOF.photos, { label: "Photos of the work" }) : null;
+    if (n || !x || (rec && !1 === rec.proofNeed)) return n;
+    return tkNeedsPhoto(x, rec) ? Object.assign({ kind: "photos" }, TDY_PROOF.photos, { label: "Photos of the work" }) : null;
+  };
+}
+{
+  const base = tkSheet;
+  tkSheet = function (k, opts) {
+    const m = base.apply(this, arguments);
+    try {
+      const R = m && tkResolve(k),
+        x = R && R.x,
+        rec = R && R.rec,
+        done = !!(x && (x.done || (rec && "done" === rec.status)));
+      if (!R || !rec || done || !/^(sched|action|firm)$/.test(x.kind) || m.querySelector("[data-tkrneedphoto]")) return m;
+      const on = tkNeedsPhoto(x, rec),
+        at = m.querySelector(".tks-more") || m.querySelector(".tks");
+      at &&
+        at.insertAdjacentHTML(
+          at.classList.contains("tks-more") ? "beforebegin" : "beforeend",
+          `<label class="chk tkr-needphoto"><input type="checkbox" data-tkrneedphoto ${on ? "checked" : ""}> <span class="chk-t">Needs a Photo<span class="small muted"> · Done asks for one${"boolean" != typeof rec.needsPhoto && on ? " (from the title; untick if not)" : ""}</span></span></label>`,
+        );
+      const box = m.querySelector("[data-tkrneedphoto]");
+      box &&
+        (box.onchange = () => {
+          rec.needsPhoto = !!box.checked;
+          try {
+            tkLog(rec, { ev: "needsPhoto", to: rec.needsPhoto });
+            audit("task", x.id, "needs-photo", "", String(rec.needsPhoto), "");
+          } catch (e) {}
+          save();
+          toast(`${rec.needsPhoto ? "Done will ask for a photo" : "No photo needed"}: ${tdWords(x.title, 8)}`, [{ label: "Open", run: () => tkSheet(R.key) }]);
+        });
+    } catch (e) {
+      console.warn("needs a photo", e);
+    }
+    return m;
   };
 }
 
@@ -212,11 +254,21 @@ function tkPunchProof(x, then) {
       } catch (e) {
         return "Photograph the finished work";
       }
-    })())}</p><p>Take a photo of the finished work${x.room ? ` in ${esc(x.room)}` : ""}. The item is done once it is on it.</p><div class="small muted" data-tkrshots>No photo yet.</div><button type="button" class="btn" data-tkrcam>${"undefined" != typeof TDY_IC ? TDY_IC.camera : ""}<span>Take a Photo</span></button>`,
+    })())}</p><p>Take a photo of the finished work${x.room ? ` in ${esc(x.room)}` : ""}. The item is done once it is on it.</p><div class="small muted" data-tkrshots>No photo yet.</div><button type="button" class="btn" data-tkrcam>${"undefined" != typeof TDY_IC ? TDY_IC.camera : ""}<span>Take a Photo</span></button>${mbF("No Photo? Say Why", '<input data-f="why" placeholder="e.g. the outlet is behind the vanity, no clear shot">')}`,
     {
       submit: "Mark Done",
-      onSubmit: () => {
-        if (!shots.length) return toast("Add a photo of the finished work first"), !1;
+      onSubmit: (f) => {
+        if (!shots.length) {
+          // done without a photo only with the reason on the record (who, when, why)
+          if (!f.why) return toast("Add a photo of the finished work, or say why there is none"), !1;
+          x.noPhotoWhy = { why: f.why, by: tkrMe().name || fWho(), at: appNowIso() };
+          try {
+            log(`Punch done without a photo: ${x.item || ""} (${f.why})`, "field", x.noPhotoWhy.by);
+            audit("punch", x.id, "done-no-photo", "", f.why, x.noPhotoWhy.by);
+          } catch (e) {}
+          then && then();
+          return !0;
+        }
         x.photos = (x.photos || []).concat(shots);
         x.donePhotos = shots.length;
         try {
@@ -280,8 +332,8 @@ if ("undefined" != typeof PR_SPECS) {
     const late = "done" !== t.status && t.end && t.end < today();
     return {
       title: prTxt(c) + ("milestone" === t.type ? " (milestone)" : ""),
-      meta: [t.owner, t.start ? `${fmt(t.start)} – ${fmt(t.end)}` : "", "done" === t.status ? "done" : late ? "late" : ""].filter(Boolean).join(" · "),
-      late: late,
+      meta: [t.blocked && "function" == typeof tkBlockSay ? tkBlockSay(t) : "", t.owner, t.start ? `${fmt(t.start)} – ${fmt(t.end)}` : "", "done" === t.status ? "done" : late ? "late" : ""].filter(Boolean).join(" · "),
+      late: late || !!t.blocked,
       actEl: chip || null,
     };
   };
@@ -326,22 +378,48 @@ function tkMineCardHtml(o) {
     .map((t) => tkRowOpenHtml(t))
     .join("")}${L.length > 8 ? `<div class="small muted" style="padding:6px 0">and ${L.length - 8} more</div>` : ""}</div>`;
 }
-// ---- Blocked, from the crew's Clock: the reason goes to the foreman as a task of his, and the job's line says it ------
-const TKR_BLOCK_WHY = ["Waiting on material", "Waiting on another trade", "Need an answer", "Not safe to work", "Other"];
+// ---- Blocked, from the crew's Clock -----------------------------------------------------------------------------------
+// The reason goes to the job's foreman (the foreman on the job's crew list, p.team) as a task of his, and the job's PM
+// watches it: a follow-up of the PM's that waits on the foreman (Waiting On), closed with it. "Not safe to work" goes to
+// both at once as a safety escalation in the Standard's format, worded as a stop-work so it ranks first (decision
+// principle 1). A block nobody has touched by the end of the shift (the site's hours, on the app's clock) escalates to
+// the PM. The schedule line says it is blocked on the crew's Clock, the foreman's Today and the job's schedule until the
+// foreman's task closes.
+const TKR_BLOCK_WHY = ["Waiting on material", "Waiting on another trade", "Need an answer", "Not safe to work", "Other"],
+  TKR_UNSAFE = "Not safe to work";
+function tkJobForeman(p) {
+  const team = p && Array.isArray(p.team) ? p.team : [];
+  return (DB.users || []).find((u) => team.includes(u.id) && "foreman" === u.role) || tdyRoleUser("foreman");
+}
+function tkJobPm(p) {
+  try {
+    return tdyUserOf(nsJobLead(p)) || tdyRoleUser("pm");
+  } catch (e) {
+    return tdyRoleUser("pm");
+  }
+}
+function tkShiftEnd(day) {
+  let end = "16:30";
+  try {
+    const h = siteHours();
+    h && h.end && (end = h.end);
+  } catch (e) {}
+  return `${day}T${end}:00`;
+}
 function tkBlockedSheet(taskId) {
   const p = S,
     t = p && (p.tasks || []).find((q) => q.id === taskId);
   if (!t) return toast("That task is no longer on the schedule");
+  const fore = tkJobForeman(p);
   let why = "";
   const m = mbModal(
     `Blocked: ${esc(tdWords(t.name, 6))}`,
-    `<p class="small muted" style="margin:0 0 8px">Say what stops the work. It goes to ${esc(tkFirst((tdyRoleUser("foreman") || {}).name || "the foreman"))} as a task, and the job shows the line as blocked.</p><div class="tks-chips" role="radiogroup" aria-label="What stops it">${TKR_BLOCK_WHY.map((w) => `<button type="button" class="tks-chip" role="radio" aria-checked="false" data-tkrwhy="${esc(w)}">${esc(w)}</button>`).join("")}</div>${mbF("What Stops It", '<input data-f="note" placeholder="e.g. no LVL on site, framing can\'t start">')}`,
+    `<p class="small muted" style="margin:0 0 8px">Say what stops the work. It goes to ${esc(tkFirst((fore || {}).name || "the foreman"))} as a task, the PM watches it, and the job shows the line as blocked. Not safe to work goes to both at once.</p><div class="tks-chips" role="radiogroup" aria-label="What stops it">${TKR_BLOCK_WHY.map((w) => `<button type="button" class="tks-chip" role="radio" aria-checked="false" data-tkrwhy="${esc(w)}">${esc(w)}</button>`).join("")}</div>${mbF("What Stops It", '<input data-f="note" placeholder="e.g. no LVL on site, framing can\'t start">')}`,
     {
       submit: "Send to the Foreman",
       onSubmit: (f) => {
-        const reason = [why && "Other" !== why ? why : "", f.note].filter(Boolean).join(": ");
-        if (!reason) return toast("Say what stops the work"), !1;
-        return tkBlock(p, t, reason) ? !0 : !1;
+        if (!why && !f.note) return toast("Say what stops the work"), !1;
+        return tkBlock(p, t, why, f.note) ? !0 : !1;
       },
     },
   );
@@ -351,26 +429,143 @@ function tkBlockedSheet(taskId) {
         (b.onclick = () => {
           why = b.dataset.tkrwhy;
           m.querySelectorAll("[data-tkrwhy]").forEach((y) => (y.classList.toggle("on", y === b), y.setAttribute("aria-checked", String(y === b))));
+          const ok = m.querySelector("#mbm-ok");
+          ok && (ok.textContent = TKR_UNSAFE === why ? "Stop the Work and Tell Them" : "Send to the Foreman");
         }),
     );
   return m;
 }
-function tkBlock(p, t, reason) {
+// the Standard's escalation format: what happened, the impact on cost, schedule and quality, options, recommendation,
+// and when the decision is needed
+function tkSafetyNote(p, t, reason, me) {
+  return [
+    `What happened: ${me || "The crew"} stopped ${t.name} at ${shortName(p)}: not safe to work${reason ? ` (${reason})` : ""}.`,
+    `Impact: safety first. Cost: none recorded yet. Schedule: ${t.name} holds until it is made safe${t.end ? ` (ends ${fmtL(t.end)})` : ""}. Quality: work on an unsafe site is not done.`,
+    "Options: make it safe now and restart; keep the work stopped and move the crew to other work; call the owner.",
+    "Recommendation: keep the work stopped in that area until the foreman has seen it and made it safe.",
+    `Decide by: now, ${fmtL(today())}, before anyone goes back to it.`,
+  ].join("\n");
+}
+function tkBlock(p, t, why, note) {
   const me = tkrMe(),
-    fore = tdyRoleUser("foreman"),
-    to = fore && fore.id !== me.id ? fore.name : (tdyLeadOf({ projectId: p.id }) || {}).name || "";
-  const made = crCreateTask({ title: `Blocked: ${t.name} — ${reason}`, for: `p:${p.id}`, assignee: to, due: today(), priority: "high", notes: `${me.name || "The crew"} cannot go on with ${t.name}: ${reason}`, source: { field: !0, blocked: t.id }, handoff: !1 });
+    unsafe = TKR_UNSAFE === why,
+    reason = [why && "Other" !== why ? why : "", note].filter(Boolean).join(": "),
+    fore = tkJobForeman(p),
+    pm = tkJobPm(p),
+    to = fore && fore.id !== me.id ? fore.name : (pm || {}).name || "",
+    src = { field: !0, blocked: t.id, unsafe: unsafe, by: me.name || "" };
+  if (!to) return toast("Nobody runs this job's site yet: call the office"), !1;
+  const made = crCreateTask({
+    title: unsafe ? `Safety: stop work on ${t.name} — not safe to work${note ? `: ${note}` : ""}` : `Blocked: ${t.name} — ${reason}`,
+    for: `p:${p.id}`,
+    assignee: to,
+    due: today(),
+    priority: "high",
+    notes: unsafe ? tkSafetyNote(p, t, note, me.name) : `${me.name || "The crew"} cannot go on with ${t.name}: ${reason}`,
+    source: src,
+    handoff: !1,
+  });
   if (!made) return !1;
+  // the PM: on a safety stop, the same escalation at once; otherwise a follow-up that waits on the foreman
+  let watch = null;
+  if (pm && pm.name !== to)
+    watch = crCreateTask(
+      unsafe
+        ? { title: `Safety: stop work on ${t.name} — not safe to work${note ? `: ${note}` : ""}`, for: `p:${p.id}`, assignee: pm.name, due: today(), priority: "high", notes: tkSafetyNote(p, t, note, me.name), source: Object.assign({ watchOf: made.id }, src), handoff: !1 }
+        : { title: `Watch: ${t.name} is blocked — ${reason}`, for: `p:${p.id}`, assignee: pm.name, due: today(), priority: "med", notes: `${tkFirst(to)} has it. ${me.name || "The crew"} cannot go on: ${reason}. This closes when ${tkFirst(to)}'s task closes; it comes to you at the end of the shift if nobody has touched it.`, waitsOn: to, source: Object.assign({ watchOf: made.id }, src), handoff: !1 },
+    );
   try {
-    made.rec && ((made.rec.link = { kind: "sched", id: t.id }), (made.rec.waitsOn = ""));
-    t.blocked = { reason: reason, by: me.name || "", at: appNowIso(), taskId: made.id };
-    czOn(p, () => log(`${t.name}: blocked — ${reason} (${me.name || "crew"})`, "field", me.name || ""));
-    audit("task", t.id, "blocked", "", reason, me.name || "");
+    made.rec && (made.rec.link = { kind: "sched", id: t.id });
+    watch && watch.rec && (watch.rec.link = { kind: "sched", id: t.id });
+    t.blocked = { reason: unsafe ? `not safe to work${note ? `: ${note}` : ""}` : reason, unsafe: unsafe, by: me.name || "", at: appNowIso(), taskId: made.id, watchId: watch ? watch.id : "", to: to, pm: pm ? pm.name : "", escalated: unsafe ? appNowIso() : "" };
+    czOn(p, () => log(`${t.name}: ${unsafe ? "STOP WORK, not safe" : "blocked"} — ${reason} (${me.name || "crew"})`, "field", me.name || ""));
+    audit("task", t.id, unsafe ? "stop-work" : "blocked", "", reason, me.name || "");
   } catch (e) {}
   save(), render();
-  toast(`Sent to ${tkFirst(to) || "the foreman"}: ${t.name} is blocked`, [{ label: "Open", run: () => tkSheet(`action:${made.id}:${p.id}`) }]);
+  toast(unsafe ? `Work stopped: ${tkFirst(to)}${pm && pm.name !== to ? ` and ${tkFirst(pm.name)}` : ""} have it now` : `Sent to ${tkFirst(to)}: ${t.name} is blocked`, [{ label: "Open", run: () => tkSheet(`action:${made.id}:${p.id}`) }]);
   return !0;
 }
+// the block's tasks and line, read back: the foreman's task (or null), the line
+function tkBlockOf(p, t) {
+  const B = t && t.blocked;
+  if (!B) return null;
+  const a = (p.actions || []).find((x) => x.id === B.taskId) || null;
+  return { B: B, a: a };
+}
+// the end of the shift: an untouched block goes to the PM; a closed one clears the line and its watch
+function tkBlockSweep() {
+  const now = appNowIso();
+  let n = 0;
+  (DB.projects || []).forEach((p) =>
+    (p.tasks || []).forEach((t) => {
+      const R = tkBlockOf(p, t);
+      if (!R) return;
+      const { B: B, a: a } = R;
+      if (!a || "done" === a.status) return void (tkBlockClear(p, t, a), n++);
+      // touched: the foreman moved it, wrote on it or handed it on (the crew's own note at creation is not a touch)
+      const touched = "todo" !== (a.status || "todo") || (a.thread || []).some((e) => e.by && tkFirst(e.by) !== tkFirst(B.by || "")) || !!a.handoff;
+      if (B.escalated || touched || now < tkShiftEnd(String(B.at).slice(0, 10))) return;
+      B.escalated = now;
+      const w = (p.actions || []).find((x) => x.id === B.watchId);
+      w && ((w.priority = "high"), (w.title = w.title.replace(/^Watch:/, "Escalated:")), (w.due = today()), (w.waitsOn = ""), "waiting" === w.status && (w.status = "todo"));
+      try {
+        czOn(p, () => log(`${t.name}: blocked since ${stampTime(B.at)} and nobody has picked it up by the end of the shift — escalated to ${B.pm || "the PM"}`, "field", "The assistant"));
+        audit("task", t.id, "block-escalated", B.to || "", B.pm || "", "end of shift");
+      } catch (e) {}
+      n++;
+    }),
+  );
+  return n;
+}
+function tkBlockClear(p, t, a) {
+  const B = t.blocked;
+  if (!B) return;
+  (t.blockHist = t.blockHist || []).push(Object.assign({}, B, { cleared: appNowIso() }));
+  delete t.blocked;
+  const w = (p.actions || []).find((x) => x.id === B.watchId);
+  w && "done" !== w.status && ((w.status = "done"), (w.completedAt = today()), (w.waitsOn = ""));
+  try {
+    czOn(p, () => log(`${t.name}: unblocked${a && a.assignee ? ` (${a.assignee})` : ""}`, "field", (tkrMe().name || "")));
+  } catch (e) {}
+}
+// a closed block clears its line at once, whichever list closed it
+{
+  const base = tkToggle;
+  tkToggle = function (kind, id, projectId) {
+    const r = base.apply(this, arguments);
+    try {
+      if ("action" === kind) {
+        const p = (DB.projects || []).find((q) => q.id === projectId),
+          a = p && (p.actions || []).find((x) => x.id === id),
+          t = a && a.source && a.source.blocked && (p.tasks || []).find((q) => q.id === a.source.blocked);
+        t && t.blocked && t.blocked.taskId === id && "done" === a.status && (tkBlockClear(p, t, a), save());
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+// where a block shows: the crew's Clock, the foreman's Today's Work, and the job's schedule (the list's row meta)
+const tkBlockSay = (t) => (t && t.blocked ? `${t.blocked.unsafe ? "STOPPED, not safe" : "blocked"}: ${t.blocked.unsafe ? t.blocked.reason.replace(/^not safe to work:?\s*/i, "") || "see the foreman" : t.blocked.reason}` : "");
+function tkBlockMark(root, sel) {
+  root &&
+    root.querySelectorAll(sel).forEach((row) => {
+      const id = String(row.dataset.tkopen || "").split(":")[1],
+        t = S && (S.tasks || []).find((q) => q.id === id),
+        s = t && t.blocked && row.querySelector(".small");
+      s && !s.querySelector(".tkr-blk") && s.insertAdjacentHTML("beforeend", ` · <b class="tkr-blk">${esc(tkBlockSay(t))}</b>`);
+    });
+}
+
+// ---- the crew's own answers: a question a crew member asked is answered on his Clock, not only the foreman's Today ----
+function tkMyAnswersHtml() {
+  const me = tkrMe();
+  if (!me.name) return "";
+  const first = tkFirst(me.name).toLowerCase(),
+    L = ((DB.field || {}).raises || []).filter((r) => "answered" === r.status && tkFirst(r.by || "").toLowerCase() === first);
+  if (!L.length) return "";
+  return `<div class="card f-card f-you tkr-answers"><div class="hd"><h3>Answered for You</h3><span class="small muted">${L.length}</span></div>${L.map((r) => `<div class="f-row ok"><div class="grow"><b>${esc(tkFirst(r.answeredBy || "The office"))} answered: ${esc(r.title)}</b><span class="small">${esc(r.answer || "")}</span></div><button class="btn sm" data-fack="answer:${esc(r.id)}">Got It</button></div>`).join("")}</div>`;
+}
+
 if ("function" == typeof fmClockHome) {
   const base = fmClockHome;
   fmClockHome = function () {
@@ -379,18 +574,17 @@ if ("function" == typeof fmClockHome) {
       const card = document.getElementById("fm-today");
       if (!card) return r;
       card.querySelectorAll("[data-fm-block]").forEach((b) => (b.onclick = (e) => (e.stopPropagation(), tkBlockedSheet(b.dataset.fmBlock))));
-      // a blocked line says so where the crew reads it
-      card.querySelectorAll(".fm-row[data-tkopen]").forEach((row) => {
-        const id = String(row.dataset.tkopen).split(":")[1],
-          t = S && (S.tasks || []).find((q) => q.id === id),
-          s = t && t.blocked && row.querySelector(".small");
-        s && !s.querySelector(".tkr-blk") && s.insertAdjacentHTML("beforeend", ` · <b class="tkr-blk">blocked: ${esc(t.blocked.reason)}</b>`);
-      });
-      document.querySelectorAll("#v-time .tkr-mine, #v-time .tkr-offers").forEach((c) => c.remove());
+      tkBlockMark(card, ".fm-row[data-tkopen]");
+      document.querySelectorAll("#v-time .tkr-mine, #v-time .tkr-offers, #v-time .tkr-answers").forEach((c) => c.remove());
       const mine = tkMineCardHtml();
       mine && card.insertAdjacentHTML("beforebegin", mine);
       const off = tkOffersCardHtml();
       off && card.parentNode.insertBefore(document.createRange().createContextualFragment(off), card.parentNode.querySelector(".tkr-mine") || card);
+      const ans = tkMyAnswersHtml();
+      if (ans) {
+        card.parentNode.insertBefore(document.createRange().createContextualFragment(ans), card.parentNode.querySelector(".tkr-offers") || card.parentNode.querySelector(".tkr-mine") || card);
+        "function" == typeof fWireForYou && fWireForYou(card.parentNode.querySelector(".tkr-answers"));
+      }
     } catch (e) {
       console.warn("clock tasks", e);
     }
@@ -404,6 +598,7 @@ if ("function" == typeof fRenderToday) {
     try {
       const root = document.getElementById("ftoday-body");
       root && tkrMount(root, root.querySelector(":scope > .f-hero"));
+      root && tkBlockMark(root, ".f-row[data-tkopen^='sched:']");
     } catch (e) {
       console.warn("foreman offers", e);
     }
@@ -413,17 +608,17 @@ if ("function" == typeof fRenderToday) {
 {
   const base = render;
   render = function () {
+    // the end-of-shift check runs before the draw, so the screen shows what it did
+    try {
+      tkBlockSweep() && save();
+    } catch (e) {
+      console.warn("block sweep", e);
+    }
     const r = base.apply(this, arguments);
     try {
-      if ("home" === view) {
-        // above the day's rows, under the chips and the brief
-        const list = document.querySelector("#v-home .td2-list");
-        if (list) {
-          list.parentNode.querySelectorAll(":scope > .tkr-offers").forEach((c) => c.remove());
-          const html = tkOffersCardHtml();
-          html && list.insertAdjacentHTML("beforebegin", html);
-        }
-      } else if ("sday" === view) {
+      // the office Today shows an offer once, as its row with Accept (td2Model keeps it unfolded); the designer's Today
+      // is not that page, so it carries the offers card
+      if ("sday" === view) {
         const root = document.getElementById("sday-body");
         root && tkrMount(root, root.querySelector(":scope > .ph"));
       }
@@ -431,6 +626,77 @@ if ("function" == typeof fRenderToday) {
       console.warn("offers on Today", e);
     }
     return r;
+  };
+}
+
+// ---- a photo in a direct or group message ---------------------------------------------------------------------------
+// It offered only Share a Record. A photo sent in a thread tied to a job is filed on that job (never shared with the
+// client: shareClient stays off); a thread with no job keeps it on the thread itself, read only by its members. The job
+// the sender last opened is never used. (The job's own thread keeps the upload it always had.)
+async function tkDmPhoto(T, list) {
+  const me = tkrMe(),
+    pid = T.t.projectId || T.t.pid || "",
+    p = pid ? (DB.projects || []).find((q) => q.id === pid) : null,
+    ids = [];
+  for (const file of list)
+    try {
+      const img = /^image\//.test(file.type || ""),
+        dataUrl = img ? (await compressImage(file)).dataUrl : await readAsDataURL(file),
+        size = Math.round(0.75 * dataUrl.length);
+      if (size > 4194304) {
+        toast(`${file.name} is ${(size / 1048576).toFixed(1)} MB, over the 4 MB limit. Link it from Drive instead.`);
+        continue;
+      }
+      const id = uid("f"),
+        rec = { id: id, name: file.name || `photo-${today()}.jpg`, type: file.type || "application/octet-stream", size: size, cat: img ? "photo" : "doc", date: today(), by: me.name || "", link: { kind: "thread", id: T.key }, notes: `Sent in ${T.title}`, shareClient: !1, ai: null, uploadedAt: appNowIso(), dataUrl: dataUrl };
+      if (p) {
+        (p.files = p.files || []).push(rec);
+        try {
+          putBlob(id, dataUrl).then((ok) => (rec.persisted = ok));
+        } catch (e) {}
+      } else (T.t.files = T.t.files || []).push(Object.assign(rec, { private: !0 }));
+      ids.push(id);
+    } catch (e) {
+      console.warn("thread photo", e), toast(`Could not read ${file.name || "the photo"}`);
+    }
+  if (!ids.length) return;
+  const tx = document.getElementById("chat-text"),
+    raw = ((tx && tx.value) || "").trim();
+  msgPostDm(T, raw, { files: ids });
+  tx && (tx.value = "");
+  render();
+  toast(`${ids.length === 1 ? "Photo" : ids.length + " files"} sent to ${T.title}${p ? `, filed on ${shortName(p)}` : ", kept in this conversation only"}`, [{ label: "Open", run: () => msgOpen(T.key) }]);
+}
+document.addEventListener(
+  "change",
+  (e) => {
+    const f = e.target;
+    if (!f || "chat-file" !== f.id) return;
+    let T = null;
+    try {
+      T = msgCur(msgMe());
+    } catch (x) {}
+    if (!T || !T.t) return;
+    e.stopImmediatePropagation();
+    const list = [...(f.files || [])];
+    f.value = "";
+    list.length && tkDmPhoto(T, list);
+  },
+  !0,
+);
+// a thread's own photo shows in its line (the job's files are looked up by the line already)
+{
+  const base = msgLineHtml;
+  msgLineHtml = function (m, T) {
+    const h = base.apply(this, arguments);
+    try {
+      const own = T && T.t && (T.t.files || []).filter((f) => (m.files || []).includes(f.id));
+      if (!own || !own.length) return h;
+      const imgs = own.map((f) => (/^image\//.test(f.type) ? `<img class="msg-dmimg" src="${esc(f.dataUrl)}" alt="${esc(f.name)}">` : `<span class="pill info">${esc(String(f.name).slice(0, 22))}</span>`)).join("");
+      return h.replace(/(<div class="msg-bub[^"]*">)/, `$1<div class="msg-files tkr-dmfiles">${imgs}</div>`);
+    } catch (e) {
+      return h;
+    }
   };
 }
 
@@ -445,6 +711,9 @@ if ("function" == typeof fRenderToday) {
 .tkr-note{font-size:14px;color:var(--ink-2)}
 .tkr-done,.tkr-acts .btn{min-height:44px;min-width:64px;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:0 0 auto}
 .tkr-acts{display:flex;gap:8px;flex:0 0 auto}
+.tkr-blk{color:var(--bad,#b3261e)}
+.msg-dmimg{display:block;max-width:220px;max-height:260px;border-radius:10px;margin:2px 0 4px}
+.tkr-needphoto{display:flex;align-items:center;gap:8px;min-height:44px;margin-top:10px}
 .tkr-offer{flex-wrap:wrap}
 .card.tkr-offers{border-color:var(--accent)}
 @media (max-width:760px){.tkr-offer .tkr-acts{width:100%}.tkr-offer .tkr-acts .btn{flex:1 1 0}}

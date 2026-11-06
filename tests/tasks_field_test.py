@@ -155,13 +155,20 @@ async def s_punch(pg, c):
     c.ok('Take a Photo' in t, f"punch: Done asks for a photo of the finished work ({t[:80]!r})")
     await tap(pg, '#mbm #mbm-ok')
     st = await pg.evaluate("() => DB.field.punch.find(x => x.id === 'fp_t1').status")
-    c.ok(st == 'open', f'punch: without a photo it stays open ({st})')
+    c.ok(st == 'open', f'punch: without a photo or a reason it stays open ({st})')
     await pg.evaluate(PHOTO)
     await tap(pg, '#mbm [data-tkrcam]')
     await tap(pg, '#mbm #mbm-ok')
     r = await pg.evaluate("() => { const x = DB.field.punch.find(x => x.id === 'fp_t1'); return { st: x.status, n: (x.photos || []).length }; }")
     c.ok(r['st'] == 'done' and r['n'] >= 1, f'punch: with the photo it is done and the photo is on it ({r})')
     heads1 = await pg.evaluate("() => [...document.querySelectorAll('#fsite-body h3')].map(h => h.innerText)")
+    # done with no photo needs a reason, and the reason is on the record
+    await pg.evaluate("() => { DB.field.punch.push({ id: 'fp_t2', projectId: S.id, room: 'Garden bath', item: 'Caulk behind the vanity', assignee: 'Angel', status: 'open', by: 'Angel', at: appNowIso(), photos: [] }); save(); render(); }")
+    await tap(pg, '[data-fpunch="fp_t2:done"]')
+    await pg.fill('#mbm [data-f="why"]', 'behind the vanity, no clear shot')
+    await tap(pg, '#mbm #mbm-ok')
+    r2 = await pg.evaluate("() => { const x = DB.field.punch.find(x => x.id === 'fp_t2'); return { st: x.status, why: (x.noPhotoWhy || {}).why || '' }; }")
+    c.ok(r2['st'] == 'done' and 'no clear shot' in r2['why'], f'punch: done without a photo carries its logged reason ({r2})')
     await shot(pg, 'punch_after')
     c.ok(heads0 == heads1, f'punch: Site redrawn through render keeps its phone headings ({heads0[:3]} vs {heads1[:3]})')
     # the class: no direct fRender* redraw outside the field's own render step (fRenderView)
@@ -210,14 +217,29 @@ async def s_offers(pg, c):
     mine = await pg.evaluate("() => { const c = document.querySelector('#v-time .tkr-mine'); return c ? c.innerText : ''; }")
     await shot(pg, 'offers_crew_meeting_item')
     c.ok('Bring the laser level' in mine, f"offers: the meeting's item for Alberto is on his Clock ({mine[:80]!r})")
-    # an office receiver: the coordinator's Today
+    # an office receiver: the coordinator's Today shows the offer once, as its row with Accept, on the first screen
     await make_task(pg, 'u_alan', 'Order the vanity tops for 121 State', 'Chen Biron')
     await sign_in(pg, 'u_chen'); await go(pg, 'home')
-    card = await pg.evaluate("() => { const c = document.querySelector('#v-home .tkr-offers'); return c ? c.innerText : ''; }")
+    r = await pg.evaluate("""() => { const v = document.querySelector('#v-home');
+      const hits = [...v.querySelectorAll('.td-card, .tkr-row, .td2-row, [data-tdrec]')].filter(e => e.getClientRects().length && /Order the vanity tops/.test(e.innerText) && !e.parentElement.closest('.td-card, .tkr-row, .td2-row'));
+      return { n: hits.length, accept: hits.some(e => /Accept/.test(e.innerText)), card: !!v.querySelector('.tkr-offers'), folded: /Order the vanity tops/.test((v.querySelector('.td2-list') || {}).innerText || '') }; }""")
     await shot(pg, 'offers_coord_today')
-    c.ok('Order the vanity tops' in card and 'Accept' in card, f"offers: the coordinator's offer is on her Today ({card[:80]!r})")
-    n = await pg.evaluate("() => tkOfferedToMe().length")
-    c.ok(n >= 1, f'offers: tkOfferedToMe() counts it ({n})')
+    c.ok(r['n'] == 1 and r['accept'] and not r['card'] and r['folded'], f"offers: the coordinator's offer is on her Today once, with Accept, not folded ({r})")
+    # one function counts offers: Today's offered rows, the Clock and the foreman's card all read tkOfferedToMe()
+    r = await pg.evaluate("() => ({ fn: tkOfferedToMe().length, today: (tdyModel().offered || []).length })")
+    c.ok(r['fn'] >= 1 and r['fn'] == r['today'], f"offers: Today's offers are tkOfferedToMe()'s ({r})")
+    await sign_in(pg, 'u_alberto')
+    r = await pg.evaluate("() => { const me = tdyMe().id; return { fn: tkOfferedToMe().length, today: (tdyModel().offered || []).length, sched: tkOfferedToMe().filter(t => t.kind === 'sched').length }; }")
+    c.ok(r['sched'] >= 1 and r['fn'] == r['today'], f'offers: a schedule line offered to the crew counts the same everywhere ({r})')
+    # a crew member's own question is answered on his own Clock
+    await pg.evaluate("""() => { DB.field.raises.push({ id: 'fr_t1', projectId: 'p121', type: 'rfi', title: 'Which way does the garden door swing?', note: '', taskId: '', to: 'pm', cc: [], dueBy: today(), by: 'Alberto', at: appNowIso(), status: 'answered', answer: 'In, hinged on the left.', answeredBy: 'Alan Mishali', answeredAt: appNowIso(), photos: [], calls: [] }); save(); }""")
+    await go(pg, 'time')
+    ans = await pg.evaluate("() => (document.querySelector('#v-time .tkr-answers') || {}).innerText || ''")
+    await shot(pg, 'question_crew_clock_answer')
+    c.ok('garden door swing' in ans and 'hinged on the left' in ans, f"question: Alberto's answer is on his own Clock ({ans[:80]!r})")
+    if await tap(pg, '#v-time .tkr-answers [data-fack]'):
+        st = await pg.evaluate("() => DB.field.raises.find(x => x.id === 'fr_t1').status")
+        c.ok(st == 'closed', f'question: Got It closes it ({st})')
 
 
 async def s_blocked(pg, c):
@@ -231,11 +253,39 @@ async def s_blocked(pg, c):
         await tap(pg, '#mbm [data-tkrwhy]', 'Waiting on material')
         await pg.fill('#mbm [data-f="note"]', 'no LVL on site')
         await tap(pg, '#mbm #mbm-ok')
-    a = await pg.evaluate("() => { const a = DB.projects.find(p => p.id === 'p121').actions.find(x => /^Blocked:/.test(x.title)); return a ? { who: a.assignee, t: a.title } : null; }")
-    c.ok(bool(a and a['who'].startswith('Angel') and 'no LVL' in a['t']), f'blocked: the foreman has the task with the reason ({a})')
+    r = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), a = p.actions.find(x => /^Blocked:/.test(x.title)), w = p.actions.find(x => /^Watch:/.test(x.title)),
+      t = a && p.tasks.find(q => q.blocked && q.blocked.taskId === a.id), fore = (DB.users || []).find(u => (p.team || []).includes(u.id) && u.role === 'foreman');
+      return a ? { who: a.assignee, t: a.title, fore: fore ? fore.name : '', pm: w ? w.assignee : '', waits: w ? w.waitsOn : '', line: t ? t.id : '' } : null; }""")
+    c.ok(bool(r and r['who'] == (r['fore'] or r['who']) and r['who'].startswith('Angel') and 'no LVL' in r['t']), f"blocked: the job's foreman has the task with the reason ({r})")
+    c.ok(bool(r and r['pm'] and r['waits'].startswith('Angel')), f'blocked: the PM watches it, Waiting On the foreman ({r})')
     await sign_in(pg, 'u_angel'); await go(pg, 'ftoday')
-    body = await pg.evaluate("() => (document.querySelector('#ftoday-body .f-mine') || {}).innerText || ''")
-    c.ok('Blocked:' in body, "blocked: it is on the foreman's Put on You")
+    r2 = await pg.evaluate("() => ({ mine: (document.querySelector('#ftoday-body .f-mine') || {}).innerText || '', mark: [...document.querySelectorAll('#ftoday-body .tkr-blk')].map(e => e.innerText).join(' | ') })")
+    await shot(pg, 'blocked_foreman_today')
+    c.ok('Blocked:' in r2['mine'] and 'no LVL' in r2['mark'], f"blocked: on the foreman's Put on You and his Today's Work line ({r2['mark'][:80]!r})")
+    # the end of the shift: untouched, it goes to the PM
+    esc = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), t = p.tasks.find(q => q.blocked); t.blocked.at = iso(addDays(parse(today()), -1)) + 'T09:00:00'; render();
+      const w = p.actions.find(x => x.id === t.blocked.watchId); return { esc: !!t.blocked.escalated, title: w ? w.title : '', pri: w ? w.priority : '' }; }""")
+    c.ok(esc['esc'] and esc['title'].startswith('Escalated:') and esc['pri'] == 'high', f'blocked: untouched by the end of the shift it escalates to the PM ({esc})')
+    # the job's schedule shows it; closing the foreman's task clears the line and the PM's watch
+    await pg.evaluate("() => { setCurrent('p121'); view = 'sched'; try { schedView = 'list'; } catch (e) {} render(); }")
+    await tap(pg, '#fm-fullsched')
+    job = await pg.evaluate("() => [...document.querySelectorAll('#sched-list .pr-m')].map(e => e.innerText).filter(t => /blocked/.test(t)).join(' | ')")
+    c.ok('no LVL' in job, f"blocked: the job's schedule shows the line blocked ({job[:80]!r})")
+    r3 = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), a = p.actions.find(x => /^Blocked:/.test(x.title)); tkToggle('action', a.id, 'p121');
+      const t = p.tasks.find(q => (q.blockHist || []).some(h => h.taskId === a.id)), w = p.actions.find(x => /^(Watch|Escalated):/.test(x.title));
+      return { cleared: !!t && !t.blocked, watch: w ? w.status : '' }; }""")
+    c.ok(r3['cleared'] and r3['watch'] == 'done', f"blocked: done clears the line and the PM's watch ({r3})")
+    # not safe to work: the foreman and the PM at once, in the Standard's format, ranked first
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    if await tap(pg, '#fm-today [data-fm-block]'):
+        await tap(pg, '#mbm [data-tkrwhy]', 'Not safe to work')
+        await pg.fill('#mbm [data-f="note"]', 'shoring under the garden joists moved')
+        await tap(pg, '#mbm #mbm-ok')
+    r4 = await pg.evaluate("""() => { const p = DB.projects.find(p => p.id === 'p121'), S2 = p.actions.filter(x => /^Safety:/.test(x.title));
+      const it = S2.map(a => tkAll().find(t => t.kind === 'action' && t.id === a.id)).filter(Boolean);
+      return { who: S2.map(a => a.assignee), fmt: S2.every(a => /What happened:/.test(a.notes) && /Impact:/.test(a.notes) && /Options:/.test(a.notes) && /Recommendation:/.test(a.notes) && /Decide by:/.test(a.notes)),
+               first: it.every(t => standardRank(tdyTaskItem(t)).imm === 0) }; }""")
+    c.ok(len(r4['who']) == 2 and any(w.startswith('Angel') for w in r4['who']) and r4['fmt'] and r4['first'], f"blocked: not safe goes to the foreman and the PM at once, in the escalation format, ranked first ({r4})")
 
 
 async def s_dm(pg, c):
@@ -246,6 +296,36 @@ async def s_dm(pg, c):
     vis = await pg.evaluate("() => ['#msg-cam', '.chat-compose .msg-attach', '#msg-rec'].map(s => { const e = document.querySelector(s); return !!e && !e.hidden && e.getClientRects().length > 0; })")
     await shot(pg, 'dm_attach')
     c.ok(vis[0] and vis[1], f'dm: a direct message offers the camera and a photo ({vis})')
+    png = os.path.join(SHOTS, 'dm_attach.png')
+    n0 = await pg.evaluate("() => DB.projects.reduce((a, p) => a + (p.files || []).length, 0)")
+    await pg.set_input_files('#chat-file', png)
+    await pg.wait_for_timeout(1500)
+    r = await pg.evaluate("""() => { const T = msgDirectWith('u_angel'); return { own: (T.t.files || []).length, priv: (T.t.files || []).every(f => f.private), line: (T.all().slice(-1)[0] || {}).files || [],
+      jobs: DB.projects.reduce((a, p) => a + (p.files || []).length, 0), img: !!document.querySelector('#chat-list .msg-dmimg') }; }""")
+    await shot(pg, 'dm_photo_sent')
+    c.ok(r['own'] == 1 and r['priv'] and len(r['line']) == 1 and r['jobs'] == n0 and r['img'], f'dm: a photo in a thread with no job stays on the thread, not on any job ({r}, jobs before {n0})')
+    await pg.evaluate("() => { const T = msgDirectWith('u_angel'); T.t.projectId = 'p121'; save(); msgOpen(T.key); }")
+    await pg.set_input_files('#chat-file', png)
+    await pg.wait_for_timeout(1500)
+    r = await pg.evaluate("() => { const f = DB.projects.find(p => p.id === 'p121').files.filter(f => f.link && f.link.kind === 'thread'); return { n: f.length, client: f.some(x => x.shareClient) }; }")
+    c.ok(r['n'] == 1 and not r['client'], f"dm: a thread tied to a job files it on that job, never shared with the client ({r})")
+
+
+async def s_photo(pg, c):
+    await make_task(pg, 'u_alan', 'Picture frame rail in the parlor', 'Alan', handoff=False)
+    k2 = await make_task(pg, 'u_alan', 'Photograph the stair stringer for the record', 'Alan', handoff=False)
+    r = await pg.evaluate("""() => { const tk = (re) => tkAll().find(t => re.test(t.title)); return { frame: !!(tk(/^Picture frame rail/) || {}).proofNeed, photo: !!(tk(/^Photograph the stair/) || {}).proofNeed }; }""")
+    c.ok(not r['frame'] and r['photo'], f'photo: the title pre-ticks Needs a Photo for a photograph, not for a picture frame ({r})')
+    await go(pg, 'tkall')
+    await pg.evaluate("k => tkSheet(k)", k2)
+    await pg.wait_for_timeout(300)
+    box = await pg.evaluate("() => { const b = document.querySelector('#mbm [data-tkrneedphoto]'); return b ? b.checked : null; }")
+    await shot(pg, 'photo_needs_box')
+    c.ok(box is True, f'photo: the sheet shows Needs a Photo, ticked ({box})')
+    await pg.evaluate("() => { const b = document.querySelector('#mbm [data-tkrneedphoto]'); b.scrollIntoView({ block: 'center' }); b.click(); }")
+    r = await pg.evaluate("k => { const t = tkAll().find(x => x.key === k); const R = tkResolve(k); return { need: !!(t && t.proofNeed), rec: R.rec.needsPhoto }; }", k2)
+    c.ok(not r['need'] and r['rec'] is False, f'photo: unticked, Done asks for no photo, and the choice is on the record ({r})')
+    await pg.evaluate(CLOSE)
 
 
 async def s_designer(pg, c):
@@ -331,7 +411,7 @@ async def s_toast(pg, c):
 
 
 SECTIONS = {'rows': s_rows, 'question': s_question, 'need': s_need, 'plan': s_plan, 'punch': s_punch, 'offers': s_offers, 'blocked': s_blocked,
-            'dm': s_dm, 'designer': s_designer, 'quick': s_quick, 'es': s_es, 'sched': s_sched, 'clock': s_clock, 'toast': s_toast}
+            'dm': s_dm, 'photo': s_photo, 'designer': s_designer, 'quick': s_quick, 'es': s_es, 'sched': s_sched, 'clock': s_clock, 'toast': s_toast}
 
 
 async def main():
