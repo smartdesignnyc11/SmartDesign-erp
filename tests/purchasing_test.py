@@ -1042,7 +1042,8 @@ async def s_price(p, c):
         c.ok(bool(it), f'price: an item with a price history to test against ({it})')
         if it:
             price = round(it['best'] * 1.15, 2)
-            await pg.evaluate("""([it, price]) => { DB.pos.push({ id: 'po_pr', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: '', needBy: '2026-09-20', status: 'draft', shipTo: 'Site',
+            # a curb drop: Ferguson has no COI, and an order whose delivery is not said is guessed inside (CoS 11-06)
+            await pg.evaluate("""([it, price]) => { DB.pos.push({ id: 'po_pr', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: '', needBy: '2026-09-20', status: 'draft', shipTo: 'Site', dropAt: 'curb',
               lines: [{ id: 'pr1', item: it.label, qty: 40, unit: it.unit, price: price, received: 0, line: (DB.pos.flatMap(x => x.lines).find(l => l.line) || {}).line || '' }], tax: 0, shipping: 0, matchedTxns: [] }); setCurrent('p121'); poOpen = 'po_pr'; view = 'po'; render(); }""", [it, price])
             await pg.wait_for_timeout(400)
             v = await pg.evaluate("([it, price]) => poLinePriceCheck(it.label, it.unit, price, 40)", [it, price])
