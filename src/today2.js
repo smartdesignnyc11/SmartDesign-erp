@@ -1190,10 +1190,12 @@ function td2Chrome() {
 (function td2Bars() {
   if ("object" != typeof MENU) return;
   const set = (r, bar) => MENU[r] && (MENU[r].phone = bar);
+  // Tasks on the owner's and billing's bars too, five tabs (Alan, 11-06)
   set("owner", [
     ["home", "Today", "today"],
     ["ovjobs", "Projects", "field"],
     ["ovsales", "Sales", "sales"],
+    ["tkall", "Tasks", "tasks"],
     ["chat", "Messages", "chat"],
   ]);
   set("pm", [
@@ -1215,6 +1217,7 @@ function td2Chrome() {
     ["home", "Today", "today"],
     ["billing", "Billing", "billing"],
     ["clients", "Clients", "people"],
+    ["tkall", "Tasks", "tasks"],
     ["chat", "Messages", "chat"],
   ]);
   set("controller", [

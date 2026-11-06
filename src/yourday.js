@@ -1117,7 +1117,14 @@ function ydForward() {
     try {
       // a person's page is opened on purpose: any other page (or another person signing in) leaves it
       "team" !== view && "undefined" != typeof ydPersonId && (ydPersonId = "");
-      ydOffice() && document.querySelectorAll('#mtabs [data-mv="tkall"] i.n').forEach((i) => i.remove());
+      // the bar's Tasks badge is late plus due today, the rows of Tasks > Today (Alan, 11-06)
+      ydOffice() &&
+        document.querySelectorAll('#mtabs [data-mv="tkall"]').forEach((b) => {
+          b.querySelectorAll("i.n").forEach((i) => i.remove());
+          const n = "function" == typeof tkTasksBadgeN ? tkTasksBadgeN() : 0;
+          n && b.insertAdjacentHTML("beforeend", `<i class="n" data-ocbadge="tkall">${n}</i>`);
+          b.setAttribute("aria-label", n ? `Tasks, ${n} late or due today` : "Tasks");
+        });
       ydMsgRender();
       ydTodayAfter();
       document.querySelectorAll(".view").forEach((e) => e.classList.toggle("on", e.id === tkViewId(view)));
@@ -1149,11 +1156,12 @@ if ("function" == typeof paAsk) {
     return a && "function" == typeof a.then ? a.then(fix) : fix(a);
   };
 }
-// Tasks carries no number in the menu: Today already counts what is due (the approved menu, Your Day SPEC 2)
+// Tasks in the menu carries the Tasks badge: late plus due today, the rows of Tasks > Today (Alan, 11-06; it carried no
+// number under the Your Day mock-up of 11-03). The bar reads the same function.
 {
   const base = mnItemN;
   mnItemN = function (it) {
-    if (it && "tkall" === it.v && ydOffice()) return 0;
+    if (it && "tkall" === it.v && ydOffice()) return "function" == typeof tkTasksBadgeN ? tkTasksBadgeN() : 0;
     return base.apply(this, arguments);
   };
 }

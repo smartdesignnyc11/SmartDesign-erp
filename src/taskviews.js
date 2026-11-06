@@ -3838,15 +3838,24 @@ let tvDrawing = "",
 // ---- Tasks in the side menu: one number, the person's own Due Soon -------------------------------------------------
 // The rail entry, Today's sub-tab and Tasks chip, the phone bar and the Tasks page say the same count: tkTasksN(), the
 // list's own Due Soon for Mine (taskfix #1; it was "late or due today" here and a 14-day horizon on Today).
-"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkTasksN() });
+// Alan, 11-06: the Tasks badge (the bar, the menu and this page's marked count) is the person's own late plus due today,
+// tkMyCounts().today, the rows Tasks > Today shows. Due Soon (tkTasksN) stays the Due Soon chip's and tile's number.
+const tkTasksBadgeN = () => {
+  try {
+    return tkMyCounts().today || 0;
+  } catch (e) {
+    return 0;
+  }
+};
+"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkTasksBadgeN() });
 // The page's subtitle is gone (the mockup's one bar); the rail's number stays findable on the page as a small pill beside
 // the title, the mockup's "N late" pill: "12 due soon · 6 late", red only when something is late (one question, one number)
 function tvDueMark(host) {
   const h = host.querySelector(".ph h2");
   if (!h || host.querySelector(".ph [data-ocbadge]") || "home" !== t2Ctx()) return;
-  const n = tkTasksN(),
+  const n = tkTasksBadgeN(),
     late = tkMyCounts().overdue || 0;
-  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${late ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due in the next 7 days">${n ? `${n} due soon${late ? ` · ${late} late` : ""}` : "Nothing due soon"}</span>`);
+  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${late ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due today: the Tasks badge">${n ? `${n} late or due today${late ? ` · ${late} late` : ""}` : "Nothing late or due today"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------
