@@ -92,6 +92,19 @@ async def main():
         t = await pg.evaluate("() => (document.querySelector('#pal') || {}).innerText || ''")
         C.ok('121State-FM14' in t, 'Cmd-K finds it by the full number')
         C.ok(await pg.evaluate("() => DB.audit.some(a => a.action === 'numbered' && /140Prospect-FM1/.test(a.note))"), 'each FM number is written to the audit trail with what it replaced')
+        # the invoice's lines name their selection and the order line that bought it (lane P5's item table reads them)
+        await pg.keyboard.press('Escape')
+        L = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl121'), it = DB.sel.items.find(i => i.projectId === 'p121');
+          let po = (DB.pos || []).find(p => p.projectId === 'p121' && (p.lines || []).some(l => l.selId === it.id) && !['void', 'cancelled', 'draft'].includes(p.status));
+          if (!po) { po = { id: 'pofm', number: 'PO-2026-990', projectId: 'p121', vendor: it.vendor || 'Ferguson', status: 'sent', lines: [{ id: 'plfm', selId: it.id, item: it.name, qty: 1, price: 100 }] }; DB.pos.push(po); }
+          const pl = po.lines.find(l => l.selId === it.id);
+          const e = newDoc(c, 'estimate', { template: 'materials', fields: { projectId: 'p121' } }); e.projectId = 'p121'; e.status = 'approved';
+          e.lines = [{ id: 'lfe1', selId: it.id, item: it.name, qty: 1, rate: 250, taxable: true }, { id: 'lfe2', item: 'Delivery', qty: 1, rate: 75 }];
+          const inv = newDoc(c, 'invoice', { mode: 'items' }); inv.template = e.template; inv.projectId = 'p121'; inv.fromDoc = e.id;
+          inv.lines = e.lines.map(l => ({ id: uid('l'), item: l.item, qty: l.qty, rate: l.rate, taxable: l.taxable, fromLine: ctKey(e, l), pct: 100 })); docMark(inv); render();
+          return { est: e.number, inv: inv.number, sel: inv.lines[0].selId === it.id, po: inv.lines[0].poLineId === pl.id && inv.lines[0].poId === po.id, plain: !inv.lines[1].selId && !inv.lines[1].poLineId, amt: docTotal(inv).sub }; }""")
+        C.ok(L['sel'] and L['po'] and L['plain'] and L['amt'] == 325, f'a materials invoice from the estimate carries each line\'s selId and the PO line that bought it; links only, the amounts unchanged ({L})')
+        C.ok(re.match(r'^121State-FME\d+$', L['est']) and re.match(r'^121State-FM\d+$', L['inv']), f'the materials estimate and its invoice share the job\'s prefix ({L["est"]}, {L["inv"]})')
         C.ok(not errs, f'no page errors ({errs[:2]})')
         await b.close()
     sys.exit(C.done())

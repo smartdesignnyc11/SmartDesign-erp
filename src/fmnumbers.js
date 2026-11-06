@@ -129,8 +129,37 @@ function fmAssign(c, d) {
   } catch (e) {}
   return num;
 }
+// A finished-material invoice line names the selection it bills (selId) and the purchase-order line that bought it
+// (poId, poLineId), so the item table (lane P5) and the client's bill-back find the invoice from the item. The invoice
+// from an estimate (invoiceFromEstimate) copied only the line's words and price: the source line's selId is taken
+// from its fromLine key, and the order line from the job's orders that bought that selection. Only links are added;
+// amounts, quantities and words are never touched, and a link a line already has is kept.
+function fmLineLinks(d) {
+  if (!d || "invoice" !== d.type || "materials" !== d.template || "void" === d.status) return 0;
+  let n = 0;
+  (d.lines || []).forEach((l) => {
+    if (!l.selId && l.fromLine) {
+      const [k, docId, lineId] = String(l.fromLine).split(":"),
+        src = (DB.clients || []).flatMap((c) => ("co" === k ? c.changeOrders : c.estimates) || []).find((x) => x.id === docId),
+        sl = src && (src.lines || []).find((x) => x.id === lineId);
+      sl && sl.selId && ((l.selId = sl.selId), n++);
+    }
+    if (l.selId && !l.poLineId) {
+      const P = (DB.pos || []).filter((po) => !["void", "cancelled", "draft"].includes(po.status) && (!d.projectId || !po.projectId || po.projectId === d.projectId));
+      for (const po of P) {
+        const pl = (po.lines || []).find((x) => x.selId === l.selId);
+        if (pl) {
+          (l.poId = po.id), (l.poLineId = pl.id), n++;
+          break;
+        }
+      }
+    }
+  });
+  return n;
+}
 // every eligible draft, wherever it was made: a new document takes its template after newDoc in most paths
 function fmSweep() {
+  (DB.clients || []).forEach((c) => (c.invoices || []).forEach((d) => "materials" === d.template && fmLineLinks(d)));
   let n = 0;
   (DB.clients || []).forEach((c) =>
     [...(c.invoices || []), ...(c.estimates || [])].forEach((d) => {
@@ -182,6 +211,7 @@ if ("function" == typeof docMark) {
         const c = (DB.clients || []).find((x) => (x.invoices || []).includes(d) || (x.estimates || []).includes(d));
         c && fmAssign(c, d);
       }
+      fmLineLinks(d);
     } catch (e) {}
     return base.apply(this, arguments);
   };
