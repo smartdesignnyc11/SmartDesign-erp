@@ -405,27 +405,24 @@ function psMoney(x, ctx) {
   x.src = { inv: !0, lead: null != x.lead, sku: !!x.sku, desc: !!x.desc, qty: !!x.qty, room: !!x.room, budget: null != x.budget || !!x.shared, bought: null != x.bought || null != x.importedPrice, vendor: !!x.vendor, status: !0, deliv: !!x.deliv };
   return x;
 }
-// The price against the last time the firm bought the same item (itemPriceHistory, the one price history: our orders,
-// bills, receipts and quotes), for an order line; and what the shop already holds for a need (puStockFor, the stock check
-// every buying door runs). Read for the rows on screen only.
+// The price against what the firm paid before: the PO page's one check (poLinePriceCheck, the order itself left out of its
+// history), so the row and the order say the same thing. And what the shop already holds for a need: the stock reading
+// every buying door runs (puStockForNeed, its "may be it" hints included), in the same words (puStockSay).
 function psPriceUp(x) {
-  if ("function" != typeof itemPriceHistory || 1 !== x.pls.length) return null;
-  const { po: po, pl: pl } = x.pls[0],
-    price = +pl.price || 0;
-  if (!(price > 0) || !(pl.item || pl.desc)) return null;
+  if (1 !== x.pls.length || "function" != typeof poLinePriceCheck) return null;
+  const { po: po, pl: pl } = x.pls[0];
+  if (!(+pl.price > 0) || !(pl.item || pl.desc)) return null;
   try {
-    const H = itemPriceHistory(pl.item || pl.desc),
-      mine = `po:${po.id}:${pl.id}`,
-      prev = ((H && H.rows) || []).filter((h) => h.id !== mine && (!po.date || !h.date || h.date <= po.date) && +h.adjusted > 0).sort((a, b) => String(a.date).localeCompare(String(b.date))).pop();
-    return prev && price > +prev.adjusted * 1.01 + 0.005 ? { was: +prev.adjusted, from: (prev.sources || [])[0] || prev.vendor || "", date: prev.date } : null;
+    const c = poLinePriceCheck(pl.item || pl.desc, pl.unit || "", +pl.price, +pl.qty || 1, po.id);
+    return c && !c.ok && c.ref ? { was: c.ref, from: [c.vendor, c.doc].filter(Boolean).join(", ") } : null;
   } catch (e) {
     return null;
   }
 }
 function psStock(x) {
-  if (!x.r || x.r.ordered || "buy" !== x.r.tab || "function" != typeof puStockFor) return "";
+  if (!x.r || x.r.ordered || "buy" !== x.r.tab || "function" != typeof puStockSay) return "";
   try {
-    return puStockSay(puStockFor(x.r.name)) || "";
+    return puStockSay("function" == typeof puStockForNeed ? puStockForNeed(x.r) : puStockFor(x.r.name)) || "";
   } catch (e) {
     return "";
   }
@@ -433,17 +430,17 @@ function psStock(x) {
 
 // ---- the columns, in Alan's order ----------------------------------------------------------------------------------
 const PS_COLS = [
-  { k: "inv", n: "Invoice", w: 104, val: (x) => x.inv || "", cmp: (a, b) => tvNatCmp(a, b) },
-  { k: "lead", n: "Lead Time", w: 64, num: 1, val: (x) => (null == x.lead ? "" : x.lead) },
+  { k: "inv", n: "Invoice", w: 132, val: (x) => x.inv || "", cmp: (a, b) => tvNatCmp(a, b) },
+  { k: "lead", n: "Lead Time", w: 84, num: 1, val: (x) => (null == x.lead ? "" : x.lead) },
   { k: "sku", n: "Item #", w: 92, val: (x) => x.sku },
   { k: "desc", n: "Description", w: 0, val: (x) => x.desc },
   { k: "qty", n: "Qty", w: 54, num: 1, val: (x) => x.qty || "" },
-  { k: "room", n: "Room", w: 88, val: (x) => x.room },
+  { k: "room", n: "Room", w: 92, val: (x) => x.room },
   { k: "budget", n: "Budget Price", w: 88, num: 1, val: (x) => (null != x.budget ? x.budget : x.shared ? x.shared.budget : "") },
   { k: "bought", n: "Purchased Price", w: 112, num: 1, val: (x) => (null == x.bought ? "" : x.bought) },
-  { k: "vendor", n: "Vendor", w: 96, val: (x) => x.vendor },
+  { k: "vendor", n: "Vendor", w: 88, val: (x) => x.vendor },
   { k: "status", n: "Status", w: 108, val: (x) => x.status, rank: PS_RANK },
-  { k: "deliv", n: "Delivery Date", w: 76, type: "date", val: (x) => x.deliv || "" },
+  { k: "deliv", n: "Delivery Date", w: 84, type: "date", val: (x) => x.deliv || "" },
 ];
 const psCol = (k) => PS_COLS.find((c) => c.k === k) || null;
 
@@ -498,7 +495,7 @@ function psSortBy(k, dir) {
 const psScope = () => ("function" == typeof puInJob && puInJob()) || ("undefined" != typeof bbProj && bbProj) || "";
 // read fresh on each draw and each tap (one buyList pass): a record changed without a save still reads as it is
 const psAll = () => psItems(psScope());
-const psRoomKey = (x) => x.room || "No room";
+const psRoomKey = (x) => (x.room ? x.room.charAt(0).toUpperCase() + x.room.slice(1).toLowerCase() : "No room");
 function psView() {
   const all = psAll(),
     q = psF.q.trim().toLowerCase();
@@ -586,22 +583,22 @@ function psCellHtml(x, k) {
       main = I
         ? `<a href="#" class="ps-inv" data-psinv="${sv(x.id)}" title="Open ${sv(I.d.number)}${"line" === I.how ? `: it bills ${sv(x.lineRef)}` : ""}" data-nocase>${esc(I.d.number)}</a>${"draft" === I.d.status ? sub("draft") : ""}`
         : x.fm
-          ? `<span class="ps-main" data-nocase>${esc(x.fm)}</span>${sub("Not yet invoiced in the app", "warn")}`
+          ? `<span class="ps-main" data-nocase>${esc(x.fm)}</span><span class="ps-sub warn" title="Not yet invoiced in the app: the FM number as entered" data-nocase>Not yet invoiced</span>`
           : `<span class="ps-main ps-dim${x.notBilled ? " warn" : ""}" data-nocase>Not invoiced</span>`;
     return main + sub(esc(x.lineRef || "No estimate line"), x.lineRef ? "" : "warn") + (x.notBilled ? sub("Bought for the client, not billed back", "bad") : "");
   }
   if ("lead" === k)
-    return `<span class="ps-main${x.orderLate ? " bad" : ""}" title="${sv(x.leadFrom)}" data-nocase>${psDays(x.lead)}</span>${x.orderLate ? sub(`Order by ${fmt(x.orderBy)}, passed`, "bad") : x.leadFrom && /observed/.test(x.leadFrom) ? sub("observed") : ""}`;
+    return `<span class="ps-main${x.orderLate ? " bad" : ""}" title="${sv(x.leadFrom)}" data-nocase>${psDays(x.lead)}</span>${x.orderLate ? `<span class="ps-sub bad" title="Order by ${fmt(x.orderBy)}: passed" data-nocase>${fmt(x.orderBy)} passed</span>` : x.leadFrom && /observed/.test(x.leadFrom) ? sub("observed") : ""}`;
   if ("sku" === k) return `<span class="ps-main ps-mono" data-nocase>${esc(x.sku || "")}</span>`;
   if ("desc" === k)
     return `<button type="button" class="ps-open" data-psopen="${sv(x.id)}"><b data-nocase>${esc(x.desc)}</b></button>${sub(esc([x.descSub, psScope() ? "" : x.job].filter(Boolean).join(" · ")))}`;
   if ("qty" === k) return `<span class="ps-main" data-nocase>${esc(psQty(x))}</span>`;
-  if ("room" === k) return `<span class="ps-main"${x.roomRead ? ' title="Read from the item\'s words"' : ""} data-nocase>${esc(x.room || "")}</span>`;
+  if ("room" === k) return `<span class="ps-main" title="${sv(x.room)}${x.roomRead ? ": read from the item's words" : ""}" data-nocase>${esc(x.room || "")}</span>`;
   if ("budget" === k)
     return null != x.budget
-      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.qty > 1 && x.it ? sub(`${unitMoney(selCost(x.it))} each`) : sub("line" === x.budgetFrom ? "the line's budget" : "")}`
+      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.qty > 1 && x.it ? sub(`${unitMoney(selCost(x.it))} each`) : sub("line" === x.budgetFrom ? "line budget" : "")}`
       : x.shared
-        ? `<span class="ps-main ps-dim" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} for ${x.shared.n} items`)}`
+        ? `<span class="ps-main ps-dim" title="${money(x.shared.budget)} for the ${x.shared.n} items on the line" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} line`)}`
         : "";
   if ("bought" === k) {
     if (null == x.bought)
@@ -618,7 +615,7 @@ function psCellHtml(x, k) {
       up ? sub(`Up from ${unitMoney(up.was)} last time${up.from ? ` (${esc(up.from)})` : ""}`, "bad") : ""
     }`;
   }
-  if ("vendor" === k) return `<span class="ps-main" data-nocase>${esc(x.vendor || "")}</span>`;
+  if ("vendor" === k) return `<span class="ps-main" title="${sv(x.vendor)}" data-nocase>${esc(x.vendor || "")}</span>`;
   if ("status" === k) {
     let next = "";
     try {
@@ -630,9 +627,9 @@ function psCellHtml(x, k) {
   }
   if ("deliv" === k)
     return x.deliv
-      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `Needed ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "promised", x.late ? "bad" : "")}`
+      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "promised", x.late ? "bad" : "")}`
       : x.needBy && !PS_BOUGHT.includes(x.status)
-        ? sub(`Need by ${fmt(x.needBy)}`)
+        ? `<span class="ps-sub" title="Needed on site ${fmt(x.needBy)}" data-nocase>need ${fmt(x.needBy)}</span>`
         : "";
   return "";
 }
@@ -935,51 +932,88 @@ function psParseSheet(text) {
   });
   return { items: out, error: "" };
 }
-const psSameItem = (pid, x) => ((DB.sel || {}).items || []).some((i) => i.projectId === pid && (i.fm || "") === x.fm && ((x.sku && i.sku === x.sku) || String(i.name || "").toLowerCase() === x.name.toLowerCase()));
+// One item on the job: the same FM number, the same room and the same SKU (or, with none, the same name). The sheet's own
+// repeats count too: the second of two identical rows is not imported twice.
+const psImpKey = (pid, x) => [pid, String(x.fm || "").toUpperCase(), String(x.room || "").trim().toLowerCase(), x.sku ? "#" + String(x.sku).trim().toLowerCase() : String(x.name || "").trim().toLowerCase()].join("|");
+function psImpMark(pid, L) {
+  const have = new Set(((DB.sel || {}).items || []).filter((i) => i.projectId === pid).map((i) => psImpKey(pid, i))),
+    seen = new Set();
+  return L.map((x) => {
+    const k = psImpKey(pid, x),
+      why = have.has(k) ? "already on this job" : seen.has(k) ? "repeats a row above" : "";
+    seen.add(k);
+    return Object.assign({}, x, { skip: why });
+  });
+}
+// the sheet's prices: per unit (a budget of $145 for 2 is $290) or line totals (the $290 is the line); said in the preview
+function psImpMoney(x, perUnit) {
+  const q = +x.qty || 1;
+  return perUnit ? { costEach: x.cost, budget: r2(x.cost * q), boughtEach: x.bought, bought: r2(x.bought * q) } : { costEach: r2(x.cost / q), budget: x.cost, boughtEach: r2(x.bought / q), bought: x.bought };
+}
 function psImportSheet() {
   if (psRO()) return toast("Purchasing is read only for your role: the coordinator imports the sheet");
   const P = (DB.projects || []).filter((p) => !p.archived),
     cur = psScope() || (S && S.id) || (P[0] || {}).id || "";
   let parsed = { items: [], error: "" };
+  const marked = () => psImpMark(m.querySelector("#ps-imp-job").value, parsed.items),
+    perUnit = () => "line" !== m.querySelector("#ps-imp-basis").value;
   const m = mbModal(
     "Import a Sheet",
-    `<p class="small muted" data-nocase>Paste the purchasing sheet as CSV (Invoice, Lead Time, Item #, Description, Qty, Room, Budget Price, Purchased Price, Vendor, Status, Delivery Date), or choose the file. Each item becomes one of the job's FF&amp;E items; a row already on the job is left alone.</p><label class="f"><span>Job</span><select id="ps-imp-job">${P.map((p) => `<option value="${esc(p.id)}" ${p.id === cur ? "selected" : ""}>${esc(puJob(p))}</option>`).join("")}</select></label><label class="f"><span>File</span><input id="ps-imp-file" type="file" accept=".csv,text/csv"></label><label class="f"><span>Sheet</span><textarea id="ps-imp-text" rows="6" placeholder="Invoice,Lead Time,Item #,Description,..."></textarea></label><div class="ps-imp-prev" data-nocase></div>`,
+    `<p class="small muted" data-nocase>Paste the purchasing sheet as CSV (Invoice, Lead Time, Item #, Description, Qty, Room, Budget Price, Purchased Price, Vendor, Status, Delivery Date), or choose the file. Each item becomes one of the job's FF&amp;E items. The sheet's purchased prices are kept as imported, not as what was paid: a bill or a bank line makes them true.</p><label class="f"><span>Job</span><select id="ps-imp-job">${P.map((p) => `<option value="${esc(p.id)}" ${p.id === cur ? "selected" : ""}>${esc(puJob(p))}</option>`).join("")}</select></label><label class="f"><span>The Sheet's Prices Are</span><select id="ps-imp-basis"><option value="unit">Per unit: the line is price x qty</option><option value="line">Line totals: already price x qty</option></select></label><label class="f"><span>File</span><input id="ps-imp-file" type="file" accept=".csv,text/csv"></label><label class="f"><span>Sheet</span><textarea id="ps-imp-text" rows="6" placeholder="Invoice,Lead Time,Item #,Description,..."></textarea></label><div class="ps-imp-prev" data-nocase></div>`,
     {
       submit: "Import",
       onSubmit: () => {
         const pid = m.querySelector("#ps-imp-job").value,
           p = (DB.projects || []).find((x) => x.id === pid),
-          N = parsed.items.filter((x) => !psSameItem(pid, x));
+          L = marked(),
+          N = L.filter((x) => !x.skip),
+          pu = perUnit();
         if (!p) return toast("Pick the job these items are for"), !1;
-        if (!N.length) return toast(parsed.items.length ? "Every row is already on this job: nothing imported" : "Nothing to import: paste the sheet first"), !1;
+        if (!N.length) return toast(L.length ? "Every row is already on this job or repeats another: nothing imported" : "Nothing to import: paste the sheet first"), !1;
         let no = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid).length;
-        N.forEach((x) => {
-          const dates = { created: today(), approved: "", ordered: "", eta: "", office: "", site: "" };
-          ["ord", "ship"].includes(x.stage) ? (dates.eta = x.deliv) : ["site", "office", "inst"].includes(x.stage) && (dates[x.stage === "office" ? "office" : "site"] = x.deliv);
-          selNew({ projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: x.cost, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: x.bought ? { cost: r2(x.bought * x.qty), shipping: 0, tax: 0 } : null, imported: { at: today(), from: "sheet" }, by: (currentUser() || {}).name || "" });
-        });
+        const who = (currentUser() || {}).name || "",
+          rooms = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid && i.room).map((i) => i.room),
+          made = N.map((x) => {
+            x = Object.assign({}, x, { room: rooms.find((r) => r.toLowerCase() === String(x.room || "").toLowerCase()) || x.room });
+            const dates = { created: today(), approved: "", ordered: "", eta: "", office: "", site: "" },
+              M = psImpMoney(x, pu);
+            ["ord", "ship"].includes(x.stage) ? (dates.eta = x.deliv) : ["site", "office", "inst"].includes(x.stage) && (dates["office" === x.stage ? "office" : "site"] = x.deliv);
+            // the budget is the selection's own (its unit cost); the purchased price is the sheet's word, kept beside it as
+            // imported, never as the item's actual (no bill or bank line is behind it)
+            return selNew({ projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: M.costEach, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: null, imported: { at: today(), from: "sheet", by: who, basis: pu ? "unit" : "line", bought: x.bought ? M.bought : 0, boughtEach: x.bought ? M.boughtEach : 0 }, by: who });
+          });
+        const skip = L.length - N.length;
+        try {
+          audit("sel", pid, "imported from a sheet", "", `${made.length} item${1 === made.length ? "" : "s"}: ${made.map((i) => [i.fm, i.name].filter(Boolean).join(" ")).join("; ").slice(0, 400)}`, `Import a Sheet on the Buy Board${skip ? `; ${skip} row${1 === skip ? "" : "s"} skipped` : ""}; prices read as ${pu ? "per unit" : "line totals"}; purchased prices kept as imported`, { by: who || void 0 });
+        } catch (e) {}
         save();
-        const skip = parsed.items.length - N.length;
-        toast(`Imported ${N.length} item${1 === N.length ? "" : "s"} to ${puJob(p)}${skip ? `; ${skip} already on the job` : ""}`, { label: "Open", run: () => ((bbProj = pid), psChoose(!0), (psF = { room: "", vendor: "", status: "", q: "" }), setView("proc")) });
+        toast(`Imported ${made.length} item${1 === made.length ? "" : "s"} to ${puJob(p)}${skip ? `; ${skip} skipped` : ""}`, { label: "Open", run: () => ((bbProj = pid), psChoose(!0), (psF = { room: "", vendor: "", status: "", q: "" }), setView("proc")) });
         setTimeout(() => render(), 0);
       },
     },
   );
   const draw = () => {
-    const pid = m.querySelector("#ps-imp-job").value,
-      L = parsed.items,
-      dup = L.filter((x) => psSameItem(pid, x)).length,
-      ok = m.querySelector("#mbm-ok");
+    const L = marked(),
+      n = L.filter((x) => !x.skip).length,
+      dup = L.filter((x) => "already on this job" === x.skip).length,
+      rep = L.length - n - dup,
+      pu = perUnit(),
+      ok = m.querySelector("#mbm-ok"),
+      each = (v, t) => (pu ? `${unitMoney(v)} each, ${money(t)}` : `${money(t)} for the line, ${unitMoney(v)} each`);
     m.querySelector(".ps-imp-prev").innerHTML = parsed.error
       ? `<p class="warn">${esc(parsed.error)}</p>`
       : L.length
-        ? `<p class="ps-imp-sum">${L.length - dup ? `${L.length - dup} item${L.length - dup === 1 ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}</p>${L.map((x) => `<div class="ps-imp-row${psSameItem(pid, x) ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}</div>`).join("")}`
+        ? `<p class="ps-imp-sum">${n ? `${n} item${1 === n ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}${rep ? `; ${rep} repeat${1 === rep ? "s" : ""} a row above` : ""}</p>${L.map((x) => {
+            const M = psImpMoney(x, pu);
+            return `<div class="ps-imp-row${x.skip ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `qty ${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}<span class="ps-imp-m">Budget ${x.cost ? esc(each(M.costEach, M.budget)) : "none"} · Purchased ${x.bought ? esc(each(M.boughtEach, M.bought)) + " (imported)" : "none"}${x.skip ? ` · ${esc(x.skip)}` : ""}</span></div>`;
+          }).join("")}`
         : "";
-    ok && (ok.textContent = L.length - dup > 0 ? `Import ${L.length - dup} Item${L.length - dup === 1 ? "" : "s"}` : "Import");
+    ok && (ok.textContent = n > 0 ? `Import ${n} Item${1 === n ? "" : "s"}` : "Import");
   };
   const ta = m.querySelector("#ps-imp-text");
   ta.oninput = () => ((parsed = psParseSheet(ta.value)), draw());
   m.querySelector("#ps-imp-job").onchange = draw;
+  m.querySelector("#ps-imp-basis").onchange = draw;
   m.querySelector("#ps-imp-file").onchange = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -1038,6 +1072,8 @@ table.ps-t th.num{text-align:right}
 table.ps-t th.num .ps-sortb{justify-content:flex-end}
 table.ps-t td{padding:7px 8px;border-bottom:1px solid var(--rule-2);vertical-align:top}
 @media (min-width:761px){
+  /* a fixed grid that fits the content width at 1440: nothing to scroll sideways */
+  .ps-wrap{overflow-x:hidden}
   table.ps-t{table-layout:fixed;font-size:12px}
   table.ps-t td{padding:6px 7px}
   table.ps-t .ps-sub,table.ps-t .ps-main,table.ps-t .ps-inv{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1059,7 +1095,7 @@ table.ps-t tr.ps-g td{background:var(--paper-3);font-size:12px;color:var(--ink-2
 .ps-x .btn{display:inline-flex;align-items:center;gap:6px}
 .ps-bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-top:10px;box-shadow:0 -2px 8px rgba(0,0,0,.06)}
 .ps-bar .ps-bt{flex:1 1 auto;font-size:12.5px}
-.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px}
+.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px} .ps-imp-m{display:block;color:var(--ink-3);font-size:12px}
 .ps-phone .ps-modes{display:flex;width:100%}
 .ps-modes .ps-mode{flex:1 1 0;justify-content:center}
 @media (max-width:760px){

@@ -1255,7 +1255,11 @@ def issue_and_send(p, number):
 
 def board_for_job(p):
     """the Buy Board for 214 Lincoln: its job filter (the 11-03 Buy Board: Job, beside Vendor and Trade; the older board's
-    Project list sat on the phone behind "Filter by project, vendor or trade")"""
+    Project list sat on the phone behind "Filter by project, vendor or trade"). The desktop opens the Buy Board on its
+    Table (CoS 11-06); she works her queue on Needs, so she switches to it when the Table is showing."""
+    if 'Purchased Price' in p.look().text and p.scr.find('Table', exact=True):
+        nd = p.scr.find('Needs', exact=True)
+        if nd is not None: p.tap_ctl(nd)
     lab = 'Job' if p.look().find('Job', field=True) else 'Project'
     if lab == 'Project' and not p.scr.find('Project', field=True):
         f = p.scr.find('Filter by project')
@@ -1353,8 +1357,11 @@ def j6_buy_it(p):
     if t is not None:
         p.tap_ctl(t)
         tx = p.look().text
-        p.expect(all(re.search(h, tx, re.I) for h in ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery')),
-                 'the Table carries Alan\'s columns', tx[:300])
+        # the desktop's column heads; the phone's card labels (one card per item: Room, Vendor, Delivery, Budget, Purchased,
+        # Invoice, Item #, Qty, Lead)
+        H = ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery') if p.device != 'phone' else \
+            ('Invoice', 'Lead', 'Item #', 'Room', 'Budget', 'Purchased', 'Vendor', 'Delivery')
+        p.expect(all(re.search(h, tx, re.I) for h in H), 'the Table carries Alan\'s columns', tx[:300])
         j = tx.find(PLUMB_BUYS[0][0][:20])
         near = tx[max(0, j - 200): j + 400] if j >= 0 else ''
         p.expect(j >= 0 and 'ferguson' in norm(near) and re.search(r'purchased', near, re.I) and '1,800' in near,
