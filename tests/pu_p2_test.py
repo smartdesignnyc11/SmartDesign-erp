@@ -279,17 +279,30 @@ async def desktop(c, p):
                 await closeall(pg)
             else:
                 c.ok(False, 'coi: the Trim line is on the Buy Board for the order sheet')
-            # the order page: the choice on a draft, saved with an audit row and a toast with Open
+            # the order page: an unset delivery is guessed (inside when the items do not say), said as guessed, and stops
+            # issue without a COI; Change is one tap, and inside to the curb for a vendor with no COI asks why first
             D = await pg.evaluate("""async () => { const po = { id: 'po_drop', number: 'PO-DROP-1', projectId: 'p121', vendor: 'Ferguson', status: 'draft', type: 'materials', shipTo: 'site', date: today(), lines: [{ id: 'pld', item: 'Wall-hung WC carrier', qty: 1, unit: 'ea', price: 1290 }], tax: 0, shipping: 0, matchedTxns: [] };
-              DB.pos.push(po); poOpen = po.id; view = 'po'; render(); await new Promise(r => setTimeout(r, 300));
-              const sel = document.querySelector('[data-podrop="po_drop"]'); if (!sel) return { sel: false };
-              const first = sel.value; sel.value = 'inside'; sel.dispatchEvent(new Event('change', { bubbles: true })); await new Promise(r => setTimeout(r, 300));
+              const wait = (ms) => new Promise(r => setTimeout(r, ms));
+              DB.pos.push(po); poOpen = po.id; view = 'po'; render(); await wait(300);
+              const line = (document.querySelector('.po-drop') || {}).innerText || '', btn = document.querySelector('[data-podropchg="po_drop"]');
+              const v0 = poValid(po).filter(x => /certificate/.test(x));
+              if (!btn) return { line, btn: false };
+              btn.click(); await wait(300);
+              const m = document.querySelector('#mbm'), asked = !!(m && m.querySelector('[data-f="why"]'));
+              let short = '';
+              if (asked) { m.querySelector('[data-f="why"]').value = 'curb'; m.querySelector('#mbm-ok').click(); await wait(200); short = document.getElementById('toast').innerText; }
+              const still = po.dropAt || '';
+              if (asked) { document.querySelector('#mbm [data-f="why"]').value = 'Ferguson confirmed a curbside drop; our crew carries it in'; document.querySelector('#mbm #mbm-ok').click(); await wait(400); }
               const au = DB.audit.filter(a => a.refId === 'po_drop' && a.action === 'delivery');
               const t = document.getElementById('toast').innerText, links = [...document.querySelectorAll('#toast a, #toast button')].map(x => x.innerText);
-              const v = poValid(DB.pos.find(x => x.id === 'po_drop')).filter(x => /certificate/.test(x));
+              const v1 = poValid(po).filter(x => /certificate/.test(x)), line2 = (document.querySelector('.po-drop') || {}).innerText || '';
+              document.querySelector('[data-podropchg="po_drop"]').click(); await wait(300);
+              const back = { drop: po.dropAt, asked: !!document.querySelector('#mbm [data-f="why"]'), au: DB.audit.filter(a => a.refId === 'po_drop' && a.action === 'delivery').length };
               DB.pos = DB.pos.filter(x => x.id !== 'po_drop'); view = 'proc'; render();
-              return { sel: true, first, drop: po.dropAt, au: au.length, t, links, v }; }""")
-            c.ok(D['sel'] and D['first'] == '' and D['drop'] == 'inside' and D['au'] == 1 and 'carried inside' in D['t'] and any(x.startswith('Open') for x in D['links']) and D['v'], f"coi: the order page asks for the delivery when it is not said; Carried Inside is saved with an audit row, toasted with Open, and stops issue without a COI ({D})")
+              return { line, btn: true, v0, asked, short, still, drop: 'curb', au: au.map(a => a.note), t, links, v1, line2, back }; }""")
+            c.ok(D['btn'] and 'Delivery guessed: carried inside, from the items' in D['line'] and 'Change' in D['line'] and D['v0'], f"coi: an unset delivery on the order page reads as guessed, carried inside, with Change, and holds issue without a COI ({D})")
+            c.ok(D['asked'] and D['still'] == '' and 'sentence' in D['short'] and D['au'] and 'curbside' in D['au'][-1] and 'carried inside' not in D['t'] and any(x.startswith('Open') for x in D['links']) and not D['v1'] and 'Delivery: curb or shipped' in D['line2'], f"coi: Change to the curb for a vendor with no COI asks why; the reason is in the audit row, the toast has Open, and issue is no longer held ({D})")
+            c.ok(D['back']['drop'] == 'inside' and not D['back']['asked'] and D['back']['au'] == 2, f"coi: Change back to carried inside is one tap, audited ({D['back']})")
         if want('stock'):
             S = await pg.evaluate("""() => { const w = { kind: 'line', name: 'Electrical wiring', code: '06', l: { item: 'Electrical wiring', code: '06', items: [] } };
               const all = puStockForNeed(w), sure = puStockSure(w); let went = 0; puStockGate([Object.assign({ p: DB.projects.find(x => x.id === 'p121') }, w)], () => (went = 1));
@@ -312,26 +325,42 @@ async def desktop(c, p):
             c.ok('At the shop' in P and '(may be it)' in P, f"stock: the panel's At the Shop says the hint as \"may be it\" ({re.sub('<[^>]+>', ' ', P)[:300]!r})")
         if want('vmail'):
             V = await pg.evaluate("""() => { const v = { id: 'v_kes', name: 'Kestrel Stone', trade: 'Stone', insuranceExp: '', bankChangedAt: '' }; DB.vendors.push(v);
-              const C0 = DB.comms.length;
               DB.comms.push({ id: 'c_k1', date: '2026-08-20', from: { name: 'Kestrel Stone', email: 'kestrel.accounts@freemail.example' }, subject: 'invoice', text: 'see attached' });
               DB.comms.push({ id: 'c_k2', date: '2026-08-25', from: { name: 'Kestrel Stone', email: 'orders@kestrelstone.example' }, subject: 'new bank details', text: 'please update', spoofed: true });
+              // look-alikes: the name inside a longer domain, a word of it, the name as a subdomain of another domain
+              DB.comms.push({ id: 'c_k4', date: '2026-08-26', from: { name: 'Kestrel Stone', email: 'sales@kestrel-stone-supply.com' }, subject: 'pricing', text: 'new prices' });
+              DB.comms.push({ id: 'c_k5', date: '2026-08-27', from: { name: 'Kestrel Stone', email: 'sales@kestrel.example' }, subject: 'pricing', text: 'new prices' });
+              DB.comms.push({ id: 'c_k6', date: '2026-08-28', from: { name: 'Kestrel Stone', email: 'sales@kestrelstone.mailer-example.com' }, subject: 'pricing', text: 'new prices' });
               const a = vendorEmailFind('Kestrel Stone');
-              DB.comms.push({ id: 'c_k3', date: '2026-08-12', from: { name: 'Kestrel Stone', email: 'orders@kestrelstone.example' }, subject: 'quote', text: 'our quote' });
+              DB.comms.push({ id: 'c_k3', date: '2026-08-12', from: { name: 'Kestrel Stone', email: 'orders@kestrel-stone.example' }, subject: 'quote', text: 'our quote' });
               const b = vendorEmailFind('Kestrel Stone');
-              return { a, b }; }""")
-            c.ok(not V['a']['email'], f"vmail: a display name on a stranger's domain, and spoofed mail, give no address ({V['a']})")
-            c.ok(V['b']['email'] == 'orders@kestrelstone.example' and not V['b']['verified'] and 'their mail of' in V['b']['src'], f"vmail: the vendor's own domain is offered, not verified, with the mail it came from ({V['b']})")
+              DB.comms.push({ id: 'c_k7', date: '2026-08-11', from: { name: 'Kestrel Stone', email: 'office@kestrelstone.example' }, subject: 'hello', text: 'hi', auth: { dmarc: 'pass' } });
+              DB.comms = DB.comms.filter(x => x.id !== 'c_k3');
+              const c = vendorEmailFind('Kestrel Stone'); DB.comms = DB.comms.filter(x => x.id !== 'c_k7');
+              DB.comms.push({ id: 'c_k3', date: '2026-08-12', from: { name: 'Kestrel Stone', email: 'orders@kestrel-stone.example' }, subject: 'quote', text: 'our quote' });
+              return { a, b, c }; }""")
+            c.ok(not V['a']['email'], f"vmail: a stranger's domain, spoofed mail and look-alike domains (kestrel-stone-supply.com, kestrel.example, a subdomain) give no address ({V['a']})")
+            c.ok(V['b']['email'] == 'orders@kestrel-stone.example' and not V['b']['verified'] and 'their mail of' in V['b']['src'] and 'sender not checked' in V['b']['src'], f"vmail: the vendor's own domain is offered, not verified, with the mail it came from and that its sender was not checked ({V['b']})")
+            c.ok(V['c']['email'] == 'office@kestrelstone.example' and 'sender not checked' not in V['c']['src'] and not V['c']['verified'], f"vmail: mail whose sender check passed says so, and is still not verified until confirmed ({V['c']})")
             await pg.evaluate("() => { gcInit(); const id = paMe().id; DB.conn[id] = DB.conn[id] || {}; window.__gc = DB.conn[id].google || null; DB.conn[id].google = { email: 'chen@smartdesign.example', demo: true }; window.__gd = gaDraft; gaDraft = async () => ({ ok: 1 }); }")
             await pg.evaluate("() => { const po = { id: 'po_kes', number: 'PO-KES-1', projectId: 'p121', vendor: 'Kestrel Stone', status: 'issued', type: 'materials', shipTo: 'site', date: today(), lines: [{ id: 'plk', item: 'Bluestone tread', qty: 4, unit: 'ea', price: 210 }], tax: 0, shipping: 0, matchedTxns: [] }; DB.pos.push(po); draftPOEmail(po); }")
             await pg.wait_for_timeout(400)
-            d = await pg.evaluate("() => ({ to: (document.getElementById('em-to') || {}).value, hint: (document.querySelector('.em-to-src') || {}).innerText || '' })")
+            d = await pg.evaluate("() => ({ to: (document.getElementById('em-to') || {}).value, hint: (document.querySelector('.em-to-src') || {}).innerText || '', confirm: !!document.getElementById('em-confirm') })")
             await pg.click('#d-save'); await pg.wait_for_timeout(500)
             s = await pg.evaluate("""() => { const v = DB.vendors.find(x => x.id === 'v_kes'); const au = DB.audit.filter(a => a.kind === 'vendor' && a.refId === 'v_kes' && a.action === 'email');
-              const f = vendorEmailFind('Kestrel Stone'); DB.conn[paMe().id].google = window.__gc; gaDraft = window.__gd;
+              return { email: v.email, src: v.emailSrc, au: au.map(a => a.note), f: vendorEmailFind('Kestrel Stone') }; }""")
+            c.ok(d['to'] == 'orders@kestrel-stone.example' and 'not verified' in d['hint'] and 'their mail of' in d['hint'] and d['confirm'], f"vmail: the To box says where the address came from, that it is not verified, and offers Confirmed with the Vendor ({d})")
+            c.ok(s['email'] == 'orders@kestrel-stone.example' and s['src'] and not s['src']['verified'] and s['au'] and 'not verified' in s['au'][0] and not s['f']['verified'], f"vmail: saving the draft puts it on the card with an audit row, still not verified ({s})")
+            # Confirmed with the Vendor: one tap clears the warning, keeps it on the card as verified, with an audit row
+            await pg.evaluate("() => draftPOEmail(DB.pos.find(x => x.id === 'po_kes'))"); await pg.wait_for_timeout(400)
+            await pg.click('#em-confirm'); await pg.wait_for_timeout(300)
+            k = await pg.evaluate("""() => { const v = DB.vendors.find(x => x.id === 'v_kes'); const au = DB.audit.filter(a => a.kind === 'vendor' && a.refId === 'v_kes' && a.action === 'email-confirmed');
+              const r = { hint: (document.querySelector('.em-to-src') || {}).innerText || '', btn: !!document.getElementById('em-confirm'), ver: v.emailSrc && v.emailSrc.verified, by: v.emailSrc && v.emailSrc.confirmedBy,
+                au: au.map(a => a.note), f: vendorEmailFind('Kestrel Stone'), t: document.getElementById('toast').innerText, links: [...document.querySelectorAll('#toast a, #toast button')].map(x => x.innerText) };
+              closeEditor(); DB.conn[paMe().id].google = window.__gc; gaDraft = window.__gd;
               DB.pos = DB.pos.filter(x => x.id !== 'po_kes'); DB.vendors = DB.vendors.filter(x => x.id !== 'v_kes'); DB.comms = DB.comms.filter(x => !/^c_k/.test(x.id));
-              return { email: v.email, src: v.emailSrc, au: au.map(a => a.note), f }; }""")
-            c.ok(d['to'] == 'orders@kestrelstone.example' and 'not verified' in d['hint'] and 'their mail of' in d['hint'], f"vmail: the To box says where the address came from and that it is not verified ({d})")
-            c.ok(s['email'] == 'orders@kestrelstone.example' and s['src'] and not s['src']['verified'] and s['au'] and 'not verified' in s['au'][0] and not s['f']['verified'], f"vmail: saving the draft puts it on the card with an audit row, still not verified ({s})")
+              return r; }""")
+            c.ok(k['ver'] and k['by'] and not k['btn'] and 'not verified' not in k['hint'] and k['au'] and 'confirmed with the vendor' in k['au'][0] and k['f']['verified'] and any(x.startswith('Open') for x in k['links']), f"vmail: Confirmed with the Vendor clears the warning, marks the card's address verified with who, writes an audit row and toasts with Open ({k})")
         if want('pcheck'):
             # the walk world's PO-2026-050: the item's own history is the yards' quotes ($56.50 and up), no buys; the
             # same 12x24 porcelain was bought from Nemo Tile at $12.50 on PO-2026-041
