@@ -185154,17 +185154,22 @@ function pwBuild() {
     +po.shipping > 0 && ((fee = r2(fee + +po.shipping)), what.push("shipping on the PO"));
     fee > 0 && fees.push({ id: "po:" + po.id, kind: "po", date: po.date, vendor: po.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: po.number, poId: po.id, projectId: po.projectId || "" });
   });
+  // the bills priced onto the PO lines they pay for (11-05, P3 and the chief of staff): WW-2026-118's $500 "Additional brick
+  // mold" was laid on PO-2026-044's only line by position and read as the windows at $55.56/ea, with the bill listed
+  // twice; CM-0091, a $38,000 deposit on a $76,000 lump sum, read $38,000 each. Now each bill line finds its PO (its own,
+  // or the bill's) and its PO line by the line's id or the item's words, never by position. A bill line with no quantity,
+  // or a part of a lump sum, is a payment, not a price. The quantities and amounts billed on one PO line add up across
+  // its bills (a later bill never overwrites an earlier one), and each bill is one source.
+  const paid = new Map(),
+    goodsOf = (po) => (po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : []),
+    poById = (id) => (id ? (DB.pos || []).find((p) => p.id === id) : null),
+    poOfLine = (lid) => (lid ? (DB.pos || []).find((p) => (p.lines || []).some((x) => x.id === lid)) : null);
   (DB.bills || []).forEach((b) => {
     if (["void", "rejected", "draft"].includes(b.status)) return;
-    const po = b.poId ? (DB.pos || []).find((p) => p.id === b.poId) : null,
-      goodsLines = po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : [];
+    const po = poById(b.poId);
     let fee = 0,
       goods = 0;
     const what = [],
-      // the bill's lines priced onto their PO lines (11-05, P3: WW-2026-118's $500 "Additional brick mold" line was laid on
-      // PO-2026-044's only line by position and read as the windows at $55.56/ea, with the bill listed twice): matched by the
-      // PO line id, the estimate line, or the item's words, never by position; amounts on one PO line add up, one source a bill
-      paid = new Map(),
       billGoods = (b.lines || []).filter((l) => {
         const d = String(l.desc || l.item || "").split(" — ")[0];
         return !/^(sales |use )?tax\b/i.test(d) && !PW_FEE_RE.test(d);
@@ -185175,28 +185180,36 @@ function pwBuild() {
         lid = l.id || `l${i}`;
       if (/^(sales |use )?tax\b/i.test(desc)) return;
       if (PW_FEE_RE.test(desc)) return (fee = r2(fee + amt)), void what.push(desc);
-      const pl = po && pwBillPoLine(po, goodsLines, l, desc, billGoods.length),
-        B = pl && byId[`po:${po.id}:${pl.id}`];
+      // a bill across several orders: each line to its own order
+      const lpo = poById(l.poId) || poOfLine(l.poLineId) || po,
+        pl = lpo && pwBillPoLine(lpo, goodsOf(lpo), l, desc, lpo === po ? billGoods.length : 1),
+        B = pl && byId[`po:${lpo.id}:${pl.id}`];
       if (B) {
-        // a bill line with no quantity pays for the PO line as ordered (the windows: $33,000 for the 9 on the order)
-        const P = paid.get(B) || { amt: 0, q: 0, noQty: 0, lid: lid, pq: +pl.qty || 0 };
-        amt > 0 && ((P.amt += amt), +l.qty > 0 ? (P.q += +l.qty) : P.noQty++, paid.set(B, P));
+        const P = paid.get(B) || { amt: 0, q: 0, pl: pl, bills: [] };
+        +l.qty > 0 && amt > 0 && ((P.amt += amt), (P.q += +l.qty));
+        P.bills.some((x) => x.b === b) || P.bills.push({ b: b, lid: lid });
+        paid.set(B, P);
         return void (goods += amt);
       }
       const q = +l.qty || 0;
       q > 0 && amt > 0 && add({ id: `bill:${b.id}:${lid}`, kind: "bill", date: b.date, vendor: b.vendor, projectId: b.projectId || "", item: desc, sku: l.sku || "", unit: l.unit, qty: q, price: +l.price || amt / q, code: l.code || b.code || "", line: l.line || b.line || "", billId: b.id, billLineId: lid, billNo: b.number, doc: "bill:" + b.id, docNo: b.number, src: { kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, billId: b.id } });
       goods += amt;
     });
-    paid.forEach((P, B) => {
-      const q = P.noQty ? P.pq : P.q;
-      if (!(q > 0)) return;
-      (B.paidPrice = pwR4(P.amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = P.lid), (B.billNo = b.number), (B.billDate = b.date);
-      B.sources.some((s) => s.billId === b.id) || B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id });
-    });
     if (fee > 0) {
       po && (fees = fees.filter((f) => f.id !== "po:" + po.id));
       fees.push({ id: "bill:" + b.id, kind: "bill", date: b.date, vendor: b.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: b.number, billId: b.id, poId: b.poId || "", projectId: b.projectId || "" });
     }
+  });
+  // the billed price of each PO line: what its bills charged for the quantity they name. A lump sum (ls, lot, or one of
+  // one) billed in part is a progress payment, so it keeps the order's price until the bills reach the whole amount.
+  paid.forEach((P, B) => {
+    const lump = /^(ls|lot|lump)/i.test(String(P.pl.unit || "")) || 1 === +P.pl.qty,
+      gross = (+P.pl.qty || 0) * (+P.pl.price || 0);
+    if (P.q > 0 && P.amt > 0 && !(lump && P.amt < gross * 0.98)) {
+      const last = P.bills[P.bills.length - 1];
+      (B.paidPrice = pwR4(P.amt / P.q / B.packF)), (B.price = B.paidPrice), (B.billId = last.b.id), (B.billLineId = last.lid), (B.billNo = last.b.number), (B.billDate = last.b.date);
+    }
+    P.bills.forEach((x) => B.sources.some((s) => s.billId === x.b.id) || B.sources.push({ kind: "bill", label: `bill ${x.b.number} · ${x.b.vendor}`, date: x.b.date, unitPrice: B.price, billId: x.b.id }));
   });
   const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id));
   (DB.txns || []).forEach((t) => {
