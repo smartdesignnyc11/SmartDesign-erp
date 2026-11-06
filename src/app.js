@@ -3607,7 +3607,7 @@ const ROLE_VIEWS = {
   },
   role = () => {
     const u = currentUser();
-    return u ? u.role : DB.role || "pm";
+    return u ? u.role : (DB && DB.role) || "pm";
   },
   canEdit = () => "pm" === role() || "coord" === role() || "owner" === role(),
   isDriver = () => "driver" === role(),
@@ -19282,7 +19282,10 @@ function seedUsers() {
     },
   ];
 }
-const currentUser = () => DB.users.find((u) => u.id === DB.deviceUser) || null;
+// The hosted copy waits at its sign-in screen with no records (DB is null until the server copy loads), and a page-wide
+// listener can ask who is here before then (11-06: P3's read-only click guard asked on the Sign In tap, a page error on
+// every hosted sign-in): nobody is signed in yet, so the answer is nobody, never a crash.
+const currentUser = () => (DB && DB.users && DB.users.find((u) => u.id === DB.deviceUser)) || null;
 // A portal user is one of a client's people: the client whose contact (or the client record) carries the user's
 // email. A client user with no client could otherwise open whatever job was last open on the device.
 function userClientOf(u) {

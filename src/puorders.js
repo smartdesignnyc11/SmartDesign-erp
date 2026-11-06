@@ -321,7 +321,8 @@ function puVendorRecord() {
 }
 
 // ---- read-only Purchasing for the controller and billing: they see every page, and buy nothing --------------------------
-const puReadOnly = () => ["controller", "billing"].includes(role());
+// no records yet (the hosted sign-in screen) is no seat at all: the page-wide click guard below runs on the Sign In tap
+const puReadOnly = () => !!DB && ["controller", "billing"].includes(role());
 // Refused at the functions too, so a call from anywhere (a row's act, a toast's Open, Ask's proposal, a later wrapper)
 // writes nothing for a read-only seat: the order's actions (Print stays), matching a payment to an order, receiving,
 // billing from an order, a new order from lines or blank, and a new vendor. Who pays a vendor stays Accounting's.
