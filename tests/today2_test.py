@@ -27,7 +27,8 @@ SECS3 = ['Approvals', 'Now']
 BOARD = {  # chips, sections (in order) and bars
     'u_owner': (CHIPS3, SECS3, ['Today', 'Projects', 'Sales', 'Messages']),
     'u_alan': (CHIPS3, SECS3, ['Today', 'Projects', 'Clients', 'Tasks', 'Messages']),
-    'u_chen': (CHIPS3, SECS3, ['Today', 'Messages', 'Tasks', 'Buy Board']),
+    # the coordinator's five (CoS 11-06, lane P3): purchasing SPEC §4 adds Deliveries, the approved task design keeps Tasks
+    'u_chen': (CHIPS3, SECS3, ['Today', 'Buy Board', 'Deliveries', 'Tasks', 'Messages']),
     'u_billing': (CHIPS3, SECS3, ['Today', 'Billing', 'Clients', 'Messages']),
     'u_controller': (CHIPS3, SECS3, ['Today', 'Banking', 'Bills and Payroll', 'Messages']),
 }

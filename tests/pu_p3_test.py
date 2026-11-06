@@ -381,7 +381,7 @@ async def s_states(pg, c, dev):
             await page(pg, 'po')
             await js(pg, "id => { poOpen = id; render(); }", ids[st], 700)
             w = await js(pg, WRITES)
-            bad = [b for b in w['btns'] if b not in ('Print / PDF', 'Open the Bill') and not b.startswith('EST-')]
+            bad = [b for b in w['btns'] if b not in ('Print / PDF', 'Open the Bill', 'Mark Reviewed') and not b.startswith('EST-')]
             c.ok(not bad and not w['fields'] and not w['links'] and w['blues'] == 0 and 'Read only' in w['says'],
                  f'STATES {dev} {uid} {st}: nothing on the order writes (buttons {bad}, fields {w["fields"]}, links {w["links"]}, blues {w["blues"]})')
         before = await js(pg, SNAP)

@@ -168,7 +168,8 @@ function puPoBlue(po, doc) {
 // The order's page for a read-only seat: every control that writes is taken off the page and every field is shut; what
 // stays is the way back, Print / PDF and the links that open another record. The action functions refuse as well
 // (below), so nothing reached another way writes either.
-const PU_RO_KEEP = (b) => b.matches('[data-poback], [data-poact="print"], #pu-ponext-b, [data-polopen]');
+// the controller's own review of a corrected purchase tax (p0money's Mark Reviewed) is the controller's to do, so it stays
+const PU_RO_KEEP = (b) => b.matches('[data-poback], [data-poact="print"], #pu-ponext-b, [data-polopen], [data-p0taxok]');
 function puPoReadOnly(doc) {
   doc.querySelectorAll("button, [role=button]").forEach((b) => PU_RO_KEEP(b) || ((b.hidden = !0), b.style.setProperty("display", "none", "important")));
   doc.querySelectorAll("a[data-match], a[data-unmatch], [data-rmline], [data-lkover], label.btn").forEach((a) => a.style.setProperty("display", "none", "important"));
