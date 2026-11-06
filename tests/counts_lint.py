@@ -287,9 +287,9 @@ async def run_role(pg, lint, tag, uid, phone):
             if ov: nums.add(ov[0]['n']); seen.append(f"{ov[0]['n']} on {g['ov']} (\"late or waiting\" line)")
             await to_view(pg, views[0])
         if len(nums) > 1: lint.flag('C', run, o['label'], '; '.join(seen))
-    # Tasks (taskfix #1, 2026-10-25): one number for the label "Tasks", the person's own Due Soon (tkTasksN). The rail,
-    # Today's sub-tab and its Tasks chip (and the rows that chip shows), the phone bar and the Tasks page's marked count
-    # all read it. Ask's "my tasks due today" is another question with its own number: the Today view's.
+    # Tasks (taskfix #1, 2026-10-25; Alan, 11-06): the Tasks badge (the rail, the phone bar, the Tasks page's marked
+    # count) is late plus due today, the rows of Tasks > Today; Due Soon (tkTasksN) is Today's task rows, its sub-tab and
+    # tile and the Due Soon chip. Ask's "my tasks due today" is the badge's question: the Today view's number.
     if 'tkall' in views and info['role'] in TASKS_ONE:
         await tasks_one(pg, lint, run, phone)
         a = await ask(pg, 'how many of my tasks are due today')
@@ -448,7 +448,7 @@ TASKS_ONE = ('owner', 'pm', 'coord', 'billing', 'controller', 'designer')
 TASKS_NUMS = r"""() => { const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const n = s => { const e = [...document.querySelectorAll(s)].find(vis); return e ? +(e.textContent.replace(/\D+/g, '') || 0) : null; };
   const d = document.querySelector('.view.on .td-do[data-tdytab]');
-  return { want: tkTasksN(), rail: n('#nav-groups button[data-grp="mytasks"] .n'), railShown: vis(document.querySelector('#nav-groups button[data-grp="mytasks"]')), barShown: vis(document.querySelector('#mtabs [data-mv="tkall"]')),
+  return { want: tkTasksN(), badge: tkMyCounts().today || 0, rail: n('#nav-groups button[data-grp="mytasks"] .n'), railShown: vis(document.querySelector('#nav-groups button[data-grp="mytasks"]')), barShown: vis(document.querySelector('#mtabs [data-mv="tkall"]')),
     sub: n('#subnav [data-sub="tkall"] .n'), chip: n('.view.on .td-tabs [data-tdytabbtn="tasks"] .n'), bar: n('#mtabs [data-mv="tkall"] .n'),
     tile: n('.view.on .gl[data-tl="due"] .gl-v'),
     rows: tdyModel().tasks.length, orders: tdyModel().tasks.filter(it => it.kind === 'tdyBuy').length }; }"""
@@ -460,20 +460,29 @@ async def tasks_one(pg, lint, run, phone):
     if not await to_view(pg, today_v): return
     h = await pg.evaluate(TASKS_NUMS)
     W = h['want']
+    # two questions, two numbers (Alan, 11-06). Due Soon: tkTasksN(), Today's task rows (Today and Coming Up), the
+    # sub-tab, the Due Soon tile and the Tasks page's Due Soon chip. The Tasks badge: late plus due today,
+    # tkMyCounts().today, on the side menu, the phone bar and the Tasks page's marked count, equal to Tasks > Today's rows.
     seen = {'tkTasksN()': W, "Today's Tasks rows": h['rows']}
-    for k, where in (('rail', 'the side menu'), ('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('tile', "Today's Due Soon tile"), ('bar', 'the phone bar')):
+    for k, where in (('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('tile', "Today's Due Soon tile")):
         if h[k] is not None: seen[where] = h[k]
-        # the approved menu (Your Day SPEC 2, 11-03): the side menu's and the phone bar's Tasks carry no number, since
-        # Today counts what is due; a badge that does show must still be the one number
+    B = h['badge']
+    badge = {'tkMyCounts().today': B}
+    for k, where in (('rail', 'the side menu'), ('bar', 'the phone bar')):
+        if h[k] is not None: badge[where] = h[k]
     if await to_view(pg, 'tkall'):
         m = await pg.evaluate("""() => { const vis = e => !!e && e.getClientRects().length > 0; const q = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv="week"] .n')].find(vis);
-          return { who: tkWho, chip: q ? +q.textContent : null, mark: __cl.marked('tkall') }; }""")
+          const keep = [t2View, tkWho]; t2View = 'today'; tkWho = 'me'; renderTkAll(); const rows = (typeof tvMine === 'function' && tvMine()) ? tvRows().length : [...document.querySelectorAll('.view.on .tk2-row')].filter(vis).length;   // the Table's rows, folded groups too t2View = keep[0]; tkWho = keep[1]; renderTkAll();
+          return { who: tkWho, chip: q ? +q.textContent : null, mark: __cl.marked('tkall'), today: rows }; }""")
         if m['chip'] is not None: seen['the Tasks page Due Soon chip'] = m['chip']
-        if m['mark']: seen['the Tasks page marked count'] = m['mark']['n'] or 0
+        if m['mark']: badge['the Tasks page marked count'] = m['mark']['n'] or 0
+        badge['Tasks > Today rows'] = m['today']
         if m['who'] != 'me': lint.flag('C', run, 'Tasks', f"Tasks opens on {m['who']}, not Mine, under a badge that counts Mine")
         await to_view(pg, today_v)
     if len(set(seen.values())) > 1 or h['orders']:
-        lint.flag('C', run, 'Tasks', '; '.join(f'{v} on {k}' for k, v in seen.items()) + (f"; {h['orders']} Buy Board orders counted as tasks" if h['orders'] else ''))
+        lint.flag('C', run, 'Due Soon', '; '.join(f'{v} on {k}' for k, v in seen.items()) + (f"; {h['orders']} Buy Board orders counted as tasks" if h['orders'] else ''))
+    if len(set(badge.values())) > 1:
+        lint.flag('C', run, 'Tasks', '; '.join(f'{v} on {k}' for k, v in badge.items()))
 
 async def ask(pg, q):
     return await pg.evaluate(r"""async q => { let a = paAsk(q); if (a && a.then) a = await a;

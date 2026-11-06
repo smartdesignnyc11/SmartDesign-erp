@@ -101,8 +101,12 @@ async def tasks_checks(c, pg, uid, tag, phone):
         rail: n('#nav-groups button[data-grp="mytasks"] .n') }; }""")
     W = r['want']
     # the menu's Tasks carries no number (the Your Day mock-up, 11-03: Today counts what is due)
-    seen = {k: r[k] for k in ('tile', 'chip', 'bar') if r[k] is not None}
-    # (the phone bar's Tasks carries no number either: Today counts what is due)
+    seen = {k: r[k] for k in ('tile', 'chip') if r[k] is not None}
+    # Alan, 11-06: the bar's and the menu's Tasks carry the Tasks badge, late plus due today (Tasks > Today's rows); the
+    # Due Soon tile and chip keep the Due Soon number
+    badge = await pg.evaluate("() => tkMyCounts().today || 0")
+    for k in ('bar', 'rail'):
+        if r[k] is not None: c.ok(r[k] == badge, f'{tag}: the {k} Tasks badge reads late plus due today, {badge} ({r[k]})')
     await go(pg, 'tkall')
     q = await pg.evaluate("() => { " + VIS + " const e = [...document.querySelectorAll('.view.on .tv-qchips [data-tvqv=\"week\"] .n')].find(vis); return e ? +e.textContent : null; }")
     if q is not None: seen['Tasks Due Soon'] = q

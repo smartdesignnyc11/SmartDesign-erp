@@ -700,8 +700,10 @@ async def polish(c, p):
                     c.ok(not r['has'], f'{uid}: the field menu has no Tasks entry')
                 else:
                     c.ok(r['under'] and r['label'] == 'Tasks' and r['view'] == 'tkall' and r['lit'], f'{uid}: Tasks sits under Today and opens the one list ({r})')
-                    # the Your Day mock-up (11-03): Tasks carries no number in the menu; Today counts what is due
-                    c.ok(r['n'] == 0, f'{uid}: the Tasks entry carries no number (Today counts what is due) ({r["n"]})')
+                    # Alan, 11-06: the menu's Tasks carries the Tasks badge, late plus due today (Tasks > Today's rows); under
+                    # the Your Day mock-up of 11-03 it carried none
+                    bd = await pg.evaluate("() => tkMyCounts().today || 0")
+                    c.ok(r['n'] == bd, f'{uid}: the Tasks entry carries the Tasks badge, late plus due today ({r["n"]} vs {bd})')
         await b.close()
     # the phone: Tasks in the menu drawer, and Meeting Mode's eight actions on the first screen with the toast above Next
     b, pg, errs = await open_app(p, True)
@@ -802,12 +804,15 @@ async def match(c, p):
     # the approved Today boards (2026-10-25) keep Tasks on the coordinator's and the PM's bars; the owner's and billing's
     # bars no longer carry it (Tasks stays in their menu with the same number)
     # the coordinator's five (CoS 11-06, lane P3): Today, Buy Board, Deliveries, Tasks, Messages, so her Tasks is at 3
-    for uid, at in (('u_chen', 3), ('u_alan', 3)):
+    # Alan, 11-06: Tasks is on the owner's and billing's bars too (five tabs), and its badge on every bar is late plus due
+    # today, the rows of Tasks > Today; every tab is 44px wide or more, 8px apart or touching (one row), no sideways scroll
+    for uid, at in (('u_chen', 3), ('u_alan', 3), ('u_owner', 3), ('u_billing', 3)):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
-          return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")
-        # (the Your Day mock-up: the bar's Tasks carries no number either, as the menu's)
-        c.ok(t['i'] == at and t['n'] == 0, f'mockup 390: {uid} has Tasks in the bar at {at}, with no number ({t})')
+          const R = B.map(x => x.getBoundingClientRect());
+          return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkMyCounts().today || 0, w: R.map(r => Math.round(r.width)), sw: document.documentElement.scrollWidth }; }""")
+        c.ok(t['i'] == at and t['n'] == t['want'], f'mockup 390: {uid} has Tasks in the bar at {at}, its badge late plus due today ({t})')
+        c.ok(t['w'] and min(t['w']) >= 44 and t['sw'] <= 390, f'mockup 390: {uid}: every bar tab is 44px wide or more, no sideways scroll ({t["w"]}, {t["sw"]})')
     # the quick add: invented sentences, filled in by the rules; the fourth names its job by part of its address (the
     # whole phrase leaves the title: taskfix #13). PM review 11-05 #3 (lane T2): the first person named owns it unless
     # the sentence says who is in charge, so "Sarah to confirm ..." is Sarah's
