@@ -65,32 +65,40 @@ async def list_checks(c, pg, label, phone):
         await reset(pg, uid)
         m = await pg.evaluate(ROW)
         who = f'{label} {uid}'
-        c.ok(m['view'] == 'tkall' and m['t2View'] == 'week' and m['tkWho'] == 'me', f'{who}: Tasks opens on Mine, Due Soon ({m["view"]}, {m["t2View"]}, {m["tkWho"]})')
+        # the approved Your Day mock-up (docs/mockups/today/SPEC.md, 11-03): Tasks opens on Mine › All, every open task of the person's (it opened on Due Soon before)
+        c.ok(m['view'] == 'tkall' and m['t2View'] == 'all' and m['tkWho'] == 'me', f'{who}: Tasks opens on Mine, All ({m["view"]}, {m["t2View"]}, {m["tkWho"]})')
         soon = await pg.evaluate("() => tkMyCounts().week")
-        c.ok(len(m['rows']) == soon, f'{who}: Due Soon lists every task due soon ({len(m["rows"])} rows, {soon} due soon)')
-        c.ok(soon == 0 or len(m['rows']) > 0, f'{who}: it does not open empty while {soon} are due soon')
-        # a row with a Waiting On chip carries it on its own line (Phone.dc.html), so it is taller by that line
-        bad = [r for r in m['rows'] if not (64 <= r['h'] <= (100 if r['wait'] else 72))]
-        c.ok(m['rows'] and not bad, f'{who}: every row is 64 to 72px tall, a Waiting On row up to 100 ({bad[:3] or [r["h"] for r in m["rows"][:6]]})')
+        mine = await pg.evaluate("() => tkMyCounts().all")
+        c.ok(len(m['rows']) == mine, f'{who}: Mine lists every open task of theirs ({len(m["rows"])} rows, {mine} open)')
+        c.ok(mine == 0 or len(m['rows']) > 0, f'{who}: it does not open empty while {mine} are open')
+        # a row with a Waiting On chip carries it on its own line (Phone.dc.html), so it is taller by that line; on the
+        # phone a title wraps to two lines rather than end in an ellipsis (capture 11-05 #8, lane T2), so a row is 64 to
+        # 96px and a Waiting On row up to 124
+        bad = [r for r in m['rows'] if not (64 <= r['h'] <= ((124 if r['wait'] else 96) if phone else (100 if r['wait'] else 72)))]
+        c.ok(m['rows'] and not bad, f'{who}: every row is 64 to 96px tall on the phone (72 on the desktop), a Waiting On row up to 124 (100) ({bad[:3] or [r["h"] for r in m["rows"][:6]]})')
         c.ok(all(r['cw'] >= 44 and r['ch'] >= 44 for r in m['rows']), f'{who}: the check circle is at least 44px ({[(r["cw"], r["ch"]) for r in m["rows"][:3]]})')
         c.ok(all(r['fs'] >= 16 and r['lines'] <= 2 for r in m['rows']), f'{who}: titles are 16px on at most two lines ({[(r["fs"], r["lines"]) for r in m["rows"][:3]]})')
         c.ok(m['sw'] <= (390 if phone else 1440), f'{who}: nothing scrolls sideways ({m["sw"]})')
         if phone:
             c.ok(not m['small'], f'{who}: every target on the first screen is at least 44px ({m["small"][:4]})')
-            c.ok(m['chip'].startswith('Mine · Due Soon') and m['search'], f'{who}: one header line, a filter chip and a search icon ("{m["chip"]}", search {m["search"]})')
+            # the approved Your Day mock-up (docs/mockups/today/SPEC.md, 11-03): Tasks opens on Mine › All, every open task of the person's
+            c.ok(m['chip'].startswith('Mine · All') and m['search'], f'{who}: one header line, a filter chip and a search icon ("{m["chip"]}", search {m["search"]})')
             # one add (Alan, 2026-10-24, Phone.dc.html): the add line under the chips, no floating button
             c.ok(not m['fab'] or m['fab']['w'] == 0, f'{who}: no floating + ({m["fab"]})')
             c.ok(m['add'] >= 44, f'{who}: the add line is there, 44px ({m["add"]})')
-            c.ok(m['chipN'] == soon, f'{who}: the chip reads the same Due Soon number ({m["chipN"]} vs {soon})')
+            # the number sits on the Mine chip of the bar (the Your Day mock-up's chips: Mine, Waiting On, Team); it is the rows Mine shows
+            mn = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-ydchip=\"b:open\"] .n'); return b ? +b.textContent : null; }")
+            c.ok(mn == mine == len(m['rows']), f'{who}: the Mine chip reads the rows it shows ({mn} vs {mine}, {len(m["rows"])} rows)')
             if m['rows']:
                 c.ok(m['above'] >= min(3, len(m['rows'])), f'{who}: at least three rows above the fold ({m["above"]})')
         else:
             # on Tasks the saved tab My Week carries the Due Soon number (one filter row, 2026-10-24); a field
             # screen keeps the Due Soon chip
-            n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tvview=\"b:week\"] .n') || document.querySelector('.view.on [data-t2view=\"week\"] .n'); return b ? +b.textContent : 0; }")
-            c.ok(n == soon, f'{who}: the Due Soon number on the wide screen reads the same ({n} vs {soon})')
+            # the approved Your Day mock-up (docs/mockups/today/SPEC.md, 11-03): Tasks opens on Mine › All, every open task of the person's: the saved tab Mine carries its number, the rows it shows
+            n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tvview=\"b:open\"] .n') || document.querySelector('.view.on [data-ydchip=\"b:open\"] .n'); return b ? +b.textContent : 0; }")
+            c.ok(n == mine, f'{who}: the Mine number on the wide screen reads the same ({n} vs {mine})')
         day = lambda g: g in ('Overdue', 'Late', 'Today', 'Tomorrow', 'No Date', 'Later On', 'Further Out') or g.count(',') == 1
-        c.ok(soon == 0 or (m['groups'] and all(day(g) for g in m['groups'])), f'{who}: grouped by day ({m["groups"][:4]})')
+        c.ok(mine == 0 or (m['groups'] and all(day(g) for g in m['groups'])), f'{who}: grouped by day ({m["groups"][:4]})')
         # one number: Today, Overdue and Due Soon, the list against the counts and Ask
         for v in ('today', 'overdue', 'week'):
             await pg.evaluate("v => { t2View = v; renderTkAll(); }", v)
@@ -113,9 +121,13 @@ async def list_checks(c, pg, label, phone):
             # Hand Off: the panel's footer on a wide screen; on the phone the row's swipe (PhoneSheet.dc.html's footer is photo,
             # note and the next step) and the sheet's More
             c.ok(any(x == 'Hand Off' or x.startswith('Hand Off') for x in (sh['all'] if phone else sh['ctl'])) and (not phone or all(r['hand'] for r in m['rows'])), f'{who}: Hand Off is one move away ({sh["ctl"][:8]})')
-            c.ok(any(x.startswith(('Today', 'Tomorrow')) for x in sh['ctl']), f'{who}: the sheet has quick dates')
+            # PM review 11-05 #6 (lane T2): on the phone the sheet leads with Due, Owner and Remind, and the Due row opens the
+            # quick dates (the four Move the Date buttons were a second way to set it); the wide screen keeps its buttons
+            c.ok(any(x.startswith(('Today', 'Tomorrow')) for x in sh['ctl']) or (phone and any(x.startswith('Due') for x in sh['ctl'])), f'{who}: the sheet has quick dates, or the Due row that opens them ({sh["ctl"][:6]})')
             c.ok(sh['primary'] in ('Mark Done', 'Accept') or 'Mark Done' in sh['all'], f'{who}: Done is the blue button or in the sheet (blue: {sh["primary"]})')
-            c.ok(any(x in ('Edit', 'Edit Schedule') for x in sh['all']) and sh['primary'] not in ('Edit', 'Edit Schedule'), f'{who}: Edit is there, never blue')
+            # the capture of every task screen (11-05 #6, lane T2): every task opens this one sheet, so a task's old Edit form
+            # is no way in; a schedule line keeps Edit Schedule. Edit is never blue
+            c.ok(sh['primary'] not in ('Edit', 'Edit Schedule') and not ('Edit' in sh['all'] and sh['key'].split(':')[0] in ('action', 'firm', 'hub')), f'{who}: no old Edit form for a task, and Edit is never blue ({sh["primary"]})')
         await pg.evaluate(CLOSE)
 
 
@@ -218,7 +230,9 @@ async def places(c, pg, label, phone):
     await reset(pg, 'u_alan', 'home')
     # (the approved Today mockup: All opened in full; on the phone a tap on the row's words opens it, on the desktop a
     # tap selects the row into its panel and its title opens it)
-    await pg.evaluate("() => { tdyTabSet('all'); tdyAllOpen = true; render(); }")
+    # the Your Day mock-up (11-03): Today's chips are Today, Approvals and Coming Up (no All); a task due later this week
+    # is under Coming Up, so the card is tapped where it is
+    await pg.evaluate("() => { tdyTabSet('today'); tdyAllOpen = true; render(); if (!document.querySelector('.view.on .td-card[data-kind=\"tdyTask\"]')) { tdyTabSet('coming'); tdyAllOpen = true; render(); } }")
     sh = await tap_row(pg, '.view.on .td-do .td-card[data-kind="tdyTask"] ' + ('.td2-meta' if phone else '[data-tdrec]'))
     c.ok(sh and sh['key'], f'{label}: a tap on a Today task card opens the task sheet ({(sh or {}).get("title")})')
     await pg.evaluate(CLOSE)
