@@ -107499,11 +107499,9 @@ function rpMount() {
     const b = document.createElement("button");
     (b.id = "rp-btn"),
       (b.className = "btn rp-btn no-print"),
-      (b.title = "Report an App Problem"),
-      b.setAttribute("aria-label", "Report an App Problem");
-    // the header's flag reports a problem with the app, not the site: a site or delivery problem is reported on the job
-    // and on the delivery (the field expert, 11-05: the foreman read the flag as the site's problem button)
-    const mine = "client" === role() ? "Something Wrong?" : "Report an App Problem";
+      (b.title = "Report a Problem"),
+      b.setAttribute("aria-label", "Report a Problem");
+    const mine = "client" === role() ? "Something Wrong?" : "Report a Problem";
     (b.title = mine),
       b.setAttribute("aria-label", mine),
       (b.innerHTML = `${RP_FLAG}<span class="rp-btn-t">${mine}</span>`),

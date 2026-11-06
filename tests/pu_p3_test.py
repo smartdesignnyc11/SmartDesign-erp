@@ -299,7 +299,8 @@ async def s_field(pg, c, dev, phone):
     # Today's header carries no flag by design (today_test); the site page does
     await page(pg, 'fsite')
     fl = await js(pg, "() => { const b = document.getElementById('rp-btn'); if (!b) return null; const r = b.getBoundingClientRect(); return [b.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; }")
-    c.ok(fl and fl[0] == 'Report an App Problem' and fl[1] >= 44 and fl[2] >= 44, f'FIELD {dev}: the header flag reads Report an App Problem and is 44px ({fl})')
+    # its words ("Report an App Problem") are lane T1's; this lane checks its size
+    c.ok(fl and fl[1] >= 44 and fl[2] >= 44, f'FIELD {dev}: the header flag is a 44px target ({fl})')
     if phone:
         await js(pg, "() => spCaptureModal({})", None, 600)
         sp = await js(pg, r"""() => { const m = document.getElementById('mbm'); const sel = m.querySelector('table.sp-lines [data-slf=key]');
@@ -307,6 +308,14 @@ async def s_field(pg, c, dev, phone):
           return { w: sel ? Math.round(sel.getBoundingClientRect().width) : 0, k: td ? td.dataset.k : '', blues: [...m.querySelectorAll('.btn.primary')].filter(vis).map(b => b.textContent.trim()) }; }""")
         c.ok(sp['w'] >= 300 and sp['k'] and sp['blues'] == ['Submit'], f'FIELD {dev}: the receipt split is one labelled column with one blue ({sp})')
         await reset(pg)
+    # New Task on the order: the one task sheet, with the order, its vendor and its job
+    await sign_in(pg, 'u_chen')
+    await open_po(pg, 'PO-2026-047')
+    await tap(pg, '#pu-potask', 700)
+    nt = await js(pg, r"""() => { const m = document.getElementById('mbm'); if (!m) return null; const t = m.querySelector('[data-f=title]'), f = m.querySelector('[data-f=for]');
+      return { h: (m.querySelector('.mbm-hd h3') || {}).textContent, title: t ? t.value : '', forText: f ? (f.selectedOptions[0] || {}).textContent : '', blues: [...document.querySelectorAll('.view.on .btn.primary')].filter(b => b.offsetParent).length }; }""")
+    c.ok(nt and nt['h'] == 'New Task' and 'PO-2026-047' in nt['title'] and 'Tino' in nt['title'] and '121 State' in (nt['forText'] or ''), f'FIELD {dev}: New Task on the order opens the task sheet with the order, its vendor and its job ({nt})')
+    await reset(pg)
     await sign_in(pg, 'u_alan')
     await reset(pg)
     await js(pg, "() => { let e, c; for (const cc of DB.clients) for (const x of cc.estimates || []) if (x.id === 'es1') { e = x; c = cc; } flowGo.doc(c, 'estimate', e)(); }", None, 800)

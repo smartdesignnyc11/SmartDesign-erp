@@ -120,7 +120,7 @@ function puPoHeadHtml(po) {
 function puPoBlue(po, doc) {
   const slot = doc.querySelector("#pu-ponext");
   if (!slot) return;
-  let keep = slot.querySelector("button");
+  let keep = slot.querySelector("button:not(#pu-potask)");
   if (!keep && !slot.querySelector(".pu-poh-why")) {
     const nx = puPoNext(po, doc);
     if (nx.over) {
@@ -131,6 +131,20 @@ function puPoBlue(po, doc) {
       }
     } else if (nx.btn) slot.appendChild((keep = nx.btn));
     else slot.innerHTML = `<p class="pu-poh-why" data-nocase>${"closed" === po.status || "cancelled" === po.status ? "Nothing more to do on this order." : "Nothing waits on you on this order."}</p>`;
+  }
+  // New Task on the order (lane T1, 11-05): the one task sheet, its title starting with the order and the vendor, on the
+  // order's job, the order as its source. Plain: the order's next step stays the one blue.
+  if (!slot.querySelector("#pu-potask") && "function" == typeof newTaskDialog && !puReadOnly()) {
+    const t = document.createElement("button");
+    (t.type = "button"), (t.className = "btn"), (t.id = "pu-potask"), (t.textContent = "New Task");
+    t.onclick = () =>
+      newTaskDialog({
+        title: `${po.number || "Draft order"} (${po.vendor || "no vendor"}): `,
+        projectId: po.projectId || "",
+        notes: `${po.number || "Draft order"} · ${po.vendor || "no vendor"} · ${money(poTotal(po).total)}`,
+        source: { kind: "po", id: po.id, label: `${po.number || "the draft order"} · ${po.vendor || ""}` },
+      });
+    slot.appendChild(t);
   }
   const sec = document.getElementById("v-po") || doc;
   sec.querySelectorAll(".btn.primary").forEach((x) => x !== keep && !x.closest("#mbm") && (x.classList.remove("primary"), (x.dataset.flowDemoted = "1")));
