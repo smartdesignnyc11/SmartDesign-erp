@@ -19,6 +19,22 @@ All modules are on the canvas: https://claude.ai/artifact/VJDX1ffw2nmGuyz4qGY6Gm
 - Accounting and Reports: reviewed (chief of staff, 11-03). Billing, Banking, Bills and Payroll ready to build; Books, Job Profitability and Cash after the money definitions in BACKLOG 1.35 (Safe to Spend sets aside only cash received for work not yet done: about +$109,000 on today's figure; one job cost; one billed-ahead figure; close posts the WIP figure).
 - Order of builds: job and menu (live 11-03); Accounting, Purchasing and Design (LIVE 11-04 05:00, master dc28a79; J4 passes on both devices); Reports (LIVE 11-04 16:00, master d9b2c6c); Today/Sales/Company (LIVE 11-05, master a63cccc: drafts 612 sheets, month 263/292, walk 93 failed with every journey as far as live; J8 and J9 four taps over, BACKLOG 1.36). Danger sweep and billing path (LIVE 11-05 14:00, master f95a7ab): Approvals leads with the safe step, the audit trail is hash-chained and keeps every row, every approval stamp names a person, New Invoice on the client's Contract and Billing (J8 20/21, J9 20/21, the change order billed). Walk 73 failed (was 93), danger lines 0 (was 12). Next: BACKLOG 1.36 follow-ups (audit line in Controls first).
 
+## Alan's 11-06 asks (18:05): the purchasing item table and documents first
+Full spec additions are in `docs/DECISIONS.md`, 11-06 18:05.
+- **Purchasing item table: Running (lane P5).**
+  - Alan's eleven columns, one row per item, across pricing, purchased and delivered. Invoice is the FM package, the client's materials invoice.
+  - It is a column view of the Buy Board's one list (`buyList`, status from `puNeedStatus`). No new store.
+  - Phone cards, a client FF&E schedule export, and Chen's sheets imported once.
+  - It holds off `buyboard.js`, `purchasing.js` and `buyList` until P2 merges (integ17).
+- **Documents first: Running (lane D).**
+  - Tapping an estimate, CO or invoice on Contract and Billing or Accounting › Billing opens the client's document, with the actions on it.
+  - Edit on a posted document is a linked void and re-issue, or a change order.
+  - A credit memo applies to one invoice, with tax and SOV reversed.
+  - A refund needs approval and a matching bank line.
+  - The phone reflows the document. The portal shows the same document.
+- **Waiting on Alan:** what the client copy shows; FM for every purchase or only billed-back items; who approves refunds. Each has a default in DECISIONS.
+- **Merge plan:** P2 and P1 first (integ17). Then both new lanes, after their review-first, in one batch on one full tier, with the cycle walk (J5, J6, J8, J9).
+
 ## Overnight 10-26 (Alan asleep: "check on all the runs so they aren't stalled")
 - A check-in every 40 minutes: every run's log growth, slot holders past their timeout, the lanes; anything hung is restarted and logged here.
 - On green: deploy the import fix, the boot fix and the loop's eyes (one build, one net, the month and the screen walk); then tell Alan it is safe to import.
