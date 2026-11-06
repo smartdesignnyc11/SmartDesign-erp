@@ -64,20 +64,28 @@ const BB_BUYOUT_DAYS = 10;
 function bbLineNeed(p, c, d, l, key, src) {
   const f = lineFin(key);
   if (!f) return null;
-  // what is left is the line's one left (lineCommitment, src/app.js): draft orders count, so a drafted buy is not a need
-  // again (11-05: Demolition stayed "Ask for Bids" with PO-2026-049 drafted on it)
+  // what is left is the line's one left (lineCommitment, src/app.js): draft orders count, so a drafted buy is not bought
+  // again (11-05: Demolition stayed "Ask for Bids" with PO-2026-049 drafted on it). A need covered only by a draft stays
+  // on the board, as "Issue the Draft" with its order-by date, until the draft is issued (the chief of staff, 11-05: the
+  // held Demolition sub dropped off with no order-by chase).
   const C = "function" == typeof lineCommitment ? lineCommitment(key) : null,
     remaining = C ? C.left : Math.max(0, r2(f.budget - f.actual - f.committed)),
-    sub = !bbBuysLine(l) && bbSubScope(l);
-  if (!f.budget || remaining < 1 || !(bbBuysLine(l) || sub)) return null;
-  // a subcontract scope with an order on it is bought out (a second sub is the order sheet's question, with a reason)
-  if (sub && C && C.pos.some((po) => "cancelled" !== po.status)) return null;
+    issuedLeft = C ? Math.max(0, r2(C.budget - C.actual - C.committed)) : remaining,
+    sub = !bbBuysLine(l) && bbSubScope(l),
+    drafts = C ? C.drafts.filter((po) => "draft" === po.status) : [];
+  if (!f.budget || !(bbBuysLine(l) || sub)) return null;
+  // a subcontract scope with an issued order on it is bought out (a second sub asks for a reason)
+  if (sub && C && C.pos.some((po) => !["cancelled", "draft"].includes(po.status))) return null;
   let M = { budget: null };
   try {
     M = sub ? { budget: null } : rfqMatBudget(key, l, d) || { budget: null };
   } catch (e) {}
-  const matLeft = null != M.budget ? Math.max(0, r2(M.budget - (C ? C.onOrder : f.committed))) : null;
-  if (null != matLeft && matLeft < 1) return null;
+  const matLeft = null != M.budget ? Math.max(0, r2(M.budget - (C ? C.onOrder : f.committed))) : null,
+    matIssuedLeft = null != M.budget ? Math.max(0, r2(M.budget - (C ? C.committed : f.committed))) : null,
+    left = null != matLeft ? matLeft : remaining,
+    leftIssued = null != matIssuedLeft ? Math.min(matIssuedLeft, issuedLeft) : issuedLeft,
+    onlyDraft = drafts.length > 0 && leftIssued >= 1 && (sub || left < 1);
+  if (!onlyDraft && (remaining < 1 || left < 1)) return null;
   const { needBy: needBy, task: tk } = lineNeedBy(p, l),
     lead = sub ? BB_BUYOUT_DAYS : l.leadWeeks ? 5 * +l.leadWeeks : 5,
     orderBy = needBy ? addWork(needBy, -lead, !1) : "",
@@ -98,7 +106,8 @@ function bbLineNeed(p, c, d, l, key, src) {
     lead: lead,
     task: tk,
     vendor: l.vendor || "",
-    price: null != matLeft ? matLeft : remaining,
+    price: onlyDraft ? C.drafted : left,
+    draftPOs: onlyDraft ? drafts : [],
     budget: f.budget,
     held: funds ? funds.reserved : 0,
     po: null,
@@ -488,6 +497,8 @@ function bbSteps(r) {
   if ("arriving" === r.tab) return "late" === r.arr ? [["Chase the Vendor", "chase"], ["Open the Order", "po"]] : r.po ? [["today" === r.arr ? "Receive" : "Open the Order", "today" === r.arr ? "recv" : "po"], ["Chase the Vendor", "chase"]] : [["Expedite", "expedite"]];
   if (r.ordered && "promise" === r.lateKind) return [[`Expedite${r.vendor ? " " + r.vendor : ""}`, "expedite"], ["Other Vendor", "other"], ["Move the Task", "move"]];
   if (r.dec) return [["Get the Decision", "dec"]];
+  // covered only by a draft order: issue it (or open it to cut it)
+  if ((r.draftPOs || []).length) return [["Issue the Draft", "draftpo"]].concat(r.task ? [["Move the Task", "move"]] : []);
   const S1 = [];
   if ("request" === r.kind) {
     !r.lineKey && S1.push(["Link to a Line", "link"]);
@@ -536,7 +547,7 @@ function bbPanelHtml(r, picks) {
       ["Committed", money(C ? C.committed : committed || 0)],
       C && C.drafted ? ["In draft orders", money(C.drafted)] : null,
       C && C.budget ? [C.over ? "Over the line" : "Left on the line", money(C.over || C.left)] : null,
-      [`Last ${last.length || 3} buys`, last.length ? last.map((x) => `${money(x.p)}${x.u ? "/" + x.u : ""}${x.v ? ` ${x.v}` : ""}`).join(", ") : book ? "none ordered" : "none on file"],
+      [`Last ${last.length || 3} buys`, last.length ? last.map((x) => `${unitMoney(x.p)}${x.u ? "/" + x.u : ""}${x.v ? ` ${x.v}` : ""}`).join(", ") : book ? "none ordered" : "none on file"],
       book ? ["Best price known", book.say] : null,
       ["At the shop", S1 ? (S1.length ? S1.map((s) => `${puUnits(s.qty, s.unit)} ${s.name}, ${String(s.where).toLowerCase()}`).join("; ") : "none") : st ? `${st.from} in stock` : "none"],
       r.askedBy ? ["Asked by", r.askedBy] : null,
@@ -648,6 +659,7 @@ function bbDo(r, k) {
   if ("req" === k) return setCurrent(p.id), (view = "req"), render();
   if ("link" === k) return bbLinkLine(r);
   if ("po" === k) return r.po ? flowGo.po(r.po)() : toast("No order behind it yet");
+  if ("draftpo" === k) return (r.draftPOs || [])[0] ? flowGo.po(r.draftPOs[0])() : toast("No draft order behind it");
   if ("recv" === k) return setCurrent(p.id), r.po && (poOpen = null), (view = "recv"), render();
   if ("move" === k) return bbMoveTask(r);
   if ("other" === k) return bbOtherVendor(r);

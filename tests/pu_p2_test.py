@@ -101,9 +101,14 @@ async def desktop(c, p):
                 c.ok(S and (float(S['cost'] or 0) == round(C['left'], 2) or (not S['cost'] and C['left'] < 1)), f"commit: the sheet fills in what is left on {k}, not the budget (unit cost {S and S['cost']}, left {C['left']})")
             # Demolition: $5,950 left after the draft (21,500 budget - 1,650 spent - 13,900 drafted)
             c.ok(abs(await pg.evaluate("k => lineCommitment(k).left", L1) - 5950) < 0.01, 'commit: Demolition has $5,950 left after the $13,900 draft')
+            # covered only by the draft: it stays on the Buy Board, in Needs You, as Issue the Draft with its order-by date (the
+            # chief of staff, 11-05: the held Demolition sub dropped off the board with no order-by chase), never Ask for Bids
             P = await pg.evaluate("""k => { const r = buyList('').find(x => x.lineKey === k && !x.ordered); if (!r) return { gone: true };
-              bbSel = r.id; render(); const t = (document.querySelector('#buy-board .bb-panel') || {}).innerText || ''; return { gone: false, t }; }""", L1)
-            c.ok(P['gone'], f'commit: Demolition with a sub order drafted is not "Ask for Bids" again on the Buy Board ({P})')
+              const x = puNeed(r); procMode = 'lines'; view = 'proc'; bbProj = ''; bbVendor = ''; bbTrade = ''; render(); const row = document.querySelector(`#buy-board [data-pusec="mine"] [data-purow="${r.id}"]`);
+              const T = bbTodayItems().find(i => i.id === r.id); return { gone: false, b: x.b, act: x.act, orderBy: r.orderBy, when: x.when, row: row ? row.innerText : '', pick: !!(row && row.querySelector('[data-bbpick]')), today: T ? bbTodayCard(T).verb : null }; }""", L1)
+            c.ok(not P['gone'] and P['b'] == 'mine' and P['act'] == 'Issue the Draft' and P['orderBy'] and 'Issue the Draft' in P['row'] and 'Order by' in P['row'] and not P['pick'],
+                 f'commit: Demolition, covered only by its draft, stays in Needs You as Issue the Draft with its order-by date ({P})')
+            c.ok(P.get('today') in (None, 'Issue the Draft'), f"commit: Today says Issue the Draft too ({P.get('today')})")
             # the panel of a need on a line says the line's one left
             P2 = await pg.evaluate("""() => { const r = buyList('').find(x => x.kind === 'material' && x.lineKey && !x.ordered && x.tab === 'buy'); if (!r) return null; bbSel = r.id; procMode = 'lines'; view = 'proc'; render();
               const t = (document.querySelector('#buy-board .bb-panel') || {}).innerText || ''; const c = lineCommitment(r.lineKey); return { t, left: c.left, over: c.over, name: r.name }; }""")
@@ -123,16 +128,89 @@ async def desktop(c, p):
             # a second order on the demolition subcontract asks why
             await sheet(pg, [L1])
             await fill(pg, L1, '1000', vend)
+            W2 = await pg.evaluate("() => { const b = document.querySelector('#mbm .pu-ctpwhy'); return b && !b.hidden ? b.innerText : null; }")
+            c.ok(W2 and 'second subcontract' in W2, f'commit: ticking Demolition again shows the Why for a second subcontract order in the sheet ({W2})')
             await okb(pg); await pg.wait_for_timeout(400)
             m = await pg.evaluate(MODAL)
-            c.ok(m and 'Second Order' in m['title'], f"commit: a second subcontract order on Demolition asks for a reason ({m and m['title']})")
+            n0 = await pg.evaluate("k => DB.pos.filter(p => p.lines.some(l => l.line === k)).length", L1)
+            c.ok(m and 'Purchase Orders' in m['title'], f"commit: with no reason the sheet stays open, the lines kept ({m and m['title']})")
+            await pg.fill('#mbm #pu-ctpwhy', 'the scope is split: the garden unit goes to a second sub')
+            await okb(pg); await pg.wait_for_timeout(500)
+            m = await pg.evaluate(MODAL)
+            if m and 'Confirm' in m['title']: await okb(pg); await pg.wait_for_timeout(500)
+            R2 = await pg.evaluate("k => { const P = DB.pos.filter(p => p.lines.some(l => l.line === k)); const po = P[P.length - 1]; return { n: P.length, why: po.secondOrderWhy || '', valid: poValid(po).filter(x => /second subcontract/.test(x)) }; }", L1)
+            c.ok(R2['n'] == n0 + 1 and R2['why'] and not R2['valid'], f'commit: with the reason the second order is made and carries it ({R2})')
             await closeall(pg)
+            # every path: an award that makes a second subcontract on the line is held at Issue until the reason is on the order
+            AW = await pg.evaluate("""k => { const s = rfqLineSources('p121').find(x => x.key === k); const q = rfqFromLines('p121', [k]); if (!q) return null;
+              const v = ensureVendor('Five Boro Wrecking', { trade: 'Demolition' }); v.kind = 'sub'; v.insuranceExp = '2027-06-30';
+              q.status = 'leveled'; q.vendors = [v.id];
+              q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 4000, ext: 4000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
+              const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [])[0]; if (!po) return { po: null };
+              const before = poValid(po).filter(x => /second subcontract/.test(x)); po.secondOrderWhy = 'the scope is split: the garden unit goes to a second sub'; const after = poValid(po).filter(x => /second subcontract/.test(x));
+              return { po: po.number, before, after }; }""", L1)
+            c.ok(AW and AW.get('po') and AW['before'] and not AW['after'], f'commit: the award path holds a second subcontract at Issue until the reason is given ({AW})')
             # the job's Orders: Over the Line equals its rows
             await pg.evaluate("() => { view = 'po'; poOpen = null; render(); }"); await pg.wait_for_timeout(400)
             O = await pg.evaluate("""() => { const t = document.querySelector('[data-putile="lineover"]'); if (!t) return null; const v = t.querySelector('b').innerText; t.click(); return v; }""")
             await pg.wait_for_timeout(300)
             rows = await pg.evaluate("() => puOrderRows('').filter(x => x.tile === 'lineover').reduce((a, x) => a + x.money, 0)")
             c.ok(O is not None and abs(float(re.sub(r'[^\d.]', '', O) or 0) - rows) < 1, f'commit: Orders shows Over the Line ({O}) equal to its rows ({rows})')
+        if want('linefin'):
+            # lineFin at the root (lineCommitment reads it): a line-less bill on a multi-line order is shared by what is open
+            # on each line, not taken off each whole; a card payment matched to an order with no bill is counted once; a
+            # vendor credit on the order frees the line's budget (the chief of staff, 11-05)
+            LF = await pg.evaluate("""() => { const k1 = 'estimate:es1:l12', k2 = 'estimate:es1:l13', v = DB.vendors[0].name;
+              const mk = (lines) => { const po = { id: uid('po'), number: 'PO-TEST-' + Math.random().toString(36).slice(2, 6), projectId: 'p121', vendor: v, date: '2026-09-01', status: 'issued', lines: lines.map((x, i) => Object.assign({ id: uid('pl'), item: 'test ' + i, qty: 1, unit: 'ea', received: 0 }, x)), matchedTxns: [], tax: 0, shipping: 0 }; DB.pos.push(po); return po; };
+              const c0 = [k1, k2].map(k => lineCommitment(k));
+              const po = mk([{ line: k1, price: 3000 }, { line: k2, price: 1000 }]);
+              const c1 = [k1, k2].map(k => lineCommitment(k));
+              DB.bills.push({ id: uid('b'), number: 'TB-1', vendor: v, poId: po.id, projectId: 'p121', date: '2026-09-02', status: 'approved', lines: [{ desc: 'goods', amount: 2000 }], amount: 2000, total: 2000 });
+              const c2 = [k1, k2].map(k => lineCommitment(k));
+              const po2 = mk([{ line: k1, price: 500 }]); const t = { id: uid('t'), date: '2026-09-02', amt: -500, vendor: v, line: k1, acct: (DB.accounts[0] || {}).id }; DB.txns.push(t); po2.matchedTxns = [t.id];
+              const c3 = lineCommitment(k1);
+              const cr = { id: uid('t'), date: '2026-09-03', amt: 200, vendor: v, acct: (DB.accounts[0] || {}).id }; DB.txns.push(cr); po.matchedTxns = [cr.id];
+              const c4 = lineCommitment(k1);
+              return { c0: c0.map(c => [c.actual, c.committed]), c1: c1.map(c => [c.actual, c.committed]), c2: c2.map(c => [c.actual, c.committed]), c3: [c3.actual, c3.committed], c4: [c4.actual, c4.committed] }; }""")
+            d1 = [round(LF['c2'][i][1] - LF['c0'][i][1], 2) for i in (0, 1)]
+            c.ok(d1 == [1500, 500], f"linefin: a $2,000 bill with no line on a $3,000 + $1,000 order leaves $1,500 and $500 committed, not $1,000 and $0 ({d1}; {LF})")
+            da = [round(LF['c2'][i][0] - LF['c0'][i][0], 2) for i in (0, 1)]
+            c.ok(da == [1500, 500], f"linefin: the line-less bill is cost on each line by its share ({da})")
+            c.ok(round(LF['c3'][0] + LF['c3'][1] - LF['c2'][0][0] - LF['c2'][0][1], 2) == 500, f"linefin: a $500 card line on an order with no bill counts once, as actual, not again as committed ({LF['c3']} after {LF['c2'][0]})")
+            c.ok(round(LF['c3'][0] - LF['c4'][0], 2) == 150 and LF['c4'][0] < LF['c3'][0], f"linefin: a $200 vendor credit on the $3,000 + $1,000 order frees its share of the line ($150 of it) ({LF['c3']} -> {LF['c4']})")
+        if want('preaward'):
+            # long-lead lines before award: drafted with a reason, issued only with the owner's approval, flagged if lost
+            PA = await pg.evaluate("""() => { const c = DB.clients.find(c => c.estimates.some(e => ['sent', 'draft'].includes(e.status) && e.lines.length > 1)); if (!c) return null;
+              const d = c.estimates.find(e => ['sent', 'draft'].includes(e.status) && e.lines.length > 1); const p = DB.projects.find(x => x.clientId === c.id) || DB.projects[0];
+              d.projectId = d.projectId || p.id; d.lines[0].longLead = true; save();
+              const h = docActions(c, d); return { cid: c.id, id: d.id, n: d.number, pid: d.projectId, door: /data-docact="preaward"/.test(h), pos: /data-docact="pos"/.test(h) }; }""")
+            c.ok(PA and PA['door'] and not PA['pos'], f'preaward: an unapproved estimate with a long-lead line offers Long-Lead Lines Before Award, not Buy These Lines ({PA})')
+            if PA:
+                await pg.evaluate("a => { const c = DB.clients.find(x => x.id === a.cid); docAction(c, c.estimates.find(e => e.id === a.id), 'preaward'); }", PA)
+                await pg.wait_for_timeout(400)
+                S = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-ctpsel]')].map(i => [i.closest('tr').dataset.pukey, i.checked, i.disabled])")
+                c.ok(S and S[0][1] and all(x[2] for x in S[1:]), f'preaward: the sheet ticks the long-lead line and holds the rest ({S[:3]})')
+                k0 = S[0][0] if S else ''
+                await fill(pg, k0, '1200', vend)
+                W3 = await pg.evaluate("() => { const b = document.querySelector('#mbm .pu-ctpwhy'); return b && !b.hidden ? b.innerText : null; }")
+                c.ok(W3 and 'before' in W3, f'preaward: the sheet asks why it is bought before award ({W3})')
+                await pg.fill('#mbm #pu-ctpwhy', 'the windows take 14 weeks; the client signs next week')
+                await okb(pg); await pg.wait_for_timeout(500)
+                m = await pg.evaluate(MODAL)
+                if m and 'Confirm' in m['title']: await okb(pg); await pg.wait_for_timeout(500)
+                PO = await pg.evaluate("n => { const po = DB.pos.filter(x => x.preAward && x.preAward.number === n).pop(); return po && { id: po.id, n: po.number, why: po.preAward.why, note: po.notes, v: poValid(po).filter(x => /owner approves|lost/.test(x)) }; }", PA['n'])
+                c.ok(PO and PO['why'] and PO['note'].startswith('Long-Lead, Before Award') and PO['v'], f'preaward: the draft is marked Long-Lead, Before Award, with the reason, and held at Issue for the owner ({PO})')
+                if PO:
+                    await sign_in(pg, 'u_owner')
+                    A = await pg.evaluate("id => mApprovals().some(x => x.kind === 'preaward' && x.id === id)", PO['id'])
+                    c.ok(A, "preaward: it is in the owner's Approvals")
+                    await pg.evaluate("id => mGo({ puPreAward: id })", PO['id']); await pg.wait_for_timeout(300)
+                    await okb(pg); await pg.wait_for_timeout(300)
+                    ok = await pg.evaluate("id => { const po = DB.pos.find(x => x.id === id); return { ap: !!po.preAward.approved, v: poValid(po).filter(x => /owner approves/.test(x)) }; }", PO['id'])
+                    c.ok(ok['ap'] and not ok['v'], f'preaward: once the owner approves, the order can be issued ({ok})')
+                    lost = await pg.evaluate("a => { const c = DB.clients.find(x => x.id === a.cid); c.estimates.find(e => e.id === a.id).status = 'rejected'; const po = DB.pos.find(x => x.id === a.po); return { v: poValid(po).filter(x => /lost/.test(x)), row: puOrderRows('').some(x => x.id === 'preaward:' + po.id) }; }", {'cid': PA['cid'], 'id': PA['id'], 'po': PO['id']})
+                    c.ok(lost['v'] and lost['row'], f'preaward: a lost estimate holds the order and flags it on Orders to cancel ({lost})')
+                    await sign_in(pg, 'u_chen')
         if want('request'):
             q = await pg.evaluate("k => { const p = DB.projects.find(x => x.id === 'p121'); const q = p.requests.find(r => /stud/i.test(r.what || '')); if (!q) return null; q.line = k; save(); return { id: q.id, what: q.what }; }", L2)
             await sheet(pg, [L2])
@@ -175,17 +253,32 @@ async def desktop(c, p):
             c.ok(m and m['ok'] == 'Use the Stock, Buy the Rest', f"item: the stock gate's blue is Use the Stock, Buy the Rest ({m and m['ok']})")
             await closeall(pg)
             # the price history prices a billed order line on the bill lines that pay for it (P3, 11-05: $55.56/ea windows)
-            PH = await pg.evaluate("""() => { const H = itemPriceHistory(pwKeyFor('Double-hung windows, front & rear', 'ea')); const D = pwData(), bad = [];
-              const gd = x => { const d = String(x.desc || x.item || '').split(' — ')[0]; return !/^(sales |use )?tax\\b/i.test(d) && !PW_FEE_RE.test(d); };
-              Object.values(D.items).forEach(I => I.buys.filter(b => b.billId && b.kind === 'po').forEach(B => { const bill = DB.bills.find(x => x.id === B.billId), po = DB.pos.find(p => B.id.startsWith('po:' + p.id + ':')), pl = po.lines.find(l => B.id === `po:${po.id}:${l.id}`);
-                const G = (bill.lines || []).filter(gd), ls = G.filter(l => pwBillPoLine(po, po.lines.filter(x => !PW_FEE_RE.test(x.item || x.desc || '')), l, String(l.desc || l.item || '').split(' — ')[0], G.length) === pl);
-                const amt = ls.reduce((a, l) => a + (+l.amount || 0), 0), q = ls.some(l => !(+l.qty > 0)) ? +pl.qty : ls.reduce((a, l) => a + (+l.qty || 0), 0);
-                Math.abs(amt / q / B.packF - B.price) > 0.01 && bad.push([I.label, B.price]); const S = B.sources.filter(s => s.billId).map(s => s.billId); new Set(S).size !== S.length && bad.push(['twice', I.label]); }));
-              return { w: H && H.rows[0].price, bad }; }""")
-            c.ok(PH['w'] and abs(PH['w'] - 3666.67) < 0.01, f"item: the windows read $3,666.67 billed, not $55.56 ({PH['w']})")
-            c.ok(not PH['bad'], f"item: every billed price is its matched bill lines over their quantity, each bill once ({PH['bad']})")
-            M = await pg.evaluate("() => [money(4.6), money(3.98), money(1719.42), money(-4.6), money(21500)]")
-            c.ok(M == ['$4.60', '$3.98', '$1,719', '−$4.60', '$21,500'], f'item: unit prices keep their cents ({M})')
+            # (the chief of staff, 11-05: a bill line with no quantity is a payment, not a price; a lump sum billed in part keeps
+            # the order's price; quantities and amounts add up across a PO line's bills; a bill across orders goes line by line)
+            PH = await pg.evaluate("""() => { const H = itemPriceHistory(pwKeyFor('Double-hung windows, front & rear', 'ea')); const D = pwData(), bad = [], seen = [];
+              const gd = x => { const d = String(x.desc || x.item || '').split(' \u2014 ')[0]; return !/^(sales |use )?tax\\b/i.test(d) && !PW_FEE_RE.test(d); };
+              const desc = l => String(l.desc || l.item || '').split(' \u2014 ')[0], goods = po => (po.lines || []).filter(x => !PW_FEE_RE.test(x.item || x.desc || ''));
+              const live = DB.bills.filter(b => !['void', 'rejected', 'draft'].includes(b.status));
+              Object.values(D.items).forEach(I => I.buys.filter(B => B.kind === 'po').forEach(B => { const po = DB.pos.find(p => p.id === B.poId), pl = po && po.lines.find(l => l.id === B.poLineId); if (!pl) return;
+                let amt = 0, q = 0; const ids = new Set();
+                live.forEach(b => { const G = (b.lines || []).filter(gd); G.forEach(l => { const lpo = (l.poId && DB.pos.find(p => p.id === l.poId)) || (l.poLineId && DB.pos.find(p => p.lines.some(x => x.id === l.poLineId))) || DB.pos.find(p => p.id === b.poId);
+                  if (lpo !== po || pwBillPoLine(lpo, goods(lpo), l, desc(l), lpo.id === b.poId ? G.length : 1) !== pl) return; ids.add(b.id); +l.qty > 0 && +l.amount > 0 && ((amt += +l.amount), (q += +l.qty)); }); });
+                const lump = /^(ls|lot|lump)/i.test(pl.unit || '') || +pl.qty === 1, priced = q > 0 && amt > 0 && !(lump && amt < pl.qty * pl.price * 0.98);
+                if (priced ? Math.abs(amt / q / B.packF - B.price) > 0.01 : B.paidPrice != null) bad.push([I.label, B.price, priced ? amt / q : 'order price']);
+                const S = B.sources.filter(s => s.billId).map(s => s.billId); (new Set(S).size !== S.length || S.length !== ids.size) && bad.push(['sources', I.label, S.length, ids.size]);
+                ids.size && seen.push([po.number, B.price]); }));
+              const cm = live.find(b => /CM-0091/.test(b.number || '')), cmB = cm && Object.values(D.items).flatMap(I => I.buys).find(B => B.poId === cm.poId && B.kind === 'po');
+              return { w: H && H.rows[0].price, bad, cm: cm ? { price: cmB && cmB.price, order: cmB && cmB.qty * cmB.price } : null, seen }; }""")
+            c.ok(PH['w'] and abs(PH['w'] - 3300) < 0.01, f"item: the windows read the order's $3,300 (the bill gives no quantity: a payment, not a price), not $55.56 ({PH['w']})")
+            c.ok(PH['cm'] is None or (PH['cm']['price'] and PH['cm']['price'] > 38000), f"item: CM-0091, $38,000 on a $76,000 lump sum, is a progress payment, not the price ({PH['cm']})")
+            c.ok(not PH['bad'], f"item: every billed price is its bills' amount over their quantity, summed across bills, each bill once ({PH['bad']})")
+            # unit prices keep their cents (unitMoney); money() stays whole dollars, so a client document's lines add up to
+            # its printed total (the chief of staff's review, 11-05: a $45.50 line beside rounded ones did not add up)
+            M = await pg.evaluate("() => [unitMoney(4.6), unitMoney(3.98), unitMoney(3300), unitMoney(-4.6), money(4.6), money(45.5), money(1719.42)]")
+            c.ok(M == ['$4.60', '$3.98', '$3,300.00', '−$4.60', '$5', '$46', '$1,719'], f'item: unit prices keep their cents, money() stays whole dollars ({M})')
+            LP = await pg.evaluate("""() => { const r = buyList('').find(x => x.tab === 'buy' && !x.ordered && bbLastPrices(x).some(p => p.p % 1)); if (!r) return null; bbSel = r.id; procMode = 'lines'; view = 'proc'; render();
+              return { t: (document.querySelector('#buy-board .bb-panel') || {}).innerText || '', p: bbLastPrices(r).find(p => p.p % 1).p }; }""")
+            c.ok(LP is None or f"{LP['p']:,.2f}" in LP['t'], f"item: the panel's last buys show cents ({LP and LP['p']})")
             # a price above the best known, flagged as typed on the order sheet
             B2 = await pg.evaluate("() => { const H = itemPriceHistory('2x4x8 KD stud'); return H && H.best ? { p: H.best.price, u: H.unit } : null; }")
             if B2:

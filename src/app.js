@@ -51778,7 +51778,9 @@ function ctPOPicker(projectId, preferId, preKey) {
   const p = DB.projects.find((x) => x.id === projectId) || S,
     cl = DB.clients.find((c) => c.id === p.clientId);
   if (!cl) return void toast("This project has no client yet");
-  const docs = [...cl.estimates, ...cl.changeOrders, ...cl.invoices].filter((x) => docBuyable(x) && (!x.projectId || x.projectId === p.id));
+  // an unapproved estimate is listed only when its long-lead lines are being bought before award (docPreAward, opened
+  // from the estimate's own door; the owner approves each such order before it is issued)
+  const docs = [...cl.estimates, ...cl.changeOrders, ...cl.invoices].filter((x) => (docBuyable(x) || ("function" == typeof puPreAwardOpen && puPreAwardOpen(x))) && (!x.projectId || x.projectId === p.id));
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
   let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
@@ -51848,11 +51850,28 @@ function ctPOPicker(projectId, preferId, preKey) {
         // a second order on a subcontract line is a second sub for the same scope: warned, and the reason kept on the order
         const subAgain = Object.entries(adds).filter(([k, x]) => "function" == typeof bbSubScope && bbSubScope(x.l) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)));
         let againWhy = "";
-        if (subAgain.length) {
-          const on = subAgain.map(([k, x]) => `${x.l.num ? x.l.num + ". " : ""}${x.l.item} (${(DB.pos || []).filter((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)).map((po) => po.number).join(", ")})`).join("; ");
-          const why = appPrompt(`A subcontract order is already on ${on}. A second sub for the same scope buys it twice unless the scope is split. Why a second order?`, "", { title: "A Second Order on This Line", label: "Reason" });
-          if (null == why) return !1;
-          againWhy = String(why).trim();
+        // before award (Alan's Standard: long-lead items are released early only as an owner-approved exception): only
+        // long-lead lines of an unapproved estimate, with the reason the owner reads before approving
+        const early = picks.map((sel) => docOf(sel.split("#")[0])).filter((d) => d && !docBuyable(d));
+        let earlyWhy = "";
+        if (early.length) {
+          const bad = picks.filter((sel) => {
+            const d = docOf(sel.split("#")[0]);
+            return d && !docBuyable(d) && !("function" == typeof puLongLead && puLongLead(d.lines.find((x) => x.id === sel.split("#")[0])));
+          });
+          if (bad.length) return toast(`Only long-lead lines can be bought before ${early[0].number} is approved`), !1;
+        }
+        // the reason for a second subcontract on a line, or for buying before award, is asked in the sheet itself (its Why
+        // field, src/purchasing.js puCtpCheck), so the lines ticked are kept: a prompt over the sheet closed it
+        if (early.length || subAgain.length) {
+          const whyEl = m.querySelector("#pu-ctpwhy"),
+            why = String((whyEl && whyEl.value) || "").trim();
+          if (why.length < 8) {
+            whyEl && (whyEl.closest(".pu-ctpwhy").hidden = !1, whyEl.focus(), whyEl.scrollIntoView({ block: "center" }));
+            return toast(early.length ? `Say why ${early[0].number}'s long-lead line is bought before award: the owner reads it before approving` : "Say why a second subcontract order goes on this line: a second sub for the same scope buys it twice unless the scope is split"), !1;
+          }
+          early.length && (earlyWhy = why);
+          subAgain.length && (againWhy = why);
         }
         const byVendor = {},
           srcDocs = new Set();
@@ -51899,6 +51918,10 @@ function ctPOPicker(projectId, preferId, preKey) {
             createdBy: S.project.userName || DB.me || "",
           };
           againWhy && lines.some((pl) => subAgain.some(([k]) => k === pl.line)) && (po.secondOrderWhy = againWhy);
+          if (earlyWhy) {
+            const d0 = early[0];
+            (po.preAward = { estimateId: d0.id, number: d0.number, why: earlyWhy, at: appNowIso(), by: (currentUser() || {}).name || role() }), (po.notes = `Long-Lead, Before Award (${d0.number}). ${po.notes || ""}`.trim());
+          }
           return DB.pos.push(po), po;
         });
         made.forEach((po) => {
@@ -51910,6 +51933,7 @@ function ctPOPicker(projectId, preferId, preKey) {
             });
             (po.lines || []).some((pl) => pl.requestId) && "function" == typeof bbAfterOrder && bbAfterOrder(po, "from the order sheet");
             po.secondOrderWhy && audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+            po.preAward && audit("po", po.id, "long-lead before award", "", po.preAward.number, po.preAward.why);
           } catch (e) {}
         });
         audit(

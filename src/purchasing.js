@@ -124,14 +124,15 @@ function puOnRoute() {
 // adds it, so the bar is always the sum of the picked rows.
 function puNeedValue(r) {
   const amt = r && +r.price > 0 ? r2(+r.price) : 0;
-  return { amt: amt, say: amt ? `${money(amt)}${["line", "sub"].includes(r.kind) ? " left on the line" : ""}` : "" };
+  return { amt: amt, say: amt ? `${money(amt)}${(r.draftPOs || []).length ? " in a draft order" : ["line", "sub"].includes(r.kind) ? " left on the line" : ""}` : "" };
 }
 function puNeed(r) {
   if (!r || r.received || "done" === r.tab) return null;
   const td = today(),
     stock = r.ordered ? [] : puStockFor(r.name),
     val = puNeedValue(r),
-    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: [puLineWord(r), val.say].filter(Boolean).join(" · "), val: val, stock: stock, pick: !r.ordered };
+    drafts = r.draftPOs || [],
+    base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: [puLineWord(r), val.say].filter(Boolean).join(" · "), val: val, stock: stock, pick: !r.ordered && !drafts.length };
   if (r.ordered && r.po) return Object.assign(base, { b: "gone" });
   // due: the board's own sections (bbFinish): late, to acknowledge, or to order within five working days
   const due = r.late || ["ack", "week", "late"].includes(r.section);
@@ -142,6 +143,9 @@ function puNeed(r) {
     const h = "function" == typeof reqAgeH ? Math.round(reqAgeH(r.q)) : 0;
     o = { actor: "coord", why: `Not acknowledged${h ? ` in ${h} hours` : ""}. ${r.askedBy || "The crew"} needs it on site ${r.needBy ? fmt(r.needBy) : "soon"}.`, act: "Acknowledge and Link", k: "ack", tone: "warn" };
   } else if ("request" === r.kind && r.q && puOnRoute().has(r.q.id)) o = { b: "route", actor: "coord", why: "On today's store run.", act: "Open the Route", k: "route" };
+  // covered only by a draft order: nothing is ordered until it is issued, so it stays the coordinator's, with its date
+  else if (drafts.length)
+    o = { b: "draft", actor: "coord", why: `${drafts.map((po) => po.number).join(", ")} drafted for ${money(r.price)}${drafts[0].vendor ? ` with ${drafts[0].vendor}` : ""}, not issued: nothing is ordered yet.`, act: "Issue the Draft", k: "draftpo", tone: r.late ? "bad" : "warn" };
   else if (r.dec) {
     const w = puDecWho(r),
       late = r.dec.due && r.dec.due < td ? `, ${dayDiff(r.dec.due, td)} days late` : "";
@@ -154,7 +158,7 @@ function puNeed(r) {
   else if (!r.price) o = { actor: "coord", why: "No price yet.", act: "Ask for Quotes", k: "quote", tone: r.late ? "bad" : "" };
   else o = { actor: "coord", why: `Order by ${fmt(r.orderBy)}.`, act: "Order", k: "order", tone: r.late ? "bad" : "" };
   const st = puStockSay(stock),
-    b = o.b || (!due ? "later" : o.actor === puMe() ? "mine" : "others");
+    b = "draft" === o.b ? (o.actor === puMe() ? "mine" : "others") : o.b || (!due ? "later" : o.actor === puMe() ? "mine" : "others");
   return Object.assign(base, o, { b: b, why: [o.why, st].filter(Boolean).join(" "), when: r.ordered && r.eta ? `Promised ${fmt(r.eta)}${r.needBy ? `, needed on site ${fmt(r.needBy)}` : ""}` : r.orderBy ? `Order by ${fmt(r.orderBy)}${r.orderBy < td ? ", passed" : ""}` : r.needBy ? `On site ${fmt(r.needBy)}` : "No date yet" });
 }
 function puNeeds(pid) {
@@ -224,6 +228,7 @@ function puOrderRows(pid) {
   const R = [],
     put = (o) => R.push(Object.assign({ actor: "coord", b: "mine" }, o));
   puLineOverRows(pid).forEach(put);
+  puPreAwardRows(pid).forEach(put);
   puOverOrder(pid).forEach((x) =>
     put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
   );
@@ -976,6 +981,7 @@ function puDo(x) {
       return r.lineKey ? render() : bbLinkLine(r);
     }
     if ("find" === x.k) return r.m ? openEditor("mat", r.m.id) : bbDo(r, "open");
+    if ("draftpo" === x.k && (r.draftPOs || [])[0]) return flowGo.po(r.draftPOs[0])();
     if ("route" === x.k) return setView("recv");
     if ("split" === x.k) return puMatSheet(r.lineKey || r.key);
     if ("subm" === x.k) return setCurrent(r.p.id), setView("subm");
@@ -1322,7 +1328,7 @@ function puBookPrice(r) {
       H = itemPriceHistory(part);
     } catch (e) {}
     if (H && H.best && +H.best.price > 0) {
-      out = { label: H.label, unit: H.unit || "", price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "", say: `${money(H.best.price)}/${H.unit || "ea"} at ${H.best.vendor || "a store"}${H.best.date ? `, ${fmt(H.best.date)}` : ""} (${H.label})` };
+      out = { label: H.label, unit: H.unit || "", price: +H.best.price, vendor: H.best.vendor || "", date: H.best.date || "", say: `${unitMoney(H.best.price)}/${H.unit || "ea"} at ${H.best.vendor || "a store"}${H.best.date ? `, ${fmt(H.best.date)}` : ""} (${H.label})` };
       break;
     }
   }
@@ -1474,6 +1480,8 @@ function puCtpDecorate(pid, m) {
       inp && inp.setAttribute("aria-label", `${lab[k]}, ${(l && l.item) || "line"}`);
     });
     cb.setAttribute("aria-label", `Buy ${(l && l.item) || "this line"}`);
+    // before award only the long-lead lines can be ticked; the rest wait for the estimate's approval
+    d && l && "function" == typeof docBuyable && !docBuyable(d) && !puLongLead(l) && ((cb.checked = !1), (cb.disabled = !0), tr.classList.add("pu-ctpwait"), tr.cells[1] && tr.cells[1].insertAdjacentHTML("beforeend", `<div class="pu-ctpn">Waits for ${esc(d.number)} to be approved</div>`));
     const cell = tr.cells[1];
     if (!cell) return;
     tr.classList.contains("ctp-line") && d && cell.insertAdjacentHTML("beforeend", `<div class="pu-ctpdoc small muted" data-nocase>${esc(d.number)}${l.num ? ` line ${l.num}` : ""}</div>`);
@@ -1496,6 +1504,34 @@ function puCtpCheck(m) {
     on = (tr) => !!(tr.querySelector("[data-ctpsel]") || {}).checked,
     adds = {};
   rows.forEach((tr) => on(tr) && tr.dataset.pukey && (adds[tr.dataset.pukey] = (adds[tr.dataset.pukey] || 0) + (+v(tr, "ctpq") || 1) * (+v(tr, "ctpc") || 0)));
+  // one Why in the sheet when a ticked line needs a reason: a second subcontract order on its line, or a long-lead line
+  // bought before its estimate is approved (create reads it; a prompt over the sheet would close the sheet)
+  const keys = Object.keys(adds),
+    refOf = (k) => {
+      try {
+        return findLine(k);
+      } catch (e) {
+        return null;
+      }
+    },
+    second = keys.filter((k) => {
+      const r = refOf(k);
+      return r && "function" == typeof bbSubScope && bbSubScope(r.line) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k));
+    }),
+    early = keys.filter((k) => {
+      const r = refOf(k);
+      return r && "function" == typeof docBuyable && !docBuyable(r.doc);
+    });
+  let box = m.querySelector(".pu-ctpwhy");
+  if (second.length || early.length) {
+    const lab = early.length ? `Why buy before ${refOf(early[0]).doc.number} is approved? The owner reads it before approving.` : `Why a second subcontract order on this line (it has ${(DB.pos || []).filter((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === second[0])).map((po) => po.number).join(", ")})?`;
+    if (!box) {
+      const bd = m.querySelector(".mbm-bd");
+      bd && bd.insertAdjacentHTML("afterbegin", `<div class="f pu-ctpwhy"><label for="pu-ctpwhy"></label><input id="pu-ctpwhy" placeholder="A sentence: e.g. the scope is split, or the lead time is 14 weeks"></div>`);
+      box = m.querySelector(".pu-ctpwhy");
+    }
+    box && ((box.hidden = !1), (box.querySelector("label").textContent = lab));
+  } else box && (box.hidden = !0);
   rows.forEach((tr) => {
     const n = tr.querySelector("[data-puctpn]"),
       key = tr.dataset.pukey;
@@ -1512,7 +1548,7 @@ function puCtpCheck(m) {
         unit = q ? q.unit : v(tr, "ctpu"),
         price = +v(tr, "ctpc") || 0,
         best = price > 0 && name ? puBestFor(name, unit) : null;
-      best && price > best.price * 1.03 + 0.005 && (tone = tone || "warn", say.push(`${money(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${money(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
+      best && price > best.price * 1.03 + 0.005 && (tone = tone || "warn", say.push(`${unitMoney(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${unitMoney(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
     } else {
       const c = lineCommitment(key);
       c && c.budget > 0 && c.left < 1 && ((tone = "warn"), say.push(c.over ? `${money(c.over)} over the line already` : "Nothing left to buy on this line"));
@@ -1525,6 +1561,7 @@ function puCtpCheck(m) {
   const base = ctPOPicker;
   ctPOPicker = function (projectId, preferId, preKey) {
     const r = base.apply(this, arguments);
+    puPreAwardId = "";
     try {
       const m = document.getElementById("mbm");
       if (m && m.querySelector("table.ctp")) {
@@ -1641,6 +1678,188 @@ function puFfeCrumb() {
   const c = document.getElementById("crumbs");
   c && (c.innerHTML = "<b>FF&amp;E Buying Tools</b>");
 }
+
+// ---- a second subcontract on one line: a reason, on every path (the chief of staff, 11-05) -----------------------------
+// The order sheet asks for it at create; an award, a copy or any other path that makes a second subcontract order on the
+// same contract line is held at Issue by the one validator (poValid) until the reason is on the order.
+function puSecondSub(po) {
+  if (!po || "cancelled" === po.status) return [];
+  const out = [],
+    at = (DB.pos || []).indexOf(po);
+  [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))].forEach((k) => {
+    let ref = null;
+    try {
+      ref = findLine(k);
+    } catch (e) {}
+    const l = ref && ref.line;
+    if (!l) return;
+    const sub = "subcontract" === po.type || ("function" == typeof bbSubScope && bbSubScope(l) && !("function" == typeof bbBuysLine && bbBuysLine(l)));
+    if (!sub) return;
+    const others = (DB.pos || []).filter((x, i) => x !== po && i < at && "cancelled" !== x.status && (x.lines || []).some((y) => y.line === k));
+    others.length && out.push({ key: k, name: `${ref.doc.number}${l.num ? ` line ${l.num}` : ""} (${l.item || l.desc || ""})`, others: others.map((x) => x.number) });
+  });
+  return out;
+}
+function puSecondSheet(po) {
+  const S0 = puSecondSub(po);
+  if (!S0.length) return;
+  return mbModal(
+    "A Second Order on This Line",
+    `<p class="small" style="margin:0 0 8px" data-nocase>${S0.map((x) => `${esc(x.name)} already has ${esc(x.others.join(", "))}.`).join(" ")} A second sub for the same scope buys it twice unless the scope is split.</p>${mbF("Why", `<input data-f="why" value="${esc(po.secondOrderWhy || "")}" placeholder="e.g. the scope is split: the garden unit goes to a second sub">`)}`,
+    {
+      submit: "Save the Reason",
+      onSubmit: (f) => {
+        if (!f.why || f.why.trim().length < 8) return toast("A sentence, so the owner and the job cost know why"), !1;
+        po.secondOrderWhy = f.why.trim();
+        try {
+          audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number}: the reason for a second order on the line is saved`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+}
+
+// ---- long-lead lines before award: an owner-approved exception (the chief of staff, 11-05, for Alan's call) ----------
+// The Standard releases long-lead items at design approval. A long-lead line of an estimate not yet approved can be
+// drafted (marked "Long-Lead, Before Award", with the reason); it is issued only once the owner approves it in Approvals
+// (exceptions only); if the estimate is lost the order is held and flagged on Orders to cancel. Every other line waits
+// for approval (docBuyable).
+const PU_LONG_LEAD_WEEKS = 4;
+const puLongLead = (l) => !!l && (!!l.longLead || +l.leadWeeks >= PU_LONG_LEAD_WEEKS || /\blong[- ]lead\b/i.test(`${l.item || ""} ${l.desc || ""}`));
+const puPreAwardDoc = (d) => !!d && "estimate" === d.type && ["draft", "sent"].includes(d.status) && (d.lines || []).some(puLongLead);
+let puPreAwardId = "";
+const puPreAwardOpen = (d) => !!d && d.id === puPreAwardId && puPreAwardDoc(d);
+const puEstOf = (po) => {
+  const a = po && po.preAward;
+  if (!a) return null;
+  for (const c of DB.clients || []) {
+    const d = (c.estimates || []).find((e) => e.id === a.estimateId);
+    if (d) return d;
+  }
+  return null;
+};
+const puPreAwardLost = (po) => {
+  const d = puEstOf(po);
+  return !!d && ["rejected", "expired"].includes(d.status);
+};
+if ("function" == typeof docActions) {
+  const base = docActions;
+  docActions = function (c, d, st) {
+    let h = base.apply(this, arguments);
+    try {
+      d && d.projectId && !docBuyable(d) && puPreAwardDoc(d) && !/data-docact="preaward"/.test(h) && (h += `<button class="btn sm" data-docact="preaward">Long-Lead Lines Before Award</button>`);
+    } catch (e) {}
+    return h;
+  };
+}
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = function (c, d, a) {
+    if ("preaward" === a && d && puPreAwardDoc(d)) {
+      puPreAwardId = d.id;
+      ctPOPicker(d.projectId, d.id, (d.lines || []).filter(puLongLead).map((l) => ctKey(d, l)));
+      return;
+    }
+    return base.apply(this, arguments);
+  };
+}
+function puPreAwardSheet(po) {
+  if (!po || !po.preAward) return;
+  const d = puEstOf(po),
+    owner = "owner" === role(),
+    a = po.preAward;
+  return mbModal(
+    `Long-Lead, Before Award: <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small" style="margin:0 0 8px" data-nocase>${esc(po.vendor || "No vendor")} · ${money(poTotal(po).total)} on ${esc(a.number)}, which is ${esc(d ? d.status : "not found")}. ${esc((po.lines || []).map((l) => l.item).join(", "))}.</p><p class="small" style="margin:0 0 8px" data-nocase><b>Why now:</b> ${esc(a.why || "no reason given")} (${esc(a.by || "")})</p>${a.approved ? `<p class="small muted">Approved by ${esc(a.approved.by)}, ${esc(stampText(a.approved.at))}.</p>` : `<p class="small muted">${owner ? "Approving lets it be issued before the estimate is approved. If the estimate is lost, the order is flagged to cancel." : "The owner approves it in Approvals before it can be issued."}</p>`}`,
+    {
+      submit: owner && !a.approved ? "Approve Before Award" : null,
+      onSubmit: () => {
+        a.approved = { by: ((currentUser() || {}).name) || "Owner", at: appNowIso() };
+        try {
+          audit("po", po.id, "long-lead before award approved", "", po.number, a.why);
+        } catch (e) {}
+        save(), render();
+        toast(`${po.number} approved before award: it can be issued`, { label: "Open", run: () => flowGo.po(po)() });
+      },
+    },
+  );
+}
+// the owner's Approvals (exceptions only): each long-lead order waiting before award
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "owner" === role())) return out;
+      const P = (DB.pos || []).filter((po) => po.preAward && !po.preAward.approved && ["draft", "pending"].includes(po.status) && !puPreAwardLost(po));
+      return out.concat(P.map((po) => ({ kind: "preaward", id: po.id, sev: "warn", n: money(poTotal(po).total), title: `${po.number}: long-lead before award`, detail: `${po.vendor || "No vendor"} · ${po.preAward.number} not approved yet · why: ${po.preAward.why || "no reason given"}`, yes: "Review the Order", who: "owner", due: po.needBy || "", open: { puPreAward: po.id } })));
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.puPreAward) return void puPreAwardSheet((DB.pos || []).find((x) => x.id === go.puPreAward));
+    return base.apply(this, arguments);
+  };
+}
+// Orders: a long-lead order whose estimate was lost is flagged to cancel (it is the coordinator's)
+function puPreAwardRows(pid) {
+  return (DB.pos || [])
+    .filter((po) => po.preAward && !["cancelled", "received"].includes(po.status) && (!pid || po.projectId === pid) && puPreAwardLost(po))
+    .map((po) => ({ id: "preaward:" + po.id, name: `${po.number}: ${po.preAward.number} was lost`, job: puJob((DB.projects || []).find((p) => p.id === po.projectId)), line: `Long-Lead, Before Award · ${po.vendor || "no vendor"} · ${money(poTotal(po).total)}`, why: "The estimate it was bought for is lost. Cancel the order, or ask the vendor what a cancellation costs.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad", actor: "coord" }));
+}
+// the one validator: a second sub with no reason, and a long-lead order before award without the owner, are held at Issue
+if ("function" == typeof poValid) {
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status || "draft")) {
+        const S0 = puSecondSub(po);
+        S0.length && !po.secondOrderWhy && R.push(`a second subcontract order on ${S0.map((x) => `${x.name}, which has ${x.others.join(", ")}`).join("; ")}: say why on the order`);
+        po.preAward && puPreAwardLost(po) && R.push(`${po.preAward.number} was lost: cancel this long-lead order`);
+        po.preAward && !po.preAward.approved && !puPreAwardLost(po) && R.push(`a long-lead order before ${po.preAward.number} is approved: the owner approves it first (Approvals)`);
+      }
+    } catch (e) {
+      console.warn("second sub and pre-award", e);
+    }
+    return R;
+  };
+}
+// the order page says both before anyone presses Issue, each with its one next step
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    let h = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status) && "string" == typeof h) {
+        const S0 = puSecondSub(po),
+          box =
+            (S0.length && !po.secondOrderWhy ? `<div class="qcheck po-second" role="alert"><b>A Second Order on This Line</b><span data-nocase>${esc(S0.map((x) => `${x.name} already has ${x.others.join(", ")}`).join("; "))}.</span><div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pu2nd="${esc(po.id)}">Give the Reason</button></div></div>` : "") +
+            (po.preAward ? `<div class="qcheck po-preaward ${puPreAwardLost(po) ? "" : "warn"}" role="alert"><b>Long-Lead, Before Award</b><span data-nocase>${esc(po.preAward.number)}${puPreAwardLost(po) ? " was lost: cancel this order." : po.preAward.approved ? `: approved by ${esc(po.preAward.approved.by)}.` : " is not approved yet: the owner approves this order before it is issued."}</span><div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pupre="${esc(po.id)}">Open the Approval</button></div></div>` : "");
+        box && (h = box + h);
+      }
+    } catch (e) {
+      console.warn("po second and pre-award", e);
+    }
+    return h;
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest("[data-pu2nd],[data-pupre]");
+    if (!b) return;
+    const po = (DB.pos || []).find((x) => x.id === (b.dataset.pu2nd || b.dataset.pupre));
+    po && (b.dataset.pu2nd ? puSecondSheet(po) : puPreAwardSheet(po));
+  },
+  !0,
+);
 
 // ---- the look ---------------------------------------------------------------------------------------------------------
 (() => {

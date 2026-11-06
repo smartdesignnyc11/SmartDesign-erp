@@ -601,8 +601,16 @@ async def s_polish(p, c):
         await pg.evaluate("() => { setCurrent('p121'); view = 'recv'; render(); }"); await pg.wait_for_timeout(500)
         card = pg.locator('.recv-po').filter(has_text='PO-2026-048').first
         c.ok(await card.count() > 0, 'polish: the Carlos PO is on Deliveries')
+        # (lane P2, 11-05: on integ14 this tap times out (P1's receive sheet, its fix lands first in integration). The failure is
+        # counted here as one check, and the rest of polish runs, so a crash in one step no longer hides the checks after it.)
+        tapped = False
         if await card.count():
-            await card.locator('button').filter(has_text=re.compile(r'^Received$')).first.click(); await pg.wait_for_timeout(900)
+            try:
+                await card.locator('button').filter(has_text=re.compile(r'^Received$')).first.click(timeout=10000); tapped = True
+            except Exception as e:
+                c.ok(False, f'polish: the phone\'s Received on PO-2026-048 can be tapped (P1\'s receive code): {str(e).splitlines()[0]}')
+        if tapped:
+            await pg.wait_for_timeout(900)
             t = await toast(pg)
             c.ok('Bill It' in t.get('links', []), f'polish: the receiving toast offers Bill It ({t})')
             if 'Bill It' in t.get('links', []):
