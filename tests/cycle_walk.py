@@ -1255,7 +1255,11 @@ def issue_and_send(p, number):
 
 def board_for_job(p):
     """the Buy Board for 214 Lincoln: its job filter (the 11-03 Buy Board: Job, beside Vendor and Trade; the older board's
-    Project list sat on the phone behind "Filter by project, vendor or trade")"""
+    Project list sat on the phone behind "Filter by project, vendor or trade"). The desktop opens the Buy Board on its
+    Table (CoS 11-06); she works her queue on Needs, so she switches to it when the Table is showing."""
+    if 'Purchased Price' in p.look().text and p.scr.find('Table', exact=True):
+        nd = p.scr.find('Needs', exact=True)
+        if nd is not None: p.tap_ctl(nd)
     lab = 'Job' if p.look().find('Job', field=True) else 'Project'
     if lab == 'Project' and not p.scr.find('Project', field=True):
         f = p.scr.find('Filter by project')
@@ -1345,6 +1349,25 @@ def j6_buy_it(p):
     p.expect(i >= 0 and bool(re.search(r'(in stock|on hand|at the shop|in the shop|warehouse|from stock)', near, re.I)),
              'the Buy Board shows the firm\'s own stock against the electrical rough-in line before anything is ordered (12/2 NM-B, 1-gang boxes, 5/8 Type X are on the shelf)',
              near[:300] or 'no electrical line on the Buy Board')
+    # the item table (Alan, 11-06: "the purchasing modules should have columns: Invoice / Lead Time / Item # / Description /
+    # Qnty / Room / Budget Price / Purchased Price / Vendor / Status / Delivery Date"): what was just bought is on it, as
+    # purchased, at the order's price, with its vendor, found from the Buy Board in one tap
+    t = p.look().find('Table', exact=True)
+    p.expect(t is not None, 'the Buy Board has a Table view: every item the job buys, one row each, in Alan\'s columns', 'no Table on the Buy Board')
+    if t is not None:
+        p.tap_ctl(t)
+        tx = p.look().text
+        # the desktop's column heads; on the phone a card names a field only beside a value (CoS 11-06), so the labels
+        # every bought item's card carries: its invoice, budget, purchased price and vendor
+        H = ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery') if p.device != 'phone' else \
+            ('Invoice', 'Budget', 'Purchased', 'Vendor')
+        p.expect(all(re.search(h, tx, re.I) for h in H), 'the Table carries Alan\'s columns', tx[:300])
+        j = tx.find(PLUMB_BUYS[0][0][:20])
+        near = tx[max(0, j - 200): j + 400] if j >= 0 else ''
+        p.expect(j >= 0 and 'ferguson' in norm(near) and re.search(r'purchased', near, re.I) and '1,800' in near,
+                 'the plumbing buy just issued is on the Table: purchased from Ferguson at $1,800', near[:300] or 'not on the Table')
+        nd = p.look().find('Needs', exact=True)   # back to the board's queue, as she leaves it
+        if nd is not None: p.tap_ctl(nd)
 
 
 # ---------------------------------------------------------------------------------------------------- J4 review the job (Friday)
