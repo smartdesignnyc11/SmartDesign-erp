@@ -53,26 +53,34 @@ function puStockFor(name) {
   });
   return puStockMemo.m.set(name, out), out;
 }
-// A need's stock: what its own words name (puStockFor), and for a contract line whose name names no stocked item
-// ("Electrical rough-in & devices"), the stock filed under the line's cost code: the 12/2 and the boxes on the shelf are
-// the electrical line's (11-06, J6: the Buy Board never said the shop had them). A code match is "may be it", never sure.
+// A need's stock, in two kinds (CoS 11-06: the rule was "rough-in" in the line's name, an instance fix that missed
+// "Electrical wiring" and "Plumbing supply and waste"):
+//   sure  what the need's own words name, or the items under its line (puStockFor on each): the stock gate asks about
+//         these before money is committed
+//   hint  for a contract line that buys material and names no stocked item, the stock filed under the line's cost code
+//         ("may be it"): said on the row and in the panel, never a gate, so an allowance on the same code (fixtures
+//         beside the PEX) is not held behind a stock check that is not about it
+// Each entry carries how: "name", "items" or "code".
 function puStockForNeed(r) {
   if (!r || r.ordered) return [];
-  const S0 = puStockFor(r.name);
-  // only a rough-in line (the trade's labour with its wire, boxes or pipe): an allowance or a finish line on the same code
-  // (fixtures beside PEX) is not the stock's, and would hold its order behind a stock check that is not about it
-  if (S0.length || !["line", "sub"].includes(r.kind) || !r.code || "99" === r.code || !/rough[- ]?in\b/i.test(r.name || "")) return S0;
+  const S0 = puStockFor(r.name).map((s) => Object.assign({ how: "name" }, s)),
+    L = r.l || (r.lineKey && "function" == typeof findLine ? (findLine(r.lineKey) || {}).line : null),
+    seen = new Set(S0.map((s) => s.id));
+  ((L && L.items) || []).forEach((it) => puStockFor(it.name || it.item || "").forEach((s) => seen.has(s.id) || (seen.add(s.id), S0.push(Object.assign({ how: "items" }, s)))));
+  if (S0.length || !["line", "sub"].includes(r.kind) || !r.code || "99" === r.code || !(L ? "function" != typeof bbBuysLine || bbBuysLine(L) : !0)) return S0;
   return (DB.inventory || [])
     .filter((i) => "tool" !== i.type && String(i.code || "") === String(r.code) && ("function" == typeof invAvailable ? invAvailable(i) : +i.qty) > 0)
     .slice(0, 4)
-    .map((i) => ({ id: i.id, part: r.name, name: i.name, qty: "function" == typeof invAvailable ? invAvailable(i) : +i.qty, unit: i.unit || "", where: "function" == typeof locName ? locName(i.loc) : i.loc || "the shop", sure: !1 }));
+    .map((i) => ({ id: i.id, part: r.name, name: i.name, qty: "function" == typeof invAvailable ? invAvailable(i) : +i.qty, unit: i.unit || "", where: "function" == typeof locName ? locName(i.loc) : i.loc || "the shop", sure: !1, how: "code" }));
 }
+// the stock the gate asks about: sure matches only (the need's words or its line's items), never a cost-code hint
+const puStockSure = (r) => puStockForNeed(r).filter((s) => "code" !== s.how);
 const puUnits = (n, u) => `${n} ${u || ""}${1 === +n || /s$|^ea$|^ls$|^sf$|^lf$/.test(u || "") || !u ? "" : /(x|ch|sh)$/.test(u) ? "es" : "s"}`.trim(),
   puReorder = (i) => +(i.reorderAt != null ? i.reorderAt : i.reorder) || 0;
 function puStockSay(S0) {
   if (!S0 || !S0.length) return "";
   const where = [...new Set(S0.map((s) => s.where))].join(" and ");
-  return `At the ${where.toLowerCase() === "truck" ? "truck" : where.toLowerCase()}: ${S0.map((s) => `${puUnits(s.qty, s.unit)} of ${s.name}`).join(", ")}. Count before you buy.`;
+  return `At the ${where.toLowerCase() === "truck" ? "truck" : where.toLowerCase()}: ${S0.map((s) => `${puUnits(s.qty, s.unit)} of ${s.name}${"code" === s.how ? " (may be it)" : ""}`).join(", ")}. Count before you buy.`;
 }
 
 // ---- who acts on a row ----------------------------------------------------------------------------------------------
@@ -325,9 +333,12 @@ function puDelivRows(pid) {
 function puNoW9Paid() {
   return (DB.vendors || []).filter((v) => !v.w9).map((v) => ({ v: v, paid: r2(vendorSpend(v)) })).filter((x) => x.paid > 0.5);
 }
+// who comes on site needs a certificate (Alan, 10-25): a subcontract, a service or a delivery carried inside, never a
+// curb drop or a shipment (poOnSite, the one rule the order's papers read)
 function puVendorOnSite(v) {
-  const n = v.name;
-  if ((DB.pos || []).some((po) => po.vendor === n && puLive(po))) return "an order open with them, delivered to the site";
+  const n = v.name,
+    po = (DB.pos || []).find((x) => x.vendor === n && puLive(x) && ("function" != typeof poOnSite || poOnSite(x)));
+  if (po) return ["subcontract", "service"].includes(po.type) ? `${po.number} puts them on site` : `${po.number} is carried inside`;
   if (((DB.sel || {}).items || []).some((it) => it.vendor === n && /appliance/i.test(it.category || "") && !["inst", "installed", "done"].includes(it.stage))) return "they deliver and set inside the house";
   return "";
 }
@@ -338,7 +349,7 @@ function puVendorRows() {
   (DB.vendors || []).forEach((v) => {
     const st = vendorState(v),
       lapsed = v.insuranceExp && v.insuranceExp < td,
-      open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po));
+      open = (DB.pos || []).filter((po) => po.vendor === v.name && puLive(po) && ("function" != typeof poOnSite || poOnSite(po)));
     if (lapsed && (open.length || (DB.bills || []).some((b) => b.vendor === v.name && !["paid", "void"].includes(b.status)) || /window|plumb|electr|tile|mill/i.test(v.trade || "")))
       return R.push({ b: "mine", actor: "coord", id: "v:coi:" + v.id, name: `${v.name}: blocked`, job: v.trade || "", line: `Insurance lapsed ${fmt(v.insuranceExp)}`, why: "No new order and no one on site until the certificate lands.", act: "Chase the Certificate", run: () => puChasePaper(v, "coi"), tone: "bad" });
     const unpaid = (DB.bills || []).filter((b) => b.vendor === v.name && !["paid", "verified", "void", "rejected"].includes(b.status) && !b.paidAt);
@@ -767,7 +778,7 @@ function puStock() {
     I = (DB.inventory || []).filter((i) => ("tool" === f ? "tool" === i.type : "mat" === f ? "tool" !== i.type : "job" === f ? /^p/.test(String(i.loc || "")) || !/^(wh|truck|shop)$/i.test(String(i.loc || "")) : !0)),
     // what today's needs could use from the shelf: shown here with no count (the pick is decided on the need's row)
     want = [];
-  puNeeds("").filter((x) => !x.r.ordered && "gone" !== x.b && (x.stock || []).length).forEach((x) => x.stock.forEach((s) => want.push({ id: `want:${x.id}:${s.id}`, name: `${puUnits(s.qty, s.unit)} of ${s.name}`, job: x.job, line: `at the ${String(s.where).toLowerCase()}`, why: `Wanted by ${x.name}`, run: () => ((bbSel = x.id), setView("proc")) })));
+  puNeeds("").filter((x) => !x.r.ordered && "gone" !== x.b && (x.stock || []).length).forEach((x) => x.stock.forEach((s) => want.push({ id: `want:${x.id}:${s.id}`, name: `${puUnits(s.qty, s.unit)} of ${s.name}${"code" === s.how ? " (may be it)" : ""}`, job: x.job, line: `at the ${String(s.where).toLowerCase()}`, why: `Wanted by ${x.name}`, run: () => ((bbSel = x.id), setView("proc")) })));
   const chips = [["all", "All"], ["mat", "Materials"], ["tool", "Tools"], ["job", "At a Job"]],
     filters = `<div class="pu-filters"><span class="pu-fl">Show:</span>${chips.map(([k, l]) => `<button type="button" class="pu-chip ${f === k ? "on" : ""}" data-puinvf="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div>`,
     wantOf = (i) => want.filter((w) => w.id.endsWith(":" + i.id)),
@@ -1227,7 +1238,7 @@ function puDo(x) {
 // person says from the shelf (a pick for the driver, on the need's job) and buys the rest; a need the shelf covers in
 // full is not bought at all. Buy It Anyway stays, second.
 function puStockGate(R, go) {
-  const S0 = R.flatMap((r) => puStockForNeed(r).map((s) => Object.assign({ need: r }, s)));
+  const S0 = R.flatMap((r) => puStockSure(r).map((s) => Object.assign({ need: r }, s)));
   if (!S0.length) return go();
   const want = (s) => {
     const q = "function" == typeof bbNum ? bbNum(s.need.qty) : { n: 0, unit: "" },
