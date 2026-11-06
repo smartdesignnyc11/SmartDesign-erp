@@ -104522,6 +104522,9 @@ if ("function" == typeof fRenderToday) {
         html =
           `<div class="card f-card f-mine"><div class="hd"><h3>Put on You</h3><span class="small muted">${late ? `${late} past due` : `${mine.length} open`}</span></div>` +
           mine
+            .slice()
+            // late and today first: what is due now is on the first screen
+            .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")))
             .slice(0, 8)
             .map(
               (x) =>
