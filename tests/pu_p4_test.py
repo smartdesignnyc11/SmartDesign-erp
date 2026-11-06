@@ -300,6 +300,57 @@ async def s_award3(p, c):
     finally:
         await b.close()
 
+async def s_jobtax(p, c):
+    """The job's Tax Status (Alan, DECISIONS 11-06): Capital Improvement or Repair. Default jobs are unchanged; on a Repair
+    job a sub's labour is taxed on its order, in leveling and on award, by the one purchase-tax rule; the change is
+    audited with who, when and why; the field carries the accountant note."""
+    b, pg, errs = await open_app(p)
+    try:
+        await sign_in(pg, 'u_owner')
+        SNAP = "() => Object.fromEntries(DB.pos.map(po => [po.id, [po.projectId, po.type, po.status, po.taxStatus || '', +po.tax || 0, r2(poTotal(po).total)]]))"
+        s0 = await pg.evaluate(SNAP)
+        d = await pg.evaluate("() => ({ p121: jobTaxStatus('p121'), rule: p0PurchaseTax({ type: 'subcontract', vendor: 'Five Boro Wrecking', projectId: 'p121', lines: [] }).status })")
+        c.ok(d['p121'] in ('', 'ci') and d['rule'] == 'none', f'jobtax: a job never set keeps today\'s rule: no tax on sub labour ({d})')
+        await pg.evaluate("() => { save(); }"); s1 = await pg.evaluate(SNAP)
+        c.ok(s0 == s1, 'jobtax: with no job set to Repair, no order\'s tax or total moves')
+        # a draft subcontract on the job before the change: it follows the job once set
+        dr = await pg.evaluate("""() => { const po = { id: 'po_jt', number: 'PO-JT-1', projectId: 'p121', vendor: 'Five Boro Wrecking', type: 'subcontract', status: 'draft', date: today(), lines: [{ id: 'jt1', item: 'Demolition labour', qty: 1, unit: 'ls', price: 10000, line: 'estimate:es1:l1', received: 0 }], receipts: [], tax: 0, shipping: 0 };
+          DB.pos.push(po); p0TaxDecide(po, 'rule'); save(); return { st: po.taxStatus, tot: poTotal(po).total }; }""")
+        c.ok(dr['st'] == 'none' and dr['tot'] == 10000, f'jobtax: a draft sub order on a job not set carries no tax ({dr})')
+        # the field on Job Settings: a change asks why, writes the audit row
+        await pg.evaluate("() => { setCurrent('p121'); view = 'proj'; render(); }"); await pg.wait_for_timeout(400)
+        f = await pg.evaluate("() => { const s = document.getElementById('p-taxstatus'), n = document.getElementById('p-taxstatus-note'); return s && { opts: [...s.options].map(o => o.text), val: s.value, note: n ? n.innerText : '' }; }")
+        c.ok(f and 'Repair' in f['opts'] and 'Capital Improvement' in f['opts'] and 'Confirm with your accountant: repair work taxes the sub' in f['note'], f'jobtax: Job Settings shows Tax Status with the accountant note ({f})')
+        await pg.select_option('#p-taxstatus', 'repair'); await pg.wait_for_timeout(400)
+        m = await modal(pg)
+        c.ok(m and 'Repair' in m['title'] and 'Confirm with your accountant' in m['text'], f'jobtax: the change asks why, with the accountant note ({m and m["title"]})')
+        await pg.locator('#mbm [data-f="why"]').fill('The client confirmed this is repair work, not a capital improvement')
+        await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(600)
+        a = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'), au = DB.audit.filter(x => x.kind === 'project' && x.refId === 'p121' && x.action === 'tax-status').pop();
+          return { st: p.taxStatus, set: p.taxStatusSet, au: au && { by: au.by, ts: au.ts, after: au.after, note: au.note } }; }""")
+        c.ok(a['st'] == 'repair' and a['au'] and a['au']['after'] == 'repair' and a['au']['ts'] and 'client confirmed' in a['au']['note'] and a['au']['by'], f'jobtax: the audit row has who, when and why ({a["au"]})')
+        dr2 = await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_jt'); return { st: po.taxStatus, tax: +po.tax || 0, use: po.useTax && po.useTax.amount, tot: poTotal(po).total, words: p0TaxWords(po) }; }")
+        c.ok(dr2['st'] in ('taxable', 'use-tax') and (dr2['tax'] > 0 or (dr2['use'] or 0) > 0), f'jobtax: the unsent sub order on the Repair job now carries tax by the one rule ({dr2})')
+        c.ok('job tax status: Repair' in dr2['words'], f'jobtax: the order\'s tax words name the job\'s status ({dr2["words"]})')
+        s2 = await pg.evaluate(SNAP)
+        moved = [k for k in s1 if k != 'po_jt' and s1[k] != s2.get(k)]
+        c.ok(not moved, f'jobtax: no other order moved: other jobs, materials and sent orders keep their tax ({moved[:4]})')
+        # leveling and award on the Repair job tax the sub's labour
+        await sign_in(pg, 'u_chen')
+        r = await pg.evaluate(SUBS_JS)
+        await pg.evaluate(replies_js(PROSE), [r['id'], PROSE])
+        L = await pg.evaluate("id => { const L = rfqLevel(rfqById(id)); return { tax: L.baskets.map(b => b.tax), landed: L.baskets.map(b => b.landed), pre: L.baskets.map(b => b.pre) }; }", r['id'])
+        c.ok(L['tax'] and all(t > 0 for t in L['tax']) and all(l > p_ for l, p_ in zip(L['landed'], L['pre'])), f'jobtax: leveling compares the subs with tax on a Repair job ({L})')
+        await pg.evaluate("id => rfqOpenFor(id)", r['id']); await pg.wait_for_timeout(300)
+        c.ok(await pg.evaluate("() => !!document.querySelector('#v-rfq [data-rfqjobtax=\"repair\"]')"), 'jobtax: the leveling names the job\'s tax status')
+        aw = await pg.evaluate("""id => { const r = rfqById(id); (r.quotes || []).forEach(q => q.confirmed || rfqConfirmQuote(r, q)); r.status = 'negotiating'; r.round2In = today();
+          const po = (rfqAward(r, { L1: 'vsub_jsy' }) || [])[0]; save(); return po && { type: po.type, st: po.taxStatus, tax: +po.tax || 0, use: po.useTax && po.useTax.amount, tot: poTotal(po).total, landed: po.landed, saved: r.award.savingsVsFirst }; }""", r['id'])
+        c.ok(aw and aw['type'] == 'subcontract' and aw['st'] in ('taxable', 'use-tax') and aw['tot'] > 15550, f'jobtax: the award\'s subcontract carries the tax, and its total with it ({aw})')
+        c.ok(aw and aw['saved'] == 3850, f'jobtax: the saving still compares pre-tax totals ({aw and aw["saved"]})')
+        c.ok(not errs, f'jobtax: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
 async def s_status(p, c):
     b, pg, errs = await open_app(p)
     try:
@@ -386,7 +437,7 @@ async def s_phone(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('sheet', s_sheet), ('new', s_new), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('award3', s_award3), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
+SECTIONS = [('sheet', s_sheet), ('new', s_new), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('award3', s_award3), ('jobtax', s_jobtax), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

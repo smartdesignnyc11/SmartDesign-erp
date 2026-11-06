@@ -77,7 +77,15 @@ function p0PurchaseTax(po) {
     rate = p0Rate(),
     v = p0Vend(po && po.vendor),
     vn = (v && v.name) || (po && po.vendor) || "the vendor";
-  if (P0_TAX_LABOUR.includes(type)) return { status: "none", rate: 0, why: "labour and subcontract work carry no purchase tax" };
+  // labour and subcontract work: no purchase tax, except on a job whose tax status is Repair (the job's field, read by
+  // jobTaxStatus in src/app.js: Alan, DECISIONS 11-06), where the sub's labour is a taxable service. To be confirmed
+  // with the accountant.
+  if (P0_TAX_LABOUR.includes(type)) {
+    if (!("function" == typeof jobTaxRepair && jobTaxRepair(po && po.projectId))) return { status: "none", rate: 0, why: "labour and subcontract work carry no purchase tax" };
+    return p0VendorCharges(v)
+      ? { status: "taxable", rate: rate, why: `a repair job: ${vn}'s labour is a taxable service, NY sales tax at ${rate}% (confirm with your accountant)` }
+      : { status: "use-tax", rate: rate, why: `a repair job: ${vn}'s labour is a taxable service and they charge no NY sales tax, so the firm accrues use tax at ${rate}% (confirm with your accountant)` };
+  }
   return p0VendorCharges(v)
     ? { status: "taxable", rate: rate, why: `${vn} charges NY sales tax at ${rate}%, which the firm pays: a capital improvement exempts the client's invoice, never our purchases` }
     : { status: "use-tax", rate: rate, why: `${vn} charges no NY sales tax, so the firm accrues use tax at ${rate}%` };
@@ -86,7 +94,9 @@ function p0PurchaseTax(po) {
 function p0TaxStatusFor(po) {
   return p0PurchaseTax(po).status;
 }
-const p0TaxSig = (po) => [po.type || "materials", String(po.vendor || "").trim().toLowerCase()].join("|");
+// the job's Repair status joins the signature of a labour order only, so setting a job to Repair re-decides its unsent
+// sub orders and nothing else moves (a job never set keeps every signature as it was)
+const p0TaxSig = (po) => [po.type || "materials", String(po.vendor || "").trim().toLowerCase()].concat(P0_TAX_LABOUR.includes(po.type || "") && "function" == typeof jobTaxRepair && jobTaxRepair(po.projectId) ? ["repair"] : []).join("|");
 const p0Goods = (po) => r2((po.lines || []).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0));
 function p0UseTaxOf(po) {
   const rate = p0Rate();
@@ -117,7 +127,12 @@ function p0TaxDecide(po, by) {
 function p0TaxWords(po) {
   const s = po.taxStatus || p0PurchaseTax(po).status,
     g = p0Goods(po),
-    rate = p0Rate();
+    rate = p0Rate(),
+    // a labour order names the job's tax status it follows (Repair taxes the sub's labour)
+    job = P0_TAX_LABOUR.includes(po.type || "") && "function" == typeof jobTaxWords ? ` · job tax status: ${jobTaxWords(po.projectId)}` : "";
+  return p0TaxWordsOf(s, g, rate) + job;
+}
+function p0TaxWordsOf(s, g, rate) {
   return "taxable" === s
     ? `NY sales tax ${rate}%, ${p0M(r2((g * rate) / 100))}, charged by the vendor and paid by us`
     : "use-tax" === s
