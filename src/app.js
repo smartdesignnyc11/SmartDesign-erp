@@ -15227,7 +15227,7 @@ function renderDaySheet(emp) {
           })()}</select><input type="number" step="0.25" min="0" data-wh="${i}" value="${w.hours || ""}" placeholder="hrs" ${locked ? "readonly" : ""}><input class="wnote" data-wn="${i}" value="${esc(w.note || "")}" placeholder="e.g. rough plumbing garden bath" ${locked ? "readonly" : ""}>${locked ? "<span></span>" : `<span class="rm" data-wx="${i}"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>`}</div>`,
       )
       .join("");
-  card.innerHTML = `<div class="hd"><h3>What did you work on ${e.date === td ? "today" : fmt(e.date)}?</h3><span class="grow"></span><span class="small muted">${clocked.toFixed(2)} h clocked · ${logged.toFixed(2)} h logged${Math.abs(diff) > 0.26 ? ` · <b style="color:var(--bad)">${diff > 0 ? diff.toFixed(2) + " h not accounted for" : Math.abs(diff).toFixed(2) + " h over"}</b>` : " · " + ICON_CHECK + " balanced"}</span></div>\n    <div class="daybar ${logged > clocked + 0.26 ? "over" : Math.abs(diff) <= 0.26 && logged ? "done" : ""}"><i style="width:${Math.min(100, clocked ? (logged / clocked) * 100 : 0)}%"></i></div>\n    <p class="small muted" style="margin:0 0 8px">One line per job and task. Two jobs in one day? Two lines. Hours must add up to the clocked time before the day goes to your supervisor.</p>\n    ${rows || '<div class="muted small" style="margin-bottom:6px">No work logged yet.</div>'}\n    ${locked ? "" : renderMaterialAsk(e, emp)}\n    ${locked ? "" : `<div class="row"><button class="btn sm" id="work-add">+ Add a line</button>${diff > 0.26 && e.work.length ? `<button class="btn sm" id="work-fill">Put the remaining ${diff.toFixed(2)} h on the last line</button>` : ""}<span class="grow"></span>${e.out && Math.abs(diff) <= 0.26 && logged ? ("open" === e.status ? (e.materialsAsked ? '<button class="btn sm primary" id="work-submit">Send day for approval</button>' : '<span class="small muted">Answer the material question above to send the day.</span>') : `<span class="pill ${"submitted" === e.status ? "info" : "ok"}">${"submitted" === e.status ? "sent for approval" : e.status}</span>`) : ""}</div>`}`;
+  card.innerHTML = `<div class="hd"><h3>What did you work on ${e.date === td ? "today" : fmt(e.date)}?</h3><span class="grow"></span><span class="small muted">${clocked.toFixed(2)} h clocked · ${logged.toFixed(2)} h logged${Math.abs(diff) > 0.26 ? ` · <b style="color:var(--bad)">${diff > 0 ? diff.toFixed(2) + " h not accounted for" : Math.abs(diff).toFixed(2) + " h over"}</b>` : !logged && clocked > 0 ? ` · <b style="color:var(--bad)">nothing logged yet</b>` : " · " + ICON_CHECK + " balanced"}</span></div>\n    <div class="daybar ${logged > clocked + 0.26 ? "over" : Math.abs(diff) <= 0.26 && logged ? "done" : ""}"><i style="width:${Math.min(100, clocked ? (logged / clocked) * 100 : 0)}%"></i></div>\n    <p class="small muted" style="margin:0 0 8px">One line per job and task. Two jobs in one day? Two lines. Hours must add up to the clocked time before the day goes to your supervisor.</p>\n    ${rows || '<div class="muted small" style="margin-bottom:6px">No work logged yet.</div>'}\n    ${locked ? "" : renderMaterialAsk(e, emp)}\n    ${locked ? "" : `<div class="row"><button class="btn sm" id="work-add">+ Add a line</button>${diff > 0.26 && e.work.length ? `<button class="btn sm" id="work-fill">Put the remaining ${diff.toFixed(2)} h on the last line</button>` : ""}<span class="grow"></span>${e.out && Math.abs(diff) <= 0.26 && logged ? ("open" === e.status ? (e.materialsAsked ? '<button class="btn sm primary" id="work-submit">Send day for approval</button>' : '<span class="small muted">Answer the material question above to send the day.</span>') : `<span class="pill ${"submitted" === e.status ? "info" : "ok"}">${"submitted" === e.status ? "sent for approval" : e.status}</span>`) : ""}</div>`}`;
   const upd = (i, k, v) => {
     (e.work[i][k] = "hours" === k ? +v || 0 : v),
       "submitted" === e.status && (e.status = "open"),
@@ -44080,11 +44080,11 @@ function renderSDay() {
       .map((p) => ({ p: p, n: roomsOf(p.id).filter((r) => 0 === roomProv(r)).length }))
       .filter((x) => x.n);
   root.innerHTML = `<div class="ph"><div><h2>${u ? `${esc(u.name.split(" ")[0])}, ` : ""}${fmtL(td)}</h2><div class="small muted">${projs.length} project${1 === projs.length ? "" : "s"} · ${logged} hrs logged today${yLogged ? "" : ' · <b class="bad">nothing logged yesterday</b>'}</div></div><div class="acts">${tm ? `<button class="btn sm" data-stoptimer>Stop timer · ${esc(tm.label)}</button>` : ""}</div></div>\n    <div class="grid2">\n      <div>\n        <div class="card"><h3>Today</h3>${due.map(({ p: p, t: t }) => `<div class="st-item"><span class="k">${dayDiff(td, t.end) < 0 ? "Late" : 0 === dayDiff(td, t.end) ? "Due today" : `Due ${fmt(t.end)}`}</span><b>${esc(t.name)}</b><span class="small muted">${esc(p.project.name)}${t.hours ? ` · est. ${t.hours} hrs` : ""}</span></div>`).join("") || '<div class="muted small">Nothing due this week.</div>'}</div>\n        <div class="card" style="margin-top:10px"><h3>Waiting on a decision</h3>${
+    // every open decision, the same set the Waiting on Decisions tile counts (it showed 6 of 11), and each one opens
     dec
-      .slice(0, 6)
       .map(
         ({ p: p, d: d }) =>
-          `<div class="st-item ${d.due && d.due < td ? "late" : ""}"><span class="k">${d.gate ? `Gate · ${esc(d.gate)}` : "Decision"} · ${fmt(d.due)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · ${esc(p.project.name)}</span></div>`,
+          `<div class="st-item ${d.due && d.due < td ? "late" : ""}" data-stdec="${esc(p.id)}|${esc(d.id)}" role="button" tabindex="0" style="cursor:pointer"><span class="k">${d.gate ? `Gate · ${esc(d.gate)}` : "Decision"} · ${fmt(d.due)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · ${esc(p.project.name)}</span></div>`,
       )
       .join("") || '<div class="muted small">Nothing open.</div>'
   }</div>\n        ${stale.length || unv.length ? `<div class="card" style="margin-top:10px"><h3>Drawings</h3>${stale.map(({ p: p, s: s }) => `<div class="st-item late"><span class="k">Re-issue · ${esc(p.project.name)}</span><b>${esc(s.number)} ${esc(s.title)}</b><span class="small muted">${esc(s.staleWhy || "")}</span></div>`).join("")}${unv.map(({ p: p, n: n }) => `<div class="st-item"><span class="k">Survey · ${esc(p.project.name)}</span><b>${n} room${1 === n ? "" : "s"} still on listing dimensions</b><span class="small muted">DD, set issue and fabrication orders wait for it</span></div>`).join("")}</div>` : ""}\n      </div>\n      <div>\n        <div class="card st-day"><h3>Day sheet <span class="small muted">— what you touched; tap to make it hours</span></h3>\n          ${mtgs.map((m) => `<button class="st-chip" data-mtg="${m.id}"><span class="k">Meeting · ${m.date === td ? "today" : "yesterday"} · ${Math.round((m.minutes / 60) * 4) / 4} hrs</span><b>${esc(m.title)}</b><span class="small muted">${esc(DB.projects.find((p) => p.id === m.projectId)?.project.name || "")}</span></button>`).join("")}\n          ${T.slice()
@@ -49027,11 +49027,11 @@ function fRenderToday() {
       ? act
           .map((t) => {
             const need = fTaskNeeds(t).filter((n) => "pred" !== n.k);
-            return `<div class="f-row ${need.length ? "warn" : ""}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ends ${fmt(t.end)}${need.length ? ` · <span class="bad-t">${need.length} thing${need.length > 1 ? "s" : ""} missing</span>` : ""}</span></div><div class="row" style="gap:4px">${"in-progress" !== t.status ? `<button class="btn sm" data-fstart="${t.id}">Started</button>` : ""}<button class="btn sm" data-fdone="${t.id}">Done</button></div></div>`;
+            return `<div class="f-row ${need.length ? "warn" : ""}" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ends ${fmt(t.end)}${need.length ? ` · <span class="bad-t">${need.length} thing${need.length > 1 ? "s" : ""} missing</span>` : ""}</span></div><div class="row" style="gap:4px">${"in-progress" !== t.status ? `<button class="btn sm" data-fstart="${t.id}">Started</button>` : ""}<button class="btn sm" data-fdone="${t.id}">Done</button></div></div>`;
           })
           .join("")
       : '<div class="small muted">Nothing scheduled for today on the build track.</div>'
-  }\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fraise="blocker" data-ph="e.g. Pull Alex onto taping tomorrow, framing is done" data-title="Plan change: ">Change the plan → PM</button>${fCall(people.pm)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Who's here</h3><span class="small muted">${(() => {
+  }\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fraise="blocker" data-to="pm" data-ph="e.g. Pull Alex onto taping tomorrow, framing is done" data-title="Plan change: ">Change the plan → PM</button>${fCall(people.pm)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Who's here</h3><span class="small muted">${(() => {
     const onNow = crew.filter((e) => inToday(e).some((x) => !x.out)).length,
       came = crew.filter((e) => inToday(e).length).length,
       sb = subs.filter((s) => "onsite" === s.status).length;
@@ -49383,7 +49383,7 @@ function fRenderSite() {
         (c.onchange = () => {
           const [id, k] = c.dataset.fprep.split(":"),
             i = S.inspections.find((x) => x.id === id);
-          (i.prep = i.prep || {}), (i.prep[k] = c.checked), save(), fRenderSite();
+          (i.prep = i.prep || {}), (i.prep[k] = c.checked), save(), render();
         }),
     ),
     root.querySelectorAll("[data-fready]").forEach(
@@ -49438,12 +49438,16 @@ function fRenderSite() {
       (b) =>
         (b.onclick = () => {
           const [id, st] = b.dataset.fpunch.split(":"),
-            x = DB.field.punch.find((y) => y.id === id);
-          (x.status = st),
-            (x[st + "At"] = fNow()),
-            save(),
-            fRenderSite(),
-            toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
+            x = DB.field.punch.find((y) => y.id === id),
+            set = () => {
+              (x.status = st),
+                (x[st + "At"] = fNow()),
+                save(),
+                render(),
+                toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
+            };
+          // done means done: a punch item closes with a photo of the finished work (src/taskfield.js)
+          "done" === st && "function" == typeof tkPunchProof ? tkPunchProof(x, set) : set();
         }),
     ),
     ($("#fsub-add").onclick = () => {
@@ -89402,7 +89406,7 @@ function fmClockHome() {
     reqs = (S.requests || []).filter(
       (r) => r.by === fmMe() && !["delivered", "closed", "declined"].includes(r.status),
     );
-  card.innerHTML = `<div class="hd"><h3>Today</h3><span class="small muted">${esc(S.project.name)} · ${sh.start}–${sh.end}</span></div>\n    ${mine.length ? mine.map((t) => `<div class="fm-row"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${t.owner && "Crew" !== t.owner ? esc(t.owner) + " · " : ""}ends ${fmt(t.end)}${"in-progress" === t.status ? " · under way" : ""}</span></div><div class="fm-acts">${"in-progress" !== t.status ? `<button class="btn sm" data-fm-start="${t.id}">Started</button>` : ""}<button class="btn sm" data-fm-done="${t.id}">Done</button><button class="btn sm" data-fm-need="${t.id}">Need Something</button></div></div>`).join("") : `<div class="small muted">Nothing on the schedule with your name today — ask in Chat or check with ${esc(("function" == typeof fPeople && fPeople().pm?.name) || "the PM")}.</div>`}\n    ${reqs.length ? `<div class="fm-sub">Your requests</div>${reqs.map((r) => `<div class="fm-row" data-fm-req><div class="grow"><b>${esc("function" == typeof reqLabel ? reqLabel(r) : r.what || "")}</b><span class="small muted">${"new" === r.status ? "sent — not acknowledged yet" : void 0 !== REQ_STATUS && REQ_STATUS[r.status] ? REQ_STATUS[r.status][1] : r.status}${r.neededBy ? " · needed " + fmt(r.neededBy) : ""}</span></div></div>`).join("")}` : ""}`;
+  card.innerHTML = `<div class="hd"><h3>Today</h3><span class="small muted">${esc(S.project.name)} · ${sh.start}–${sh.end}</span></div>\n    ${mine.length ? mine.map((t) => `<div class="fm-row" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${t.owner && "Crew" !== t.owner ? esc(t.owner) + " · " : ""}ends ${fmt(t.end)}${"in-progress" === t.status ? " · under way" : ""}</span></div><div class="fm-acts">${"in-progress" !== t.status ? `<button class="btn sm" data-fm-start="${t.id}">Started</button>` : ""}<button class="btn sm" data-fm-done="${t.id}">Done</button><button class="btn sm" data-fm-need="${t.id}">Need Something</button><button class="btn sm" data-fm-block="${t.id}">Blocked</button></div></div>`).join("") : `<div class="small muted">Nothing on the schedule with your name today — ask in Chat or check with ${esc(("function" == typeof fPeople && fPeople().pm?.name) || "the PM")}.</div>`}\n    ${reqs.length ? `<div class="fm-sub">Your requests</div>${reqs.map((r) => `<div class="fm-row" data-fm-req><div class="grow"><b>${esc("function" == typeof reqLabel ? reqLabel(r) : r.what || "")}</b><span class="small muted">${"new" === r.status ? "sent — not acknowledged yet" : void 0 !== REQ_STATUS && REQ_STATUS[r.status] ? REQ_STATUS[r.status][1] : r.status}${r.neededBy ? " · needed " + fmt(r.neededBy) : ""}</span></div></div>`).join("")}` : ""}`;
   const mark = (id, st) => {
     const t = task(id);
     if (!t) return;
@@ -89414,21 +89418,16 @@ function fmClockHome() {
       log(`${t.name}: ${"done" === st ? "finished" : "started"} by ${fmMe()}`);
     } catch (e) {}
     save(), render();
-    const el = document.getElementById("toast");
-    el
-      ? ((el.innerHTML = `${esc(t.name.slice(0, 40))} — ${"done" === st ? "marked done" : "marked started"} <a href="#" data-fmundo style="margin-left:8px;color:inherit;text-decoration:underline">Undo</a>`),
-        el.classList.add("on"),
-        clearTimeout(el._t),
-        (el._t = setTimeout(() => el.classList.remove("on"), 5e3)),
-        (el.querySelector("[data-fmundo]").onclick = (e) => {
-          e.preventDefault(),
-            (t.status = was),
-            "done" === st && ((t.actualEnd = ""), (t.pct = 0)),
-            save(),
-            render(),
-            el.classList.remove("on");
-        }))
-      : toast(`${t.name} — ${"done" === st ? "marked done" : "marked started"}`);
+    // the one toast with its actions (44px targets); the inline Undo link was 30 by 16
+    toast(`${t.name.slice(0, 40)}: ${"done" === st ? "marked done" : "marked started"}`, [
+      { label: "Open", run: () => ("function" == typeof tkSheet ? tkSheet(`sched:${t.id}:${S.id}`) : setView("sched")) },
+      {
+        label: "Undo",
+        run: () => {
+          (t.status = was), "done" === st && ((t.actualEnd = ""), (t.pct = 0)), save(), render();
+        },
+      },
+    ]);
   };
   card
     .querySelectorAll("[data-fm-start]")
@@ -89441,6 +89440,8 @@ function fmClockHome() {
         (b.onclick = () => {
           try {
             (DB.field = DB.field || {}), (DB.field.draft = `for ${task(b.dataset.fmNeed)?.name || ""}: `);
+            // the request carries the task it is for (and so its job and cost line): the composer reads comp.taskId
+            "undefined" != typeof comp && comp && (comp.taskId = b.dataset.fmNeed);
           } catch (e) {}
           fmGoReq();
         }),
@@ -89465,7 +89466,7 @@ function fmWeek() {
     .map((d) => {
       const list = fmActive(d).filter(fmMine),
         all = fmActive(d).filter((t) => !fmMine(t));
-      return `<div class="card fm-card fm-day ${d === td ? "today" : ""}"><div class="hd"><h3>${d === td ? "Today · " : ""}${fmtL(d)}</h3><span class="small muted">${list.length ? list.length + " for you" : "—"}${all.length ? " · " + all.length + " other" : ""}</span></div>\n      ${list.map((t) => `<div class="fm-row"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · ${fmt(t.start)} → ${fmt(t.end)}</span></div></div>`).join("") || '<div class="small muted">Nothing with your name.</div>'}\n      ${all.length ? `<details class="fm-others"><summary>Also on site that day</summary>${all.map((t) => `<div class="small muted">${esc(t.name)} · ${esc(t.owner || "crew")}</div>`).join("")}</details>` : ""}</div>`;
+      return `<div class="card fm-card fm-day ${d === td ? "today" : ""}"><div class="hd"><h3>${d === td ? "Today · " : ""}${fmtL(d)}</h3><span class="small muted">${list.length ? list.length + " for you" : "—"}${all.length ? " · " + all.length + " other" : ""}</span></div>\n      ${list.map((t) => `<div class="fm-row" data-tkopen="sched:${esc(t.id)}:${esc(S.id)}"><div class="grow"><b>${esc(t.name)}</b><span class="small muted">${esc(t.owner || "crew")} · <span>${fmt(t.start)}</span> – <span>${fmt(t.end)}</span></span></div></div>`).join("") || '<div class="small muted">Nothing with your name.</div>'}\n      ${all.length ? `<details class="fm-others"><summary>Also on site that day</summary>${all.map((t) => `<div class="small muted">${esc(t.name)} · ${esc(t.owner || "crew")}</div>`).join("")}</details>` : ""}</div>`;
     })
     .join(
       "",
@@ -104151,7 +104152,10 @@ if ("function" == typeof fRenderToday) {
             .slice(0, 8)
             .map(
               (x) =>
-                `<div class="f-row"><div class="grow"><b>${esc(x.title)}</b><span class="small muted">${esc(x.project || "")}${x.due ? ` · ${x.late ? "was due " : "due "}${fmt(x.due)}` : ""}</span></div>${x.late ? '<span class="pill bad">late</span>' : ""}</div>`,
+                // the one task row (src/taskfield.js): it opens the sheet and has Done
+                "function" == typeof tkRowOpenHtml
+                  ? tkRowOpenHtml(x)
+                  : `<div class="f-row"><div class="grow"><b>${esc(x.title)}</b><span class="small muted">${esc(x.project || "")}${x.due ? ` · ${x.late ? "was due " : "due "}${fmt(x.due)}` : ""}</span></div>${x.late ? '<span class="pill bad">late</span>' : ""}</div>`,
             )
             .join("") +
           (mine.length > 8
@@ -107134,7 +107138,7 @@ function rpOpen(preset) {
   const p = document.createElement("div");
   (p.id = "rp-panel"),
     (p.className = phone ? "rp-sheet" : "rp-drawer"),
-    (p.innerHTML = `<div class="rp-hd"><h3>${"client" === role() ? "Something Wrong?" : "Report a Problem"}</h3><button class="btn ghost sm" id="rp-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>\n    <div class="rp-bd">\n      ${rpMineHtml()}\n      <p class="small muted rp-at">On <b>${esc(ctx.screenTitle || ctx.screen)}</b>${ctx.subTab && ctx.subTab !== (ctx.screenTitle || ctx.screen) ? ` · ${esc(ctx.subTab)}` : ""}. I already know where you were and what you pressed — just say what went wrong.</p>\n      <div class="f"><label>What Went Wrong</label>${rpChips("what", RP_WHAT, rpDraft.what)}</div>\n      <div class="f"><label>Tell Me More${"other" === rpDraft.what ? "" : ' <span class="muted">(optional)</span>'}</label><textarea id="rp-text" rows="3" placeholder="What were you doing right before it went wrong?">${esc(rpDraft.text)}</textarea></div>\n      ${phone ? "" : `<div class="f"><label>What Should Have Happened <span class="muted">(optional)</span></label><textarea id="rp-expect" rows="2" placeholder="The total should have been the change order plus the base contract.">${esc(rpDraft.expect)}</textarea></div>`}\n      <div class="f"><label>How Bad Is It</label>${rpChips("bad", RP_BAD, rpDraft.bad)}</div>\n      ${phone ? "" : `<div class="f"><label>How Often <span class="muted">(optional)</span></label>${rpChips("often", RP_OFTEN, rpDraft.often)}</div>`}\n      <div class="f"><label>Add a Picture <span class="muted">(optional)</span></label>\n        <label class="btn rp-pic">${phone ? "Take a Photo" : "Attach a Screenshot"}<input type="file" accept="image/*" ${phone ? 'capture="environment"' : ""} id="rp-photo" hidden></label>\n        <div id="rp-photo-note" class="small muted">${rpDraft.photo ? "A picture is attached. Remove it with the button above." : "Nothing is captured from the screen unless you attach it. Whatever is in the picture is in the report."}</div></div>\n      <label class="chk"><input type="checkbox" id="rp-ok" ${rpDraft.ok ? "checked" : ""}><span class="chk-t">Okay to Ask You About This<span class="small muted"> — your name goes on the report. Leave it off and only your role does.</span></span></label>\n      <details class="rp-what"><summary>What Gets Sent</summary><pre class="rp-pre">${esc(rpPreview(ctx))}</pre></details>\n    </div>\n    <div class="rp-ft"><button class="btn" id="rp-cancel">Cancel</button><button class="btn primary" id="rp-send">Send the Report</button></div>`),
+    (p.innerHTML = `<div class="rp-hd"><h3>${"client" === role() ? "Something Wrong?" : "Report an App Problem"}</h3><button class="btn ghost sm" id="rp-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>\n    <div class="rp-bd">\n      ${rpMineHtml()}\n      <p class="small muted rp-at">On <b>${esc(ctx.screenTitle || ctx.screen)}</b>${ctx.subTab && ctx.subTab !== (ctx.screenTitle || ctx.screen) ? ` · ${esc(ctx.subTab)}` : ""}. I already know where you were and what you pressed — just say what went wrong.</p>\n      <div class="f"><label>What Went Wrong</label>${rpChips("what", RP_WHAT, rpDraft.what)}</div>\n      <div class="f"><label>Tell Me More${"other" === rpDraft.what ? "" : ' <span class="muted">(optional)</span>'}</label><textarea id="rp-text" rows="3" placeholder="What were you doing right before it went wrong?">${esc(rpDraft.text)}</textarea></div>\n      ${phone ? "" : `<div class="f"><label>What Should Have Happened <span class="muted">(optional)</span></label><textarea id="rp-expect" rows="2" placeholder="The total should have been the change order plus the base contract.">${esc(rpDraft.expect)}</textarea></div>`}\n      <div class="f"><label>How Bad Is It</label>${rpChips("bad", RP_BAD, rpDraft.bad)}</div>\n      ${phone ? "" : `<div class="f"><label>How Often <span class="muted">(optional)</span></label>${rpChips("often", RP_OFTEN, rpDraft.often)}</div>`}\n      <div class="f"><label>Add a Picture <span class="muted">(optional)</span></label>\n        <label class="btn rp-pic">${phone ? "Take a Photo" : "Attach a Screenshot"}<input type="file" accept="image/*" ${phone ? 'capture="environment"' : ""} id="rp-photo" hidden></label>\n        <div id="rp-photo-note" class="small muted">${rpDraft.photo ? "A picture is attached. Remove it with the button above." : "Nothing is captured from the screen unless you attach it. Whatever is in the picture is in the report."}</div></div>\n      <label class="chk"><input type="checkbox" id="rp-ok" ${rpDraft.ok ? "checked" : ""}><span class="chk-t">Okay to Ask You About This<span class="small muted"> — your name goes on the report. Leave it off and only your role does.</span></span></label>\n      <details class="rp-what"><summary>What Gets Sent</summary><pre class="rp-pre">${esc(rpPreview(ctx))}</pre></details>\n    </div>\n    <div class="rp-ft"><button class="btn" id="rp-cancel">Cancel</button><button class="btn primary" id="rp-send">Send the Report</button></div>`),
     document.body.appendChild(p),
     p.querySelectorAll("[data-rpchips]").forEach((g) =>
       g.querySelectorAll("[data-rpv]").forEach(
@@ -107480,9 +107484,10 @@ function rpMount() {
     const b = document.createElement("button");
     (b.id = "rp-btn"),
       (b.className = "btn rp-btn no-print"),
-      (b.title = "Report a Problem"),
-      b.setAttribute("aria-label", "Report a Problem");
-    const mine = "client" === role() ? "Something Wrong?" : "Report a Problem";
+      (b.title = "Report an App Problem"),
+      b.setAttribute("aria-label", "Report an App Problem");
+    // the app's own feedback, not a problem on site (the crew read the flag as "report a site problem", lane T1)
+    const mine = "client" === role() ? "Something Wrong?" : "Report an App Problem";
     (b.title = mine),
       b.setAttribute("aria-label", mine),
       (b.innerHTML = `${RP_FLAG}<span class="rp-btn-t">${mine}</span>`),
@@ -199514,7 +199519,7 @@ function tdyDecideSheet(x) {
   const H = (tdyRec(x) || {}).handoff || {};
   mbModal(
     `Offered to You — ${esc(tdWords(x.title, 8))}`,
-    `<p>${esc(H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
+    `<p>${esc(H.by || H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
     {
       submit: "Accept",
       alt: {
@@ -199816,7 +199821,8 @@ function tdyModel() {
   // Today shows them on All with Accept and as one line above the Tasks rows
   let offered = [];
   try {
-    offered = me.id ? tkAll({ open: !0, uid: me.id }).filter((t) => !t.approval && t.offeredToUid === me.id).map(tdyTaskItem) : [];
+    // the one list of offers (tkOfferedToMe, src/tasks.js): the Clock, the foreman's Today and this read the same set
+    offered = me.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(me.id) : tkAll({ open: !0, uid: me.id }).filter((t) => t.offeredToUid === me.id)).filter((t) => !t.approval).map(tdyTaskItem) : [];
   } catch (e) {}
   // the coordinator's orders are the Buy Board's own Late to Order and Order This Week: a chip of their own, never
   // counted as tasks (they were five of the coordinator's "Tasks 9")
@@ -199865,7 +199871,7 @@ function tdyTeam() {
     .filter((u) => u.name !== me.name && !("pm" === role() && "owner" === u.role))
     .map((u) => {
       const own = T.filter((t) => (u.id ? t.ownerUid === u.id : !t.ownerUid && t.owner === u.name)),
-        offered = u.id ? T.filter((t) => t.offeredToUid === u.id) : [];
+        offered = u.id ? ("function" == typeof tkOfferedToMe ? tkOfferedToMe(u.id) : T.filter((t) => t.offeredToUid === u.id)) : [];
       return { kind: "tdyPerson", id: u.id || "name:" + u.name, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
     })
     .filter((x) => x.own.length || x.offered.length)
@@ -199906,7 +199912,7 @@ function tdyTeamSheet(x) {
     let why = it.detail,
       verb = "Done",
       run = () => tdyDone(t);
-    if (t.offeredToUid === me.id) (why = `${H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
+    if (t.offeredToUid === me.id) (why = `${H.by || H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
     else if (H && "offered" === H.state) (why = `offered to ${H.to}, not accepted yet · ${why}`), (verb = "Open"), (run = sheet);
     else if (H && "declined" === H.state && H.fromUid === me.id && t.ownerUid === me.id) (why = `${H.to} declined: ${H.reason} · ${why}`), (verb = "Hand Off"), (run = () => tdyHandOffSheet(t));
     else if (t.proofNeed && !tdyProofMet(t.row, t.proofNeed, tdyRec(t.row))) (why = `${why} · needs ${t.proofNeed.label.toLowerCase()}`);
@@ -202455,8 +202461,10 @@ renderChat = function () {
     cam = document.getElementById("msg-cam"),
     rec = document.getElementById("msg-rec"),
     tx = document.getElementById("chat-text");
-  lab && (lab.hidden = !!T.t);
-  cam && (cam.hidden = !!T.t);
+  // a direct or group thread takes a photo and the camera too (it offered only Share a Record, lane T1); the photo is
+  // filed on the thread's job when it has one, else kept on the thread only (src/taskfield.js, tkDmPhoto)
+  lab && (lab.hidden = !1);
+  cam && (cam.hidden = !1);
   rec && (rec.hidden = msgIsClient(u));
   tx &&
     !msgIsClient(u) &&
@@ -202977,7 +202985,8 @@ function msgBadges() {
         const cr = document.getElementById("crumbs");
         cr && (cr.innerHTML = "<b>Chat</b>");
         const lab = document.querySelector("#v-chat .chat-compose label.btn");
-        lab && T && (lab.hidden = !!T.t);
+        // a direct thread takes a photo too (lane T1, tkDmPhoto)
+        lab && T && (lab.hidden = !1);
         // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
         document.getElementById("v-chat")?.classList.contains("msg-listmode") && window.scrollTo(0, 0);
       }

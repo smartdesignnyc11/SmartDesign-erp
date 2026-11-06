@@ -803,7 +803,9 @@ td2Model = function () {
       .map((x) => {
         // everything else of the person's is Coming Up (the queue holds the next 7 days of tasks; an order or a decision
         // dated later still waits on them and is never dropped)
-        const sec = x.appr ? "appr" : "now" === x.sec || x.late || (x.due && x.due <= td) ? "now" : "coming";
+        // an offer waits on the person's yes or no today, whatever its due date (lane T1)
+        const offer = !!(x.it && "tdyTask" === x.it.kind && x.it.t && x.it.t.offeredToUid && x.it.t.offeredToUid === ((tdyMe() || {}).id || "-")),
+          sec = x.appr ? "appr" : "now" === x.sec || x.late || (x.due && x.due <= td) || offer ? "now" : "coming";
         void wk;
         return Object.assign(x, { sec: sec });
       })
@@ -821,9 +823,14 @@ td2Model = function () {
   // folded, the approvals never take the whole first screen: the late and today work keeps its places under them
   // (leak_test 11-04: the PM's 23 approvals hid an overdue follow-up nobody owned)
   if (fold) {
-    const A = Q.filter((x) => "appr" === x.sec),
-      N = Q.filter((x) => "now" === x.sec),
-      nN = Math.min(N.length, Math.max(desk ? 6 : 2, cap - A.length)),
+    // an offer waits on this person's yes or no (tkOfferedToMe): it leads Now and is never folded behind "N more", so
+    // Today shows it once, as its row with Accept (lane T1: the coordinator's offer sat folded and showed only on Tasks)
+    const me = (tdyMe() || {}).id || "",
+      isOffer = (x) => !!(me && x.it && "tdyTask" === x.it.kind && x.it.t && x.it.t.offeredToUid === me),
+      A = Q.filter((x) => "appr" === x.sec),
+      N0 = Q.filter((x) => "now" === x.sec),
+      N = N0.filter(isOffer).concat(N0.filter((x) => !isOffer(x))),
+      nN = Math.min(N.length, Math.max(desk ? 6 : 2, cap - A.length, N0.filter(isOffer).length)),
       nA = Math.min(A.length, cap - nN);
     shown.push(...A.slice(0, nA), ...N.slice(0, nN));
   } else secsOf.forEach((s) => Q.filter((x) => x.sec === s).forEach((x) => shown.push(x)));

@@ -32,6 +32,7 @@ esAdd({
   Ask: "Preguntar",
   "Ask your assistant": "Pregúntale a tu asistente",
   "Report a Problem": "Reportar un Problema",
+  "Report an App Problem": "Reportar un Problema de la App",
   // the improvement loop (src/loop.js): a fixed report can be sent back
   "Still Wrong": "Sigue Mal",
   "Thank you. It is open again for the owner": "Gracias. Está abierto otra vez para el dueño",
@@ -1114,4 +1115,22 @@ esAdd({
   "Finish the Feedback Session": "Terminar la Sesión de Comentarios",
   "Save the Session": "Guardar la Sesión",
   "Discard the Session": "Descartar la Sesión",
+});
+esAdd({
+  // ---- tasks on the field's phone (lane T1, 11-05; not yet reviewed by Jeanette)
+  "Offered to You": "Te lo Ofrecieron",
+  "from {x}": "de {x}",
+  Blocked: "Bloqueado",
+  "Blocked: {x}": "Bloqueado: {x}",
+  "Send to the Foreman": "Mandar al Capataz",
+  "What Stops It": "Qué lo Detiene",
+  "Waiting on material": "Esperando material",
+  "Waiting on another trade": "Esperando a otro oficio",
+  "Need an answer": "Necesito una respuesta",
+  "Not safe to work": "No es seguro trabajar",
+  Why: "Por Qué",
+  "Sent — waiting for procurement": "Enviado — esperando a compras",
+  "Take a photo of the finished work. The item is done once it is on it.": "Toma una foto del trabajo terminado. Queda hecho cuando la foto está puesta.",
+  "Add a photo of the finished work first": "Primero pon una foto del trabajo terminado",
+  "Photos of the work": "Fotos del trabajo",
 });
