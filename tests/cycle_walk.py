@@ -1537,9 +1537,12 @@ def receive_phone(p, dw, tile):
     if c is None: raise Stuck(f'receive {dw}', f'{dw} among Deliveries', p.scr, 'Deliveries')
     p.tap_ctl(c)
     sc = p.look()
-    ok = bool(sc.find('', field=True, after=dw)) and bool(re.search(r'short|damaged|problem', sc.text[sc.text.find(dw):sc.text.find(dw) + 900], re.I))
+    # the phone receives on a sheet over Deliveries (the one receive sheet, P1, BACKLOG 1.36): its words are the sheet's,
+    # not the 900 characters after the order's first mention on the list underneath (which this read before)
+    seg = sc.text[sc.text.find('== Open on top =='):] if sc.sheet and dw in sc.text[sc.text.find('== Open on top =='):] else sc.text[sc.text.find(dw):sc.text.find(dw) + 900]
+    ok = bool(sc.find('', field=True, after=dw)) and bool(re.search(r'short|damaged|problem', seg, re.I)) and bool(re.search(r'slip', seg, re.I))
     p.expect(ok, f'Receive on the phone takes what came on {dw}: the quantity per line, short and damaged, the slip photo',
-             sc.text[sc.text.find(dw):sc.text.find(dw) + 240] if dw in sc.text else 'nothing')
+             seg[:240] if seg else 'nothing')
     for po, lines, note in ((dw, [('Framing lumber', 1), ('Drywall', 1)], f'{SHORT_BOARDS} cement boards short: backordered, balance next week'),
                             (tile, [('Porcelain floor tile', 380 - DAMAGED_SF)], f'{DAMAGED_SF} sf damaged: two boxes cracked in the pallet')):
         open_po(p, po)
