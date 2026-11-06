@@ -956,7 +956,9 @@ if ("function" == typeof tvBuiltIns) {
     const S = (o) => Object.assign({ tkWho: "all", tkProject: "", tkArea: "", tkPri: "", t2View: "all", t2Q: "", tvFF: "{}" }, o);
     return [
       { id: "b:open", name: "Mine", s: S({ tkWho: "me" }) },
-      { id: "b:wait", name: "Waiting On", s: S({ t2View: "blocked" }) },
+      // Waiting On is yours, like Mine (capture 11-05: the chip said 2, everyone's, beside the filter sheet's 1, yours):
+      // one label, one number; everyone's waiting is Team with Waiting On
+      { id: "b:wait", name: "Waiting On", s: S({ tkWho: "me", t2View: "blocked" }) },
       // Team is the old Everything (everyone, all open): its id stays, so a saved link or a test that names it lands here
       { id: "b:all", name: "Team", s: S({}) },
     ];

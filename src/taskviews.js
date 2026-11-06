@@ -2120,7 +2120,7 @@ function tvPhoneHead(host) {
     q = (attr, v, on, label, n) => `<button type="button" class="tv-qc ${on ? "on" : ""}" ${attr}="${esc(v)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}${null != n ? `<span class="n">${n}</span>` : ""}</button>`;
   line.insertAdjacentHTML(
     "afterend",
-    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
+    `<div class="tv-qchips no-print">${q("data-tvqv", "week", "week" === t2View, "Due Soon", own ? C.week || 0 : null)}${q("data-tvqv", "blocked", "blocked" === t2View, "Waiting On", own ? C.blocked || 0 : null)}${q("data-tvqg", "status", "status" === gb, "By Status")}${q("data-tvqg", "project", "project" === gb, "By Project")}</div>
 ${tvPhoneFilterChips()}<div class="tv-qaw no-print"><div class="tv-qa"><button type="button" class="tv-qa-plus" data-tvqaopen aria-label="New task with details" title="New task with details">${tvSvg("plus", 18)}</button><input class="tv-qa-in" data-tvqa aria-label="Add a task" placeholder="Add a task, e.g. “Call Carlos tomorrow”" enterkeyhint="done" autocomplete="off"><button type="button" class="tv-qa-mic" data-tvqamic aria-label="Speak a task" title="Speak a task"><span>${tvSvg("mic", 18)}</span></button></div></div>`,
   );
 }

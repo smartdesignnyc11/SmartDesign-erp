@@ -24,7 +24,7 @@ const TK_VIEWS = [
   ["today", "Today"],
   ["overdue", "Overdue"],
   ["nodate", "No Date"],
-  ["blocked", "Waiting"],
+  ["blocked", "Waiting On"],
   ["later", "Later"],
   ["done", "Done"],
   ["all", "All"],

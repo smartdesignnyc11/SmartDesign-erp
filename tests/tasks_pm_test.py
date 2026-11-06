@@ -283,6 +283,11 @@ async def counts(c, pg):
             await pg.wait_for_timeout(150)
             if str(got) != num.strip(): bad.append((label, num, got))
         c.ok(not bad, f'counts: {uid}: each Tasks chip’s number equals the rows it shows ({bad or ch})')
+        # one label, one number: the bar's Waiting On chip and the filter sheet's Waiting On (capture 11-05: 2 beside 1)
+        w = await pg.evaluate("""() => { tvApply('b:open'); const chip = document.querySelector('#tkall-body [data-ydchip="b:wait"]'); const cn = chip ? +((chip.querySelector('.n') || {}).textContent || 0) : null;
+          tkFilterSheet(); const b = document.querySelector('#mbm [data-tkfview="blocked"]'); const r = { chip: chip ? chip.innerText.replace(/\\d+/g, '').trim() : null, cn, sheet: b ? b.innerText.replace(/\\d+/g, '').trim() : null, sn: b ? +((b.querySelector('.n') || {}).textContent || 0) : null, mine: tkMyCounts().blocked };
+          mbCloseModal(); return r; }""")
+        c.ok(w['chip'] == w['sheet'] == 'Waiting On' and w['cn'] == w['sn'] == w['mine'], f'counts: {uid}: Waiting On reads one label and one number on the chip and the filter sheet ({w})')
     # the Team view: each person's count is that person's open tasks, the same function as Mine
     await sign_in(pg, 'u_alan'); await go(pg, 'tkall')
     await pg.evaluate("() => tvApply('b:all')"); await pg.wait_for_timeout(300)
