@@ -389,8 +389,9 @@ async def s_clock(pg, c):
       DB.time.push({ id: 'te_t1', empId: e.id, date: td, in: a, out: b, breakMin: 0, projectId: S.id, code: '', notes: '', status: 'submitted', work: [{ projectId: S.id, code: '02', hours: 6, note: '' }] });
       const n0 = DB.time.filter(t => t.empId === e.id).length; window.getGeo = async () => null;
       try { await clockEvent('in'); } catch (x) {}
-      return { before: n0, after: DB.time.filter(t => t.empId === e.id).length }; }""")
-    c.ok(r['after'] == r['before'], f'clock: Clock In inside a day already sent adds no overlapping entry ({r})')
+      const nw = DB.time.find(t => t.empId === e.id && !t.out);
+      return { before: n0, after: DB.time.filter(t => t.empId === e.id).length, of: nw ? nw.overlapOf || '' : '', toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
+    c.ok(r['after'] == r['before'] + 1 and r['of'] == 'te_t1' and 'not counted twice' in r['toast'], f'clock: Clock In inside a day already sent clocks in and marks the overlap, out loud ({r})')
     html = await pg.evaluate("""() => { const e = myEmp(); DB.time = DB.time.filter(t => t.id !== 'te_t1');
       const x = { id: 'te_t2', empId: e.id, date: '2026-09-02', in: '2026-09-02T07:30:00', out: '2026-09-02T07:31:12', breakMin: 0, projectId: S.id, code: '', notes: '', status: 'open', work: [] };
       DB.time.push(x); save(); try { openTime('te_t2'); } catch (z) {} return document.body.innerHTML; }""")

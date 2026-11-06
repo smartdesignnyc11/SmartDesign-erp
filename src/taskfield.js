@@ -339,7 +339,9 @@ if ("undefined" != typeof PR_SPECS) {
   };
 }
 
-// ---- Clock In never overlaps a day already sent: the crew clocked in at 10:00 on a 9/3 that read 7:30 to 4:00, sent ---
+// ---- Clock In over a day already on the clock: the punch is made (a person on site is never refused the clock; the
+// driver's Clock In on Route is pinned by w1trust_test), and it carries the day it overlaps, so the hours are not counted
+// twice without anyone seeing it: the punch says so, the toast says so, and the foreman has it to sort out.
 function tkClockCovers(emp, at) {
   const ms = new Date(at).getTime();
   return (DB.time || []).find((t) => t.empId === emp.id && t.in && t.out && new Date(t.in).getTime() <= ms && ms < new Date(t.out).getTime()) || null;
@@ -347,15 +349,28 @@ function tkClockCovers(emp, at) {
 if ("function" == typeof clockEvent) {
   const base = clockEvent;
   clockEvent = async function (kind) {
+    let emp = null,
+      hit = null;
     try {
-      const emp = "in" === kind && "function" == typeof myEmp ? myEmp() : null,
-        hit = emp && tkClockCovers(emp, appNowIso());
-      if (hit) {
-        const sent = /^(submitted|approved|paid|locked)$/.test(String(hit.status || ""));
-        return void toast(`Your ${fmt(hit.date)} already runs ${stampTime(hit.in)} to ${stampTime(hit.out)}${sent ? " and was sent for approval" : ""}. A new clock-in would count those hours twice; ask ${tkFirst((tdyRoleUser("foreman") || {}).name || "the foreman")} to reopen it if it is wrong.`, [{ label: "Open", run: () => ("function" == typeof openTime ? openTime(hit.id) : setView("time")) }]);
-      }
+      emp = "in" === kind && "function" == typeof myEmp ? myEmp() : null;
+      hit = emp && tkClockCovers(emp, appNowIso());
     } catch (e) {}
-    return base.apply(this, arguments);
+    const r = await base.apply(this, arguments);
+    try {
+      const e = hit && (DB.time || []).find((t) => t.empId === emp.id && !t.out && t.id !== hit.id);
+      if (e && !e.overlapOf) {
+        const sent = /^(submitted|approved|paid|locked)$/.test(String(hit.status || "")),
+          fore = tkFirst((tdyRoleUser("foreman") || {}).name || "the foreman");
+        e.overlapOf = hit.id;
+        e.notes = `${e.notes ? e.notes + " · " : ""}Overlaps the ${fmt(hit.date)} day already on the clock (${stampTime(hit.in)} to ${stampTime(hit.out)})`;
+        try {
+          audit("time", e.id, "overlap", hit.id, e.in, sent ? "the earlier day was sent" : "");
+        } catch (x) {}
+        save();
+        toast(`Clocked in, but your ${fmt(hit.date)} already runs ${stampTime(hit.in)} to ${stampTime(hit.out)}${sent ? " and was sent for approval" : ""}. Both punches are marked so the hours are not counted twice; ${fore} sorts it out.`, [{ label: "Open", run: () => ("function" == typeof openTime ? openTime(hit.id) : setView("time")) }]);
+      }
+    } catch (x) {}
+    return r;
   };
 }
 

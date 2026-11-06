@@ -17498,7 +17498,7 @@ function stockReceiptHtml(r) {
   if (!sps.length && !qs.length) return "";
   return `<div class="stk-receipt">${sps
     .map((sp) => `<div class="stk-line"><b>${esc(stockSplitWords(sp))}</b><div class="small muted">${esc(sp.invName)} · ${esc(stockFirst("driver"))} picks ${sp.fromStock} up at ${esc(locName(sp.loc))}${sp.toBuy > 0 ? `; ${esc(stockFirst("coord"))} buys the other ${sp.toBuy}` : ""}. The split is set; only ${esc(stockFirst("driver"))} or ${esc(stockFirst("coord"))} can change it.</div></div>`)
-    .join("")}${qs.map((q) => `<div class="stk-line"><b>Checking the stock for ${esc(q.what)}</b><div class="small muted">${esc(stockFirst("coord"))} confirms whether ${esc(((DB.inventory || []).find((i) => i.id === q.invId) || {}).name || "the stock")} is the same item; until then it is bought as asked.</div></div>`).join("")}</div>`;
+    .join("")}${qs.map((q) => `<div class="stk-line"><b>Checking the stock for <span data-nocase>${esc(q.what)}</span></b><div class="small muted">${esc(stockFirst("coord"))} confirms whether <span data-nocase>${esc(((DB.inventory || []).find((i) => i.id === q.invId) || {}).name || "the stock")}</span> is the same item; until then it is bought as asked.</div></div>`).join("")}</div>`;
 }
 {
   const base = frqReceipt;
@@ -19013,6 +19013,16 @@ function reqLabel(r) {
           .map((x) => x.what)
           .join(", ")}${it.length > 3 ? "…" : ""}`;
 }
+// reqLabel as markup: the person's own words (the items) are marked as theirs, the app's words around them are not
+function reqLabelHtml(r) {
+  const it = reqItems(r),
+    w = (x) => `<span data-nocase>${esc(x)}</span>`;
+  return 1 === it.length && it[0].garbage
+    ? w(it[0].what)
+    : 1 === it.length
+      ? `${esc(`${it[0].qty} ${it[0].unit}`)} ${w(it[0].what)}`
+      : `${esc(`${it.length} items`)} ${w(`— ${it.slice(0, 3).map((x) => x.what).join(", ")}${it.length > 3 ? "…" : ""}`)}`;
+}
 async function readListPhoto(dataUrl) {
   const [meta, b64] = dataUrl.split(","),
     mime = (meta.match(/data:([^;]+)/) || [])[1] || "image/jpeg",
@@ -19168,7 +19178,7 @@ function renderRunCard(emp) {
                       .filter((x) => !x.it.garbage)
                       .map(
                         (x) =>
-                          `<div class="shopitem ${run.bought[x.key] ? "done" : ""}"><input type="checkbox" data-buy="${x.key}" ${run.bought[x.key] ? "checked" : ""}><div>${x.it.invId ? `<span class="pill info" style="margin-right:6px">pickup · ${esc(locName(x.it.pickupFrom))}</span>` : ""}${esc(String(x.it.qty))} ${esc(x.it.unit)} ${esc(x.it.what)}<div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}${"urgent" === x.r.urgency ? ' · <b style="color:var(--bad)">urgent</b>' : ""}${x.r.note ? ` · ${esc(x.r.note)}` : ""}</div></div>${"new" === x.r.status ? '<span class="pill warn">not acked</span>' : ""}</div>`,
+                          `<div class="shopitem ${run.bought[x.key] ? "done" : ""}"><input type="checkbox" data-buy="${x.key}" ${run.bought[x.key] ? "checked" : ""}><div>${x.it.invId ? `<span class="pill info" style="margin-right:6px">pickup · ${esc(locName(x.it.pickupFrom))}</span>` : ""}${esc(String(x.it.qty))} ${esc(x.it.unit)} <span data-nocase>${esc(x.it.what)}</span><div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}${"urgent" === x.r.urgency ? ' · <b style="color:var(--bad)">urgent</b>' : ""}${x.r.note ? ` · ${esc(x.r.note)}` : ""}</div></div>${"new" === x.r.status ? '<span class="pill warn">not acked</span>' : ""}</div>`,
                       )
                       .join("")}`,
                 )
@@ -19228,14 +19238,14 @@ function renderRunCard(emp) {
   const open = runItems({ bought: {} }),
     near = clockState.geo ? nearStore(clockState.geo) : null,
     pickups = open.filter((x) => x.it.invId && !x.it.done);
-  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" aria-label="Store" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" aria-label="Run Length" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
+  (card.innerHTML = `<div class="hd"><h3>Store run</h3><span class="grow"></span><span class="small muted">${open.length} item${1 === open.length ? "" : "s"} waiting to be bought across ${new Set(open.map((x) => x.p.id)).size} project${1 === new Set(open.map((x) => x.p.id)).size ? "" : "s"}</span></div>\n    ${near ? `<div class="note" style="margin-bottom:8px">You look like you're at <b>${esc(near.s.n)}</b> (${near.d} m). Start a run so everyone can add to your list.</div>` : ""}\n    <div class="row"><select id="run-store" class="btn" aria-label="Store" style="height:40px;flex:1">${STORES.map((s) => `<option ${near && near.s.n === s.n ? "selected" : ""}>${esc(s.n)}</option>`).join("")}<option>Other store</option></select><select id="run-min" class="btn" aria-label="Run Length" style="height:40px"><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option></select><button class="btn primary" id="run-start" style="height:40px">I'm at the store</button></div>\n    <div class="small muted" style="margin-top:6px">Starting a run posts to every project chat and notifies phones: "add anything you need before I leave." Your list shows everything open, grouped by project.</div>\n    ${pickups.length ? `<div style="margin-top:8px"><b class="small">Pickups & drop-offs (${pickups.length})</b>${pickups.map((x) => `<div class="pickup">${esc(String(x.it.qty))} ${esc(x.it.unit)} <b data-nocase>${esc(x.it.what)}</b> — pick up at <b>${esc(locName(x.it.pickupFrom))}</b> → drop at <b>${esc(x.p.project.name)}</b> · needed ${fmt(x.r.neededBy)} · ${esc(x.r.by)} <button class="btn sm" data-deliver="${x.p.id}:${x.r.id}:${x.i}" style="float:right">Delivered</button></div>`).join("")}</div>` : ""}\n    ${renderDriverPlan(emp)}\n    ${
     open.length
       ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Preview the shopping list (${open.length})</summary><div class="shop">${Object.entries(
           open.reduce((a, x) => ((a[x.p.project.name] = a[x.p.project.name] || []).push(x), a), {}),
         )
           .map(
             ([pn, xs]) =>
-              `<h4>${esc(pn)}</h4>${xs.map((x) => `<div class="shopitem"><span></span><div>${esc(String(x.it.qty))} ${esc(x.it.unit)} ${esc(x.it.what)}<div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}</div></div></div>`).join("")}`,
+              `<h4>${esc(pn)}</h4>${xs.map((x) => `<div class="shopitem"><span></span><div>${esc(String(x.it.qty))} ${esc(x.it.unit)} <span data-nocase>${esc(x.it.what)}</span><div class="s">${esc(x.r.by)} · needed ${fmt(x.r.neededBy)}</div></div></div>`).join("")}`,
           )
           .join("")}</div></details>`
       : ""
@@ -19677,7 +19687,7 @@ function renderComposer() {
       .join("");
   box.innerHTML = `${run ? `<div class="nudge" style="background:#1F2A44;color:#fff"><div><b>${esc(run.driver)} is at ${esc(run.store)}</b>Add what you need now — he leaves at ${new Date(run.closesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</div></div>` : ""}\n    <div class="composer"><textarea id="cp-text" placeholder="${tk ? `What do you need for ${esc(tk.name)}?` : 'What do you need? e.g. 40 2x4x8, a box of 3 inch screws, bring the table saw'}">${esc(comp.text)}</textarea>${speech ? '<button class="mic" id="cp-mic" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>' : ""}</div>\n    <div class="chips">${kitNow && !comp.kit ? `<button class="chip" data-ckit="${kitNow.code}">${esc(kitNow.n)} kit</button>` : ""}<button class="chip" id="cp-morekits">Kits ▾</button><label class="chip" style="cursor:pointer">Photo of a list<input type="file" id="cp-photo" accept="image/*" capture="environment" hidden></label>${freq
     .slice(0, 4)
-    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} ${esc(w)}</button>`)
+    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} <span data-nocase>${esc(w)}</span></button>`)
     .join(
       "",
     )}</div>\n    ${comp.kitPick ? `<div class="chips">${kits.map(([c, k]) => `<button class="chip" data-ckit="${c}">${esc(k.n)}</button>`).join("")}</div>` : ""}\n    ${
@@ -19900,7 +19910,7 @@ function renderRequestsPage() {
                                 : "declined" === st
                                   ? "Declined" + (r.declineReason ? ` — ${r.declineReason}` : "")
                                   : st;
-              return `<div class="myreq" data-myreq="${r.id}"><div><b>${esc(reqLabel(r))}</b><div class="s">needed ${fmt(r.neededBy)}${r.timeWindow && "Any time" !== r.timeWindow ? ` · ${esc(r.timeWindow.toLowerCase())}` : ""}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${it.some((i) => i.invId) ? " · pickup" : ""}${it.some((i) => i.garbage) ? " · debris" : ""}${r.note && it.some((i) => i.garbage) ? ` · ${esc(r.note)}` : ""}</div><div class="status-line ${cls}">${esc(text)}</div></div><span class="pill ${REQ_STATUS[st]?.[0] || "neutral"}">${"new" === st ? "sent" : "ack" === st ? "acknowledged" : st}</span></div>`;
+              return `<div class="myreq" data-myreq="${r.id}"><div><b>${reqLabelHtml(r)}</b><div class="s">needed ${fmt(r.neededBy)}${r.timeWindow && "Any time" !== r.timeWindow ? ` · ${esc(r.timeWindow.toLowerCase())}` : ""}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${it.some((i) => i.invId) ? " · pickup" : ""}${it.some((i) => i.garbage) ? " · debris" : ""}${r.note && it.some((i) => i.garbage) ? ` · ${esc(r.note)}` : ""}</div><div class="status-line ${cls}">${esc(text)}</div></div><span class="pill ${REQ_STATUS[st]?.[0] || "neutral"}">${"new" === st ? "sent" : "ack" === st ? "acknowledged" : st}</span></div>`;
             })
             .join("")
         : '<div class="muted" style="padding:8px 0">Nothing yet.</div>'
@@ -20136,7 +20146,7 @@ function renderRequestCard(emp) {
           .slice(0, 8)
           .map((r) => {
             const st = REQ_STATUS[r.status] || ["neutral", r.status];
-            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}"><div><b>${esc(reqLabel(r))}</b><div class="s">${r.neededBy ? `needed ${fmt(r.neededBy)} · ` : ""}${esc(r.by)} · ${new Date(r.at).toLocaleDateString([], { month: "numeric", day: "numeric" })}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${r.eta ? ` · arriving ${fmt(r.eta)}` : ""}${"declined" === r.status && r.declineReason ? ` · ${esc(r.declineReason)}` : ""}</div></div><span class="pill ${st[0]}">${"new" === r.status ? "sent" : "ack" === r.status ? "acknowledged" : r.status}</span></div>`;
+            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}"><div><b>${reqLabelHtml(r)}</b><div class="s">${r.neededBy ? `needed ${fmt(r.neededBy)} · ` : ""}${esc(r.by)} · ${new Date(r.at).toLocaleDateString([], { month: "numeric", day: "numeric" })}${r.taskId ? ` · ${esc(task(r.taskId)?.name || "")}` : ""}${r.eta ? ` · arriving ${fmt(r.eta)}` : ""}${"declined" === r.status && r.declineReason ? ` · ${esc(r.declineReason)}` : ""}</div></div><span class="pill ${st[0]}">${"new" === r.status ? "sent" : "ack" === r.status ? "acknowledged" : r.status}</span></div>`;
           })
           .join("")}</div>`
       : ""
@@ -20383,12 +20393,12 @@ function renderRequestQueue() {
             const st = reqState(r);
             (S = keep), applyHolidays();
             const status = REQ_STATUS[r.status] || ["neutral", r.status];
-            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}" style="grid-template-columns:1fr auto auto"><div><b>${esc(reqLabel(r))}</b>${
+            return `<div class="reqitem ${"urgent" === r.urgency ? "urgent" : ""}" style="grid-template-columns:1fr auto auto"><div><b>${reqLabelHtml(r)}</b>${
               reqItems(r).length > 1
                 ? `<div class="s">${reqItems(r)
                     .map(
                       (it) =>
-                        `${it.bought || it.done ? ICON_CHECK + " " : ""}${it.invId ? "🧰 " : ""}${it.qty} ${esc(it.unit)} ${esc(it.what)}${it.invId ? ` (pickup ${esc(locName(it.pickupFrom))})` : ""}`,
+                        `${it.bought || it.done ? ICON_CHECK + " " : ""}${it.invId ? "🧰 " : ""}${it.qty} ${esc(it.unit)} <span data-nocase>${esc(it.what)}</span>${it.invId ? ` (pickup ${esc(locName(it.pickupFrom))})` : ""}`,
                     )
                     .join(" · ")}</div>`
                 : reqItems(r)[0].invId
@@ -66057,7 +66067,7 @@ function frqReceipt(r) {
   off && ((r.queued = appNowIso()), "function" == typeof save && save());
   mbModal(
     garbage ? "Dump Run Requested" : off ? "Request Saved on This Phone" : "Request sent",
-    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${off ? `Saved on this phone. It goes to ${esc(who)} when you are back online` : `${esc(who)} has it now`}${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}${esc(i.what)}</b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
+    `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${off ? `Saved on this phone. It goes to ${esc(who)} when you are back online` : `${esc(who)} has it now`}${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}<span data-nocase>${esc(i.what)}</span></b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
     {
       submit: "Done",
       onSubmit: () => {
