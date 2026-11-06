@@ -2312,3 +2312,32 @@ document.addEventListener("click", (e) => {
   const b = (DB.bills || []).find((y) => y.id === x.dataset.pay3arrpo);
   b && (e.preventDefault(), pay3ArrivedHold(b));
 });
+// The Owner's brief says what vendor credits were applied since he last looked (the CoS, 11-06: a credit memo applied
+// by the coordinator was visible only on the bill): who applied it, on what, and what went to Owed Back.
+if ("function" == typeof paBriefBuild) {
+  const base = paBriefBuild;
+  paBriefBuild = function () {
+    const m = base.apply(this, arguments);
+    try {
+      if (!m || "function" != typeof isOwner || !isOwner()) return m;
+      const A = "function" == typeof paInit ? paInit() : {},
+        since = String(A.lookPrev || iso(addDays(today(), -3))).slice(0, 10);
+      (DB.bills || [])
+        .filter((b) => b.short && "credited" === b.short.state && String(b.short.resolvedOn || "") >= since)
+        .forEach((b) => {
+          const s = b.short,
+            po = b.poId && (DB.pos || []).find((x) => x.id === b.poId);
+          (m.today = m.today || []).push({
+            key: "vcm:" + b.id,
+            k: "Vendor Credit",
+            title: `${b.vendor} credited ${money2(s.held)} on ${b.number}${s.creditMemo ? ` (credit memo ${s.creditMemo})` : ""}`,
+            sub: [po ? po.number : "", s.resolvedBy ? `applied by ${s.resolvedBy} ${fmtL(s.resolvedOn)}` : "", s.creditOver ? `${money2(s.creditOver.amount)} over the dispute is under Owed Back` : "", s.refundRet ? "the bill was paid: a refund due, to match a bank line" : ""].filter(Boolean).join(" · "),
+            acts: [{ label: "Open", run: () => flowGo.bill(b)() }],
+          });
+        });
+    } catch (e) {
+      console.warn("owner brief vendor credits", e);
+    }
+    return m;
+  };
+}

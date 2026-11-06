@@ -25684,13 +25684,13 @@ function lineOrderPaid(po, key) {
   const amt = (k) => (po.lines || []).filter((l) => l.line === k).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
     keys = [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))],
     B = (DB.bills || []).filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id),
-    lined = (k) => B.filter((b) => b.line === k).reduce((a, b) => a + billCost(b), 0),
+    lined = (k) => B.reduce((a, b) => a + billLineCost(b, k), 0),
     open = (k) => Math.max(0, amt(k) - lined(k)),
     openSum = keys.reduce((a, k) => a + open(k), 0),
     grossSum = keys.reduce((a, k) => a + amt(k), 0),
     share = (k) => (openSum > 0.005 ? open(k) / openSum : grossSum > 0.005 ? amt(k) / grossSum : 1 === keys.length ? 1 : 0),
     s = keys.includes(key) ? share(key) : 0,
-    unl = B.filter((b) => !b.line),
+    unl = B.filter((b) => !billHasLine(b)),
     // the bills' own cost on the line follows job cost (less rebilled or disputed parts); what they take off the order is
     // their whole amount
     cost = (b) => billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0);
@@ -25786,9 +25786,10 @@ function lineFin(key) {
     // money as that bank line: the job counts it once (the jobFin "fin" layer), so the line does too. Counted
     // twice, 121 State's plumbing line read $19,755 (AMP-311 + check 2205) and the By Line total $102,670 against
     // the job's $97,084 on the same report.
-    bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status && !lineBillIsBankDup(b)),
-    // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
-    billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
+    bills = DB.bills.filter((b) => billOnLine(b, key) && "void" !== b.status && "rejected" !== b.status && !lineBillIsBankDup(b)),
+    // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code); a bill split
+    // over its order's lines puts each line's share here (billLineShares)
+    billsAmt = r2(bills.reduce((a, b) => a + billLineCost(b, key, billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0)), 0)),
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
@@ -26955,7 +26956,7 @@ function analystFindings() {
       -uncat.reduce((a, t) => a + t.amt, 0),
       { view: "bank" },
     );
-  const noline = DB.bills.filter((b) => b.projectId && !b.line && "void" !== b.status);
+  const noline = DB.bills.filter((b) => b.projectId && !billHasLine(b) && "void" !== b.status);
   noline.length &&
     add(
       "low",
@@ -30579,11 +30580,9 @@ function jobFin(p, range) {
     costedBills.forEach((b) => {
       // what the bill charges for PO lines billed back to the client is on its own row, as a reimbursable bank line is
       const rbp = billRebillPart(b);
-      bump(
-        b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
-        "bills",
-        billCost(b) - rbp,
-        "bill:" + b.id,
+      // a bill split over its order's lines puts each part on its line's own code (billCodeShares)
+      billCodeShares(b, b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99").forEach((s) =>
+        bump(s.code, "bills", (billCost(b) - rbp) * s.share, "bill:" + b.id),
       ),
         rbp && bump("RB", "bills", rbp, "bill:" + b.id);
     }),
@@ -34331,6 +34330,57 @@ const billGross = (b) => billTotalBase(b);
 // management view (job cost, the P&L, the WIP) carried subs net of retainage while the GL carried them gross, and
 // the GL then posted the release to 5200 a second time.
 const billCost = (b) => (b && b.retainageRelease ? 0 : billGross(b));
+// The estimate lines a bill's cost sits on, each with its share. A bill split over its order's lines (Enter the Bill on
+// a two-line order: each bill line on its own estimate line, the bill's own line empty) is costed line by line;
+// otherwise the bill's own line takes all of it, as before. Every reader of bill cost by estimate line goes through
+// here (the CoS, 11-06: the split bill's cost reached no estimate line, since each reader read only b.line).
+function billLineShares(b) {
+  if (!b) return [];
+  const L = b.lines || [],
+    keys = new Set(L.map((l) => l.line || b.line || "").filter(Boolean)),
+    tot = L.reduce((a, l) => a + (+l.amount || 0), 0);
+  if (keys.size < 2 && !(keys.size === 1 && !b.line) || !(Math.abs(tot) > 0.005)) return b.line ? [{ line: b.line, share: 1 }] : [];
+  const by = {};
+  L.forEach((l) => {
+    const k = l.line || b.line || "";
+    k && (by[k] = (by[k] || 0) + (+l.amount || 0));
+  });
+  return Object.entries(by).map(([line, a]) => ({ line: line, share: a / tot }));
+}
+// The cost codes a bill's cost sits on, each with its share, the same way: a split bill's lines carry their order lines'
+// codes (lumber 03, drywall 07), so job cost by code puts each part on its own code and the estimate lines under it
+// read it; any other bill is all on its own code (or `dflt`)
+function billCodeShares(b, dflt) {
+  const c0 = (b && b.code) || dflt || "99",
+    L = (b && b.lines) || [],
+    tot = L.reduce((a, l) => a + (+l.amount || 0), 0),
+    by = {};
+  L.forEach((l) => {
+    const k = l.code || c0;
+    by[k] = (by[k] || 0) + (+l.amount || 0);
+  });
+  const K = Object.keys(by);
+  return K.length < 2 || !(Math.abs(tot) > 0.005) ? [{ code: c0, share: 1 }] : K.map((k) => ({ code: k, share: by[k] / tot }));
+}
+// put a bill's amount (or take it off, with a negative amount) on J.byCode by its code shares
+function jobRowsAddBill(J, b, amt, dflt) {
+  billCodeShares(b, dflt).forEach((s) => {
+    let row = J.byCode.find((x) => x.code === s.code);
+    row ||
+      ((row = { code: s.code, name: (COST_CODES.find((x) => x[0] === s.code) || [s.code, "Other"])[1], contract: 0, budget: 0, committed: 0, bills: 0, bank: 0, labor: 0, actual: 0, src: [] }), J.byCode.push(row));
+    const v = r2(amt * s.share);
+    (row.bills = r2(row.bills + v)), (row.actual = r2(row.actual + v));
+    const id = "bill:" + b.id;
+    amt >= 0 ? (row.src = row.src || []).includes(id) || row.src.push(id) : row.src && (row.src = row.src.filter((x) => x !== id));
+  });
+}
+// does the bill carry cost on this estimate line; its cost there (all of `amt`, default its cost, by the line's share)
+const billOnLine = (b, key) => !!key && billLineShares(b).some((x) => x.line === key),
+  billLineCost = (b, key, amt) => {
+    const s = billLineShares(b).find((x) => x.line === key);
+    return s ? r2((null == amt ? billCost(b) : amt) * s.share) : 0;
+  },
+  billHasLine = (b) => billLineShares(b).length > 0;
 function apRetainage(vendorName, projectId) {
   const n = (vendorName || "").toLowerCase(),
     held = DB.bills
@@ -35270,6 +35320,7 @@ jobFin = function (p, range) {
     acc.forEach((b) => {
       const rbp = billRebillPart(b),
         code = rbp >= billCost(b) - 0.005 ? "RB" : b.code || "99";
+      if ("RB" !== code && billCodeShares(b).length > 1) return void jobRowsAddBill(J, b, billCost(b));
       let row = J.byCode.find((x) => x.code === code);
       row ||
         ((row = {
@@ -38846,9 +38897,9 @@ lineFin = function (key) {
           0,
         ) +
         DB.bills
-          .filter((b) => b.line === key && !["void", "rejected"].includes(b.status))
+          .filter((b) => billOnLine(b, key) && !["void", "rejected"].includes(b.status))
           .reduce(
-            (a, b) => a + (b.lines || []).reduce((s, x) => s + (("hr" === (x.unit || "") && +x.qty) || 0), 0),
+            (a, b) => a + (b.lines || []).filter((x) => (x.line || b.line) === key).reduce((s, x) => s + (("hr" === (x.unit || "") && +x.qty) || 0), 0),
             0,
           ),
     );
@@ -58563,14 +58614,14 @@ function clClassify(src, ctx) {
 // a purchase billed back to the client and a bank line that paid a bill left out), so Cost by Line's actual is the
 // line's one number. Labor is added from lineFin by clRows.
 function clCosts(key, ctx) {
-  const lineBills = DB.bills.filter((b) => b.line === key && !["void", "rejected"].includes(b.status)),
+  const lineBills = DB.bills.filter((b) => billOnLine(b, key) && !["void", "rejected"].includes(b.status)),
     out = lineBills.map((b) => ({
       kind: "bill",
       id: b.id,
       date: b.date,
       vendor: b.vendor || "",
       ref: b.number || "",
-      amount: r2(billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0)),
+      amount: billLineCost(b, key, billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0)),
       cls: clClassify({ cat: b.cat, poId: b.poId }, ctx),
       doc: b,
     }));
@@ -63953,7 +64004,7 @@ function rtFor(o) {
       s.ref &&
       "function" == typeof pay3OverArrived &&
       null != pay3OverArrived(s.ref) &&
-      why.push({ role: "owner", kind: "over-arrived", msg: `Billed ${money(s.amount)} where what arrived comes to ${money(pay3ArrivedLeft(s.ref))}: the Owner approves part and disputes the rest` });
+      why.push({ role: "owner", kind: "over-arrived", msg: billTotal(s.ref) > pay3ArrivedLeft(s.ref) + 1 ? `Billed ${money(s.amount)} where what arrived comes to ${money2(pay3ArrivedLeft(s.ref))}: the Owner approves part and disputes the rest` : `A claim with no price is open on its order (${pay3ClaimWords(pay3PO(s.ref).po)}): the Owner approves part and disputes the rest` });
   } catch (e) {}
   // Exceptions only (Alan, 10-26; the 11-05 call before Purchasing deploys): a bill against an order already issued,
   // inside what the order holds, is routine whatever its size (the owner approved the commitment when the order went
@@ -74140,7 +74191,7 @@ function keyUnassigned() {
       !b.ic &&
         ["approved", "paid", "verified", "submitted", "pm-approved"].includes(b.status) &&
         b.projectId &&
-        !b.line &&
+        !billHasLine(b) &&
         out.push({
           kind: "bill",
           id: b.id,
@@ -114282,7 +114333,7 @@ function csOffersForBought(B) {
           }),
         );
   return (
-    (B.bills || []).some((b) => !b.line) &&
+    (B.bills || []).some((b) => !billHasLine(b)) &&
       (B.est || []).length &&
       out.push(
         csOffer({
@@ -124856,8 +124907,7 @@ if ("function" == typeof jobFin) {
       (J.actual = r2(J.actual - amt)),
         (J.billsAmt = r2(J.billsAmt - amt)),
         (J.accrued = r2((J.accrued || 0) - amt));
-      const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
+      jobRowsAddBill(J, b, -amt);
     });
     return jobFinDerive(J, p);
   };
@@ -133678,8 +133728,7 @@ if ("function" == typeof jobFin) {
     dup.forEach((b) => {
       const amt = billCost(b);
       (J.actual = r2(J.actual - amt)), (J.billsAmt = r2(J.billsAmt - amt));
-      const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
+      jobRowsAddBill(J, b, -amt);
     });
     return jobFinDerive(J, p);
   };
@@ -142004,12 +142053,13 @@ fin3JobAdjust(function (J, p, range) {
         ((DB.bills || [])
           .filter((b) => b.projectId === p.id && pay3Short(b) && BILL_COSTED.includes(b.status))
           .forEach((b) => {
-            const k = b.code || "99",
-              h = r2(b.short.held);
-            within(b.date, R) && ((d -= h), (byCode[k] = (byCode[k] || 0) - h)),
-              "accepted" === b.short.state &&
-                within(b.short.resolvedOn, R) &&
-                ((d += h), (byCode[k] = (byCode[k] || 0) + h));
+            const h = r2(b.short.held);
+            billCodeShares(b).forEach(({ code: k, share: sh }) => {
+              within(b.date, R) && ((d -= h * sh), (byCode[k] = (byCode[k] || 0) - h * sh)),
+                "accepted" === b.short.state &&
+                  within(b.short.resolvedOn, R) &&
+                  ((d += h * sh), (byCode[k] = (byCode[k] || 0) + h * sh));
+            });
           }),
         !d)
       )
@@ -170231,16 +170281,18 @@ function jobFinEacLines(J, p) {
       /\bdeposit\b/i.test([b.notes || "", ...(b.lines || []).map((l) => l.desc || "")].join(" ")),
     dup = (b) => "function" == typeof fin2Dup && fin2Dup(b);
   bills.forEach((b) => {
-    const x = b.line && byKey[b.line];
-    if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
+    const S = billLineShares(b).filter((s) => byKey[s.line]);
+    if (!S.length || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
       return;
     let a = billCost(b) - billRebillPart(b);
     "function" == typeof pay3Short &&
       pay3Short(b) &&
       !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
       (a -= +b.short.held || 0),
-      (x.tagA += a),
-      isDeposit(b) && (x.deposit += a);
+      S.forEach((s) => {
+        const x = byKey[s.line];
+        (x.tagA += a * s.share), isDeposit(b) && (x.deposit += a * s.share);
+      });
   }),
     (DB.txns || []).forEach((t) => {
       const x = t.line && byKey[t.line];
@@ -182335,7 +182387,7 @@ function cmVendorMailProposals(c, P) {
       memo = ((c.subject || "") + " " + all).match(/credit memo\s*#?\s*([A-Z0-9][\w-]*\d[\w-]*)/i);
     if (amt && cb) {
       const held = cb.short && "open" === cb.short.state ? +cb.short.held || 0 : 0;
-      push("credit", `${who} credits ${money(amt)} against ${cb.number}${cpo ? ` on ${cpo.number}` : ""}${cjob ? ` (${String(cjob.project.name).replace(/ —.*$/, "")})` : ""}${held ? ` — the ${money(held)} in dispute on it` : ""}${memo ? ` · credit memo ${memo[1]}` : ""}`, {
+      push("credit", `${who} credits ${money(amt)} against ${cb.number}${cpo ? ` on ${cpo.number}` : ""}${cjob ? ` (${String(cjob.project.name).replace(/ —.*$/, "")})` : ""}${held ? ` — the ${money(held)} in dispute on it` : ` — it arrived before the dispute: it waits until the Owner approves what arrived on ${cb.number} and disputes the rest, then offers to apply`}${memo ? ` · credit memo ${memo[1]}` : " · no memo number on it"}`, {
         amount: amt,
         billId: cb.id,
         poId: cpo ? cpo.id : "",
@@ -182541,19 +182593,86 @@ document.addEventListener("click", (e) => {
   const [pid, rid] = b.dataset.drvdrop.split(":");
   drvDelivered(pid, rid);
 });
-function cmApplyBillCredit(c, p, by) {
-  const b = (DB.bills || []).find((x) => x.id === p.billId),
-    amt = r2(+p.amount || 0);
-  if (!b) return "the bill it credits is no longer on file";
-  const s = b.short && "open" === b.short.state ? b.short : null,
-    memo = p.memo || `credit ${fmt(today())}`;
-  if (!s) return `${b.number} has nothing in dispute yet: approve what arrived and dispute the rest first, then apply the credit`;
-  if (amt < (+s.held || 0) - 1) return `${money(amt)} is less than the ${money(s.held)} in dispute on ${b.number}: the Owner decides the rest`;
-  if (!pay3Resolve(b, "credit", memo, { fromMemo: !0 })) return "not recorded";
+// A vendor's credit memo against one of their bills, applied. Both readings of a memo come here: the bill named on it,
+// and the vendor's one open dispute. The rules (the CoS, 11-06):
+// - who: the Owner, the controller, or the coordinator who claimed it (the 11-04 defaults for a vendor credit);
+// - the memo's own number, so it can be found again;
+// - never more than is held in dispute: what is over becomes a vendor credit on the returns ledger (Owed Back), for a
+//   bank line or their next bill to take, never lost;
+// - a bill already paid, the held part included, is not reduced: the credit is a refund due on the same ledger, to
+//   match a bank line;
+// - claims on the order close up to the memo's amount only, matched by line and amount (the backordered boards' claim
+//   stays open on a memo for the cracked tile);
+// - an audit row on every apply.
+// A memo that cannot apply stays unapplied and says why. Returns { ok, msg }.
+function pay3MemoApply(c, b, amount, memoNo) {
+  const by = (currentUser() || {}).name || role(),
+    amt = r2(+amount || 0),
+    memo = String(memoNo || "").trim();
+  if (!b) return { ok: !1, msg: "the bill it credits is no longer on file" };
+  if (!["owner", "controller", "coord"].includes(role())) return { ok: !1, msg: "The Owner, the controller or the coordinator who claimed it records a vendor's credit memo" };
+  if (!memo || !/\d/.test(memo)) return { ok: !1, msg: `The memo's own number is not on it: ask ${b.vendor} for it, so the credit can be found again` };
+  if (!(amt > 0)) return { ok: !1, msg: "The memo's amount is not on it" };
+  const s = b.short && "open" === b.short.state ? b.short : null;
+  if (!s)
+    return {
+      ok: !1,
+      wait: !0,
+      msg: `It arrived before the dispute: nothing is held in dispute on ${b.number} yet. It waits here, and offers to apply once the Owner approves what arrived and disputes the rest`,
+    };
+  const held = r2(+s.held || 0);
+  if (amt < held - 1) return { ok: !1, msg: `${money2(amt)} is less than the ${money2(held)} in dispute on ${b.number}: the Owner decides the rest on the bill` };
   const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
-    open = po ? (po.issues || []).filter((i) => i.claim && "open" === (i.status || "open")) : [];
-  open.forEach((i) => "function" == typeof puClaimClose && puClaimClose(po, i, { how: "credit", amount: amt, why: `credit memo ${memo} on ${b.number}` }));
-  return `credit memo ${memo}: ${money(amt)} credited on ${b.number}${po ? ` (${po.number})` : ""}; the dispute is closed${open.length ? ` and ${open.length} claim${1 === open.length ? "" : "s"} on the order` : ""}`;
+    paidHeld = !!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005),
+    over = r2(Math.max(0, amt - held));
+  // the vendor credit on the returns ledger: what is over the dispute, or all of it on a paid bill (a refund due)
+  const owed = (v, why) => {
+    if (!(v > 0.005) || "function" != typeof cmApplyCredit) return "";
+    const vd = (DB.vendors || []).find((x) => x.name === b.vendor);
+    cmApplyCredit(c || { id: "", date: appNowIso(), from: { name: b.vendor } }, { vendorId: vd ? vd.id : "", amount: v, projectId: b.projectId || (po && po.projectId) || "", item: { name: `credit memo ${memo} on ${b.number}`, qty: 1, unit: "ea" }, orderRef: memo });
+    const r = retList()[0];
+    r && ((r.fromCredit = Object.assign(r.fromCredit || {}, { billId: b.id, memo: memo, why: why })), (r.expect = "refund"));
+    return r ? r.id : "";
+  };
+  if (paidHeld) {
+    const rid = owed(amt, `${b.number} was already paid`);
+    if (!pay3Resolve(b, "credit", memo, { fromMemo: !0 })) return { ok: !1, msg: "not recorded" };
+    s.refundRet = rid;
+    try {
+      audit("bill", b.id, "credit-memo-applied", { held: held }, { amount: amt, memo: memo, refundDue: amt, retId: rid }, `credit memo ${memo}: ${b.number} was paid, so ${money2(amt)} is a refund due from ${b.vendor}`);
+    } catch (e) {}
+    return { ok: !0, msg: `${b.number} was already paid: credit memo ${memo}'s ${money2(amt)} is a refund due from ${b.vendor} under Owed Back, matched when it reaches the bank` };
+  }
+  if (!pay3Resolve(b, "credit", memo, { fromMemo: !0 })) return { ok: !1, msg: "not recorded" };
+  const rid = over ? owed(over, `credit memo ${memo} credits ${money2(over)} more than the ${money2(held)} in dispute on ${b.number}`) : "";
+  over && (s.creditOver = { amount: over, retId: rid });
+  // the claims the memo covers: on the bill's own order lines first, the nearest amount first, each only while the memo
+  // has that much left; a claim with no price is never closed by a guess
+  const closed = [];
+  if (po) {
+    const mine = new Set((b.lines || []).map((l) => l.poLineId).filter(Boolean)),
+      open = (po.issues || []).filter((i) => i.claim && "open" === (i.status || "open") && +i.amount > 0),
+      order = open.slice().sort((x, y) => (mine.has(y.lineId) ? 1 : 0) - (mine.has(x.lineId) ? 1 : 0) || Math.abs(+x.amount - amt) - Math.abs(+y.amount - amt));
+    let left = amt;
+    order.forEach((i) => {
+      if (+i.amount > left + 1) return;
+      left = r2(left - Math.min(left, r2(+i.amount * (1 + (+po.tax || 0) / 100))));
+      "function" == typeof puClaimClose && puClaimClose(po, i, { how: "credit", amount: r2(+i.amount), why: `credit memo ${memo} on ${b.number}` });
+      closed.push(i);
+    });
+  }
+  try {
+    audit("bill", b.id, "credit-memo-applied", { held: held }, { amount: amt, memo: memo, over: over, retId: rid || "", claims: closed.map((i) => `${i.type} ${i.qty} ${i.unit || ""}`.trim()) }, `credit memo ${memo} applied by ${by}`);
+  } catch (e) {}
+  const stillOpen = po ? (po.issues || []).filter((i) => i.claim && "open" === (i.status || "open")).length : 0;
+  return {
+    ok: !0,
+    msg: `credit memo ${memo}: ${money2(held)} credited on ${b.number}${po ? ` (${po.number})` : ""}; the dispute is closed${closed.length ? ` and ${closed.length} claim${1 === closed.length ? "" : "s"} on the order` : ""}${stillOpen ? `; ${stillOpen} claim${1 === stillOpen ? "" : "s"} still open` : ""}${over ? `; the ${money2(over)} over it is a vendor credit under Owed Back` : ""}`,
+  };
+}
+function cmApplyBillCredit(c, p, by) {
+  const r = pay3MemoApply(c, (DB.bills || []).find((x) => x.id === p.billId), p.amount, p.memo);
+  return r.ok ? r.msg : ((p.waits = r.msg), null);
 }
 function cmApplyCredit(c, p, by) {
   if (p && p.billId) return cmApplyBillCredit(c, p, by);
@@ -182627,7 +182746,9 @@ function cmApplyCredit(c, p, by) {
     const by = (currentUser() || {}).name || role();
     if (p && ["eta", "pickup", "credit"].includes(p.kind)) {
       const did = "eta" === p.kind ? cmApplyEta(c, p, by) : "pickup" === p.kind ? cmApplyPickup(c, p, by) : cmApplyCredit(c, p, by);
-      (p.applied = did), (p.appliedAt = appNowIso()), (p.by = by);
+      // a credit memo that could not apply stays in To Decide, saying why (it never reads as done)
+      if (null == did) return save(), toast(p.waits || "Not applied"), "";
+      (p.applied = did), (p.appliedAt = appNowIso()), (p.by = by), delete p.waits;
       try {
         audit("comm", c.id, "apply-" + p.kind, "", did, "");
       } catch (e) {}
@@ -191626,7 +191747,7 @@ function lkDisputeFor(c, low, amt) {
             const memo = (all.match(/\b(?:credit memo|cm)[\s#:-]*([A-Z0-9][A-Z0-9-]{2,})/i) || [])[1] || "",
               keep = P.filter((x) => "credit" !== x.kind && !("statement" === x.kind && x.billId === b.id) && !("bill" === x.kind && x.amount && Math.abs(+x.amount - amt) < 1));
             P.length = 0;
-            P.push(...keep, { id: uid("cp"), kind: "dispute-credit", on: !0, billId: b.id, amount: amt || +b.short.held, memo: memo || c.subject || "credit memo", vendorName: b.vendor, projectId: b.projectId || "", summary: `${b.vendor} credits ${money(amt || b.short.held)} against ${b.number}${(() => { const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId), j = (DB.projects || []).find((x) => x.id === (b.projectId || (po && po.projectId))); return `${po ? ` on ${po.number}` : ""}${j ? ` (${String(j.project.name).replace(/ —.*$/, "")})` : ""}`; })()}${memo ? ` (credit memo ${memo})` : ""}: the ${money(b.short.held)} held in dispute closes` });
+            P.push(...keep, { id: uid("cp"), kind: "dispute-credit", on: !0, billId: b.id, amount: amt || +b.short.held, memo: memo, vendorName: b.vendor, projectId: b.projectId || "", summary: `${b.vendor} credits ${money(amt || b.short.held)} against ${b.number}${(() => { const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId), j = (DB.projects || []).find((x) => x.id === (b.projectId || (po && po.projectId))); return `${po ? ` on ${po.number}` : ""}${j ? ` (${String(j.project.name).replace(/ —.*$/, "")})` : ""}`; })()}${memo ? ` (credit memo ${memo})` : ""}: the ${money(b.short.held)} held in dispute closes` });
           }
         }
       }
@@ -191641,16 +191762,11 @@ function lkDisputeFor(c, low, amt) {
   cmApply = function (c, p) {
     if (p && "dispute-credit" === p.kind) {
       const b = (DB.bills || []).find((x) => x.id === p.billId);
-      if (!b || !b.short || "open" !== b.short.state) return (p.applied = "the dispute is already settled"), save(), p.applied;
-      if (!["owner", "controller", "coord"].includes(role())) return toast("The Owner, the controller or the coordinator who claimed it records the vendor's credit memo"), "";
-      const amt = +p.amount || 0;
-      if (Math.abs(amt - +b.short.held) >= 1) return toast(`The memo credits ${money(amt)}; ${money(b.short.held)} is held in dispute — record it on the bill`), "";
-      const ok = pay3Resolve(b, "credit", p.memo || "credit memo", { fromMemo: !0 });
-      if (ok) {
-        const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId);
-        po && (po.issues || []).filter((i) => i.claim && "open" === (i.status || "open")).forEach((i) => "function" == typeof puClaimClose && puClaimClose(po, i, { how: "credit", amount: amt, why: `credit memo ${p.memo || ""} on ${b.number}`.trim() }));
-      }
-      return ok ? ((p.applied = `${b.number}: ${money(b.short.held)} credited (${p.memo})`), (p.appliedAt = appNowIso()), (p.by = (currentUser() || {}).name || role()), save(), p.applied) : "";
+      // already credited by this memo (the other reading of it): done; otherwise one apply, one set of rules
+      if (b && b.short && "credited" === b.short.state && b.short.creditMemo && b.short.creditMemo === p.memo) return (p.applied = `${b.number}: credited (${p.memo})`), save(), p.applied;
+      const r = pay3MemoApply(c, b, p.amount, p.memo);
+      if (!r.ok) return (p.waits = r.msg), save(), toast(r.msg), "";
+      return (p.applied = r.msg), (p.appliedAt = appNowIso()), (p.by = (currentUser() || {}).name || role()), delete p.waits, save(), p.applied;
     }
     return base.apply(this, arguments);
   };
@@ -191675,8 +191791,11 @@ function lkDisputeFor(c, low, amt) {
           if (lnHandDone(key) || out.some((x) => x.key === key)) return;
           // the vendor's credit memo is in: the dispute's own row records it (one approval)
           let memo = null;
-          (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => !memo && "dispute-credit" === pr.kind && pr.billId === b.id && !pr.applied && !1 !== pr.on && (memo = { c: c, pr: pr })));
+          (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => !memo && ["dispute-credit", "credit"].includes(pr.kind) && pr.billId === b.id && !pr.applied && !1 !== pr.on && (memo = { c: c, pr: pr })));
           // (one row: the reader's own row for the memo when Needs Your Hand already holds it)
+          // a memo that came before the dispute (read as a credit on the bill) is that same mail row: it now offers to apply
+          const mr = memo && "credit" === memo.pr.kind && out.find((x) => "mail" === x.kind && x.commId === memo.c.id && "credit" === x.pkind);
+          if (mr) return void (mr.title = `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now`);
           if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
           if (memo)
             return void out.push({
@@ -191684,7 +191803,7 @@ function lkDisputeFor(c, low, amt) {
               route: "owner",
               kind: "dispute",
               pkind: "dispute-credit",
-              title: memo.pr.summary,
+              title: "credit" === memo.pr.kind ? `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now` : memo.pr.summary,
               why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
               amount: +b.short.held,
               verb: "Approve",
@@ -194810,7 +194929,7 @@ function ovsAll() {
           // the records jobFin counts: entered bills, and bank lines that are not a bill's payment
           const PB = (DB.bills || []).filter((b) => b.projectId === p.id),
             src = []
-              .concat(PB.filter((b) => b.line === x.key && (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status))).map((b) => "bill:" + b.id))
+              .concat(PB.filter((b) => billOnLine(b, x.key) && (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status))).map((b) => "bill:" + b.id))
               .concat((DB.txns || []).filter((t) => t.projectId === p.id && t.line === x.key && +t.amt < 0 && isJobCat(t.cat) && !txnViaBill(t, PB)).map((t) => "txn:" + t.id));
           if (!src.length) return;
           const over = r2(x.actual - x.budget);

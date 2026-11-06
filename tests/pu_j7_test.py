@@ -127,15 +127,28 @@ async def s_lines(p, c):
     b, pg, errs = await open_app(p)
     try:
         await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(SETUP)
+        # the order's lines carry their estimate lines' cost codes, as an order bought off the estimate does
+        await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_j7'); po.lines.forEach(l => { const f = findLine(l.line); l.code = f ? lineCode(f.line, f.doc) : ''; }); save(); }")
         await pg.evaluate("() => { const po = DB.pos.find(x => x.id === 'po_j7'); vbReview({ vendor: 'Ferguson', number: 'GOW-5490', date: today(), due: today(), amount: 3910, projectId: 'p121', code: '', line: '', poId: po.id, txnId: '', src: 'mail' }); }")
         await pg.wait_for_timeout(400)
         m = await modal(pg)
         c.ok(m and 'two lines' in m['text'].lower(), f"lines: the sheet says the order's two lines keep their own estimate lines ({m and m['text'][:300]!r})")
+        ACT = """keys => { const p = DB.projects.find(x => x.id === 'p121'), J = jobFin(p), E = J.eacLines || jobFinEacLines(J, p) || [];
+          return keys.map(k => ({ fin: (lineFin(k) || {}).actual || 0, eac: ((E.find(x => x.key === k) || {}).actual) || 0, codes: J.byCode.map(r => [r.code, r.bills]) })); }"""
+        before = await pg.evaluate(ACT, S0['L'])   # before the bill is entered (an entered bill is accrued cost)
         if m:
             await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(600)
             r = await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'GOW-5490'); return b ? b.lines.map(l => [l.poLineId, l.line, l.amount]) : null; }")
             c.ok(r and len(r) == 2 and r[0][1] == S0['L'][0] and r[1][1] == S0['L'][1] and abs(sum(x[2] for x in r) - 3910) < 0.01 and r[0][0] == 'j7a',
                  f'lines: the bill has the two lines, each on its own estimate line, adding to $3,910 ({r}; {S0["L"]})')
+            # each estimate line's actual takes its own bill line, by every reader of cost by line (the CoS, 11-06: the
+            # split bill's cost reached no estimate line, since lineFin and jobFinEacLines read only the bill's own line)
+            await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'GOW-5490'); b.status = 'approved'; b.approvedAt = today(); save(); }")
+            after = await pg.evaluate(ACT, S0['L'])
+            amts = [x[2] for x in r] if r else [0, 0]
+            d = [(round(after[i]['fin'] - before[i]['fin'], 2), round(after[i]['eac'] - before[i]['eac'], 2)) for i in range(2)]
+            c.ok(all(abs(d[i][0] - amts[i]) < 0.02 for i in range(2)), f"lines: each estimate line's actual (Cost by Line) rises by its own bill line ({d} vs {amts})")
+            c.ok(all(abs(d[i][1] - amts[i]) < 0.02 for i in range(2)), f"lines: each estimate line's actual in the job's lines (jobFinEacLines) rises by its own bill line ({d} vs {amts}; codes {after[0]['codes']})")
         c.ok(not errs, f'lines: page errors {errs[:2]}')
     finally:
         await b.close()
@@ -230,7 +243,81 @@ async def s_stmt(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines), ('lot', s_lot), ('phone', s_phone), ('stmt', s_stmt)]
+# a credit memo mail from a vendor against one of their bills: (id, po number, bill number, amount text, memo number or '')
+MAIL = """([id, po, bill, amt, memo, vendor, email]) => { const c = { id: id, msgId: 'm_' + id, threadId: 't_' + id, channel: 'email', direction: 'in', owner: paMe().id,
+  subject: (memo ? 'Credit memo ' + memo : 'Credit') + ' for ' + po, from: { name: vendor, email: email }, to: [{ name: 'Chen Biron', email: 'chen@smartdesign.nyc' }], cc: [], date: appNowIso(),
+  source: 'mail', status: 'new', links: [], route: null,
+  text: (memo ? 'Credit memo ' + memo : 'A credit') + ' for ' + po + ': ' + amt + ' credited against invoice ' + bill + '. Please take it off what you pay us.', attachments: [] };
+  DB.comms = DB.comms || []; DB.comms.push(c); c.proposals = cmRead(c) || []; save();
+  const p = c.proposals.find(x => ['credit', 'dispute-credit'].includes(x.kind)); return p ? { kind: p.kind, memo: p.memo || '', text: p.summary || p.title || p.t || '' } : null; }"""
+APPLY = """id => { const c = DB.comms.find(x => x.id === id), p = c.proposals.find(x => ['credit', 'dispute-credit'].includes(x.kind)); const did = cmApply(c, p);
+  return { did: did || '', applied: p.applied || '', waits: p.waits || '' }; }"""
+BILL = """n => { const b = DB.bills.find(x => x.number === n), po = DB.pos.find(x => x.id === b.poId);
+  return { state: (b.short || {}).state || '', held: (b.short || {}).held || 0, claims: (po.issues || []).map(i => [i.type, i.lineId, i.status]),
+    aud: DB.audit.filter(a => a.refId === b.id && a.action === 'credit-memo-applied').map(a => a.after), owed: retList().filter(r => (r.fromCredit || {}).billId === b.id).map(r => [r.unitCost * r.qty, r.expect]) }; }"""
+
+async def s_memo2(p, c):
+    """the CoS's credit memo rules (11-06): who may apply it, its number, never more than the dispute (the rest to Owed
+    Back), a paid bill's credit is a refund due, a memo that arrived first waits for the dispute and then offers to
+    apply, claims close only up to the memo (the backordered boards stay open), an audit row, the Owner's brief"""
+    b, pg, errs = await open_app(p)
+    try:
+        await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(SETUP)
+        # the drywall order: 6 boards short (backordered) on the drywall line, and 2 studs cracked on the lumber line
+        await pg.evaluate("""() => { const po = DB.pos.find(x => x.id === 'po_j7');
+          po.issues.push({ claim: true, status: 'open', type: 'damaged', lineId: 'j7a', item: po.lines[0].item, qty: 2, unit: 'ea', amount: 13, note: '2 studs cracked' }); save(); }""")
+        # 1. a memo that arrives before the dispute: read as a credit on GOW-5482, says it waits, and does not apply
+        r = await pg.evaluate(MAIL, ['cm_a', S0['po'], 'GOW-5482', '$14.15', 'CM-4410', 'Ferguson', 'ar@ferguson.example'])
+        c.ok(r and 'before the dispute' in r['text'], f'memo2: a memo before the dispute says it waits for it ({r})')
+        a = await pg.evaluate(APPLY, 'cm_a')
+        c.ok(not a['applied'] and 'before the dispute' in a['waits'], f'memo2: applying it before the dispute leaves it unapplied, saying why ({a})')
+        # the Owner approves what arrived and disputes the 2 cracked studs (with tax); the waiting memo now offers to apply
+        await sign_in(pg, 'u_owner')
+        held = await pg.evaluate("t => { const b = DB.bills.find(x => x.number === 'GOW-5482'); pay3ShortPay(b, r2(billTotal(b) - 13 * (1 + t / 100)), '2 studs cracked, claimed'); return (b.short || {}).held; }", S0['tax'][0])
+        row = await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'GOW-5482'); return (nyhRowsAll() || []).filter(x => x.key === 'lk:disp:' + b.id || x.commId === 'cm_a').map(x => [x.title, x.pkind]); }")
+        c.ok(row and 'applies now' in row[0][0], f'memo2: once the dispute is open, the waiting memo offers to apply ({row}, held {held})')
+        # 2. who: the PM may not apply it; it stays unapplied
+        await sign_in(pg, 'u_alan')
+        a = await pg.evaluate(APPLY, 'cm_a')
+        c.ok(not a['applied'] and 'Owner' in a['waits'], f'memo2: the PM cannot apply a vendor credit memo; it stays unapplied ({a})')
+        # 3. the coordinator applies it: the studs' claim closes, the backordered boards' claim stays open, an audit row
+        await sign_in(pg, 'u_chen')
+        a = await pg.evaluate(APPLY, 'cm_a')
+        B = await pg.evaluate(BILL, 'GOW-5482')
+        c.ok(a['applied'] and B['state'] == 'credited', f'memo2: the coordinator applies it ({a})')
+        c.ok(['damaged', 'j7a', 'closed'] in B['claims'] and ['short', 'j7b', 'open'] in B['claims'], f"memo2: the memo closes the cracked studs' claim only; the backordered boards' claim stays open ({B['claims']})")
+        c.ok(len(B['aud']) == 1 and B['aud'][0]['memo'] == 'CM-4410', f"memo2: one audit row for the apply ({B['aud']})")
+        # 4. more than is held: the dispute closes and the rest is a vendor credit under Owed Back, not lost
+        await sign_in(pg, 'u_owner')
+        await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'NEM-5851'); pay3ShortPay(b, r2(billTotal(b) - 100), 'test: 100 disputed'); }")
+        await sign_in(pg, 'u_chen')
+        r = await pg.evaluate(MAIL, ['cm_b', S0['tile'], 'NEM-5851', '$150.00', 'CRE-9001', 'Nemo Tile', 'ar@nemotile.example'])
+        a = await pg.evaluate(APPLY, 'cm_b')
+        B = await pg.evaluate(BILL, 'NEM-5851')
+        c.ok(a['applied'] and B['state'] == 'credited' and [50, 'refund'] in [[round(x[0], 2), x[1]] for x in B['owed']], f"memo2: $150 against $100 held: the dispute closes and $50 is a vendor credit under Owed Back ({a}; {B['owed']})")
+        # 5. the memo's number is required
+        await pg.evaluate("() => { DB.bills.push({ id: 'b_nono', number: 'FER-7781', vendor: 'Ferguson', poId: 'po_j7', projectId: 'p121', date: today(), due: today(), status: 'submitted', createdBy: 'Chen Biron', entityId: 'ent1', cat: 'materials', lines: [{ id: uid('bl'), desc: 'x', amount: 500 }], approvals: [] }); save(); }")
+        await sign_in(pg, 'u_owner')
+        await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'b_nono'); pay3ShortPay(b, 400, 'test: 100 disputed'); }")
+        await sign_in(pg, 'u_chen')
+        await pg.evaluate(MAIL, ['cm_c', S0['po'], 'FER-7781', '$100.00', '', 'Ferguson', 'ar@ferguson.example'])
+        a = await pg.evaluate(APPLY, 'cm_c')
+        c.ok(not a['applied'] and 'number' in a['waits'], f"memo2: a memo with no number of its own is not applied ({a})")
+        # 6. a paid bill: the credit is a refund due under Owed Back, to match a bank line
+        await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'b_nono'); b.short.paid = true; save(); }")
+        await pg.evaluate(MAIL, ['cm_d', S0['po'], 'FER-7781', '$100.00', 'CM-5512', 'Ferguson', 'ar@ferguson.example'])
+        a = await pg.evaluate(APPLY, 'cm_d')
+        B = await pg.evaluate(BILL, 'FER-7781')
+        c.ok(a['applied'] and 'refund due' in a['applied'] and [100, 'refund'] in [[round(x[0], 2), x[1]] for x in B['owed']], f"memo2: on a paid bill the credit is a refund due under Owed Back ({a}; {B['owed']})")
+        # 7. the Owner's brief shows the credits applied
+        await sign_in(pg, 'u_owner')
+        t = await pg.evaluate("() => (paBriefModel(true).today || []).filter(x => x.k === 'Vendor Credit').map(x => x.title)")
+        c.ok(any('GOW-5482' in x for x in t) and any('NEM-5851' in x for x in t), f"memo2: the Owner's brief lists the vendor credits applied ({t})")
+        c.ok(not errs, f'memo2: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+SECTIONS = [('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines), ('lot', s_lot), ('phone', s_phone), ('stmt', s_stmt), ('memo2', s_memo2)]
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default=''); a = ap.parse_args()
     want = {x.strip() for x in a.section.split(',') if x.strip()}

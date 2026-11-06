@@ -829,7 +829,7 @@ function jpNoLineDetail(l) {
     out = [],
     live = (b) => !["void", "rejected"].includes(b.status);
   (DB.bills || [])
-    .filter((b) => b.projectId === p.id && !b.line && live(b))
+    .filter((b) => b.projectId === p.id && !("function" == typeof billHasLine ? billHasLine(b) : b.line) && live(b))
     .forEach((b) => out.push([`${b.vendor || "Bill"}${b.number ? " " + b.number : ""} · ${fmt(b.date)}`, money("function" == typeof billCost ? billCost(b) : +b.amount || 0)]));
   (DB.txns || [])
     .filter((t) => t.projectId === p.id && !t.line && !t.billId && +t.amt < 0)
