@@ -1570,6 +1570,12 @@ async def s10_polinks(C):
     await C.fill(f"#mbm [data-ctpv='{tile_id}']", 'Arcadia Tile Supply')
     n0 = await C.js("() => DB.pos.length")
     await C.modal_ok(900)
+    # the one budget test (lane P2, 11-05, the field expert's ask: actual plus committed against the line, not committed
+    # alone): the tile line has $3,800 spent and $2,850 on order of its $6,800, so $640 more is over and is confirmed
+    cf = await C.modal()
+    if cf and cf['title'] == 'Please Confirm':
+        C.ok('over budget' in (cf.get('text') or '') or 'over the' in (cf.get('text') or ''), 'the order sheet says the tile line goes over budget, counting what is spent as well as what is on order', cf)
+        await C.modal_ok(900)
     po = await C.js("n0 => { const po = DB.pos.slice(n0)[0]; return po && {id: po.id, number: po.number, status: po.status, vendor: po.vendor, lines: po.lines.map(l => ({id: l.id, item: l.item, line: l.line || '', code: l.code || ''}))}; }", n0)
     C.ok(po and po['lines'] and po['lines'][0]['line'] == tile_key, 'tick the tile line > Create the Purchase Orders: the PO line carries its estimate line from the start', po)
     C.t(f"tick \"Tile – primary bath\", 1 ls at $640, Arcadia Tile Supply > Create the Purchase Orders → {po and po['number']} ({await C.toast()})")
