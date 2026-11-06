@@ -184067,17 +184067,20 @@ function rfqFromLines(pid, keys, opts) {
 // "invoice:...", "sel:...") or { key, materialId } for a Buy Board material on a line (the request's line is the
 // material, linked to the line, never the whole lump-sum line). opts: { pid, sub, category, title }.
 // What a request line is measured against, said the way the leveling says it: a sub's bid against the line's whole
-// budget; a material against what is left on the line (the commitment, when the purchasing lane has it), else the
-// line's material portion, else no budget (never the whole line as if it were material).
+// budget; a material against the line's material portion, else no budget (never the whole line as if it were
+// material). Beside it, what is left on the line (lane P2's lineCommitment: actual, committed and drafted), so the
+// person sees a line already used up before asking for more.
 function rfqSheetBudget(s, sub) {
-  if (!s) return { budget: null, word: "no estimate line: link one" };
-  if (sub && null != s.budgetWhole) return { budget: s.budgetWhole, word: "the line's budget" };
+  if (!s) return { budget: null, word: "no estimate line: link one", left: null };
+  let left = null;
   try {
     const c = "selection" !== s.kind && "function" == typeof lineCommitment ? lineCommitment(s.key) : null;
-    if (c && null != c.left) return { budget: +c.left, word: "left on the line" };
+    c && null != c.left && (left = +c.left);
   } catch (e) {}
-  return null != s.budget ? { budget: s.budget, word: "material budget" } : { budget: null, word: RFQ_NO_MAT };
+  if (sub && null != s.budgetWhole) return { budget: s.budgetWhole, word: "the line's budget", left: left };
+  return null != s.budget ? { budget: s.budget, word: "material budget", left: left } : { budget: null, word: RFQ_NO_MAT, left: left };
 }
+const rfqLeftWords = (c) => (null != c.left ? ` · ${money(c.left)} left on the line` : "");
 // The rows the sheet can quote: the Buy Board materials it was opened with, then every line of the job.
 function rfqSheetCands(pid, items) {
   const p = (DB.projects || []).find((x) => x.id === pid);
@@ -184093,11 +184096,11 @@ function rfqSheetCands(pid, items) {
     const s = S0.find((x) => x.key === (o.key || m.line)) || null,
       qm = String(m.qty || "").match(/^\s*(\d+(?:\.\d+)?)\s*([a-z][a-z. ]*)?/i),
       B = rfqSheetBudget(s, isSub(m.name, ""));
-    out.push({ ck: "m:" + m.id, key: s ? s.key : "", materialId: m.id, item: m.name, spec: m.notes || "", qty: qm ? +qm[1] : 1, unit: qm && qm[2] ? qm[2].trim() : "ea", doc: s ? `${s.docNo || "Selection"} · ${s.item}` : "No estimate line: link one", budget: B.budget, word: B.word, code: s ? s.code : "", src: s, coarse: !1, framing: !1 });
+    out.push({ ck: "m:" + m.id, key: s ? s.key : "", materialId: m.id, item: m.name, spec: m.notes || "", qty: qm ? +qm[1] : 1, unit: qm && qm[2] ? qm[2].trim() : "ea", doc: s ? `${s.docNo || "Selection"} · ${s.item}` : "No estimate line: link one", budget: B.budget, word: B.word, left: B.left, code: s ? s.code : "", src: s, coarse: !1, framing: !1 });
   });
   S0.forEach((s) => {
     const B = rfqSheetBudget(s, isSub(s.item, s.spec));
-    out.push({ ck: "k:" + s.key, key: s.key, materialId: "", item: s.item, spec: s.spec || "", qty: s.qty, unit: s.unit, doc: `${s.docNo || "Selection"} · ${s.qty} ${s.unit}`, budget: B.budget, word: B.word, code: s.code, src: s, coarse: s.coarse, framing: s.framing });
+    out.push({ ck: "k:" + s.key, key: s.key, materialId: "", item: s.item, spec: s.spec || "", qty: s.qty, unit: s.unit, doc: `${s.docNo || "Selection"} · ${s.qty} ${s.unit}`, budget: B.budget, word: B.word, left: B.left, code: s.code, src: s, coarse: s.coarse, framing: s.framing });
   });
   return out;
 }
@@ -184162,7 +184165,7 @@ function rfqStartFromLines(items, opts) {
     };
   // ---- the parts of the sheet; each redraws on its own so a tick never moves what is above it
   const pickRow = (c) =>
-      `<label class="rfq-pick"><input type="checkbox" data-rsp="${esc(c.ck)}" ${st.on.includes(c.ck) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(c.item)}</b><span class="small muted" data-nocase>${esc(c.doc)} · ${null != c.budget ? `${esc(c.word)} ${money(c.budget)}` : esc(c.word)}${c.coarse && c.framing ? " · a lump sum: I can propose a material list" : ""}${c.key && rfqOpenOnLine(c.key).length ? ` · ${rfqOpenOnLine(c.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`,
+      `<label class="rfq-pick"><input type="checkbox" data-rsp="${esc(c.ck)}" ${st.on.includes(c.ck) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(c.item)}</b><span class="small muted" data-nocase>${esc(c.doc)} · ${null != c.budget ? `${esc(c.word)} ${money(c.budget)}` : esc(c.word)}${rfqLeftWords(c)}${c.coarse && c.framing ? " · a lump sum: I can propose a material list" : ""}${c.key && rfqOpenOnLine(c.key).length ? ` · ${rfqOpenOnLine(c.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`,
     pickHtml = () => {
       const on = st.cands.filter((c) => st.on.includes(c.ck) || c.materialId),
         off = st.cands.filter((c) => !on.includes(c));
@@ -184176,7 +184179,7 @@ function rfqStartFromLines(items, opts) {
         const c = cand(l.ck),
           lump = c && c.coarse && c.framing && !st.bd[c.ck] && tk.T.lines.length > 0,
           first = st.bd[l.ck] && l.id === `${l.ck}#0`;
-        return `${first ? `<div class="note small" data-nocase style="margin:0 0 8px"><b>${esc(c.item)}: a material list from the takeoff (${esc(tk.Rm.scope)}).</b> Assumed: ${esc(Object.entries(tk.T.assumptions).map(([k, v]) => `${k} ${v}`).join(", "))}. <button type="button" class="btn sm" data-rsbdx="${esc(l.ck)}">Keep the Line as Is</button></div>` : ""}<div class="rfq-lc rsq-l" data-rsl="${esc(l.id)}"><div class="rfq-lc-hd"><input class="rsq-item" data-rsi="${esc(l.id)}" value="${esc(l.item)}" aria-label="Item"></div><div class="small muted" data-nocase>${esc(l.doc)}${null != l.budget ? ` · ${esc(l.word)} ${money(l.budget)}` : l.word ? ` · ${esc(l.word)}` : ""}${l.derivation && l.takeoff ? ` · ${esc(l.derivation)}` : ""}</div><div class="rfq-step"><input type="number" inputmode="decimal" min="0" step="any" class="rfq-qty" data-rsq="${esc(l.id)}" value="${+l.qty || 1}" aria-label="Quantity"><input class="rsq-unit" data-rsu="${esc(l.id)}" value="${esc(l.unit || "ea")}" aria-label="Unit"></div>${lump ? `<button type="button" class="btn sm rfq-tap" data-rsbd="${esc(l.ck)}">Propose a Material List</button><span class="small muted"> a lump sum a vendor may not price: ${tk.T.lines.length} materials from the takeoff</span>` : ""}</div>`;
+        return `${first ? `<div class="note small" data-nocase style="margin:0 0 8px"><b>${esc(c.item)}: a material list from the takeoff (${esc(tk.Rm.scope)}).</b> Assumed: ${esc(Object.entries(tk.T.assumptions).map(([k, v]) => `${k} ${v}`).join(", "))}. <button type="button" class="btn sm" data-rsbdx="${esc(l.ck)}">Keep the Line as Is</button></div>` : ""}<div class="rfq-lc rsq-l" data-rsl="${esc(l.id)}"><div class="rfq-lc-hd"><input class="rsq-item" data-rsi="${esc(l.id)}" value="${esc(l.item)}" aria-label="Item"></div><div class="small muted" data-nocase>${esc(l.doc)}${null != l.budget ? ` · ${esc(l.word)} ${money(l.budget)}` : l.word ? ` · ${esc(l.word)}` : ""}${rfqLeftWords(l)}${l.derivation && l.takeoff ? ` · ${esc(l.derivation)}` : ""}</div><div class="rfq-step"><input type="number" inputmode="decimal" min="0" step="any" class="rfq-qty" data-rsq="${esc(l.id)}" value="${+l.qty || 1}" aria-label="Quantity"><input class="rsq-unit" data-rsu="${esc(l.id)}" value="${esc(l.unit || "ea")}" aria-label="Unit"></div>${lump ? `<button type="button" class="btn sm rfq-tap" data-rsbd="${esc(l.ck)}">Propose a Material List</button><span class="small muted"> a lump sum a vendor may not price: ${tk.T.lines.length} materials from the takeoff</span>` : ""}</div>`;
       }).join("");
     },
     scopeText = () => {
