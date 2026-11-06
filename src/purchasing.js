@@ -53,6 +53,20 @@ function puStockFor(name) {
   });
   return puStockMemo.m.set(name, out), out;
 }
+// A need's stock: what its own words name (puStockFor), and for a contract line whose name names no stocked item
+// ("Electrical rough-in & devices"), the stock filed under the line's cost code: the 12/2 and the boxes on the shelf are
+// the electrical line's (11-06, J6: the Buy Board never said the shop had them). A code match is "may be it", never sure.
+function puStockForNeed(r) {
+  if (!r || r.ordered) return [];
+  const S0 = puStockFor(r.name);
+  // only a rough-in line (the trade's labour with its wire, boxes or pipe): an allowance or a finish line on the same code
+  // (fixtures beside PEX) is not the stock's, and would hold its order behind a stock check that is not about it
+  if (S0.length || !["line", "sub"].includes(r.kind) || !r.code || "99" === r.code || !/rough[- ]?in\b/i.test(r.name || "")) return S0;
+  return (DB.inventory || [])
+    .filter((i) => "tool" !== i.type && String(i.code || "") === String(r.code) && ("function" == typeof invAvailable ? invAvailable(i) : +i.qty) > 0)
+    .slice(0, 4)
+    .map((i) => ({ id: i.id, part: r.name, name: i.name, qty: "function" == typeof invAvailable ? invAvailable(i) : +i.qty, unit: i.unit || "", where: "function" == typeof locName ? locName(i.loc) : i.loc || "the shop", sure: !1 }));
+}
 const puUnits = (n, u) => `${n} ${u || ""}${1 === +n || /s$|^ea$|^ls$|^sf$|^lf$/.test(u || "") || !u ? "" : /(x|ch|sh)$/.test(u) ? "es" : "s"}`.trim(),
   puReorder = (i) => +(i.reorderAt != null ? i.reorderAt : i.reorder) || 0;
 function puStockSay(S0) {
@@ -129,7 +143,7 @@ function puNeedValue(r) {
 function puNeed(r) {
   if (!r || r.received || "done" === r.tab) return null;
   const td = today(),
-    stock = r.ordered ? [] : puStockFor(r.name),
+    stock = puStockForNeed(r),
     val = puNeedValue(r),
     drafts = r.draftPOs || [],
     base = { r: r, id: r.id, name: r.name, job: puJob(r.p), line: [puLineWord(r), val.say].filter(Boolean).join(" · "), val: val, stock: stock, pick: !r.ordered && !drafts.length };
@@ -1213,7 +1227,7 @@ function puDo(x) {
 // person says from the shelf (a pick for the driver, on the need's job) and buys the rest; a need the shelf covers in
 // full is not bought at all. Buy It Anyway stays, second.
 function puStockGate(R, go) {
-  const S0 = R.flatMap((r) => (r.ordered ? [] : puStockFor(r.name).map((s) => Object.assign({ need: r }, s))));
+  const S0 = R.flatMap((r) => puStockForNeed(r).map((s) => Object.assign({ need: r }, s)));
   if (!S0.length) return go();
   const want = (s) => {
     const q = "function" == typeof bbNum ? bbNum(s.need.qty) : { n: 0, unit: "" },
@@ -1771,7 +1785,7 @@ function puCtpCheck(m) {
       // when it is in the build; this sheet's own reading of the price history until it is
       if ("function" == typeof poLinePriceCheck) {
         const P = price > 0 && name ? poLinePriceCheck(name, unit, price, qty) : null;
-        P && !P.ok && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${unitMoney(P.gap)} above the ${"best" === P.kind ? "best recent" : "last"} price, ${unitMoney(P.ref)}${P.vendor ? ` at ${P.vendor}` : ""}${P.date ? `, ${fmt(P.date)}` : ""}.`));
+        P && !P.ok && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${unitMoney(P.gap)} above the ${"best" === P.kind ? "best recent" : "last"} price, ${unitMoney(P.ref)}${P.vendor ? ` at ${P.vendor}` : ""}${P.doc ? ` on ${P.doc}` : ""}${P.date ? `, ${fmt(P.date)}` : ""}.`));
       } else {
         const best = price > 0 && name ? puBestFor(name, unit) : null;
         best && price > best.price * 1.03 + 0.005 && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${unitMoney(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));

@@ -45,10 +45,13 @@ function bbLateOf(o) {
 }
 // A contract line has something to buy when it has items under it or names a material (the estimate rule since round 4,
 // now shared by change-order lines).
+// (11-06, J6: a rough-in line, wire and boxes or pipe and fittings under the trade's labour, was never on the Buy Board,
+// so the firm's own stock of 12/2 and boxes never met it. A rough-in line buys its material too; until its material
+// portion is set it waits on the PM's split, as the SPEC's "the PM's material split" rows.)
 function bbBuysLine(l) {
   return (
     (l.items || []).length > 0 ||
-    /material|millwork|tile|fixture|appliance|window|door|stone|floor|light|hardware|cabinet|lumber|glass|counter|vanit|radiator|radiant/i.test(
+    /material|millwork|tile|fixture|appliance|window|door|stone|floor|light|hardware|cabinet|lumber|glass|counter|vanit|radiator|radiant|rough[- ]?in\b/i.test(
       l.item || "",
     )
   );
@@ -527,7 +530,7 @@ function bbPanelHtml(r, picks) {
     last = bbLastPrices(r),
     // the shop: the same reader as the row (puStockFor, each part of the name), so the panel and the row agree
     st = bbStock(r),
-    S1 = "function" == typeof puStockFor && !r.ordered ? puStockFor(r.name) : null,
+    S1 = "function" == typeof puStockFor && !r.ordered ? ("function" == typeof puStockForNeed ? puStockForNeed(r) : puStockFor(r.name)) : null,
     C = r.lineKey && "function" == typeof lineCommitment ? lineCommitment(r.lineKey) : null,
     book = "function" == typeof puBookPrice ? puBookPrice(r) : null,
     H = bbHistory(r),

@@ -219,6 +219,21 @@ async def desktop(c, p):
                     lost = await pg.evaluate("a => { const c = DB.clients.find(x => x.id === a.cid); c.estimates.find(e => e.id === a.id).status = 'rejected'; const po = DB.pos.find(x => x.id === a.po); return { v: poValid(po).filter(x => /lost/.test(x)), row: puOrderRows('').some(x => x.id === 'preaward:' + po.id) }; }", {'cid': PA['cid'], 'id': PA['id'], 'po': PO['id']})
                     c.ok(lost['v'] and lost['row'], f'preaward: a lost estimate holds the order and flags it on Orders to cancel ({lost})')
                     await sign_in(pg, 'u_chen')
+        if want('j6'):
+            # the walk's J6 (11-06): a rough-in line is a Buy Board line and meets the shop's stock filed under its cost
+            # code; the price check names the last price with its vendor and its order; the vendor's address comes from
+            # the mail when the record has none
+            J = await pg.evaluate("""() => { const st = puStockForNeed({ kind: 'line', name: 'Electrical rough-in & devices (SD Electric)', code: '06' });
+              const po = DB.pos.find(p => p.number === 'PO-2026-041'), l = po && po.lines.find(x => +x.price > 0);
+              const pc = l ? poLinePriceCheck(l.item, l.unit, r2(l.price * 1.16), 10) : null; const pn = poLinePriceCheck('Porcelain floor tile 12x24 matte: supply', 'sf', 14.5, 380);
+              DB.comms.push({ id: uid('c'), date: '2026-09-02', from: { name: 'Alan', email: 'alan@smartdesign.nyc' }, subject: 'huddle', text: 'For tile: Nemo Tile (sales@nemotile.example), Bergen Tile Gallery (quotes@bergentile.example).' });
+              const v = DB.vendors.find(x => x.name === 'Nemo Tile'); const had = v && v.email; v && delete v.email;
+              const em = vendorEmailOf('Nemo Tile'); const T = poEmailTemplate({ number: 'PO-T', vendor: 'Nemo Tile', projectId: 'p121', lines: [] });
+              return { near: pn && pn.say, buys: bbBuysLine({ item: 'Electrical rough-in & devices (SD Electric)' }), st: st.map(s => s.name), say: pc && pc.say, ref: l && l.price, em, to: T.vendorEmail, kept: !(v && v.email) }; }""")
+            c.ok(J['buys'] and any('NM-B' in s for s in J['st']), f"j6: a rough-in line is bought, and meets the 12/2 NM-B on the shelf under its cost code ({J['buys']}, {J['st']})")
+            c.ok(J['say'] and f"${J['ref']:.2f}" in J['say'] and 'PO-2026-041' in J['say'], f"j6: the price check names the last price with its cents, its vendor and its order ({J['say']})")
+            c.ok(J['near'] and '$12.50' in J['near'] and 'PO-2026-041' in J['near'], f"j6: the same 12x24 porcelain said another way meets the $12.50 paid on PO-2026-041, as a question to check ({J['near']})")
+            c.ok(J['em'] and 'nemotile' in J['em'] and J['to'] == J['em'] and J['kept'], f"j6: the order's mail is addressed from the firm's own mail, and the vendor record is not changed behind anyone's back ({J})")
         if want('request'):
             q = await pg.evaluate("k => { const p = DB.projects.find(x => x.id === 'p121'); const q = p.requests.find(r => /stud/i.test(r.what || '')); if (!q) return null; q.line = k; save(); return { id: q.id, what: q.what }; }", L2)
             await sheet(pg, [L2])

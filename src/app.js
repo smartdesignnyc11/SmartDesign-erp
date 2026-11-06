@@ -12341,6 +12341,32 @@ function poDrawings(p) {
     });
   return out.slice(0, 8);
 }
+// A vendor's email for an order's mail (11-06, J6: "no email on file" for Nemo Tile, whose address was in the mail): the
+// vendor record (its email, or a contact's), else the mail they sent us, else the address the firm's own mail gives for
+// them ("Nemo Tile (sales@nemotile.example)"). The address is offered in To, for the person to check and send; the
+// vendor record is not changed behind their back.
+function vendorEmailOf(name) {
+  const v = "function" == typeof vendorRec ? vendorRec(name) : null;
+  if (v && v.email) return v.email;
+  const ct = v && (v.contacts || []).find((x) => x && x.email);
+  if (ct) return ct.email;
+  const nm = String(name || "").trim();
+  if (!nm) return "";
+  const own = /@smartdesign|@mercerandbond|@mercer-bond/i,
+    low = nm.toLowerCase(),
+    C = (DB.comms || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  for (const c of C) {
+    const f = c.from || {};
+    if (f.email && !own.test(f.email) && ((v && c.route && c.route.vendorId === v.id) || String(f.name || "").toLowerCase() === low)) return f.email;
+  }
+  const esc2 = nm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    rx = new RegExp(`${esc2}\\s*[(<]\\s*([\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+)\\s*[)>]`, "i");
+  for (const c of C) {
+    const m = String(`${c.text || ""} ${c.body || ""} ${c.snippet || ""}`).match(rx);
+    if (m && !own.test(m[1])) return m[1];
+  }
+  return "";
+}
 function poEmailTemplate(po) {
   const t = poTotal(po),
     p = DB.projects.find((x) => x.id === po.projectId) || S,
@@ -12354,7 +12380,7 @@ function poEmailTemplate(po) {
     subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
     body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
     drawings: dr,
-    vendorEmail: (v && v.email) || "",
+    vendorEmail: (v && v.email) || vendorEmailOf(po.vendor),
   };
 }
 const aiConfigured = () => !!(window.SDP_CONFIG && window.SDP_CONFIG.aiUrl);
@@ -198116,9 +198142,22 @@ function poLinePriceCheck(item, unit, price, qty) {
       H = B && D.items[B.key] ? itemPriceHistory(B.key) : F && same(item, F.label) ? F : null;
     // no history of this item: a look-alike by words is named as a question, never a verdict, and never stops Issue
     if (!H || (H.unit && B.normUnit && H.unit !== B.normUnit)) {
-      const L = +price > 0 && "function" == typeof itemPriceHistory ? itemPriceHistory(item) : null,
-        r = L && (L.best || L.last);
-      return r && +r.adjusted > 0 ? Object.assign(out, { unsure: !0, ref: r2(+r.adjusted), vendor: r.vendor || "", say: `${item}: the price book's nearest item, ${L.label}, was ${money(+r.adjusted)} per ${L.unit || "unit"}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` }) : out;
+      // the nearest item: by words, else by its size and material together ("Porcelain floor tile 12x24 matte" and the
+      // book's "Calacatta porcelain 12x24": the same 12x24 porcelain, in the same unit; J6, 11-06, where the words alone
+      // found nothing and the $12.50 paid on PO-2026-041 went unsaid)
+      const sizeOf = (x) => (String(x || "").toLowerCase().match(/\b\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?\b/) || [""])[0].replace(/\s+/g, ""),
+        wordsOf = (x) => String(x || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w.length > 4),
+        near = () => {
+          const sz = sizeOf(item),
+            W = wordsOf(item);
+          if (!sz || !W.length || "function" != typeof pwData) return null;
+          const I = Object.values(pwData().items).find((it) => sizeOf(it.label) === sz && wordsOf(it.label).some((w) => W.includes(w)) && (!B || !B.normUnit || !it.unit || it.unit === B.normUnit));
+          return I ? itemPriceHistory(I.key) : null;
+        },
+        L = +price > 0 && "function" == typeof itemPriceHistory ? itemPriceHistory(item) || near() : null,
+        r = L && (L.best || L.last),
+        doc = r ? ((r.sources || []).map((x) => (String(x).match(/\b(PO-\d{4}-\d+(?:-R)?)\b/) || [])[1]).filter(Boolean)[0]) || "" : "";
+      return r && +r.adjusted > 0 ? Object.assign(out, { unsure: !0, ref: r2(+r.adjusted), vendor: r.vendor || "", doc: doc, say: `${item}: the price book's nearest item, ${L.label}, was ${unitMoney(+r.adjusted)} per ${L.unit || "unit"}${r.vendor || doc ? ` (${[r.vendor, doc ? `on ${doc}` : ""].filter(Boolean).join(", ")})` : ""}. Check it is the same item` }) : out;
     }
     if (!(+price > 0)) return out;
     const C = [H.best && ["best", H.best], H.last && ["last", H.last]].filter(Boolean).filter(([, r]) => +r.adjusted > 0);
@@ -198127,18 +198166,60 @@ function poLinePriceCheck(item, unit, price, qty) {
       f = +B.packF || 1,
       refN = +r.adjusted,
       ref = r2(refN * f);
-    Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "" });
+    // the document the price came from (PO-2026-041, a bill, a receipt), named beside the vendor and the date (J6, 11-06:
+    // the walk could not find "$12.50 on PO-2026-041"; money() also rounded the $12.50 to $13: unit prices use unitMoney)
+    const doc = ((r.sources || []).map((x) => (String(x).match(/\b(PO-\d{4}-\d+(?:-R)?)\b/) || String(x).match(/^bill (\S+)/) || [])[1]).filter(Boolean)[0]) || "";
+    Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "", doc: doc });
     if (+B.price <= refN * 1.005 + 0.0005) return out;
     // more than 2.5 times the reference is likely another thing priced the same way (a deposit, another size): no verdict
     // that stops Issue, but never silence; the line is flagged to check it is the same item
     if (+B.price > refN * 2.5)
-      return Object.assign(out, { unsure: !0, say: `${item}: ${money(+price)} per ${unit || "unit"} is more than 2.5 times the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` });
+      return Object.assign(out, { unsure: !0, say: `${item}: ${unitMoney(+price)} per ${unit || "unit"} is more than 2.5 times the ${"best" === kind ? "best recent" : "last"} price, ${unitMoney(ref)}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` });
     const gap = r2(+price - ref),
       gapTotal = r2((+B.price - refN) * (+B.normQty || 0));
-    return Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${money(+price)} per ${unit || "unit"} is ${money(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor}${r.date ? ", " + fmt(r.date) : ""})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
+    return Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${unitMoney(+price)} per ${unit || "unit"} is ${unitMoney(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${unitMoney(ref)}${r.vendor || doc ? ` (${[r.vendor, doc ? `on ${doc}` : "", r.date ? fmt(r.date) : ""].filter(Boolean).join(", ")})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
   } catch (e) {
     return out;
   }
+}
+// What the firm last PAID for the item (a buy, never a quote), with its vendor and its order: the item itself, the item
+// its words name, or the same size of the same material ("Porcelain floor tile 12x24" and "Calacatta porcelain 12x24").
+// (J6, 11-06: the check compared the tile with the yards' quotes and never said Nemo Tile charged $12.50 on PO-2026-041.)
+function poLastPaid(item, unit) {
+  if ("function" != typeof itemPriceHistory || "function" != typeof pwData) return null;
+  const B = "function" == typeof pwMake && item ? pwMake({ item: item, unit: unit, qty: 1, price: 1 }) : null,
+    D = pwData(),
+    sizeOf = (x) => (String(x || "").toLowerCase().match(/\b\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?\b/) || [""])[0].replace(/\s+/g, ""),
+    wordsOf = (x) => String(x || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w.length > 4),
+    unitOk = (H) => !B || !B.normUnit || !H.unit || H.unit === B.normUnit,
+    C = [];
+  B && D.items[B.key] && C.push(itemPriceHistory(B.key));
+  C.push(itemPriceHistory(item));
+  const sz = sizeOf(item),
+    W = wordsOf(item);
+  sz &&
+    W.length &&
+    Object.values(D.items)
+      .filter((it) => sizeOf(it.label) === sz && wordsOf(it.label).some((w) => W.includes(w)))
+      .forEach((it) => C.push(itemPriceHistory(it.key)));
+  const H = C.find((h) => h && h.last && +h.last.price > 0 && unitOk(h));
+  if (!H) return null;
+  const r = H.last,
+    doc = ((r.sources || []).map((x) => (String(x).match(/\b(PO-\d{4}-\d+(?:-R)?)\b/) || String(x).match(/^bill (\S+)/) || [])[1]).filter(Boolean)[0]) || "";
+  return { price: +r.price, unit: H.unit || unit || "unit", vendor: r.vendor || "", doc: doc, date: r.date || "", label: H.label };
+}
+{
+  const base = poLinePriceCheck;
+  poLinePriceCheck = function (item, unit, price, qty) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out.say && !(out.doc && "last" === out.kind)) {
+        const L = poLastPaid(item, unit);
+        L && L.doc && !out.say.includes(L.doc) && ((out.last = L), (out.say += `. Last paid: ${unitMoney(L.price)} per ${L.unit}${L.vendor ? ` to ${L.vendor}` : ""} on ${L.doc}${L.date ? `, ${fmt(L.date)}` : ""} (${L.label})`));
+      }
+    } catch (e) {}
+    return out;
+  };
 }
 // the lines to check, without stopping Issue: no exact history (a look-alike), or a price far from it
 const poPriceUnsure = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => x.ok && x.unsure);
