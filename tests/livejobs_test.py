@@ -34,10 +34,14 @@ CLICK_JS = r"""
   if (within) els = els.filter(e => e.closest(within));
   if (!els.length) return null;
   const e = els[0]; e.scrollIntoView({block: 'center'});
+  document.querySelectorAll('[data-ljtap]').forEach(x => x.removeAttribute('data-ljtap')); e.setAttribute('data-ljtap', '1');
   const r = e.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2, top = document.elementFromPoint(x, y);
   // a toast over the button would take a real finger's tap first: dismiss it the way a person would, then tap
   if (top && !e.contains(top) && top.closest && top.closest('#toast')) { document.getElementById('toast').classList.remove('on'); top.closest('#toast').style.display = 'none'; setTimeout(() => document.getElementById('toast').style.display = '', 1500); }
-  return {x, y};
+  // where a finger would land, and whether the button is there yet: the page scrolls inside its own pane, so the point
+  // can still be below the screen right after scrollIntoView (the 844px phone saw y 1117 under load)
+  const t2 = document.elementFromPoint(x, y);
+  return {x, y, ready: y >= 0 && y <= innerHeight && x >= 0 && x <= innerWidth && !!t2 && (e === t2 || e.contains(t2))};
 }
 """
 TOAST_HOOK = r"""
@@ -75,6 +79,15 @@ SCREEN_JS = r"""
 async def tap(pg, text, css='button', within=None, wait=350):
     hit = await pg.evaluate(CLICK_JS, [text, css, within])
     if not hit: return False
+    # the target scrolled into view and settled under the finger before the tap, the way a person waits to see it
+    for _ in range(6):
+        if hit.get('ready'): break
+        try:
+            await pg.locator('[data-ljtap]').first.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+        await pg.wait_for_timeout(150)
+        hit = await pg.evaluate(CLICK_JS, [text, css, within]) or hit
     await pg.mouse.click(hit['x'], hit['y'])
     await pg.wait_for_timeout(wait)
     return True
