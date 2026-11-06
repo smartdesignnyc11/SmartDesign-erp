@@ -183287,7 +183287,9 @@ const RFQ_TRADES = [
   ["plumbing", /plumb|faucet|valve|toilet|lavatory|\bsinks?\b|shower|drain|fixtures?\b/],
   ["electrical", /electric|wiring|panel|circuit/],
   ["lighting", /lighting|light fixture|picture light|sconce|pendant|\blamps?\b/],
-  ["lumber", /lumber|framing|\bstuds?\b|joist|plywood|timber|blocking|rough carpentry/],
+  // a lumber yard sells the trim package too (casing, base, stool: primed poplar or pine; "trim" alone is left out, it is also shower trim and painted trim), so a trim line is the
+  // yard's trade (the month, 11-06: Brooklyn Lumber's BLQ-2210 for casing and base found no Buy Board line of its trade)
+  ["lumber", /lumber|framing|\bstuds?\b|joist|plywood|timber|blocking|rough carpentry|casing|mouldings?|moldings?|baseboard|\bstool\b|poplar/],
   ["drywall", /drywall|\bgwb\b|gypsum|cement board|taping/],
   ["insulation", /insulation|\bbatts?\b/],
   ["paint", /\bpaint|primer|restoration/],
