@@ -25533,6 +25533,44 @@ function lineBillIsBankDup(b) {
     return !1;
   }
 }
+// What an order's bills and its card or bank payments cover on one contract line (11-05, the chief of staff's review of
+// lineCommitment, which reads lineFin):
+//   billed     bills on the order for this line (their own line), plus this line's share of the order's bills with no
+//              line: shared across the order's lines by what is still open on each (a line-less bill was taken off every
+//              line whole, so a $5,000 bill on a three-line order freed $15,000)
+//   txnPaid    card or bank lines matched to the order with no bill behind them: paid, so no longer committed (a card
+//              line on the line was counted as actual and again as committed)
+//   billShare, txnShare   the line-less parts that fall on this line, which are its cost (they were nobody's actual, and a
+//              vendor credit, being negative, frees the line's budget)
+function lineOrderPaid(po, key) {
+  const out = { billed: 0, txnPaid: 0, billShare: 0, txnShare: 0 };
+  if (!po) return out;
+  const amt = (k) => (po.lines || []).filter((l) => l.line === k).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    keys = [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))],
+    B = (DB.bills || []).filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id),
+    lined = (k) => B.filter((b) => b.line === k).reduce((a, b) => a + billCost(b), 0),
+    open = (k) => Math.max(0, amt(k) - lined(k)),
+    openSum = keys.reduce((a, k) => a + open(k), 0),
+    grossSum = keys.reduce((a, k) => a + amt(k), 0),
+    share = (k) => (openSum > 0.005 ? open(k) / openSum : grossSum > 0.005 ? amt(k) / grossSum : 1 === keys.length ? 1 : 0),
+    s = keys.includes(key) ? share(key) : 0,
+    unl = B.filter((b) => !b.line),
+    // the bills' own cost on the line follows job cost (less rebilled or disputed parts); what they take off the order is
+    // their whole amount
+    cost = (b) => billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0);
+  out.billed = r2(lined(key) + unl.reduce((a, b) => a + billCost(b), 0) * s);
+  out.billShare = r2(unl.filter((b) => !lineBillIsBankDup(b)).reduce((a, b) => a + cost(b), 0) * s);
+  // card or bank lines matched to the order. With no bill on it, a payment is what is paid (no longer committed): one on
+  // this line is already its actual (lineFin's own bank lines), one with no line is shared. With bills, the bills carry the
+  // payments. Either way a vendor credit (money in) is cost back to its line, or shared, and frees its budget.
+  const T = (DB.txns || []).filter((t) => ((po.matchedTxns || []).includes(t.id) || (t.poId && t.poId === po.id)) && !t.billId && !txnRebilled(t)),
+    part = (t) => (t.line === key ? -t.amt : t.line ? 0 : -t.amt * s);
+  if (!B.length) {
+    out.txnPaid = r2(T.filter((t) => +t.amt < 0).reduce((a, t) => a + part(t), 0));
+    out.txnShare = r2(T.filter((t) => !t.line).reduce((a, t) => a - t.amt * s, 0));
+  } else out.txnShare = r2(T.filter((t) => +t.amt > 0).reduce((a, t) => a + part(t), 0));
+  return out;
+}
 function lineFin(key) {
   const ref = findLine(key);
   if (!ref) return null;
@@ -25602,17 +25640,10 @@ function lineFin(key) {
         0,
       ),
     ),
-    poBilled = r2(
-      DB.bills
-        .filter(
-          (b) =>
-            "void" !== b.status &&
-            "rejected" !== b.status &&
-            pos.some((po) => po.id === b.poId) &&
-            (b.line === key || !b.line),
-        )
-        .reduce((a, b) => a + billCost(b), 0),
-    ),
+    // what the orders' bills and card or bank payments cover on this line (lineOrderPaid): a bill or payment with no line
+    // on an order of several lines is shared across the order's open lines, never taken off each of them whole (11-05)
+    paidOn = pos.map((po) => lineOrderPaid(po, key)),
+    poBilled = r2(paidOn.reduce((a, x) => a + x.billed + x.txnPaid, 0)),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     // A bill awaiting approval that the bank has already paid, where the bank line carries the cost, is the same
@@ -25636,7 +25667,9 @@ function lineFin(key) {
               (b.poId && (DB.pos.find((p) => p.id === b.poId)?.matchedTxns || []).includes(t.id)),
           ))(t),
     ),
-    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
+    // the share of the orders' line-less bills and payments (a vendor credit too) that falls on this line is its cost
+    shareAmt = r2(paidOn.reduce((a, x) => a + x.billShare + x.txnShare, 0)),
+    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0) + shareAmt),
     laborAmt = lineLabor(doc, line),
     // stock issued to the job on this line at carried cost, less returns
     stockAmt = r2(stockUseIn("", null, key).reduce((a, u) => a + (+u.amount || 0), 0)),
