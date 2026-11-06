@@ -1357,10 +1357,10 @@ def j6_buy_it(p):
     if t is not None:
         p.tap_ctl(t)
         tx = p.look().text
-        # the desktop's column heads; the phone's card labels (one card per item: Room, Vendor, Delivery, Budget, Purchased,
-        # Invoice, Item #, Qty, Lead)
+        # the desktop's column heads; on the phone a card names a field only beside a value (CoS 11-06), so the labels
+        # every bought item's card carries: its invoice, budget, purchased price and vendor
         H = ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery') if p.device != 'phone' else \
-            ('Invoice', 'Lead', 'Item #', 'Room', 'Budget', 'Purchased', 'Vendor', 'Delivery')
+            ('Invoice', 'Budget', 'Purchased', 'Vendor')
         p.expect(all(re.search(h, tx, re.I) for h in H), 'the Table carries Alan\'s columns', tx[:300])
         j = tx.find(PLUMB_BUYS[0][0][:20])
         near = tx[max(0, j - 200): j + 400] if j >= 0 else ''
