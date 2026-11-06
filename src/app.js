@@ -182496,6 +182496,58 @@ function coiChaseItem(r) {
     return c;
   };
 }
+// The coordinator's Do Now: an order due today (or past due) and not all in is a card, its yes the one receive sheet
+// (count, All Here, Record Receipt); a subcontract's due date is its pay application, never a receipt. The month on
+// integ15: "Receive the Tino white oak on 9/18" was on no card of Chen's (E163). Not a new list: it rides mApprovals.
+// ranked as the Standard ranks a delivery: schedule (the work waits on it), checked against the order the same day
+"undefined" != typeof STD_MAP && (STD_MAP.podue = STD_MAP.podue || { p: "schedule", c: ["pb", "procurement", "standards", /deliver/i] });
+const poDueRows = () =>
+  (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && po.expected && po.expected <= today() && ("function" == typeof poIsSub && poIsSub(po) ? !("function" == typeof lkPOBillState && lkPOBillState(po).full) : (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 0.001)));
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "coord" === role())) return out;
+      return out.concat(
+        poDueRows().map((po) => {
+          const sub = "function" == typeof poIsSub && poIsSub(po),
+            late = po.expected < today(),
+            what = (po.lines || []).slice(0, 2).map((l) => `${r2(+l.qty || 0)} ${l.unit || ""} ${l.item || l.desc || ""}`.replace(/\s+/g, " ").trim()).join(", ");
+          return {
+            kind: "podue",
+            id: po.id,
+            sev: late ? "bad" : "warn",
+            n: sub ? "Pay App" : "Delivery",
+            title: `${po.number} · ${po.vendor}: ${sub ? "its pay application" : what} ${late ? `was due ${fmt(po.expected)}` : "due today"}`,
+            detail: sub ? "a subcontract: its progress is billed by pay application, not received" : `${poRecvWords(po)} · count what came`,
+            yes: sub ? "New Pay Application" : "Receive",
+            amount: r2(poTotal(po).total || 0),
+            due: po.expected,
+            who: "coord",
+            open: { view: "po" },
+          };
+        }),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "podue" === it.kind) {
+        const po = (DB.pos || []).find((x) => x.id === it.id);
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes);
+        po && (c.run = () => ("function" == typeof poIsSub && poIsSub(po) ? lkBillPO(po) : rcReceiveSome(po)));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
 const coiWords = (r) =>
   `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
