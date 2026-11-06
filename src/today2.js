@@ -1205,9 +1205,9 @@ function td2Chrome() {
   ]);
   set("coord", [
     ["home", "Today", "today"],
-    ["chat", "Messages", "chat"],
-    ["tkall", "Tasks", "tasks"],
     ["proc", "Buy Board", "buy"],
+    ["recv", "Deliveries", "truck"],
+    ["chat", "Messages", "chat"],
   ]);
   set("billing", [
     ["home", "Today", "today"],

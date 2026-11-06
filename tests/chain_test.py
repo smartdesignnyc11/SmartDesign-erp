@@ -1570,9 +1570,11 @@ async def s10_polinks(C):
     pid = C.ids['project']['id']; est = C.ids['estimate']['id']; L = C.ids['estimate']['lines']
     tile_id = L['Tile – primary bath']; tile_key = f'estimate:{est}:{tile_id}'
     await C.day('2026-10-02')
-    # the coordinator's New PO opens on the job's lines
+    # the coordinator's New PO opens on the job's lines: Orders has one New, its first item New Purchase Order From Lines
+    # (purchasing SPEC §2, lane P3 11-05: the old "New PO" button beside "+ New" was a second door to the same sheet)
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 700)
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumi="0"]', 700)
     m = await C.modal()
     cls = await C.js("() => { const b = document.querySelector('#mbm-blank'); return b ? b.className : null; }")
     C.ok(m and m['title'] == 'Which Lines?', 'Purchasing > New PO opens on "Which Lines?" (the estimate, change-order and invoice lines of the job)', m and m['title'])
@@ -1584,6 +1586,12 @@ async def s10_polinks(C):
     await C.fill(f"#mbm [data-ctpv='{tile_id}']", 'Arcadia Tile Supply')
     n0 = await C.js("() => DB.pos.length")
     await C.modal_ok(900)
+    # the one budget test (lane P2, 11-05, the field expert's ask: actual plus committed against the line, not committed
+    # alone): the tile line has $3,800 spent and $2,850 on order of its $6,800, so $640 more is over and is confirmed
+    cf = await C.modal()
+    if cf and cf['title'] == 'Please Confirm':
+        C.ok('over budget' in (cf.get('text') or '') or 'over the' in (cf.get('text') or ''), 'the order sheet says the tile line goes over budget, counting what is spent as well as what is on order', cf)
+        await C.modal_ok(900)
     po = await C.js("n0 => { const po = DB.pos.slice(n0)[0]; return po && {id: po.id, number: po.number, status: po.status, vendor: po.vendor, lines: po.lines.map(l => ({id: l.id, item: l.item, line: l.line || '', code: l.code || ''}))}; }", n0)
     C.ok(po and po['lines'] and po['lines'][0]['line'] == tile_key, 'tick the tile line > Create the Purchase Orders: the PO line carries its estimate line from the start', po)
     C.t(f"tick \"Tile – primary bath\", 1 ls at $640, Arcadia Tile Supply > Create the Purchase Orders → {po and po['number']} ({await C.toast()})")
@@ -1658,8 +1666,10 @@ async def s10_polinks(C):
     # an order for the shop, no job: Start Blank, then the line linked to overhead on the phone
     await C.js("() => mbCloseModal()")
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click('#btn-newpo', 600)
-    await C.click('#mbm #mbm-blank', 600)
+    # the blank order sits behind More on Orders' New (purchasing SPEC §2); it opens the same blank form Start Blank opens
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumore]', 400)
+    await C.click('.pu-menu [role=menuitem]:has-text("Blank Purchase Order")', 600)
     d = await C.js("() => (document.querySelector('#d-title') || {}).textContent")
     C.ok(d and 'purchase order' in d.lower(), 'Start Blank opens the blank purchase order', d)
     await C.pg.select_option('#e-vendorsel', 'Arcadia Tile Supply')

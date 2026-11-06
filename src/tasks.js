@@ -24,7 +24,7 @@ const TK_VIEWS = [
   ["today", "Today"],
   ["overdue", "Overdue"],
   ["nodate", "No Date"],
-  ["blocked", "Waiting"],
+  ["blocked", "Waiting On"],
   ["later", "Later"],
   ["done", "Done"],
   ["all", "All"],
@@ -101,10 +101,26 @@ function tkSoonFor(name) {
 }
 // What is offered to me and waits on my yes or no: it is not mine until I accept, so it is not in Mine's counts; the
 // list shows it as one line above the rows and Today shows it with Accept.
-function tkOfferedToMe() {
+// tkOfferedToMe(personId?): the tasks offered to that person (the signed-in one by default) and not yet accepted or
+// declined, in tkAll()'s shape (key, title, project, due, owner, handoff {from, by, to, toUid, note}). A hand-off made
+// at creation, from the sheet, from quick add or from a meeting is the record's handoff; every count reads this.
+function tkOfferedToMe(personId) {
   try {
-    const me = tdyMe();
-    return me.id ? tkAll({ open: !0 }).filter((t) => t.offeredToUid === me.id) : [];
+    const id = personId || tdyMe().id;
+    if (!id) return [];
+    const out = tkAll({ open: !0 }).filter((t) => t.offeredToUid === id);
+    // a schedule line the crew does is nobody's task, so tkAll() does not carry it; offered to a person, it is theirs to answer
+    (DB.projects || []).forEach((p) =>
+      (p.tasks || []).forEach((s) => {
+        const H = s.handoff;
+        if (!H || "offered" !== H.state || H.toUid !== id || "done" === s.status) return;
+        const k = `sched:${s.id}:${p.id}`;
+        if (out.some((t) => t.key === k)) return;
+        const R = tkResolve(k);
+        R && R.t && out.push(Object.assign({}, R.t, { handoff: H, offeredTo: H.to, offeredToUid: H.toUid, status: "offered" }));
+      }),
+    );
+    return out;
   } catch (e) {
     return [];
   }
@@ -231,7 +247,8 @@ function tkDayOf(x) {
   const n = dayDiff(td, x.due);
   if (1 === n) return ["1" + x.due, "Tomorrow"];
   if (n <= 7) return ["1" + x.due, fmtL(x.due)];
-  return ["2", "Later On"];
+  // "Later" is a view (put off for later); a date past next week is Further Out (capture 11-05: "Later 0" beside "Later On 1")
+  return ["2", "Further Out"];
 }
 function tkGroupOf(x, gb) {
   if ("day" === gb) return tkDayOf(x);
@@ -322,7 +339,7 @@ t2Html = function () {
   }
   const offered = "home" === ctx ? tkOfferedToMe() : [],
     offerHtml = offered.length
-      ? `<button type="button" class="tk2-offer" data-tkoffer><span class="tk2-offer-n">${offered.length}</span><span class="grow">${offered.length === 1 ? `${esc(tkFirst(offered[0].owner) || "Someone")} offered you “${esc(tdWords(offered[0].title, 7))}”` : `${offered.length} tasks offered to you`}</span><b>Review</b></button>`
+      ? `<button type="button" class="tk2-offer" data-tkoffer><span class="tk2-offer-n">${offered.length}</span><span class="grow">${offered.length === 1 ? `${esc(tkFirst((offered[0].handoff && (offered[0].handoff.by || offered[0].handoff.from)) || offered[0].owner) || "Someone")} offered you “${esc(tdWords(offered[0].title, 7))}”` : `${offered.length} tasks offered to you`}</span><b>Review</b></button>`
       : "",
     nodate = ["today", "week", "overdue"].includes(t2View) && C.nodate ? `<p class="small muted t2-nodate no-print" data-t2nodate="${C.nodate}">${C.nodate} task${1 === C.nodate ? " has" : "s have"} no date, so ${1 === C.nodate ? "it is" : "they are"} not in ${esc(tkViewName(t2View))}. <button type="button" class="btn sm" data-t2view="nodate">Show No Date</button></p>` : "",
     chip = `${esc(tkChipLabel(ctx))} · ${esc(tkViewName(t2View))}${own && "done" !== t2View && "all" !== t2View ? ` <span class="n">${C[t2View] || 0}</span>` : ""}`,
@@ -395,7 +412,7 @@ function tkFilterSheet() {
   const body = `<div class="tkf">
   ${"home" === ctx ? `<div class="tkf-h">Whose</div><div class="tkf-row">${scope.map(([k, n]) => btn("data-tkfwho", k, tkWho === k, n)).join("")}</div>
   <div class="tkf-h">Job</div><div class="tkf-row">${jobs.map(([k, n]) => btn("data-tkfjob", k, tkProject === k, n)).join("")}</div>` : `<p class="small muted">${esc(tkChipLabel(ctx))}: every open task on it, whoever owns it.</p>`}
-  <div class="tkf-h">Show</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
+  <div class="tkf-h">${own ? "Show · Counts Are Yours" : "Show"}</div><div class="tkf-row">${TK_VIEWS.map(([k, n]) => btn("data-tkfview", k, t2View === k, n, own && "done" !== k && "all" !== k ? C[k] || 0 : "")).join("")}</div>
   <div class="tkf-h">Group</div><div class="tkf-row">${[["day", "By Day"], ["project", "By Project"], ["assignee", "By Person"], ["area", "By Area"], ["", "None"]].map(([k, n]) => btn("data-tkfgroup", k, gb === k, n)).join("")}</div>
   <div class="tkf-h">Priority</div><div class="tkf-row">${btn("data-tkfpri", "", !tkPri, "Any")}${btn("data-tkfpri", "high", "high" === tkPri, "High Only")}</div>
   ${"job" === ctx && ["owner", "pm", "coord", "design_mgr"].includes(role()) ? `<div class="tkf-h">This Job</div><div class="tkf-row"><button type="button" class="tkf-b" data-tkfmeeting>Process a Meeting</button></div>` : ""}
@@ -699,7 +716,7 @@ function tkSheet(k, opts) {
   const body = `<div class="tks" data-tks="${esc(R.key)}">
   <div class="tks-lines">${lines.join('<span class="tk2-dot"> · </span>')}</div>
   ${src ? `<button type="button" class="tks-src" data-tkssrc>${tkSvg("link", 16)}<span class="grow">From: ${esc(src.label)}</span><b>Open</b></button>` : ""}
-  ${H && "offered" === H.state ? `<div class="tks-hand ${offeredToMe ? "me" : ""}">${offeredToMe ? `${esc(H.from)} offered this to you${H.note ? `: “${esc(H.note)}”` : ""}. It is ${esc(tkFirst(H.from))}'s until you accept.` : `Offered to ${esc(H.to)} by ${esc(H.from)}, not accepted yet: it stays on ${esc(tkFirst(H.from))}'s list until then.`}</div>${offeredToMe ? `<div class="tks-row"><input class="tks-in" data-tksreason placeholder="If you decline, say why"><button type="button" class="btn" data-tksdecline>Decline</button></div>` : ""}` : H && "declined" === H.state ? `<div class="tks-hand">${esc(H.to)} declined: ${esc(H.reason || "")}</div>` : ""}
+  ${H && "offered" === H.state ? `<div class="tks-hand ${offeredToMe ? "me" : ""}">${offeredToMe ? `${esc(H.by || H.from)} offered this to you${H.note ? `: “${esc(H.note)}”` : ""}. It is ${esc(tkFirst(H.from))}'s until you accept.` : `Offered to ${esc(H.to)} by ${esc(H.by || H.from)}, not accepted yet: it stays on ${esc(tkFirst(H.from))}'s list until then.`}</div>${offeredToMe ? `<div class="tks-row"><input class="tks-in" data-tksreason placeholder="If you decline, say why"><button type="button" class="btn" data-tksdecline>Decline</button></div>` : ""}` : H && "declined" === H.state ? `<div class="tks-hand">${esc(H.to)} declined: ${esc(H.reason || "")}</div>` : ""}
   ${proofNeed ? `<div class="tks-proof ${proofMet ? "ok" : ""}">${esc(proofMet ? `Proof on file: ${proofMet.what}` : `Done asks for ${proofNeed.label.toLowerCase()}: the Standard needs the proof`)}</div>` : ""}
   ${
     canDue
@@ -969,7 +986,7 @@ function tkWireList(host) {
       if (1 === L.length) return tkSheet(L[0].key);
       const m = mbModal(
         "Offered to You",
-        `<div class="tks-offers">${L.map((t, i) => `<button type="button" class="tks-src" data-tkofferi="${i}"><span class="grow"><b>${esc(t.title)}</b><small class="muted"> · from ${esc(t.owner)}${t.due ? ` · due ${esc(fmtL(t.due))}` : ""}</small></span><b>Open</b></button>`).join("")}</div>`,
+        `<div class="tks-offers">${L.map((t, i) => `<button type="button" class="tks-src" data-tkofferi="${i}"><span class="grow"><b>${esc(t.title)}</b><small class="muted"> · from ${esc((t.handoff && (t.handoff.by || t.handoff.from)) || t.owner)}${t.due ? ` · due ${esc(fmtL(t.due))}` : ""}</small></span><b>Open</b></button>`).join("")}</div>`,
         { submit: null },
       );
       m && m.querySelectorAll("[data-tkofferi]").forEach((b) => (b.onclick = () => (mbCloseModal(), tkSheet(L[+b.dataset.tkofferi].key))));
@@ -993,8 +1010,12 @@ function tkCheckDone(key) {
     { label: "Undo", run: () => (tkToggle(kind, id, pid || ""), save(), renderTkAll()) },
   ]);
 }
-// swipe left on a row: Later and Hand Off slide in (the same two are in the sheet for anyone who doesn't swipe)
+// Swipe a row (PM review 11-05 #10): right is Done (the same as the circle, with Undo and the proof gate); left opens
+// Later, Reschedule and Hand Off under the title, which stays in view (the row used to slide 252px and hide it).
 function tkSwipe(r) {
+  // a row is wired once: the list wires its rows on more than one pass, and two listeners made one swipe two toggles
+  if (r.dataset.tkswipe) return;
+  r.dataset.tkswipe = "1";
   let x0 = 0,
     y0 = 0,
     on = !1;
@@ -1015,7 +1036,12 @@ function tkSwipe(r) {
         dy = t.clientY - y0;
       if (Math.abs(dy) > Math.abs(dx)) return void (on = !1);
       dx < -40 && (r.classList.add("swiped"), (on = !1));
-      dx > 30 && (r.classList.remove("swiped"), (on = !1));
+      if (dx > 30 && r.classList.contains("swiped")) return void (r.classList.remove("swiped"), (on = !1));
+      if (dx > 70 && !r.classList.contains("done") && r.querySelector("[data-t2done]")) {
+        on = !1;
+        r.classList.add("tk-swdone");
+        setTimeout(() => tkCheckDone(r.dataset.tkkey), 160);
+      }
     },
     { passive: !0 },
   );
