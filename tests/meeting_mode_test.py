@@ -290,8 +290,8 @@ async def run_meeting(c, p, uid, phone):
     c.ok(await go_to(pg, R['wait']['code']), f'{tag}: back to the job to add a task')
     visited.append(R['wait']['code'])
     await click(pg, '[data-mmact="add"]')
-    await pg.fill('[data-mmaddt]', 'Send the library shop drawings to the client')
-    await pg.select_option('[data-mmaddo]', 'Chen Biron')
+    # PM review 11-05 #7 (lane T2): one sentence, read by the quick-add parser; the owner is the person it names
+    await pg.fill('[data-mmaddt]', 'Chen send the library shop drawings to the client')
     await click(pg, '[data-mmadd]', 300)
     m = await meeting(pg)
     new = m['created'][-1] if m['created'] else ''

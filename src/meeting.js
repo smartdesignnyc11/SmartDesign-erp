@@ -962,8 +962,9 @@ function tkLinkDialog(key) {
     C = tkLinkChoices(R.x.projectId || ""),
     draw = (qs) => {
       const w = String(qs || "").toLowerCase();
-      return C.filter((c) => !w || `${c.label} ${c.sub}`.toLowerCase().includes(w))
-        .slice(0, 30)
+      // with no search: the job's records, its latest mail and the firm's vendors, each part whole; a search reads all
+      const hit = C.filter((c) => !w || `${c.label} ${c.sub}`.toLowerCase().includes(w));
+      return (w ? hit.slice(0, 40) : hit.filter((c) => !/^(comm|vendor)$/.test(c.kind)).slice(0, 40).concat(hit.filter((c) => "comm" === c.kind).slice(-8), hit.filter((c) => "vendor" === c.kind)))
         .map((c) => `<button type="button" class="tks-src" data-tklk="${esc(c.kind)}|${esc(c.id)}"><span class="grow"><b>${esc(c.label)}</b><small class="muted"> · ${esc(c.sub)}</small></span><b>Link</b></button>`)
         .join("") || '<p class="small muted">Nothing matches.</p>';
     };
