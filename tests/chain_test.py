@@ -486,9 +486,11 @@ async def s2_buy(C):
     for po in (mill, tile, fix):
         if po:
             C.ok(all(l['line'] for l in po['lines']), f"{po['number']} lines point at their estimate line", po['lines'])
-    # the sub commitment: Purchase Orders > Client Funds > Rough plumbing > New PO, ticked, priced, then submitted
+    # the sub commitment: Orders > New > New Purchase Order From Lines > Rough plumbing, ticked, priced, then submitted
+    # (Orders' Client Funds card and its per-line New PO folded away, lane P3 / CoS 11-06: one New on Orders)
     await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
-    await C.click(f"section.view.on [data-fundpo='estimate:{est}:{L['Rough plumbing']}']", 600)
+    await C.click('[data-puplus="po"]', 400)
+    await C.click('.pu-menu [data-pumi="0"]', 600)
     row = C.pg.locator('#mbm table tr').filter(has_text='3. Rough plumbing').first
     cb = row.locator('input[type=checkbox]').first
     if not await cb.is_checked(): await cb.check()

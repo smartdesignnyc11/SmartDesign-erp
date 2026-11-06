@@ -19,6 +19,11 @@ the screens, on the desktop (1440x900) and the phone (390x844, touch).
   VENDORS    the list shows open orders, owed back, insurance, W-9 and paid; every row opens its record; the record's
              first card answers open orders, owed back, insurance, W-9 and price history (last, best, trend).
   STOCK      every row says what is on hand, what a need wants of it, and opens its record.
+  STATES     an order in each state (draft, pending, issued, partly received on a materials order, received, paid over,
+             closed, cancelled): as the controller and as billing nothing on the order writes (no write control, every
+             field shut, no blue) and the action functions refuse when called; as the coordinator a pending order has
+             no blue and says it waits on the owner, a paid-over order offers no Close PO, a partly received materials
+             order has one blue, and a cancelled order is under All. Orders shows no Client Funds New PO.
   FIELD      the field expert's pass: the foreman's Arriving Today says what, when, where and the order's note (no
              money); the header flag reads Report an App Problem and is 44px; the receipt's split is one labelled
              column on the phone with one blue; leaving an estimate after opening Purchase Orders from Lines, with
@@ -178,7 +183,9 @@ async def s_menu(pg, c, dev, phone):
     if phone:
         await page(pg, 'po')
         bar = await js(pg, "() => [...document.querySelectorAll('#mtabs button')].filter(b => b.offsetParent).map(b => (b.querySelector('span') || b).textContent.trim())")
-        c.ok(bar == ['Today', 'Buy Board', 'Deliveries', 'Messages'], f'MENU {dev} coordinator: the phone bar is Today, Buy Board, Deliveries, Messages ({bar})')
+        c.ok(bar == ['Today', 'Buy Board', 'Deliveries', 'Tasks', 'Messages'], f'MENU {dev} coordinator: the phone bar is Today, Buy Board, Deliveries, Tasks, Messages ({bar})')
+        gaps = await js(pg, "() => { const B = [...document.querySelectorAll('#mtabs button')].filter(b => b.offsetParent).map(b => b.getBoundingClientRect()); return { w: B.map(r => Math.round(r.width)), gap: B.slice(1).map((r, i) => Math.round(r.left - B[i].right)), right: Math.round(Math.max(...B.map(r => r.right))) }; }")
+        c.ok(all(w >= 44 for w in gaps['w']) and gaps['right'] <= 390, f'MENU {dev} coordinator: the five fit at 390, each 44px or more ({gaps})')
         n = await js(pg, "() => { const i = document.querySelector('#mtabs [data-mv=recv] i.n'); return i ? +i.textContent : 0; }")
         await tap(pg, '#mtabs [data-mv="recv"]', 700)
         m = await js(pg, "() => { const n = document.querySelector('.view.on [data-pusec=mine] .n'); return [view, n ? +n.textContent : 0, puCount('recv')]; }")
@@ -329,6 +336,68 @@ async def s_field(pg, c, dev, phone):
     await sign_in(pg, 'u_chen')
 
 
+PLANT = r"""() => { const base = DB.pos.find(p => p.number === 'PO-2026-047'), out = {};
+  const mk = (st, n, f) => { const po = JSON.parse(JSON.stringify(base)); po.id = 'pt' + n; po.number = 'PO-2026-9' + n; po.status = st;
+    po.matchedTxns = []; po.issues = []; po.lines.forEach(l => { l.id = l.id + n; }); f && f(po); DB.pos.push(po); out[st] = po.id; };
+  mk('draft', '01'); mk('pending', '02'); mk('partial', '03', po => po.lines.forEach(l => l.received = 300));
+  mk('closed', '04', po => po.lines.forEach(l => l.received = l.qty)); mk('cancelled', '05');
+  out.issued = base.id; out.received = DB.pos.find(p => p.number === 'PO-2026-041').id; out.over = DB.pos.find(p => p.number === 'PO-2026-044').id;
+  save(); return out; }"""
+SNAP = "() => JSON.stringify([DB.pos, DB.txns, DB.vendors, DB.bills || []])"
+WRITES = r"""() => { const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+  const d = document.getElementById('po-doc');
+  return { btns: [...d.querySelectorAll('button')].filter(vis).map(b => b.textContent.trim()),
+    fields: [...d.querySelectorAll('input, select, textarea')].filter(f => vis(f) && !f.disabled && !f.readOnly).map(f => f.dataset.p || f.dataset.f || f.dataset.lsp || f.name || f.type),
+    links: [...d.querySelectorAll('a[data-match], a[data-unmatch], [data-rmline]')].filter(vis).length,
+    blues: [...document.querySelectorAll('.view.on .btn.primary')].filter(vis).length,
+    says: (document.getElementById('pu-ponext') || {}).innerText || '' }; }"""
+
+
+async def s_states(pg, c, dev):
+    ids = await js(pg, PLANT)
+    # the coordinator: pending waits on the owner; paid over offers no Close PO; partly received materials has one blue
+    await sign_in(pg, 'u_chen')
+    for st in ['pending', 'over', 'partial']:
+        await page(pg, 'po')
+        await js(pg, "id => { poOpen = id; render(); }", ids[st], 700)
+        w = await js(pg, WRITES)
+        if st == 'pending':
+            c.ok(w['blues'] == 0 and "Waiting on the owner's approval" in w['says'], f'STATES {dev} coordinator: a pending order has no blue and says it waits on the owner ({w["says"]!r}, blues {w["blues"]})')
+        if st == 'over':
+            c.ok('Close PO' not in w['btns'] and w['blues'] == 1, f'STATES {dev} coordinator: a paid-over order offers no Close PO ({w["btns"]})')
+        if st == 'partial':
+            t = await js(pg, "() => document.getElementById('pu-poh').innerText")
+            c.ok(w['blues'] == 1 and 'Received 300 of 900' in t and 'Partly Received' in t, f'STATES {dev} coordinator: a partly received materials order reads 300 of 900 with one blue ({w["blues"]}, {t[:120]!r})')
+    await page(pg, 'po')
+    await js(pg, "() => { puFilter.po = 'all'; render(); }", None, 300)
+    rows = await js(pg, "() => [...document.querySelectorAll('.view.on [data-pusec=orders] .pu-row b')].map(b => b.textContent)")
+    c.ok(any('PO-2026-905' in r for r in rows), f'STATES {dev} coordinator: a cancelled order is under All ({len(rows)} rows)')
+    funds = await js(pg, "() => [...document.querySelectorAll('#v-po [data-fundpo]')].filter(b => b.offsetParent).length")
+    c.ok(funds == 0, f'STATES {dev} coordinator: Orders shows no Client Funds New PO beside the one New ({funds})')
+    # the read-only seats: nothing on any order writes, and the functions refuse
+    for uid in ['u_controller', 'u_billing']:
+        await sign_in(pg, uid)
+        for st in ['draft', 'pending', 'issued', 'partial', 'received', 'over', 'closed', 'cancelled']:
+            await page(pg, 'po')
+            await js(pg, "id => { poOpen = id; render(); }", ids[st], 700)
+            w = await js(pg, WRITES)
+            bad = [b for b in w['btns'] if b not in ('Print / PDF', 'Open the Bill') and not b.startswith('EST-')]
+            c.ok(not bad and not w['fields'] and not w['links'] and w['blues'] == 0 and 'Read only' in w['says'],
+                 f'STATES {dev} {uid} {st}: nothing on the order writes (buttons {bad}, fields {w["fields"]}, links {w["links"]}, blues {w["blues"]})')
+        before = await js(pg, SNAP)
+        r = await js(pg, """id => { const po = DB.pos.find(p => p.id === id); const out = [];
+          for (const a of ['receive', 'receivepartial', 'bill', 'close', 'cancel', 'approve', 'submit', 'email']) out.push(poAction(po, a));
+          out.push(matchPO(po), newPODialog(), openVendor(null), puReceive(po), puNewPOFromLines(), billFromPO(po));
+          const open = !!document.querySelector('#mbm .mbm-box') || document.getElementById('drawer').classList.contains('on');
+          try { mbCloseModal(); } catch (e) {} try { closeEditor(); } catch (e) {}
+          return { open, out: out.map(x => x === false) }; }""", ids['issued'], 500)
+        after = await js(pg, SNAP)
+        c.ok(before == after and not r['open'], f'STATES {dev} {uid}: the order, payment, receiving and vendor functions refuse and change nothing (sheet opened {r["open"]})')
+        nv = await js(pg, "() => { view = 'vendors'; vendOpen = null; render(); const b = document.getElementById('btn-newvendor'); return !!(b && b.offsetParent); }", None, 300)
+        c.ok(not nv, f'STATES {dev} {uid}: no New Vendor')
+    await sign_in(pg, 'u_chen')
+
+
 async def main():
     c = Checks()
     async with async_playwright() as p:
@@ -338,7 +407,7 @@ async def main():
             await sign_in(pg, 'u_chen')
             for k, fn in [('NEW', lambda: s_new(pg, c, dev)), ('RECORD', lambda: s_record(pg, c, dev, phone)), ('OWED', lambda: s_owed(pg, c, dev)),
                           ('VENDORS', lambda: s_vendors(pg, c, dev, phone)), ('STOCK', lambda: s_stock(pg, c, dev)), ('CHIP', lambda: s_chip(pg, c, dev)),
-                          ('MENU', lambda: s_menu(pg, c, dev, phone)), ('FIELD', lambda: s_field(pg, c, dev, phone)), ('TAPS', lambda: s_taps(pg, c, dev) if phone else asyncio.sleep(0))]:
+                          ('MENU', lambda: s_menu(pg, c, dev, phone)), ('FIELD', lambda: s_field(pg, c, dev, phone)), ('TAPS', lambda: s_taps(pg, c, dev) if phone else asyncio.sleep(0)), ('STATES', lambda: s_states(pg, c, dev))]:
                 if not on(k): continue
                 try:
                     await fn()

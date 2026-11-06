@@ -102,8 +102,9 @@ PHONE_BAR = {
     # the PM's holds five (TodayPM)
     'u_owner': ['Today', 'Projects', 'Sales', 'Messages'],
     'u_alan': ['Today', 'Projects', 'Clients', 'Tasks', 'Messages'],
-    # purchasing SPEC §4 (lane P3, 11-05): receiving is the coordinator's daily work; Tasks stays under Your Day
-    'u_chen': ['Today', 'Buy Board', 'Deliveries', 'Messages'],
+    # five, as the PM's: purchasing SPEC §4 adds Deliveries (receiving is daily work), the approved task design keeps
+    # Tasks (lane P3, CoS 11-06)
+    'u_chen': ['Today', 'Buy Board', 'Deliveries', 'Tasks', 'Messages'],
     'u_billing': ['Today', 'Billing', 'Clients', 'Messages'],
     'u_controller': ['Today', 'Banking', 'Bills and Payroll', 'Messages'],
     'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],

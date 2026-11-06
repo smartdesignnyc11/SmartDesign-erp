@@ -89,10 +89,11 @@ async def apply_real(pg, cid, pid):
 # path buys from a vetted seeded vendor; the unknown-name stop itself is checked in s_budget.
 VENDOR_ON_FILE = 'Carlos Millwork'
 async def picker_po(pg, cost, vendor):
-    """The reviewer's priced-PO path: Purchase Orders > Client Funds row 'Trim, doors, paint' > New PO > tick line 10 > cost > vendor > Create."""
+    """The reviewer's priced-PO path: Orders > New > New Purchase Order From Lines > tick line 10 > cost > vendor > Create.
+    (Orders' Client Funds card and its per-line New PO folded away, lane P3 / CoS 11-06: one New on Orders.)"""
     await pg.evaluate("() => { setCurrent('p121'); poOpen = null; view = 'po'; render(); }"); await pg.wait_for_timeout(400)
-    row = pg.locator('#po-funds tr').filter(has_text='Trim, doors, paint').first
-    await row.locator('button').filter(has_text=re.compile(r'^New PO$')).first.click(timeout=6000); await pg.wait_for_timeout(800)
+    await pg.locator('[data-puplus="po"]').first.click(timeout=6000); await pg.wait_for_timeout(300)
+    await pg.locator('.pu-menu [data-pumi="0"]').first.click(timeout=6000); await pg.wait_for_timeout(800)
     r = pg.locator('#mbm table tr').filter(has_text='10. Trim, doors').first
     cb = r.locator('input[type=checkbox]').first
     if not await cb.is_checked(): await cb.check()
