@@ -355,13 +355,29 @@ function puQuoteRows() {
   try {
     Q = rfqInit().filter((q) => !["awarded", "closed", "cancelled"].includes(q.status));
   } catch (e) {}
-  const td = today();
   Q.forEach((q) => {
-    const got = (q.quotes || []).length,
-      asked = (q.vendors || []).length || (q.sent || []).length,
-      due = q.dueDate && q.dueDate < td,
-      mine = !asked || got >= asked || (due && got < asked) || (got > 0 && got >= 3);
-    R.push({ b: mine ? "mine" : "others", actor: mine ? "coord" : "vendor", who: mine ? "" : `${asked - got} of ${asked} vendors`, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: `${got} of ${asked || 0} quotes in${q.dueDate ? ` · due ${fmt(q.dueDate)}` : ""}`, why: !asked ? "Not sent yet." : got >= asked || got >= 3 ? "Every quote is in: level them and award." : due ? "Past its due date: chase the vendors who have not quoted." : "Out to the vendors.", act: !asked ? "Send It" : got >= asked || got >= 3 ? "Level and Award" : due ? "Chase" : "Open", run: () => rfqOpenFor(q.id) });
+    // the request's one stage (rfqStateOf: the same reading rfqLineState gives the line's need status); a request not
+    // sent yet is the coordinator's or the foreman's, never "waiting on the vendors"
+    const st = rfqStateOf(q),
+      asked = (q.vendors || []).length,
+      got = (q.vendors || []).filter((iv) => {
+        const x = rfqQuoteOf(q, iv.id, 1);
+        return x && !x.unreadable;
+      }).length,
+      budget = (() => {
+        let t = 0,
+          any = !1;
+        try {
+          rfqBudgetsNow(q).forEach((b) => {
+            const c = "function" == typeof lineCommitment && !String(b.key).startsWith("sel:") ? lineCommitment(b.key) : null,
+              v = c && null != c.left ? +c.left : null != b.budget ? +b.budget : null != b.whole ? +b.whole : null;
+            null != v && ((t += v), (any = !0));
+          });
+        } catch (e) {}
+        return any ? r2(t) : null;
+      })(),
+      mine = "coord" === st.actor;
+    R.push({ b: mine ? "mine" : "others", actor: st.actor, who: mine ? "" : st.who, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: st.label, why: `Budget ${null != budget ? money(budget) : "none on the line"} · Quotes In ${got} of ${asked || 0} · Due ${q.dueDate ? fmt(q.dueDate) : q.dueWanted ? fmt(q.dueWanted) : "not set"}. ${st.why}`, act: st.act, run: () => rfqOpenFor(q.id) });
   });
   return R;
 }

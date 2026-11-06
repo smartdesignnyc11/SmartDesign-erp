@@ -124,13 +124,14 @@ async def desktop(c, p):
           const po = made[0], q = DB.projects.find(p => p.id === 'p121').requests.find(x => x.id === 'rq2');
           return { po: po && po.number, st: po && po.status, type: po && po.type, req: po && po.lines[0].requestId, qpo: q.poId === (po && po.id), qst: q.status, path: q.path }; }""")
         c.ok(aw['po'] and aw['req'] == 'rq2' and aw['qpo'] and aw['qst'] in ('ordered', 'ack') and aw['path'] == 'order' and aw['type'] == 'materials', f'links: the award copies the request into the PO line and moves the request {aw}')
+        # a sub awarded on one bid gives its logged reason (the three-quote rule at the award, CoS 11-06)
         sb = await pg.evaluate("""() => { const r0 = buyList('').find(x => x.kind === 'sub' && /Demolition/.test(x.name));
           const q = bbQuote([r0]); if (!q) return null;
           const vp = rfqProposeVendors(q);
           const v = ensureVendor('Brick City Demolition', { trade: 'Demolition' }); v.kind = 'sub'; delete v.insuranceExp;
           q.status = 'leveled'; q.vendors = [v.id];
           q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 18000, ext: 18000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
-          const made = rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [];
+          const made = rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [];
           const po = made[0];
           return { sub: !!q.sub, cat: q.category, st0: q.status, offered: vp.list.length, picked: vp.pick.length, type: po && po.type, status: po && po.status, why: po ? poValid(po).join(' | ').slice(0, 160) : '' }; }""")
         c.ok(sb and sb['sub'] and sb['cat'] != 'Materials' and sb['offered'] > 0, f'sub: Ask for Bids on demolition starts a sub RFQ, the vendors offered by hand {sb}')
@@ -143,7 +144,7 @@ async def desktop(c, p):
           const v = ensureVendor('Five Boro Wrecking', { trade: 'General' }); delete v.kind; v.insuranceExp = '2027-06-30';
           q.status = 'leveled'; q.vendors = [v.id];
           q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 9000, ext: 9000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
-          const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id]))) || [])[0];
+          const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [])[0];
           return { sub: !!q.sub, cat: q.category, st0: q.status, type: po && po.type, tax: po && po.tax, use: po && po.useTax, note: po && /use tax/.test(po.notes) }; }""")
         c.ok(sl and sl.get('sub') and sl['type'] == 'subcontract' and not sl['tax'] and not sl['use'] and not sl['note'], f"sub: a demolition line's RFQ is a sub package from the line itself; its award is a subcontract with no purchase or use tax {sl}")
         # ---- ONE PATH: order a request and it leaves the route; a run buy cancels the draft
