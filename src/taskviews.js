@@ -3441,6 +3441,10 @@ function tvRemindSweep() {
     const me = tdyMe(),
       now = String(appNowIso()).slice(0, 16);
     if (!me || !me.id) return 0;
+    // the stores read directly first: the sweep runs every 30 seconds and at each sign-in, and reading every task
+    // through tkAll redrew pages under the person (meeting_review's phone review lost its element mid-tap)
+    const due = (r) => r && r.remind && !r.remind.sent && r.remind.uid === me.id && String(r.remind.at) <= now;
+    if (!(DB.projects || []).some((p) => (p.actions || []).some(due)) && !(DB.tasks || []).some(due) && !((DB.hub && DB.hub.tasks) || []).some(due)) return 0;
     tkAll({ open: !0 }).forEach((t) => {
       const R = tkResolve(t.key),
         rec = R && R.rec,
