@@ -670,7 +670,9 @@ async def polish(c, p):
         c.ok(t['av'] and all(len(a) == 1 and a.isalnum() for a in t['av']), f'{w}: owner avatars are initials ({t["av"][:6]})')
         c.ok(t['wait'] >= 2, f'{w}: the Waiting On column shows who the demo waits on ({t["wait"]} chips)')
         c.ok(not t['clip'], f'{w}: no cell is cut mid-word without an ellipsis ({t["clip"]})')
-        await pg.evaluate("() => tvApply('b:wait')"); await pg.wait_for_timeout(300)
+        # everyone's waiting (Team with Waiting On): the Waiting On chip is the person's own since the capture of 11-05
+        # (lane T2: one label, one number with the filter sheet), so the names are read on the whole team's list
+        await pg.evaluate("() => { tvApply('b:all'); t2View = 'blocked'; renderTkAll(); }"); await pg.wait_for_timeout(300)
         t2 = await pg.evaluate(TABLE_FIT)
         c.ok(t2['wait'] >= 2 and not t2['clip'], f'{w}: Waiting on Others shows every name whole or with an ellipsis ({t2["wait"]} chips; cut {t2["clip"]})')
         await pg.evaluate("() => { tkWho = 'me'; t2View = 'week'; renderTkAll(); }"); await pg.wait_for_timeout(300)
