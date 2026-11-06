@@ -2214,3 +2214,60 @@ tr.pu-docon{background:var(--accent-2)}
   const st = document.createElement("style");
   (st.id = "purchasing-css"), (st.textContent = css), document.head.appendChild(st);
 })();
+// The bill's own page, outermost (later wrappers of openBill rebuild the sheet, so this runs last): a bill billed over its
+// PO or over what arrived offers the Owner Approve Part, Dispute the Rest beside Approve (the three-way match, J7); the
+// person who received, the coordinator, the PM or the controller, has Hold at What Arrived for the Owner instead.
+if ("function" == typeof openBill) {
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (!b || !body || b.short || b.dispute || "function" != typeof pay3Can || !pay3Can(b)) return r;
+      const over = pay3Default(b) > 0,
+        arrived = pay3OverArrived(b),
+        ap = body.querySelector('[data-bact="approve"]'),
+        pm = body.querySelector('[data-bact="pmok"]'),
+        row = (ap || pm || {}).parentElement || null;
+      if (isOwner() && (over || null != arrived) && !body.querySelector("[data-pay3short]") && ![...body.querySelectorAll("button")].some((x) => /^(Approve Part|Approve PO Amount)/.test(x.textContent.trim()))) {
+        const btn = document.createElement("button");
+        (btn.className = "btn sm primary"), (btn.dataset.pay3short = "1"), (btn.textContent = pay3Label(b)), (btn.onclick = () => pay3ShortPay(b));
+        ap && ap.classList.remove("primary");
+        row ? (ap || pm).before(btn) : body.prepend(btn);
+      }
+      if (!isOwner() && null != arrived && ["coord", "pm", "controller"].includes(role()) && !body.querySelector("[data-pay3arr]")) {
+        const hb = document.createElement("button");
+        (hb.className = "btn sm"), (hb.dataset.pay3arr = "1"), (hb.textContent = b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"), (hb.onclick = () => pay3ArrivedHold(b));
+        row ? row.prepend(hb) : body.prepend(hb);
+      }
+    } catch (e) {
+      console.warn("three-way on the bill page", e);
+    }
+    return r;
+  };
+}
+// The order's page, for the person who received it (the coordinator cannot open Bills and Payroll): a bill on this order
+// billed over what arrived says so, with Hold at What Arrived for the Owner (J7: "the coordinator who received the
+// trucks holds the bills at what arrived; only the Owner approves part of a bill").
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    try {
+      if (!po || "function" != typeof pay3OverArrived || isOwner()) return h;
+      const B = (DB.bills || []).filter((b) => b.poId === po.id && !b.short && !b.dispute && pay3Can(b) && null != pay3OverArrived(b));
+      return B.length
+        ? `<div class="note warn pu-arr" role="status">${B.map((b) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow" data-nocase><b>${esc(b.number || "A bill")}</b> bills ${money(billTotal(b))}; what arrived on ${esc(po.number)} comes to ${money(pay3ArrivedLeft(b))}${b.arrivedHold ? `. Held at ${money(b.arrivedHold.amount)} by ${esc(b.arrivedHold.by)} for the Owner` : ""}.</span><button type="button" class="btn sm" data-pay3arrpo="${esc(b.id)}">${b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"}</button></div>`).join("")}</div>` + h
+        : h;
+    } catch (e) {
+      return h;
+    }
+  };
+}
+document.addEventListener("click", (e) => {
+  const x = e.target.closest && e.target.closest("[data-pay3arrpo]");
+  if (!x) return;
+  const b = (DB.bills || []).find((y) => y.id === x.dataset.pay3arrpo);
+  b && (e.preventDefault(), pay3ArrivedHold(b));
+});

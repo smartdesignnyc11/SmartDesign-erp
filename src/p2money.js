@@ -329,30 +329,44 @@ function vbReviewMail(c, p) {
     },
   );
 }
+// an order whose lines sit on two or more estimate lines: the bill keeps each on its own
+function vbPoLineSplit(poId) {
+  const po = poId && (DB.pos || []).find((x) => x.id === poId);
+  return !!po && new Set((po.lines || []).map((l) => l.line).filter(Boolean)).size > 1;
+}
+function vbEachWords(poId) {
+  const po = (DB.pos || []).find((x) => x.id === poId),
+    n = po ? (po.lines || []).filter((l) => l.line).length : 0,
+    w = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"][n] || String(n);
+  return `Each of the order's ${w} lines on its own estimate line`;
+}
 function vbReview(pre, after) {
   const x = Object.assign({}, pre),
     jobs = (DB.projects || []).filter((p) => !p.archived),
     jobOpts = (sel) => `<option value="">Overhead (no job)</option>${jobs.map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}`,
     codeOpts = (sel) => `<option value="">Choose…</option>${COST_CODES.map(([k, n]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${k} ${esc(n)}</option>`).join("")}`,
-    lineOpts = (pid, sel) => `<option value="">No estimate line</option>${(pid ? lineOptions(pid) : []).map((o) => `<option value="${esc(o.key)}" ${o.key === sel ? "selected" : ""}>${esc(o.label)}</option>`).join("")}`,
+    lineOpts = (pid, sel) => `${vbPoLineSplit(val0("poId") || x.poId) ? `<option value="__each" ${"__each" === sel || !sel ? "selected" : ""}>${esc(vbEachWords(val0("poId") || x.poId))}</option>` : ""}<option value="">No estimate line</option>${(pid ? lineOptions(pid) : []).map((o) => `<option value="${esc(o.key)}" ${o.key === sel ? "selected" : ""}>${esc(o.label)}</option>`).join("")}`,
     pos = (DB.pos || []).filter((po) => vbSameVendor(po.vendor, x.vendor) && !["draft", "cancelled", "void"].includes(po.status)),
     poOpts = (sel) => `<option value="">No purchase order</option>${pos.map((po) => `<option value="${po.id}" ${po.id === sel ? "selected" : ""}>${esc(po.number)} · ${money(poTotal(po).total)}</option>`).join("")}`,
     bankOpts = (sel) => {
       const C = vbBankCands(x.vendor, x.amount, x.txnId);
       return `<option value="">Not paid yet</option>${C.map((t) => `<option value="${t.id}" ${t.id === sel ? "selected" : ""}>${fmtL(t.date)} · ${esc(t.desc)} · ${money(-t.amt)} · ${esc(truthAcctWords(t))}</option>`).join("")}`;
     };
-  const m = mbModal(
+  let mm = null;
+  const val0 = (k) => (mm && (mm.querySelector(`[data-f="${k}"]`) || {}).value) || "";
+  vbPoLineSplit(x.poId) && (x.line = "__each");
+  const m = (mm = mbModal(
     `Enter the Bill: ${esc(x.vendor)}${x.number ? " " + esc(x.number) : ""}`,
     `<p class="small muted" style="margin:0 0 10px">Read from the vendor's invoice. Check each field; nothing is entered until you press Enter the Bill.</p>
     <div id="vb-warn"></div>
     <div class="grid2">${mbF("Vendor", `<input data-f="vendor" value="${esc(x.vendor)}" list="vb-vendors" autocomplete="off"><datalist id="vb-vendors">${(DB.vendors || []).map((v) => `<option value="${esc(v.name)}">`).join("")}</datalist>`)}${mbF("Invoice #", `<input data-f="number" value="${esc(x.number)}" autocomplete="off">`)}</div>
     <div class="grid2">${mbF("Invoice Date", `<input type="date" data-f="date" value="${esc(x.date)}">`)}${mbF("Due", `<input type="date" data-f="due" value="${esc(x.due)}">`)}</div>
     <div class="grid2">${mbF("Amount", `<input type="number" step="0.01" min="0" data-f="amount" value="${x.amount}">`)}${mbF("Job", `<select data-f="projectId">${jobOpts(x.projectId)}</select>`)}</div>
-    <div class="grid2">${mbF("Cost Code", `<select data-f="code">${codeOpts(x.code)}</select>`)}${mbF("Estimate Line", `<select data-f="line">${lineOpts(x.projectId, x.line)}</select>`)}</div>
+    <div class="grid2">${mbF("Cost Code", `<select data-f="code">${codeOpts(x.code)}</select>`)}${mbF("Estimate Line", `<select data-f="line">${lineOpts(x.projectId, x.line)}</select>`)}</div>${vbPoLineSplit(x.poId) ? `<div class="small muted vb-each" style="margin:-4px 0 8px">${esc(vbEachWords(x.poId).replace(/^Each of the order's (\w+) lines on its own estimate line$/, "The order's $1 lines each keep their own estimate line"))}: the amount is split over them by their share of the order.</div>` : ""}
     <div class="grid2">${mbF("Purchase Order", `<select data-f="poId">${poOpts(x.poId)}</select>`)}${mbF("Paid by Bank Line", `<select data-f="txnId">${bankOpts(x.txnId)}</select>`)}</div>
     <div class="small muted" id="vb-route" style="margin-top:6px"></div>`,
     { submit: "Enter the Bill", onSubmit: (f) => vbPost(x, f, m, after) },
-  );
+  ));
   if (!m) return "";
   const val = (k) => (m.querySelector(`[data-f="${k}"]`) || {}).value || "",
     paint = () => {
@@ -378,7 +392,7 @@ function vbReview(pre, after) {
         l = po && (po.lines || [])[0];
       po && po.projectId && (m.querySelector('[data-f="projectId"]').value = po.projectId);
       l && l.code && (m.querySelector('[data-f="code"]').value = l.code);
-      po && (m.querySelector('[data-f="line"]').innerHTML = lineOpts(po.projectId || val("projectId"), (l && l.line) || ""));
+      po && (m.querySelector('[data-f="line"]').innerHTML = lineOpts(po.projectId || val("projectId"), vbPoLineSplit(po.id) ? "__each" : (l && l.line) || ""));
     }
     paint();
   });
@@ -435,7 +449,22 @@ function vbPost(x, f, m, after) {
       createdAt: appNowIso(),
       commId: x.commId || "",
     };
+  const each = "__each" === f.line && po && vbPoLineSplit(po.id);
+  each && (f.line = "");
   po && (poLinkBill(b, po), f.code && ((b.code = f.code), (b.lines[0].code = f.code)), f.line && ((b.line = f.line), (b.lines[0].line = f.line)), pid && (b.projectId = pid));
+  // each order line on its own estimate line: the invoice amount split over the order's lines by their share of it, each
+  // bill line carrying its PO line and its estimate line (never all of it on the first line's)
+  if (each) {
+    const L = (po.lines || []).filter((l) => (+l.qty || 0) * (+l.price || 0) > 0),
+      base = L.reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0);
+    let left = amt;
+    b.lines = L.map((l, i) => {
+      const a = i === L.length - 1 ? r2(left) : r2((amt * (+l.qty || 0) * (+l.price || 0)) / base);
+      left = r2(left - a);
+      return { id: uid("bl"), desc: `${l.item || l.desc || "Line"}${x.number ? " — invoice " + x.number : ""}`, amount: a, code: l.code || f.code || "", line: l.line || "", poLineId: l.id };
+    });
+    b.line = "";
+  }
   hit && (b.dupOf = { billId: hit.bill.id, number: hit.bill.number || "", why: hit.why, at: appNowIso(), by: by, ack: !0 });
   "function" == typeof billLinesNorm && billLinesNorm(b);
   const kept = vbAdd(b, { src: "the bill review", allowDup: !!hit });
@@ -451,7 +480,9 @@ function vbPost(x, f, m, after) {
   const did = `bill ${b.number || ""} entered after review`.replace(/\s+/g, " ");
   after && after(b, did);
   save(), mbCloseModal(), render();
-  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}. It waits ${paid ? "under Paid Before Approval" : "in Bills and Payroll"} for ${vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }]);
+  // billed over what arrived (the receipt): the person who received holds it at what arrived for the Owner, from here
+  const overArr = "function" == typeof pay3OverArrived && null != pay3OverArrived(b);
+  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}${overArr ? `; what arrived on its order comes to ${money(pay3ArrivedLeft(b))}` : ""}. It waits ${paid ? "under Paid Before Approval" : "in Bills and Payroll"} for ${overArr ? "the Owner" : vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }].concat(overArr && !isOwner() ? [{ label: "Hold at What Arrived", run: () => pay3ArrivedHold(b) }] : []));
   return !1;
 }
 

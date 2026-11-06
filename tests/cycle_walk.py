@@ -1613,6 +1613,26 @@ def approve_what_arrived(p, inv, po, less, why):
     return True
 
 
+def hold_at_arrived(p, po, inv):
+    """the coordinator, on the order she received: Hold at What Arrived on its bill, the receipt's figure typed as what
+    arrived and why; it approves nothing (the Owner approves part and disputes the rest)"""
+    open_po(p, po)
+    sc = p.look()
+    c = sc.find('Hold at What Arrived', after=inv, exact=True) or sc.find('Hold at What Arrived', exact=True)
+    if c is None: return False
+    p.tap_ctl(c, expect='Hold at What Arrived')
+    sc = p.look()
+    arrived = (re.findall(r'comes to \$([\d,]+(?:\.\d\d)?)', sc.text) or [''])[0]
+    amt = next((x for x in sc.ctls if not x.action and re.search(r'arrived', x.label, re.I)), None)
+    w = next((x for x in sc.ctls if not x.action and re.search(r'reason', x.label, re.I)), None)
+    if not arrived or amt is None or w is None: return False
+    p.do_ctls([('type', amt, arrived.replace(',', '')), ('type', w, 'what the truck brought, counted on the slip; the rest did not come or came damaged')])
+    s2 = next((x for x in p.look().actions('sheet') if norm(x.label) == 'hold at what arrived'), None)
+    if s2 is None: return False
+    p.tap_ctl(s2)
+    return bool(re.search(r'held at', p.scr.toast, re.I))
+
+
 def j7_receive_match(p):
     """The coordinator: two trucks (the drywall 6 cement boards short, the tile with two boxes cracked) received as they came;
     the vendors' bills matched three ways and held at what arrived; the damaged tile claimed; the credit memo recorded."""
@@ -1626,8 +1646,12 @@ def j7_receive_match(p):
     bills = {dw: enter_bill(p, dw, two_lines=both), tile: enter_bill(p, tile)}
     # what did not arrive, at the order's prices: the yard's 1/2" cement board at its quoted price, the tile at the price on its order
     board = BOOK['parties']['gowanus_supply']['quotes']['prices'].get('cement', 26.50)
-    p.expect(False, 'the coordinator who received the trucks holds the bills at what arrived (only the Owner approves part of a bill)',
-             'the bills wait for the PM\'s review and the Owner\'s approval; the three-way hold is the Owner\'s')
+    # the coordinator who received the trucks holds each bill at what arrived, from the order she received (she cannot
+    # open Bills and Payroll); only the Owner approves part of a bill. (This step was a standing expect(False): the app had
+    # no such hold. P1, 11-06: Hold at What Arrived on the order's page, the receipt's figure in its sheet, for the Owner.)
+    held = [hold_at_arrived(p, po, inv) for po, inv in bills.items() if inv]
+    p.expect(bool(held) and all(held), 'the coordinator who received the trucks holds the bills at what arrived (only the Owner approves part of a bill)',
+             f'held: {held}')
     switch(p, 'u_owner', dev)
     try:
         if bills[dw]: approve_what_arrived(p, bills[dw], dw, SHORT_BOARDS * board, f'{SHORT_BOARDS} cement boards not delivered (backordered); paid when they come')
