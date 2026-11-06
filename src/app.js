@@ -1211,6 +1211,13 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
     const v = Math.round(+n || 0);
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString();
   },
+  // A unit price, always with its cents (11-05: the studs' $4.60 read "$5" on the phone, against a best of $3.98). Only
+  // for unit prices and the last or best price of an item; totals and every client document keep money() (whole dollars,
+  // so the lines of an estimate or invoice add up to its total as printed).
+  unitMoney = (n) => {
+    const v = +n || 0;
+    return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
 function lineAmount(l, doc) {
   if (doc && "sov" === doc.mode) {
@@ -9465,16 +9472,9 @@ function docActions(c, d, st) {
       "construction" !== d.template &&
       ["approved", "converted"].includes(d.status) &&
       (h += B("invoice", "Invoice from this estimate…", "primary")),
-    ("estimate" !== k && "co" !== k) ||
-      "draft" === d.status ||
-      ["rejected", "expired"].includes(d.status) ||
-      !d.lines.length ||
-      (h += B("pos", "Purchase orders from lines…")),
-    "invoice" === k &&
-      "sov" !== d.mode &&
-      "void" !== d.status &&
-      d.lines.length &&
-      (h += B("pos", "Purchase orders from lines…")),
+    // the document's buying door (docs/mockups/purchasing/SPEC.md: "Buy These Lines"): only a document the firm may buy
+    // from (docBuyable: an approved or converted estimate, an approved change order, a sent invoice), on both devices
+    docBuyable(d) && d.lines.length && (h += B("pos", "Buy These Lines")),
     "estimate" === k &&
       ("sent" === d.status &&
         (h += B("approve", "Client approved", "primary") + B("reject", "Rejected") + B("expire", "Expired")),
@@ -25539,6 +25539,44 @@ function lineBillIsBankDup(b) {
     return !1;
   }
 }
+// What an order's bills and its card or bank payments cover on one contract line (11-05, the chief of staff's review of
+// lineCommitment, which reads lineFin):
+//   billed     bills on the order for this line (their own line), plus this line's share of the order's bills with no
+//              line: shared across the order's lines by what is still open on each (a line-less bill was taken off every
+//              line whole, so a $5,000 bill on a three-line order freed $15,000)
+//   txnPaid    card or bank lines matched to the order with no bill behind them: paid, so no longer committed (a card
+//              line on the line was counted as actual and again as committed)
+//   billShare, txnShare   the line-less parts that fall on this line, which are its cost (they were nobody's actual, and a
+//              vendor credit, being negative, frees the line's budget)
+function lineOrderPaid(po, key) {
+  const out = { billed: 0, txnPaid: 0, billShare: 0, txnShare: 0 };
+  if (!po) return out;
+  const amt = (k) => (po.lines || []).filter((l) => l.line === k).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    keys = [...new Set((po.lines || []).map((l) => l.line).filter(Boolean))],
+    B = (DB.bills || []).filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id),
+    lined = (k) => B.filter((b) => b.line === k).reduce((a, b) => a + billCost(b), 0),
+    open = (k) => Math.max(0, amt(k) - lined(k)),
+    openSum = keys.reduce((a, k) => a + open(k), 0),
+    grossSum = keys.reduce((a, k) => a + amt(k), 0),
+    share = (k) => (openSum > 0.005 ? open(k) / openSum : grossSum > 0.005 ? amt(k) / grossSum : 1 === keys.length ? 1 : 0),
+    s = keys.includes(key) ? share(key) : 0,
+    unl = B.filter((b) => !b.line),
+    // the bills' own cost on the line follows job cost (less rebilled or disputed parts); what they take off the order is
+    // their whole amount
+    cost = (b) => billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0);
+  out.billed = r2(lined(key) + unl.reduce((a, b) => a + billCost(b), 0) * s);
+  out.billShare = r2(unl.filter((b) => !lineBillIsBankDup(b)).reduce((a, b) => a + cost(b), 0) * s);
+  // card or bank lines matched to the order. With no bill on it, a payment is what is paid (no longer committed): one on
+  // this line is already its actual (lineFin's own bank lines), one with no line is shared. With bills, the bills carry the
+  // payments. Either way a vendor credit (money in) is cost back to its line, or shared, and frees its budget.
+  const T = (DB.txns || []).filter((t) => ((po.matchedTxns || []).includes(t.id) || (t.poId && t.poId === po.id)) && !t.billId && !txnRebilled(t)),
+    part = (t) => (t.line === key ? -t.amt : t.line ? 0 : -t.amt * s);
+  if (!B.length) {
+    out.txnPaid = r2(T.filter((t) => +t.amt < 0).reduce((a, t) => a + part(t), 0));
+    out.txnShare = r2(T.filter((t) => !t.line).reduce((a, t) => a - t.amt * s, 0));
+  } else out.txnShare = r2(T.filter((t) => +t.amt > 0).reduce((a, t) => a + part(t), 0));
+  return out;
+}
 function lineFin(key) {
   const ref = findLine(key);
   if (!ref) return null;
@@ -25608,17 +25646,10 @@ function lineFin(key) {
         0,
       ),
     ),
-    poBilled = r2(
-      DB.bills
-        .filter(
-          (b) =>
-            "void" !== b.status &&
-            "rejected" !== b.status &&
-            pos.some((po) => po.id === b.poId) &&
-            (b.line === key || !b.line),
-        )
-        .reduce((a, b) => a + billCost(b), 0),
-    ),
+    // what the orders' bills and card or bank payments cover on this line (lineOrderPaid): a bill or payment with no line
+    // on an order of several lines is shared across the order's open lines, never taken off each of them whole (11-05)
+    paidOn = pos.map((po) => lineOrderPaid(po, key)),
+    poBilled = r2(paidOn.reduce((a, x) => a + x.billed + x.txnPaid, 0)),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     // A bill awaiting approval that the bank has already paid, where the bank line carries the cost, is the same
@@ -25642,7 +25673,9 @@ function lineFin(key) {
               (b.poId && (DB.pos.find((p) => p.id === b.poId)?.matchedTxns || []).includes(t.id)),
           ))(t),
     ),
-    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
+    // the share of the orders' line-less bills and payments (a vendor credit too) that falls on this line is its cost
+    shareAmt = r2(paidOn.reduce((a, x) => a + x.billShare + x.txnShare, 0)),
+    txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0) + shareAmt),
     laborAmt = lineLabor(doc, line),
     // stock issued to the job on this line at carried cost, less returns
     stockAmt = r2(stockUseIn("", null, key).reduce((a, u) => a + (+u.amount || 0), 0)),
@@ -29805,7 +29838,7 @@ function clientFundsLedger() {
               actual = f.actual,
               committed = f.committed,
               paidOut = actual,
-              remainingToBuy = Math.max(0, r2(budget - actual - committed)),
+              remainingToBuy = (lineCommitment(key) || { left: Math.max(0, r2(budget - actual - committed)) }).left,
               reserved = Math.max(0, r2(Math.min(collected - paidOut, budget - paidOut))),
               floated = Math.max(0, r2(paidOut - collected)),
               kind =
@@ -37940,13 +37973,8 @@ const docActionsBase6 = docActions;
 docActions = function (c, d, st) {
   let h = docActionsBase6(c, d, st);
   return (
-    "estimate" === d.type &&
-      "draft" === d.status &&
-      d.lines.length &&
-      !/data-docact="pos"/.test(h) &&
-      mbCanEdit() &&
-      (h +=
-        '<button class="btn sm" data-docact="pos" title="Buy out long-lead items before award; the PO cannot be issued until the estimate is approved">Purchase orders from lines… (pre-award)</button>'),
+    // (11-05, the coordinator expert: a draft estimate was buyable; Alan's rule: only approved estimates and change
+    // orders are bought from, so the pre-award door is gone; docBuyable is the one test)
     h
   );
 };
@@ -41328,7 +41356,7 @@ const ctPOPickerBase_wf2b = (ctPOPicker = function (projectId, preferId, preKey)
       setTimeout(() => {
         row?.scrollIntoView({ block: "center" });
         const v = row?.querySelector("[data-ctpv]");
-        v && !v.value && v.focus();
+        v && !v.value && !("function" == typeof mOn && mOn()) && v.focus();
       }, 60);
   }
 });
@@ -51252,6 +51280,16 @@ const CT_TEMPLATES = {
   simple: "Simple (one line per item)",
 };
 let ctInternal = !0;
+// The one test of a document the firm may buy from (11-05): an approved or converted estimate, an approved or billed
+// change order, a sent invoice that is not a schedule of values. The document's Buy These Lines and the order sheet's
+// document list read it, on both devices (a draft estimate was buyable from the phone's order sheet).
+function docBuyable(d) {
+  if (!d) return !1;
+  if ("estimate" === d.type) return ["approved", "converted"].includes(d.status);
+  if ("co" === d.type) return ["approved", "billed"].includes(d.status);
+  if ("invoice" === d.type) return "sov" !== d.mode && !["void", "draft"].includes(d.status);
+  return !1;
+}
 const ctKey = (d, l) => `${"co" === d.type ? "co" : d.type}:${d.id}:${l.id}`,
   ctCode = (l) =>
     (LINE_KW.find(([w]) => (l.item || "").toLowerCase().includes(w)) || [
@@ -51680,14 +51718,63 @@ function ctPrint(c, d) {
 }
 // The budget left on a line after the orders already on it (buying day finding 14: the whole line showed while
 // PO-2026-041 and PO-2026-048 were already on it), the same number the order sheet and the Buy Board show.
-function ctpLeftText(key, l, have) {
+// One commitment per line (11-05, the coordinator expert: Demolition read $19,850 left on the order sheet, $0 committed
+// on the Buy Board and "—" on Client Funds, after a draft PO-2026-049 of $13,900; the drafts were counted nowhere, so the
+// line was bought twice). What a contract line has spent and has on order, and what is left to buy:
+//   actual      bills, bank and card lines, store runs, stock and labour on the line (lineFin)
+//   committed   issued orders, net of what is billed against them (lineFin; the books' committed)
+//   drafted     draft orders on the line, not yet issued (a buy in hand: counted here so it is never bought twice)
+//   used        actual + committed + drafted;  left = budget - used;  over = used - budget
+// Every screen that shows a line's committed or left reads this: the order sheet, the Buy Board's row and panel,
+// Client Funds, the job's Orders, and the issue gate (lineBudgetTest below).
+function lineCommitment(key) {
   let f = null;
   try {
     f = lineFin(key);
   } catch (e) {}
-  if (!f || !(+f.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
-  const left = Math.max(0, r2(f.budget - f.actual - f.committed));
-  return ` · budget ${money(f.budget)} · ${money(left)} left${(have || []).length ? ` after ${have.map((po) => po.number).join(", ")}` : ""}`;
+  if (!f) return null;
+  const amt = (po) => (po.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0),
+    drafts = f.draftPOs || (DB.pos || []).filter((po) => "draft" === po.status && (po.lines || []).some((l) => l.line === key)),
+    budget = +f.budget || 0,
+    actual = r2(+f.actual || 0),
+    committed = r2(+f.committed || 0),
+    drafted = r2(drafts.reduce((a, po) => a + amt(po), 0)),
+    used = r2(actual + committed + drafted);
+  return { key: key, budget: budget, actual: actual, committed: committed, drafted: drafted, onOrder: r2(committed + drafted), used: used, left: Math.max(0, r2(budget - used)), over: budget > 0 ? Math.max(0, r2(used - budget)) : 0, pos: (f.pos || []).concat(drafts), drafts: drafts };
+}
+// The one budget test (11-05, the field expert: the create check read committed and ignored actual, so Windows, with $0
+// left, made a $29,700 order with no warning). Actual plus committed plus drafted plus what this buy adds, against the
+// line. add: the dollars being added; opts.excludePo: an order already counted, taken out first (to issue a draft as it
+// stands: lineBudgetTest(key, 0); to test an order's new amount: lineBudgetTest(key, newAmount, { excludePo: po.id })).
+// Read at the tick and at create (the order sheet), at issue (the issue gate), and on the job's Orders (Over the Line).
+function lineBudgetTest(key, add, opts) {
+  const o = opts || {},
+    c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return { ok: !0, c: c, by: 0, after: c ? r2(c.used + (+add || 0)) : +add || 0, say: "" };
+  const ex = o.excludePo ? (DB.pos || []).find((po) => po.id === o.excludePo) : null,
+    mine = ex && "cancelled" !== ex.status ? r2((ex.lines || []).filter((l) => l.line === key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)) : 0,
+    after = r2(c.used - mine + (+add || 0)),
+    by = r2(after - c.budget),
+    ok = by <= Math.max(1, 0.001 * c.budget);
+  let ref = null;
+  try {
+    ref = findLine(key);
+  } catch (e) {}
+  const name = ref ? `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""} (${ref.line.item || ref.line.desc || ""})` : "the line";
+  return {
+    ok: ok,
+    c: c,
+    by: ok ? 0 : by,
+    after: after,
+    mine: mine,
+    say: ok ? "" : `${money(by)} over the ${money(c.budget)} budget of ${name}: ${money(c.actual)} spent, ${money(c.onOrder)} on order${c.drafted ? ` (${money(c.drafted)} in draft)` : ""}${+add ? `, and this buy adds ${money(+add)}` : ""}`,
+  };
+}
+function ctpLeftText(key, l, have) {
+  const c = lineCommitment(key);
+  if (!c || !(c.budget > 0)) return l.cost ? ` · budget ${money(l.cost)}` : "";
+  const P = c.pos.map((po) => po.number + ("draft" === po.status ? " (draft)" : ""));
+  return ` · budget ${money(c.budget)} · ${c.over ? `${money(c.over)} over` : `${money(c.left)} left`}${P.length ? ` after ${P.join(", ")}` : c.actual ? ` after ${money(c.actual)} spent` : ""}`;
 }
 const ROWFN = (d, l, key, have, its, lq, lc, preKey) =>
   `<tr class="ctp-line"><td><label class="ctp-tick"><input type="checkbox" data-ctpsel="${l.id}" ${preKey === key || (Array.isArray(preKey) && preKey.includes(key)) ? "checked" : ""}></label></td><td><b>${l.num || ""}${l.num ? ". " : ""}${esc(l.item || l.desc || "")}</b><div class="small muted">${money(lineAmount(l, d))}${ctpLeftText(key, l, have)}</div></td><td><input class="num" data-ctpq="${l.id}" type="number" step="any" value="${lq}"></td><td><input data-ctpu="${l.id}" value="${esc(l.unit || "ls")}"></td><td><input class="num" data-ctpc="${l.id}" type="number" step="any" value="${lc || ""}" placeholder="cost"></td><td><input data-ctpv="${l.id}" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="vendor / sub"></td><td class="small">${have.map((po) => esc(po.number)).join(", ")}</td></tr>` +
@@ -51701,17 +51788,9 @@ function ctPOPicker(projectId, preferId, preKey) {
   const p = DB.projects.find((x) => x.id === projectId) || S,
     cl = DB.clients.find((c) => c.id === p.clientId);
   if (!cl) return void toast("This project has no client yet");
-  const docs = [
-    ...cl.estimates.filter(
-      (e) => "rejected" !== e.status && "expired" !== e.status && (!e.projectId || e.projectId === p.id),
-    ),
-    ...cl.changeOrders.filter(
-      (x) => ["approved", "billed"].includes(x.status) && (!x.projectId || x.projectId === p.id),
-    ),
-    ...cl.invoices.filter(
-      (x) => "sov" !== x.mode && "void" !== x.status && (!x.projectId || x.projectId === p.id),
-    ),
-  ];
+  // an unapproved estimate is listed only when its long-lead lines are being bought before award (docPreAward, opened
+  // from the estimate's own door; the owner approves each such order before it is issued)
+  const docs = [...cl.estimates, ...cl.changeOrders, ...cl.invoices].filter((x) => (docBuyable(x) || ("function" == typeof puPreAwardOpen && puPreAwardOpen(x))) && (!x.projectId || x.projectId === p.id));
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
   let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
@@ -51741,7 +51820,10 @@ function ctPOPicker(projectId, preferId, preKey) {
                   have = ctPOsForKey(key),
                   its = l.items || [],
                   lq = +l.qty || 1,
-                  lc = l.cost
+                  lcm = lineCommitment(key),
+                  lc = lcm && lcm.budget > 0
+                    ? r2(lcm.left / lq)
+                    : l.cost
                     ? r2(l.cost / lq)
                     : (() => {
                         const o =
@@ -51763,27 +51845,44 @@ function ctPOPicker(projectId, preferId, preKey) {
         const docOf = (lid) => docs.find((x) => x.lines.some((l) => l.id === lid)),
           picks = [...m.querySelectorAll("[data-ctpsel]:checked")].map((cb) => cb.dataset.ctpsel);
         if (!picks.length) return toast("Tick at least one line or item"), !1;
-        const over = [];
-        if (
-          (picks.forEach((sel) => {
-            const [lid] = sel.split("#"),
-              d = docOf(lid),
-              l = d.lines.find((x) => x.id === lid),
-              g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
-              add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
-              f = lineFin(ctKey(d, l));
-            l.cost &&
-              f &&
-              f.committed + add > 1.001 * l.cost &&
-              !over.some((o) => o.l === l) &&
-              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
-          }),
-          over.length &&
-            !appConfirm(
-              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
-            ))
-        )
-          return !1;
+        // the one budget test per line (lineBudgetTest: actual plus on order plus this buy), every pick on a line summed
+        const adds = {};
+        picks.forEach((sel) => {
+          const [lid] = sel.split("#"),
+            d = docOf(lid),
+            l = d.lines.find((x) => x.id === lid),
+            g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
+            k = ctKey(d, l);
+          (adds[k] = adds[k] || { l: l, add: 0 }).add += (+g("ctpq") || 1) * (+g("ctpc") || 0);
+        });
+        const over = Object.entries(adds).map(([k, x]) => lineBudgetTest(k, x.add)).filter((t) => !t.ok);
+        if (over.length && !appConfirm(`This order would put ${over.length === 1 ? "the line" : `${over.length} lines`} over budget. ${over.map((t) => t.say).join("; ")}. Create it anyway?`)) return !1;
+        // a second order on a subcontract line is a second sub for the same scope: warned, and the reason kept on the order
+        const subAgain = Object.entries(adds).filter(([k, x]) => "function" == typeof bbSubScope && bbSubScope(x.l) && (DB.pos || []).some((po) => "cancelled" !== po.status && (po.lines || []).some((pl) => pl.line === k)));
+        let againWhy = "";
+        // before award (Alan's Standard: long-lead items are released early only as an owner-approved exception): only
+        // long-lead lines of an unapproved estimate, with the reason the owner reads before approving
+        const early = picks.map((sel) => docOf(sel.split("#")[0])).filter((d) => d && !docBuyable(d));
+        let earlyWhy = "";
+        if (early.length) {
+          const bad = picks.filter((sel) => {
+            const d = docOf(sel.split("#")[0]);
+            return d && !docBuyable(d) && !("function" == typeof puLongLead && puLongLead(d.lines.find((x) => x.id === sel.split("#")[0])));
+          });
+          if (bad.length) return toast(`Only long-lead lines can be bought before ${early[0].number} is approved`), !1;
+        }
+        // the reason for a second subcontract on a line, or for buying before award, is asked in the sheet itself (its Why
+        // field, src/purchasing.js puCtpCheck), so the lines ticked are kept: a prompt over the sheet closed it
+        if (early.length || subAgain.length) {
+          const whyEl = m.querySelector("#pu-ctpwhy"),
+            why = String((whyEl && whyEl.value) || "").trim();
+          if (why.length < 8) {
+            whyEl && (whyEl.closest(".pu-ctpwhy").hidden = !1, whyEl.focus(), whyEl.scrollIntoView({ block: "center" }));
+            return toast(early.length ? `Say why ${early[0].number}'s long-lead line is bought before award: the owner reads it before approving` : "Say why a second subcontract order goes on this line: a second sub for the same scope buys it twice unless the scope is split"), !1;
+          }
+          early.length && (earlyWhy = why);
+          subAgain.length && (againWhy = why);
+        }
         const byVendor = {},
           srcDocs = new Set();
         picks.forEach((sel) => {
@@ -51805,6 +51904,8 @@ function ctPOPicker(projectId, preferId, preKey) {
             line: ctKey(d, l),
             code: l.code || codeForLine(l),
             received: 0,
+            // the field request this order covers (ticked under the line): it leaves the store run, so it is bought once
+            requestId: (m.querySelector(`[data-ctpreq="${sel}"]:checked`) || {}).value || "",
           }),
             it && !it.vendor && (it.vendor = vendor),
             it || l.vendor || (l.vendor = vendor);
@@ -51826,7 +51927,34 @@ function ctPOPicker(projectId, preferId, preKey) {
             matchedTxns: [],
             createdBy: S.project.userName || DB.me || "",
           };
+          // the need-by is set as the order is made: the earliest the site needs any of its lines (lineNeedBy). The
+          // listeners that refine it run on the button's click, and a confirm's replay (the budget test) skipped them, so
+          // an order made after "Yes, Continue" had no need-by and could not be issued (chain step 10, 11-05).
+          try {
+            lines.forEach((pl) => {
+              const ref = pl.line ? findLine(pl.line) : null,
+                nb = ref && "function" == typeof lineNeedBy ? lineNeedBy(p, ref.line) : null;
+              nb && nb.needBy && (!po.needBy || nb.needBy < po.needBy) && ((po.needBy = nb.needBy), (po.needTask = (nb.task && nb.task.name) || ""));
+            });
+          } catch (e) {}
+          againWhy && lines.some((pl) => subAgain.some(([k]) => k === pl.line)) && (po.secondOrderWhy = againWhy);
+          if (earlyWhy) {
+            const d0 = early[0];
+            (po.preAward = { estimateId: d0.id, number: d0.number, why: earlyWhy, at: appNowIso(), by: (currentUser() || {}).name || role() }), (po.notes = `Long-Lead, Before Award (${d0.number}). ${po.notes || ""}`.trim());
+          }
           return DB.pos.push(po), po;
+        });
+        made.forEach((po) => {
+          try {
+            // a line bought for a field request names what the site asked for (not the estimate line's title)
+            (po.lines || []).forEach((pl) => {
+              const q = pl.requestId && (p.requests || []).find((x) => x.id === pl.requestId);
+              q && q.what && ((pl.desc = pl.desc || pl.item), (pl.item = q.what));
+            });
+            (po.lines || []).some((pl) => pl.requestId) && "function" == typeof bbAfterOrder && bbAfterOrder(po, "from the order sheet");
+            po.secondOrderWhy && audit("po", po.id, "second order on a subcontract line", "", po.number, po.secondOrderWhy);
+            po.preAward && audit("po", po.id, "long-lead before award", "", po.preAward.number, po.preAward.why);
+          } catch (e) {}
         });
         audit(
           "po",
@@ -121849,7 +121977,7 @@ function rxReadLines(c, d) {
     lines
       .map(
         (l, i) =>
-          `<tr class="${l.parent ? "rx-child" : ""}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
+          `<tr class="${l.parent ? "rx-child" : ""}" data-rxline="${esc(l.id)}"><td class="num">${l.num || i + 1}</td><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(l.desc)}</div>` : ""}</td><td class="num">${l.qty ?? ""}</td><td>${esc(l.unit || "")}</td><td class="money">${money(l.rate)}</td><td class="money">${money(lineAmount(l, d))}</td>${
             int
               ? `<td class="int money">${l.cost ? money(l.cost) : ""}</td><td class="int money">${((l) => {
                   const a = lineAmount(l, d),
@@ -185750,6 +185878,28 @@ const pwFresh = () => (pwMemo = null);
 function pwData() {
   return pwMemoGet("data", pwBuild);
 }
+// The PO line a bill line pays for: its own link (poLineId), else the PO line whose item shares the bill line's words;
+// a bill of one goods line takes the one PO line on its estimate line, or the order's only line. Never by position.
+function pwBillPoLine(po, goods, l, desc, nBill) {
+  if (l.poLineId) return (po.lines || []).find((x) => x.id === l.poLineId) || null;
+  const words = (s) => String(pwNorm(s) || "").split(" ").filter((w) => w.length > 2),
+    W = words(desc);
+  let best = null,
+    bs = 0;
+  W.length &&
+    goods.forEach((x) => {
+      const H = words(x.item || x.desc || "");
+      if (!H.length) return;
+      const s = W.filter((w) => H.some((h) => h === w || (w.length > 3 && h.startsWith(w)) || (h.length > 3 && w.startsWith(h)))).length / Math.min(W.length, H.length);
+      s > bs && ((bs = s), (best = x));
+    });
+  if (bs >= 0.5) return best;
+  // a bill of one goods line: the one PO line on its estimate line, or the order's only line (the same estimate line can
+  // carry other things, as the windows line carries the brick mold, so this is never used for a bill of several lines)
+  if (1 !== nBill) return null;
+  const m = l.line ? goods.filter((x) => x.line === l.line) : [];
+  return 1 === m.length ? m[0] : 1 === goods.length ? goods[0] : null;
+}
 function pwBuild() {
   const rate = rfqTaxRate(),
     buys = [],
@@ -185776,24 +185926,41 @@ function pwBuild() {
     +po.shipping > 0 && ((fee = r2(fee + +po.shipping)), what.push("shipping on the PO"));
     fee > 0 && fees.push({ id: "po:" + po.id, kind: "po", date: po.date, vendor: po.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: po.number, poId: po.id, projectId: po.projectId || "" });
   });
+  // the bills priced onto the PO lines they pay for (11-05, P3 and the chief of staff): WW-2026-118's $500 "Additional brick
+  // mold" was laid on PO-2026-044's only line by position and read as the windows at $55.56/ea, with the bill listed
+  // twice; CM-0091, a $38,000 deposit on a $76,000 lump sum, read $38,000 each. Now each bill line finds its PO (its own,
+  // or the bill's) and its PO line by the line's id or the item's words, never by position. A bill line with no quantity,
+  // or a part of a lump sum, is a payment, not a price. The quantities and amounts billed on one PO line add up across
+  // its bills (a later bill never overwrites an earlier one), and each bill is one source.
+  const paid = new Map(),
+    goodsOf = (po) => (po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : []),
+    poById = (id) => (id ? (DB.pos || []).find((p) => p.id === id) : null),
+    poOfLine = (lid) => (lid ? (DB.pos || []).find((p) => (p.lines || []).some((x) => x.id === lid)) : null);
   (DB.bills || []).forEach((b) => {
     if (["void", "rejected", "draft"].includes(b.status)) return;
-    const po = b.poId ? (DB.pos || []).find((p) => p.id === b.poId) : null,
-      goodsLines = po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : [];
+    const po = poById(b.poId);
     let fee = 0,
       goods = 0;
-    const what = [];
+    const what = [],
+      billGoods = (b.lines || []).filter((l) => {
+        const d = String(l.desc || l.item || "").split(" — ")[0];
+        return !/^(sales |use )?tax\b/i.test(d) && !PW_FEE_RE.test(d);
+      });
     (b.lines || []).forEach((l, i) => {
       const desc = String(l.desc || l.item || "").split(" — ")[0],
         amt = +l.amount || 0,
         lid = l.id || `l${i}`;
       if (/^(sales |use )?tax\b/i.test(desc)) return;
       if (PW_FEE_RE.test(desc)) return (fee = r2(fee + amt)), void what.push(desc);
-      const pl = po && ((l.poLineId && po.lines.find((x) => x.id === l.poLineId)) || (1 === goodsLines.length ? goodsLines[0] : null)),
-        B = pl && byId[`po:${po.id}:${pl.id}`];
+      // a bill across several orders: each line to its own order
+      const lpo = poById(l.poId) || poOfLine(l.poLineId) || po,
+        pl = lpo && pwBillPoLine(lpo, goodsOf(lpo), l, desc, lpo === po ? billGoods.length : 1),
+        B = pl && byId[`po:${lpo.id}:${pl.id}`];
       if (B) {
-        const q = +l.qty || +pl.qty || 0;
-        q > 0 && amt > 0 && ((B.paidPrice = pwR4(amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = lid), (B.billNo = b.number), (B.billDate = b.date), B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id }));
+        const P = paid.get(B) || { amt: 0, q: 0, pl: pl, bills: [] };
+        +l.qty > 0 && amt > 0 && ((P.amt += amt), (P.q += +l.qty));
+        P.bills.some((x) => x.b === b) || P.bills.push({ b: b, lid: lid });
+        paid.set(B, P);
         return void (goods += amt);
       }
       const q = +l.qty || 0;
@@ -185804,6 +185971,17 @@ function pwBuild() {
       po && (fees = fees.filter((f) => f.id !== "po:" + po.id));
       fees.push({ id: "bill:" + b.id, kind: "bill", date: b.date, vendor: b.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: b.number, billId: b.id, poId: b.poId || "", projectId: b.projectId || "" });
     }
+  });
+  // the billed price of each PO line: what its bills charged for the quantity they name. A lump sum (ls, lot, or one of
+  // one) billed in part is a progress payment, so it keeps the order's price until the bills reach the whole amount.
+  paid.forEach((P, B) => {
+    const lump = /^(ls|lot|lump)/i.test(String(P.pl.unit || "")) || 1 === +P.pl.qty,
+      gross = (+P.pl.qty || 0) * (+P.pl.price || 0);
+    if (P.q > 0 && P.amt > 0 && !(lump && P.amt < gross * 0.98)) {
+      const last = P.bills[P.bills.length - 1];
+      (B.paidPrice = pwR4(P.amt / P.q / B.packF)), (B.price = B.paidPrice), (B.billId = last.b.id), (B.billLineId = last.lid), (B.billNo = last.b.number), (B.billDate = last.b.date);
+    }
+    P.bills.forEach((x) => B.sources.some((s) => s.billId === x.b.id) || B.sources.push({ kind: "bill", label: `bill ${x.b.number} · ${x.b.vendor}`, date: x.b.date, unitPrice: B.price, billId: x.b.id }));
   });
   const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id));
   (DB.txns || []).forEach((t) => {
@@ -185926,11 +186104,14 @@ function itemPriceHistory(q, opts) {
     I && (I.alsoMatched = cand.slice(1, 4).map((x) => x.it.label));
   }
   if (!I) return null;
+  // opts.vendor or opts.vendorId: one vendor's history of the item (the vendor record's last, best and trend, 11-05)
+  const vn = o.vendorId ? ((DB.vendors || []).find((v) => v.id === o.vendorId) || {}).name || "" : o.vendor || "",
+    ofV = (L) => (vn ? L.filter((x) => String(x.vendor || "").toLowerCase() === String(vn).toLowerCase()) : L);
   const at = o.at || today(),
-    rows = I.buys.concat(o.quotes === !1 ? [] : I.quotes).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
-    buys = I.buys,
+    rows = ofV(I.buys.concat(o.quotes === !1 ? [] : I.quotes)).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
+    buys = ofV(I.buys),
     recent = iso(addDays(at, -pwSet().recentDays)),
-    rec = I.buys.concat(I.quotes).filter((x) => x.date >= recent && x.date <= at),
+    rec = ofV(I.buys.concat(I.quotes)).filter((x) => x.date >= recent && x.date <= at),
     best = rec.length ? rec.reduce((a, x) => (pwAdj(I, x.price, x.date, at) < pwAdj(I, a.price, a.date, at) ? x : a)) : null,
     last = buys[buys.length - 1] || null;
   return { key: I.key, label: I.label, cat: I.cat, unit: I.unit, rows: rows, n: buys.length, median: buys.length ? pwMedian(buys.map((x) => pwAdj(I, x.price, x.date, at))) : null, last: last && pwHistRow(last, I, at), best: best && pwHistRow(best, I, at), alsoMatched: I.alsoMatched || [], vendors: [...new Set(buys.map((x) => x.vendor))], item: I };
