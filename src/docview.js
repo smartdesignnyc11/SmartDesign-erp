@@ -95,7 +95,7 @@ function dvCreditsOn(c, d) {
 function dvOpen(kind, id, cid) {
   const r = dvFind(kind, id, cid);
   if (!r) return toast("That document is not on file");
-  (dvCur = { kind: r.kind, id: id, cid: r.c ? r.c.id : "" }), (dvMore = !1);
+  (dvCur = { kind: r.kind, id: id, cid: r.c ? r.c.id : "", view: view }), (dvMore = !1);
   dvDraw();
 }
 function dvClose() {
@@ -114,7 +114,7 @@ function dvIntercept() {
     r = dvFind(docOpen.kind, id, cid);
   if (!r) return void (dvEditing = id);
   // the page under the document stays the list the person came from; the document opens on top of it
-  (docOpen = null), (dvEditing = null), (dvCur = { kind: r.kind, id: id, cid: r.c.id }), (dvMore = !1);
+  (docOpen = null), (dvEditing = null), (dvCur = { kind: r.kind, id: id, cid: r.c.id, view: view }), (dvMore = !1);
   // Billing's flag for a client opened from its list (setView("clients") then shows the list) is the editor's; with the
   // document on top instead, the next open of the same client's record (Cmd-K, a link) must land on it
   "undefined" != typeof blClientFlag && (blClientFlag = "");
@@ -146,6 +146,8 @@ if ("function" == typeof newDoc) {
     }
     const r = base.apply(this, arguments);
     try {
+      // the document sits over the page it was opened from: a move to another page (a link, a toast, the menu) closes it
+      dvCur && dvCur.view && dvCur.view !== view && dvClose();
       dvCur ? dvDraw() : document.getElementById("dv") && dvClose();
     } catch (e) {
       console.warn("docview: draw", e);
@@ -153,11 +155,12 @@ if ("function" == typeof newDoc) {
     return r;
   };
 }
-// a bill opens as its document for billing and the controller; Edit opens the bill sheet as before
+// a bill opens as its document for the controller (the spec: "Bill (AP), for the controller"); Edit opens the bill sheet as before;
+// billing keeps the bill sheet, where it enters and codes bills
 if ("function" == typeof openBill) {
   const base = openBill;
   openBill = function (id) {
-    if (dvOn() && id && id !== dvBillEdit && (DB.bills || []).some((b) => b.id === id)) return dvOpen("bill", id);
+    if ("controller" === role() && id && id !== dvBillEdit && (DB.bills || []).some((b) => b.id === id)) return dvOpen("bill", id);
     dvBillEdit = null;
     return base.apply(this, arguments);
   };
@@ -167,7 +170,7 @@ if ("function" == typeof portalView) {
   const base = portalView;
   portalView = function (c, k, d) {
     if ("client" !== role() || !c || !d || !CX_TYPES.includes(k)) return base.apply(this, arguments);
-    dvCur = { kind: k, id: d.id, cid: c.id, portal: !0 };
+    dvCur = { kind: k, id: d.id, cid: c.id, portal: !0, view: view };
     dvMore = !1;
     dvDraw();
   };
@@ -358,7 +361,13 @@ function dvStatusWord(r) {
     const inv = (r.c.invoices || []).find((x) => x.id === r.d.creditOf);
     return "void" === r.d.status ? "void" : `applied to ${inv ? inv.number : "the invoice"}`;
   }
-  if ("invoice" === r.kind) return "function" == typeof invoiceStatusShown ? invoiceStatusShown(r.c, r.d).text : invoiceStatus(r.c, r.d);
+  if ("invoice" === r.kind) {
+    if ("function" != typeof invoiceStatusShown) return invoiceStatus(r.c, r.d);
+    // how much the bank has not seen, in the words the editor's pill uses ("$5,000 recorded, not yet in the bank")
+    const s = invoiceStatusShown(r.c, r.d).text,
+      u = "function" == typeof invoiceUnbanked ? invoiceUnbanked(r.c, r.d) : 0;
+    return u > 0.005 && s.includes(PAY_NOT_IN_BANK) ? s.replace(PAY_NOT_IN_BANK, `${money(u)} ${PAY_NOT_IN_BANK}`) : s;
+  }
   return r.d.status;
 }
 // what a person needs to know before acting, above the document: a revision, credits on it, refunds and their state
@@ -370,6 +379,14 @@ function dvNotes(r) {
   d.supersededBy && out.push(`${esc(d.number)} was replaced by ${esc(d.supersededBy)}; it is kept as it was sent.`);
   d.revisedBy && !d.supersededBy && out.push(`${esc(d.revisedBy)} revises this ${"invoice" === d.type ? "invoice" : "document"}; ${esc(d.number)} stands as sent until ${esc(d.revisedBy)} goes out.`);
   d.revisionOf && out.push(`This revises ${esc(d.revisionOf)}${d.reviseReason ? `: ${esc(d.reviseReason)}` : ""}.`);
+  // the office's own warning the editor shows over a progress invoice: the job billed ahead of its work (never on the
+  // client's copy)
+  try {
+    if ("invoice" === d.type && "sov" === d.mode && d.projectId && "function" == typeof pbAhead && !["void"].includes(d.status)) {
+      const A = pbAhead(d.projectId);
+      A && A.total > 0.5 && out.push(`The job is billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}. For the office; the client's copy does not say it.`);
+    }
+  } catch (e) {}
   if ("invoice" === d.type && !d.creditMemo) {
     dvCreditsOn(c, d).forEach((x) => out.push(`Credit memo ${esc(x.number)} of ${money(Math.abs(docTotal(x).total))} is applied to it${x.creditWhy ? ` (${esc(x.creditWhy)})` : ""}.`));
     (c.refunds || [])

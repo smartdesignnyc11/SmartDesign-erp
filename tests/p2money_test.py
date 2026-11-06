@@ -69,7 +69,7 @@ async def t_satish_today_first(c, p, phone):
       // the toast's Open opens that bill
       const open = toastEl && [...toastEl.querySelectorAll('a, button')].find(a => /Open/.test(a.textContent));
       open && open.click(); await sleep(400);
-      const opened = !!(editing && editing.id === B.id);
+      const opened = !!(editing && editing.id === B.id) || !!(typeof dvCur !== 'undefined' && dvCur && dvCur.kind === 'bill' && dvCur.id === B.id);   // 11-06: the bill opens as its document first (src/docview.js)
       try { closeEditor(); } catch (e) {}
       // Banking: the stale "no bill on file" card is gone; put it back the way the pilot saw it, and press Confirm
       view = 'bank'; render(); await sleep(300);
@@ -319,7 +319,7 @@ async def t_ahead(c, p, phone):
       }).filter(x => x.net > tol);
       const A = pbAhead('p121');
       const inv = cl.invoices.find(i => i.number === 'INV-2026-038');
-      clientOpen = cl.id; docOpen = { kind: 'invoice', id: inv.id }; view = 'billing'; render(); await sleep(400);
+      clientOpen = cl.id; docOpen = { kind: 'invoice', id: inv.id }; if (typeof dvEditing !== 'undefined') dvEditing = inv.id; view = 'billing'; render(); await sleep(400);   // the editor: Edit on the document (11-06)
       const v = document.querySelector('.view.on') || document.body;
       const total = (v.querySelector('#pb-ahead-total') || {}).innerText || '', lines = [...v.querySelectorAll('tr.pb-ahead')].map(x => x.innerText);
       const sw = document.documentElement.scrollWidth;

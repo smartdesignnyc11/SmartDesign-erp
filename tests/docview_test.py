@@ -135,6 +135,11 @@ async def lists_open(p, phone, uid):
     t = await pg.evaluate("() => (document.querySelector('#dv .dv-doc') || {}).innerText || ''")
     C.ok('INV-2026-038' in t and re.search(r'bill to', t, re.I) and 'Application for Payment' in t and not await pg.locator('#dv input, #dv textarea').count(),
          f'{who}: the document is the client\'s render (letterhead, Bill to, the application), with nothing to type into')
+    n = await pg.evaluate("() => (document.querySelector('#dv .dv-notes') || {}).innerText || ''")
+    C.ok('billed ahead of the work' in n, f'{who}: the office sees the job billed ahead of the work above the document, not on the client\'s copy ({n[:100]})')
+    st = await pg.evaluate("() => { dvOpen('invoice', 'inD45r', 'cl45'); return (document.querySelector('#dv .dv-st') || {}).textContent || '' }")
+    C.ok('$5,000 recorded, not yet in the bank' in st, f'{who}: an invoice paid by money the bank has not seen says how much, never Paid ({st})')
+    await pg.evaluate("() => dvOpen('invoice', 'in3', 'cl121')")
     await shot(pg, f'{uid}_{dev}_invoice')
     if phone:
         await phone_layout(pg, who + ' invoice')
@@ -152,6 +157,9 @@ async def lists_open(p, phone, uid):
     C.ok(raw.startswith(b'%PDF') and b'INV-2026-038' in raw and d.suggested_filename.endswith('.pdf'), f'{who}: Download PDF gives {d.suggested_filename}, a PDF with the invoice in it')
     await dv_tap(pg, 'Close')
     C.ok(await rec(pg) == 'none', f'{who}: Close puts the person back on the list')
+    await pg.evaluate("() => { dvOpen('invoice', 'in3', 'cl121'); setView('bank'); }")
+    C.ok(await rec(pg) == 'none', f'{who}: a move to another page (a link, a toast) closes the document over the old one')
+    await go(pg, 'billing')
     for row, want in (('estimate:cl121:es1', 'estimate:es1'), ('co:cl121:co2', 'co:co2')):
         loc = pg.locator(f'#v-billing tr[data-acopen="{row}"]')
         if await loc.count():
@@ -164,12 +172,16 @@ async def lists_open(p, phone, uid):
     # a bill (Accounting's bill rows, Ask's bill links: flowGo.bill)
     await pg.evaluate("() => flowGo.bill(DB.bills.find(b => b.id === 'b2'))()")
     r = await rec(pg)
-    C.ok(r == 'bill:b2', f'{who}: a bill opens as its document ({r})')
-    t = await pg.evaluate("() => (document.querySelector('#dv .dv-doc') || {}).innerText || ''")
-    C.ok('WW-2026-118' in t and 'Window Works' in t and 'vendor\'s own invoice is attached' in t.lower(), f'{who}: the bill reads as the vendor\'s invoice on file, with its attachment named')
-    await shot(pg, f'{uid}_{dev}_bill')
-    if phone: await phone_layout(pg, who + ' bill')
-    await pg.evaluate('dvClose()')
+    if uid == 'u_controller':
+        C.ok(r == 'bill:b2', f'{who}: a bill opens as its document ({r})')
+        t = await pg.evaluate("() => (document.querySelector('#dv .dv-doc') || {}).innerText || ''")
+        C.ok('WW-2026-118' in t and 'Window Works' in t and 'vendor\'s own invoice is attached' in t.lower(), f'{who}: the bill reads as the vendor\'s invoice on file, with its attachment named')
+        await shot(pg, f'{uid}_{dev}_bill')
+        if phone: await phone_layout(pg, who + ' bill')
+        await pg.evaluate('dvClose()')
+    else:
+        C.ok(r != 'bill:b2', f'{who}: billing keeps the bill sheet, where it enters and codes bills ({r})')
+    await pg.evaluate("() => { dvClose(); try { closeEditor(); } catch (e) {} }")
     await action_sets(pg, who)
     if uid == 'u_billing':
         # the job's Contract and Billing
