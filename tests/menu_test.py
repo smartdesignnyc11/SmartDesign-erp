@@ -100,12 +100,13 @@ HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'hom
 PHONE_BAR = {
     # four shortcuts at most, Chat one of them (Alan, 2026-10-19); the approved Today boards (2026-10-25) set each bar;
     # the PM's holds five (TodayPM)
-    'u_owner': ['Today', 'Projects', 'Sales', 'Messages'],
+    # Alan, 11-06: Tasks joins the owner's and billing's bars, five tabs like the PM's
+    'u_owner': ['Today', 'Projects', 'Sales', 'Tasks', 'Messages'],
     'u_alan': ['Today', 'Projects', 'Clients', 'Tasks', 'Messages'],
     # five, as the PM's: purchasing SPEC §4 adds Deliveries (receiving is daily work), the approved task design keeps
     # Tasks (lane P3, CoS 11-06)
     'u_chen': ['Today', 'Buy Board', 'Deliveries', 'Tasks', 'Messages'],
-    'u_billing': ['Today', 'Billing', 'Clients', 'Messages'],
+    'u_billing': ['Today', 'Billing', 'Clients', 'Tasks', 'Messages'],
     'u_controller': ['Today', 'Banking', 'Bills and Payroll', 'Messages'],
     'u_sarah': ['Today', 'Messages', 'Drawings', 'Projects'],
     'u_angel': ['Today', 'Daily Log', 'Site', 'Requests', 'Messages'],   # TodayForeman holds five
@@ -158,8 +159,9 @@ BADGE_JS = r"""() => { const out = []; document.querySelectorAll('#nav-groups bu
   const v = b.dataset.v; if (b.dataset.tab || b.dataset.pid || /^ov/.test(v)) { if (n) out.push(`${v} carries ${n}`); return; }
   let want = null;
   if (v === 'home') want = (typeof TD2_SPEC === 'object' && TD2_SPEC[role()]) ? td2LateN() : 0;
-  // the Your Day mock-up (11-03): Tasks carries no number in the menu (Today counts what is due)
-  else if (v === 'tkall') want = 0;
+  // Alan, 11-06: Tasks carries the Tasks badge, late plus due today (the rows of Tasks > Today); under the Your Day
+  // mock-up of 11-03 it carried none
+  else if (v === 'tkall') want = tkMyCounts().today || 0;
   else if (v === 'chat') want = p2nMsgN().n;
   else if (typeof AC_PAGES === 'object' && AC_PAGES[v]) want = AC_PAGES[v].badge.includes(role()) ? acCount(v) : 0;   // the Accounting pages: the seat's own
   else if (v === 'billing') want = billingNeeds();
@@ -293,8 +295,9 @@ async def phone(c, p, users):
         bar = await pg.evaluate("s => [...document.querySelectorAll(s)].filter(b => b.getClientRects().length).map(b => (b.innerText || '').replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim())", sel)
         c.ok(bar == PHONE_BAR[u], f'{u} phone: bar {bar}\n      want {PHONE_BAR[u]}')
         # at most four shortcuts (Alan, 2026-10-19), five where an approved board draws five (TodayPM, TodayForeman)
-        # and the coordinator's five (CoS 11-06: the approved task design keeps Tasks; purchasing SPEC §4 adds Deliveries)
-        cap = 5 if u in ('u_alan', 'u_angel', 'u_chen') else 4
+        # and the coordinator's five (CoS 11-06: the approved task design keeps Tasks; purchasing SPEC §4 adds Deliveries),
+        # and the owner's and billing's five (Alan, 11-06: Tasks joins their bars)
+        cap = 5 if u in ('u_alan', 'u_angel', 'u_chen', 'u_owner', 'u_billing') else 4
         c.ok(len([x for x in bar if x != 'More']) <= cap and 'Messages' in bar, f'{u} phone: at most {cap} shortcuts, Messages one of them {bar}')
         await check_screen(c, pg, f'{u} phone landing', errs, HOME[u], phone=True)
         n = await pg.evaluate("s => document.querySelectorAll(s).length", sel)
