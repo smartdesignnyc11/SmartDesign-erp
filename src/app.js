@@ -1883,6 +1883,7 @@ function seedPOs() {
       expected: "2026-10-05",
       status: "issued",
       shipTo: "Site",
+      dropAt: "inside",
       notes: "Deliver week of 10/5 — acclimate 5 days before 10/12 install",
       lines: [
         {
@@ -12341,6 +12342,51 @@ function poDrawings(p) {
     });
   return out.slice(0, 8);
 }
+// A vendor's email for an order's mail (11-06, J6: "no email on file" for Nemo Tile, whose address was in the mail): the
+// vendor record (its email, or a contact's), else the mail they sent us, else the address the firm's own mail gives for
+// them ("Nemo Tile (sales@nemotile.example)"). The address is offered in To, for the person to check and send; the
+// vendor record is not changed behind their back.
+// A vendor's ordering address and where it came from. Only the vendor card is verified; an address read from mail is
+// offered marked "not verified", with the mail it came from (CoS 11-06: a display name can be spoofed, and the draft's
+// save wrote it into the vendor record unseen). Mail is read only when its address carries the vendor's own name
+// (sales@nemotile.example for Nemo Tile) or a person routed it to this vendor, and never mail marked spoofed or failing
+// its sender checks. Returns { email, src, verified, commId }.
+const commSpoofed = (c) => !!c && (!!c.spoofed || !!c.spoof || /fail|spoof/i.test(String((c.auth && (c.auth.dmarc || c.auth.spf || c.auth.result)) || c.authResult || "")) || (c.flags || []).includes("spoofed"));
+function vendorEmailFind(name) {
+  const v = "function" == typeof vendorRec ? vendorRec(name) : null,
+    none = { email: "", src: "", verified: !1, commId: "" };
+  if (v && v.email) return { email: v.email, src: v.emailSrc && v.emailSrc.from ? `the vendor card, saved from ${v.emailSrc.from}` : "the vendor card", verified: !(v.emailSrc && !v.emailSrc.verified), commId: "" };
+  const ct = v && (v.contacts || []).find((x) => x && x.email);
+  if (ct) return { email: ct.email, src: `the vendor card's contact${ct.name ? " " + ct.name : ""}`, verified: !0, commId: "" };
+  const nm = String(name || "").trim();
+  if (!nm) return none;
+  const own = /@smartdesign|@mercerandbond|@mercer-bond/i,
+    // the vendor's name in the address's domain: "nemotile" for Nemo Tile, or its first long word
+    squash = nm.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    first = (nm.toLowerCase().match(/[a-z0-9]{4,}/) || [""])[0],
+    domOk = (e) => {
+      const d = String(e || "").toLowerCase().split("@")[1] || "";
+      return !!d && ((squash.length >= 4 && d.replace(/[^a-z0-9]/g, "").includes(squash)) || (!!first && d.split(".")[0].includes(first)));
+    },
+    C = (DB.comms || []).filter((c) => !commSpoofed(c)).sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))),
+    said = (c) => `their mail of ${c.date ? fmt(String(c.date).slice(0, 10)) : "an earlier date"}`;
+  for (const c of C) {
+    const f = c.from || {};
+    if (!f.email || own.test(f.email)) continue;
+    const routed = !!(v && c.route && c.route.vendorId === v.id);
+    if ((routed || String(f.name || "").toLowerCase() === nm.toLowerCase()) && domOk(f.email)) return { email: f.email, src: said(c), verified: !1, commId: c.id || "" };
+  }
+  const esc2 = nm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    rx = new RegExp(`${esc2}\\s*[(<]\\s*([\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+)\\s*[)>]`, "i");
+  for (const c of C) {
+    const m = String(`${c.text || ""} ${c.body || ""} ${c.snippet || ""}`).match(rx);
+    if (m && !own.test(m[1]) && domOk(m[1])) return { email: m[1], src: said(c), verified: !1, commId: c.id || "" };
+  }
+  return none;
+}
+function vendorEmailOf(name) {
+  return vendorEmailFind(name).email;
+}
 function poEmailTemplate(po) {
   const t = poTotal(po),
     p = DB.projects.find((x) => x.id === po.projectId) || S,
@@ -12354,7 +12400,8 @@ function poEmailTemplate(po) {
     subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
     body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
     drawings: dr,
-    vendorEmail: (v && v.email) || "",
+    vendorEmail: vendorEmailFind(po.vendor).email,
+    vendorEmailFrom: vendorEmailFind(po.vendor),
   };
 }
 const aiConfigured = () => !!(window.SDP_CONFIG && window.SDP_CONFIG.aiUrl);
@@ -12369,7 +12416,7 @@ async function draftPOEmail(po) {
     ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address"></div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address">${T.vendorEmail && T.vendorEmailFrom.src ? `<span class="hint em-to-src${T.vendorEmailFrom.verified ? "" : " warn-t"}" data-nocase>From ${esc(T.vendorEmailFrom.src)}${T.vendorEmailFrom.verified ? "" : ", not verified: check it with the vendor before the order goes"}.</span>` : ""}</div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
       navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
@@ -12382,7 +12429,17 @@ async function draftPOEmail(po) {
         return (window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`), void closeEditor();
       if (!to || !/@/.test(to)) return void toast(`${po.vendor} has no email on file — add it in To`);
       const v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null;
-      v && !v.email && (v.email = to);
+      // the address goes on the vendor card with who, when and where it came from, never silently; one read from mail
+      // stays "not verified" until someone checks it with the vendor
+      if (v && !v.email) {
+        const F = T.vendorEmailFrom || {},
+          fromMail = F.email && F.email.toLowerCase() === to.toLowerCase() && !F.verified;
+        v.email = to;
+        v.emailSrc = { from: fromMail ? F.src : `${po.number}'s mail draft, typed by ${(currentUser() || {}).name || role()}`, commId: fromMail ? F.commId : "", verified: !1, by: (currentUser() || {}).name || role(), at: appNowIso() };
+        try {
+          audit("vendor", v.id, "email", "", to, `saved from ${po.number}'s mail draft; source: ${v.emailSrc.from}; not verified`);
+        } catch (e) {}
+      }
       gaDraft({ to: to, subject: subject, body: body, why: `${po.number} to ${po.vendor}` })
         .then(() => {
           (po.emailedAt = today()), (po.emailDraft = { at: appNowIso(), to: to, drawings: T.drawings.map((d) => d.name) }), save(), closeEditor(), render();
@@ -52035,6 +52092,8 @@ function ctPOPicker(projectId, preferId, preKey) {
             expected: "",
             status: "draft",
             shipTo: "Site",
+            // curb or carried inside (the COI rule): guessed from what it buys, changed on the order page
+            dropAt: "function" == typeof poDropGuess ? poDropGuess(lines.map((x) => x.item).join(" ")) : "",
             notes: `From ${[...srcDocs].join(", ")}`,
             lines: lines,
             tax: 0,
@@ -56973,8 +57032,10 @@ function retInit() {
   for (const [name, [w, rp]] of Object.entries(pol)) {
     let v = DB.vendors.find((x) => x.name === name);
     if (!v && ("function" == typeof sdSeedsOff && sdSeedsOff())) continue;
+    // the demo's Ferguson card carries an invented ordering address (.example), so an order's mail is addressed from
+    // its card (the walk's J6: "Ferguson has no email on file"); only when the demo makes the card, never on a firm's own
     v ||
-      ((v = { id: uid("v"), name: name, trade: "", insuranceExp: "", bankChangedAt: "" }),
+      ((v = { id: uid("v"), name: name, trade: "", insuranceExp: "", bankChangedAt: "", email: { Ferguson: "orders@ferguson.example" }[name] || "" }),
       DB.vendors.push(v)),
       null == v.returnWindow && (v.returnWindow = w),
       null == v.restockPct && (v.restockPct = rp);
@@ -70201,7 +70262,7 @@ reminders = function () {
         const weak = [
           ...new Set(
             DB.pos
-              .filter((po) => po.projectId === p.id && !["cancelled", "draft"].includes(po.status))
+              .filter((po) => po.projectId === p.id && !["cancelled", "draft"].includes(po.status) && ("function" != typeof poOnSite || poOnSite(po)))
               .map((po) => po.vendor),
           ),
         ].filter((v) => {
@@ -181479,18 +181540,37 @@ const poOverTotal = (po) => r2(poLineOver(po).reduce((a, x) => a + x.over, 0)),
   poOverText = (x) => `${money(x.over)} over what is left on ${x.name} (${money(x.left)} of ${money(x.budget)})`,
   // a reason covers the overage it was given for; a higher price asks again
   poOverOk = (po) => !!(po && po.overReason && po.overReason.why && +po.overReason.over >= poOverTotal(po) - 0.5);
-// The vendor's papers before an order. No current certificate of insurance stops it while another order is open with
-// them, or when the order puts them on site (a subcontract or a service). No W-9 is said, not stopped: the bill is
-// what it holds, and asking with the order is how it lands before the bill does.
+// Who needs a certificate of insurance (Alan, 10-25, PROCUREMENT_PLAN section 7.2): anyone who comes on site, which is
+// a subcontract, a service, or a delivery carried inside or onto the site. A supplier who drops at the curb or ships
+// needs only a W-9 before the first payment. (CoS 11-06: the gate treated any open order as "on site", so a curb
+// supplier with an order out was stopped, and J6's second plumbing buy from Ferguson could not issue.) One rule, read
+// by the order's papers, the Blocked vendors, the COI bookings and the Purchasing Vendors rows.
+const PO_DROP = { curb: "Curb or Shipped", inside: "Carried Inside" },
+  poDropAt = (po) => (po && PO_DROP[po.dropAt] ? po.dropAt : ""),
+  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === po.dropAt && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()))),
+  // what the order sheet starts from: goods that are set in place (an appliance, a slab, cabinets, millwork, flooring to
+  // acclimate) are carried inside; everything else drops at the curb or ships. The person changes it on the sheet.
+  poDropGuess = (r) => {
+    const s = "string" == typeof r ? r : r ? `${r.name || ""} ${(r.it && r.it.category) || ""} ${(r.m && r.m.name) || ""}` : "";
+    return /applianc|refrigerat|fridge|range\b|dishwasher|washer|dryer|countertop|slab|stone|cabinet|millwork|vanit|flooring|hardwood|white oak/i.test(s) ? "inside" : "curb";
+  };
+// a vendor's open orders that bring them on site (the papers' rule, for every reader)
+function vendorOnSitePOs(name, exceptId) {
+  const n = String(name || "").toLowerCase();
+  return (DB.pos || []).filter((x) => x.id !== exceptId && String(x.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(x.status) && poOnSite(x));
+}
+// The vendor's papers before an order. No current certificate of insurance stops it when this order puts them on site
+// or carries it inside, or while another order of theirs does; a curb or shipped order is not stopped. No W-9 is said,
+// not stopped: the bill is what it holds, and asking with the order is how it lands before the bill does.
 function poPaper(po) {
   const v = po && poVendorReal(po.vendor),
     out = { v: v, stop: [], warn: [] };
   if (!v) return out;
   if (!v.insuranceExp || v.insuranceExp < today()) {
-    const n = String(v.name).toLowerCase(),
-      open = (DB.pos || []).filter((x) => x.id !== po.id && String(x.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(x.status));
-    (open.length || ["subcontract", "service"].includes(po.type)) &&
-      out.stop.push(`${v.name} has ${v.insuranceExp ? "a certificate of insurance that expired " + fmtL(v.insuranceExp) : "no certificate of insurance on file"}${open.length ? ` and ${open.map((x) => x.number).join(", ")} open with them` : " and this order puts them on site"}: no new purchase order until it lands`);
+    const open = vendorOnSitePOs(v.name, po.id),
+      here = poOnSite(po);
+    (open.length || here) &&
+      out.stop.push(`${v.name} has ${v.insuranceExp ? "a certificate of insurance that expired " + fmtL(v.insuranceExp) : "no certificate of insurance on file"}${here ? ` and ${["subcontract", "service"].includes(po.type) ? "this order puts them on site" : "this delivery is carried inside"}` : ` and ${open.map((x) => x.number).join(", ")} open with them on site`}: no new purchase order until it lands`);
   }
   !v.w9 && poTotal(po).total >= 600 && out.warn.push(`No W-9 from ${v.name}: their bill is held until it lands, so ask for it with this order`);
   return out;
@@ -181520,6 +181600,20 @@ function poApprovalWhy(po) {
     return R;
   };
 }
+// the order's Delivery choice: saved with who and when, said in a toast with Open
+document.addEventListener("change", (e) => {
+  const el = e.target && e.target.closest && e.target.closest("[data-podrop]");
+  if (!el) return;
+  const po = (DB.pos || []).find((x) => x.id === el.dataset.podrop);
+  if (!po || !PO_DROP[el.value] || po.dropAt === el.value) return;
+  const was = po.dropAt || "";
+  po.dropAt = el.value;
+  try {
+    audit("po", po.id, "delivery", was, el.value, `${PO_DROP[el.value]}, set on the order`);
+  } catch (x) {}
+  save(), render();
+  rcToast(`${po.number || "The order"}: delivery ${PO_DROP[el.value].toLowerCase()}${poPaper(po).stop.length ? `. ${poPaper(po).stop[0]}` : ""}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+});
 // over the line by more than $1,000: the owner approves it before it goes, whoever orders
 {
   const base = poNeedsApproval;
@@ -181557,7 +181651,11 @@ if ("function" == typeof renderPODoc) {
       if (po && ["draft", "pending"].includes(po.status) && "string" == typeof h) {
         const P = poPaper(po),
           O = poLineOver(po),
+          // where it is delivered rules the papers (a COI only for who comes inside): the choice sits on the order, set
+          // or not, while it can still change
+          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><label class="small muted" for="po-drop-${esc(po.id)}">Delivery</label><select id="po-drop-${esc(po.id)}" data-podrop="${esc(po.id)}">${poDropAt(po) ? "" : '<option value="" selected>Not Said</option>'}${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === po.dropAt ? " selected" : ""}>${t}</option>`).join("")}</select><span class="small muted">${"inside" === po.dropAt ? "A certificate of insurance is needed: they come inside." : "Curb or shipped: a W-9 before the first payment, no certificate needed."}</span></div>`,
           w =
+            dr +
             P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
             P.warn.map((s) => `<div class="qcheck po-paper warn">${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="w9:${esc(P.v.name)}">Ask for the W-9</button></div></div>`).join("") +
             (O.length
@@ -182368,12 +182466,10 @@ function poWorkday(d) {
 // ---- polish (review finding 15): one blocked-vendor predicate; Expedite on an ordered line with no PO
 predDef("vendorsBlocked", {
   label: "Blocked",
-  rule: "no current certificate of insurance (none on file, or expired) and an order open with them: no new purchase order until it lands",
+  rule: "no current certificate of insurance (none on file, or expired) and an order open with them that brings them on site (a subcontract, a service, or a delivery carried inside): no new purchase order until it lands",
   test: (v) => {
     if (!v) return !1;
-    const td = today(),
-      n = String(v.name || "").toLowerCase();
-    return (!v.insuranceExp || v.insuranceExp < td) && (DB.pos || []).some((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status));
+    return (!v.insuranceExp || v.insuranceExp < today()) && vendorOnSitePOs(v.name).length > 0;
   },
   rows() {
     return (DB.vendors || []).filter((v) => this.test(v));
@@ -182394,8 +182490,7 @@ function coiBookings(v) {
         tk = p && (p.tasks || []).find((t) => t.id === s.taskId);
       out.push({ date: s.date, kind: "site", p: p, what: `${tk ? opsClientName(tk) : s.trade || "work"}${p ? " at " + p.project.name : ""}`, ref: { kind: "sub", id: s.id } });
     });
-  (DB.pos || [])
-    .filter((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status))
+  vendorOnSitePOs(n)
     .forEach((po) => {
       const p = jobOf(po.projectId),
         d = po.expected || po.needBy || "";
@@ -186376,9 +186471,10 @@ function itemPriceHistory(q, opts) {
     I && (I.alsoMatched = cand.slice(1, 4).map((x) => x.it.label));
   }
   if (!I) return null;
-  // opts.vendor or opts.vendorId: one vendor's history of the item (the vendor record's last, best and trend, 11-05)
+  // opts.vendor or opts.vendorId: one vendor's history of the item (the vendor record's last, best and trend, 11-05);
+  // opts.exceptPoId: the history without that order's own lines, so an order is never priced against itself
   const vn = o.vendorId ? ((DB.vendors || []).find((v) => v.id === o.vendorId) || {}).name || "" : o.vendor || "",
-    ofV = (L) => (vn ? L.filter((x) => String(x.vendor || "").toLowerCase() === String(vn).toLowerCase()) : L);
+    ofV = (L) => (vn ? L.filter((x) => String(x.vendor || "").toLowerCase() === String(vn).toLowerCase()) : L).filter((x) => !o.exceptPoId || x.poId !== o.exceptPoId);
   const at = o.at || today(),
     rows = ofV(I.buys.concat(o.quotes === !1 ? [] : I.quotes)).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
     buys = ofV(I.buys),
@@ -191688,6 +191784,7 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${mbF("Delivery", `<select data-f="dropAt">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
     <div class="note bad small fl-paper" role="alert" hidden></div>
     ${ovL ? `<div class="note bad small fl-over" role="alert" data-left="${ovL.left}" data-budget="${ovL.budget}" data-name="${esc(ovL.name)}" hidden><div class="fl-over-t"></div>${mbF("Why Over the Line", `<input data-f="overWhy" placeholder="e.g. the vendor's price rose; a change order follows">`)}</div>` : ""}
     ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
@@ -191701,12 +191798,14 @@ function buyOrderDialog(o) {
         // checks pass.
         const fromQuote = "__quote__" === f.vendor && !!qOff;
         if (!fromQuote && !poVendorReal(f.vendor)) return toast("Choose the supplier — a vendor on file"), !1;
+        // a sender not on file has no certificate of insurance: carried inside, it waits for one (Alan, 10-25)
+        if (fromQuote && "inside" === f.dropAt) return toast(FL_QUOTE_INSIDE), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
         const ovOver = ovL ? r2(+f.qty * +f.price - ovL.left) : 0;
         if (ovOver > 0.5 && !(f.overWhy && f.overWhy.trim().length >= 8)) return toast(`${money(ovOver)} over what is left on ${ovL.name} (${money(ovL.left)} of ${money(ovL.budget)}): say why`), !1;
-        const ppr = "__quote__" === f.vendor ? null : poPaper({ id: "", vendor: f.vendor, type: "materials", lines: [{ qty: +f.qty, price: +f.price }] });
+        const ppr = "__quote__" === f.vendor ? null : poPaper({ id: "", vendor: f.vendor, type: "materials", dropAt: f.dropAt, lines: [{ qty: +f.qty, price: +f.price }] });
         if (ppr && ppr.stop.length) return toast(ppr.stop[0]), !1;
         if (fab && !fabTick) return toast(fab), !1;
         if (fabTick && !f.tradeOk) return toast("Tick that the fabricator's field measurements are in — the order goes out with them"), !1;
@@ -191726,6 +191825,7 @@ function buyOrderDialog(o) {
     },
   );
 }
+const FL_QUOTE_INSIDE = "Not on file yet, so no certificate of insurance: a delivery carried inside needs one before the order. If it drops at the curb or ships, choose Curb or Shipped";
 // The Order sheet says the vendor's papers and the line overage as they are entered, not after Issue PO.
 function flSheetChecks(root) {
   const q = (k) => root.querySelector(`[data-f="${k}"]`),
@@ -191736,7 +191836,8 @@ function flSheetChecks(root) {
     price = +q("price").value || 0,
     vn = q("vendor") ? q("vendor").value : "";
   if (paper) {
-    const P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", lines: [{ qty: qty, price: price }] }) : { stop: [], warn: [] },
+    const dz = q("dropAt") ? q("dropAt").value : "",
+      P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", dropAt: dz, lines: [{ qty: qty, price: price }] }) : "__quote__" === vn && "inside" === dz ? { stop: [FL_QUOTE_INSIDE], warn: [] } : { stop: [], warn: [] },
       t = P.stop.concat(P.warn);
     (paper.hidden = !t.length), (paper.className = `note small fl-paper ${P.stop.length ? "bad" : "warn"}`), (paper.textContent = t.join(". ") + (t.length ? "." : ""));
   }
@@ -191749,7 +191850,7 @@ function flSheetChecks(root) {
 ["input", "change"].forEach((ev) =>
   document.addEventListener(ev, (e) => {
     const root = e.target.closest && e.target.closest("#mbm");
-    root && root.querySelector(".fl-paper") && e.target.matches('[data-f="qty"],[data-f="price"],[data-f="vendor"]') && flSheetChecks(root);
+    root && root.querySelector(".fl-paper") && e.target.matches('[data-f="qty"],[data-f="price"],[data-f="vendor"],[data-f="dropAt"]') && flSheetChecks(root);
   }),
 );
 function flIssueOrder(r, v, f, tk) {
@@ -191780,6 +191881,7 @@ function flIssueOrder(r, v, f, tk) {
       needTask: tk ? tk.name : "",
       status: "draft",
       shipTo: "site",
+      dropAt: PO_DROP[f.dropAt] ? f.dropAt : poDropGuess(r),
       notes: m && m.quoteCommId ? `From the quote in ${((DB.comms || []).find((c) => c.id === m.quoteCommId) || {}).subject || "the vendor's mail"}` : `Ordered from the Buy Board line ${r.name}`,
       lines: [line],
       tax: 0,
@@ -198093,12 +198195,49 @@ function poDoubleOrder(po) {
     return base.apply(this, arguments);
   };
 }
+// The price book's readers for a PO line, written once: an item's size ("12x24"), its material words (five letters or
+// more), the document a price came from (PO-2026-041, a bill), and the same size of the same material in the same unit
+// ("Porcelain floor tile 12x24 matte" and the book's "Calacatta porcelain 12x24": J6, 11-06, where the words alone found
+// nothing and the $12.50 paid on PO-2026-041 went unsaid).
+const pwSizeOf = (x) => (String(x || "").toLowerCase().match(/\b\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?\b/) || [""])[0].replace(/\s+/g, ""),
+  pwWordsOf = (x) => String(x || "").toLowerCase().replace(/[^a-z ]+/g, " ").split(/\s+/).filter((w) => w.length > 4),
+  pwDocOf = (r) => ((r && r.sources) || []).map((x) => (String(x).match(/\b(PO-\d{4}-\d+(?:-R)?)\b/) || String(x).match(/^bill (\S+)/) || [])[1]).filter(Boolean)[0] || "",
+  pwSameSize = (item, normUnit, opts) => {
+    const sz = pwSizeOf(item),
+      W = pwWordsOf(item);
+    if (!sz || !W.length || "function" != typeof pwData || "function" != typeof itemPriceHistory) return [];
+    return Object.values(pwData().items)
+      .filter((it) => pwSizeOf(it.label) === sz && pwWordsOf(it.label).some((w) => W.includes(w)) && (!normUnit || !it.unit || it.unit === normUnit))
+      .map((it) => itemPriceHistory(it.key, opts))
+      .filter(Boolean);
+  };
+// What the firm last PAID for the item (a buy, never a quote), with its vendor and its order: the item itself, the item
+// its words name, or the same size of the same material. (J6, 11-06: the check compared the tile with the yards'
+// quotes and never said Nemo Tile charged $12.50 on PO-2026-041.) poId: the order being checked, left out of its history.
+function poLastPaid(item, unit, poId) {
+  if ("function" != typeof itemPriceHistory || "function" != typeof pwData) return null;
+  const o = poId ? { exceptPoId: poId } : void 0,
+    B = "function" == typeof pwMake && item ? pwMake({ item: item, unit: unit, qty: 1, price: 1 }) : null,
+    D = pwData(),
+    nu = B && B.normUnit,
+    C = [B && D.items[B.key] ? itemPriceHistory(B.key, o) : null, itemPriceHistory(item, o), ...pwSameSize(item, nu, o)],
+    H = C.find((h) => h && h.last && +h.last.price > 0 && (!nu || !h.unit || h.unit === nu));
+  if (!H) return null;
+  const r = H.last;
+  return { key: H.key, price: +r.price, unit: H.unit || unit || "unit", vendor: r.vendor || "", doc: pwDocOf(r), date: r.date || "", label: H.label };
+}
 // The one price check for a PO line, against the item's own history (itemPriceHistory: the last price paid and the best
 // recent price, adjusted to today): above the lower of the two by more than half a percent is flagged, with the gap per
 // unit and on the line's quantity. P2's entry-time flag and the issue gate below call this, so both give one verdict.
 // Units must agree (no conversion is guessed); with no history, or another unit, there is no verdict (ok, ref null).
-function poLinePriceCheck(item, unit, price, qty) {
-  const out = { ok: !0, ref: null, kind: "", gap: 0, gapTotal: 0, say: "" };
+// Whatever it says, it ends with what was last paid and on which order when that is not already its reference; when its
+// reference is only quotes (or nothing) and the price is above what was last PAID for the same material, it says so as a
+// question (the walk, 11-06: PO-2026-050's tile, $14.50/sf, had only the yards' quotes at $56.50 and up in its own
+// history, so it read as cheap and the $12.50 paid to Nemo Tile on PO-2026-041 went unsaid). poId: the order being
+// checked, never its own reference.
+function poLinePriceCheck(item, unit, price, qty, poId) {
+  const out = { ok: !0, ref: null, kind: "", gap: 0, gapTotal: 0, say: "" },
+    ho = poId ? { exceptPoId: poId } : void 0;
   try {
     // the item itself, by the price book's own key and unit (pwMake: a box of 10 is priced per piece), never a
     // look-alike by words (a fuzzy match priced windows against a $56 part)
@@ -198112,37 +198251,58 @@ function poLinePriceCheck(item, unit, price, qty) {
           Bw = words(b);
         return A.size > 0 && [...A].every((w) => Bw.has(w)) && [...Bw].every((w) => A.has(w));
       },
-      F = B && !D.items[B.key] && "function" == typeof itemPriceHistory ? itemPriceHistory(item) : null,
-      H = B && D.items[B.key] ? itemPriceHistory(B.key) : F && same(item, F.label) ? F : null;
-    // no history of this item: a look-alike by words is named as a question, never a verdict, and never stops Issue
+      F = B && !D.items[B.key] && "function" == typeof itemPriceHistory ? itemPriceHistory(item, ho) : null,
+      H = B && D.items[B.key] ? itemPriceHistory(B.key, ho) : F && same(item, F.label) ? F : null;
+    // no history of this item: a look-alike by words, else the same size of the same material, is named as a question,
+    // never a verdict, and never stops Issue
     if (!H || (H.unit && B.normUnit && H.unit !== B.normUnit)) {
-      const L = +price > 0 && "function" == typeof itemPriceHistory ? itemPriceHistory(item) : null,
-        r = L && (L.best || L.last);
-      return r && +r.adjusted > 0 ? Object.assign(out, { unsure: !0, ref: r2(+r.adjusted), vendor: r.vendor || "", say: `${item}: the price book's nearest item, ${L.label}, was ${money(+r.adjusted)} per ${L.unit || "unit"}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` }) : out;
+      const L = +price > 0 && "function" == typeof itemPriceHistory ? itemPriceHistory(item, ho) || pwSameSize(item, B && B.normUnit, ho)[0] || null : null,
+        r = L && (L.best || L.last),
+        doc = pwDocOf(r);
+      r && +r.adjusted > 0 && Object.assign(out, { unsure: !0, ref: r2(+r.adjusted), vendor: r.vendor || "", doc: doc, say: `${item}: the price book's nearest item, ${L.label}, was ${unitMoney(+r.adjusted)} per ${L.unit || "unit"}${r.vendor || doc ? ` (${[r.vendor, doc ? `on ${doc}` : ""].filter(Boolean).join(", ")})` : ""}. Check it is the same item` });
+    } else if (+price > 0) {
+      const C = [H.best && ["best", H.best], H.last && ["last", H.last]].filter(Boolean).filter(([, r]) => +r.adjusted > 0);
+      if (C.length) {
+        const [kind, r] = C.reduce((a, x) => (+x[1].adjusted < +a[1].adjusted ? x : a)),
+          f = +B.packF || 1,
+          refN = +r.adjusted,
+          ref = r2(refN * f),
+          // the document the price came from (PO-2026-041, a bill, a receipt), named beside the vendor and the date
+          // (J6, 11-06: money() also rounded the $12.50 to $13: unit prices use unitMoney)
+          doc = pwDocOf(r);
+        Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "", doc: doc });
+        // more than 2.5 times the reference is likely another thing priced the same way (a deposit, another size): no
+        // verdict that stops Issue, but never silence; the line is flagged to check it is the same item
+        if (+B.price > refN * 2.5)
+          Object.assign(out, { unsure: !0, say: `${item}: ${unitMoney(+price)} per ${unit || "unit"} is more than 2.5 times the ${"best" === kind ? "best recent" : "last"} price, ${unitMoney(ref)}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` });
+        else if (+B.price > refN * 1.005 + 0.0005) {
+          const gap = r2(+price - ref),
+            gapTotal = r2((+B.price - refN) * (+B.normQty || 0));
+          Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${unitMoney(+price)} per ${unit || "unit"} is ${unitMoney(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${unitMoney(ref)}${r.vendor || doc ? ` (${[r.vendor, doc ? `on ${doc}` : "", r.date ? fmt(r.date) : ""].filter(Boolean).join(", ")})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
+        }
+      }
     }
-    if (!(+price > 0)) return out;
-    const C = [H.best && ["best", H.best], H.last && ["last", H.last]].filter(Boolean).filter(([, r]) => +r.adjusted > 0);
-    if (!C.length) return out;
-    const [kind, r] = C.reduce((a, x) => (+x[1].adjusted < +a[1].adjusted ? x : a)),
-      f = +B.packF || 1,
-      refN = +r.adjusted,
-      ref = r2(refN * f);
-    Object.assign(out, { ref: ref, kind: kind, vendor: r.vendor || "", date: r.date || "" });
-    if (+B.price <= refN * 1.005 + 0.0005) return out;
-    // more than 2.5 times the reference is likely another thing priced the same way (a deposit, another size): no verdict
-    // that stops Issue, but never silence; the line is flagged to check it is the same item
-    if (+B.price > refN * 2.5)
-      return Object.assign(out, { unsure: !0, say: `${item}: ${money(+price)} per ${unit || "unit"} is more than 2.5 times the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor})` : ""}. Check it is the same item` });
-    const gap = r2(+price - ref),
-      gapTotal = r2((+B.price - refN) * (+B.normQty || 0));
-    return Object.assign(out, { ok: !1, gap: gap, gapTotal: gapTotal, say: `${item}: ${money(+price)} per ${unit || "unit"} is ${money(gap)} above the ${"best" === kind ? "best recent" : "last"} price, ${money(ref)}${r.vendor ? ` (${r.vendor}${r.date ? ", " + fmt(r.date) : ""})` : ""}${gapTotal ? `: ${money(gapTotal)} more on ${+qty} ${unit || ""}`.trimEnd() : ""}` });
-  } catch (e) {
-    return out;
-  }
+    // what was last paid, and on which order, when the reference is a quote or a look-alike
+    const P = +price > 0 && !(out.doc && "last" === out.kind) ? poLastPaid(item, unit, poId) : null;
+    if (P && P.doc && out.say) !out.say.includes(P.doc) && ((out.last = P), (out.say += `. Last paid: ${unitMoney(P.price)} per ${P.unit}${P.vendor ? ` to ${P.vendor}` : ""} on ${P.doc}${P.date ? `, ${fmt(P.date)}` : ""} (${P.label})`));
+    else if (P && P.doc && B && +B.price > P.price * 1.005 + 0.0005) {
+      // silent so far, and above what was last paid: a question, never a stop (it may be another item of that size)
+      const f = +B.packF || 1;
+      Object.assign(out, {
+        unsure: !0,
+        last: P,
+        ref: out.ref == null ? r2(P.price * f) : out.ref,
+        vendor: out.vendor || P.vendor,
+        doc: out.doc || P.doc,
+        say: `${item}: ${unitMoney(+price)} per ${unit || "unit"} is ${unitMoney(r2(+price - P.price * f))} above the last price paid${P.key === B.key ? "" : ` for ${P.label}`}, ${unitMoney(P.price)} per ${P.unit}${P.vendor ? ` to ${P.vendor}` : ""} on ${P.doc}${P.date ? `, ${fmt(P.date)}` : ""}${(+B.normQty || 0) > 0 ? `: ${money(r2((+B.price - P.price) * +B.normQty))} more on ${+qty} ${unit || ""}`.trimEnd() : ""}. Check it is the same item`,
+      });
+    }
+  } catch (e) {}
+  return out;
 }
 // the lines to check, without stopping Issue: no exact history (a look-alike), or a price far from it
-const poPriceUnsure = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => x.ok && x.unsure);
-const poPriceFlags = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty))).filter((x) => !x.ok);
+const poPriceUnsure = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty, po.id))).filter((x) => x.ok && x.unsure);
+const poPriceFlags = (po) => (["subcontract", "service"].includes(po.type) ? [] : po.lines || []).map((l) => Object.assign({ l: l }, poLinePriceCheck(l.item, l.unit, l.price, l.qty, po.id))).filter((x) => !x.ok);
 // Issue gate: a line priced above its last or best price is said before the order goes out, in dollars, with Use the
 // Best Price or Issue Anyway with a reason (the coordinator's day: studs issued at $4.60 against a best of $3.98).
 {

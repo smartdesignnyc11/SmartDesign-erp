@@ -299,7 +299,11 @@ function puVendorGlanceHtml(v) {
     ${F.rets.length ? `<div class="pu-vg-sec"><h3>Returns</h3><ul class="pu-vg-l">${F.rets.map((r) => `<li><button type="button" class="pu-vg-row" data-puvret="${esc(r.id)}"><b data-nocase>${esc(r.name)}</b><span data-nocase>${money(retExpected(r))} owed back${r.rma ? ` · ${esc(r.rma)}` : ""}</span></button></li>`).join("")}</ul></div>` : ""}
     <div class="pu-vg-sec"><h3>Price History</h3>${
       PR.length
-        ? `<table class="t pu-vg-pt"><thead><tr><th>Item</th><th class="num">Last</th><th class="num">Best</th><th>Trend</th></tr></thead><tbody>${PR.map((x) => `<tr><td data-nocase><b>${esc(x.item)}</b><div class="small muted">${x.n} buy${1 === x.n ? "" : "s"}</div></td><td class="num" data-nocase>${puPrice(x.last.price)}${x.unit ? `/${esc(x.unit)}` : ""}<div class="small muted">${x.last.date ? fmt(x.last.date) : ""}</div></td><td class="num ${x.best.price < x.last.price - 0.005 ? "warn" : ""}" data-nocase>${puPrice(x.best.price)}<div class="small muted">${esc(x.best.where || "")}</div></td><td class="${x.up ? "warn" : ""}">${esc(x.trend)}</td></tr>`).join("")}</tbody></table>`
+        ? "function" == typeof puPhone && puPhone()
+          ? // the phone: one item a block, its Last, Best and Trend as labelled values in a two-column grid (a table at 390
+            // was flattened into one run-together line by the phone's row pass, 11-06)
+            `<ul class="pu-vg-ph">${PR.map((x) => `<li class="pu-vg-pi"><b data-nocase>${esc(x.item)}</b><span class="pu-pos">${x.n} buy${1 === x.n ? "" : "s"}</span><dl class="pu-vg-dl"><div><dt>Last</dt><dd data-nocase>${puPrice(x.last.price)}${x.unit ? `/${esc(x.unit)}` : ""}${x.last.date ? `<span class="pu-pos">${fmt(x.last.date)}</span>` : ""}</dd></div><div><dt>Best</dt><dd data-nocase class="${x.best.price < x.last.price - 0.005 ? "warn" : ""}">${puPrice(x.best.price)}${x.best.where ? `<span class="pu-pos">${esc(x.best.where)}</span>` : ""}</dd></div><div><dt>Trend</dt><dd data-nocase class="${x.up ? "warn" : ""}">${esc(x.trend)}</dd></div></dl></li>`).join("")}</ul>`
+          : `<table class="t pu-vg-pt"><thead><tr><th>Item</th><th class="num">Last</th><th class="num">Best</th><th>Trend</th></tr></thead><tbody>${PR.map((x) => `<tr><td data-nocase><b>${esc(x.item)}</b><div class="small muted">${x.n} buy${1 === x.n ? "" : "s"}</div></td><td class="num" data-nocase>${puPrice(x.last.price)}${x.unit ? `/${esc(x.unit)}` : ""}<div class="small muted">${x.last.date ? fmt(x.last.date) : ""}</div></td><td class="num ${x.best.price < x.last.price - 0.005 ? "warn" : ""}" data-nocase>${puPrice(x.best.price)}<div class="small muted">${esc(x.best.where || "")}</div></td><td class="${x.up ? "warn" : ""}">${esc(x.trend)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pu-empty" data-nocase>No prices from ${esc(v.name)} yet: the first order or receipt starts its history.</p>`
     }</div>
   </section>`;
@@ -478,6 +482,15 @@ document.addEventListener("click", (e) => {
 .pu-vg-row span{font-size:13px;color:var(--ink-3)}
 table.pu-vg-pt{width:100%} table.pu-vg-pt td.warn{color:var(--warn)}
 .pu-ro-note{margin:4px 0 0;font-size:13px;color:var(--ink-3)}
+.pu-vg-ph{list-style:none;margin:0;padding:0}
+.pu-vg-pi{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-top:1px solid var(--rule-2)}
+.pu-vg-pi>b{font-size:14.5px}
+.pu-vg-dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:6px 0 0}
+.pu-vg-dl>div{min-width:0}
+.pu-vg-dl dt{font-size:12.5px;color:var(--ink-3)}
+.pu-vg-dl dd{margin:0;font-weight:600;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:1px}
+.pu-vg-dl dd .pu-pos{font-weight:400}
+.pu-vg-dl dd.warn{color:var(--warn)}
 body.pu-ro :is(#v-proc,#v-rfq,#v-recv,#v-po) :is(.pu-plus,.bb-pick,.pu-bar,[data-purecv]){display:none !important}
 body.pu-ro #btn-newvendor,body.pu-ro [data-fundpo],body.pu-ro #buy-board .bb-panel .btn,body.pu-ro #v-recv #recv-body :is(button,input,select),body.pu-ro #v-recv [data-pufull="recv"]{display:none !important}
 .pu-ro-note{margin:-6px 0 12px}
