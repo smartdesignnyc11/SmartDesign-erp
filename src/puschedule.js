@@ -246,6 +246,27 @@ function psItems(scope) {
   X.forEach(psMoney);
   return X;
 }
+// The client invoice that bills an item: a line naming the item itself (its selection, its order line, its material,
+// or a bank line bought for the client and pulled onto an invoice), else the invoice that last billed its contract line.
+// Void invoices never count; a draft does, and says so.
+function psInvoiceOf(o) {
+  const c = o.c || (o.lineKey && (findLine(o.lineKey) || {}).client) || null;
+  if (!c) return null;
+  const D = (c.invoices || []).filter((d) => "void" !== d.status),
+    plIds = new Set(o.pls.map((x) => x.pl.id)),
+    poIds = new Set(o.pls.map((x) => x.po.id)),
+    rebill = new Set((DB.txns || []).filter((t) => t.invoiceRebillId && t.poId && poIds.has(t.poId)).map((t) => t.invoiceRebillId));
+  let d = D.find((x) => rebill.has(x.id) || (x.lines || []).some((l) => (o.it && (l.selId === o.it.id || (l.selIds || []).includes(o.it.id))) || (l.poLineId && plIds.has(l.poLineId)) || (o.m && l.materialId === o.m.id)));
+  if (d) return { d: d, c: c, how: "item" };
+  if (!o.lineKey) return null;
+  let nums = [];
+  try {
+    nums = lineFin(o.lineKey).invoices || [];
+  } catch (e) {}
+  const n = nums[nums.length - 1];
+  d = n ? D.find((x) => x.number === n) : D.filter((x) => (x.lines || []).some((l) => l.fromLine === o.lineKey)).pop();
+  return d ? { d: d, c: c, how: "line" } : null;
+}
 function psItem(r) {
   const p = r.p,
     pls = psPoLines(r),
@@ -256,14 +277,13 @@ function psItem(r) {
     ref = lineKey ? findLine(lineKey) : null,
     status = psStatusOf(r, pls),
     L = psLeadOf(r, pls);
-  // Invoice: the FM package, else the ERP invoice that billed the line; the estimate line below it
-  const fm = (it && it.fm) || (pls.map((x) => x.po.fm).find(Boolean) || "").split(/,\s*/)[0] || "";
-  let invs = [];
-  try {
-    invs = lineKey ? lineFin(lineKey).invoices || [] : [];
-  } catch (e) {}
-  const lineRef = ref ? `${ref.doc.number || ""}${ref.line.num ? ` line ${ref.line.num}` : ""}`.trim() : "",
-    inv = fm || invs[invs.length - 1] || "";
+  // Invoice (Alan, 11-06: "FM 1 is an invoice #"): the client invoice that bills this item, opened from the cell; else
+  // the FM number as entered on the selection or its order, not yet invoiced in the app; else not invoiced
+  const fm = (it && it.fm) || (pls.map((x) => x.po.fm).find(Boolean) || "").split(/,\s*/)[0] || "",
+    I = psInvoiceOf({ it: it, m: m, pls: pls, lineKey: lineKey, c: r.c }),
+    lineRef = ref ? `${ref.doc.number || ""}${ref.line.num ? ` line ${ref.line.num}` : ""}`.trim() : "",
+    inv = I ? I.d.number : fm,
+    billedBack = !!it || pls.some((x) => x.pl.billable) || !!(m && m.billable);
   // qty
   const qn = pl0 ? { n: +pl0.qty || 0, u: pl0.unit || "" } : it ? { n: +it.qty || 0, u: it.unit || "ea" } : ref && ["line", "sub"].includes(r.kind) ? { n: +ref.line.qty || 0, u: ref.line.unit || "" } : (() => {
     const b = bbNum(r.qty);
@@ -299,8 +319,9 @@ function psItem(r) {
     lineRef: lineRef,
     fm: fm,
     inv: inv,
-    invs: invs,
-    invoiced: !!inv,
+    invDoc: I,
+    invoiced: !!I,
+    billedBack: billedBack,
     lead: L.days,
     leadFrom: L.from,
     sku: sku,
@@ -347,7 +368,8 @@ function psMoney(x) {
     C = x.lineKey ? lineCommitment(x.lineKey) : null;
   } catch (e) {}
   x.lineOver = C && C.over > 0.5 && x.shared ? C.over : 0;
-  x.notBilled = PS_BOUGHT.includes(x.status) && !x.invoiced;
+  // bought for the client to pay back, and on no invoice and no FM number: the money is ours until it is billed
+  x.notBilled = x.billedBack && PS_BOUGHT.includes(x.status) && !x.invoiced && !x.fm;
   // which columns the record holds a value for (the suite holds each to a filled cell)
   x.src = { inv: !!x.inv, lead: null != x.lead, sku: !!x.sku, desc: !!x.desc, qty: !!x.qty, room: !!x.room, budget: null != x.budget || !!x.shared, bought: null != x.bought, vendor: !!x.vendor, status: !0, deliv: !!x.deliv };
   return x;
@@ -464,8 +486,15 @@ const psQty = (x) => (x.qty ? `${+x.qty}${x.unit ? " " + x.unit : ""}` : "");
 function psCellHtml(x, k) {
   const sv = (v) => esc(String(null == v ? "" : v)),
     sub = (t, cls) => (t ? `<span class="ps-sub${cls ? " " + cls : ""}" data-nocase>${t}</span>` : "");
-  if ("inv" === k)
-    return `<span class="ps-main" data-nocase>${esc(x.inv || "")}</span>${sub(esc(x.lineRef || (x.fm || x.inv ? "" : "No estimate line")), x.lineRef ? "" : "warn")}${x.notBilled ? sub("Not billed to the client", "warn") : ""}`;
+  if ("inv" === k) {
+    const I = x.invDoc,
+      main = I
+        ? `<a href="#" class="ps-inv" data-psinv="${sv(x.id)}" title="Open ${sv(I.d.number)}${"line" === I.how ? `: it bills ${sv(x.lineRef)}` : ""}" data-nocase>${esc(I.d.number)}</a>${"draft" === I.d.status ? sub("draft") : ""}`
+        : x.fm
+          ? `<span class="ps-main" data-nocase>${esc(x.fm)}</span>${sub("Not yet invoiced in the app", "warn")}`
+          : `<span class="ps-main ps-dim${x.notBilled ? " warn" : ""}" data-nocase>Not invoiced</span>`;
+    return main + sub(esc(x.lineRef || "No estimate line"), x.lineRef ? "" : "warn") + (x.notBilled ? sub("Bought for the client, not billed", "bad") : "");
+  }
   if ("lead" === k) return `<span class="ps-main" title="${sv(x.leadFrom)}" data-nocase>${psDays(x.lead)}</span>${x.leadFrom && /observed/.test(x.leadFrom) ? sub("observed") : ""}`;
   if ("sku" === k) return `<span class="ps-main ps-mono" data-nocase>${esc(x.sku || "")}</span>`;
   if ("desc" === k)
@@ -480,7 +509,8 @@ function psCellHtml(x, k) {
         : "";
   if ("bought" === k) {
     if (null == x.bought) return x.noOrder ? sub("No order or bill on file", "bad") : "";
-    return `<span class="ps-main" data-nocase>${money(x.bought)}</span>${sub(esc(x.boughtFrom || "") + (x.billedOver ? ` ordered at ${money(x.ordered)}` : ""))}${x.billedOver ? sub(`Billed ${money(x.billedOver)} over the order`, "bad") : ""}${x.over ? sub(`${money(x.over)} over`, "bad") : x.under ? sub(`${money(x.under)} under`, "good") : ""}${x.lineOver ? sub(`The line is ${money(x.lineOver)} over its budget`, "bad") : ""}`;
+    const one = 1 === x.pls.length && +x.pls[0].pl.qty > 1 ? x.pls[0].pl : null;
+    return `<span class="ps-main" data-nocase>${money(x.bought)}</span>${one && !x.billedOver ? sub(`${unitMoney(+one.price || 0)} each`) : ""}${sub(esc(x.boughtFrom || "") + (x.billedOver ? ` ordered at ${money(x.ordered)}` : ""))}${x.billedOver ? sub(`Billed ${money(x.billedOver)} over the order`, "bad") : ""}${x.over ? sub(`${money(x.over)} over`, "bad") : x.under ? sub(`${money(x.under)} under`, "good") : ""}${x.lineOver ? sub(`The line is ${money(x.lineOver)} over its budget`, "bad") : ""}`;
   }
   if ("vendor" === k) return `<span class="ps-main" data-nocase>${esc(x.vendor || "")}</span>`;
   if ("status" === k) {
@@ -503,8 +533,10 @@ function psSortVal(x, c) {
   const v = c.val(x);
   return "status" === c.k ? PS_RANK[v] : v;
 }
+// the controller and billing read Purchasing and buy nothing (src/puorders.js puReadOnly): no picks, no import
+const psRO = () => "function" == typeof puReadOnly && puReadOnly();
 function psPickHtml(x) {
-  return x.pickable ? `<label class="ps-pk" aria-label="Pick ${esc(x.desc)}"><input type="checkbox" data-pspick="${esc(x.id)}" ${psPick.has(x.id) ? "checked" : ""}></label>` : "";
+  return x.pickable && !psRO() ? `<label class="ps-pk" aria-label="Pick ${esc(x.desc)}"><input type="checkbox" data-pspick="${esc(x.id)}" ${psPick.has(x.id) ? "checked" : ""}></label>` : "";
 }
 function psRowHtml(x) {
   return `<tr data-psrow="${esc(x.id)}" class="${psPick.has(x.id) ? "on" : ""}"><td class="ps-pkc">${psPickHtml(x)}</td>${PS_COLS.map((c) => `<td data-pscol="${c.k}" data-sv="${esc(String(psSortVal(x, c)))}" class="ps-c-${c.k}${c.num ? " num" : ""}">${psCellHtml(x, c.k)}</td>`).join("")}</tr>`;
@@ -571,8 +603,8 @@ function psRender(root) {
     }<input id="ps-q" class="ps-q" type="search" placeholder="Search item, SKU, vendor" aria-label="Search the items" value="${esc(psF.q)}"></div>${
       phone ? `<div class="ps-chips" role="group" aria-label="Status">${[["", `All (${within("status").length})`]].concat(sts).map(([k, w]) => `<button type="button" class="ps-chipb${psF.status === k ? " on" : ""}" data-psst="${esc(k)}" aria-pressed="${psF.status === k}">${esc(w)}</button>`).join("")}</div>` : ""
     }`,
-    sum = `<div class="ps-sum" data-nocase><span class="ps-n" data-pscount="${rows.length}"><b>${rows.length}</b> item${1 === rows.length ? "" : "s"}</span><span data-pstot="budget" data-v="${T.budget}">Budget <b>${money(T.budget)}</b></span><span data-pstot="bought" data-v="${T.bought}">Purchased <b>${money(T.bought)}</b></span>${T.over ? `<span class="bad" data-pstot="over" data-v="${T.over}">Over <b>${money(T.over)}</b></span>` : ""}${T.under ? `<span class="good" data-pstot="under" data-v="${T.under}">Under <b>${money(T.under)}</b></span>` : ""}${T.lineOver ? `<span class="bad">Lines over budget <b>${money(T.lineOver)}</b></span>` : ""}${T.notBilled ? `<span class="warn">${T.notBilled} bought, not billed to the client</span>` : ""}</div>`,
-    exp = `<div class="ps-x"><button type="button" class="btn" data-psx="csv">${PS_IC.dl}<span>Export CSV</span></button><button type="button" class="btn" data-psx="client">${PS_IC.print}<span>Client FF&amp;E Schedule</span></button><button type="button" class="btn" data-psx="internal">${PS_IC.print}<span>Internal Schedule</span></button><button type="button" class="btn" data-psx="import">${PS_IC.up2}<span>Import a Sheet</span></button></div>`,
+    sum = `<div class="ps-sum" data-nocase><span class="ps-n" data-pscount="${rows.length}"><b>${rows.length}</b> item${1 === rows.length ? "" : "s"}</span><span data-pstot="budget" data-v="${T.budget}">Budget <b>${money(T.budget)}</b></span><span data-pstot="bought" data-v="${T.bought}">Purchased <b>${money(T.bought)}</b></span>${T.over ? `<span class="bad" data-pstot="over" data-v="${T.over}">Over <b>${money(T.over)}</b></span>` : ""}${T.under ? `<span class="good" data-pstot="under" data-v="${T.under}">Under <b>${money(T.under)}</b></span>` : ""}${T.lineOver ? `<span class="bad">Lines over budget <b>${money(T.lineOver)}</b></span>` : ""}${T.notBilled ? `<span class="bad" data-pstot="notbilled" data-v="${T.notBilled}">${T.notBilled} bought for the client, not billed</span>` : ""}</div>`,
+    exp = `<div class="ps-x"><button type="button" class="btn" data-psx="csv">${PS_IC.dl}<span>Export CSV</span></button><button type="button" class="btn" data-psx="client">${PS_IC.print}<span>Client FF&amp;E Schedule</span></button><button type="button" class="btn" data-psx="internal">${PS_IC.print}<span>Internal Schedule</span></button>${psRO() ? "" : `<button type="button" class="btn" data-psx="import">${PS_IC.up2}<span>Import a Sheet</span></button>`}</div>`,
     G = psGroups(rows),
     span = PS_COLS.length + 1,
     body = !rows.length
@@ -637,6 +669,14 @@ function psWire(root) {
         psOpen(tr.dataset.psrow);
       }),
   );
+  root.querySelectorAll("[data-psinv]").forEach(
+    (a) =>
+      (a.onclick = (e) => {
+        e.preventDefault(), e.stopPropagation();
+        const x = psAll().find((y) => y.id === a.dataset.psinv);
+        x && x.invDoc ? flowGo.doc(x.invDoc.c, "invoice", x.invDoc.d)() : toast("That invoice is no longer on file");
+      }),
+  );
   root.querySelectorAll("[data-psdo]").forEach((b) => (b.onclick = () => psDo(b.dataset.psdo)));
   root.querySelectorAll("[data-psx]").forEach(
     (b) =>
@@ -664,6 +704,7 @@ function psOpen(id) {
 // the one order sheet), each behind the stock check
 function psDo(k) {
   if ("clear" === k) return psPick.clear(), render();
+  if (psRO()) return toast("Purchasing is read only for your role: the coordinator orders and asks for quotes");
   const R = [...psPick].map((id) => psAll().find((x) => x.id === id)).filter((x) => x && x.pickable).map((x) => x.r);
   if (!R.length) return toast("Pick at least one item to buy");
   const out = "quote" === k ? bbQuote(R) : bbOrder(R);
@@ -675,7 +716,7 @@ function psDo(k) {
 function psCsvRows(rows) {
   const head = PS_COLS.map((c) => c.n).concat(["Job", "Estimate Line", "Order"]);
   return [head].concat(
-    rows.map((x) => [x.inv, null == x.lead ? "" : x.lead, x.sku, x.desc, x.qty || "", x.room, null != x.budget ? x.budget : x.shared ? `in the line (${x.shared.budget})` : "", null == x.bought ? "" : x.bought, x.vendor, PS_WORD[x.status], x.deliv, x.job, x.lineRef, x.boughtFrom || ""]),
+    rows.map((x) => [x.inv || "Not invoiced", null == x.lead ? "" : x.lead, x.sku, x.desc, x.qty || "", x.room, null != x.budget ? x.budget : x.shared ? `in the line (${x.shared.budget})` : "", null == x.bought ? "" : x.bought, x.vendor, PS_WORD[x.status], x.deliv, x.job, x.lineRef, x.boughtFrom || ""]),
   );
 }
 function psCsv(download) {
@@ -703,7 +744,7 @@ function psScheduleHtml(client) {
     groups.has(k) || groups.set(k, []), groups.get(k).push(x);
   });
   const cols = client
-      ? [["Invoice", (x) => x.fm || ""], ["Item #", (x) => x.sku], ["Description", (x) => x.desc + (x.descSub ? `\n${x.descSub}` : "")], ["Qty", psQty], ["Status", (x) => PS_WORD[x.status]], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]]
+      ? [["Invoice", (x) => x.inv || ""], ["Item #", (x) => x.sku], ["Description", (x) => x.desc + (x.descSub ? `\n${x.descSub}` : "")], ["Qty", psQty], ["Status", (x) => PS_WORD[x.status]], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]]
       : [["Invoice", (x) => x.inv], ["Lead Time", (x) => psDays(x.lead)], ["Item #", (x) => x.sku], ["Description", (x) => x.desc], ["Qty", psQty], ["Budget Price", (x) => (null != x.budget ? money(x.budget) : x.shared ? "in the line" : "")], ["Purchased Price", (x) => (null == x.bought ? "" : money(x.bought) + (x.over ? ` (${money(x.over)} over)` : x.under ? ` (${money(x.under)} under)` : ""))], ["Vendor", (x) => x.vendor], ["Status", (x) => PS_WORD[x.status]], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]],
     T = psTotals(rows),
     co = (DB.company && DB.company.name) || "";
@@ -783,6 +824,7 @@ function psParseSheet(text) {
 }
 const psSameItem = (pid, x) => ((DB.sel || {}).items || []).some((i) => i.projectId === pid && (i.fm || "") === x.fm && ((x.sku && i.sku === x.sku) || String(i.name || "").toLowerCase() === x.name.toLowerCase()));
 function psImportSheet() {
+  if (psRO()) return toast("Purchasing is read only for your role: the coordinator imports the sheet");
   const P = (DB.projects || []).filter((p) => !p.archived),
     cur = psScope() || (S && S.id) || (P[0] || {}).id || "";
   let parsed = { items: [], error: "" };
@@ -891,6 +933,7 @@ table.ps-t tr.ps-g td{background:var(--paper-3);font-size:12px;color:var(--ink-2
 .ps-pkc{width:30px} .ps-pk{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;cursor:pointer}
 .ps-main{display:block} .ps-mono{font-family:var(--mono);font-size:11.5px} .ps-dim{color:var(--ink-3)}
 .ps-sub{display:block;color:var(--ink-3);font-size:11.5px;line-height:1.35} .ps-sub.bad,.ps-main.bad{color:var(--bad);font-weight:600} .ps-sub.good{color:var(--ok);font-weight:600} .ps-sub.warn{color:var(--warn)}
+.ps-inv{color:var(--accent);font-weight:600;text-decoration:none} .ps-inv:hover{text-decoration:underline} .ps-main.warn{color:var(--warn)}
 .ps-open{border:0;background:transparent;padding:0;text-align:left;font:inherit;color:var(--ink);cursor:pointer} .ps-open:hover b{color:var(--accent)}
 .ps-chip{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11.5px;font-weight:600;background:var(--neutral-2);color:var(--neutral);white-space:nowrap}
 .ps-chip.blue{background:var(--info-2);color:var(--info)} .ps-chip.green{background:var(--ok-2);color:var(--ok)} .ps-chip.amber{background:var(--warn-2);color:var(--warn)} .ps-chip.red{background:var(--bad-2);color:var(--bad)}
@@ -926,6 +969,7 @@ table.ps-t tr.ps-g td{background:var(--paper-3);font-size:12px;color:var(--ink-2
   .ps-k{color:var(--ink-3);font-size:11.5px;flex:0 0 auto}
   .ps-cl .ps-main{display:inline}
   .ps-meta{font-size:12px}
+  .ps-card .ps-inv{display:inline-flex;align-items:center;min-height:44px;min-width:44px}
   .ps-x .btn{min-height:44px;flex:1 1 calc(50% - 8px);justify-content:center}
   .ps-bar{bottom:calc(var(--bb-tabs, 64px) + 6px)} .ps-bar .btn{min-height:44px}
 }`;

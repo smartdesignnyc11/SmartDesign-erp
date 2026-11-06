@@ -6,8 +6,11 @@ store.
 
   TOGGLE   the Buy Board has a Needs / Table switch; Table shows Alan's eleven columns in his order; the job's Purchasing
            tab has the same switch and shows that job only
-  FILL     every column fills from the records where the record has it: each FF&E item's FM package, SKU, room, vendor,
+  FILL     every column fills from the records where the record has it: each FF&E item's FM number, SKU, room, vendor,
            lead; each order line's vendor, price and date; a contract line's ERP invoice and its estimate line below
+  INVOICE  Alan, 11-06: "FM 1 is an invoice #": the client invoice that bills the item, a link that opens it; else the FM
+           number as entered, not yet invoiced in the app; else Not invoiced, counted as bought and not billed only
+           when the item was bought for the client
   STATUS   plain words: an issued order is purchased, a received one delivered, an approved selection needed, an
            installed one installed, a back-order backordered; nothing in the table body can be typed into
   SORT     each column header sorts its column up, then down, empties last both ways
@@ -143,6 +146,12 @@ async def s_toggle(pg, c, dev):
         jobs = await js(pg, "ids => ids.map(id => (psItems('').find(x => x.id === id) || {}).pid)", [r['id'] for r in R], 0)
         c.ok(R and set(jobs) == {'p121'}, f'TOGGLE {dev}: inside 121 State the table shows that job only ({set(jobs)})')
     await js(pg, "() => { try { jpClose && jpClose(); } catch (e) {} }", None, 100)
+    # the controller reads the table and buys nothing from it: no pick box, no import
+    await sign_in(pg, 'u_controller')
+    await board(pg)
+    ro = await js(pg, "() => ({ rows: document.querySelectorAll('#pu-table [data-psrow]').length, picks: document.querySelectorAll('#pu-table [data-pspick]').length, imp: document.querySelectorAll('#pu-table [data-psx=import]').length })", None, 0)
+    c.ok(ro['rows'] > 0 and ro['picks'] == 0 and ro['imp'] == 0, f'TOGGLE {dev}: the controller reads the table with no pick box and no import ({ro})')
+    await sign_in(pg, 'u_chen')
 
 
 async def s_fill(pg, c, dev):
@@ -189,6 +198,47 @@ async def s_fill(pg, c, dev):
     inv = await js(pg, "() => (lineFin('estimate:es1:l9').invoices || []).slice(-1)[0] || ''", None, 0)
     c.ok(mill and inv and inv in mill['cells'].get('inv', '') and 'EST-2026-014 line 9' in mill['cells'].get('inv', ''),
          f'FILL {dev}: the millwork order reads its ERP invoice ({inv}) with EST-2026-014 line 9 under it ({mill and mill["cells"].get("inv")!r})')
+
+
+async def s_invoice(pg, c, dev):
+    """Alan, 11-06: "FM 1 is an invoice #". The client invoice that bills the item, opened from the cell; else the FM
+    number as entered, not yet invoiced in the app; else Not invoiced, which flags a bought-for-the-client item."""
+    await board(pg)
+    R = await rows(pg)
+    cell = lambda frag: next((x['cells'].get('inv', '') for x in R if frag in x['cells'].get('desc', '')), None)
+    fm = cell('Range, 36')
+    c.ok(fm and fm.startswith('FM12') and 'not yet invoiced in the app' in fm.lower(), f'INVOICE {dev}: a selection with an FM number and no invoice line reads FM12, not yet invoiced in the app ({fm!r})')
+    # an invoice line naming the selection: that invoice's number, as a link that opens it
+    await js(pg, """() => { const it = DB.sel.items.find(i => i.name.startsWith('Range, 36')), c = DB.clients.find(x => x.invoices.some(i => i.number === 'INV-2026-038'));
+      const inv = c.invoices.find(i => i.number === 'INV-2026-038'); inv.lines.push({ id: 'l_pstest', item: 'Range, 36in dual fuel', qty: 1, unit: 'ea', rate: 9889, selId: it.id }); render(); }""", None, 400)
+    R = await rows(pg)
+    rid = next((x['id'] for x in R if 'Range, 36' in x['cells'].get('desc', '')), '')
+    v = next((x['cells'].get('inv', '') for x in R if x['id'] == rid), '')
+    c.ok(v.startswith('INV-2026-038'), f'INVOICE {dev}: once an invoice line names the selection, the cell reads that invoice\'s number ({v!r})')
+    link = pg.locator(f'#pu-table [data-psrow="{rid}"] [data-psinv]')
+    has = await link.count()
+    if has:
+        await link.first.click(); await pg.wait_for_timeout(700)
+        # flowGo.doc: a seat with Billing or Clients opens the document; any other seat (the coordinator) its summary
+        st = await js(pg, """() => ({ view, doc: typeof docOpen !== 'undefined' && docOpen ? docOpen.id : '',
+          sheet: ((document.querySelector('#mbm .mbm-hd h3') || {}).textContent || '').trim() })""", None, 0)
+        inv_id = await js(pg, "() => DB.clients.flatMap(c => c.invoices).find(i => i.number === 'INV-2026-038').id", None, 0)
+        c.ok(st['doc'] == inv_id or 'INV-2026-038' in st['sheet'], f'INVOICE {dev}: the number opens INV-2026-038 ({st})')
+        await reset(pg)
+    else: c.ok(False, f'INVOICE {dev}: the invoice number is a link')
+    await js(pg, """() => { const inv = DB.clients.flatMap(c => c.invoices).find(i => i.number === 'INV-2026-038'); inv.lines = inv.lines.filter(l => l.id !== 'l_pstest'); }""", None, 0)
+    # neither an invoice nor an FM number, bought for the client: Not invoiced, and counted as bought and not billed
+    await board(pg)
+    n0 = await js(pg, "() => +((document.querySelector('[data-pstot=notbilled]') || {}).dataset || {}).v || 0", None, 0)
+    await js(pg, "() => { const it = DB.sel.items.find(i => i.name.startsWith('Range, 36')); it.__fm = it.fm; it.fm = ''; render(); }", None, 400)
+    R = await rows(pg)
+    v = next((x['cells'].get('inv', '') for x in R if 'Range, 36' in x['cells'].get('desc', '')), '')
+    n1 = await js(pg, "() => +((document.querySelector('[data-pstot=notbilled]') || {}).dataset || {}).v || 0", None, 0)
+    c.ok(v.startswith('Not invoiced') and 'not billed' in v.lower() and n1 == n0 + 1, f'INVOICE {dev}: with neither, the cell reads Not invoiced and the item counts as bought and not billed ({v!r}; {n0} -> {n1})')
+    await js(pg, "() => { const it = DB.sel.items.find(i => i.name.startsWith('Range, 36')); it.fm = it.__fm; delete it.__fm; render(); }", None, 300)
+    # a contract-line item is billed through the contract: never counted as bought and not billed
+    bad = await js(pg, "() => psItems('').filter(x => x.notBilled && !x.billedBack).map(x => x.desc)", None, 0)
+    c.ok(not bad, f'INVOICE {dev}: only items bought for the client count as not billed ({bad[:3]})')
 
 
 async def s_status(pg, c, dev):
@@ -417,7 +467,7 @@ async def run(dev):
             pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
         await sign_in(pg, 'u_chen')
-        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('OPEN', s_open), ('PICK', s_pick)]
+        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('OPEN', s_open), ('PICK', s_pick)]
         steps += [('EXPORT', s_export), ('IMPORT', s_import)] if not phone else [('PHONE', s_phone)]
         for k, fn in steps:
             if not on(k): continue
