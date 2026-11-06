@@ -107,18 +107,24 @@ async def s_sheet(p, c):
         s = await pg.evaluate("() => { const r = DB.rfqs[DB.rfqs.length - 1]; return { status: r.status, v: (r.vendors || []).length, fq: !!r.fewerQuotes, fm: rfqForemanRows().some(x => x.id === r.id), toast: (document.getElementById('toast') || {}).innerText || '' }; }")
         c.ok(s['status'] == 'sent' and s['v'] == 1 and s['fq'], f'sheet: with a reason Send sends it and logs the reason ({s})')
         c.ok(s['fm'], 'sheet: the foreman\'s quantity check runs beside the sent request (on his Today), not as a lock')
-        # the foreman changes a quantity after it went out: Tell the Vendors drafts the change to every invited vendor
+        # the foreman changes a quantity after it went out: Tell the Vendors shows the email and the coordinator's tap sends
+        # it to every invited vendor (CoS 11-06: her tap is the approval); until it went, the award cuts no PO
         fm = await pg.evaluate("""() => { const r = DB.rfqs[DB.rfqs.length - 1]; signIn('u_angel'); render(); rfqForemanSheet(r.id); return r.id; }""")
         await pg.wait_for_timeout(300)
         await pg.locator('#mbm [data-rfqup="L1"]').click(); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(400)
         await sign_in(pg, 'u_chen'); await pg.evaluate("id => rfqOpenFor(id)", fm); await pg.wait_for_timeout(300)
         tell = await pg.locator('#v-rfq #rfq-tell').count()
         c.ok(tell == 1, 'sheet: a quantity the foreman changed after sending offers Tell the Vendors on the request')
+        blk = await pg.evaluate("id => { const r = rfqById(id), s0 = r.status; r.status = 'leveled'; const out = rfqAward(r, Object.fromEntries(r.lines.map(l => [l.id, r.vendors[0].id]))); r.status = s0; return { po: !!(out && out.length), toast: (document.getElementById('toast') || {}).innerText || '' }; }", fm)
+        c.ok(not blk['po'] and 'Tell the Vendors' in blk['toast'], f'sheet: the award cuts no PO on quantities the vendors were never told ({blk})')
         if tell:
             await pg.locator('#v-rfq #rfq-tell').click(); await pg.wait_for_timeout(400)
-        tv = await pg.evaluate("id => { const r = rfqById(id); return { told: r.fmTold && r.fmTold.n, drafts: (DB.outbox || []).filter(o => o.kind === 'rfq-change' && o.about.rfqId === id && o.status === 'draft').length, v: (r.vendors || []).length, appr: mApprovals().filter(i => i.kind === 'draft' && /Change to RFQ/.test(i.title || '')).length, toast: (document.getElementById('toast') || {}).innerText || '' }; }", fm)
-        c.ok(tv['told'] == tv['v'] == tv['drafts'] and tv['drafts'] >= 1, f'sheet: one tap drafts the change to every invited vendor ({tv})')
-        c.ok('Open' in tv['toast'], f'sheet: the drafts toast with Open ({tv["toast"][:120]})')
+        pv = await modal(pg)
+        c.ok(pv and 'Tell the Vendors' in pv['title'] and 'revised quantities' not in pv['title'] and re.search(r'Please quote these instead', pv['text']) and pv['primary'] and pv['primary'][0].startswith('Send to'), f'sheet: Tell the Vendors previews the email, with one blue Send ({pv and (pv["title"], pv["primary"])})')
+        if pv: await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(500)
+        tv = await pg.evaluate("id => { const r = rfqById(id); return { told: r.fmTold && r.fmTold.n, sent: (DB.outbox || []).filter(o => o.kind === 'rfq-change' && o.about.rfqId === id && o.status === 'sent').length, drafts: (DB.outbox || []).filter(o => o.kind === 'rfq-change' && o.status === 'draft').length, v: (r.vendors || []).length, toast: (document.getElementById('toast') || {}).innerText || '' }; }", fm)
+        c.ok(tv['told'] == tv['v'] == tv['sent'] and tv['sent'] >= 1 and tv['drafts'] == 0, f'sheet: her tap sends the change to every invited vendor, nothing waits in Approvals ({tv})')
+        c.ok('Open' in tv['toast'] and 'sent to' in tv['toast'], f'sheet: the send toasts with Open ({tv["toast"][:120]})')
         c.ok(not errs, f'sheet: page errors {errs[:2]}')
     finally:
         await b.close()
@@ -248,7 +254,49 @@ async def s_award(p, c):
         await pg.evaluate("id => rfqOpenFor(id)", r['id']); await pg.wait_for_timeout(400)
         txt = await pg.evaluate("() => document.getElementById('v-rfq').innerText")
         c.ok('$3,850' in txt and '$1,380 saved' not in txt and 'Negotiation:' in txt, 'award: the record says $3,850 saved, with the negotiation figure beside it')
+        # an award stamped on the old basis (landed with tax, the $1,380) is re-read on the pre-tax basis, so the month's
+        # total adds one kind of saving; the old figure is kept beside it (CoS 11-06)
+        old = await pg.evaluate("""id => { const r = rfqById(id), A = r.award; Object.assign(A, { savingsVsFirst: 1380, firstQuote: 16930, final: A.landed, preTax: false }); delete A.basis;
+          const S = rfqSavings(); return { vs: S.vsFirst, basis: A.basis, saved: A.savingsVsFirst, was: A.was && A.was.savingsVsFirst, old: S.oldBasis }; }""", r['id'])
+        c.ok(old['vs'] == 3850 and old['saved'] == 3850 and old['was'] == 1380 and old['basis'] and not old['old'], f'award: an old award is re-read on the pre-tax basis; the month adds one basis ({old})')
         c.ok(not errs, f'award: page errors {errs[:2]}')
+    finally:
+        await b.close()
+
+async def s_award3(p, c):
+    """three asked, one priced, Level Now, award: the award asks why, in a sentence, and the request stays on the Standard's
+    three-quote check as "awarded on fewer than three, because ..." (CoS 11-06)"""
+    b, pg, errs = await open_app(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        r = await pg.evaluate(SUBS_JS)
+        T1 = {'vsub_jsy': PROSE['vsub_jsy'], 'vsub_gow': 'Thanks Chen, numbers Monday.', 'vsub_qns': 'We will look at it next week.'}
+        await pg.evaluate(replies_js(T1), [r['id'], T1])
+        await pg.evaluate("id => rfqOpenFor(id)", r['id']); await pg.wait_for_timeout(300)
+        await pg.locator('#v-rfq #rfq-level').click(); await pg.wait_for_timeout(300)
+        await pg.evaluate("id => { const r = rfqById(id); (r.quotes || []).forEach(q => q.unreadable || q.confirmed || rfqConfirmQuote(r, q)); }", r['id'])
+        await pg.locator('#v-rfq #rfq-skipneg').click(); await pg.wait_for_timeout(300)
+        box = await pg.locator('#v-rfq #rfq-award-reason').count()
+        c.ok(box == 1, 'award3: with one priced bid the award card asks why it is awarded on fewer than three')
+        await pg.locator('#v-rfq #rfq-award').click(); await pg.wait_for_timeout(400)
+        a0 = await pg.evaluate("id => ({ st: rfqById(id).status, toast: (document.getElementById('toast') || {}).innerText || '' })", r['id'])
+        c.ok(a0['st'] != 'awarded' and re.search(r'fewer than three', a0['toast'], re.I), f'award3: no reason, no award ({a0})')
+        await pg.locator('#v-rfq #rfq-award-reason').fill('urgent'); await pg.locator('#v-rfq #rfq-award').click(); await pg.wait_for_timeout(400)
+        a1 = await pg.evaluate("id => ({ st: rfqById(id).status, toast: (document.getElementById('toast') || {}).innerText || '' })", r['id'])
+        c.ok(a1['st'] != 'awarded' and re.search(r'sentence', a1['toast'], re.I), f'award3: one word is not a reason ({a1})')
+        await pg.locator('#v-rfq #rfq-award-reason').fill('The other two would not price before the start date')
+        await pg.locator('#v-rfq #rfq-award').click(); await pg.wait_for_timeout(600)
+        a2 = await pg.evaluate("""id => { const r = rfqById(id); return { st: r.status, reason: (r.awardReason || {}).reason, fewer: !!(r.award || {}).fewer,
+          pred: PRED.rfqUnderQuoted.rows().some(x => x.id === id), row: (CATCH.find(c => c.name === 'rfqUnderQuoted').rows().find(x => x.key === 'rfq3:' + id) || {}).what || '' }; }""", r['id'])
+        c.ok(a2['st'] == 'awarded' and a2['reason'] and a2['fewer'], f'award3: with a sentence the award goes, the reason logged on it ({a2})')
+        c.ok(a2['pred'], f"award3: the awarded request still counts on the Standard's three-quote check ({a2})")
+        c.ok(a2['row'].startswith('Awarded on fewer than three, because The other two'), f'award3: the check names it with its reason ({a2["row"]})')
+        txt = await pg.evaluate("() => document.getElementById('v-rfq').innerText")
+        c.ok('Awarded on fewer than three' in txt, 'award3: the record says it was awarded on fewer than three, and why')
+        snd = await pg.evaluate("""() => { const r = rfqFromLines('p121', ['estimate:es1:l11'], { sub: true, category: 'Scaffold' }); r.status = 'purchasing';
+          return rfqSend(r, ['vsub_gow'], today(), { reason: 'ok fine' }); }""")
+        c.ok(not snd, 'award3: Send to one sub with a two-word reason is refused: a reason is a sentence')
+        c.ok(not errs, f'award3: page errors {errs[:2]}')
     finally:
         await b.close()
 
@@ -338,7 +386,7 @@ async def s_phone(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('sheet', s_sheet), ('new', s_new), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
+SECTIONS = [('sheet', s_sheet), ('new', s_new), ('three', s_three), ('match', s_match), ('prose', s_prose), ('award', s_award), ('award3', s_award3), ('status', s_status), ('ask', s_ask), ('phone', s_phone)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

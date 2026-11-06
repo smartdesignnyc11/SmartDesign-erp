@@ -183164,7 +183164,21 @@ function rfqThreeCheck(r, n, reason) {
   const need = rfqBasketGuess(r) > 2500 || !!r.sub;
   if (!need || n >= 3) return { ok: !0, need: need };
   const why = String(reason || "").trim();
-  return why.length >= 4 ? { ok: !0, need: need, reason: why } : { ok: !1, need: need, msg: `${r.number} is not sent: ${r.sub ? "a subcontract" : "a buy over $2,500"} needs three quotes (${rfqWhy("quotes3")}). Pick ${3 - n} more vendor${3 - n === 1 ? "" : "s"}, or write why fewer will do.` };
+  return rfqReasonOk(why) ? { ok: !0, need: need, reason: why } : { ok: !1, need: need, msg: `${r.number} is not sent: ${r.sub ? "a subcontract" : "a buy over $2,500"} needs three quotes (${rfqWhy("quotes3")}). Pick ${3 - n} more vendor${3 - n === 1 ? "" : "s"}, or write why fewer will do${why ? " as a sentence (15 characters or more)" : ""}.` };
+}
+// A reason the owner can read: a sentence, never a word ("ok", "urgent").
+const rfqReasonOk = (s) => {
+  const t = String(s || "").trim();
+  return t.length >= 15 && t.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length >= 3;
+};
+// Priced first-round quotes: one per vendor, a price someone read (never a reply with no price).
+const rfqPricedCount = (r) => new Set((r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).map((q) => q.vendorId)).size;
+const rfqNeedsThree = (r) => !!r.sub || rfqBasketGuess(r) > 2500;
+function rfqAwardThree(r, reason) {
+  const n = rfqPricedCount(r);
+  if (!rfqNeedsThree(r) || n >= 3) return { ok: !0, priced: n };
+  const why = String(reason || "").trim();
+  return rfqReasonOk(why) ? { ok: !0, priced: n, reason: why } : { ok: !1, priced: n, msg: `${r.number}: ${n} priced quote${1 === n ? "" : "s"} on ${r.sub ? "a subcontract" : "a buy over $2,500"}. ${rfqWhy("quotes3")}. Write why you are awarding on fewer than three${why ? " as a sentence (15 characters or more)" : ""}, or wait for more quotes.` };
 }
 function rfqSend(r, vendorIds, due, opts) {
   if ("purchasing" !== r.status) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status} — it was sent already`), !1;
@@ -183217,26 +183231,36 @@ function rfqAddVendor(r, vid) {
   rcToast(`${r.number} sent to ${v.name} — ${r.vendors.length} vendor${1 === r.vendors.length ? "" : "s"} asked, quotes due ${fmtL(r.dueDate)}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
   return v;
 }
-// The foreman changed a quantity after the request went out: one tap drafts the change to every invited vendor (in the
-// coordinator's Approvals, the way a chase waits); a person sends them (AI assists, people commit).
+// The foreman changed a quantity after the request went out: Tell the Vendors shows the email, and the coordinator's
+// tap sends it to every invited vendor (her tap is the approval, as Send RFQ's is). The award waits until it went.
+const rfqChangeMail = (r, v) => ({
+  subject: `Change to ${r.number} — revised quantities`,
+  body: `Hi ${String(v.contact || v.name).split(" ")[0]},\n\nOur foreman checked the quantities on ${r.number} (${r.title}). Please quote these instead:\n\n${(r.fmChanges || []).map((c) => `- ${c}`).join("\n")}\n\nThe updated line sheet:\nLine | Item | Qty | Unit\n${r.lines.map((l) => `${l.id} | ${l.item} | ${l.qty} | ${l.unit}`).join("\n")}\n\nEverything else stands; quotes are still due ${fmtL(r.dueDate)}. If you have quoted already, send the new totals.\n\nThank you,\n${rfqMe()}\nSmartDesign`,
+});
 function rfqTellVendors(r) {
-  if (!r || !(r.fmChanges || []).length) return toast("No change to tell the vendors"), 0;
-  const me = rfqMe(),
-    u = (paMe() || {}).id || r.sentByUid || "";
-  let n = 0;
-  (r.vendors || []).forEach((iv) => {
-    const v = rfqVendor(iv.id);
-    if (!v) return;
-    const subj = `Change to ${r.number} — revised quantities`,
-      body = `Hi ${String(v.contact || v.name).split(" ")[0]},\n\nOur foreman checked the quantities on ${r.number} (${r.title}). Please quote these instead:\n\n${r.fmChanges.map((c) => `- ${c}`).join("\n")}\n\nThe updated line sheet:\nLine | Item | Qty | Unit\n${r.lines.map((l) => `${l.id} | ${l.item} | ${l.qty} | ${l.unit}`).join("\n")}\n\nEverything else stands; quotes are still due ${fmtL(r.dueDate)}.\n\nThank you,\n${me}\nSmartDesign`;
-    (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "rfq-change", to: { name: v.contact || v.name, email: v.email || "" }, subject: subj, body: body, about: { label: `${r.number} · ${v.name}`, rfqId: r.id }, aboutKey: `rfq|${r.id}|${v.id}|change|${(r.history || []).length}`, forName: me, forUid: u, status: "draft", at: today(), by: me });
-    n++;
+  if (!r || !(r.fmChanges || []).length) return toast("No change to tell the vendors"), null;
+  const V = (r.vendors || []).map((iv) => rfqVendor(iv.id)).filter(Boolean);
+  if (!V.length) return toast("Nobody was asked on this request"), null;
+  const m = mbModal(
+    `Tell the Vendors · ${esc(r.number)}`,
+    `<div class="rfq-sheet"><p class="small">To ${esc(V.map((v) => v.name).join(", "))}: one email each, ${esc(r.number)} in the subject.</p><div class="note small" data-nocase style="white-space:pre-wrap">${esc(rfqChangeMail(r, V[0]).body)}</div></div>`,
+    { submit: `Send to ${V.length} Vendor${1 === V.length ? "" : "s"}`, onSubmit: () => void rfqTellSend(r) },
+  );
+  m && m.classList.add("rfq-mbm");
+  return m;
+}
+function rfqTellSend(r) {
+  const V = (r.vendors || []).map((iv) => rfqVendor(iv.id)).filter(Boolean);
+  V.forEach((v) => {
+    const M = rfqChangeMail(r, v);
+    rfqDeliver(r, v, M.subject, M.body, "change", null);
   });
-  r.fmTold = { n: n, by: me, at: appNowIso(), on: today() };
-  rfqHist(r, "the change drafted to the vendors", `${n} draft${1 === n ? "" : "s"}: ${r.fmChanges.join("; ")}`);
+  const draft = "gmail-draft" === ((r.sent || []).slice(-1)[0] || {}).via;
+  r.fmTold = { n: V.length, by: rfqMe(), at: appNowIso(), on: today(), via: draft ? "gmail-draft" : "outbox" };
+  rfqHist(r, "the change sent to the vendors", `${V.length} email${1 === V.length ? "" : "s"}, approved by ${rfqMe()}: ${r.fmChanges.join("; ")}`);
   save(), render();
-  rcToast(`${n} draft${1 === n ? "" : "s"} to the vendors on ${r.number}: send ${1 === n ? "it" : "them"} from Approvals`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
-  return n;
+  rcToast(`${r.number}: the change ${draft ? "drafted in your mailbox for" : "sent to"} ${V.length} vendor${1 === V.length ? "" : "s"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  return V.length;
 }
 function rfqAddVendorHtml(r) {
   // every vendor not asked yet, the request's trade first
@@ -184339,7 +184363,7 @@ function rfqNegSend(r, ids, edits) {
 }
 
 // ---- 8. award: POs through the house path, the sourcing choice recorded, savings stamped
-function rfqAward(r, assign) {
+function rfqAward(r, assign, opts) {
   if (!["leveled", "negotiating"].includes(r.status)) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status}`), null;
   const L = rfqLevel(r),
     first = rfqLevel(r, { round: 1 }),
@@ -184347,6 +184371,15 @@ function rfqAward(r, assign) {
   if (!A || r.lines.some((l) => !A[l.id])) return toast("Every line needs a vendor before the award"), null;
   const U = rfqUnconfirmed(r, [...new Set(Object.values(A))]);
   if (U.length) return toast(`Confirm the prices first: ${U.map((q) => q.vendor).join(", ")} ${1 === U.length ? "is" : "are"} read by AI, not confirmed`), null;
+  // no PO is cut on quantities the vendors never priced (the foreman's change after the request went out)
+  if (r.fmChanges && !r.fmTold) return toast(`${r.number}: ${r.foreman} changed quantities the vendors have not been told about (${r.fmChanges.join("; ")}). Tell the Vendors first.`), null;
+  // the three-quote rule at the award, not only at Send (CoS review 11-06: three asked, one priced, Level Now, award)
+  const T3 = rfqAwardThree(r, (opts || {}).reason);
+  if (!T3.ok) return toast(T3.msg), null;
+  T3.reason && ((r.awardReason = { reason: T3.reason, n: T3.priced, by: rfqMe(), at: appNowIso(), on: today(), rule: rfqWhy("quotes3") }), rfqHist(r, "awarded on fewer than three", `${T3.priced} priced; ${rfqMe()}'s reason: ${T3.reason} (${rfqWhy("quotes3")})`));
+  try {
+    T3.reason && audit("rfq", r.id, "award-fewer-quotes", "3", String(T3.priced), T3.reason);
+  } catch (e) {}
   const p = rfqJob(r),
     by = {};
   r.lines.forEach((l) => (by[A[l.id]] = by[A[l.id]] || []).push(l));
@@ -184428,33 +184461,14 @@ function rfqAward(r, assign) {
       console.warn("rfq award links", e);
     }
   });
-  // The saving compares pre-tax totals (coordinator review 11-05: "$1,380 saved" was the sales tax). Tax follows the
-  // vendor, not the deal, so it never counts as a saving. Against: the next-best bid in round one for a one-vendor award
-  // (what the request saved over the runner-up), the cheapest whole basket for a split, and the awarded vendors' own
-  // first-round price when nobody else priced it (what negotiation saved).
   const landed = r2(made.reduce((a, po) => a + po.landed, 0)),
     final = r2(made.reduce((a, po) => a + (preOf[po.id] || 0), 0)),
-    won = [...new Set(Object.values(A))],
-    ownFirst = (() => {
-      let t = 0;
-      for (const vid of won) {
-        const q = rfqQuoteOf(r, vid, 1);
-        if (!q || q.unreadable) return null;
-        const ls = r.lines.filter((l) => A[l.id] === vid),
-          g = r2(ls.reduce((a, l) => r2(a + r2(((q.lines.find((x) => x.lineId === l.id) || {}).unit || 0) * l.qty)), 0)),
-          v = rfqVendor(vid);
-        t = r2(t + g + (+q.freight || 0) + Math.max(0, (+q.min || 0) - g) + rfqHandling(v));
-      }
-      return t;
-    })(),
-    pre = (b) => (null != b.pre ? b.pre : r2(b.landed - (b.tax || 0))),
-    alt = first.baskets.filter((b) => (1 === won.length ? !won.includes(b.vendorId) : !0)).sort((a, b) => pre(a) - pre(b))[0] || null,
-    firstQuote = alt ? pre(alt) : null != ownFirst ? ownFirst : final,
+    SB = rfqSavingsBasis(r, A, final, first),
     budget = L.budgetComplete ? L.budgetTotal : null;
-  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, landed: landed, preTax: !0, negotiated: null != ownFirst ? r2(ownFirst - final) : 0, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: firstQuote, firstBasis: alt ? (1 === won.length ? `the next-best bid, ${alt.vendor} at ${money(pre(alt))} before tax` : `the cheapest whole basket, ${alt.vendor} at ${money(pre(alt))} before tax`) : "the first-round price before tax", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: null != budget ? r2(budget - final) : null, budgetBasis: rfqTaxFree(r) ? "line" : "material", budgetNote: null == budget && L.budgets.length ? `${RFQ_NO_MAT}${L.budgets.length > 1 ? `: ${L.budgetMissing.join(", ")}` : ""}` : "" };
+  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, landed: landed, preTax: !0, basis: RFQ_SAVE_BASIS, negotiated: SB.negotiated, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: SB.firstQuote, firstBasis: SB.firstBasis, savingsVsFirst: SB.savingsVsFirst, priced: rfqPricedCount(r), fewer: r.awardReason || null, budget: budget, savingsVsBudget: null != budget ? r2(budget - final) : null, budgetBasis: rfqTaxFree(r) ? "line" : "material", budgetNote: null == budget && L.budgets.length ? `${RFQ_NO_MAT}${L.budgets.length > 1 ? `: ${L.budgetMissing.join(", ")}` : ""}` : "" };
   (r.status = "awarded"), rfqHist(r, "awarded", `${made.map((x) => `${x.number} ${x.vendor} ${money(poTotal(x).total)} (${x.status})`).join("; ")}; saved ${money(r.award.savingsVsFirst)} against ${r.award.firstBasis}`);
   save(), render();
-  rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} saved against ${alt ? (1 === won.length ? "the next-best bid" : "the cheapest whole basket") : "the first price"}, before tax`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
+  rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} saved against ${SB.short}, before tax`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
   return made;
 }
 // The month's savings: final price against the first quote, for every RFQ awarded in the month (Standard:
@@ -184463,9 +184477,49 @@ function rfqAward(r, assign) {
 function rfqSavings(ym) {
   const m = ym || today().slice(0, 7),
     A = rfqInit().filter((r) => r.award && String(r.award.on).slice(0, 7) === m);
-  A.forEach(rfqAwardBudgetFix);
+  A.forEach(rfqAwardBudgetFix), A.forEach(rfqAwardBasisFix);
   const B = A.filter((r) => null != r.award.savingsVsBudget);
-  return { ym: m, rfqs: A, n: A.length, vsFirst: r2(A.reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(B.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), nBudget: B.length, noBudget: A.length - B.length, final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+  // one basis: an award that could not be re-read on it is counted apart, never added in
+  return { ym: m, rfqs: A, n: A.length, oldBasis: A.filter((r) => r.award.oldBasis).length, vsFirst: r2(A.filter((r) => !r.award.oldBasis).reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(B.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), nBudget: B.length, noBudget: A.length - B.length, final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+}
+// The saving, one basis (11-05/11-06): pre-tax totals, against the next-best first-round bid for a one-vendor award,
+// the cheapest whole basket for a split, else the awarded vendors' own first-round price (what negotiation saved);
+// the negotiation figure is kept beside it. final is the awarded total before tax.
+const RFQ_SAVE_BASIS = "pre-tax, next-best bid";
+function rfqSavingsBasis(r, A, final, first) {
+  const F = first || rfqLevel(r, { round: 1 }),
+    won = [...new Set(Object.values(A || {}))],
+    ownFirst = (() => {
+      let t = 0;
+      for (const vid of won) {
+        const q = rfqQuoteOf(r, vid, 1);
+        if (!q || q.unreadable) return null;
+        const ls = r.lines.filter((l) => A[l.id] === vid),
+          g = r2(ls.reduce((a, l) => r2(a + r2(((q.lines.find((x) => x.lineId === l.id) || {}).unit || 0) * l.qty)), 0));
+        t = r2(t + g + (+q.freight || 0) + Math.max(0, (+q.min || 0) - g) + rfqHandling(rfqVendor(vid)));
+      }
+      return t;
+    })(),
+    pre = (b) => (null != b.pre ? b.pre : r2(b.landed - (b.tax || 0))),
+    alt = F.baskets.filter((b) => (1 === won.length ? !won.includes(b.vendorId) : !0)).sort((a, b) => pre(a) - pre(b))[0] || null,
+    firstQuote = alt ? pre(alt) : null != ownFirst ? ownFirst : final;
+  return { firstQuote: firstQuote, savingsVsFirst: r2(firstQuote - final), negotiated: null != ownFirst ? r2(ownFirst - final) : 0, firstBasis: alt ? (1 === won.length ? `the next-best bid, ${alt.vendor} at ${money(pre(alt))} before tax` : `the cheapest whole basket, ${alt.vendor} at ${money(pre(alt))} before tax`) : "the first-round price before tax", short: alt ? (1 === won.length ? "the next-best bid" : "the cheapest whole basket") : "the first price" };
+}
+// An award stamped before the one basis (landed with tax, against the cheapest first-round basket) is re-read once on
+// it from its own quotes and POs, so the month's total adds one kind of saving; the old figure is kept beside it.
+function rfqAwardBasisFix(r) {
+  const A = r && r.award;
+  if (!A || A.basis === RFQ_SAVE_BASIS) return A;
+  try {
+    const P = (DB.pos || []).filter((po) => (A.pos || []).includes(po.id)),
+      final = r2(P.reduce((a, po) => a + (+po.landed || 0) - ((po.useTax && +po.useTax.amount) || (+po.tax > 0 ? r2((((po.lines || []).reduce((g, l) => g + (+l.qty || 0) * (+l.price || 0), 0)) * po.tax) / 100) : 0)), 0)),
+      SB = P.length && A.assign ? rfqSavingsBasis(r, A.assign, final) : null;
+    if (!SB) return Object.assign(A, { basis: "old: landed with tax, not re-read", oldBasis: !0 });
+    Object.assign(A, { was: { savingsVsFirst: A.savingsVsFirst, firstQuote: A.firstQuote, final: A.final, firstBasis: A.firstBasis }, landed: A.landed || A.final, final: final, preTax: !0, firstQuote: SB.firstQuote, firstBasis: SB.firstBasis, savingsVsFirst: SB.savingsVsFirst, negotiated: SB.negotiated, basis: RFQ_SAVE_BASIS });
+  } catch (e) {
+    Object.assign(A, { basis: "old: landed with tax, not re-read", oldBasis: !0 });
+  }
+  return A;
 }
 // An award stamped before the material rule measured against the whole line, labour included: re-read it once
 // from the lines as they are (the material budget, or none), so no screen or answer repeats the old figure.
@@ -184769,7 +184823,8 @@ predDef("rfqLeveledNoNeg", { label: "Leveled, No Negotiation Sent", rule: "level
 predDef("rfqUnderQuoted", {
   label: "Requests Over $2,500, Under 3 Quotes",
   rule: "RFQs worth over $2,500 with fewer than three readable quotes once the due date passed (Standard: three quotes over $2,500)",
-  rows: (s) => rfqScoped(s).filter((r) => (["leveled", "negotiating"].includes(r.status) || (["sent", "quoting"].includes(r.status) && r.dueDate && r.dueDate < today())) && (rfqBasketGuess(r) > 2500 || !!r.sub) && !(r.fewerQuotes && r.fewerQuotes.reason) && (r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).length < 3),
+  // an award on fewer than three stays in the check with its logged reason (CoS 11-06: a reason never hides it)
+  rows: (s) => rfqScoped(s).filter((r) => (["leveled", "negotiating", "awarded"].includes(r.status) || (["sent", "quoting"].includes(r.status) && r.dueDate && r.dueDate < today())) && rfqNeedsThree(r) && rfqPricedCount(r) < 3),
 });
 predDef("rfqNoOutNyc", { label: "Material Requests, No Vendor Outside NYC", rule: "a material RFQ sent with no invited vendor outside Manhattan, Brooklyn and the other boroughs (Standard: look beyond the five boroughs)", rows: (s) => rfqScoped(s).filter((r) => r.shippable && RFQ_OPEN.includes(r.status) && !(r.vendors || []).some((iv) => rfqOutNyc(rfqVendor(iv.id)))) });
 // What waits on the coordinator, in the one queue (Approvals and the classic Home's Needs Me), by DELEGATION.
@@ -184838,7 +184893,7 @@ CATCH.push(
   {
     name: "rfqUnderQuoted",
     label: "Under Three Quotes",
-    rows: () => PRED.rfqUnderQuoted.rows().map((r) => ({ key: "rfq3:" + r.id, what: `Under three quotes: ${r.number}`, sub: `${(r.quotes || []).filter((q) => 1 === q.round && !q.unreadable).length} readable on ${money(rfqBasketGuess(r))} · ${rfqWhy("quotes3")}`, amount: rfqBasketGuess(r), verb: "Review", run: () => rfqOpenFor(r.id) })),
+    rows: () => PRED.rfqUnderQuoted.rows().map((r) => ({ key: "rfq3:" + r.id, what: r.awardReason ? `Awarded on fewer than three, because ${r.awardReason.reason}: ${r.number}` : r.fewerQuotes ? `Sent to fewer than three, because ${r.fewerQuotes.reason}: ${r.number}` : `Under three quotes: ${r.number}`, sub: `${rfqPricedCount(r)} priced on ${money(rfqBasketGuess(r))}${r.awardReason ? ` · ${r.awardReason.by}, ${fmtL(r.awardReason.on)}` : r.fewerQuotes ? ` · ${r.fewerQuotes.by}, ${fmtL(r.fewerQuotes.on)}` : ""} · ${rfqWhy("quotes3")}`, amount: rfqBasketGuess(r), verb: "Review", run: () => rfqOpenFor(r.id) })),
   },
   {
     name: "rfqNoOutNyc",
@@ -185302,7 +185357,8 @@ function rfqLevelHtml(r, L) {
       ? `<div class="rfq-cards">${L.perLine.map((pl) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(pl.lineId)} · ${esc(pl.item)}</b><div class="small">${pl.qty} ${esc(pl.unit)}${null != pl.budget ? ` · budget ${money(pl.budget)}` : ""}</div>${V.map((v) => `<div class="small" data-nocase>${esc(v.vendor)}: ${lineCell(pl, v)}</div>`).join("")}<div class="small">Best: <b data-nocase>${pl.best ? `${esc(pl.best.vendor)} ${rfqU(pl.best.unit)}` : "no same-spec price"}</b></div></div>`).join("")}</div>`
       : `<div class="rfq-tw"><table class="t rfq-grid"><thead><tr><th>Line</th><th>Item</th><th class="money">Qty</th><th class="money">Budget</th>${V.map((v) => `<th class="money" data-nocase>${esc(v.vendor)}</th>`).join("")}<th>Best</th></tr></thead><tbody>${L.perLine.map((pl) => `<tr><td>${esc(pl.lineId)}</td><td data-nocase>${esc(pl.item)}</td><td class="money">${pl.qty} ${esc(pl.unit)}</td><td class="money">${null != pl.budget ? money(pl.budget) : "—"}</td>${V.map((v) => `<td class="money">${lineCell(pl, v)}</td>`).join("")}<td data-nocase>${pl.best ? esc(pl.best.vendor) : "—"}</td></tr>`).join("")}</tbody></table></div>`,
     rec = `<dl class="rfq-rec small"><dt>What Happened</dt><dd data-nocase>${esc(R.what)}</dd><dt>Impact on Cost, Schedule and Quality</dt><dd data-nocase>${esc(R.impact)}</dd><dt>Options</dt><dd data-nocase>${esc(R.options.join("; "))}</dd><dt>Recommendation</dt><dd data-nocase><b>${esc(R.rec)}</b></dd><dt>Decide By</dt><dd>${fmtL(R.by)} (the order-by date)</dd></dl><p class="small muted">${esc(rfqWhy("landed"))}. ${esc(rfqWhy("escalate"))}.</p>`;
-  return `${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>${L.taxFree ? "Line Budget" : "Material Budget by Line"}</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
+  const pn = rfqPricedCount(r);
+  return `<p class="small" data-rfqpriced="${pn}">Priced quotes in: ${pn} of ${(r.vendors || []).length} asked${rfqNeedsThree(r) && pn < 3 ? ": under the three the Standard asks for, so the award asks why" : ""}.</p>${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>${L.taxFree ? "Line Budget" : "Material Budget by Line"}</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
 }
 function rfqDetailHtml(r) {
   const p = rfqJob(r),
@@ -185327,7 +185383,7 @@ function rfqDetailHtml(r) {
       const q = rfqQuoteOf(r, iv.id, 1),
         s = (r.sent || []).find((x) => x.vendorId === iv.id && "rfq" === x.kind);
       return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
-    }).join("")}${r.fewerQuotes ? `<p class="small muted" data-nocase>Fewer than three: ${esc(r.fewerQuotes.reason)} (${esc(r.fewerQuotes.by)}, ${fmt(r.fewerQuotes.on)}).</p>` : ""}${"open" === r.fmBeside ? `<p class="small muted">${esc(r.foreman)} checks the quantities beside it, on his phone.</p>` : r.fmChanges && !r.fmTold ? `<div class="rfq-row small warn" data-nocase><span class="grow">${esc(((r.foremanOk || {}).by) || r.foreman)} changed the quantities after it went out: ${esc(r.fmChanges.join("; "))}.</span><button type="button" class="btn sm primary" id="rfq-tell">Tell the Vendors</button></div>` : r.fmTold ? `<p class="small muted" data-nocase>The change went to the vendors as ${r.fmTold.n} draft${1 === r.fmTold.n ? "" : "s"} for ${esc(r.fmTold.by)} to send (${fmt(r.fmTold.on)}).</p>` : ""}${rfqAddVendorHtml(r)}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? `<button class="btn ${unread.length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-level">Level Now</button>` : ""}</div>${unread.length && (r.quotes || []).some((q) => !q.unreadable) ? `<p class="small muted">Level Now leaves out the ${unread.length === 1 ? "bid" : "bids"} with no price; a bid is leveled only on a price someone read.</p>` : ""}</div>`;
+    }).join("")}${r.fewerQuotes ? `<p class="small muted" data-nocase>Fewer than three: ${esc(r.fewerQuotes.reason)} (${esc(r.fewerQuotes.by)}, ${fmt(r.fewerQuotes.on)}).</p>` : ""}${"open" === r.fmBeside ? `<p class="small muted">${esc(r.foreman)} checks the quantities beside it, on his phone.</p>` : r.fmChanges && !r.fmTold ? `<div class="rfq-row small warn" data-nocase><span class="grow">${esc(((r.foremanOk || {}).by) || r.foreman)} changed the quantities after it went out: ${esc(r.fmChanges.join("; "))}.</span><button type="button" class="btn sm primary" id="rfq-tell">Tell the Vendors</button></div>` : r.fmTold ? `<p class="small muted" data-nocase>The change went to ${r.fmTold.n} vendor${1 === r.fmTold.n ? "" : "s"}, sent by ${esc(r.fmTold.by)} (${fmt(r.fmTold.on)}).</p>` : ""}${rfqAddVendorHtml(r)}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? `<button class="btn ${unread.length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-level">Level Now</button>` : ""}</div>${unread.length && (r.quotes || []).some((q) => !q.unreadable) ? `<p class="small muted">Level Now leaves out the ${unread.length === 1 ? "bid" : "bids"} with no price; a bid is leveled only on a price someone read.</p>` : ""}</div>`;
   if (unread.length && RFQ_OPEN.includes(stage)) act += `<div class="card rfq-sec"><h3>Price Needed</h3>${unread.map((q, i) => `<div class="rfq-row small" data-nocase><span class="grow">${esc(q.vendor)}: ${esc(q.flags[0] || "")}</span><button class="btn sm ${0 === i && ["sent", "quoting"].includes(stage) ? "primary" : ""}" data-rfqenter="${esc(q.id)}">Enter Prices</button></div>`).join("")}</div>`;
   if (L && ["quoting", "leveled", "negotiating", "awarded"].includes(stage)) act += `<div class="rfq-sec"><h3>Leveling${"negotiating" === stage || "awarded" === stage ? " — Latest Round" : ""}</h3>${rfqLevelHtml(r, L)}</div>`;
   if ("leveled" === stage) {
@@ -185343,14 +185399,15 @@ function rfqDetailHtml(r) {
         const pl = L.perLine.find((x) => x.lineId === l.id);
         return `<div class="f"><label data-nocase>${esc(l.id)} · ${esc(l.item)} (${l.qty} ${esc(l.unit)})</label><select data-rfqaw="${esc(l.id)}">${(pl.prices || []).map((x) => `<option value="${esc(x.vendorId)}" ${plan[l.id] === x.vendorId ? "selected" : ""}>${esc(x.vendor)} ${rfqU(x.unit)}</option>`).join("") || '<option value="">no same-spec price</option>'}</select></div>`;
       })
-      .join("")}<div class="rfq-row"><button class="btn primary" id="rfq-award">Award and Create POs</button><button class="btn" id="rfq-check">Check Replies</button></div></div>`;
+      .join("")}${rfqNeedsThree(r) && rfqPricedCount(r) < 3 ? `<div class="f"><label for="rfq-award-reason">Why Award on Fewer Than Three</label><textarea id="rfq-award-reason" rows="2" placeholder="${rfqPricedCount(r)} priced: say why, in a sentence; it stays on the Standard's check"></textarea></div>` : ""}<div class="rfq-row"><button class="btn primary" id="rfq-award">Award and Create POs</button><button class="btn" id="rfq-check">Check Replies</button></div></div>`;
   }
   if ("awarded" === stage && r.award) {
+    rfqAwardBasisFix(r);
     const A = rfqAwardBudgetFix(r);
     act += `<div class="card rfq-sec"><h3>Awarded</h3><p class="small">${fmtL(A.on)} by ${esc(A.by)}: ${A.pos.map((id) => {
       const po = (DB.pos || []).find((x) => x.id === id);
       return po ? `<a href="#" data-rfqpo="${esc(po.id)}">${esc(po.number)}</a> ${esc(po.vendor)} ${money(poTotal(po).total)} (${esc(po.status)})` : "";
-    }).join("; ")}.</p><p class="small">${A.preTax ? `Final ${money(A.final)} before tax against ${esc(A.firstBasis)}: <b>${money(A.savingsVsFirst)} saved</b>. Negotiation: ${money(A.negotiated || 0)} off the awarded ${1 === (A.pos || []).length ? "vendor's" : "vendors'"} first price` : `Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>`}${null != A.savingsVsBudget ? `; ${money(Math.abs(A.savingsVsBudget))} ${A.savingsVsBudget >= 0 ? "under" : "over"} the ${A.budgetBasis === "line" ? "line's" : "material"} budget of ${money(A.budget)}` : A.budgetNote ? `. Against budget: ${esc(A.budgetNote)}` : ""}.${A.preTax && A.landed && Math.abs(A.landed - A.final) > 0.005 ? ` <span class="muted">Landed with tax: ${money(A.landed)}.</span>` : ""}</p></div>`;
+    }).join("; ")}.</p><p class="small">${A.preTax ? `Final ${money(A.final)} before tax against ${esc(A.firstBasis)}: <b>${money(A.savingsVsFirst)} saved</b>. Negotiation: ${money(A.negotiated || 0)} off the awarded ${1 === (A.pos || []).length ? "vendor's" : "vendors'"} first price` : `Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>`}${null != A.savingsVsBudget ? `; ${money(Math.abs(A.savingsVsBudget))} ${A.savingsVsBudget >= 0 ? "under" : "over"} the ${A.budgetBasis === "line" ? "line's" : "material"} budget of ${money(A.budget)}` : A.budgetNote ? `. Against budget: ${esc(A.budgetNote)}` : ""}.${A.preTax && A.landed && Math.abs(A.landed - A.final) > 0.005 ? ` <span class="muted">Landed with tax: ${money(A.landed)}.</span>` : ""}</p>${A.fewer ? `<p class="small warn" data-nocase>Awarded on fewer than three (${A.fewer.n} priced), because ${esc(A.fewer.reason)}: ${esc(A.fewer.by)}, ${fmt(A.fewer.on)}. It stays on the Standard's three-quote check.</p>` : ""}${A.oldBasis ? `<p class="small muted">An award from before the pre-tax basis: its saving is not added to the month's total.</p>` : ""}</div>`;
   }
   const facts = `<div class="card rfq-sec"><h3>What the Draft Rests On</h3><p class="small"><b>Facts:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${(r.facts || []).map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>${(r.assumptions || []).length ? `<p class="small"><b>Assumptions:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${r.assumptions.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}${r.takeoff ? `<li data-nocase>${esc(Object.entries(r.takeoff.assumptions || {}).map(([k, v]) => `${k} ${v}`).join(", "))}</li>` : ""}</ul>` : ""}${r.drawingsNote ? `<p class="small muted" data-nocase>${esc(r.drawingsNote)}</p>` : ""}<p class="small muted">${esc(rfqWhy("facts"))}.</p></div>`,
     lines = "draft" === stage ? "" : `<details class="card rfq-sec"><summary><b>Lines (${r.lines.length})</b></summary>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("")}</details>`,
@@ -185433,7 +185490,7 @@ function rfqWireDetail(host, r) {
   on("#rfq-award", () => {
     const A = {};
     host.querySelectorAll("[data-rfqaw]").forEach((s) => s.value && (A[s.dataset.rfqaw] = s.value));
-    rfqAward(r, A);
+    rfqAward(r, A, { reason: ($q("#rfq-award-reason") || {}).value || "" });
   });
   host.querySelectorAll("[data-rfqpo]").forEach(
     (a) =>

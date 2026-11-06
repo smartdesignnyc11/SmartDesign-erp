@@ -1164,7 +1164,10 @@ def record_quotes(p):
         p.tap_ctl(c)
         if p.scr.sheet and 'confirm the prices' in norm(p.scr.sheet_title): p.tap('Confirm These Prices', exact=True)
     p.expect(not p.look().find('Confirm', exact=True), 'every quote confirmed', p.scr.excerpt('Not Confirmed', 4))
-    lev = p.scr.text[p.scr.text.find('Leveling'):] if 'Leveling' in p.scr.text else ''
+    # the Standard's three quotes, read off the leveling as the coordinator reads it (CoS 11-06)
+    pq = re.search(r'Priced quotes in: (\d+) of (\d+)', p.scr.text)
+    p.expect(bool(pq) and int(pq.group(1)) >= 3, 'three priced quotes came in before leveling', pq.group(0) if pq else 'no priced count on the leveling')
+    lev =p.scr.text[p.scr.text.find('Leveling'):] if 'Leveling' in p.scr.text else ''
     p.expect(bool(re.search(r'over (the )?(line|budget)|above the (line|budget)|\$\d[\d,]* over', lev, re.I)),
              'the leveling warns that the yards\' tile ($21,470 and up) is three times the line ($7,220 sell, $5,510 budget)',
              'it reads "No material budget on this line" and recommends the yards\' tile')
