@@ -801,7 +801,8 @@ async def match(c, p):
     # taskfix #1); billing's bar starts with Today like everyone's (taskfix #14)
     # the approved Today boards (2026-10-25) keep Tasks on the coordinator's and the PM's bars; the owner's and billing's
     # bars no longer carry it (Tasks stays in their menu with the same number)
-    for uid, at in (('u_chen', 2), ('u_alan', 3)):
+    # the coordinator's five (CoS 11-06, lane P3): Today, Buy Board, Deliveries, Tasks, Messages, so her Tasks is at 3
+    for uid, at in (('u_chen', 3), ('u_alan', 3)):
         await sign_in(pg, uid); await pg.wait_for_timeout(200)
         t = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#mtabs button[data-mv]')], i = B.findIndex(b => b.dataset.mv === 'tkall'), b = B[i];
           return { i, n: b ? +((b.querySelector('.n') || {}).textContent || 0) : -1, want: tkTasksN() }; }""")
