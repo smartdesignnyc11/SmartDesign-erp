@@ -51917,6 +51917,16 @@ function ctPOPicker(projectId, preferId, preKey) {
             matchedTxns: [],
             createdBy: S.project.userName || DB.me || "",
           };
+          // the need-by is set as the order is made: the earliest the site needs any of its lines (lineNeedBy). The
+          // listeners that refine it run on the button's click, and a confirm's replay (the budget test) skipped them, so
+          // an order made after "Yes, Continue" had no need-by and could not be issued (chain step 10, 11-05).
+          try {
+            lines.forEach((pl) => {
+              const ref = pl.line ? findLine(pl.line) : null,
+                nb = ref && "function" == typeof lineNeedBy ? lineNeedBy(p, ref.line) : null;
+              nb && nb.needBy && (!po.needBy || nb.needBy < po.needBy) && ((po.needBy = nb.needBy), (po.needTask = (nb.task && nb.task.name) || ""));
+            });
+          } catch (e) {}
           againWhy && lines.some((pl) => subAgain.some(([k]) => k === pl.line)) && (po.secondOrderWhy = againWhy);
           if (earlyWhy) {
             const d0 = early[0];

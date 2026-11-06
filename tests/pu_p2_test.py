@@ -122,6 +122,12 @@ async def desktop(c, p):
             await okb(pg); await pg.wait_for_timeout(400)
             m = await pg.evaluate(MODAL)
             c.ok(m and 'Confirm' in m['title'] and 'over' in m['text'], f"commit: create stops at the one budget test for Windows ({m and m['text'][:160]})")
+            # Yes, Continue makes the order, with its need-by (a confirm's replay skipped the click listeners that set it,
+            # so the order could not be issued: chain step 10)
+            nW = await pg.evaluate("() => DB.pos.length")
+            if m and 'Confirm' in m['title']: await okb(pg); await pg.wait_for_timeout(900)
+            NB = await pg.evaluate("n => { const po = DB.pos.slice(n)[0]; if (!po) return null; const r = { n: po.number, needBy: po.needBy || '', valid: poValid(po).filter(x => /need-by/.test(x)) }; po.status = 'cancelled'; save(); return r; }", nW)
+            c.ok(NB and NB['needBy'] and not NB['valid'], f'commit: the order made after Yes, Continue carries its need-by ({NB})')
             await closeall(pg)
             T = await pg.evaluate("k => lineBudgetTest(k, 100)", L3)
             c.ok(not T['ok'] and T['by'] >= 100, f'commit: lineBudgetTest counts actual (Windows +$100 is over: {T["say"]})')
@@ -286,7 +292,7 @@ async def desktop(c, p):
                 await sheet(pg, [L2])
                 await fill(pg, L2, str(round(B2['p'] * 1.2, 2)), vend)
                 F = await pg.evaluate(ROW, L2)
-                c.ok('above the best price known' in F['note'], f"item: a price 20% above the best known for the studs is flagged ({F['note']})")
+                c.ok(bool(re.search(r'above the (best|last)', F['note'])), f"item: a price 20% above the best known for the studs is flagged ({F['note']})")
                 await closeall(pg)
         if want('split'):
             await sign_in(pg, 'u_alan')

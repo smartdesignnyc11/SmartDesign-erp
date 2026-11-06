@@ -1547,8 +1547,16 @@ function puCtpCheck(m) {
         name = q ? q.what || "" : ((tr.cells[1] || {}).querySelector ? (tr.cells[1].querySelector("b") || tr.cells[1]).textContent : "").replace(/^\d+\.\s*/, ""),
         unit = q ? q.unit : v(tr, "ctpu"),
         price = +v(tr, "ctpc") || 0,
-        best = price > 0 && name ? puBestFor(name, unit) : null;
-      best && price > best.price * 1.03 + 0.005 && (tone = tone || "warn", say.push(`${unitMoney(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${unitMoney(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
+        qty = +v(tr, "ctpq") || 1;
+      // one verdict at entry and at Issue: lane P1's poLinePriceCheck (the item's own price-book key, no look-alikes)
+      // when it is in the build; this sheet's own reading of the price history until it is
+      if ("function" == typeof poLinePriceCheck) {
+        const P = price > 0 && name ? poLinePriceCheck(name, unit, price, qty) : null;
+        P && !P.ok && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${unitMoney(P.gap)} above the ${"best" === P.kind ? "best recent" : "last"} price, ${unitMoney(P.ref)}${P.vendor ? ` at ${P.vendor}` : ""}${P.date ? `, ${fmt(P.date)}` : ""}.`));
+      } else {
+        const best = price > 0 && name ? puBestFor(name, unit) : null;
+        best && price > best.price * 1.03 + 0.005 && ((tone = tone || "warn"), say.push(`${unitMoney(price)} is ${Math.round((price / best.price - 1) * 100)}% above the best price known: ${unitMoney(best.price)}/${best.unit || "ea"} at ${best.vendor}${best.date ? `, ${fmt(best.date)}` : ""} (${best.label}).`));
+      }
     } else {
       const c = lineCommitment(key);
       c && c.budget > 0 && c.left < 1 && ((tone = "warn"), say.push(c.over ? `${money(c.over)} over the line already` : "Nothing left to buy on this line"));
@@ -1693,7 +1701,9 @@ function puSecondSub(po) {
     } catch (e) {}
     const l = ref && ref.line;
     if (!l) return;
-    const sub = "subcontract" === po.type || ("function" == typeof bbSubScope && bbSubScope(l) && !("function" == typeof bbBuysLine && bbBuysLine(l)));
+    // a subcontract scope line (demolition, scaffold, abatement: bbSubScope): a tile or plumbing line rightly carries a
+    // material order and an install sub side by side, so the order's type alone is not the test (chain step 10)
+    const sub = "function" == typeof bbSubScope && bbSubScope(l) && !("function" == typeof bbBuysLine && bbBuysLine(l));
     if (!sub) return;
     const others = (DB.pos || []).filter((x, i) => x !== po && i < at && "cancelled" !== x.status && (x.lines || []).some((y) => y.line === k));
     others.length && out.push({ key: k, name: `${ref.doc.number}${l.num ? ` line ${l.num}` : ""} (${l.item || l.desc || ""})`, others: others.map((x) => x.number) });
