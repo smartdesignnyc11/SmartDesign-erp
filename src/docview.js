@@ -341,8 +341,8 @@ function dvActions(r) {
   }
   if ("estimate" === k) {
     if (draft) add("send", "Send to Client", { blue: !0 });
-    "sent" === d.status && add("approve", "Record Client Approval", { blue: !0 });
-    "approved" === d.status && ("construction" === d.template ? add("convert", "Convert to Contract", { blue: !0 }) : add("invoice", "Convert to Invoice", { blue: !0 }));
+    "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 }); // the editor's own: How They Approved, with who and when
+    "approved" === d.status && ("construction" === d.template ? add("convert", "Convert to Contract & SOV", { blue: !0 }) : add("invoice", "Convert to Invoice", { blue: !0 }));
     if ("converted" === d.status) {
       "function" == typeof ctDepositDue && ctDepositDue(c, d)
         ? add("deposit", "Create Deposit Invoice", { blue: !0 })
@@ -360,7 +360,7 @@ function dvActions(r) {
   }
   // change order
   if (draft) add("send", "Send to Client", { blue: !0 });
-  "sent" === d.status && add("approve", "Record Approval", { blue: !0 });
+  "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 });
   "approved" === d.status && add("billco", "Bill It", { blue: !0 });
   (draft || "sent" === d.status) && add("edit", "Edit");
   add("pdf", "Download PDF");
@@ -529,7 +529,8 @@ function dvAct(a) {
   }
   if ("pay" === a) return dvClose(), (clientOpen = c.id), void docAction(c, d, "pay");
   // the rest are the document's own actions, run as the editor runs them
-  const keepOpen = "email" === a;
+  // a step that changes the document keeps it open, so the next step (Convert after the approval) is in front of the person
+  const keepOpen = ["email", "lkapprove", "convert"].includes(a);
   keepOpen || dvClose();
   const done = docAction(c, k === "invoice" ? d : d, a);
   Promise.resolve(done).then(() => {

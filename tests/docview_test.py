@@ -116,7 +116,7 @@ async def action_sets(pg, who):
     C.ok('refund' not in n('inv_paid_unbanked'), f'{who} an invoice paid by money not in the bank offers no Refund ({A["inv_paid_unbanked"]})')
     C.ok(b('est_draft') == 'send' and 'edit' in n('est_draft') and 'dup' in n('est_draft'), f'{who} draft estimate: Send to Client blue, Edit, Duplicate ({A["est_draft"]})')
     C.ok('edit' not in n('est_converted') and 'newco' in n('est_converted'), f'{who} signed estimate: no Edit; New Change Order instead ({A["est_converted"]})')
-    C.ok(b('co_sent') == 'approve' and 'edit' in n('co_sent'), f'{who} sent change order: Record Approval blue, Edit (a revision) ({A["co_sent"]})')
+    C.ok(b('co_sent') == 'lkapprove' and 'edit' in n('co_sent'), f'{who} sent change order: Record Client Approval blue (How They Approved), Edit (a revision) ({A["co_sent"]})')
     C.ok(b('co_approved') == 'billco' and 'edit' not in n('co_approved'), f'{who} approved change order: Bill It blue, no Edit ({A["co_approved"]})')
     owner = who.startswith('owner')
     C.ok((('bapprove' in n('bill_pmok') and b('bill_pmok') == 'bapprove') if owner else 'bapprove' not in n('bill_pmok')) and 'bfile' in n('bill_pmok') and 'bdispute' in n('bill_pmok') and 'bcredit' in n('bill_pmok'),

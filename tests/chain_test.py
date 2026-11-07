@@ -1058,7 +1058,7 @@ async def s5_bill(C):
         C.plog('the Overview has no View for the new invoice; opening Invoices Due')
         await C.ptap("section.view.on [data-tl=inv]", 'Invoices Due')
     await C.pcheck('the invoice')
-    txt = await C.ph.evaluate("() => ((document.querySelector('#mbm') || document.querySelector('section.view.on')).innerText || '')")
+    txt = await C.ph.evaluate("() => ((document.querySelector('#dv') || document.querySelector('#mbm') || document.querySelector('section.view.on')).innerText || '')")
     C.ok('How to Pay' in txt, 'the portal shows the invoice with How to Pay', txt[-300:])
     C.plog('the portal has no way to pay online or to say "we paid": How to Pay lists cheque or bank transfer; the payment arrives as a bank deposit')
     C.findings.append('Portal: the client can read an invoice and How to Pay, but cannot pay it or tell us it was paid; payment is a bank transfer the controller matches.')
