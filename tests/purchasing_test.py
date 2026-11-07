@@ -464,6 +464,10 @@ async def s_reader(p, c):
               const pr = box.querySelector('[data-f="price"]'); pr && !(+pr.value > 0) && (pr.value = '100');
               flSheetChecks(box); const ov = box.querySelector('.fl-over'); res.over = !!(ov && !ov.hidden);
               ov && !ov.hidden && (box.querySelector('[data-f="overWhy"]').value = 'over the line on purpose: a change order follows');
+              // a countertop slab is carried inside: from a sender with no COI it waits (Alan, 10-25); at the curb it issues
+              const dz = box.querySelector('[data-f="dropAt"]'); res.drop = dz ? dz.value : '';
+              if (dz && dz.value === 'inside') { const n1 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
+                await new Promise(res => setTimeout(res, 400)); res.insideHeld = DB.pos.length === n1 && !DB.vendors.find(v => v.name === nm) && /certificate/.test(document.getElementById('toast').innerText); dz.value = 'curb'; }
               const n0 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
               await new Promise(res => setTimeout(res, 900));
               res.vendor = !!DB.vendors.find(v => v.name === nm); res.po = DB.pos.slice(n0).map(x => x.vendor + ':' + x.status);
@@ -476,6 +480,7 @@ async def s_reader(p, c):
           return out; }""")
         op, gt = qs.get('open') or {}, qs.get('gated') or {}
         c.ok(op.get('sel') == '__quote__' and op.get('vendor') and 'Quote Test Supply:issued' in (op.get('po') or []), f"reader: the Order sheet offers a quote's sender not on file, and Issue PO puts them on file and issues ({op})")
+        c.ok(op.get('drop') != 'inside' or op.get('insideHeld'), f"reader: carried inside, a quote's sender with no COI is not put on file or ordered until the certificate lands; at the curb it issues ({op})")
         c.ok(not gt or (gt.get('sel') == '__quote__' and not gt.get('vendor') and not gt.get('po')), f"reader: a sheet stopped by its own checks puts nobody on file ({gt})")
         # ready for pickup -> a stop on the driver's route
         pk = await proposal(pg, 'ready for pickup', 'pickup')
@@ -1037,7 +1042,8 @@ async def s_price(p, c):
         c.ok(bool(it), f'price: an item with a price history to test against ({it})')
         if it:
             price = round(it['best'] * 1.15, 2)
-            await pg.evaluate("""([it, price]) => { DB.pos.push({ id: 'po_pr', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: '', needBy: '2026-09-20', status: 'draft', shipTo: 'Site',
+            # a curb drop: Ferguson has no COI, and an order whose delivery is not said is guessed inside (CoS 11-06)
+            await pg.evaluate("""([it, price]) => { DB.pos.push({ id: 'po_pr', number: nextPO(), projectId: 'p121', vendor: 'Ferguson', date: today(), expected: '', needBy: '2026-09-20', status: 'draft', shipTo: 'Site', dropAt: 'curb',
               lines: [{ id: 'pr1', item: it.label, qty: 40, unit: it.unit, price: price, received: 0, line: (DB.pos.flatMap(x => x.lines).find(l => l.line) || {}).line || '' }], tax: 0, shipping: 0, matchedTxns: [] }); setCurrent('p121'); poOpen = 'po_pr'; view = 'po'; render(); }""", [it, price])
             await pg.wait_for_timeout(400)
             v = await pg.evaluate("([it, price]) => poLinePriceCheck(it.label, it.unit, price, 40)", [it, price])

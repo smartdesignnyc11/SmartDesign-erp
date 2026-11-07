@@ -3,6 +3,9 @@ Tino with no certificate of insurance on file and an order already open with the
 estimate line with nothing said. Now: the Order sheet says both as they are entered and stops them; the one validator
 refuses them on every issue path; an overage needs a reason, and over $1,000 the owner approves it, with the
 overage and the reason on the card. Desktop and phone.
+The COI rule is Alan's of 10-25 (PROCUREMENT_PLAN section 7.2): a certificate for anyone who comes on site (a
+subcontract, a service, or a delivery carried inside); a curb or shipped supplier needs only a W-9. Tino's flooring is
+carried inside to acclimate, so he is on site; both cases are planted below (CoS 11-06).
 Run: python3 po_gates_test.py"""
 import asyncio
 from harness import async_playwright, open_app, sign_in, Checks
@@ -78,8 +81,36 @@ async def main():
             # 5. papers: no W-9 is said, not stopped; a vendor with a current COI and no open order is not stopped
             r = await pg.evaluate("() => { const P = poPaper({ id: '', vendor: 'Nemo Tile', type: 'materials', lines: [{ qty: 1, price: 900 }] }); return P }")
             c.ok(not r['stop'] and any('No W-9 from Nemo Tile' in x for x in r['warn']), f'{tag}: Nemo Tile, no W-9: said, not stopped ({r})')
-            r = await pg.evaluate("() => [poPaper({ id: '', vendor: 'Window Works', type: 'materials', lines: [{ qty: 1, price: 900 }] }).stop, poPaper({ id: '', vendor: 'Window Works', type: 'service', lines: [{ qty: 1, price: 900 }] }).stop]")
+            r = await pg.evaluate("() => [poPaper({ id: '', vendor: 'Window Works', type: 'materials', dropAt: 'curb', lines: [{ qty: 1, price: 900 }] }).stop, poPaper({ id: '', vendor: 'Window Works', type: 'service', lines: [{ qty: 1, price: 900 }] }).stop]")
             c.ok(not r[0] and any('expired' in x and 'on site' in x for x in r[1]), f'{tag}: Window Works, COI expired 8/15, its order received: goods may be ordered, a service visit is stopped ({r})')
+            # 6. the COI rule both ways (CoS 11-06): with Tino's open order a curb drop he is not on site, and a curb order
+            # to him goes; carried inside, it stops. Ferguson (no COI) with a curb order out is not stopped either
+            r = await pg.evaluate("""() => { const t = DB.pos.find(x => x.number === 'PO-2026-047'); const was = t.dropAt; t.dropAt = 'curb';
+              const P = (v, d) => poPaper({ id: '', vendor: v, type: 'materials', dropAt: d, lines: [{ qty: 1, price: 900 }] }).stop;
+              const a = P('Tino', 'curb'), b = P('Tino', 'inside'), blk = PRED.vendorsBlocked.test(poVendorReal('Tino'));
+              t.dropAt = was;
+              DB.pos.push({ id: 'po_gf', number: 'PO-GF-1', projectId: 'p121', vendor: 'Ferguson', status: 'issued', type: 'materials', dropAt: 'curb', lines: [{ id: 'plgf', item: 'Toilet', qty: 1, unit: 'ea', price: 1800 }] });
+              const f = P('Ferguson', 'curb'); DB.pos = DB.pos.filter(x => x.id !== 'po_gf');
+              return { was, a, b, blk, f, blk2: PRED.vendorsBlocked.test(poVendorReal('Tino')) } }""")
+            c.ok(r['was'] == 'inside' and not r['a'] and not r['blk'] and r['b'] and 'carried inside' in r['b'][0], f'{tag}: Tino with a curb order out: a curb order goes, one carried inside stops ({r})')
+            c.ok(not r['f'] and r['blk2'], f'{tag}: Ferguson, no COI, a curb order out: the next curb order goes; Tino, carried inside, is Blocked again ({r})')
+            # 7. an unset delivery is never a silent curb (CoS 11-06): it is guessed from the lines, and carried inside when
+            # they do not say. A blank New PO, an award's order and an older open order, each to a vendor with no COI
+            r = await pg.evaluate("""() => { const P = (o) => poPaper(Object.assign({ id: '', type: 'materials', vendor: 'Ferguson' }, o)).stop;
+              const blank = P({ lines: [] }), blankItem = P({ lines: [{ item: 'Misc', qty: 1, price: 900 }] });
+              const award = P({ rfqId: 'rfq_x', lines: [{ item: 'Kitchen base cabinets, paint grade', qty: 1, price: 4200 }] }), awardCurb = P({ rfqId: 'rfq_x', lines: [{ item: 'Framing lumber: supply', qty: 1, price: 826.8 }] });
+              DB.pos.push({ id: 'po_old', number: 'PO-2026-090', projectId: 'p121', vendor: 'Ferguson', status: 'issued', type: 'materials', shipTo: 'site', date: '2026-08-01', lines: [{ id: 'plo', item: 'Front-load washer and dryer', qty: 1, unit: 'ea', price: 2400 }] });
+              const old = { blocked: PRED.vendorsBlocked.test(poVendorReal('Ferguson')), next: P({ dropAt: 'curb', lines: [{ item: 'Toilet', qty: 1, price: 600 }] }), books: coiBookings(poVendorReal('Ferguson')).length };
+              DB.pos = DB.pos.filter(x => x.id !== 'po_old');
+              const hw = poDropGuessOf('1/4" flat washers, zinc, box of 100'), wd = poDropGuessOf('Front-load washer and dryer');
+              return { blank, blankItem, award, awardCurb, old, hw, wd, after: PRED.vendorsBlocked.test(poVendorReal('Ferguson')) } }""")
+            c.ok(r['blank'] and 'guessed from the items' in r['blank'][0] and r['blankItem'], f'{tag}: a blank New PO (no lines, or lines that do not say) is carried inside until said, and stops without a COI ({r["blank"]}, {r["blankItem"]})')
+            c.ok(r['award'] and 'carried inside' in r['award'][0] and not r['awardCurb'], f'{tag}: an award order for cabinets is guessed inside and stops; one for framing lumber is a curb drop and goes ({r["award"]}, {r["awardCurb"]})')
+            c.ok(r['old']['blocked'] and r['old']['next'] and 'PO-2026-090' in r['old']['next'][0] and r['old']['books'] >= 1 and not r['after'], f'{tag}: an older open order with no delivery said (a washer and dryer) puts the vendor on site: Blocked, booked for the COI check, and the next order waits ({r["old"]})')
+            c.ok(r['hw']['at'] == 'curb' and r['wd']['at'] == 'inside', f'{tag}: hardware washers drop at the curb; a washer and dryer is carried inside ({r["hw"]}, {r["wd"]})')
+            h = await pg.evaluate("""() => { const po = { id: 'po_gb', number: 'PO-2026-091', projectId: 'p121', vendor: 'Ferguson', status: 'draft', type: 'materials', shipTo: 'site', date: today(), lines: [], tax: 0, shipping: 0, matchedTxns: [] };
+              DB.pos.push(po); const h = renderPODoc(po); DB.pos = DB.pos.filter(x => x.id !== 'po_gb'); return h.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' '); }""")
+            c.ok('Delivery guessed: carried inside, from the items' in h and 'Change' in h, f'{tag}: the blank order\'s page says the delivery was guessed, with Change ({h[:300]!r})')
             # issued orders already out are not re-judged (the lesson scan reads poValid on them)
             r = await pg.evaluate("() => poValid(DB.pos.find(x => x.number === 'PO-2026-047'))")
             c.ok(not any('certificate' in x or 'over what is left' in x for x in r), f'{tag}: an issued order is not re-judged ({r})')

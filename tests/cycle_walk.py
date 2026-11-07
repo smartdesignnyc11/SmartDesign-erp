@@ -1197,7 +1197,11 @@ def open_po(p, number):
         if c: p.tap_ctl(c)
         else: p._act('back')
         p.look()
-    p.tap_row(number, after='Search', expect=number)
+    # the order's own row, its number first ("PO-2026-050 · Nemo Tile · ..."), never a tile or a Needs You line that
+    # names it among others ("Over the Order $3,940 PO-2026-044, PO-2026-050" opened the tile's filter, 11-06)
+    own = next((c for c in p.scr.ctls if c.action and norm(c.label).startswith(norm(number) + ' ')), None)
+    if own is not None: p.tap_ctl(own, expect=number)
+    else: p.tap_row(number, after='Search', expect=number)
 
 
 def draft_po_mail(p, number):
@@ -1255,7 +1259,11 @@ def issue_and_send(p, number):
 
 def board_for_job(p):
     """the Buy Board for 214 Lincoln: its job filter (the 11-03 Buy Board: Job, beside Vendor and Trade; the older board's
-    Project list sat on the phone behind "Filter by project, vendor or trade")"""
+    Project list sat on the phone behind "Filter by project, vendor or trade"). The desktop opens the Buy Board on its
+    Table (CoS 11-06); she works her queue on Needs, so she switches to it when the Table is showing."""
+    if 'Purchased Price' in p.look().text and p.scr.find('Table', exact=True):
+        nd = p.scr.find('Needs', exact=True)
+        if nd is not None: p.tap_ctl(nd)
     lab = 'Job' if p.look().find('Job', field=True) else 'Project'
     if lab == 'Project' and not p.scr.find('Project', field=True):
         f = p.scr.find('Filter by project')
@@ -1345,6 +1353,25 @@ def j6_buy_it(p):
     p.expect(i >= 0 and bool(re.search(r'(in stock|on hand|at the shop|in the shop|warehouse|from stock)', near, re.I)),
              'the Buy Board shows the firm\'s own stock against the electrical rough-in line before anything is ordered (12/2 NM-B, 1-gang boxes, 5/8 Type X are on the shelf)',
              near[:300] or 'no electrical line on the Buy Board')
+    # the item table (Alan, 11-06: "the purchasing modules should have columns: Invoice / Lead Time / Item # / Description /
+    # Qnty / Room / Budget Price / Purchased Price / Vendor / Status / Delivery Date"): what was just bought is on it, as
+    # purchased, at the order's price, with its vendor, found from the Buy Board in one tap
+    t = p.look().find('Table', exact=True)
+    p.expect(t is not None, 'the Buy Board has a Table view: every item the job buys, one row each, in Alan\'s columns', 'no Table on the Buy Board')
+    if t is not None:
+        p.tap_ctl(t)
+        tx = p.look().text
+        # the desktop's column heads; on the phone a card names a field only beside a value (CoS 11-06), so the labels
+        # every bought item's card carries: its invoice, budget, purchased price and vendor
+        H = ('Invoice', 'Lead Time', 'Item #', 'Description', 'Room', 'Budget', 'Purchased', 'Vendor', 'Status', 'Delivery') if p.device != 'phone' else \
+            ('Invoice', 'Budget', 'Purchased', 'Vendor')
+        p.expect(all(re.search(h, tx, re.I) for h in H), 'the Table carries Alan\'s columns', tx[:300])
+        j = tx.find(PLUMB_BUYS[0][0][:20])
+        near = tx[max(0, j - 200): j + 400] if j >= 0 else ''
+        p.expect(j >= 0 and 'ferguson' in norm(near) and re.search(r'purchased', near, re.I) and '1,800' in near,
+                 'the plumbing buy just issued is on the Table: purchased from Ferguson at $1,800', near[:300] or 'not on the Table')
+        nd = p.look().find('Needs', exact=True)   # back to the board's queue, as she leaves it
+        if nd is not None: p.tap_ctl(nd)
 
 
 # ---------------------------------------------------------------------------------------------------- J4 review the job (Friday)
@@ -1533,13 +1560,28 @@ def receive_phone(p, dw, tile):
     p.go('Purchasing')
     p.tap('Deliveries', exact=True)
     if p.look().find('All Projects', exact=True): p.tap('All Projects', exact=True)
-    c = p.scr.find('Receive', after=dw, exact=True)
+    # the order's own Arriving row (a Needs You line naming the order comes first and the next Receive after it was
+    # another order's: the sheet opened on PO-2026-047, 11-06)
+    c = p.scr.find('Receive', after=('Arriving', dw), exact=True) or p.scr.find('Receive', after=dw, exact=True)
     if c is None: raise Stuck(f'receive {dw}', f'{dw} among Deliveries', p.scr, 'Deliveries')
     p.tap_ctl(c)
     sc = p.look()
-    ok = bool(sc.find('', field=True, after=dw)) and bool(re.search(r'short|damaged|problem', sc.text[sc.text.find(dw):sc.text.find(dw) + 900], re.I))
+    # the phone receives on a sheet over Deliveries (the one receive sheet, P1, BACKLOG 1.36): its words are the sheet's,
+    # not the 900 characters after the order's first mention on the list underneath (which this read before)
+    seg = sc.text[sc.text.find('== Open on top =='):] if sc.sheet and dw in sc.text[sc.text.find('== Open on top =='):] else sc.text[sc.text.find(dw):sc.text.find(dw) + 900]
+    ok = bool(sc.find('', field=True, after=dw)) and bool(re.search(r'short|damaged|problem', seg, re.I)) and bool(re.search(r'slip', seg, re.I))
     p.expect(ok, f'Receive on the phone takes what came on {dw}: the quantity per line, short and damaged, the slip photo',
-             sc.text[sc.text.find(dw):sc.text.find(dw) + 240] if dw in sc.text else 'nothing')
+             seg[:240] if seg else 'nothing')
+    if ok and sc.sheet:   # the app's own receive sheet on the phone (P1, 11-06): each line as it came, its condition on it
+        receive_sheet(p, dw, [('Framing lumber', 1, '', 0), ('Drywall', 1, 'Short', SHORT_BOARDS)], f'{SHORT_BOARDS} cement boards short: backordered, balance next week')
+        p.go('Purchasing')
+        p.tap('Deliveries', exact=True)
+        if p.look().find('All Projects', exact=True): p.tap('All Projects', exact=True)
+        c = p.look().find('Receive', after=('Arriving', tile), exact=True) or p.scr.find('Receive', after=tile, exact=True)
+        if c is None: raise Stuck(f'receive {tile}', f'{tile} among Deliveries', p.scr, 'Deliveries')
+        p.tap_ctl(c)
+        receive_sheet(p, tile, [('Porcelain floor tile', 380, 'Damaged', DAMAGED_SF)], f'{DAMAGED_SF} sf damaged: two boxes cracked in the pallet')
+        return
     for po, lines, note in ((dw, [('Framing lumber', 1), ('Drywall', 1)], f'{SHORT_BOARDS} cement boards short: backordered, balance next week'),
                             (tile, [('Porcelain floor tile', 380 - DAMAGED_SF)], f'{DAMAGED_SF} sf damaged: two boxes cracked in the pallet')):
         open_po(p, po)
@@ -1553,6 +1595,30 @@ def receive_phone(p, dw, tile):
         p.do_ctls(steps)
         p.tap('Record Receipt', exact=True)
         p.note(f'{po} received through its own Receive Some, the condition in the note (the phone\'s Deliveries takes no quantity)')
+
+
+def receive_sheet(p, po, lines, note):
+    """the receive sheet open on the order: what came on each line (its count), its condition (Short or Damaged) and how
+    many, the note, Record Receipt; the claim lands on the line"""
+    top = '== Open on top =='
+    for words, qty, cond, bad in lines:
+        sc = p.look()
+        f = sc.find(words, field=True, after=(top,))
+        if f is None: raise Stuck(f'receive {po}', f'a count for {words} on the receive sheet', sc, 'Receive')
+        p.do_ctls([('type', f, qty)])
+        if not cond: continue
+        ch = p.look().find(cond, after=(top, words), exact=True)
+        if ch is None: raise Stuck(f'receive {po}', f'{cond} on the {words} line', p.scr, 'Receive')
+        p.tap_ctl(ch)
+        bf = p.look().find('How Many', field=True, after=(top, words))
+        if bf is None: raise Stuck(f'receive {po}', f'how many are {cond.lower()} on the {words} line', p.scr, cond)
+        p.do_ctls([('type', bf, bad)])
+    n = p.look().find('Note', field=True, after=(top,))
+    if n is not None: p.do_ctls([('type', n, note)])
+    s = next((x for x in p.look().actions('sheet') if norm(x.label) == 'record receipt'), None)
+    if s is None: raise Stuck(f'receive {po}', 'Record Receipt on the receive sheet', p.scr, 'Receive')
+    p.tap_ctl(s)
+    p.expect(bool(re.search(r'claimed|received', p.scr.toast, re.I)), f'a toast that what came on {po} is received and the rest claimed', p.scr.toast)
 
 
 def enter_bill(p, po, two_lines=False):
@@ -1606,11 +1672,38 @@ def approve_what_arrived(p, inv, po, less, why):
     base = CY.num(amt.value) or CY.num((re.findall(r'is \$([\d,]+(?:\.\d\d)?)', sc.text) or ['0'])[0])
     approve = round(max(0.0, base - less), 2)
     p.do_ctls([('type', amt, f'{approve:.2f}'), ('type', w, why)])
+    # the sheet as it is now: the controls are numbered afresh after typing (a toast's Open behind the sheet that went away
+    # moved every number by one, and the 35 read before typing was Cancel at the tap: 11-06)
+    sc = p.look()
     s2 = next((x for x in sc.actions('sheet') if re.match(r'^approve and dispute|^dispute|^approve part', norm(x.label))), None)
     if s2 is None: raise Stuck(f'hold {inv}', 'Approve and Dispute on the sheet', sc, b.label)
     p.tap_ctl(s2)
     p.expect(bool(re.search(r'disputed|held', p.scr.toast, re.I)), f'a toast that {inv} is approved at ${approve:,.2f} and the rest held', p.scr.toast)
     return True
+
+
+def hold_at_arrived(p, po, inv):
+    """the coordinator, on the order she received: Hold at What Arrived on its bill, the receipt's figure typed as what
+    arrived and why; it approves nothing (the Owner approves part and disputes the rest)"""
+    open_po(p, po)
+    sc = p.look()
+    # the bill's own Hold on the order's page, after its number (never a toast's link for another bill: the walk held
+    # NEM-5851 from the toast while on PO-2026-049, 11-06)
+    c = sc.find('Hold at What Arrived', after=inv, exact=True)
+    t = sc.text.find('== Toast ==')
+    if c is None or (t >= 0 and c.pos > t): return False
+    p.tap_ctl(c, expect='Hold at What Arrived')
+    sc = p.look()
+    sheet = sc.text[sc.text.find('== Open on top =='):] if '== Open on top ==' in sc.text else sc.text
+    arrived = (re.findall(r'comes to \$([\d,]+(?:\.\d\d)?)', sheet) or [''])[0]
+    amt = next((x for x in sc.ctls if not x.action and re.search(r'arrived', x.label, re.I)), None)
+    w = next((x for x in sc.ctls if not x.action and re.search(r'reason', x.label, re.I)), None)
+    if not arrived or amt is None or w is None: return False
+    p.do_ctls([('type', amt, arrived.replace(',', '')), ('type', w, 'what the truck brought, counted on the slip; the rest did not come or came damaged')])
+    s2 = next((x for x in p.look().actions('sheet') if norm(x.label) == 'hold at what arrived'), None)
+    if s2 is None: return False
+    p.tap_ctl(s2)
+    return bool(re.search(r'held at', p.scr.toast, re.I))
 
 
 def j7_receive_match(p):
@@ -1626,8 +1719,12 @@ def j7_receive_match(p):
     bills = {dw: enter_bill(p, dw, two_lines=both), tile: enter_bill(p, tile)}
     # what did not arrive, at the order's prices: the yard's 1/2" cement board at its quoted price, the tile at the price on its order
     board = BOOK['parties']['gowanus_supply']['quotes']['prices'].get('cement', 26.50)
-    p.expect(False, 'the coordinator who received the trucks holds the bills at what arrived (only the Owner approves part of a bill)',
-             'the bills wait for the PM\'s review and the Owner\'s approval; the three-way hold is the Owner\'s')
+    # the coordinator who received the trucks holds each bill at what arrived, from the order she received (she cannot
+    # open Bills and Payroll); only the Owner approves part of a bill. (This step was a standing expect(False): the app had
+    # no such hold. P1, 11-06: Hold at What Arrived on the order's page, the receipt's figure in its sheet, for the Owner.)
+    held = [hold_at_arrived(p, po, inv) for po, inv in bills.items() if inv]
+    p.expect(bool(held) and all(held), 'the coordinator who received the trucks holds the bills at what arrived (only the Owner approves part of a bill)',
+             f'held: {held}')
     switch(p, 'u_owner', dev)
     try:
         if bills[dw]: approve_what_arrived(p, bills[dw], dw, SHORT_BOARDS * board, f'{SHORT_BOARDS} cement boards not delivered (backordered); paid when they come')

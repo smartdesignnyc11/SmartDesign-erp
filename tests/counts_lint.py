@@ -9,6 +9,8 @@ plus foreman and client on phone 390x844, it walks every view the role may open 
   (c) a menu entry for a group's overview shows a number other than that overview's count or needs(gid) (the 11-03
       menu: a group's name and its overview carry no number, so any number there is flagged); a phone tab likewise;
   (d) Ask's headline count (paAsk(q).headline) differs from the screen that lists the same things.
+  (e) a pair the walk cannot click to: the Buy Board Table's "bought for the client, not billed back" against the
+      purchases Ready to Bill names (one reading, rbRows), and its Needs switch against the menu's Buy Board number.
 
 Each flag prints as `RULE | role | label | numbers seen with where`. The last line is `N flags`; exit 1 if N > 0.
   python3 counts_lint.py [--role owner,pm] [--json] [--verbose] [--all-projects]
@@ -648,6 +650,25 @@ async def main():
                     await run_role(pg, lint, tag, uid, ph)
                 except Exception as e:
                     lint.flag('ERR', tag + ('@phone' if ph else ''), 'run', str(e)[:200])
+            await b.close()
+        # the Buy Board's Table (src/puschedule.js): its "bought for the client, not billed back" is the purchases Billing's
+        # Ready to Bill names (rbReady over rbRows, one reading), and its Needs switch is the menu's Buy Board number
+        if not want or 'coord' in want:
+            b, pg, errs = await open_app(p, False)
+            try:
+                await sign_in(pg, 'u_chen')
+                r = await pg.evaluate("""() => { view = 'proc'; bbProj = ''; psChoose(true); render();
+                  const e = document.querySelector('[data-pstot=notbilled]'), sw = document.querySelector('.ps-modes [data-psmode=needs] .n');
+                  return { strip: e ? +e.dataset.v : 0, ready: rbReady().filter(x => x.kind === 'reimbursable').reduce((a, x) => a + (x.items || []).length, 0),
+                    sw: sw ? +sw.textContent : 0, menu: puCount('proc') }; }""")
+                await pg.evaluate("() => { psChoose(false); render(); }")
+                if r['strip'] != r['ready']:
+                    lint.flag('PAIR', 'coord', 'bought for the client, not billed back', f"Buy Board Table {r['strip']} · Ready to Bill purchases {r['ready']}")
+                if r['sw'] != r['menu']:
+                    lint.flag('PAIR', 'coord', 'Buy Board', f"Needs switch {r['sw']} · menu {r['menu']}")
+                lint.note(f"pu table pair: {r}")
+            except Exception as e:
+                lint.flag('ERR', 'coord', 'pu table pair', str(e)[:200])
             await b.close()
     by = {}
     for f in lint.flags: by[f['rule']] = by.get(f['rule'], 0) + 1

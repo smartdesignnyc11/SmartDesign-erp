@@ -45,10 +45,14 @@ function bbLateOf(o) {
 }
 // A contract line has something to buy when it has items under it or names a material (the estimate rule since round 4,
 // now shared by change-order lines).
+// (11-06, J6: a rough-in line, wire and boxes or pipe and fittings under the trade's labour, was never on the Buy Board,
+// so the firm's own stock of 12/2 and boxes never met it. A rough-in line buys its material too; until its material
+// portion is set it waits on the PM's split, as the SPEC's "the PM's material split" rows. CoS 11-06: the class, not the
+// word "rough-in": a wiring, pipe, supply-and-waste or conduit line buys its material too.)
 function bbBuysLine(l) {
   return (
     (l.items || []).length > 0 ||
-    /material|millwork|tile|fixture|appliance|window|door|stone|floor|light|hardware|cabinet|lumber|glass|counter|vanit|radiator|radiant/i.test(
+    /material|millwork|tile|fixture|appliance|window|door|stone|floor|light|hardware|cabinet|lumber|glass|counter|vanit|radiator|radiant|rough[- ]?in\b|wir(?:e|ing)\b|piping|\bpipe\b|supply and waste|conduit/i.test(
       l.item || "",
     )
   );
@@ -527,7 +531,7 @@ function bbPanelHtml(r, picks) {
     last = bbLastPrices(r),
     // the shop: the same reader as the row (puStockFor, each part of the name), so the panel and the row agree
     st = bbStock(r),
-    S1 = "function" == typeof puStockFor && !r.ordered ? puStockFor(r.name) : null,
+    S1 = "function" == typeof puStockFor && !r.ordered ? ("function" == typeof puStockForNeed ? puStockForNeed(r) : puStockFor(r.name)) : null,
     C = r.lineKey && "function" == typeof lineCommitment ? lineCommitment(r.lineKey) : null,
     book = "function" == typeof puBookPrice ? puBookPrice(r) : null,
     H = bbHistory(r),
@@ -549,7 +553,7 @@ function bbPanelHtml(r, picks) {
       C && C.budget ? [C.over ? "Over the line" : "Left on the line", money(C.over || C.left)] : null,
       [`Last ${last.length || 3} buys`, last.length ? last.map((x) => `${unitMoney(x.p)}${x.u ? "/" + x.u : ""}${x.v ? ` ${x.v}` : ""}`).join(", ") : book ? "none ordered" : "none on file"],
       book ? ["Best price known", book.say] : null,
-      ["At the shop", S1 ? (S1.length ? S1.map((s) => `${puUnits(s.qty, s.unit)} ${s.name}, ${String(s.where).toLowerCase()}`).join("; ") : "none") : st ? `${st.from} in stock` : "none"],
+      ["At the shop", S1 ? (S1.length ? S1.map((s) => `${puUnits(s.qty, s.unit)} ${s.name}, ${String(s.where).toLowerCase()}${"code" === s.how ? " (may be it)" : ""}`).join("; ") : "none") : st ? `${st.from} in stock` : "none"],
       r.askedBy ? ["Asked by", r.askedBy] : null,
     ].filter(Boolean);
   return `<div class="bb-ph"><span class="bb-ref" data-nocase>${esc(ref)}</span><h3 data-nocase>${esc(r.name)}</h3></div>${lateBox}${fix}<div class="bb-grid" data-nocase>${grid.map(([k, v]) => `<span>${esc(k)}</span><b data-nocase>${esc(v)}</b>`).join("")}</div>${H.length ? `<div class="bb-hist" data-nocase><span class="bb-hh">WHAT HAPPENED</span>${H.map((h) => `<span><b>${esc(h.d ? fmt(h.d) : h.when || "")}</b> · <span data-nocase>${esc(h.t)}</span></span>`).join("")}</div>` : ""}<div class="bb-steps">${steps
