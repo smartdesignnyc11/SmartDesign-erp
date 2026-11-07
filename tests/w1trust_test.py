@@ -244,7 +244,7 @@ async def t_silent(c, p):
       let pick = null;
       for (const cl of DB.clients || []) { const d = (cl.estimates || []).find(x => x.status === 'draft'); if (d) { pick = [cl, d]; break; } }
       if (!pick) return { none: true };
-      const [cl, d] = pick; clientOpen = cl.id; docOpen = { kind: 'estimate', id: d.id }; view = 'billing'; billTab = 'estimates'; render(); await sleep(300);
+      const [cl, d] = pick; clientOpen = cl.id; docOpen = { kind: 'estimate', id: d.id }; if (typeof dvEditing !== 'undefined') dvEditing = d.id; view = 'billing'; billTab = 'estimates'; render(); await sleep(300);
       const add = document.querySelector('.view.on [data-ctadd], .view.on [data-addline]'); if (!add) return { nobtn: true, n: d.lines.length };
       const n0 = d.lines.length; add.click(); await sleep(250);
       const t = document.getElementById('toast');

@@ -76,6 +76,7 @@ async def main():
         C.ok(L['fallback'] == 'Rivera-FM1', f'no house number anywhere: the client\'s last name ({L["fallback"]})')
         C.ok(not L['over'], f'every FM number has room for a revision inside 21 characters ({L["over"]})')
         # the full number everywhere: the viewer, the PDF, Cmd-K
+        await pg.evaluate("() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))")   # the person's next tap: a document made earlier opens as its document
         await pg.evaluate("(id) => { clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: id }; view = 'billing'; render(); }", k['id'])
         await pg.wait_for_timeout(300)
         h = await pg.evaluate("() => ((document.querySelector('#dv h2') || {}).textContent || '') + ' | ' + ((document.querySelector('#dv .dv-doc') || {}).innerText || '')")

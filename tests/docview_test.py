@@ -180,6 +180,16 @@ async def lists_open(p, phone, uid):
         await shot(pg, f'{uid}_{dev}_bill')
         if phone: await phone_layout(pg, who + ' bill')
         await pg.evaluate('dvClose()')
+        # the Hold row the bill sheet carries: Hold and Send Back on a waiting bill, Release the Hold on a held one
+        hd = await pg.evaluate("""() => { const ids = (b) => dvActions({ kind: 'bill', b: b }).map(a => (a.blue ? '*' : '') + a.id); const b = DB.bills.find(x => x.id === 'b4');
+          const open = ids(b); const keep = b.onHold; b.onHold = { state: 'open', by: 'Maren Holloway', why: 'waiting on the delivery ticket', for: 'Chen' }; const held = ids(b); b.onHold = keep; return { open, held }; }""")
+        C.ok('bhold' in hd['open'] and 'bback' in hd['open'] and 'brelease' not in hd['open'] and not any(x.startswith('*') and x.strip('*') in ('bhold', 'bback', 'brelease') for x in hd['open'] + hd['held']),
+             f'{who}: a submitted bill shows Hold and Send Back, never blue ({hd["open"]})')
+        C.ok('brelease' in hd['held'] and 'bhold' not in hd['held'], f'{who}: a held bill shows Release the Hold, not Hold ({hd["held"]})')
+        await pg.evaluate("() => dvOpen('bill', 'b4')")
+        await dv_tap(pg, 'Hold')
+        C.ok(await pg.locator('#mbm').count() == 1, f'{who}: Hold on the bill\'s document opens the bill\'s own hold sheet (billHoldSheet)')
+        await pg.evaluate("() => { mbCloseModal(); dvClose(); }")
     else:
         C.ok(r != 'bill:b2', f'{who}: billing keeps the bill sheet, where it enters and codes bills ({r})')
     await pg.evaluate("() => { dvClose(); try { closeEditor(); } catch (e) {} }")

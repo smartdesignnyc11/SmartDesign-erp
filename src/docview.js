@@ -38,9 +38,11 @@ let dvCur = null, // { kind, id, cid }: the record open in the viewer
   dvMore = !1,
   dvBillEdit = null;
 // Documents just made (New Invoice, the queue's Draft, Duplicate, a revision: every one goes through newDoc) open in
-// the editor. The flag is set on create and read by the next draw, which clears it: a document made by a path that
-// never opened it in the same step (a fixture, a sweep, an import) opens as its document later. No clock is read.
+// the editor. The flag is set on create and lasts for the person's action that made it: their next tap or key clears
+// it, so a document made in passing (a sweep, an import, a draft the assistant wrote) opens as its document when it is
+// opened later. No clock is read.
 const dvFresh = new Set();
+["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, () => dvFresh.clear(), !0));
 const dvOn = () => DV_ROLES.includes(role());
 const dvWho = () => (S && S.project && S.project.userName) || ((currentUser() || {}).name) || role();
 
@@ -159,7 +161,6 @@ if ("function" == typeof newDoc) {
       console.warn("docview: open", e);
     }
     const r = base.apply(this, arguments);
-    dvFresh.clear();
     try {
       // the document sits over the page it was opened from: a move to another page (a link, a toast, the menu) closes it
       dvCur && dvCur.view && dvCur.view !== view && dvClose();
@@ -294,6 +295,11 @@ function dvActions(r) {
     mayApprove && add("bapprove", "Approve", { blue: !held });
     // paying is money out: never the blue button
     "approved" === b.status && add("bpay", "Pay");
+    // the Hold row the bill sheet carries (app.js, next to billHoldSheet), under the same conditions; never blue
+    if (["submitted", "pm-approved"].includes(b.status) && !["client", "crew", "driver", "foreman"].includes(me)) {
+      b.onHold && "open" === b.onHold.state ? add("brelease", "Release the Hold") : add("bhold", "Hold");
+      add("bback", "Send Back");
+    }
     dvBillFile(b) && add("bfile", "Vendor's Document");
     add("pdf", "Download PDF");
     ("draft" === b.status || held) && add("bedit", "Edit");
@@ -441,7 +447,7 @@ function dvDraw() {
   el.setAttribute("role", "dialog"), el.setAttribute("aria-modal", "true"), el.setAttribute("aria-label", `${DV_LABEL[r.kind]} ${num}`);
   el.dataset.rec = dvCur.kind + ":" + dvCur.id;
   el.className = ph ? "dv-ph" : "";
-  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div></div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div></div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
+  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}${"bill" !== r.kind && r.d.title ? `<span class="dv-tt"> — ${esc(r.d.title)}</span>` : ""}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div></div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div></div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
   document.body.classList.add("dv-open");
   ph && dvReflow(el);
   const body = el.querySelector(".dv-body");
@@ -536,6 +542,14 @@ function dvAct(a) {
 function dvBillAct(r, a) {
   const b = r.b;
   if ("bedit" === a) return dvClose(), (dvBillEdit = b.id), void openBill(b.id);
+  // Hold and Send Back open the bill sheet's own sheet (billHoldSheet); Release the Hold writes what its button writes
+  if ("bhold" === a || "bback" === a) return dvClose(), void ("function" == typeof billHoldSheet && billHoldSheet(b, "bhold" === a ? "hold" : "back"));
+  if ("brelease" === a) {
+    if (!b.onHold || "open" !== b.onHold.state) return;
+    (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), (b.onHold.releasedAt = appNowIso());
+    audit("bill", b.id, "hold-released", "held", b.status, `released by ${b.onHold.releasedBy}; it was held: ${b.onHold.why}`);
+    return save(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => dvOpen("bill", b.id) }]);
+  }
   if ("bfile" === a) return "function" == typeof openFile ? void openFile(b.fileId) : void 0;
   if ("print" === a) {
     const w = window.open("", "_blank");
@@ -1275,7 +1289,7 @@ function dvHistory(r) {
   s.textContent = `#dv{position:fixed;inset:0;z-index:38;background:rgba(20,26,40,.45);display:flex;justify-content:center;align-items:stretch;padding:24px}
 #dv .dv-sheet{position:relative;background:var(--paper,#fff);width:min(980px,100%);display:flex;flex-direction:column;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden}
 #dv .dv-hd{display:flex;gap:12px;align-items:flex-start;padding:14px 18px;border-bottom:1px solid var(--rule,#E6E9EE)}
-#dv .dv-ttl{flex:1;min-width:0}#dv .dv-ttl h2{margin:0;font-size:18px;overflow-wrap:anywhere}
+#dv .dv-ttl{flex:1;min-width:0}#dv .dv-tt{font-weight:400;color:var(--muted,#6b7480);font-size:.85em}#dv .dv-ttl h2{margin:0;font-size:18px;overflow-wrap:anywhere}
 #dv .dv-x{display:inline-flex;gap:6px;align-items:center;min-height:40px}
 #dv .dv-notes{padding:8px 18px;background:var(--wash,#F6F7F9);border-bottom:1px solid var(--rule,#E6E9EE)}#dv .dv-notes>div{padding:2px 0}
 #dv .dv-body{flex:1;overflow:auto;padding:28px 34px;background:#fff;-webkit-overflow-scrolling:touch}

@@ -116,7 +116,7 @@ async def wide(pg, c, who):
     for x in await pg.evaluate(WIDE): c.ok(False, f'WIDE {who}: {x}')
 
 async def reopen(pg, cid, est):
-    await pg.evaluate("([c, id]) => { clientOpen = c; clientTab = 'fin'; docOpen = { kind: 'estimate', id }; setView('clients'); }", [cid, est])
+    await pg.evaluate("([c, id]) => { clientOpen = c; clientTab = 'fin'; docOpen = { kind: 'estimate', id }; if (typeof dvEditing !== 'undefined') dvEditing = id; setView('clients'); }", [cid, est])
     await pg.wait_for_timeout(300)
 
 async def tap(pg, c, sel, who):
@@ -133,7 +133,7 @@ async def open_doc(pg, kind, pick):
     return await pg.evaluate("""([kind, pick]) => {
       for (const c of DB.clients) { const L = kind === 'estimate' ? c.estimates : kind === 'co' ? c.changeOrders : c.invoices;
         const d = (L || []).find(x => pick === 'draft' ? x.status === 'draft' : x.status !== 'draft');
-        if (d) { view = 'clients'; clientOpen = c.id; clientTab = 'fin'; docOpen = { kind, id: d.id }; render(); scrollTo(0, 0); return d.number + ' ' + d.status; } }
+        if (d) { view = 'clients'; clientOpen = c.id; clientTab = 'fin'; docOpen = { kind, id: d.id }; if (typeof dvEditing !== 'undefined') dvEditing = d.id; render(); scrollTo(0, 0); return d.number + ' ' + d.status; } }
       return ''; }""", [kind, pick])
 
 async def main():
@@ -230,7 +230,7 @@ async def main():
                       const d = newDoc(c, 'estimate', { template: tpl || undefined });
                       d.title = 'Parlor floor millwork'; d.lines = [{ id: uid('l'), item: 'MILLWORK', desc: 'Built-in bookcases, parlor floor\\nPaint grade, two coats', qty: 2, unit: 'ea', rate: 4800, taxable: false, cost: 3100, code: '', parent: '', items: [] },
                         { id: uid('l'), item: 'TRIM', desc: 'Crown and base to match', qty: 120, unit: 'lf', rate: 38, taxable: false, cost: 21, code: '', parent: '', items: [] }];
-                      d.status = st; save(); clientOpen = c.id; clientTab = 'fin'; docOpen = { kind: 'estimate', id: d.id }; setView('clients'); return d.number + ' ' + (tpl || 'simple') + ' ' + st; }""", [tpl, st])
+                      d.status = st; save(); clientOpen = c.id; clientTab = 'fin'; docOpen = { kind: 'estimate', id: d.id }; if (typeof dvEditing !== 'undefined') dvEditing = d.id; setView('clients'); return d.number + ' ' + (tpl || 'simple') + ' ' + st; }""", [tpl, st])
                     await pg.wait_for_timeout(350)
                     await walk(pg, c, f'2: {u} estimate {num}'); await wide(pg, c, f'2: {u} estimate {num}'); await endchk(pg, c, f'2: {u} estimate {num}')
             await pg.evaluate("() => { docOpen = null; }")
@@ -289,7 +289,7 @@ async def main():
         await sign_in(pg, 'u_owner')
         # the owner's Estimates are Billing's Estimates under Accounting (the Sales mock-up, 11-03, flagged for Alan): the
         # Sales entry where a role has it, else the Billing entry, on its Estimates tab
-        GO = """() => { docOpen = null; const B = mnBuild(role()); let g = B.groups.find(g => g.id === 'sales'), it = g && g.items.find(i => i.l === 'Estimates');
+        GO = """() => { docOpen = null; if (typeof dvClose === 'function') dvClose(); const B = mnBuild(role()); let g = B.groups.find(g => g.id === 'sales'), it = g && g.items.find(i => i.l === 'Estimates');
           if (!it) { g = B.groups.find(g => g.items.some(i => i.v === 'billing')); it = g && g.items.find(i => i.v === 'billing'); }
           mnGo(g, it); if (typeof billTab !== 'undefined' && billTab !== 'estimates') { billTab = 'estimates'; render(); } }"""
         await pg.evaluate(GO); await pg.wait_for_timeout(400)
@@ -299,7 +299,8 @@ async def main():
             await pg.evaluate(GO); await pg.wait_for_timeout(300)
             xy = await pg.evaluate("n => { const e = [...document.querySelectorAll('.view.on .pr-row .pr-num')].find(x => x.textContent.trim() === n); e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }", n)
             await pg.touchscreen.tap(xy[0], xy[1]); await pg.wait_for_timeout(400)
-            got = await pg.evaluate("() => { if (!docOpen) return 'nothing'; for (const c of DB.clients) { const d = (c.estimates || []).find(e => e.id === docOpen.id); if (d) return d.number; } return '?'; }")
+            # 11-06: for the owner, billing and the controller it opens as its document first (dvCur, src/docview.js)
+            got = await pg.evaluate("() => { const id = docOpen ? docOpen.id : (typeof dvCur !== 'undefined' && dvCur ? dvCur.id : null); if (!id) return 'nothing'; for (const c of DB.clients) { const d = (c.estimates || []).find(e => e.id === id); if (d) return d.number; } return '?'; }")
             c.ok(got == n, f'6: a tap on {n} opens {n}, opened {got}')
 
         for x in errs[:5]: c.ok(False, 'page error: ' + x[:200])

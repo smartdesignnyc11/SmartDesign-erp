@@ -309,7 +309,7 @@ async def s3_waiver(p, C):
         st = await pg.evaluate("n => DB.bills.find(x => x.number === n).status", 'BSW-102')
         C.ok(st == 'approved', f'[3] Mark Paid is refused too: {st}')
         # the bill's sheet: the check card, Record the Waiver on each hold
-        await pg.evaluate("n => { view = 'ap'; render(); openBill(DB.bills.find(x => x.number === n).id); }", 'BSW-102')
+        await pg.evaluate("n => { view = 'ap'; render(); const id = DB.bills.find(x => x.number === n).id; dvBillEdit = id; openBill(id); }", 'BSW-102')
         await pg.wait_for_timeout(200)
         card = await pg.evaluate("() => { const c = document.querySelector('#d-body .pc-card'); return c ? {text: c.innerText.replace(/\\s+/g, ' '), acts: [...c.querySelectorAll('[data-pcact]')].map(b => b.innerText)} : null; }")
         C.ok(card and 'Held · 2' in card['text'] and card['acts'].count('Record the Waiver') == 2, f'[3] the bill shows the check held, each hold with Record the Waiver: {card}')
@@ -532,7 +532,7 @@ async def s8_retainage(p, C):
         k = await check(pg, 'bret')
         ret = [h for h in k['holds'] if h['key'] == 'retainage']
         C.ok(ret and '$1,500' in ret[0]['what'] and ret[0]['money'] == 1500, f'[8] a 0% bill on a 10% subcontract is held: $1,500 should stay back: {ret}')
-        await pg.evaluate("() => { view = 'ap'; render(); openBill('bret'); }")
+        await pg.evaluate("() => { view = 'ap'; render(); dvBillEdit = 'bret'; openBill('bret'); }")
         await pg.wait_for_timeout(200)
         await pg.evaluate("() => { const b = document.querySelector('#d-body [data-pcact=\"retain\"]'); b && b.click(); }")
         await pg.wait_for_timeout(200)
@@ -672,7 +672,7 @@ async def s12_phone(p, C):
         C.ok(wide and await no_hscroll(pg), '[12 phone] the sheet fits the phone')
         await modal_lint(pg, C, '12 Pay Bill on the phone')
         await shot(pg, 'pay_sheet_held_phone')
-        await pg.evaluate("() => { mbCloseModal(); view = 'ap'; render(); openBill(DB.bills.find(x => x.number === 'BSW-102').id); }")
+        await pg.evaluate("() => { mbCloseModal(); view = 'ap'; render(); const id = DB.bills.find(x => x.number === 'BSW-102').id; dvBillEdit = id; openBill(id); }")
         await pg.wait_for_timeout(250)
         C.ok(await no_hscroll(pg), '[12 phone] the bill with its check and waivers does not scroll sideways')
         await shot(pg, 'bill_check_phone')
