@@ -15,6 +15,11 @@ PHONE = {'width': 390, 'height': 844}
 async def open_app(p, phone=False):
     b = await p.chromium.launch()
     ctx = await b.new_context(viewport=PHONE if phone else DESKTOP, is_mobile=phone, has_touch=phone)
+    # The Buy Board opens on its Table on the desktop (src/puschedule.js, CoS 11-06). Suites written for the Needs board
+    # pin Needs, the person's remembered choice; SD_PU_VIEW=default leaves the default (tests/pu_table_test.py clears
+    # the choice itself, and the screen and counts lints run once with the default to see the Table).
+    if (os.environ.get('SD_PU_VIEW') or 'needs') != 'default':
+        await ctx.add_init_script("try { localStorage.setItem('sd.pu.view.desk', 'needs'); localStorage.setItem('sd.pu.view.phone', 'needs'); } catch (e) {}")
     pg = await ctx.new_page()
     errs = []
     pg.on('pageerror', lambda e: errs.append(str(e)))
