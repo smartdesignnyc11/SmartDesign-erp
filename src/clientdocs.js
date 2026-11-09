@@ -423,7 +423,47 @@ function cxProject(c, d) {
     showAddr = addr && addr !== name && !name.includes(addr) ? addr : "";
   return { name, subj: showSubj, addr: showAddr };
 }
+// The estimate line a billed line comes from: an invoice line that names it (estLineId), or a pay-application line
+// through its schedule-of-values line (lineRef "estimate:<doc>:<line>"). Its quantity and unit price are what the
+// client agreed to, so a progress bill can show them (Alan, 11-09: "have qnty on our templates and show it to the client").
+function cxEstLineOf(c, l) {
+  if (!c || !l) return null;
+  let docId = l.estId || "",
+    lineId = l.estLineId || "";
+  if (!lineId && l.sovId) {
+    const v = (c.sov || []).find((x) => x.id === l.sovId),
+      m = v && /^estimate:([^:]+):(.+)$/.exec(v.lineRef || "");
+    m && ((docId = m[1]), (lineId = m[2]));
+  }
+  if (!lineId) return null;
+  for (const d of [...(c.estimates || []), ...(c.changeOrders || [])]) {
+    if (docId && d.id !== docId) continue;
+    const x = (d.lines || []).find((y) => y.id === lineId);
+    if (x) return x;
+  }
+  return null;
+}
+// a quantity worth showing: anything but one lump sum
+const cxHasQty = (el) => !!el && +el.qty > 0 && !(1 === +el.qty && (!el.unit || "ls" === String(el.unit).toLowerCase()));
+const cxUnitPrice = (n) => ("function" == typeof unitMoney ? unitMoney(+n || 0) : money(+n || 0));
+// A progress invoice billed line by line against its estimate: each line shows the agreed quantity and unit price,
+// the line's contract amount, and what this invoice bills on it.
+function cxEstProgressHtml(c, d, re) {
+  const L = d.lines || [],
+    E = L.map((l) => cxEstLineOf(c, l)),
+    q = E.some(cxHasQty);
+  return `<table><thead><tr><th class="n">#</th><th>Item</th>${q ? '<th class="r">Quantity</th><th class="r">Unit price</th>' : ""}<th class="r">Contract</th><th class="r">This invoice</th></tr></thead><tbody>${L.map((l, i) => {
+    const el = E[i],
+      item = cxClean(l.item, c, re),
+      desc = cxClean(l.desc || (el && el.desc) || "", c, re),
+      contract = el ? r2((+el.qty || 0) * (+el.rate || 0)) : 0,
+      amt = lineAmount(l, d),
+      pct = contract ? r2((amt / contract) * 100) : 0;
+    return `<tr><td class="n">${i + 1}</td><td>${esc(item)}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td>${q ? `<td class="r">${cxHasQty(el) ? esc(cxQty(el)) : el ? "Lump sum" : ""}</td><td class="r">${cxHasQty(el) ? cxUnitPrice(el.rate) : ""}</td>` : ""}<td class="r">${el ? money(contract) : ""}</td><td class="r">${money(amt)}${pct ? `<div class="ds">${pct}%</div>` : ""}</td></tr>`;
+  }).join("")}</tbody></table>`;
+}
 function cxLinesHtml(c, d, re) {
+  if ("invoice" === d.type && (d.lines || []).length && (d.lines || []).every((l) => l.estLineId)) return cxEstProgressHtml(c, d, re);
   let L = d.lines || [];
   try {
     "construction" === d.template && "function" == typeof ctOrdered && (ctNumber(d), (L = ctOrdered(d)));
@@ -444,13 +484,16 @@ function cxPayAppHtml(c, d, re) {
   const A = payAppData(c, d),
     t = docTotal(d),
     L = (d.lines || []).filter((l) => l.sovId),
+    QE = L.map((l) => cxEstLineOf(c, l)),
+    showQ = QE.some(cxHasQty),
     rows = L.map((l, i) => {
       const s = +l.scheduled || 0,
         prev = r2((s * (+l.prevPct || 0)) / 100),
         now = lineAmount(l, d),
         to = r2(prev + now),
-        desc = cxClean(l.desc, c, re);
-      return `<tr><td class="n">${i + 1}</td><td>${esc(cxClean(l.item, c, re))}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td><td class="r">${money(s)}</td><td class="r">${money(prev)}</td><td class="r">${now ? money(now) : "—"}</td><td class="r">${money(to)}<div class="ds">${s ? r2((to / s) * 100) : 0}%</div></td><td class="r">${money(r2(s - to))}</td></tr>`;
+        desc = cxClean(l.desc, c, re),
+        el = QE[i];
+      return `<tr><td class="n">${i + 1}</td><td>${esc(cxClean(l.item, c, re))}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td>${showQ ? `<td class="r">${cxHasQty(el) ? esc(cxQty(el)) : ""}</td><td class="r">${cxHasQty(el) ? cxUnitPrice(el.rate) : ""}</td>` : ""}<td class="r">${money(s)}</td><td class="r">${money(prev)}</td><td class="r">${now ? money(now) : "—"}</td><td class="r">${money(to)}<div class="ds">${s ? r2((to / s) * 100) : 0}%</div></td><td class="r">${money(r2(s - to))}</td></tr>`;
     }),
     pct = +d.retainagePct || 0,
     prevApps = c.invoices.filter((i) => "sov" === i.mode && i.id !== d.id && !["void", "draft"].includes(i.status) && (!i.projectId || i.projectId === d.projectId) && i.date <= d.date),
@@ -461,7 +504,7 @@ function cxPayAppHtml(c, d, re) {
       pct && Math.abs(r2((progGross * pct) / 100) - A.retToDate) < 1
         ? `${pct}% of the ${money(progGross)} of progress work billed to date${depGross ? `; the ${money(depGross)} deposit carries none` : ""}`
         : `${A.completed ? r2((A.retToDate / A.completed) * 100) : 0}% of the ${money(A.completed)} completed to date${depGross ? `, since the ${money(depGross)} deposit carries none` : ""}`;
-  return `<table><thead><tr><th class="n">#</th><th>Work</th><th class="r">Scheduled value</th><th class="r">Previous applications</th><th class="r">This period</th><th class="r">Completed to date</th><th class="r">Balance to finish</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+  return `<table><thead><tr><th class="n">#</th><th>Work</th>${showQ ? '<th class="r">Quantity</th><th class="r">Unit price</th>' : ""}<th class="r">Scheduled value</th><th class="r">Previous applications</th><th class="r">This period</th><th class="r">Completed to date</th><th class="r">Balance to finish</th></tr></thead><tbody>${rows.join("")}</tbody></table>
   <div class="cxd-grid"><div class="cxd-box sans" style="font-size:11.5px"><b>Retainage</b><div>Held to date: ${money(A.retToDate)}, which is ${retWhy}. It is released with the final invoice.</div>${cos.length ? `<div style="margin-top:6px"><b>Change orders in the contract sum</b><div>${cos.map((x) => `${esc(x.number)} ${esc(cxClean(x.title, c, re))} ${money(docNet(x))}`).join("<br>")}</div></div>` : ""}</div>
   <div class="cxd-tot sans" style="width:auto"><div><span>Original contract sum</span><span>${money(A.orig)}</span></div><div><span>Net change by approved change orders</span><span>${money(A.coAmt)}</span></div><div><span>Contract sum to date</span><span>${money(A.revised)}</span></div><div><span>Completed to date (${A.pctComplete}%)</span><span>${money(A.completed)}</span></div><div><span>Less retainage held to date</span><span>− ${money(A.retToDate)}</span></div><div><span>Earned less retainage</span><span>${money(r2(A.completed - A.retToDate))}</span></div><div><span>Less previous applications</span><span>− ${money(A.prevPaid)}</span></div>${A.dep ? `<div><span>Less deposit applied</span><span>− ${money(A.dep)}</span></div>` : ""}${t.tax ? `<div><span>Sales tax this period</span><span>${money(t.tax)}</span></div>` : ""}<div class="big"><span>Current payment due</span><span>${money(A.due)}</span></div><div class="dim"><span>This period: ${money(A.thisGross)} of work, less ${pct}% retainage (${money(t.ret)})</span><span></span></div><div class="dim"><span>Balance to finish, including retainage</span><span>${money(r2(A.balanceToFinish + A.retToDate))}</span></div></div></div>`;
 }
