@@ -67277,6 +67277,11 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
       "dashboard",
       "port",
       "clients",
+      // the job itself: its page, its Contract and Billing tab and its job cost (Alan, 11-09: the controller bills
+      // and job-costs each job; before, only the owner and PM could open a job's Contract and Billing)
+      "dash",
+      "jbill",
+      "costs",
     ]),
     void 0 !== ROLE_NAMES && ((ROLE_NAMES.billing = "Billing"), (ROLE_NAMES.controller = "Controller"));
 }
