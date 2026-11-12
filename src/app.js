@@ -202004,8 +202004,11 @@ document.addEventListener(
    on the phone (the drawer) and the desktop (the rail):
      Your Day    Today, Tasks, Messages (MN_DAY): one entry each, each with the one number that waits on the person.
      Work        Projects (the person's jobs, then All Projects), Purchasing, Sales and Clients, Accounting, Design,
-                 Reports (MN_WORK): a group opens when its name is tapped (the whole row; no arrow), one at a time,
-                 and lists its pages under it. The group of the page on screen is the open one.
+                 Reports (MN_WORK): a group's name opens the module's overview page and lists its pages under it;
+                 the chevron at its right only shows or hides the pages, one group at a time (Alan, 11-12: "When I
+                 click projects or purchasing it just shows me a drop down. That's not effective." Before, 11-03,
+                 the name only opened the list and there was no arrow). The group of the page on screen is the
+                 open one.
      The foot    Company and Settings (MN_FOOT, a group), then Record a Feedback Session (fbsession.js mounts its
                  button in .mn-fbs).
    The field roles (foreman, crew, driver) keep a short, field-first list under the same headings: their own day
@@ -202822,6 +202825,64 @@ function mnApprLink() {
   q.insertAdjacentHTML("beforebegin", '<a href="#" class="td-more td2-more" data-mnappr>Open the Approvals Page</a>');
   v.querySelector("[data-mnappr]").onclick = (e) => (e.preventDefault(), (window.mApprKind = "all"), setView("mapprove"));
 }
+// The module overviews, as the page a module's name opens (Alan, 11-12; the PM reviewer's checklist of the same day).
+// Two small fills, each read from what the pages already count (no new store, list or number):
+//  - Purchasing: a link into each Purchasing page the person's menu lists, with that page's own Needs You (puCount, the
+//    menu's number), what waits on others, and its first rows by name: the dollars over an order or a line, the
+//    credits owed back, the late deliveries and the requests are one tap from the overview.
+//  - Projects: a job with no contract value (jobFin's contract, the number the table reads) says so above the table,
+//    with the way into its Contract and Billing: work on a job with nothing to bill against is work not billed.
+const OV_PG_ROWS = { proc: () => puNeeds(""), po: () => puOrderRows(""), rfq: () => puQuoteRows(), recv: () => puDelivRows(""), vendors: () => puVendorRows(), inv: () => puStockRows() },
+  OV_GO = '<path d="M9 6l6 6-6 6"/>';
+function ovFillBuy() {
+  const host = document.getElementById("ovbuy-body"),
+    list = document.getElementById("ov-list-ovbuy");
+  if ("ovbuy" !== view || !host || !list || "function" != typeof puCount || "object" != typeof PU_ROWS) return;
+  host.querySelectorAll("[data-ovpages]").forEach((x) => x.remove());
+  const g = mnGroupOf(mnBuild(role()), "buy"),
+    items = g ? g.items.filter((it) => !it.job && !it.tab && OV_PG_ROWS[it.v]) : [];
+  if (!items.length) return;
+  const html = items
+    .map((it, i) => {
+      let all = [],
+        mine = [];
+      try {
+        (all = OV_PG_ROWS[it.v]() || []), (mine = PU_ROWS[it.v]() || []);
+      } catch (e) {
+        console.warn("purchasing overview", it.v, e);
+      }
+      const ids = new Set(mine.map((x) => x.id)),
+        rest = all.filter((x) => !ids.has(x.id)),
+        top = mine.concat(rest).slice(0, 2).map((x) => x.name).filter(Boolean),
+        more = all.length - top.length,
+        say = `${mine.length ? `${mine.length} need${1 === mine.length ? "s" : ""} you` : "Nothing waits on you"}${rest.length ? ` \u00b7 ${rest.length} waiting on others` : ""}`,
+        tone = mine.some((x) => "bad" === x.tone) ? " bad" : mine.length ? " warn" : "";
+      return `<button type="button" class="ov-pg${tone}" data-ovpg="${i}"><span class="ov-pg-b"><b>${esc(it.l)}</b><span class="ov-pg-n" data-nocase>${esc(say)}</span>${top.length ? `<span class="ov-pg-s" data-nocase>${esc(top.join("; "))}${more > 0 ? `, and ${more} more` : ""}</span>` : ""}</span>${mnSvg(OV_GO)}</button>`;
+    })
+    .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-pages" data-ovpages="buy" role="group" aria-label="Purchasing Pages">${html}</div>`);
+  host.querySelectorAll("[data-ovpg]").forEach((b) => (b.onclick = () => mnGo(g, items[+b.dataset.ovpg])));
+}
+function ovFillJobs() {
+  const host = document.getElementById("ovjobs-body"),
+    list = document.getElementById("ov-list-ovjobs");
+  if ("ovjobs" !== view || !host || !list || "object" != typeof OV_BUILD || "function" != typeof OV_BUILD.jobs) return;
+  host.querySelectorAll("[data-ovflags]").forEach((x) => x.remove());
+  let rows = [];
+  try {
+    rows = OV_BUILD.jobs().filter((r) => r && r.p && r.J && !(r.J.contract > 0));
+  } catch (e) {
+    console.warn("projects overview", e);
+  }
+  if (!rows.length) return;
+  const may = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+    to = may("jbill") ? "jbill" : "dash",
+    html = rows
+      .map((r) => `<div class="ov-flag" data-ovflag="${esc(r.p.id)}"><span data-nocase><b>${esc(shortName(r.p))}</b> has no contract value. Work on it has nothing to bill against until an estimate is signed.</span><button type="button" class="btn sm" data-ovflaggo="${esc(r.p.id)}">${"jbill" === to ? "Open Contract and Billing" : "Open the Job"}</button></div>`)
+      .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-flags" data-ovflags="jobs">${html}</div>`);
+  host.querySelectorAll("[data-ovflaggo]").forEach((b) => (b.onclick = () => ("function" == typeof jpOpenJob ? jpOpenJob(b.dataset.ovflaggo, to) : (setCurrent(b.dataset.ovflaggo), setView(to)))));
+}
 {
   const base = render;
   render = function () {
@@ -202830,6 +202891,11 @@ function mnApprLink() {
       mnAsk(), mnHeading(), mnApprLink();
     } catch (e) {
       console.warn("menu headings", e);
+    }
+    try {
+      ovFillBuy(), ovFillJobs();
+    } catch (e) {
+      console.warn("module overviews", e);
     }
     return r;
   };

@@ -127,6 +127,40 @@ async def run(p, c, uid, phone):
             st = await pg.evaluate(STATE)
             last_is_over = await pg.evaluate("g => { const B = mnBuild(), x = B.groups.concat(B.bottom || []).find(y => y.id === g), it = x.items.filter(i => !i.job).pop(); return it === x.over; }", gid)
             if not last_is_over: c.ok(gid not in st['here'], f'{tag}: the name stays lit on {st["view"]}')
+    # FILL: the Purchasing overview links into each Purchasing page of the person's menu, each with that page's own
+    # Needs You (the menu's number); the Projects overview flags a job with no contract value, with the way in
+    await go(pg, await pg.evaluate("MENU[role()].home"))
+    await open_menu(pg, phone)
+    await tap(pg, pg.locator('#nav-groups [data-mnhead="buy"]').first, phone)
+    if await pg.evaluate('view') == 'ovbuy':
+        pgs = await pg.evaluate(r"""() => { const B = mnBuild(), g = B.work.find(x => x.id === 'buy');
+          const want = g.items.filter(it => !it.job).map(it => ({ l: it.l, v: it.v, n: puCount(it.v) }));
+          const got = [...document.querySelectorAll('#v-ovbuy [data-ovpages] .ov-pg')].map(b => { const r = b.getBoundingClientRect();
+            return { l: b.querySelector('b').textContent.trim(), say: b.querySelector('.ov-pg-n').textContent.trim(), h: Math.round(r.height), svg: !!b.querySelector('svg'), in: r.left >= 0 && r.right <= innerWidth + 1 }; });
+          return { want, got, wide: document.documentElement.scrollWidth - innerWidth }; }""")
+        c.ok([x['l'] for x in pgs['got']] == [x['l'] for x in pgs['want']], f'{tag0}: the Purchasing overview links {[x["l"] for x in pgs["got"]]}, the menu lists {[x["l"] for x in pgs["want"]]}')
+        for w, g in zip(pgs['want'], pgs['got']):
+            said = int(g['say'].split(' ')[0]) if g['say'][:1].isdigit() else 0
+            c.ok(said == w['n'], f'{tag0}: the overview says "{g["say"]}" for {w["l"]}, its page counts {w["n"]}')
+            c.ok(g['svg'] and g['in'] and (not phone or g['h'] >= 44), f'{tag0}: the link to {w["l"]} ({g})')
+        c.ok(pgs['wide'] <= 1, f'{tag0}: the Purchasing overview scrolls sideways by {pgs["wide"]}px')
+        for i, w in enumerate(pgs['want']):
+            await pg.evaluate("() => { mnOverV = 'ovbuy'; view = 'ovbuy'; render(); }")
+            await pg.wait_for_timeout(150)
+            await tap(pg, pg.locator('#v-ovbuy [data-ovpages] .ov-pg').nth(i), phone)
+            st = await pg.evaluate(STATE)
+            c.ok(st['view'] == w['v'] and st['ent'] == w['l'], f'{tag0}: the overview\'s link to {w["l"]} opens {st["view"]} (lit "{st["ent"]}")')
+    await go(pg, await pg.evaluate("MENU[role()].home"))
+    await open_menu(pg, phone)
+    await tap(pg, pg.locator('#nav-groups [data-mnhead="jobs"]').first, phone)
+    fl = await pg.evaluate(r"""() => ({ want: OV_BUILD.jobs().filter(r => !(r.J.contract > 0)).map(r => r.p.id), got: [...document.querySelectorAll('#v-ovjobs [data-ovflag]')].map(x => x.dataset.ovflag),
+      n: document.querySelectorAll('#v-ovjobs [data-ovflags]').length, wide: document.documentElement.scrollWidth - innerWidth })""")
+    c.ok(fl['got'] == fl['want'] and fl['n'] <= 1, f'{tag0}: the Projects overview flags {fl["got"]}, the jobs with no contract value are {fl["want"]}')
+    c.ok(fl['wide'] <= 1, f'{tag0}: the Projects overview scrolls sideways by {fl["wide"]}px')
+    if fl['got']:
+        await tap(pg, pg.locator('#v-ovjobs [data-ovflaggo]').first, phone)
+        st = await pg.evaluate("({ view, job: S && S.id })")
+        c.ok(st['job'] == fl['got'][0] and st['view'] in ('jbill', 'dash'), f'{tag0}: the flag opens {st}')
     # LINKS: a link that names a retired overview still lands where its content moved
     for v in ('ovbuy', 'ovmoney'):
         if not await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", v): continue

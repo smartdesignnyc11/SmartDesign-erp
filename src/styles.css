@@ -2534,6 +2534,24 @@ tr.rx-detail td.rx-dcell{background:var(--paper-2);padding:8px 12px 10px 14px;bo
 .ov-list .dg{margin-top:0} .ov-count{white-space:nowrap;align-self:center}
 .ov-review .ls-rev-row .btn{margin-left:auto}
 .ov-pointer{margin:0 0 12px}
+/* the module overviews (Alan, 11-12): Purchasing's links into its pages, each with what waits there; Projects' flag on a
+   job with no contract value */
+.ov-pages{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:0 0 14px}
+.ov-pg{display:flex;align-items:center;gap:10px;min-height:56px;padding:10px 12px 10px 14px;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:12px;box-shadow:inset 4px 0 0 var(--ink-4);cursor:pointer;font:inherit;color:inherit;min-width:0}
+.ov-pg.warn{box-shadow:inset 4px 0 0 var(--warn)} .ov-pg.bad{box-shadow:inset 4px 0 0 var(--bad)}
+.ov-pg:hover{background:var(--paper-2)}
+.ov-pg-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ov-pg-b b{font-size:14px}
+.ov-pg-n{font-size:12.5px;color:var(--ink-2)}
+.ov-pg-s{font-size:12.5px;color:var(--ink-3);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ov-pg svg{flex:none;width:16px;height:16px;fill:none;stroke:var(--ink-3);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ov-flags{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
+.ov-flag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--warn-2);border:1px solid var(--rule);border-radius:12px;box-shadow:inset 4px 0 0 var(--warn);font-size:13.5px}
+.ov-flag>span{flex:1;min-width:200px}
+@media (max-width:760px){
+  .ov-pages{grid-template-columns:1fr;gap:8px}
+  .ov-flag .btn{min-height:44px}
+}
 .ov-tb{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap} .ov-tb .seg.sm{margin:0}
 .ov-procfoot{margin-top:10px} .ov-procfoot .sel-stats{margin:0 0 8px} .ov-procacts{display:flex;gap:8px;flex-wrap:wrap}
 .ov-kpifoot{display:flex;flex-wrap:wrap;gap:8px 22px;margin:10px 0 16px;padding:8px 14px;border:1px solid var(--rule);border-radius:var(--r,8px);background:var(--paper-2)} .ov-kpifoot .ov-stat{display:flex;gap:6px;align-items:baseline;min-width:0;max-width:100%} .ov-kpifoot .ov-stat.go{cursor:pointer} .ov-kpifoot .ov-stat span{font-size:12px;color:var(--ink-3)} .ov-kpifoot .ov-stat b{font-size:13px;font-weight:600} .ov-kpifoot .ov-stat.ok b{color:var(--ok)} .ov-kpifoot .ov-stat.bad b{color:var(--bad)}
@@ -3466,7 +3484,8 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
 #subnav .sub-tabs .mn-sec{flex:none;align-self:center;font-size:var(--fs-cap,11.5px);font-weight:600;color:var(--ink-3);padding:0 2px 0 14px;white-space:nowrap;letter-spacing:.02em}
 #subnav .sub-tabs .mn-sec:first-child{padding-left:4px}
 /* the 11-03 menu (docs/mockups/job-structure: MenuNow and Main on the phone, Desk's rail): Your Day and Work captions,
-   a group that opens on its name (the whole row; no arrow), its pages under it, Company and Settings and Record a
+   a group whose name opens its overview page, a chevron that shows or hides its pages under it (Alan, 11-12; before,
+   the whole row opened the list and there was no arrow), Company and Settings and Record a
    Feedback Session at the foot. One number style: a filled badge, only where something waits on the person. */
 #nav-groups .mn-cap{padding:12px 10px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
 #nav-groups .mn-cap:first-child{padding-top:2px}
@@ -3501,6 +3520,7 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   #nav-groups .mn-head{font-weight:600}
   #nav-groups button.mn-kid{min-height:44px;font-size:15px;padding:0 10px}
   #nav-groups button.mn-chev{width:48px;min-height:48px}
+  #nav-groups .mn-row .mn-l{white-space:normal;overflow:visible}
   #nav-groups button.mn-chev svg{width:18px;height:18px}
   #nav-groups .mn-kids{padding-left:30px}
   #nav-groups .mn-head svg,#nav-groups button svg{width:20px;height:20px}
