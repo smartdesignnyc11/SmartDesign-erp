@@ -180,7 +180,7 @@ async def t_deposit(C, p, phone):
         await loc.click(); await pg.wait_for_timeout(500)
         await pg.locator('.view.on [data-ydclnewinv]').first.click(); await pg.wait_for_timeout(700)
         y = await js(pg, """const c = DB.clients.find(x => x.id === arg.cid), t = document.getElementById('toast');
-          return { n: (c.invoices || []).filter(i => i.status !== 'void').length, open: docOpen ? docOpen.id : '', id: (c.invoices.find(i => i.depositOf === arg.eid) || {}).id, toast: t ? t.innerText : '', modal: !!document.getElementById('mbm') };""", S)
+          return { n: (c.invoices || []).filter(i => i.status !== 'void').length, open: docOpen ? docOpen.id : (typeof dvCur !== 'undefined' && dvCur ? dvCur.id : ''), id: (c.invoices.find(i => i.depositOf === arg.eid) || {}).id, toast: t ? t.innerText : '', modal: !!document.getElementById('mbm') };""", S)
         C.ok(y['n'] == 1 and y['open'] == y['id'] and not y['modal'], f'DEP {dev}: a second New Invoice reopens {num}, no second invoice: {y}')
         C.ok(num in y['toast'] and 'Open' in y['toast'] and 'drafted already' in y['toast'], f'DEP {dev}: its toast says {num} is drafted already, with Open: {y["toast"]!r}')
     C.ok(not errs, f'DEP {dev}: no page errors: {errs[:3]}')
@@ -286,7 +286,7 @@ async def t_progress(C, p, phone):
     C.ok(f'draft ready: {num}, not sent' in row['text'], f'PRO {dev}: drafted, Need You keeps the Kleins and names the draft ("draft ready: {num}, not sent"): {row["text"][:300]!r}')
     C.ok('ready to bill: line-by-line application' not in row['text'], f'PRO {dev}: drafted, the measured work no longer reads "ready to bill" (the draft carries it): {row["text"][:300]!r}')
     COUNT = """const c = DB.clients.find(x => x.id === 'cl121'), t = document.getElementById('toast');
-      return { n: (c.invoices || []).filter(i => i.mode === 'sov' && i.status === 'draft' && i.projectId === 'p121').map(i => i.number), open: docOpen ? docOpen.id : '',
+      return { n: (c.invoices || []).filter(i => i.mode === 'sov' && i.status === 'draft' && i.projectId === 'p121').map(i => i.number), open: docOpen ? docOpen.id : (typeof dvCur !== 'undefined' && dvCur ? dvCur.id : ''),
                id: ((c.invoices || []).find(i => i.number === arg) || {}).id, toast: t ? t.innerText : '' };"""
     # a second New Invoice, from Need You's client, reopens the job's draft and toasts it with Open
     if loc:
@@ -350,10 +350,10 @@ async def t_rows(C, p, phone):
     C.ok(not bad, f'ROW {dev}: no row or button on the Ashbys\' Contract and Billing reads like code: {bad[:3]}')
     if rows:
         await pg.locator(f'.view.on [data-ydrow="{rows[0]["id"]}"] .yd-t').first.click(); await pg.wait_for_timeout(600)
-        r = await js(pg, "const c = DB.clients.find(x => x.id === arg.cid); return { doc: docOpen, n: (c.invoices || []).length, modal: !!document.getElementById('mbm') };", S)
+        r = await js(pg, "const c = DB.clients.find(x => x.id === arg.cid); return { doc: docOpen || (typeof dvCur !== 'undefined' && dvCur ? { kind: dvCur.kind, id: dvCur.id } : null), n: (c.invoices || []).length, modal: !!document.getElementById('mbm') };", S)
         C.ok(r['doc'] and r['doc']['kind'] == 'estimate' and r['doc']['id'] == S['eid'] and r['n'] == 0 and not r['modal'],
              f'ROW {dev}: tapping the deposit row opens the signed contract {S["number"]}, drafts nothing, opens no sheet: {r}')
-    await js(pg, "docOpen = null; slOpenClient('cl121'); await sleep(300);")
+    await js(pg, "docOpen = null; if (typeof dvClose === 'function') dvClose(); slOpenClient('cl121'); await sleep(300);")   # the person closes the document (11-06: it opened on top)
     rows = await js(pg, """return [...document.querySelectorAll('.view.on [data-sec="due"]')].filter(e => e.getClientRects().length).map(e => ({ id: e.dataset.ydrow, btn: (e.querySelector('button') || {}).innerText || '', text: e.innerText.replace(/\\s+/g, ' ') }));""")
     app = next((x for x in rows if 'Progress application' in x['text']), None)
     bad = await code_rows(pg, '.view.on [data-ydrow], .view.on button')

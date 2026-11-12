@@ -86,7 +86,7 @@ async def s1_earned(p, S):
         row = await billing_row(pg, d['num'] if d else 'INV-')
         S.check(row and row['verb'] == 'Review', 'Billing Queue: the drafted application says Review (never a one-tap Send)', str(row))
         did = await press_row(pg, d['num'] if d else 'INV-', 'Review')
-        did += ' > ' + await pg.evaluate("""async () => { const b = [...document.querySelectorAll('section.view.on button')].find(b => b.innerText.trim() === 'Send to Client'); if (!b) return 'no Send to Client';
+        did += ' > ' + await pg.evaluate("""async () => { const b = [...document.querySelectorAll('section.view.on button, #dv .dv-bar button')].find(b => b.innerText.trim() === 'Send to Client'); if (!b) return 'no Send to Client';
             b.click(); await new Promise(r => setTimeout(r, 80)); const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await new Promise(r => setTimeout(r, 150)); return 'Send to Client'; }""")
         sent = await pg.evaluate("n => { const c = DB.clients.find(x => x.id === 'cl121'); const i = c.invoices.find(x => x.number === n); return i ? i.status : 'none'; }", d['num'] if d else '')
         S.check(sent == 'sent', 'Send opens one sheet; Send to Client sends the application', f"{did}; status {sent}")

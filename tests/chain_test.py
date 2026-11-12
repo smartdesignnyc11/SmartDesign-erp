@@ -571,7 +571,8 @@ async def pay_bill(C, number, acct, date, amount, method, ref):
     await C.as_('u_controller', 'ap')
     await C.js("n => openBill(DB.bills.find(b => b.number === n).id)", number)
     await C.wait(400)
-    await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=30000)
+    # 11-06: the controller's bill opens as its document first; Pay is on its bar (src/docview.js), as Pay… is on the sheet
+    await C.pg.locator('#drawer.on button, #dv [data-dvact="bpay"]', has_text=re.compile(r'^\s*Pay')).first.click(timeout=30000)
     await C.wait(400)
     # the Payment Check (BACKLOG §1.12) runs first on the sheet. A sub's payment waits for its conditional lien
     # waiver: the controller records the one that came with the invoice from the hold's own button, as the person would.
@@ -993,7 +994,7 @@ async def s5_bill(C):
             await press_row(C, r['key'])
             C.t(f"Billing Queue > \"{r['text'][:150]}\" > Draft")
     # the PM confirmed the pot filler rough-in is in: the billing clerk types 100% on the CO line of the draft
-    await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{inv['id']}'}};")
+    await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{inv['id']}'}}; dvEditing = '{inv['id']}';")   # the editor: Edit on the document (11-06)
     if co_line:
         loc = C.pg.locator(f"section.view.on tr[data-line='{co_line['id']}'] [data-f=pct]").first
         C.ok(await loc.count() == 1, f"the draft's {co['number']} line has its % input")
@@ -1030,7 +1031,7 @@ async def s5_bill(C):
     # Send to Client: the application, then the billable expenses
     for key in ('app', 'rebill'):
         iid = (C.ids['invoice'].get('appDraft') or {}).get('id') if key == 'app' else C.ids['invoice'].get('rebill')
-        await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{iid}'}};")
+        await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{iid}'}}; dvEditing = '{iid}';")   # the editor: Edit on the document (11-06)
         await C.click_text('section.view.on', r'^Send to Client$', 600)
         m = await C.modal()
         # a line billed further ahead of its measured work asks why first (Pilot 2): the CO line goes at 100% on the
@@ -1057,7 +1058,7 @@ async def s5_bill(C):
         C.plog('the Overview has no View for the new invoice; opening Invoices Due')
         await C.ptap("section.view.on [data-tl=inv]", 'Invoices Due')
     await C.pcheck('the invoice')
-    txt = await C.ph.evaluate("() => ((document.querySelector('#mbm') || document.querySelector('section.view.on')).innerText || '')")
+    txt = await C.ph.evaluate("() => ((document.querySelector('#dv') || document.querySelector('#mbm') || document.querySelector('section.view.on')).innerText || '')")
     C.ok('How to Pay' in txt, 'the portal shows the invoice with How to Pay', txt[-300:])
     C.plog('the portal has no way to pay online or to say "we paid": How to Pay lists cheque or bank transfer; the payment arrives as a bank deposit')
     C.findings.append('Portal: the client can read an invoice and How to Pay, but cannot pay it or tell us it was paid; payment is a bank transfer the controller matches.')

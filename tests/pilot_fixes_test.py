@@ -517,14 +517,14 @@ async def t_designer_and_bill(c, p):
     b, pg, errs2 = await fresh(p, 'u_controller')
     r = await js(pg, """
       const b = DB.bills.find(x => x.status === 'submitted');
-      openBill(b.id); await sleep(300);
+      dvBillEdit = b.id; openBill(b.id); await sleep(300);   // the bill sheet: Edit on the bill's document (11-06)
       const d = document.getElementById('drawer'), ctl = (d.querySelector('.note.warn') || {}).innerText || '';
       d.querySelector('[data-billhold="hold"]').click(); await sleep(200);
       document.querySelector('#mbm [data-f="why"]').value = 'waiting on the signed delivery ticket'; document.querySelector('#mbm-ok').click(); await sleep(300);
       const toast1 = (document.getElementById('toast') || {}).innerText || '', p = DB.projects.find(x => x.id === b.projectId), t1 = (p.actions || []).slice(-1)[0];
       billAction(b, 'approve'); const st = b.status;
       const b2 = DB.bills.filter(x => x.status === 'submitted' || x.status === 'pm-approved').find(x => x.id !== b.id);
-      openBill(b2.id); await sleep(300);
+      dvBillEdit = b2.id; openBill(b2.id); await sleep(300);
       document.querySelector('#drawer [data-billhold="back"]').click(); await sleep(200);
       document.querySelector('#mbm [data-f="why"]').value = 'invoice for 10 units, the PO is 9'; document.querySelector('#mbm-ok').click(); await sleep(300);
       const toast2 = (document.getElementById('toast') || {}).innerText || '';

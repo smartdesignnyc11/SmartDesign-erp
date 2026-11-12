@@ -157,9 +157,10 @@ async def t_prorata(C, p, phone):
     await sign_in(pg, 'u_billing')
     # billing starts the application from the contract and bills 10% of framing ($11,400) this period
     await js(pg, "view = 'clients'; clientOpen = arg.cid; clientTab = 'fin'; finTab = 'estimates'; docOpen = { kind: 'estimate', id: arg.eid }; render(); await sleep(300);", S)
-    ok = await tap_text(pg, f'#doc-{S["eid"]} [data-docact="progress"]', 'New Progress Invoice')
+    # 11-06: billing opens the signed contract as its document first; New Progress Invoice is its blue (src/docview.js)
+    ok = await tap_text(pg, f'#doc-{S["eid"]} [data-docact="progress"], #dv [data-dvact="progress"]', 'New Progress Invoice')
     if not ok:
-        await pg.locator(f'#doc-{S["eid"]} [data-docact="progress"]').first.click(); await pg.wait_for_timeout(500)
+        await pg.locator(f'#doc-{S["eid"]} [data-docact="progress"], #dv [data-dvact="progress"]').first.click(); await pg.wait_for_timeout(500)
     if await pg.locator('#mbm #mbm-ok').count():
         await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(600)
     inv = await js(pg, "const c = DB.clients.find(x => x.id === arg.cid); const i = c.invoices.find(i => i.mode === 'sov' && i.status === 'draft'); return i ? { id: i.id, line: (i.lines.find(l => /Framing/.test(((c.sov.find(v => v.id === l.sovId) || {}).desc) || '')) || {}).id } : null;", S)
@@ -261,7 +262,7 @@ async def t_cash(C, p, phone):
     C.ok(len(inv) >= 2 and all('recorded, not yet in the bank' in r for r in inv) and not any(re.search(r'\bpaid\b', r) for r in inv),
          f'CASH {dev}: Rivera\'s two invoices read "recorded, not yet in the bank", never Paid: {inv}')
     # the invoice itself: Paid is not reached, and the pill says how much the bank has not seen
-    await js(pg, "const c = DB.clients.find(x => x.id === 'cl45'); clientOpen = c.id; docOpen = { kind: 'invoice', id: 'inD45r' }; view = 'clients'; clientTab = 'fin'; render(); await sleep(300);")
+    await js(pg, "const c = DB.clients.find(x => x.id === 'cl45'); clientOpen = c.id; docOpen = { kind: 'invoice', id: 'inD45r' }; if (typeof dvEditing !== 'undefined') dvEditing = 'inD45r'; view = 'clients'; clientTab = 'fin'; render(); await sleep(300);")   # the editor: Edit on the document (11-06)
     d = await js(pg, "const v = document.getElementById('doc-inD45r'); if (!v) return null; const on = v.querySelector('.status-flow .on'); const blue = v.querySelector('.docacts .btn.primary'); return { on: on ? on.innerText : '', pill: (v.querySelector('[data-unbanked]') || {}).innerText || '', blue: blue ? blue.innerText : '' };")
     C.ok(bool(d) and d['on'].lower() != 'paid' and '5,000' in d['pill'], f'CASH {dev}: INV-2026-D45-R stops short of Paid and says $5,000 recorded, not yet in the bank: {d}')
     C.ok(not errs, f'CASH {dev}: no page errors: {errs[:3]}')

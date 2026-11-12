@@ -12,7 +12,7 @@ FLOW = """async (kind) => {
   const mk = (t) => { const d = newDoc(c, kind); d.projectId = 'p45'; d.title = t; d.lines = [{ id: uid('l'), item: 'Check', qty: 1, unit: 'ls', rate: 100, taxable: false }];
     const L = kind === 'co' ? (c.cos = c.cos || c.changeOrders || []) : c.invoices; if (!L.includes(d) && !(c.invoices.includes(d) || (c.cos || []).includes(d))) L.push(d); return d; };
   const A = mk('First'), B = mk('Second'); save();
-  const open = async (d) => { billTab = kind === 'co' ? 'co' : 'billable'; clientOpen = c.id; docOpen = { kind, id: d.id }; view = 'billing'; render(); await wait(300); };
+  const open = async (d) => { billTab = kind === 'co' ? 'co' : 'billable'; clientOpen = c.id; docOpen = { kind, id: d.id }; if (typeof dvEditing !== 'undefined') dvEditing = d.id; view = 'billing'; render(); await wait(300); };
   const btn = () => [...document.querySelectorAll('section.view.on [data-docact=sendclient]')].find(b => b.offsetParent);
   const out = { kind };
   await open(A); out.first = !!btn();

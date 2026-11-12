@@ -81,8 +81,9 @@ HL = """(name, listOnly) => { const n = name.replace(/\\s+/g, ' ').trim().toLowe
 NATURAL = """async ([coll, key, name]) => { const id = key.slice(key.lastIndexOf(':') + 1), me = (currentUser() || {}).name || '';
   const find = (L) => (L || []).find(r => r && (r.id === id || r.number === id));
   const proj = (k) => DB.projects.find(p => find(p[k]));
+  // 11-06: a document opens on top of its list (#dv, src/docview.js); what it shows is on the screen too
   const n = name.replace(/\\s+/g, ' ').trim().toLowerCase().slice(0, 40);
-  const shown = () => { const root = document.querySelector('section.view.on'); const own = root && root.querySelector('#fnd-made'); let t = (root ? root.innerText : '').replace(/\\s+/g, ' ').toLowerCase(); if (own) t = t.replace(own.innerText.replace(/\\s+/g, ' ').toLowerCase(), ''); return t.includes(n); };
+  const shown = () => { const root = document.querySelector('section.view.on'); const own = root && root.querySelector('#fnd-made'); let t = ((root ? root.innerText : '') + ' ' + ((document.getElementById('dv') || {}).innerText || '')).replace(/\\s+/g, ' ').toLowerCase(); if (own) t = t.replace(own.innerText.replace(/\\s+/g, ' ').toLowerCase(), ''); return t.includes(n); };
   let where = '';
   if (coll === 'p.actions' || coll === 'p.tasks') { const p = proj(coll.slice(2)), r = find(p[coll.slice(2)]), who = r.assignee || r.owner || '';
     const mine = tkOwnerMatch(who, me); view = (ROLE_VIEWS[role()] || []).includes('tkall') ? 'tkall' : 'tasks'; render();
