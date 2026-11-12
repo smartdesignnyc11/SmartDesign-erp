@@ -503,8 +503,11 @@ async def refund(p, phone):
     S0 = """() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in2'), f = clientFin(c);
       return { st: invoiceStatus(c, d), paid: r2(f.paid), cr: r2(f.credits), n: c.payments.length, out: f.outstanding, onacct: dvOnAccount(c), billed: r2(f.invoiced),
                cms: c.invoices.filter(i => i.creditMemo).length } }"""
+    # the fixture: credit on the Kleins' account, as a credit on a paid invoice leaves it (held for a refund)
+    held = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in2');
+      const R = dvCreditCreate(c, d, [{ lineId: d.lines[0].id, amount: 600 }], 'courtesy credit agreed on the call'); return R.ok ? dvOnAccount(c) : R.why; }""")
     a = await pg.evaluate(S0)
-    C.ok(a['onacct'] >= 500, f'billing {who}: the fixture: the Kleins hold credit on the account to refund from ({a["onacct"]})')
+    C.ok(a['onacct'] >= 500, f'billing {who}: the fixture: the Kleins hold credit on the account to refund from ({held}, {a["onacct"]})')
     no = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl45'), d = c.invoices.find(i => i.id === 'inD45r'); return dvRefundPropose(c, d, c.payments.find(p => p.invoiceId === d.id).id, 100, 'test', false) }")
     C.ok(not no['ok'] and 'bank' in no['why'], f'billing {who}: money the bank does not have is never refunded ({no["why"]})')
     await pg.evaluate("() => { clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: 'in2' }; view = 'billing'; render(); }")
@@ -550,7 +553,7 @@ async def refund(p, phone):
     await dv_tap(pg, 'Approve the Refund')
     cf = await pg.evaluate("() => (document.querySelector('#mbm [data-dvconfirm]') || {}).textContent || ''")
     still = await pg.evaluate("() => dvRefunds(DB.clients.find(c => c.id === 'cl121'))[0].status")
-    C.ok(still == 'proposed' and '$500.00' in cf and 'Klein' in cf and 'out of' in cf and 'came into' in cf,
+    C.ok(still == 'proposed' and re.search(r'\$500\b', cf) and 'Klein' in cf and 'out of' in cf and 'came into' in cf,
          f'the owner {who}: Approve opens a confirm sheet that restates the amount, who it goes to and the account, and nothing is approved yet ({still}: {cf[:160]})')
     await shot(pg, f'u_owner_{dev}_refund_confirm')
     await pg.locator('#mbm #mbm-ok').click()
