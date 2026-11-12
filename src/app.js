@@ -181807,7 +181807,13 @@ const PO_DROP = { curb: "Curb or Shipped", inside: "Carried Inside" },
   poDropAt = (po) => (po && PO_DROP[po.dropAt] ? po.dropAt : ""),
   // the order's delivery as the papers read it: as said on the order, else guessed from its lines
   poDropOf = (po) => (poDropAt(po) ? { at: po.dropAt, guessed: !1, sure: !0 } : Object.assign({ guessed: !0 }, poDropGuessOf(((po && po.lines) || []).map((l) => `${l.item || ""} ${l.desc || ""}`).join(" ; ")))),
-  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase())));
+  // Ship To is read before anything is guessed from the lines (the coordinator's review, 11-12: an appliance ordered to
+  // the Office was held for a certificate). Only a delivery to the job's own address can be carried inside the client's
+  // home: the office, the shop, the warehouse, will-call, held at the vendor or any other address is not their site,
+  // whatever the items are. The seed and the restock write "Office" and "Warehouse" as words, so the test is "not the
+  // job site", never a list of the places that are not.
+  poShipOff = (po) => !["", "site", "job site"].includes(String((po && po.shipTo) || "site").trim().toLowerCase()),
+  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !poShipOff(po)));
 // a vendor's open orders that bring them on site (the papers' rule, for every reader)
 function vendorOnSitePOs(name, exceptId) {
   const n = String(name || "").toLowerCase();
@@ -181932,7 +181938,7 @@ if ("function" == typeof renderPODoc) {
           // where it is delivered rules the papers (a COI only for who comes inside): the choice sits on the order, set
           // or not, while it can still change
           D = poDropOf(po),
-          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
+          dr = ["subcontract", "service"].includes(po.type) || poShipOff(po) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
           w =
             dr +
             P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
@@ -192194,8 +192200,9 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
-    ${mbF("Delivery", `<select data-f="dropAt">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
+    ${mbF("Delivery", `<select data-f="dropAt" data-guess="${poDropGuess(r)}">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
     <div class="note bad small fl-paper" role="alert" hidden></div>
+    <div class="fl-dropwhy" hidden>${mbF("Why Curb or Shipped", `<input data-f="dropWhy" placeholder="e.g. they confirmed a curbside drop; our crew carries it in">`)}</div>
     ${ovL ? `<div class="note bad small fl-over" role="alert" data-left="${ovL.left}" data-budget="${ovL.budget}" data-name="${esc(ovL.name)}" hidden><div class="fl-over-t"></div>${mbF("Why Over the Line", `<input data-f="overWhy" placeholder="e.g. the vendor's price rose; a change order follows">`)}</div>` : ""}
     ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
@@ -192210,6 +192217,7 @@ function buyOrderDialog(o) {
         if (!fromQuote && !poVendorReal(f.vendor)) return toast("Choose the supplier — a vendor on file"), !1;
         // a sender not on file has no certificate of insurance: carried inside, it waits for one (Alan, 10-25)
         if (fromQuote && "inside" === f.dropAt) return toast(FL_QUOTE_INSIDE), !1;
+        if (flDropWhyNeeded(f.vendor, f.dropAt, poDropGuess(r)) && !(f.dropWhy && f.dropWhy.trim().length >= 8)) return toast(FL_DROP_WHY), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
@@ -192236,6 +192244,28 @@ function buyOrderDialog(o) {
   );
 }
 const FL_QUOTE_INSIDE = "Not on file yet, so no certificate of insurance: a delivery carried inside needs one before the order. If it drops at the curb or ships, choose Curb or Shipped";
+// The certificate stop on the Order sheet (Alan, 10-25) is never a dead end (the 11-07 month: the radiant mats and the
+// slab sat on "Issue PO" with a toast and no next step). The note under Delivery says the stop and offers the same
+// one tap as the order page's Change: Set Curb or Shipped, with the reason. The reason is asked whenever a delivery
+// guessed as carried inside is set to the curb for a supplier with no current certificate (or not on file yet); it
+// goes on the order and in its audit row, because it is the step that lifts the gate. Goods that truly come inside
+// (a slab the yard installs) still wait for the certificate: the note says so.
+const FL_DROP_WHY = "Say how you know it drops at the curb or ships: a sentence, so the audit trail says why no certificate is needed",
+  flDropWhyNeeded = (vn, dz, guess) => {
+    if ("curb" !== dz || "inside" !== guess) return !1;
+    if ("__quote__" === vn) return !0;
+    const v = vn && poVendorReal(vn);
+    return !!v && (!v.insuranceExp || v.insuranceExp < today());
+  };
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest && e.target.closest("[data-fldropcurb]"),
+    root = b && b.closest("#mbm"),
+    dz = root && root.querySelector('[data-f="dropAt"]');
+  if (!dz) return;
+  e.preventDefault(), (dz.value = "curb"), flSheetChecks(root);
+  const w = root.querySelector('[data-f="dropWhy"]');
+  w && w.focus();
+});
 // The Order sheet says the vendor's papers and the line overage as they are entered, not after Issue PO.
 function flSheetChecks(root) {
   const q = (k) => root.querySelector(`[data-f="${k}"]`),
@@ -192248,8 +192278,14 @@ function flSheetChecks(root) {
   if (paper) {
     const dz = q("dropAt") ? q("dropAt").value : "",
       P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", dropAt: dz, lines: [{ qty: qty, price: price }] }) : "__quote__" === vn && "inside" === dz ? { stop: [FL_QUOTE_INSIDE], warn: [] } : { stop: [], warn: [] },
-      t = P.stop.concat(P.warn);
+      t = P.stop.concat(P.warn),
+      guess = (q("dropAt") && q("dropAt").dataset.guess) || "",
+      // the one tap is offered only when it lifts the stop: carried inside now, and nothing stops the same order at the curb
+      lifts = "inside" === dz && P.stop.length && ("__quote__" === vn || !poPaper({ id: "", vendor: vn, type: "materials", dropAt: "curb", lines: [{ qty: qty, price: price }] }).stop.length),
+      why = root.querySelector(".fl-dropwhy");
     (paper.hidden = !t.length), (paper.className = `note small fl-paper ${P.stop.length ? "bad" : "warn"}`), (paper.textContent = t.join(". ") + (t.length ? "." : ""));
+    lifts && paper.insertAdjacentHTML("beforeend", ` <span class="fl-dropfix">If the vendor installs it or carries it inside, the order waits for their certificate. If it drops at the curb or ships, nobody comes inside: <button type="button" class="btn sm" data-fldropcurb>Set Curb or Shipped</button></span>`);
+    why && (why.hidden = !flDropWhyNeeded(vn, dz, guess));
   }
   if (ov) {
     const over = r2(qty * price - +ov.dataset.left);
@@ -192324,6 +192360,13 @@ function flIssueOrder(r, v, f, tk) {
   try {
     audit("po", po.id, "ordered-from-line", "", `${po.number} ${v.name} ${money(poTotal(po).total)}`, r.name);
   } catch (e) {}
+  // guessed carried inside, ordered as a curb drop from a supplier with no current certificate: who said so, and why
+  if ("curb" === po.dropAt && "inside" === poDropGuess(r) && f.dropWhy && String(f.dropWhy).trim()) {
+    po.dropWhy = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: String(f.dropWhy).trim() };
+    try {
+      audit("po", po.id, "delivery", "inside (guessed)", "curb", `${PO_DROP.curb}, set on the order sheet: ${po.dropWhy.why}`);
+    } catch (e) {}
+  }
   const keep = S;
   S = p;
   try {
