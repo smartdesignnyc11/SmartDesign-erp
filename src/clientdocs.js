@@ -394,7 +394,7 @@ function cxKindAtSend(d) {
 const CX_LABEL = { estimate: "Proposal", co: "Change Order", progress: "Application for Payment", deposit: "Deposit Invoice", design: "Design Fee Invoice", invoice: "Invoice" };
 const CX_MARK =
   '<svg class="cx-mark" width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="1.5" width="37" height="37"/><path d="M9 31V16.5L20 8l11 8.5V31z"/><path d="M15.5 31v-8h9v8M9 20.5h22M14 13.2h12"/></svg>';
-const CX_CSS = `.cxd{font:12.5px/1.5 Georgia,"Times New Roman",serif;color:#1D2430;max-width:860px;margin:0 auto;position:relative}.cxd .sans{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}.cxd-lh{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:1.5px solid #1D2430;padding-bottom:12px}.cxd-brand{display:flex;gap:12px;align-items:center}.cxd-brand img{max-height:44px}.cxd-word{font-size:26px;letter-spacing:.06em;line-height:1}.cxd-tag{font-size:11px;color:#4A5462;letter-spacing:.04em;margin-top:4px}.cxd-firm{text-align:right;font-size:11px;color:#4A5462;line-height:1.55}.cxd-lics{font-size:10px;color:#6b7480;padding:5px 0 0;letter-spacing:.02em}.cxd-hd{display:flex;justify-content:space-between;align-items:flex-end;margin:22px 0 14px;gap:20px}.cxd-kind{font-size:21px;letter-spacing:.04em}.cxd-num{font-size:11.5px;color:#4A5462;text-align:right;line-height:1.6}.cxd-meta{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:14px}.cxd-k{font-size:10.5px;color:#6b7480;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}.cxd-subj{font-size:15px;margin:6px 0 4px}.cxd table{width:100%;border-collapse:collapse;margin:8px 0}.cxd th{font:600 10.5px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-align:left;color:#4A5462;border-bottom:1.5px solid #1D2430;padding:6px 6px}.cxd td{padding:7px 6px;border-bottom:1px solid #E6E9EE;vertical-align:top}.cxd .r{text-align:right;white-space:nowrap}.cxd .n{width:28px;color:#6b7480}.cxd .ds{color:#4A5462;font-size:11.5px;white-space:pre-wrap;margin-top:2px}.cxd tr.child td{background:#FAFBFC}.cxd tr.child td:nth-child(2){padding-left:18px}.cxd-tot{margin:10px 0 0 auto;width:360px}.cxd-tot div{display:flex;justify-content:space-between;gap:16px;padding:3px 0}.cxd-tot .big{border-top:1.5px solid #1D2430;margin-top:5px;padding-top:7px;font-size:15px;font-weight:700}.cxd-tot .dim{color:#6b7480;font-size:11.5px}.cxd-box{border:1px solid #D9DDE3;padding:10px 12px;margin:14px 0;font-size:12px}.cxd-box b{letter-spacing:.02em}.cxd-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.cxd-memo{white-space:pre-wrap;margin-top:12px}.cxd-sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:38px;font-size:11.5px}.cxd-sig div{border-top:1px solid #1D2430;padding-top:6px;color:#4A5462}.cxd-foot{margin-top:24px;border-top:1px solid #D9DDE3;padding-top:8px;font-size:10.5px;color:#6b7480}.cxd-draft{position:absolute;top:240px;left:0;right:0;text-align:center;font:700 54px -apple-system,Helvetica,Arial,sans-serif;color:rgba(178,34,34,.13);transform:rotate(-18deg);pointer-events:none;letter-spacing:.08em}@media print{.cxd tr{page-break-inside:avoid}}`;
+const CX_CSS = `.cxd{font:12.5px/1.5 Georgia,"Times New Roman",serif;color:#1D2430;max-width:860px;margin:0 auto;position:relative}.cxd .sans{font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}.cxd-lh{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;border-bottom:1.5px solid #1D2430;padding-bottom:12px}.cxd-brand{display:flex;gap:12px;align-items:center}.cxd-brand img{max-height:44px}.cxd-word{font-size:26px;letter-spacing:.06em;line-height:1}.cxd-tag{font-size:11px;color:#4A5462;letter-spacing:.04em;margin-top:4px}.cxd-firm{text-align:right;font-size:11px;color:#4A5462;line-height:1.55}.cxd-lics{font-size:10px;color:#6b7480;padding:5px 0 0;letter-spacing:.02em}.cxd-hd{display:flex;justify-content:space-between;align-items:flex-end;margin:22px 0 14px;gap:20px}.cxd-kind{font-size:21px;letter-spacing:.04em}.cxd-num{font-size:11.5px;color:#4A5462;text-align:right;line-height:1.6}.cxd-meta{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:14px}.cxd-k{font-size:10.5px;color:#6b7480;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}.cxd-subj{font-size:15px;margin:6px 0 4px}.cxd table{width:100%;border-collapse:collapse;margin:8px 0}.cxd th{font:600 10.5px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-align:left;color:#4A5462;border-bottom:1.5px solid #1D2430;padding:6px 6px}.cxd td{padding:7px 6px;border-bottom:1px solid #E6E9EE;vertical-align:top}.cxd .r{text-align:right;white-space:nowrap}.cxd .n{width:28px;color:#6b7480}.cxd .ds{color:#4A5462;font-size:11.5px;white-space:pre-wrap;margin-top:2px}.cxd tr.child td{background:#FAFBFC}.cxd tr.child td:nth-child(2){padding-left:18px}.cxd-tot{margin:10px 0 0 auto;width:360px}.cxd-tot div{display:flex;justify-content:space-between;gap:16px;padding:3px 0}.cxd-tot .big{border-top:1.5px solid #1D2430;margin-top:5px;padding-top:7px;font-size:15px;font-weight:700}.cxd-tot .dim{color:#6b7480;font-size:11.5px}.cxd-box{border:1px solid #D9DDE3;padding:10px 12px;margin:14px 0;font-size:12px}.cxd-box b{letter-spacing:.02em}.cxd-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.cxd-memo{white-space:pre-wrap;margin-top:12px}.cxd-sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:38px;font-size:11.5px}.cxd-sig div{border-top:1px solid #1D2430;padding-top:6px;color:#4A5462}.cxd-foot{margin-top:24px;border-top:1px solid #D9DDE3;padding-top:8px;font-size:10.5px;color:#6b7480}.cxd-draft{position:absolute;top:240px;left:0;right:0;text-align:center;font:700 54px -apple-system,Helvetica,Arial,sans-serif;color:rgba(178,34,34,.13);transform:rotate(-18deg);pointer-events:none;letter-spacing:.08em}.cxd tr.cx-sec td{background:#EEF1F4;font:700 11.5px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#1D2430;border-bottom:1px solid #C9CFD8;border-top:1px solid #C9CFD8;padding-top:8px;padding-bottom:8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}.cxd .cx-np{color:#8A93A0;font-style:italic}.cxd tr.cx-nprow td{color:#4A5462}@media print{.cxd tr{page-break-inside:avoid}.cxd tr.cx-sec{page-break-after:avoid}}@media screen and (max-width:560px){.cxd{font-size:12px}.cxd-lh,.cxd-hd{flex-wrap:wrap;gap:10px}.cxd-firm,.cxd-num{text-align:left}.cxd-meta,.cxd-grid,.cxd-sig{grid-template-columns:1fr;gap:12px}.cxd-tot{width:auto;max-width:360px}.cxd th,.cxd td{padding-left:4px;padding-right:4px}.cxd td{overflow-wrap:anywhere}.cxd .r{overflow-wrap:normal}.cxd .n{width:18px}.cxd-word{font-size:21px}.cxd-draft{font-size:32px}}`;
 function cxLetterhead(d) {
   const K = cxCo(d),
     firm = [K.addr, [K.phone, K.email].filter(Boolean).join(" · "), K.web].filter(Boolean);
@@ -456,11 +456,30 @@ function cxEstProgressHtml(c, d, re) {
     const el = E[i],
       item = cxClean(l.item, c, re),
       desc = cxClean(l.desc || (el && el.desc) || "", c, re),
-      contract = el ? r2((+el.qty || 0) * (+el.rate || 0)) : 0,
+      np = cxNoPrice(el) || cxNoPrice(l),
+      contract = el && !np ? r2((+el.qty || 0) * (+el.rate || 0)) : 0,
       amt = lineAmount(l, d),
       pct = contract ? r2((amt / contract) * 100) : 0;
-    return `<tr><td class="n">${i + 1}</td><td>${esc(item)}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td>${q ? `<td class="r">${cxHasQty(el) ? esc(cxQty(el)) : el ? "Lump sum" : ""}</td><td class="r">${cxHasQty(el) ? cxUnitPrice(el.rate) : ""}</td>` : ""}<td class="r">${el ? money(contract) : ""}</td><td class="r">${money(amt)}${pct ? `<div class="ds">${pct}%</div>` : ""}</td></tr>`;
+    return `<tr><td class="n">${i + 1}</td><td>${esc(item)}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td>${q ? `<td class="r">${cxHasQty(el) ? esc(cxQty(el)) : el ? "Lump sum" : ""}</td><td class="r">${cxHasQty(el) ? cxUnitPrice(el.rate) : ""}</td>` : ""}<td class="r">${np ? `<span class="cx-np">${np}</span>` : el ? money(contract) : ""}</td><td class="r">${np && !amt ? "" : money(amt)}${pct ? `<div class="ds">${pct}%</div>` : ""}</td></tr>`;
   }).join("")}</tbody></table>`;
+}
+// An Excluded or to-be-priced line (lineUnpriced in src/app.js): the word the client reads where the amount was.
+const cxNoPrice = (l) => ("function" == typeof lineUnpricedWord ? lineUnpricedWord(l) : "");
+// The sections a document prints under (lane P, 11-12). A line's `group` is its section ("General Conditions",
+// "Plumbing"); a sub-line with none of its own goes with its parent's. Sections come in the order they first appear
+// and each keeps its lines in the document's order, so a line added later under an earlier section prints with it.
+// Lines with no section print first with no heading when they open the document, and under "Other" when they
+// follow one. A document with no section on any line returns null and prints the flat table it always has.
+function cxSections(L) {
+  const by = new Map(L.map((l) => [l.id, l])),
+    of = (l) => String(l.group || (l.parent && (by.get(l.parent) || {}).group) || "").trim();
+  if (!L.some((l) => of(l))) return null;
+  const S = new Map();
+  L.forEach((l) => {
+    const g = of(l);
+    S.has(g) || S.set(g, []), S.get(g).push(l);
+  });
+  return [...S].map(([name, lines], i) => ({ name: name || (i ? "Other" : ""), lines: lines }));
 }
 function cxLinesHtml(c, d, re) {
   if ("invoice" === d.type && (d.lines || []).length && (d.lines || []).every((l) => l.estLineId)) return cxEstProgressHtml(c, d, re);
@@ -468,12 +487,23 @@ function cxLinesHtml(c, d, re) {
   try {
     "construction" === d.template && "function" == typeof ctOrdered && (ctNumber(d), (L = ctOrdered(d)));
   } catch (e) {}
-  const kids = new Set(L.filter((l) => l.parent).map((l) => l.parent));
-  return `<table><thead><tr><th class="n">#</th><th>Item</th><th class="r">Quantity</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${L.map((l, i) => {
+  const kids = new Set(L.filter((l) => l.parent).map((l) => l.parent)),
+    S = cxSections(L);
+  let n = 0;
+  const row = (l) => {
     const item = cxClean(l.item, c, re),
-      desc = cxClean(l.desc, c, re);
+      desc = cxClean(l.desc, c, re),
+      i = n++,
+      np = cxNoPrice(l);
+    // an Excluded or TBD line prints what it is and the word, never a quantity, a rate or a price
+    if (np) return `<tr class="${l.parent ? "child " : ""}cx-nprow"><td class="n">${esc(String(l.num || i + 1))}</td><td>${esc(item)}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td><td class="r"></td><td class="r"></td><td class="r"><span class="cx-np">${np}</span></td></tr>`;
     return `<tr class="${l.parent ? "child" : ""}"><td class="n">${esc(String(l.num || i + 1))}</td><td>${esc(item)}${desc ? `<div class="ds">${esc(desc)}</div>` : ""}</td><td class="r">${kids.has(l.id) && !+l.rate ? "" : esc(cxQty(l))}</td><td class="r">${kids.has(l.id) && !+l.rate ? "" : money(l.rate)}</td><td class="r">${money(lineAmount(l, d))}</td></tr>`;
-  }).join("")}</tbody></table>`;
+  };
+  // a section's subtotal is the sum of its lines as the document totals them, so the sections add up to the Subtotal
+  const body = S
+    ? S.map((g) => (g.name ? `<tr class="cx-sec"><td colspan="4">${esc(cxClean(g.name, c, re))}</td><td class="r">${money(r2(g.lines.reduce((a, l) => a + lineAmount(l, d), 0)))}</td></tr>` : "") + g.lines.map(row).join("")).join("")
+    : L.map(row).join("");
+  return `<table><thead><tr><th class="n">#</th><th>Item</th><th class="r">Quantity</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 function cxTotalsHtml(d, t, kind, paidOn) {
   const due = "invoice" === d.type;
@@ -570,7 +600,7 @@ function cxDocHtml(c, d, o) {
   const exh = "co" === d.type && "function" == typeof coExhibits ? coExhibits(d) : [],
     foot = K.footers[kind] || "",
     sign = "estimate" === kind || "co" === kind;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} · ${esc(K.name)}</title><style>body{margin:36px;background:#fff}${CX_CSS}@media print{body{margin:.45in}}</style></head><body><div class="cxd" data-cxkind="${kind}">${o.draft ? '<div class="cxd-draft">DRAFT · NOT SENT</div>' : ""}
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} · ${esc(K.name)}</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:36px;background:#fff}${CX_CSS}@media screen and (max-width:560px){body{margin:14px}}@media print{body{margin:.45in}}</style></head><body><div class="cxd" data-cxkind="${kind}">${o.draft ? '<div class="cxd-draft">DRAFT · NOT SENT</div>' : ""}
   ${cxLetterhead(d)}
   <div class="cxd-hd"><div class="cxd-kind">${CX_LABEL[kind]}</div><div class="cxd-num sans"><b>${esc(d.number)}</b><br>${dates.join("<br>")}</div></div>
   <div class="cxd-meta"><div><div class="cxd-k sans">${inv ? "Bill to" : "Prepared for"}</div><b>${esc(c.name)}</b><br>${esc(cxBillAddr(c, d))}${bt && bt.name ? `<br><span class="sans" style="font-size:11.5px">${esc(bt.name)}${bt.email ? " · " + esc(bt.email) : ""}</span>` : ""}</div><div><div class="cxd-k sans">Project</div><b>${esc(pr.name)}</b>${pr.addr ? `<br>${esc(pr.addr)}` : ""}</div></div>

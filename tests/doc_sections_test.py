@@ -23,7 +23,7 @@ async def js(pg, body, arg=None):
 MAKE = r"""
   const c = DB.clients.find(x => x.id === 'cl121') || DB.clients[0];
   const L = (id, item, qty, rate, x) => Object.assign({ id, item, desc: '', qty, unit: 'ls', rate, taxable: false, cat: 'construction', code: '01' }, x || {});
-  const doc = (id, lines) => { const d = { id, type: 'estimate', number: 'EST-T-' + id, status: 'draft', date: today(), title: 'Invented sections test', projectId: '', taxRate: 0, terms: '', memo: '', lines };
+  const doc = (id, lines) => { const d = { id, type: 'estimate', number: 'EST-T-' + id, status: 'draft', date: today(), title: 'Invented sections test', projectId: '', taxRate: 0, discount: { type: 'pct', value: 0 }, terms: '', memo: '', lines };
     c.estimates = c.estimates.filter(e => e.id !== id); c.estimates.push(d); docMark(d); return d; };
   const G = doc('tsecG', [
     L('g1', 'Site protection', 1, 1200.5, { group: 'General Conditions' }),
@@ -50,7 +50,7 @@ async def t_desktop(c, p):
     r = await js(pg, MAKE + READ + r"""
       const RG = rows(G), t = docTotal(G), html = cxDocHtml(c, U, { print: false });
       const m = html.match(/<table>[\s\S]*?<\/table>/);
-      return { RG, sub: t.sub, total: t.total, uTable: m ? m[0] : '', uSec: /cx-sec/.test(html),
+      return { RG, sub: t.sub, total: t.total, uTable: m ? m[0] : '', uSec: /<tr class="cx-sec"/.test(html),
         amt: Object.fromEntries(G.lines.map(l => [l.id, lineAmount(l, G)])), bud: Object.fromEntries(G.lines.map(l => [l.id, lineBudget(l, G).budget])),
         money: { gc: money(1200.5 + 1950), pl: money(100000.37 + 24500), el: money(8200), sub: money(t.sub) },
         totText: parse(cxDocHtml(c, G, { print: false })).querySelector('.cxd-tot').textContent };
@@ -127,9 +127,13 @@ async def t_desktop(c, p):
       const hv = COST_CODES.find(x => /^HVAC/.test(x[1])), code = hv && hv[0];
       const p = DB.projects.find(x => x.id === 'p121') || DB.projects[0];
       const out = { code, name: hv && hv[1], inCat: !!code && LINE_CATS.construction.codes.includes(code), order: COST_CODES.map(x => x[0]),
-        select: /HVAC &amp; mechanical|HVAC & mechanical/.test(catCodeCell({ cat: 'construction', code: '01', item: 'x' }, { type: 'estimate' }, 'data-f', true)),
+        select: false,
         guess: codeForLine({ item: 'HVAC ductwork and air handler', desc: '' }), keep: codeForLine({ item: 'Rough plumbing', desc: '' }) };
       if (!code) return out;
+      // the Cost Code select of a bank line's editor, as the person opens it
+      txnDialog(DB.txns[0].id); await sleep(250);
+      out.select = [...document.querySelectorAll('#e-code option')].some(o => o.value === code && /HVAC & mechanical/.test(o.textContent));
+      try { closeEditor(); } catch (e) {}
       DB.txns.push({ id: 'tHvacT', date: today(), acct: (DB.accounts[0] || {}).id || 'ac1', desc: 'INVENTED MECHANICAL SUPPLY', amt: -812, cat: 'materials', projectId: p.id, code, vendor: '', memo: '', receipt: '', status: 'categorized', actor: '', source: 'test', line: '' });
       const row = jobFin(p).byCode.find(x => x.code === code);
       out.row = row && { name: row.name, bank: row.bank };

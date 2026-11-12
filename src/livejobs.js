@@ -370,6 +370,7 @@ function ljApprovePhase2(c, d, opts) {
   P2.forEach((l) => {
     const key = `estimate:${d.id}:${l.id}`;
     (c.sov || []).some((v) => v.lineRef === key) ||
+      lineUnpriced(l) ||
       c.sov.push({ id: uid("sv"), taxable: !!l.taxable, desc: (l.num ? l.num + ". " : "") + (l.item || l.desc), scheduled: r2(lineAmount(l, d) * k), source: "Contract", order: c.sov.length, lineRef: key, allowance: !!l.allowance || void 0, phase: 2, projectId: d.projectId || void 0 });
   });
   // the contract is kept per job (c.contracts) and summed onto the client: both grow by the construction phase
