@@ -72992,6 +72992,10 @@ function glSync() {
     Object.values(byKey).forEach((j) => {
       if (!j.key || "posting" !== j.kind) return;
       const sub = GL_SUB_OF[j.sourceType];
+      // a document replaced by its revision (src/docview.js, dvRevisionReversalDate): its posting is reversed on the
+      // revision's posting date, in the open period, never backdated into the original's month (closed or not)
+      const rvd = "function" == typeof dvRevisionReversalDate ? dvRevisionReversalDate(j, sub) : "";
+      if (rvd) return void (glReverse(j, rvd, "document voided or withdrawn").ok && reversed++);
       if (glLocked(j.date, j.entityId, sub))
         return void flags.push({ kind: "void-locked", key: j.key, j: j, sub: sub });
       glReverse(j, j.date, "document voided or withdrawn").ok && reversed++;

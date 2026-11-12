@@ -166,7 +166,11 @@ async def t_documents(c, p):
             c.ok(not re.search(r'\b\d{7,}\b', re.sub(r'#\d+', '', t)), f'[4] {where}: a long account-like number prints')
         # [5] the pay application: one total, retainage explained
         if d['kind'] == 'progress':
-            c.ok(t.count('Current payment due') == 1 and 'Total this invoice' not in t, f'[5] {where}: the answer shows once ({t.count("Current payment due")} times)')
+            # the answer: "Current payment due", or "Paid in full" on a settled application (one rule: invoiceStatus)
+            n_ans = t.count('Current payment due') + t.count('Paid in full')
+            c.ok(n_ans == 1 and 'Total this invoice' not in t, f'[5] {where}: the answer shows once ({n_ans} times)')
+            if d['status'] == 'paid':
+                c.ok('Paid in full' in t and 'Current payment due' not in t, f'[5] {where}: a paid application says Paid in full, never Current payment due')
             c.ok('Held to date' in t and 'released with the final invoice' in t, f'[5] {where}: retainage to date is explained')
             c.ok('Completed to date' in t and 'Balance to finish' in t and 'Previous applications' in t, f'[5] {where}: the G703 columns')
         # [6] the change order

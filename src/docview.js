@@ -64,6 +64,27 @@ function dvFind(kind, id, cid) {
 function dvBal(c, d) {
   return r2(docTotal(d).total - invoicePaid(c, d));
 }
+// what the client is asked to pay now: one rule with the lists (invoiceStatus), so a paid invoice never asks again
+function dvDue(c, d) {
+  return d && "invoice" === d.type && !d.creditMemo && ["sent", "partial", "overdue"].includes(invoiceStatus(c, d)) ? Math.max(0, dvBal(c, d)) : 0;
+}
+// the date a paid invoice was settled: its last payment in (a credit memo's application counts)
+function dvPaidOn(c, d) {
+  const P = (c.payments || []).filter((p) => p.invoiceId === d.id && +p.amount > 0).map((p) => p.date || "").sort();
+  return P.length ? P[P.length - 1] : d.paidOn || "";
+}
+// the header's money line for an invoice: what is due, Paid, or Draft (the office and the portal alike)
+function dvDueLine(c, d) {
+  if (!d || "invoice" !== d.type || d.creditMemo) return "";
+  if ("draft" === d.status) return "Draft";
+  if ("void" === d.status) return "";
+  if ("paid" === invoiceStatus(c, d)) {
+    const on = dvPaidOn(c, d);
+    return `Paid${on ? " " + fmtL(on) : ""}`;
+  }
+  const due = dvDue(c, d);
+  return due > 0.005 ? `${money(due)} due${d.due ? " " + fmtL(d.due) : ""}` : "";
+}
 // the money the client paid on an invoice that a refund can return: payments the bank has, less what was refunded
 // or is proposed against each
 function dvRefundable(c, d) {
@@ -111,6 +132,8 @@ if ("function" == typeof blCreditRows) {
 function dvOpen(kind, id, cid) {
   const r = dvFind(kind, id, cid);
   if (!r) return toast("That document is not on file");
+  // a draft estimate is being built: it opens in its editor from anywhere (a toast's Open, a link), never the viewer
+  if ("estimate" === r.kind && r.d && "draft" === r.d.status && "client" !== role()) return dvEdit(r);
   (dvCur = { kind: r.kind, id: id, cid: r.c ? r.c.id : "", view: view }), (dvMore = !1);
   dvDraw();
 }
@@ -312,7 +335,7 @@ function dvActions(r) {
   if (dvCur && dvCur.portal) {
     const d = r.d,
       c = r.c;
-    if ("invoice" === r.kind && dvBal(c, d) > 0.005) add("howtopay", "How to Pay", { blue: !0 });
+    if ("invoice" === r.kind && dvDue(c, d) > 0.005) add("howtopay", "How to Pay", { blue: !0 });
     if (["estimate", "co"].includes(r.kind) && "sent" === d.status) add("papprove", "Approve", { blue: !0 });
     add("pdf", "Download PDF");
     add("ask", "Ask About This");
@@ -333,7 +356,9 @@ function dvActions(r) {
     }
     dvBillFile(b) && add("bfile", "Vendor's Document");
     add("pdf", "Download PDF");
-    ("draft" === b.status || held) && add("bedit", "Edit");
+    // Edit only on a draft, or while a hold is open: a short-paid bill that is approved, paid or verified is posted, so
+    // its difference is a Dispute or a Request Credit, never an edit (controller review, 11-12)
+    ("draft" === b.status || !!(b.onHold && "open" === b.onHold.state)) && add("bedit", "Edit");
     !["paid", "verified", "void", "draft"].includes(b.status) && !b.dispute && add("bdispute", "Dispute", { more: !0 });
     !["void", "draft"].includes(b.status) && add("bcredit", "Request Credit", { more: !0 });
     add("print", "Print", { more: !0 }), add("history", "View History", { more: !0 });
@@ -354,14 +379,28 @@ function dvActions(r) {
   }
   if ("invoice" === k) {
     const open = ["sent", "partial", "overdue"].includes(st),
-      money_in = dvRefundable(c, d).some((x) => x.banked);
+      paid = "paid" === st,
+      money_in = dvRefundable(c, d).some((x) => x.banked),
+      // the owner's blue on an open invoice is the reminder when one is due, else the PDF; billing and the controller
+      // find the client's money in the bank's own lines first (a typed payment is "recorded, not yet in the bank")
+      ownerSeat = "owner" === me;
+    // a refund or a credit waiting on this person: Approve is on the bar (never blue: it is money back to the client)
+    // and opens a sheet that restates the amount, who it goes to and the account, with one Approve
+    if (!d.creditMemo) {
+      dvRefunds(c)
+        .filter((f) => f.invoiceId === d.id && "proposed" === f.status && dvMayApproveRefund(f))
+        .forEach((f) => add("rfapprove:" + f.id, "Approve the Refund", { phone: !0 }));
+      dvCreditAsks(c)
+        .filter((a) => a.invoiceId === d.id && "proposed" === a.status && dvMayApproveCredit(a))
+        .forEach((a) => add("crapprove:" + a.id, "Approve the Credit", { phone: !0 }));
+    }
+    // a paid invoice's next step is its PDF (the receipt): Edit, a linked void and re-issue, waits under More
     if (draft) add("send", "Send to Client", { blue: !0 });
-    // the client's money is found in the bank's own lines first: a typed payment is "recorded, not yet in the bank"
-    open && add("findbank", "Find in Bank", { blue: !0 });
-    !dead && add("edit", "Edit");
-    !draft && !dead && add("email", "overdue" === st ? "Send Reminder" : "Send to Client");
-    add("pdf", "Download PDF");
-    open && add("pay", "Record Payment", { more: !0 });
+    open && add("findbank", "Find in Bank", { blue: !ownerSeat });
+    open && add("pay", "Record Payment");
+    !dead && add("edit", "Edit", paid ? { more: !0 } : draft ? { phone: !0 } : {});
+    !draft && !dead && add("email", "overdue" === st ? "Send Reminder" : "Send to Client", ownerSeat && "overdue" === st ? { blue: !0 } : {});
+    add("pdf", "Download PDF", (ownerSeat && open && "overdue" !== st) || paid ? { blue: ownerSeat && open && "overdue" !== st, phone: !0 } : {});
     !draft && !dead && DV_CREDIT_ROLES.includes(me) && add("credit", "Create Credit", { more: !0 });
     !draft && !dead && money_in && DV_CREDIT_ROLES.includes(me) && add("refund", "Refund", { more: !0 });
     add("print", "Print", { more: !0 });
@@ -382,7 +421,7 @@ function dvActions(r) {
           : add("invoice", "Convert to Invoice", { blue: !0 });
     }
     // a signed estimate is part of the contract: a change goes on a New Change Order, never an edit
-    draft ? add("edit", "Edit") : ["approved", "converted"].includes(d.status) ? add("newco", "New Change Order") : "sent" === d.status && add("edit", "Edit");
+    draft ? add("edit", "Edit", { phone: !0 }) : ["approved", "converted"].includes(d.status) ? add("newco", "New Change Order") : "sent" === d.status && add("edit", "Edit");
     add("pdf", "Download PDF");
     !draft && !dead && add("email", "Send to Client", { more: !0 });
     add("dup", "Duplicate", { more: !0 });
@@ -393,7 +432,7 @@ function dvActions(r) {
   if (draft) add("send", "Send to Client", { blue: !0 });
   "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 });
   "approved" === d.status && add("billco", "Bill It", { blue: !0 });
-  (draft || "sent" === d.status) && add("edit", "Edit");
+  (draft || "sent" === d.status) && add("edit", "Edit", draft ? { phone: !0 } : {});
   add("pdf", "Download PDF");
   !draft && !dead && add("email", "Send to Client", { more: !0 });
   add("dup", "Duplicate", { more: !0 });
@@ -440,13 +479,14 @@ function dvNotes(r) {
     }
   } catch (e) {}
   if ("invoice" === d.type && !d.creditMemo) {
-    dvCreditsOn(c, d).forEach((x) => out.push(`Credit memo ${esc(x.number)} of ${money(Math.abs(docTotal(x).total))} is applied to it${x.creditWhy ? ` (${esc(x.creditWhy)})` : ""}.`));
+    dvCreditsOn(c, d).forEach((x) => out.push(`Credit memo ${esc(x.number)} of ${esc(dvCreditBreakWords(dvCreditBreakOf(x)))} is applied to it${x.creditWhy ? ` (${esc(x.creditWhy)})` : ""}.`));
     dvCreditAsks(c)
       .filter((a) => a.invoiceId === d.id && "proposed" === a.status)
       .forEach((a) => {
-        const may = "owner" === role() && !(a.by && String(a.by).toLowerCase() === String(dvWho()).toLowerCase());
+        // Approve is on the action bar and asks to confirm (dvCreditConfirm); Decline stays here, beside the ask
+        const may = dvMayApproveCredit(a);
         out.push(
-          `<span data-dvcredit="${esc(a.id)}">Credit of ${money(a.amount)} asked by ${esc(a.by)}: ${esc(a.why)} · over ${money(dvCreditLimit())}, waiting on the owner; nothing is credited yet.${may ? ` <button type="button" class="btn sm" data-dvact="crapprove:${esc(a.id)}">Approve the Credit</button> <button type="button" class="btn sm" data-dvact="crdecline:${esc(a.id)}">Decline</button>` : ""}</span>`,
+          `<span data-dvcredit="${esc(a.id)}">Credit of ${esc(dvCreditBreakWords(dvCreditBreakAsk(d, a)))} asked by ${esc(a.by)}: ${esc(a.why)} · over ${money(dvCreditLimit())}, waiting on the owner; nothing is credited yet.${may ? ` <button type="button" class="btn sm" data-dvact="crdecline:${esc(a.id)}">Decline</button>` : ""}</span>`,
         );
       });
     dvRefunds(c)
@@ -454,7 +494,7 @@ function dvNotes(r) {
       .forEach((f) => {
         const pend = "proposed" === f.status;
         out.push(
-          `<span data-dvrefund="${esc(f.id)}">Refund of ${money(f.amount)} to ${esc(f.to)}: ${esc(dvRefundWord(c, f))}${pend ? ` · waiting on ${esc(dvRefundApproverWord())}` : ""}.${pend && dvMayApproveRefund(f) ? ` <button type="button" class="btn sm" data-dvact="rfapprove:${esc(f.id)}">Approve the Refund</button> <button type="button" class="btn sm" data-dvact="rfdecline:${esc(f.id)}">Decline</button>` : ""}${"approved" === f.status && !f.txnId ? ` <button type="button" class="btn sm" data-dvact="rfmatch:${esc(f.id)}">Match to Bank Line</button>` : ""}</span>`,
+          `<span data-dvrefund="${esc(f.id)}">Refund of ${money(f.amount)} to ${esc(f.to)}: ${esc(dvRefundWord(c, f))}${pend ? ` · waiting on ${esc(dvRefundApproverWord())}` : ""}.${pend && dvMayApproveRefund(f) ? ` <button type="button" class="btn sm" data-dvact="rfdecline:${esc(f.id)}">Decline</button>` : ""}${"approved" === f.status && !f.txnId ? ` <button type="button" class="btn sm" data-dvact="rfmatch:${esc(f.id)}">Match to Bank Line</button>` : ""}</span>`,
         );
       });
   }
@@ -480,7 +520,10 @@ function dvDraw() {
   const ph = isMobile(),
     A = dvActions(r),
     blue = A.find((a) => a.blue),
-    inline = ph ? (blue ? [blue] : A.filter((a) => !a.more).slice(0, 1)) : A.filter((a) => !a.more),
+    // the phone's bar: the blue, and an action marked for the phone (a draft's Edit beside its Send, a paid invoice's
+    // PDF); with neither, the first inline action. Record Payment and the rest open first under More, in order.
+    pho = A.filter((a) => a.phone && !a.blue && !a.more),
+    inline = ph ? (blue ? [blue].concat(pho.slice(0, 1)) : pho.length ? pho.slice(0, 1) : A.filter((a) => !a.more).slice(0, 1)) : A.filter((a) => !a.more),
     more = A.filter((a) => !inline.includes(a)),
     num = r.kind === "bill" ? r.b.number || "Bill" : r.d.number,
     who = r.kind === "bill" ? `${r.b.vendor || ""}` : `${r.c.name}${r.d.projectId ? " · " + (((DB.projects || []).find((p) => p.id === r.d.projectId) || {}).project || {}).name : ""}`,
@@ -491,7 +534,7 @@ function dvDraw() {
   el.setAttribute("role", "dialog"), el.setAttribute("aria-modal", "true"), el.setAttribute("aria-label", `${DV_LABEL[r.kind]} ${num}`);
   el.dataset.rec = dvCur.kind + ":" + dvCur.id;
   el.className = ph ? "dv-ph" : "";
-  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}${"bill" !== r.kind && r.d.title ? `<span class="dv-tt"> — ${esc(r.d.title)}</span>` : ""}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div></div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div>${dvHistoryStrip(r)}</div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
+  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}${"bill" !== r.kind && r.d.title ? `<span class="dv-tt"> — ${esc(r.d.title)}</span>` : ""}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div>${"bill" !== r.kind && dvDueLine(r.c, r.d) ? `<div class="dv-due" data-dvdue>${esc(dvDueLine(r.c, r.d))}</div>` : ""}</div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div>${dvHistoryStrip(r)}</div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
   document.body.classList.add("dv-open");
   ph && dvReflow(el);
   const body = el.querySelector(".dv-body");
@@ -528,10 +571,10 @@ function dvAct(a) {
   dvMore = !1;
   if (!r) return dvClose();
   const [verb, arg] = String(a).split(":");
-  if ("rfapprove" === verb) return dvRefundDecide(r.c, arg, !0);
+  if ("rfapprove" === verb) return dvRefundConfirm(r.c, arg);
+  if ("crapprove" === verb) return dvCreditConfirm(r.c, arg);
   if ("rfdecline" === verb) return dvRefundDecide(r.c, arg, !1);
   if ("rfmatch" === verb) return dvRefundMatchSheet(r.c, arg);
-  if ("crapprove" === verb) return dvCreditDecide(r.c, arg, !0);
   if ("crdecline" === verb) return dvCreditDecide(r.c, arg, !1);
   if ("pdf" === a) return dvPdf(r);
   if ("history" === a) return dvHistory(r);
@@ -678,6 +721,25 @@ if ("function" == typeof lkSupersede) {
     return r;
   };
 }
+// The ledger's date for reversing an invoice its revision replaced (glSync calls this for a posting no longer
+// derived). The reversal posts on the revision's own posting date, so the original's month is untouched and the
+// revision's month nets to the difference (nothing when the amounts agree); a locked month is never written into:
+// the revision's date if it is open, else the first open day. "" for any other posting, which keeps glSync's rule.
+function dvRevisionReversalDate(j, sub) {
+  try {
+    if (!j || "inv" !== j.sourceType) return "";
+    const c = (DB.clients || []).find((x) => x.id === j.clientId) || (DB.clients || []).find((x) => (x.invoices || []).some((i) => i.id === j.sourceId));
+    const o = c && (c.invoices || []).find((i) => i.id === j.sourceId);
+    if (!o || "void" !== o.status || !o.supersededBy) return "";
+    const n = (c.invoices || []).find((i) => i.number === o.supersededBy && i.id !== o.id);
+    if (!n || ["draft", "void"].includes(n.status)) return "";
+    const live = ((DB.gl || {}).journals || []).find((x) => x.key === "inv:" + n.id && "posted" === x.status && "reversal" !== x.kind),
+      d = (live && live.date) || n.date || today();
+    return glLocked(d, j.entityId, sub) ? glFirstOpenDay(j.entityId, sub) : d;
+  } catch (e) {
+    return "";
+  }
+}
 // a revision's lines remember the lines they copy, so a credit given on the original is not given twice
 if ("function" == typeof lkRevise) {
   const base = lkRevise;
@@ -772,9 +834,10 @@ function dvCreditCreate(c, inv, picks, why, o) {
   // a credit over the company's limit (DB.company.creditApprovalOver, $1,000 unless Settings say otherwise) is the
   // owner's to approve: it waits in the register, with the lines and the reason, and is issued only on that yes
   const over = dvCreditLimit(),
-    X0 = r2(-docTotal({ type: "invoice", mode: sov ? "sov" : "items", lines: lines, taxRate: +inv.taxRate || 0, retainagePct: +inv.retainagePct || 0, discount: inv.discount && "pct" === inv.discount.type ? inv.discount : { type: "pct", value: 0 } }).total);
+    X0T = docTotal({ type: "invoice", mode: sov ? "sov" : "items", lines: lines, taxRate: +inv.taxRate || 0, retainagePct: +inv.retainagePct || 0, discount: inv.discount && "pct" === inv.discount.type ? inv.discount : { type: "pct", value: 0 } }),
+    X0 = r2(-X0T.total);
   if (X0 > over + 0.005 && "owner" !== role() && !o.approvedAsk) {
-    const ask = { id: uid("cc"), kind: "credit-ask", clientId: c.id, projectId: inv.projectId || "", invoiceId: inv.id, invoiceNumber: inv.number, picks: (picks || []).map((p) => ({ lineId: p.lineId, amount: r2(+p.amount || 0) })), amount: X0, why: w, status: "proposed", by: dvWho(), byRole: role(), at: today() };
+    const ask = { id: uid("cc"), kind: "credit-ask", clientId: c.id, projectId: inv.projectId || "", invoiceId: inv.id, invoiceNumber: inv.number, picks: (picks || []).map((p) => ({ lineId: p.lineId, amount: r2(+p.amount || 0) })), amount: X0, gross: r2(Math.abs(X0T.sub - X0T.disc)), ret: r2(Math.abs(X0T.ret || 0)), tax: r2(Math.abs(X0T.tax || 0)), why: w, status: "proposed", by: dvWho(), byRole: role(), at: today() };
     (DB.clientCredits = DB.clientCredits || []).push(ask);
     apStamp("client-credit", ask, `credit of ${money(X0)} on ${inv.number} proposed by ${ask.by}`, "proposed", { after: { amount: X0, invoice: inv.number }, note: w });
     docAudit(c, inv, "credit-proposed", `${money(X0)}: ${w} (over ${money(over)}: the owner approves)`);
@@ -834,12 +897,40 @@ function dvCreditLimit() {
   const v = DB.company && DB.company.creditApprovalOver;
   return null == v || "" === v || isNaN(+v) ? 1e3 : +v;
 }
+const dvMayApproveCredit = (a) => "owner" === role() && !(a.by && String(a.by).toLowerCase() === String(dvWho()).toLowerCase());
+// a credit's amount, read the whole way: the work credited, the sales tax and the retainage it reverses, and the net
+// that comes off the balance (a memo from its own totals; an ask from what was stored when it was asked)
+function dvCreditBreakOf(x) {
+  const t = docTotal(x);
+  return { gross: r2(Math.abs(t.sub - t.disc)), tax: r2(Math.abs(t.tax || 0)), ret: r2(Math.abs(t.ret || 0)), net: r2(Math.abs(t.total)) };
+}
+function dvCreditBreakAsk(inv, a) {
+  const gross = null != a.gross ? +a.gross : r2((a.picks || []).reduce((s, p) => s + (+p.amount || 0), 0)),
+    ret = null != a.ret ? +a.ret : r2((gross * (+(inv && inv.retainagePct) || 0)) / 100);
+  return { gross: gross, ret: ret, tax: null != a.tax ? +a.tax : Math.max(0, r2(+a.amount - gross + ret)), net: r2(+a.amount) };
+}
+function dvCreditBreakWords(B) {
+  const parts = [B.tax > 0.005 ? `plus ${money(B.tax)} sales tax` : "", B.ret > 0.005 ? `less ${money(B.ret)} retainage reversed` : ""].filter(Boolean);
+  return parts.length ? `${money(B.net)} (${money(B.gross)} of work credited, ${parts.join(", ")})` : money(B.net);
+}
+// Approve, confirmed: the sheet restates what is credited, to whom and on which invoice, then one Approve
+function dvCreditConfirm(c, id) {
+  const a = dvCreditAsks(c).find((x) => x.id === id);
+  if (!a || "proposed" !== a.status) return toast("That credit is not waiting on anyone");
+  if (!dvMayApproveCredit(a)) return toast("A credit over the limit is approved by the owner, never by the person who asked for it");
+  const inv = (c.invoices || []).find((x) => x.id === a.invoiceId),
+    B = dvCreditBreakAsk(inv, a);
+  mbModal(
+    `Approve the Credit of ${money(B.net)}`,
+    `<p style="margin:0 0 8px" data-dvconfirm>Credit ${esc(money(B.net))} to ${esc(c.name)} on invoice ${esc(a.invoiceNumber || (inv && inv.number) || "")}: ${esc(money(B.gross))} of work credited${B.tax > 0.005 ? `, plus ${esc(money(B.tax))} sales tax` : ""}${B.ret > 0.005 ? `, less ${esc(money(B.ret))} retainage reversed` : ""}.</p><p class="small muted" style="margin:0">Asked by ${esc(a.by)}: ${esc(a.why)}. A credit memo is issued and applied to the invoice; no money moves.</p>`,
+    { submit: "Approve", onSubmit: () => void dvCreditDecide(c, id, !0) },
+  );
+}
 // the owner's yes or no on a credit over the limit; the person who asked never decides it
 function dvCreditDecide(c, id, yes, note) {
   const a = dvCreditAsks(c).find((x) => x.id === id);
   if (!a || "proposed" !== a.status) return toast("That credit is not waiting on anyone"), null;
-  const me = String(dvWho()).toLowerCase();
-  if ("owner" !== role() || (a.by && String(a.by).toLowerCase() === me)) return toast("A credit over the limit is approved by the owner, never by the person who asked for it"), null;
+  if (!dvMayApproveCredit(a)) return toast("A credit over the limit is approved by the owner, never by the person who asked for it"), null;
   const inv = (c.invoices || []).find((x) => x.id === a.invoiceId),
     by = dvWho();
   if (!yes) {
@@ -928,6 +1019,27 @@ function dvPayAcct(p) {
   const a = (DB.accounts || []).find((x) => x.id === dvPayAcctId(p));
   return `${p.method || "payment"}${a ? ` from ${a.name}${a.last4 ? " ending " + a.last4 : ""}` : ""}`;
 }
+// credit the client holds on the account (an overpayment, a credit memo held for the next invoice): what a refund
+// draws down first
+function dvOnAccount(c) {
+  return r2((c.payments || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0));
+}
+// Approve, confirmed: the sheet says the amount, who it goes to and the account it goes out of, the right way round
+function dvRefundConfirm(c, id) {
+  const f = dvRefunds(c).find((x) => x.id === id);
+  if (!f || "proposed" !== f.status) return toast("That refund is not waiting on anyone");
+  if (!dvMayApproveRefund(f)) return toast(`A refund is approved by ${dvRefundApproverWord()}, never by the person who proposed it`);
+  const src = (c.payments || []).find((p) => p.id === f.paymentId),
+    a = (DB.accounts || []).find((x) => x.id === f.acctId),
+    acct = a ? `${a.name}${a.last4 ? " ending " + a.last4 : ""}` : "the account it came into",
+    onAcct = dvOnAccount(c),
+    how = onAcct >= f.amount - 0.05 ? `It draws down the ${money(onAcct)} credit on the account; nothing billed changes.` : f.withCredit ? `A credit memo on ${f.invoiceNumber} goes with it, so nothing is owed again; it reduces what was billed.` : `${money(f.amount)} is owed again on ${f.invoiceNumber}.`;
+  mbModal(
+    `Approve the Refund of ${money(f.amount)}`,
+    `<p style="margin:0 0 8px" data-dvconfirm>Refund ${esc(money(f.amount))} to ${esc(c.name)}${f.method ? ` by ${esc(f.method)}` : ""}, out of ${esc(acct)}, the account their payment${src ? ` of ${esc(fmtL(src.date))}` : ""} on ${esc(f.invoiceNumber)} came into.</p><p class="small muted" style="margin:0">${esc(how)} Proposed by ${esc(f.by)}: ${esc(f.why)}. It reads "approved, not in the bank" until its bank line is matched.</p>`,
+    { submit: "Approve", onSubmit: () => void dvRefundDecide(c, id, !0) },
+  );
+}
 function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
   if (!DV_CREDIT_ROLES.includes(role())) return { ok: !1, why: "Billing, the Controller or the Owner proposes a refund" };
   const x = dvRefundable(c, inv).find((y) => y.p.id === paymentId),
@@ -985,11 +1097,13 @@ function dvRefundDecide(c, id, yes, note) {
     rcToast(`Refund of ${money(f.amount)} declined: ${note}`, inv ? [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }] : null);
     return f;
   }
-  if (f.withCredit && inv) {
-    const R = dvCreditCreate(c, inv, dvCreditLump(c, inv, f.amount), `Refund ${f.id}: ${f.why}`, { onAccount: !0 });
+  // a refund draws down credit already on the account first; a credit memo is written only when it was asked for and
+  // the account does not hold the amount (its reason names the invoice in plain words, never a record id)
+  if (f.withCredit && inv && dvOnAccount(c) < f.amount - 0.05) {
+    const R = dvCreditCreate(c, inv, dvCreditLump(c, inv, f.amount), `Refund on ${inv.number}: ${f.why}`, { onAccount: !0 });
     R.ok ? (f.creditMemoId = R.cm.id) : toast(`No credit memo: ${R.why}`);
   }
-  const fromAcct = r2((c.payments || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0)) >= f.amount - 0.05,
+  const fromAcct = dvOnAccount(c) >= f.amount - 0.05,
     rec = { id: uid("py"), date: today(), amount: -f.amount, method: f.method || "Refund", ref: `Refund ${f.invoiceNumber}`, acctId: f.acctId, invoiceId: fromAcct ? "" : f.invoiceId, unapplied: fromAcct, refundOf: f.paymentId, refundId: f.id, why: f.why, recordedBy: by, recordedAt: appNowIso(), note: `refund of ${money(f.amount)} to ${f.to}: ${f.why}` };
   c.payments.push(rec);
   Object.assign(f, { status: "approved", decidedBy: by, decidedAt: today(), paymentRecId: rec.id });
@@ -1029,7 +1143,13 @@ function dvRefundSheet(c, inv) {
     ${mbF("Payment It Returns", mbSel("pay", R.map((x) => [x.p.id, `${fmtL(x.p.date)} · ${money(+x.p.amount)} · ${dvPayAcct(x.p)}${x.banked ? "" : " (not in the bank)"}${x.left < +x.p.amount - 0.005 ? ` · ${money(x.left)} left` : ""}`]), (banked[0] || R[0]).p.id))}
     ${mbF("Amount", mbIn("amount", String((banked[0] || R[0]).left), "", "number"))}
     ${mbF("Why", mbIn("why", "", "e.g. the client overpaid; the tile line was credited"))}
-    <label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px"><input type="checkbox" data-f="credit" checked> <span>Credit ${esc(inv.number)} for the same amount, so the client does not owe it again (leave unticked to refund credit already on the account)</span></label>`,
+    ${
+      // a refund returns credit the client holds or overpaid: with credit on the account it draws that down, with no
+      // credit memo and nothing billed changed; only with none is crediting the invoice offered, unticked, said plainly
+      dvOnAccount(c) > 0.005
+        ? `<div class="small" style="margin-top:8px" data-dvonacct>${esc(money(dvOnAccount(c)))} is held as credit on ${esc(c.name)}'s account: the refund draws it down, with no credit memo, and nothing billed changes. A refund over that is owed again on ${esc(inv.number)}.</div>`
+        : `<label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px"><input type="checkbox" data-f="credit"> <span>Also credit ${esc(inv.number)} for the same amount: a credit memo that reduces what was billed. Unticked, the refund is owed again on ${esc(inv.number)}.</span></label>`
+    }`,
     {
       submit: "Propose the Refund",
       onSubmit: (f) => {
@@ -1334,7 +1454,7 @@ function dvHistory(r) {
   s.textContent = `#dv{position:fixed;inset:0;z-index:38;background:rgba(20,26,40,.45);display:flex;justify-content:center;align-items:stretch;padding:24px}
 #dv .dv-sheet{position:relative;background:var(--paper,#fff);width:min(980px,100%);display:flex;flex-direction:column;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden}
 #dv .dv-hd{display:flex;gap:12px;align-items:flex-start;padding:14px 18px;border-bottom:1px solid var(--rule,#E6E9EE)}
-#dv .dv-ttl{flex:1;min-width:0}#dv .dv-tt{font-weight:400;color:var(--muted,#6b7480);font-size:.85em}#dv .dv-ttl h2{margin:0;font-size:18px;overflow-wrap:anywhere}
+#dv .dv-ttl{flex:1;min-width:0}#dv .dv-tt{font-weight:400;color:var(--muted,#6b7480);font-size:.85em}#dv .dv-ttl h2{margin:0;font-size:18px;overflow-wrap:anywhere}#dv .dv-due{margin-top:4px;font-size:16px;font-weight:600;color:var(--ink,#1D2430)}
 #dv .dv-x{display:inline-flex;gap:6px;align-items:center;min-height:40px}
 #dv .dv-notes{padding:8px 18px;background:var(--wash,#F6F7F9);border-bottom:1px solid var(--rule,#E6E9EE)}#dv .dv-notes>div{padding:2px 0}
 #dv .dv-body{flex:1;overflow:auto;padding:28px 34px;background:#fff;-webkit-overflow-scrolling:touch}

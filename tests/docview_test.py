@@ -26,7 +26,8 @@ SHOTS = os.path.join(ROOT, 'review', 'docview')
 os.makedirs(SHOTS, exist_ok=True)
 C = Checks()
 REC = "() => { const d = document.getElementById('dv'); return d ? d.dataset.rec : (docOpen ? 'editor:' + docOpen.kind + ':' + docOpen.id : 'none') }"
-MONEY_OUT = {'refund', 'void', 'credit', 'bpay', 'bdispute', 'bcredit', 'pay'}
+# (Record Payment records money in: it sits beside Find in Bank on an open invoice, billing review 11-12; not money out)
+MONEY_OUT = {'refund', 'void', 'credit', 'bpay', 'bdispute', 'bcredit'}
 
 
 async def boot(p, phone, uid):
@@ -56,6 +57,12 @@ async def dv_tap(pg, label):
         loc = pg.locator('#dv .dv-menu [data-dvact]').filter(has_text=re.compile('^\\s*' + re.escape(label) + '\\s*$'))
     await loc.first.click()
     await pg.wait_for_timeout(250)
+
+
+def money_in(text, amount):
+    """the first dollar figure in the text is this amount (to the dollar)"""
+    m = re.search(r'\$([\d,]+(?:\.\d+)?)', text or '')
+    return bool(m) and abs(float(m.group(1).replace(',', '')) - float(amount)) < 1
 
 
 async def shot(pg, name):
@@ -97,9 +104,15 @@ async def action_sets(pg, who):
       out.bill_pmok = ids(R('bill', 'b2'));
       out.bill_paid = ids(R('bill', 'b1'));
       out.bill_sub = ids(R('bill', 'b4'));
+      // a short-paid bill once it is verified (approved, paid, posted): Dispute or Request Credit, never Edit
+      const b2 = DB.bills.find(b => b.id === 'b2'), st2 = b2.status; b2.status = 'verified';
+      out.bill_verified = ids(R('bill', 'b2')); out.bill_verified_short = typeof pay3Short === 'function' ? !!pay3Short(b2) : null; b2.status = st2;
+      out.est_draft_open = (() => { const x = dvActions(R('estimate', 'es13881')); return x.filter(a => a.phone || a.blue).map(a => a.id); })();
       c121.invoices.splice(c121.invoices.indexOf(draft), 1);
       return out;
     }""")
+    short = A.pop('bill_verified_short')
+    draft_bar = A.pop('est_draft_open')
     for k, v in A.items():
         blue = [x for x in v if x.startswith('*')]
         C.ok(len(blue) <= 1, f'{who} {k}: one blue at most ({v})')
@@ -109,10 +122,17 @@ async def action_sets(pg, who):
     b = lambda k: next((x.strip('*+') for x in A[k] if x.startswith('*')), '')
     C.ok(b('inv_draft') == 'send' and 'edit' in n('inv_draft') and 'void' in n('inv_draft') and not {'credit', 'refund', 'pay'} & set(n('inv_draft')),
          f'{who} draft invoice: Send to Client blue, Edit in place, Void; no credit, refund or payment ({A["inv_draft"]})')
-    C.ok(b('inv_sent') == 'findbank' and {'edit', 'email', 'pdf', 'pay', 'credit', 'print', 'history'} <= set(n('inv_sent')) and 'refund' not in n('inv_sent') and 'void' not in n('inv_sent'),
-         f'{who} sent invoice: Find in Bank blue; Edit, Send, Download PDF, Record Payment, Create Credit, Print, View History; no Refund (nothing received), no Void ({A["inv_sent"]})')
-    C.ok(not b('inv_paid') and {'edit', 'credit', 'refund', 'pdf', 'history'} <= set(n('inv_paid')) and 'pay' not in n('inv_paid'),
-         f'{who} paid invoice: Edit, Create Credit, Refund, Download PDF; no Record Payment, no blue ({A["inv_paid"]})')
+    # the blue on an open invoice: Find in Bank for billing and the controller; for the owner the reminder when one is
+    # due, else Download PDF (owner review, 11-12). INV-2026-038 is due 9/15, not overdue on 9/03.
+    want_blue = 'pdf' if who.startswith('owner') else 'findbank'
+    C.ok(b('inv_sent') == want_blue and {'edit', 'email', 'pdf', 'pay', 'credit', 'print', 'history'} <= set(n('inv_sent')) and 'refund' not in n('inv_sent') and 'void' not in n('inv_sent'),
+         f'{who} sent invoice: {want_blue} blue; Edit, Send, Download PDF, Record Payment, Create Credit, Print, View History; no Refund (nothing received), no Void ({A["inv_sent"]})')
+    C.ok('pay' in A['inv_sent'] and A['inv_sent'].index('pay') == A['inv_sent'].index(next(x for x in A['inv_sent'] if x.strip('*+') == 'findbank')) + 1,
+         f'{who} sent invoice: Record Payment is on the bar beside Find in Bank, not under More (first under More on the phone) ({A["inv_sent"]})')
+    C.ok(not b('inv_paid') and {'edit', 'credit', 'refund', 'pdf', 'history'} <= set(n('inv_paid')) and 'pay' not in n('inv_paid') and 'edit+' in A['inv_paid'],
+         f'{who} paid invoice: Edit (under More: it voids and re-issues), Create Credit, Refund, Download PDF; no Record Payment, no blue ({A["inv_paid"]})')
+    C.ok('edit+' not in A['est_draft'] and 'edit' in draft_bar and 'send' in draft_bar, f'{who} draft estimate: Edit stands beside Send to Client on the phone\'s bar, never Send alone ({draft_bar})')
+    C.ok('bedit' not in n('bill_verified') and 'bcredit' in n('bill_verified'), f'{who} a verified short-paid bill (pay3Short {short}): no Edit; Request Credit instead ({A["bill_verified"]})')
     C.ok('refund' not in n('inv_paid_unbanked'), f'{who} an invoice paid by money not in the bank offers no Refund ({A["inv_paid_unbanked"]})')
     C.ok(b('est_draft') == 'send' and 'edit' in n('est_draft') and 'dup' in n('est_draft'), f'{who} draft estimate: Send to Client blue, Edit, Duplicate ({A["est_draft"]})')
     C.ok('edit' not in n('est_converted') and 'newco' in n('est_converted'), f'{who} signed estimate: no Edit; New Change Order instead ({A["est_converted"]})')
@@ -194,6 +214,11 @@ async def lists_open(p, phone, uid):
         C.ok(r != 'bill:b2', f'{who}: billing keeps the bill sheet, where it enters and codes bills ({r})')
     await pg.evaluate("() => { dvClose(); try { closeEditor(); } catch (e) {} }")
     await action_sets(pg, who)
+    # a draft estimate is being built: opened from anywhere (a toast's Open, a link: dvOpen) it lands in its editor
+    await pg.evaluate("() => dvOpen('estimate', 'es13881')")
+    r = await rec(pg)
+    C.ok(r == 'editor:estimate:es13881', f'{who}: a draft estimate opens in its editor, never the viewer ({r})')
+    await pg.evaluate("() => { docOpen = null; dvClose(); render(); }")
     if uid == 'u_billing':
         # the job's Contract and Billing
         await pg.evaluate("() => jpOpenJob('p121', 'jbill')")
@@ -335,6 +360,63 @@ async def revise_settled(p, phone):
     await b.close()
 
 
+LEDGER = """() => { glSync(); const J = DB.gl.journals.filter(j => ['posted', 'reversed'].includes(j.status)), rev = {}; let ar = 0;
+  J.forEach(j => j.lines.forEach(l => { const m = String(j.date || '').slice(0, 7); if (/^4/.test(String(l.acct))) rev[m] = r2((rev[m] || 0) + (+l.cr || 0) - (+l.dr || 0));
+    if (String(l.acct) === '1100') ar = r2(ar + (+l.dr || 0) - (+l.cr || 0)); }));
+  return { aug: rev['2026-08'] || 0, sep: rev['2026-09'] || 0, ar: ar, inAug: J.filter(j => String(j.date).startsWith('2026-08')).length,
+           flags: (DB.gl.flags || []).map(f => f.kind + ':' + f.key) }; }"""
+FIXTURE_AUG = """(n) => { const c = DB.clients.find(c => c.id === 'cl121');
+  const d = newDoc(c, 'invoice', { mode: 'items', fields: { projectId: 'p121', title: 'Fixture: August tile ' + n, taxRate: 0, retainagePct: 0, lines: [{ id: uid('l'), item: 'Tile, supplied', qty: 1, rate: 1000, taxable: false }] } });
+  dvFresh.delete(d.id); d.date = '2026-08-10'; d.due = '2026-08-25'; d.status = 'sent'; d.sentAt = '2026-08-10'; docMark(d); save(); glSync(); return d.id; }"""
+
+
+async def revise_ledger(p, phone):
+    """controller review 11-12 (S1): a revision of an invoice from an earlier month reverses the original on the
+    revision's own posting date, in the open month: the earlier month is never touched, closed or not, and the current
+    month nets to the change (nothing when the amounts agree); AR moves only by the change"""
+    dev = 'phone' if phone else 'desktop'
+    who = f'billing on the {dev}'
+    b, pg, errs = await boot(p, phone, 'u_billing')
+
+    async def revise(iid, why, rate=None):
+        await pg.evaluate("""([iid, why, rate]) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid);
+          const n = dvRevise(c, o, why); if (rate !== null) n.lines[0].rate = rate; window.__rv = n.id; docAction(c, n, 'send'); }""", [iid, why, rate])
+        await pg.wait_for_timeout(400)
+        await pg.evaluate(GATE, 'revision: ' + why)
+        await pg.wait_for_timeout(500)
+        return await pg.evaluate("""(iid) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid), n = c.invoices.find(i => i.id === window.__rv);
+          const rv = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').pop(), np = DB.gl.journals.filter(j => j.key === 'inv:' + n.id && j.status === 'posted').pop();
+          return { o: o.status, n: n.status, rvDate: rv ? rv.date : '', postDate: np ? np.date : '' }; }""", iid)
+
+    # (1) the paid August deposit, INV-2026-031, re-issued with no change of amount
+    a = await pg.evaluate(LEDGER)
+    r = await revise('in1', 'deposit line description corrected')
+    z = await pg.evaluate(LEDGER)
+    C.ok(r['o'] == 'void' and r['rvDate'] and r['rvDate'] == r['postDate'] and r['rvDate'].startswith('2026-09'),
+         f'{who}: INV-2026-031\'s reversal posts on its revision\'s own date in September, never back on 8/01 ({r})')
+    C.ok(abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and abs(z['ar'] - a['ar']) < 0.01 and z['inAug'] == a['inAug'],
+         f'{who}: with the amount unchanged, August revenue is untouched, September nets to zero and AR does not move (Aug {a["aug"]} to {z["aug"]}, Sep {a["sep"]} to {z["sep"]}, AR {a["ar"]} to {z["ar"]})')
+    # (2) an August invoice re-issued $100 higher: only the $100 lands, in September
+    fid = await pg.evaluate(FIXTURE_AUG, 1)
+    a = await pg.evaluate(LEDGER)
+    r = await revise(fid, 'tile quantity re-measured', 1100)
+    z = await pg.evaluate(LEDGER)
+    C.ok(abs(z['aug'] - a['aug']) < 0.01 and abs((z['sep'] - a['sep']) - 100) < 0.01 and abs((z['ar'] - a['ar']) - 100) < 0.01 and r['rvDate'].startswith('2026-09'),
+         f'{who}: re-issued $100 higher, only the $100 lands in September; August is untouched (Aug {a["aug"]} to {z["aug"]}, Sep {a["sep"]} to {z["sep"]}, AR {a["ar"]} to {z["ar"]})')
+    # (3) August closed: the same revision writes nothing into August and raises no error
+    fid = await pg.evaluate(FIXTURE_AUG, 2)
+    await pg.evaluate("""(fid) => { const j = DB.gl.journals.find(x => x.key === 'inv:' + fid && x.status === 'posted'); DB.gl.locks = DB.gl.locks || {};
+      DB.gl.locks[j.entityId] = DB.gl.locks[j.entityId] || {}; DB.gl.locks[j.entityId]['2026-08'] = Object.assign({}, DB.gl.locks[j.entityId]['2026-08'] || {}, { gl: true }); }""", fid)
+    a = await pg.evaluate(LEDGER)
+    r = await revise(fid, 'tile quantity re-measured')
+    z = await pg.evaluate(LEDGER)
+    mine = [f for f in z['flags'] if fid in f]
+    C.ok(z['inAug'] == a['inAug'] and abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and not mine and r['rvDate'].startswith('2026-09'),
+         f'{who}: with August closed, nothing is written into August, no flag or error, and September nets to zero ({r}, flags {mine}, Aug rows {a["inAug"]} to {z["inAug"]})')
+    C.ok(not errs, f'revise ledger on the {dev}: no page errors ({errs[:2]})')
+    await b.close()
+
+
 async def credit(p, phone):
     dev = 'phone' if phone else 'desktop'
     who = f'billing on the {dev}'
@@ -419,13 +501,18 @@ async def refund(p, phone):
     who = f'on the {dev}'
     b, pg, errs = await boot(p, phone, 'u_billing')
     S0 = """() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in2'), f = clientFin(c);
-      return { st: invoiceStatus(c, d), paid: r2(f.paid), cr: r2(f.credits), n: c.payments.length, out: f.outstanding } }"""
+      return { st: invoiceStatus(c, d), paid: r2(f.paid), cr: r2(f.credits), n: c.payments.length, out: f.outstanding, onacct: dvOnAccount(c), billed: r2(f.invoiced),
+               cms: c.invoices.filter(i => i.creditMemo).length } }"""
     a = await pg.evaluate(S0)
+    C.ok(a['onacct'] >= 500, f'billing {who}: the fixture: the Kleins hold credit on the account to refund from ({a["onacct"]})')
     no = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl45'), d = c.invoices.find(i => i.id === 'inD45r'); return dvRefundPropose(c, d, c.payments.find(p => p.invoiceId === d.id).id, 100, 'test', false) }")
     C.ok(not no['ok'] and 'bank' in no['why'], f'billing {who}: money the bank does not have is never refunded ({no["why"]})')
     await pg.evaluate("() => { clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: 'in2' }; view = 'billing'; render(); }")
     await dv_tap(pg, 'Refund')
     C.ok(await pg.locator('#mbm').count() == 1, f'billing {who}: Refund opens its sheet')
+    sh = await pg.evaluate("() => ({ box: !!document.querySelector('#mbm [data-f=credit]'), note: (document.querySelector('#mbm [data-dvonacct]') || {}).textContent || '' })")
+    C.ok(not sh['box'] and 'draws it down' in sh['note'] and 'nothing billed changes' in sh['note'],
+         f'billing {who}: with credit on the account the refund draws it down; no "credit the invoice" box is offered ({sh})')
     to = await pg.evaluate("() => (document.querySelector('#mbm [data-f=pay]') || {}).selectedOptions ? document.querySelector('#mbm [data-f=pay]').selectedOptions[0].textContent : ''")
     await pg.locator('#mbm [data-f="amount"]').fill('500')
     await pg.locator('#mbm [data-f="why"]').fill('the client paid for the stair runner twice')
@@ -458,15 +545,28 @@ async def refund(p, phone):
     r = await rec(pg)
     C.ok(r == 'invoice:in2', f'the owner {who}: Review the Refund opens the invoice\'s document ({r})')
     await shot(pg, f'u_owner_{dev}_refund_review')
-    await pg.locator('#dv [data-dvact^="rfapprove:"]').click()
+    # Approve is on the action bar (not a tap in the note strip) and asks to confirm: amount, who, which account
+    C.ok(await pg.locator('#dv .dv-notes [data-dvact^="rfapprove:"]').count() == 0, f'the owner {who}: Approve the Refund is not a one-tap button in the note strip')
+    await dv_tap(pg, 'Approve the Refund')
+    cf = await pg.evaluate("() => (document.querySelector('#mbm [data-dvconfirm]') || {}).textContent || ''")
+    still = await pg.evaluate("() => dvRefunds(DB.clients.find(c => c.id === 'cl121'))[0].status")
+    C.ok(still == 'proposed' and '$500.00' in cf and 'Klein' in cf and 'out of' in cf and 'came into' in cf,
+         f'the owner {who}: Approve opens a confirm sheet that restates the amount, who it goes to and the account, and nothing is approved yet ({still}: {cf[:160]})')
+    await shot(pg, f'u_owner_{dev}_refund_confirm')
+    await pg.locator('#mbm #mbm-ok').click()
     await pg.wait_for_timeout(300)
     g = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], py = c.payments.find(p => p.id === f.paymentRecId), d = c.invoices.find(i => i.id === 'in2'), src = c.payments.find(p => p.id === f.paymentId);
       return { st: f.status, by: f.approvedBy, rec: py ? { amt: py.amount, of: py.refundOf, acct: py.acctId, un: !!py.unapplied } : null, src: src.id, word: dvRefundWord(c, f), banked: py ? payBankedAmt(c, py) : null,
-        inv: invoiceStatus(c, d), cr: r2(clientFin(c).credits), paid: r2(clientFin(c).paid), cm: !!f.creditMemoId, out: clientFin(c).outstanding } }""")
+        inv: invoiceStatus(c, d), cr: r2(clientFin(c).credits), paid: r2(clientFin(c).paid), cm: !!f.creditMemoId, out: clientFin(c).outstanding,
+        onacct: dvOnAccount(c), billed: r2(clientFin(c).invoiced), cms: c.invoices.filter(i => i.creditMemo).length } }""")
     C.ok(g['st'] == 'approved' and g['by'], f'the owner {who}: approved, with the owner\'s name on it ({g["by"]})')
     C.ok(g['rec'] and g['rec']['amt'] == -500 and g['rec']['of'] == g['src'] and g['rec']['acct'] == f['acctId'], f'the owner {who}: the refund posts against the payment it returns, back to that account ({g["rec"]})')
     C.ok(g['word'] == 'approved, not in the bank' and g['banked'] == 0, f'the owner {who}: it reads "approved, not in the bank" and is not bank money yet ({g["word"]})')
-    C.ok(g['cm'] and g['inv'] == 'paid' and abs(g['cr'] - z['cr']) < 0.06 and abs(g['out'] - z['out']) < 0.06, f'the owner {who}: with its credit memo, INV-2026-035 stays paid and nothing is owed again ({g})')
+    # a refund returns credit the client holds: it draws down the account, writes no credit memo and changes nothing
+    # billed (billing review 11-12: it used to issue a memo and cut billed to date)
+    C.ok(not g['cm'] and g['cms'] == a['cms'] and abs(g['billed'] - a['billed']) < 0.01 and abs((a['onacct'] - g['onacct']) - 500) < 0.01,
+         f'the owner {who}: the $500 refund draws the account down by $500, with no credit memo and billed to date unchanged ({a["onacct"]} to {g["onacct"]}, billed {a["billed"]} to {g["billed"]}, memos {a["cms"]} to {g["cms"]})')
+    C.ok(g['inv'] == 'paid' and abs(g['out'] - z['out']) < 0.06, f'the owner {who}: INV-2026-035 stays paid and nothing is owed again ({g})')
     # the bank line: only money out of that account, of that amount, is this refund
     m = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], other = (DB.accounts || []).find(a => a.id !== f.acctId);
       DB.txns.push({ id: 'tRFok', date: today(), amt: -500, acct: f.acctId, desc: 'ONLINE TRANSFER TO KLEIN S', cat: '', status: 'new', origin: 'feed' });
@@ -480,6 +580,28 @@ async def refund(p, phone):
     await pg.wait_for_timeout(300)
     h = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'), f = dvRefunds(c)[0], py = c.payments.find(p => p.id === f.paymentRecId); return { w: dvRefundWord(c, f), b: payBankedAmt(c, py) } }")
     C.ok(h['w'].startswith('refunded, in the bank') and h['b'] == -500, f'the owner {who}: matched, the refund reads in the bank ({h})')
+    # with no credit on the account, "credit the invoice" is offered, unticked, and says it reduces what was billed;
+    # ticked, its memo's reason names the invoice in plain words, never a record id
+    await sign_in(pg, 'u_billing')
+    await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl121'); window.__held = c.payments.filter(p => p.unapplied); c.payments = c.payments.filter(p => !p.unapplied); dvClose(); clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: 'in1' }; view = 'billing'; render(); }")
+    await dv_tap(pg, 'Refund')
+    bx = await pg.evaluate("() => { const b = document.querySelector('#mbm [data-f=credit]'); return b ? { on: b.checked, t: b.closest('label').textContent } : null }")
+    C.ok(bx and not bx['on'] and 'reduces what was billed' in bx['t'], f'billing {who}: with nothing on the account, Credit the invoice is offered unticked and says what it does ({bx})')
+    await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} }")
+    cw = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in1'), p = dvRefundable(c, d).find(x => x.banked);
+      const R = dvRefundPropose(c, d, p.p.id, 300, 'deposit overstated by the stair runner', true); return R.ok ? R.f.id : R.why; }""")
+    await sign_in(pg, 'u_owner')
+    lk = await pg.evaluate("""(fid) => { const c = DB.clients.find(c => c.id === 'cl121'); dvRefundDecide(c, fid, true); const f = dvRefunds(c).find(x => x.id === fid), m = c.invoices.find(i => i.id === f.creditMemoId);
+      c.payments = c.payments.concat(window.__held || []);
+      const ids = new Set([].concat((DB.clientCredits || []).map(x => x.id), c.payments.map(x => x.id), c.invoices.map(x => x.id), (c.estimates || []).map(x => x.id), (c.changeOrders || []).map(x => x.id),
+        c.invoices.flatMap(i => (i.lines || []).map(l => l.id))).filter(x => x && x.length >= 5));
+      const leaks = [];
+      [].concat(c.invoices, c.estimates || [], c.changeOrders || []).filter(d => d.status !== 'draft').forEach(d => {
+        const t = cxDocHtml(c, d, { print: false }).replace(/<style[\\s\\S]*?<\\/style>/gi, '').replace(/<[^>]+>/g, ' ');
+        ids.forEach(id => new RegExp('\\\\b' + id + '\\\\b').test(t) && leaks.push(d.number + ': ' + id)); });
+      return { why: m ? m.creditWhy : null, leaks: leaks.slice(0, 5) }; }""", cw)
+    C.ok(lk['why'] and lk['why'].startswith('Refund on INV-2026-031:') and not re.search(r'\bcc[0-9a-z]{5}\b', lk['why']), f'billing {who}: the refund\'s credit memo reason names the invoice, not a record id ({lk["why"]!r})')
+    C.ok(not lk['leaks'], f'{who}: no client document prints an internal record id ({lk["leaks"]})')
     C.ok(not errs, f'refund {who}: no page errors ({errs[:2]})')
     await b.close()
 
@@ -495,6 +617,18 @@ async def portal(p, phone):
          f'the client on the {dev}: the portal opens the same invoice, How to Pay the blue, no office actions ({A})')
     await shot(pg, f'u_klein_{dev}_portal_invoice')
     if phone: await phone_layout(pg, f'the client on the {dev}')
+    # the amount due is in the header, on screen without scrolling (client review 11-12)
+    hd = await pg.evaluate("() => { const e = document.querySelector('#dv .dv-hd [data-dvdue]'); if (!e) return null; const r = e.getBoundingClientRect(); return { t: e.textContent, top: r.top, bottom: r.bottom, vh: innerHeight, due: dvDue(DB.clients.find(c => c.id === 'cl121'), DB.clients.find(c => c.id === 'cl121').invoices.find(i => i.id === 'in3')) } }")
+    C.ok(hd and money_in(hd['t'], hd['due']) and 'due' in hd['t'] and hd['top'] >= 0 and hd['bottom'] <= hd['vh'],
+         f'the client on the {dev}: the header says what is due on INV-2026-038, visible without scrolling ({hd})')
+    # a paid pay application (INV-2026-035: $72,750.16 billed, $72,750.00 received, status paid): it never asks again
+    await pg.evaluate("() => { dvClose(); const c = DB.clients.find(c => c.id === 'cl121'); portalView(c, 'invoice', c.invoices.find(i => i.id === 'in2')) }")
+    pz = await pg.evaluate("""() => ({ A: [...document.querySelectorAll('#dv .dv-bar [data-dvact], #dv .dv-menu [data-dvact]')].map(b => b.dataset.dvact),
+        t: (document.querySelector('#dv .dv-doc') || {}).innerText || '', hd: (document.querySelector('#dv [data-dvdue]') || {}).textContent || '',
+        st: invoiceStatus(DB.clients.find(c => c.id === 'cl121'), DB.clients.find(c => c.id === 'cl121').invoices.find(i => i.id === 'in2')) })""")
+    C.ok(pz['st'] == 'paid' and 'howtopay' not in pz['A'] and 'Current payment due' not in pz['t'] and re.search(r'Paid in full on [A-Z][a-z]+ \d{1,2}, 20\d\d', pz['t']) and pz['hd'].startswith('Paid'),
+         f'the client on the {dev}: the paid INV-2026-035 says Paid in full with its date and Paid in the header; no How to Pay, no Current payment due ({pz["A"]}, {pz["hd"]!r})')
+    await shot(pg, f'u_klein_{dev}_portal_paid')
     await pg.evaluate("() => { dvClose(); const c = DB.clients.find(c => c.id === 'cl121'); portalView(c, 'co', c.changeOrders.find(x => x.id === 'co2')) }")
     A = await pg.evaluate("() => [...document.querySelectorAll('#dv .dv-bar [data-dvact]')].map(b => (b.classList.contains('primary') ? '*' : '') + b.dataset.dvact)")
     C.ok('*papprove' in A, f'the client on the {dev}: a change order waiting on them opens with Approve the blue ({A})')
@@ -503,13 +637,14 @@ async def portal(p, phone):
 
 
 async def main():
-    only = sys.argv[1:] or ['lists', 'revise', 'credit', 'refund', 'portal']
+    only = sys.argv[1:] or ['lists', 'revise', 'ledger', 'credit', 'refund', 'portal']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'lists' in only:
                 for uid in ('u_billing', 'u_controller', 'u_owner'):
                     await lists_open(p, phone, uid)
             if 'revise' in only: await revise(p, phone); await revise_settled(p, phone)
+            if 'ledger' in only and not phone: await revise_ledger(p, phone)
             if 'credit' in only: await credit(p, phone)
             if 'refund' in only: await refund(p, phone)
             if 'portal' in only: await portal(p, phone)
