@@ -15260,6 +15260,7 @@ function timeFlags(e) {
         x.id !== e.id &&
         x.empId === e.empId &&
         x.date === e.date &&
+        !/^(void|rejected)$/.test(String(x.status || "")) &&
         x.in &&
         e.in &&
         new Date(x.in) < new Date(e.out || e.in) &&
@@ -15268,6 +15269,52 @@ function timeFlags(e) {
     isWork(e.date, !0) || f.push("Sunday / holiday"),
     f
   );
+}
+// ---- one rule each for the three things every punch goes through (the foreman's review, 11-12) -------------------
+// A punch that closes, by hand (clockEvent) or by location (tkgPunchOut, src/fieldclock.js): work that adds up to the
+// clock sends the day to the foreman; anything else stays the person's to finish. The automatic clock-out skipped
+// this, so a day whose work was already logged never reached the foreman.
+function timeCloseOut(e) {
+  (e.work = e.work || []),
+    e.work.length || e.work.push({ projectId: e.projectId, code: e.code || "", hours: 0, note: "" }),
+    (e.status = Math.abs(workHours(e) - hoursOf(e)) <= 0.26 && workHours(e) ? "submitted" : "open"),
+    hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30);
+}
+// A person's own hours not yet approved: on the clock, closed and waiting on their details, or sent. Their own list
+// reads this (it read only what was sent, so a punch the app had just made was not on it).
+const timeMineWaiting = (t) => !t.payrollId && ("submitted" === t.status || "open" === t.status);
+// The hours waiting on the foreman on one job: the days sent to him, and the punches that closed and were never sent
+// (an automatic clock-out with nothing logged, a hand punch nobody finished). A punch in an overlap still to pick is
+// not one of them: the pair is one row with Pick One (overlaps). Crew › Hours to Approve, Today and the Daily Log's
+// crew step read this one list.
+function fHoursToApprove(p) {
+  const O = p && "function" == typeof tkOverlapsOpen ? tkOverlapsOpen(p.id) : [],
+    inO = new Set(O.flatMap((o) => [o.a.id, o.b.id]));
+  return {
+    overlaps: O,
+    entries: (DB.time || [])
+      .filter((t) => p && t.projectId === p.id && !t.payrollId && ("submitted" === t.status || ("open" === t.status && !!t.out)) && !inO.has(t.id))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.in).localeCompare(String(b.in))),
+  };
+}
+// Why these hours cannot be approved yet ("" when they can): two punches of one person claim the same time and
+// nobody has picked. Approving either one before the pick is how an hour gets paid twice.
+function timeApproveBlock(e) {
+  const o = "function" == typeof tkOverlapFor ? tkOverlapFor(e) : null;
+  return o ? `${String(o.name || empName(e.empId)).split(" ")[0]}'s ${fmt(o.date)} punches overlap (${o.h} h claimed twice). Pick the right one first: nothing is approved or paid twice.` : "";
+}
+// The one door for approving hours: every Approve (the drawer, Approve All Shown, Approvals, the foreman's Crew page
+// and its Fix) goes through it. It returns "" when approved, or the reason it refused, said to the person with the
+// pick one tap away.
+function timeApprove(e, by, quiet) {
+  const why = timeApproveBlock(e);
+  if (why) {
+    quiet ||
+      toast(why, [{ label: "Pick One", run: () => "function" == typeof tkOverlapPick && tkOverlapPick(tkOverlapFor(e)) }]);
+    return why;
+  }
+  (e.status = "approved"), (e.approvedBy = by), (e.approvedAt = appNowIso()), audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e) });
+  return "";
 }
 let timeFilter = "pending",
   clockState = { geo: null, err: "" };
@@ -15467,7 +15514,7 @@ function renderTime() {
                   `<option value="${esc(e.name)}">${esc(e.name)}${e.role ? ` — ${esc(e.role)}` : ""}</option>`,
               )
               .join("")}</select></div>`
-      }\n      <div class="geo ${null == d ? "" : d <= (site?.radius || 250) ? "ok" : "far"}" id="geo-line">${geo ? (site ? `Location ${d} m from the site${d > (site.radius || 250) ? " — outside the job radius; the entry will be flagged" : ""}` : "Location captured · no site location set for this project yet") : clockState.err || "Location is captured when you clock in or out."}</div>\n      ${site || (!isOwner() && "pm" !== role()) ? "" : '<button class="btn sm" id="geo-setsite" style="margin-top:6px">Use my current location as the site location</button>'}${emp && !clockState.blocked ? `<label class="chk" style="margin-top:8px"><input type="checkbox" id="geo-auto" ${DB.autoClock ? "checked" : ""}> <span class="chk-t">Clock me in and out automatically when I arrive at and leave a job site<span class="small muted"> — while the app is open</span></span></label>` : ""}${clockState.blocked ? '<div class="small muted" style="margin-top:6px">Automatic clock-in/out by location becomes available in the installed app.</div>' : ""}</div>\n    <div class="row">${emp ? (open ? '<button class="btn danger clockbtn" id="clock-out">Clock out</button>' : '<button class="btn primary clockbtn" id="clock-in" style="height:56px;min-width:180px">Clock in</button>') : ""}</div></div>`);
+      }\n      <div class="geo ${null == d ? "" : d <= (site?.radius || 250) ? "ok" : "far"}" id="geo-line">${geo ? (site ? `Location ${d} m from the site${d > (site.radius || 250) ? " — outside the job radius; the entry will be flagged" : ""}` : "Location captured · no site location set for this project yet") : clockState.err || "Location is captured when you clock in or out."}</div>\n      ${site || (!isOwner() && "pm" !== role()) ? "" : '<button class="btn sm" id="geo-setsite" style="margin-top:6px">Use my current location as the site location</button>'}${clockState.blocked ? '<div class="small muted" style="margin-top:6px">Automatic clock-in/out by location becomes available in the installed app.</div>' : ""}</div>\n    <div class="row">${emp ? (open ? '<button class="btn danger clockbtn" id="clock-out">Clock out</button>' : '<button class="btn primary clockbtn" id="clock-in" style="height:56px;min-width:180px">Clock in</button>') : ""}</div></div>`);
   const td = today(),
     [wS, wE] = weekRange(td),
     crewOnly = ["crew", "driver", "foreman"].includes(role());
@@ -15475,13 +15522,14 @@ function renderTime() {
     ($("#btn-payrollfromtime").style.display = crewOnly ? "none" : ""),
     ($("#btn-addtime").style.display = crewOnly ? "none" : "");
   const rows = DB.time
-      .filter((t) => t.projectId === S.id || !t.projectId)
-      .filter((t) => !crewOnly || (emp && t.empId === emp.id))
+      .filter((t) => (crewOnly ? emp && t.empId === emp.id : t.projectId === S.id || !t.projectId))
       .filter(
         (t) =>
           "all" === timeFilter ||
           ("pending" === timeFilter
-            ? "submitted" === t.status
+            ? crewOnly
+              ? timeMineWaiting(t)
+              : "submitted" === t.status
             : "week" === timeFilter
               ? t.date >= wS && t.date <= wE
               : "approved" === t.status && !t.payrollId),
@@ -15516,7 +15564,7 @@ function renderTime() {
           )
         : [];
   ($("#time-kpis").innerHTML = crewOnly
-    ? `<div class="kpi"><b>${myWk.toFixed(1)}</b><span>your hours this week</span></div><div class="kpi"><b>${emp ? DB.time.filter((t) => t.empId === emp.id && "submitted" === t.status).length : 0}</b><span>of your entries awaiting approval</span></div>`
+    ? `<div class="kpi"><b>${myWk.toFixed(1)}</b><span>your hours this week</span></div><div class="kpi"><b>${emp ? DB.time.filter((t) => t.empId === emp.id && timeMineWaiting(t)).length : 0}</b><span>of your entries awaiting approval</span></div>`
     : `<div class="kpi ${pending.length ? "warn" : ""}"><b>${pending.length}</b><span>entries awaiting approval · ${pending.reduce((a, t) => a + hoursOf(t), 0).toFixed(1)} h</span></div><div class="kpi"><b>${wkH.toFixed(1)}</b><span>hours this week on ${esc(S.project.name)}</span></div><div class="kpi blue"><b>${apprH.toFixed(1)}</b><span>approved hours not yet in a payroll run (all projects)</span></div><div class="kpi ${notIn.length && 60 * appNow().getHours() + appNow().getMinutes() >= hmToMin(shN.start) + 30 ? "warn" : ""}"><b>${notIn.length}</b><span>not clocked in today${notIn.length ? `: ${esc(notIn.map((x) => x.name.split(" ")[0]).join(", "))}` : ""}</span></div>`),
     ($("#n-time").textContent = pending.length || "");
   const cols = [
@@ -15576,11 +15624,12 @@ function renderTime() {
         const p = DB.projects.find((x) => x.id === t.projectId),
           rad = p?.project.geo?.radius || 250,
           dIn = t.geoIn?.dist;
+        const auto = t.auto || "geo" === t.source ? " · automatic" : "";
         return null == dIn
           ? { text: "—" }
           : {
-              text: `${dIn} m`,
-              html: `<span class="geo ${dIn <= rad ? "ok" : "far"}">${dIn >= 1e3 ? (dIn / 1e3).toFixed(1) + " km" : dIn + " m"} ${dIn <= rad ? ICON_CHECK : ICON_WARN}</span>`,
+              text: `${dIn} m${auto}`,
+              html: `<span class="geo ${dIn <= rad ? "ok" : "far"}">${dIn >= 1e3 ? (dIn / 1e3).toFixed(1) + " km" : dIn + " m"} ${dIn <= rad ? ICON_CHECK : ICON_WARN}</span>${auto}`,
             };
       },
     },
@@ -15635,14 +15684,6 @@ function renderTime() {
         rows.some((t) => "submitted" === t.status) && (canApproveSchedule() || isOwner()) ? "" : "none"),
     $("#clock-in")?.addEventListener("click", () => clockEvent("in")),
     $("#clock-out")?.addEventListener("click", () => clockEvent("out")),
-    $("#geo-auto")?.addEventListener("change", (e) => {
-      (DB.autoClock = e.target.checked),
-        DB.autoClock
-          ? (askNotify(), startGeofence(), toast("Automatic clock-in is on while the app is open"))
-          : stopGeofence(),
-        save();
-    }),
-    DB.autoClock && emp && startGeofence(),
     $("#clock-me")?.addEventListener("change", (e) => {
       e.target.value &&
         ((DB.me = e.target.value),
@@ -15699,111 +15740,36 @@ function getGeo() {
     );
   });
 }
-let geoWatch = null,
-  awayTimer = null;
-function nearestSite(pos) {
-  let best = null;
-  return (
-    DB.projects.forEach((p) => {
-      if (!p.project.geo) return;
-      const d = distM(pos, p.project.geo);
-      d <= (p.project.geo.radius || 250) && (!best || d < best.d) && (best = { p: p, d: d });
-    }),
-    best
+// One watch on the device's position, read while the app is open (and once when it opens at the site). Every reading
+// goes to tkGeoTick (src/fieldclock.js), the one place a punch by location is made, and tkGeoTick punches only for a
+// person who read the notice and agreed (u.geoAck). The old watch here made its own punches (autoClock) behind a
+// device-wide checkbox with no notice and no consent; both are gone (the foreman's review, 11-12, S1-1).
+let geoWatch = null;
+function startGeofence() {
+  if (null != geoWatch || !navigator.geolocation) return;
+  const onPos = (pos) => {
+    const here = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy || 0) };
+    (clockState.geo = here), (clockState.err = "");
+    "function" == typeof tkGeoTick && tkGeoTick(here);
+  };
+  try {
+    navigator.geolocation.getCurrentPosition(onPos, () => {}, { enableHighAccuracy: !0, timeout: 8e3, maximumAge: 6e4 });
+  } catch (e) {}
+  geoWatch = navigator.geolocation.watchPosition(
+    onPos,
+    (e) => {
+      const was = clockState.err;
+      clockState.err = geoMessage(e);
+      const el = $("#geo-line");
+      el && (el.textContent = clockState.err);
+      // the switch says so at once: "on" with no location is not on
+      was !== clockState.err && "function" == typeof tkgSwitchMountAll && tkgSwitchMountAll();
+    },
+    { enableHighAccuracy: !0, maximumAge: 3e4 },
   );
 }
-function startGeofence() {
-  null == geoWatch &&
-    navigator.geolocation &&
-    (geoWatch = navigator.geolocation.watchPosition(
-      (pos) => {
-        const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        (clockState.geo = { ...here, acc: Math.round(pos.coords.accuracy) }), (clockState.err = "");
-        const emp = myEmp();
-        if (!emp) return;
-        const open = DB.time.find((t) => t.empId === emp.id && !t.out),
-          site = nearestSite(here),
-          ns = nearStore(here);
-        if (
-          (!ns ||
-            activeRun() ||
-            clockState.storePrompted ||
-            ((clockState.storePrompted = ns.s.n),
-            notify(`At ${ns.s.n}?`, "Start a store run so the crews can add to your list."),
-            "time" === view && render()),
-          !open && site)
-        ) {
-          const sh = siteHours(site.p),
-            nowM = 60 * appNow().getHours() + appNow().getMinutes();
-          sh.days.includes(appNow().getDay()) &&
-            nowM >= hmToMin(sh.start) - 60 &&
-            nowM <= hmToMin(sh.end) + 120 &&
-            autoClock("in", emp, site.p, here, site.d);
-        }
-        open && !site
-          ? awayTimer ||
-            (awayTimer = setTimeout(() => {
-              DB.time.find((t) => t.empId === emp.id && !t.out) &&
-                !nearestSite(clockState.geo || here) &&
-                autoClock("out", emp, null, clockState.geo || here, null),
-                (awayTimer = null);
-            }, 6e5))
-          : awayTimer && (clearTimeout(awayTimer), (awayTimer = null));
-      },
-      (e) => {
-        clockState.err = geoMessage(e);
-        const el = $("#geo-line");
-        el && (el.textContent = clockState.err);
-      },
-      { enableHighAccuracy: !0, maximumAge: 3e4 },
-    ));
-}
 function stopGeofence() {
-  null != geoWatch && (navigator.geolocation.clearWatch(geoWatch), (geoWatch = null)),
-    awayTimer && (clearTimeout(awayTimer), (awayTimer = null));
-}
-function autoClock(kind, emp, proj, here, dist) {
-  proj =
-    proj || DB.projects.find((p) => p.id === DB.time.find((t) => t.empId === emp.id && !t.out)?.projectId);
-  const now = appNow(),
-    ts = appIso(now);
-  if ("in" === kind)
-    DB.time.push({
-      id: uid("te"),
-      empId: emp.id,
-      date: today(),
-      in: ts,
-      out: "",
-      breakMin: 0,
-      projectId: proj.id,
-      code: "",
-      notes: "",
-      status: "open",
-      approvedBy: "",
-      geoIn: { ...here, dist: dist },
-      geoOut: null,
-      source: "geo",
-      work: [],
-    }),
-      audit("time", emp.id, "auto-clock-in", null, { projectId: proj.id, dist: dist }),
-      log(`${emp.name} arrived at ${proj.project.name} — clocked in automatically (${dist} m)`),
-      notify(
-        `Clocked in at ${proj.project.name}`,
-        "Arrived on site. Remember to log what you worked on before you leave.",
-      );
-  else {
-    const e = DB.time.find((t) => t.empId === emp.id && !t.out);
-    if (!e) return;
-    (e.out = ts),
-      (e.geoOut = { ...here, dist: null }),
-      (e.autoOut = !0),
-      hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = siteHours(proj || S).lunch || 30),
-      (e.status = (e.work || []).length ? "submitted" : "open"),
-      audit("time", e.id, "auto-clock-out", null, { hours: hoursOf(e) }),
-      log(`${emp.name} left the site — clocked out automatically (${hoursOf(e).toFixed(1)} h)`),
-      notify("Clocked out", `${hoursOf(e).toFixed(1)} hours today. Open the app and log what you worked on.`);
-  }
-  save(), render();
+  null != geoWatch && (navigator.geolocation.clearWatch(geoWatch), (geoWatch = null));
 }
 function notify(title, body) {
   try {
@@ -15853,10 +15819,7 @@ async function clockEvent(kind) {
     if (!e) return void toast("Not clocked in");
     (e.out = ts),
       (e.geoOut = geo),
-      (e.work = e.work || []),
-      e.work.length || e.work.push({ projectId: e.projectId, code: e.code || "", hours: 0, note: "" }),
-      (e.status = Math.abs(workHours(e) - hoursOf(e)) <= 0.26 && workHours(e) ? "submitted" : "open"),
-      hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30),
+      timeCloseOut(e),
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
       log(`${emp.name} clocked out — ${hoursOf(e).toFixed(1)} h`);
   }
@@ -15965,12 +15928,10 @@ function timeAction(e, a) {
   if ("approve" === a) {
     if (empName(e.empId).toLowerCase() === by.toLowerCase())
       return void toast("You cannot approve your own time");
+    if (timeApproveBlock(e)) return void timeApprove(e, by);
     if (!timeWorkOk(e) && !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?"))
       return;
-    (e.status = "approved"),
-      (e.approvedBy = by),
-      (e.approvedAt = appNowIso()),
-      audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e) });
+    timeApprove(e, by);
   }
   "reject" === a && ((e.status = "rejected"), audit("time", e.id, "rejected")),
     "unapprove" === a && ((e.status = "submitted"), (e.approvedBy = ""), audit("time", e.id, "unapproved")),
@@ -21218,18 +21179,18 @@ function wire() {
             (e) => e && "submitted" === e.status && empName(e.empId).toLowerCase() !== by.toLowerCase(),
           ),
         odd = rows.filter((e) => !timeWorkOk(e) || ("function" == typeof timeFlags && (timeFlags(e) || []).length)),
+        held = (L) => {
+          const k = L.filter((e) => "approved" !== e.status).length;
+          return k ? ` · ${k} held: two punches overlap, pick one first` : "";
+        },
         run = () => {
           let n = 0;
           rows.forEach((e) => {
-            (e.status = "approved"),
-              (e.approvedBy = by),
-              (e.approvedAt = appNowIso()),
-              audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e) }),
-              n++;
+            timeApprove(e, by, !0) || n++;
           }),
             save(),
             render(),
-            toast(`Approved ${n} entr${1 === n ? "y" : "ies"}`);
+            toast(`Approved ${n} entr${1 === n ? "y" : "ies"}${held(rows)}`);
         };
       rows.length
         ? odd.length
@@ -21257,11 +21218,7 @@ function wire() {
                     rows
                       .filter((e) => !keep.has(e.id))
                       .forEach((e) => {
-                        (e.status = "approved"),
-                          (e.approvedBy = by),
-                          (e.approvedAt = appNowIso()),
-                          audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e) }),
-                          n++;
+                        timeApprove(e, by, !0) || n++;
                       }),
                       save(),
                       render(),
@@ -49423,12 +49380,30 @@ function fArrivedNoOrder(m) {
     },
   );
 }
+// the open order a material is on (issued or part received, something still to come, not a subcontract)
+function fMatOpenPO(m) {
+  return (
+    (m &&
+      (DB.pos || []).find(
+        (po) =>
+          ["issued", "partial"].includes(po.status) &&
+          !("function" == typeof poIsSub && poIsSub(po)) &&
+          ((po.lines || []).some((l) => l.materialId === m.id) || (m.po && (m.po === po.number || m.po === po.id))) &&
+          (po.lines || []).some((l) => (+l.qty || 0) > (+l.received || 0)),
+      )) ||
+    null
+  );
+}
 function fReceive(k, id) {
   if ("po" === k) {
     const po = (DB.pos || []).find((x) => x.id === id);
     return void (po && rcReceiveSome(po));
   }
   if (mat(id) && !fMatHasPO(mat(id))) return fArrivedNoOrder(mat(id));
+  // a material with an open order behind it is received on the order: counted line by line, never just "Received"
+  // (that marked the material on site and left the order uncounted, so the bill had no receipt to match)
+  const mpo = "mat" === k && fMatOpenPO(mat(id));
+  if (mpo) return void rcReceiveSome(mpo);
   const name =
     "po" === k
       ? (() => {
@@ -49613,16 +49588,20 @@ function fRenderSite() {
     subs = DB.field.subs
       .filter((s) => s.projectId === S.id && s.date >= td && s.date <= end)
       .sort((a, b) => a.date.localeCompare(b.date)),
+    // the job's open orders, soonest first: each is received on the one receive sheet (puReceive: a count per line,
+    // Good / Short / Damaged / Wrong, the slip's photo), the same sheet the crew's Deliveries opens
+    orders = (DB.pos || [])
+      .filter((po) => po.projectId === S.id && !["cancelled", "draft", "received"].includes(po.status))
+      .sort((a, b) => String(a.expected || a.needBy || "").localeCompare(String(b.expected || b.needBy || ""))),
+    orderRow = (po) => {
+      const n = (po.lines || []).length,
+        got = (po.lines || []).filter((l) => (+l.received || 0) >= (+l.qty || 0)).length,
+        when = po.expected || po.needBy || "",
+        late = when && when < td && got < n,
+        sub = "function" == typeof poIsSub && poIsSub(po);
+      return `<div class="f3-row ${late ? "late" : ""}"><div><span class="k">${esc(po.vendor || "Vendor")}</span><b data-nocase>${esc(po.number)}</b><div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}${po.staged ? ` · staged: ${esc(po.staged)}` : ""}</div></div>${sub ? `<span class="small muted">Subcontract: progress, not a delivery</span>` : `<div class="row" style="gap:6px;flex:0 0 auto"><button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the Rest" : "Receive"}</button><button class="btn sm" data-fprob="${esc(po.id)}">Problem</button></div>`}</div>`;
+    },
     dels = [
-      ...DB.pos
-        .filter((po) => po.projectId === S.id && ["issued", "partial"].includes(po.status))
-        .map((po) => ({
-          k: "po",
-          id: po.id,
-          d: po.expected || "",
-          n: `${po.vendor}: ${po.lines.map((l) => l.item).join(", ")}`,
-          staged: po.staged,
-        })),
       ...S.materials
         .filter((m) => "on-site" !== m.status && "end" !== m.when)
         .map((m) => {
@@ -49650,7 +49629,7 @@ function fRenderSite() {
       .sort((a, b) => (a.when || "z").localeCompare(b.when || "z"))
       .slice(0, 4),
     punch = DB.field.punch.filter((x) => x.projectId === S.id && "verified" !== x.status);
-  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || '<div class="small muted">Nothing due in the next two weeks.</div>'}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
+  (root.innerHTML = `\n    <div class="card f-card"><div class="hd"><h3>Subs — next two weeks</h3><button class="btn sm" id="fsub-add">Add a sub day</button></div>\n      ${subs.map((s) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${fmtL(s.date)} · ${esc(task(s.taskId)?.name || s.trade)}</span><b>${esc(s.vendor)} <span class="muted" style="font-weight:400">· ${esc(s.lead)}</span></b>${s.note ? `<span class="small">${esc(s.note)}</span>` : ""}</div>${((s) => ("onsite" === s ? '<span class="pill ok">on site</span>' : "confirmed" === s ? '<span class="pill blue">confirmed</span>' : "noshow" === s ? '<span class="pill bad">no-show</span>' : '<span class="pill warn">unconfirmed</span>'))(s.status)}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${"unconfirmed" === s.status ? `<button class="btn sm primary" data-fsub="${s.id}" data-st="confirmed">Confirm</button>` : ""}${s.date === td && "onsite" !== s.status ? `<button class="btn sm" data-fsub="${s.id}" data-st="onsite">Here</button>` : ""}${s.date <= td && !["onsite", "noshow"].includes(s.status) ? `<button class="btn sm" data-fsub="${s.id}" data-st="noshow">No-show</button>` : ""}<a class="btn sm" href="sms:${s.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(`${s.lead} — confirming you are at ${S.project.name} ${fmtL(s.date)} for ${task(s.taskId)?.name || s.trade}. Reply YES. — ${fWho()}`)}">Text ${esc(s.lead)}</a><a class="btn sm" href="tel:${s.phone.replace(/[^\d+]/g, "")}">Call</a></div></div>`).join("") || '<div class="small muted">No sub days on the calendar. Add one so it can be confirmed.</div>'}\n      <div class="small muted" style="margin-top:8px">Unconfirmed two days out shows amber on the look-ahead; a no-show goes to the PM and coordinator the moment you tap it.</div></div>\n    <div class="card f-card"><div class="hd"><h3>Deliveries</h3><span class="small muted">${people.coord ? `${esc(people.coord.name.split(" ")[0])} orders · ` : ""}${people.driver ? `${esc(people.driver.name.split(" ")[0])} drives` : ""}</span></div>\n      ${orders.length ? `<div class="f3-dels">${orders.map(orderRow).join("")}</div>` : ""}${dels.map((d) => `<div class="f-row col"><div class="row" style="gap:6px"><div class="grow"><span class="small muted">${d.d ? `expected ${fmtL(d.d)}` : d.st ? `${d.st.replace("-", " ")}${d.need ? ` · needed ${fmt(d.need)}` : ""}` : ""}${d.staged ? ` · staged: ${esc(d.staged)}` : ""}</span><b>${esc(d.n)}</b></div>${d.st && !["ordered", "shipped"].includes(d.st) ? `<span class="pill ${"needs-decision" === d.st ? "bad" : "warn"}">${d.st.replace("-", " ")}</span>` : `<span class="pill blue">${"po" === d.k ? "on order" : "ordered"}</span>`}</div><div class="row" style="gap:4px;margin-top:6px;flex-wrap:wrap">${d.d ? `<button class="btn sm primary" data-frecv="${d.k}:${d.id}">Received</button>${"po" === d.k ? `<button class="btn sm" data-fprob="${d.id}">Problem</button>` : `<button class="btn sm" data-fraise="delivery" data-title="${esc(d.n)}: ">Problem</button>`}` : `<button class="btn sm" data-fraise="blocker" data-title="Where is: ${esc(d.n)}? Needed ${fmt(d.need)}. " data-task="${("mat" === d.k && mat(d.id)?.taskId) || ""}">Where is it?</button>`}</div></div>`).join("") || (orders.length ? "" : '<div class="small muted">Nothing due in the next two weeks.</div>')}\n      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-fview="req">Request material / tools</button>${fCall(people.coord)}${fCall(people.driver)}</div></div>\n    <div class="card f-card"><div class="hd"><h3>Inspections</h3></div>\n      ${
     insp
       .map(({ i: i, when: when }) => {
         const prep = fPrepFor(i);
@@ -49885,10 +49864,16 @@ function fRenderCrew() {
     crew = DB.employees.filter(
       (e) => !1 !== e.active && !/coordinator|office|owner|designer/i.test(e.role || ""),
     ),
-    pend = DB.time
-      .filter((t) => t.projectId === S.id && "submitted" === t.status)
-      .sort((a, b) => a.date.localeCompare(b.date)),
-    clean = pend.filter((t) => !timeFlags(t).length),
+    // Hours to Approve (fHoursToApprove): the days sent, the punches that closed and were never sent, and each pair of
+    // punches that overlap as one row with Pick One. OV is every overlap the page shows (this job's, and any of the
+    // crew listed under This Week), so one index finds the pair a Pick One button means.
+    HA = fHoursToApprove(S),
+    pend = HA.entries,
+    OV = "function" == typeof tkOverlapsOpen ? tkOverlapsOpen().filter((o) => crew.some((e) => e.id === o.empId) || o.a.projectId === S.id || o.b.projectId === S.id) : [],
+    ovJob = OV.filter((o) => o.a.projectId === S.id || o.b.projectId === S.id),
+    ovRow = (o, how) => ("function" == typeof tkOverlapRowHtml ? tkOverlapRowHtml(o, OV.indexOf(o), how) : ""),
+    live = (t) => !/^(void|rejected)$/.test(String(t.status || "")),
+    clean = pend.filter((t) => "submitted" === t.status && !timeFlags(t).length),
     lastTalk = DB.field.talks
       .filter((t) => t.projectId === S.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0],
@@ -49902,45 +49887,48 @@ function fRenderCrew() {
     notIn = crew.filter((e) => !DB.time.some((t) => t.empId === e.id && t.date === td));
   (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span></div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
     .map((e) => {
-      const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td),
+      // a day is a date, not a punch (two punches on 9/3 read "4 days" for three worked), and a voided punch is no time
+      const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td && live(t)),
+        days = new Set(wk.map((t) => t.date)).size,
         h = wk.reduce((a, t) => a + hoursOf(t), 0),
         tdE = wk.filter((t) => t.date === td),
         cur = tdE.find((t) => !t.out),
-        u = DB.users.find((x) => x.employeeId === e.id);
-      return `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${wk.length} day${1 === wk.length ? "" : "s"} · ${h.toFixed(1)} h${h > 40 ? ' <span class="bad-t">OT</span>' : ""}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>`;
+        u = DB.users.find((x) => x.employeeId === e.id),
+        ov = OV.filter((o) => o.empId === e.id);
+      return `<div class="f-row${ov.length ? " col warn" : ""}" data-fwk="${e.id}"><div class="row" style="gap:6px;width:100%"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${days} day${1 === days ? "" : "s"} · ${h.toFixed(1)} h${h > 40 ? ' <span class="bad-t">OT</span>' : ""}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>${ov.map((o) => ovRow(o, "crew")).join("")}</div>`;
     })
     .join(
       "",
     )}</div>\n    <div class="card f-card"><div class="hd"><h3>Hours to approve</h3>${clean.length ? `<button class="btn sm primary" id="fappr-all">Approve ${clean.length} clean</button>` : ""}</div>\n      ${
-    pend
-      .map((t) => {
-        const e = DB.employees.find((x) => x.id === t.empId),
-          fl = timeFlags(t);
-        return `<div class="f-row ${fl.length ? "warn" : ""}"><div class="grow"><b>${esc(e?.name || "")} · ${fmt(t.date)} · ${hoursOf(t).toFixed(1)} h</b><span class="small muted">${t.in.slice(11, 16)}–${t.out ? t.out.slice(11, 16) : "…"}${t.breakMin ? ` · ${t.breakMin} min break` : ""}${(
-          t.work || []
-        )
-          .filter((w) => w.note)
-          .map((w) => ` · ${esc(w.note)}`)
-          .join(
-            "",
-          )}</span>${fl.length ? `<span class="small bad-t">${esc(fl.join(" · "))}</span>` : ""}</div><div class="row" style="gap:4px"><button class="btn sm ${fl.length ? "" : "primary"}" data-fappr="${t.id}">Approve</button>${fl.length ? `<button class="btn sm" data-ffix="${t.id}">Fix</button>` : ""}</div></div>`;
-      })
-      .join("") || '<div class="small muted">Nothing waiting.</div>'
+    ovJob.map((o) => ovRow(o, "crew")).join("") +
+      pend
+        .map((t) => {
+          const e = DB.employees.find((x) => x.id === t.empId),
+            fl = timeFlags(t),
+            unsent = "open" === t.status,
+            auto = t.auto || "geo" === t.source;
+          return `<div class="f-row ${fl.length || unsent ? "warn" : ""}" data-fhrs="${t.id}"><div class="grow"><b>${esc(e?.name || "")} · ${fmt(t.date)} · ${hoursOf(t).toFixed(1)} h</b><span class="small muted">${t.in.slice(11, 16)}–${t.out ? t.out.slice(11, 16) : "…"}${t.breakMin ? ` · ${t.breakMin} min break` : ""}${auto ? " · automatic, by location" : ""}${(
+            t.work || []
+          )
+            .filter((w) => w.note)
+            .map((w) => ` · ${esc(w.note)}`)
+            .join(
+              "",
+            )}</span>${unsent ? `<span class="small bad-t">Not sent yet: ${esc(String(e?.name || "").split(" ")[0])} has not logged the work</span>` : ""}${fl.length ? `<span class="small bad-t">${esc(fl.join(" · "))}</span>` : ""}</div><div class="row" style="gap:4px"><button class="btn sm ${fl.length || unsent ? "" : "primary"}" data-fappr="${t.id}">Approve</button>${fl.length || unsent ? `<button class="btn sm" data-ffix="${t.id}">Fix</button>` : ""}</div></div>`;
+        })
+        .join("") || '<div class="small muted">Nothing waiting.</div>'
   }\n      <div class="small muted" style="margin-top:6px">You approve hours; the office runs payroll. Anything flagged (late start, far from site, no work logged) needs a look before it goes through.</div></div>\n    <div class="card f-card ${talkDue ? "warn" : ""}"><div class="hd"><h3>Safety</h3><span class="small muted">${lastTalk ? `last toolbox talk ${fmt(lastTalk.date)} — ${esc(lastTalk.topic)}` : "no toolbox talk logged"}</span></div>\n      <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm ${talkDue ? "primary" : ""}" id="ftalk">Log toolbox talk</button><button class="btn sm danger" data-fraise="incident">Report an incident</button>${fCall(people.pm)}</div>\n      ${talkDue ? '<div class="small bad-t" style="margin-top:6px">A week since the last talk — five minutes at the start of the day.</div>' : ""}</div>`),
     fWireCommon(root);
-  const appr = (t) => {
-    (t.status = "approved"),
-      (t.approvedBy = fWho()),
-      (t.approvedAt = fNow()),
-      audit("time", t.id, "approved", null, { by: fWho() });
-  };
+  "function" == typeof tkOverlapWire && tkOverlapWire(root, OV);
+  // every Approve here goes through the one door (timeApprove): it refuses a punch in an overlap, and says why
+  const appr = (t, quiet) => timeApprove(t, fWho(), quiet);
   root.querySelectorAll("[data-fappr]").forEach(
     (b) =>
       (b.onclick = () => {
         const t = DB.time.find((x) => x.id === b.dataset.fappr),
           was = t.status;
-        appr(t),
-          save(),
+        if (appr(t)) return;
+        save(),
           render(),
           toast(`${empName(t.empId)} · ${fmt(t.date)} — ${hoursOf(t).toFixed(1)} h approved`, {
             label: "Undo",
@@ -49971,6 +49959,7 @@ function fRenderCrew() {
                   appr(t),
                   save(),
                   render();
+                // the edit is kept either way; when the hours still overlap another punch, the door said why
               },
             },
           );
@@ -49979,7 +49968,7 @@ function fRenderCrew() {
   const all = $("#fappr-all");
   all &&
     (all.onclick = () => {
-      clean.forEach(appr), save(), render(), toast(`${clean.length} approved`, flowGo.viewOf("time", "fcrew"));
+      clean.forEach((t) => appr(t, !0)), save(), render(), toast(`${clean.length} approved`, flowGo.viewOf("time", "fcrew"));
     }),
     ($("#ftalk").onclick = () =>
       mbModal(
@@ -66824,38 +66813,8 @@ function f3DaySheet(e) {
     m.querySelectorAll("[data-f3t2],[data-f3h]").forEach((x) => x.addEventListener("change", sum)), sum();
   })();
 }
-if ("function" == typeof fRenderSite) {
-  const fRenderSiteBase_f3 = fRenderSite;
-  fRenderSite = function () {
-    fRenderSiteBase_f3();
-    const root = document.querySelector("#fsite-body");
-    if (!root || root.querySelector(".f3-dels")) return;
-    const pos = (DB.pos || [])
-      .filter((po) => po.projectId === S.id && !["cancelled", "draft", "received"].includes(po.status))
-      .sort((a, b) =>
-        String(a.expected || a.needBy || "").localeCompare(String(b.expected || b.needBy || "")),
-      );
-    root.insertAdjacentHTML(
-      "beforeend",
-      `<div class="card f3-dels" style="margin-top:10px">\n      <div class="row" style="align-items:baseline"><b style="font-size:15px">Coming to site</b>\n        <span class="small muted" style="margin-left:6px">${pos.length ? `${pos.length} order${1 === pos.length ? "" : "s"}` : "nothing on order"}</span></div>\n      ${
-        pos.length
-          ? pos
-              .map((po) => {
-                const n = (po.lines || []).length,
-                  got = (po.lines || []).filter((l) => (+l.received || 0) >= (+l.qty || 0)).length,
-                  when = po.expected || po.needBy || "",
-                  late = when && when < today() && got < n;
-                return `<div class="f3-row ${late ? "late" : ""}">\n          <div><span class="k">${esc(po.vendor || "Vendor")}</span><b>${esc(po.number)}</b>\n            <div class="small ${late ? "bad" : "muted"}">${when ? (late ? `was due ${esc(fmt(when))}` : `expected ${esc(fmt(when))}`) : "no date"} · ${esc(poRecvWords(po))}</div></div>\n          ${poIsSub(po) ? `<span class="small muted">Subcontract: progress, not a delivery</span>` : `<button class="btn sm" data-f3recv="${esc(po.id)}">${(po.lines || []).some((l) => +l.received > 0) ? "Receive the rest" : "It arrived"}</button>`}</div>`;
-              })
-              .join("")
-          : '<p class="small muted" style="margin:8px 0 0">Nothing is on order for this job.</p>'
-      }\n    </div>`,
-    ),
-      // It Arrived opens the one receive sheet (the [data-f3recv] listener below, rcReceiveSome); its own onclick here
-      // also opened the staging sheet (fReceive) underneath it
-      void 0;
-  };
-}
+// Site's orders ("Coming to site", a second card at the foot of the page) are drawn by fRenderSite itself now, at the
+// top of its Deliveries card (11-12): the foreman did not find them under the punch list.
 if ("function" == typeof renderNav) {
   const renderNavBase_f3 = renderNav;
   renderNav = function () {
@@ -166697,16 +166656,17 @@ function dlSignSoFar(root, dr, p) {
 }
 // Hours waiting on the foreman's approval on this job (flagged ones first): the same rows as Crew › Hours to Approve.
 function dlHoursToApprove(p) {
-  return (DB.time || [])
-    .filter((t) => p && t.projectId === p.id && "submitted" === t.status)
-    .map((t) => ({ t: t, flags: "function" == typeof timeFlags ? timeFlags(t) : [] }))
+  return fHoursToApprove(p)
+    .entries.map((t) => ({ t: t, flags: "function" == typeof timeFlags ? timeFlags(t) : [] }))
     .sort((a, b) => b.flags.length - a.flags.length || String(a.t.date).localeCompare(b.t.date));
 }
 function dlApproveHtml(p) {
-  const A = dlHoursToApprove(p);
-  if (!A.length) return "";
-  const fl = A.filter((x) => x.flags.length);
-  return `<div class="note ${fl.length ? "warn" : ""} small dl-appr"><b>${fxN(A.length, "entry", "entries")} waiting on your approval${fl.length ? ` · ${fl.length} flagged` : ""}</b>${fl
+  const A = dlHoursToApprove(p),
+    O = fHoursToApprove(p).overlaps;
+  if (!A.length && !O.length) return "";
+  const fl = A.filter((x) => x.flags.length),
+    ov = O.length ? `${fxN(O.length, "overlap")} to pick` : "";
+  return `<div class="note ${fl.length || O.length ? "warn" : ""} small dl-appr"><b>${A.length ? `${fxN(A.length, "entry", "entries")} waiting on your approval${fl.length ? ` · ${fl.length} flagged` : ""}${ov ? ` · ${ov}` : ""}` : ov}</b>${fl
     .slice(0, 3)
     .map((x) => `<div>${esc(empName(x.t.empId))} · ${fmt(x.t.date)} · ${hoursOf(x.t).toFixed(1)} h — ${esc(x.flags.join("; "))}</div>`)
     .join("")}<div style="margin-top:4px"><a href="#" data-fview="fcrew" data-dlappr>Approve on Crew</a></div></div>`;
