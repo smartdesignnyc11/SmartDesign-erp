@@ -202275,10 +202275,22 @@ const MN_ALIAS = Object.assign({ sdraw: "plans", hbforecast: "salesnum", hbdash:
     setup:
       '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4.4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
   };
+// A module's name opens the module's overview page (Alan, 11-12: "When I click projects or purchasing it just shows
+// me a drop down. That's not effective. It's better that it takes me to an overview page for the modules."). Each
+// group's overview is the page the code already holds for it: All Projects, the Purchasing and Accounting overviews
+// (retired into the Buy Board and Banking on 11-03, kept as views; a link that names one still forwards), the
+// Pipeline (the Sales overview), Reports' own page and the Company and Settings hub. Design has none of its own (its
+// overview is All Projects' In Design filter): its name opens its first page. A role that may not open the overview
+// gets the group's first page it may open.
+const MN_OVER = { jobs: "ovjobs", buy: "ovbuy", sales: "ovsales", money: "ovmoney", reports: "reports", setup: "cohub" },
+  // the chevron at the right of a module's name: it only shows or hides the module's pages
+  MN_CHEV = '<path d="M6 9l6 6 6-6"/>';
 // mnLastGrp: the menu group the person came through (a page in two places lights the one they used); mnOpenG: the
-// group they opened by its name (null: the group of the page on screen)
+// group they opened by its chevron (null: the group of the page on screen); mnOverV: the overview the person opened
+// by its module's name (the forwards of the retired overviews stand aside for it while it is the page on screen)
 let mnLastGrp = "",
-  mnOpenG = null;
+  mnOpenG = null,
+  mnOverV = "";
 // the labels each page has carried (its old names too), so a heading is renamed only while it names the page
 const MN_KNOWN = {};
 function mnKnow(v, l) {
@@ -202407,7 +202419,15 @@ function mnBuild(r) {
     rk = "design_mgr" === r ? "designer" : r,
     may = (it) => has(it.v) && !(it.unless && has(it.unless)) && !(it.roles && !it.roles.includes(rk)) && !(it.not && it.not.includes(rk)),
     shown = (it) => !it.quiet || it.v === view,
-    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
+    // over: the page the group's name opens. The overview when the role may open it: the group's own entry for it
+    // (All Projects, Pipeline, Job Profitability, Company and Settings) or, where the menu lists none, an entry under
+    // the group's name (syn: Purchasing, Accounting); else the first page of the group the role may open.
+    over = (g, items) => {
+      const v = MN_OVER[g.id],
+        own = v && items.find((it) => !it.job && it.v === v && !it.tab);
+      return own || (v && has(v) ? { v: v, l: g.n, tab: "", sec: "", head: !0, syn: !0 } : items.find((it) => !it.job) || items[0]);
+    },
+    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items, over: over(g, items) }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),
     out = { r: r, field: !!M.field, home: M.home, day: [], work: [], groups: [], more: [], bottom: null };
   const foot = mnGroupItems(MN_FOOT).filter(may).filter(shown);
@@ -202443,7 +202463,8 @@ const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billT
 function mnCur(B) {
   if (!B) return null;
   const groups = B.field ? [{ id: "field", items: B.day.concat(B.work), flat: 1 }].concat(B.bottom ? [B.bottom] : []) : B.groups,
-    all = groups.flatMap((g) => g.items.filter((it) => !it.job).map((it) => ({ g: g, it: it }))),
+    // a module's overview the menu lists under no entry (Purchasing, Accounting) is placed by its group's name
+    all = groups.flatMap((g) => g.items.filter((it) => !it.job).concat(g.over && g.over.syn && g.over.v === mnOverV ? [g.over] : []).map((it) => ({ g: g, it: it }))),
     placed = (v) => all.some((x) => x.it.v === v),
     // Company Settings open on the job's settings page: they are Settings, not the job's
     company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
@@ -202519,19 +202540,31 @@ function mnGo(g, it) {
   } catch (e) {}
   setView(it.v);
 }
-// a group's name: open it, or close it when it is open (one at a time). On the desktop's narrowed rail there is no
-// room to list a group's pages: its name opens its first page.
+const mnGroupOf = (B, gid) => (B && B.groups.concat(B.bottom || []).find((x) => x.id === gid)) || null;
+// a module's name: open its overview page (g.over) and show its pages under it. On the phone the sheet closes on the
+// page, as it does for every entry; the module is the open one when the menu is opened again.
+function mnOpen(gid, keys) {
+  const g = mnGroupOf(mnBuild(role()), gid);
+  if (!g || !g.over) return;
+  mnOverV = g.over.syn ? g.over.v : "";
+  mnGo(g, g.over);
+  mnOpenG = gid;
+  mnRail();
+  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  h && h.focus({ preventScroll: !0 });
+}
+// the chevron beside a module's name: show its pages, or hide them when they show (one module at a time). It never
+// changes the page.
 function mnToggle(gid, keys) {
   const B = mnBuild(role()),
-    g = B && B.groups.concat(B.bottom || []).find((x) => x.id === gid);
+    g = mnGroupOf(B, gid);
   if (!g) return;
-  if (document.body.classList.contains("rail-min") && innerWidth > 760) return void mnGo(g, g.items[0]);
   const cur = mnCur(B),
     open = null === mnOpenG ? (cur && !cur.g.day ? cur.g.id : "") : mnOpenG;
   mnOpenG = open === gid ? "" : gid;
   mnRail();
-  // from the keyboard, the focus stays on the name it was on (the redraw replaced it)
-  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  // from the keyboard, the focus stays on the chevron it was on (the redraw replaced it)
+  const h = keys && document.querySelector(`#nav-groups [data-mnchev="${gid}"]`);
   h && h.focus({ preventScroll: !0 });
 }
 function mnRail() {
@@ -202541,6 +202574,8 @@ function mnRail() {
     // the foot's Settings button: in the firm's workspace Settings is in the menu's foot
     rs = document.getElementById("rail-settings");
   if (!wrap || !mnOn(r)) return void (rs && (rs.style.display = ""));
+  // an overview opened by its module's name stays the overview only while it is the page on screen
+  mnOverV && view !== mnOverV && (mnOverV = "");
   const B = mnBuild(r),
     cur = mnCur(B);
   cur && (mnLastGrp = cur.g.id);
@@ -202557,7 +202592,11 @@ function mnRail() {
       const o = open === g.id,
         // the group's own page (All Projects, an overview), else its first: where a walk's "go to Accounting" lands
         main = g.items.find((it) => it.head && !it.job) || g.items.find((it) => !it.job);
-      return `<a href="#" role="button" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}" data-mnhead="${esc(g.id)}" aria-expanded="${o}" aria-controls="mn-k-${esc(g.id)}">${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><div class="mn-kids" id="mn-k-${esc(g.id)}" data-mngr="${esc(g.id)}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
+      // the name opens the module's overview (data-mnover: the page it opens) and is lit while that page is on screen;
+      // the chevron beside it only shows or hides the module's pages
+      const here = !!cur && !!g.over && cur.g.id === g.id && cur.it === g.over,
+        id = esc(g.id);
+      return `<div class="mn-row"><a href="#" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}${here ? " here" : ""}" data-mnhead="${id}" data-mnover="${esc((g.over && g.over.v) || "")}" aria-expanded="${o}" aria-controls="mn-k-${id}"${here ? ' aria-current="page"' : ""}>${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><button type="button" class="mn-chev" data-mnchev="${id}" aria-expanded="${o}" aria-controls="mn-k-${id}" aria-label="${o ? "Hide" : "Show"} ${esc(g.n)} Pages" title="${o ? "Hide" : "Show"} ${esc(g.n)} Pages">${mnSvg(MN_CHEV)}</button></div><div class="mn-kids" id="mn-k-${id}" data-mngr="${id}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
     };
   let html = '<div class="mn-cap">Your Day</div>';
   if (B.field) {
@@ -202581,8 +202620,12 @@ function mnRail() {
     b.onclick = () => mnGo(g, it);
   });
   wrap.querySelectorAll("[data-mnhead]").forEach((a) => {
-    a.onclick = (e) => (e.preventDefault(), mnToggle(a.dataset.mnhead));
-    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(a.dataset.mnhead, 1));
+    a.onclick = (e) => (e.preventDefault(), mnOpen(a.dataset.mnhead));
+    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnOpen(a.dataset.mnhead, 1));
+  });
+  wrap.querySelectorAll("[data-mnchev]").forEach((b) => {
+    // a button: Enter and Space press it; d === 0 is the keyboard's click
+    b.onclick = (e) => (e.preventDefault(), e.stopPropagation(), mnToggle(b.dataset.mnchev, 0 === e.detail));
   });
   rs && (rs.style.display = "none");
   // the strip under the header: a job's own pages while a job is open (with the job switcher); a Design page carries
@@ -202710,6 +202753,7 @@ if ("function" == typeof signIn) {
         M = u && MENU[u.role];
       (mnLastGrp = ""),
         (mnOpenG = null),
+        (mnOverV = ""),
         M && M.home && (ROLE_VIEWS[u.role] || []).includes(M.home) && view !== M.home && !document.body.classList.contains("ws-mb") && ((view = M.home), render());
     } catch (e) {}
     return out;

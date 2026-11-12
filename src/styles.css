@@ -3475,6 +3475,14 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
 #nav-groups .mn-head[aria-expanded=true]{background:rgba(255,255,255,.07);color:#fff;font-weight:600}
 #nav-groups .mn-head:focus-visible,#nav-groups button:focus-visible{outline:2px solid #93c5fd;outline-offset:-2px}
 #nav-groups .mn-head svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* a module's name opens its overview page; the chevron at its right only shows or hides its pages (Alan, 11-12) */
+#nav-groups .mn-row{display:flex;align-items:stretch;gap:2px}
+#nav-groups .mn-row .mn-head{flex:1;min-width:0}
+#nav-groups .mn-head.here{background:rgba(255,255,255,.16);color:#fff;font-weight:600}
+#nav-groups button.mn-chev{flex:none;width:32px;min-height:32px;padding:0;margin:0;display:flex;align-items:center;justify-content:center;background:none;border:0;border-radius:var(--r);color:rgba(255,255,255,.6);cursor:pointer}
+#nav-groups button.mn-chev:hover{background:rgba(255,255,255,.07);color:#fff}
+#nav-groups button.mn-chev svg{width:14px;height:14px;transition:transform .12s}
+#nav-groups button.mn-chev[aria-expanded=true] svg{transform:rotate(180deg)}
 #nav-groups .mn-kids{display:flex;flex-direction:column;gap:1px;padding:2px 0 6px 26px}
 #nav-groups .mn-kids[hidden]{display:none}
 #nav-groups button.mn-kid{min-height:32px;padding:6px 10px}
@@ -3492,6 +3500,8 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   #nav-groups button,#nav-groups .mn-head,#nav-groups #fbs-rail{min-height:48px;font-size:15px}
   #nav-groups .mn-head{font-weight:600}
   #nav-groups button.mn-kid{min-height:44px;font-size:15px;padding:0 10px}
+  #nav-groups button.mn-chev{width:48px;min-height:48px}
+  #nav-groups button.mn-chev svg{width:18px;height:18px}
   #nav-groups .mn-kids{padding-left:30px}
   #nav-groups .mn-head svg,#nav-groups button svg{width:20px;height:20px}
   #nav-groups .n{min-width:24px;height:24px;border-radius:12px;font-size:13px}
@@ -3499,7 +3509,7 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   .view.on .hb-page.hb-settings .hb-set-rail button{height:44px !important;min-height:44px !important}
 }
 @media (min-width:761px){
-  body.rail-min #nav-groups .mn-cap,body.rail-min #nav-groups .mn-kids,body.rail-min #nav-groups .mn-l,body.rail-min #nav-groups #fbs-rail span{display:none}
+  body.rail-min #nav-groups .mn-cap,body.rail-min #nav-groups .mn-kids,body.rail-min #nav-groups .mn-chev,body.rail-min #nav-groups .mn-l,body.rail-min #nav-groups #fbs-rail span{display:none}
   body.rail-min #nav-groups .mn-head,body.rail-min #nav-groups #fbs-rail{justify-content:center;padding:9px 0;gap:0}
   body.rail-min #nav-groups .mn-head svg{width:20px;height:20px}
   body.rail-min #nav-groups .n{position:absolute;top:3px;right:8px;min-width:0;width:7px;height:7px;padding:0;border-radius:50%;font-size:0;line-height:0}

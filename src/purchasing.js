@@ -1469,11 +1469,12 @@ function puNewNeed() {
   js && (js.onchange = () => (m.querySelector("#pu-nl").innerHTML = `<option value="">Pick the line it is bought for</option>${opts(js.value)}<option value="__none">No line covers it</option>`));
   return m;
 }
-// the old Purchasing overview opens the role's first Purchasing page
+// the old Purchasing overview opens the role's first Purchasing page; opened by the module's name in the menu it is the
+// module's overview (Alan, 11-12; mnOverV, src/app.js)
 {
   const base = render;
   render = function () {
-    if ("ovbuy" === view) view = puHomeView();
+    if ("ovbuy" === view && "ovbuy" !== mnOverV) view = puHomeView();
     const r = base.apply(this, arguments);
     try {
       puDemoLines(), puDraw(), puCrumbs(), puDocDecorate(), puFfeCrumb();
