@@ -182672,6 +182672,12 @@ document.addEventListener("click", (e) => {
 //   stays open on a memo for the cracked tile);
 // - an audit row on every apply.
 // A memo that cannot apply stays unapplied and says why. Returns { ok, msg }.
+// the held part of a short-paid bill was already paid (the bill was paid in full before the dispute, or since): its
+// credit is money coming back, so it is the Owner's to approve (Do Now) and a refund due under Owed Back
+function pay3HeldPaid(b) {
+  const s = b && b.short;
+  return !!s && (!!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005));
+}
 function pay3MemoApply(c, b, amount, memoNo) {
   const by = (currentUser() || {}).name || role(),
     amt = r2(+amount || 0),
@@ -182690,7 +182696,7 @@ function pay3MemoApply(c, b, amount, memoNo) {
   const held = r2(+s.held || 0);
   if (amt < held - 1) return { ok: !1, msg: `${money2(amt)} is less than the ${money2(held)} in dispute on ${b.number}: the Owner decides the rest on the bill` };
   const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
-    paidHeld = !!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005),
+    paidHeld = pay3HeldPaid(b),
     over = r2(Math.max(0, amt - held));
   // the vendor credit on the returns ledger: what is over the dispute, or all of it on a paid bill (a refund due)
   const owed = (v, why) => {
@@ -190086,6 +190092,8 @@ function nyhApplyMail(c, pr) {
   } catch (e) {
     return void toast("Could not apply: " + (e.message || e));
   }
+  // a credit memo that could not apply (no number, less than the dispute, the wrong seat) stays unapplied and says why
+  if (!did && !pr.applied && pr.waits) return "dispute-credit" !== pr.kind && toast(pr.waits), save(), void render();
   pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
   nyhMarkCopies(c, pr, did);
   save(), render();
@@ -191838,7 +191846,20 @@ function lkDisputeFor(c, low, amt) {
     return base.apply(this, arguments);
   };
 }
-"undefined" != typeof NYH_MAIL && ((NYH_MAIL["dispute-credit"] = () => "coord"), (NYH_VERB["dispute-credit"] = "Apply"));
+// Whose hand: the coordinator who claimed it applies a memo that only lowers what is still to be paid (J7, 11-06). On a
+// bill already paid, the held part included, the credit is money the vendor owes back: that one is the Owner's, on the
+// dispute's own row below with one Approve (leaks2 [8]; the 11-06 route sent every memo to the coordinator, and the
+// dispute's row stood aside for her mail row, so the Owner had no row at all). One owner per memo, never two rows.
+const lkMemoOwners = (pr) => {
+  const b = pr && pr.billId && (DB.bills || []).find((x) => x.id === pr.billId);
+  return !!(b && b.short && "open" === b.short.state && pay3HeldPaid(b));
+};
+if ("undefined" != typeof NYH_MAIL) {
+  const credit = NYH_MAIL.credit;
+  NYH_MAIL["dispute-credit"] = (c, pr) => (lkMemoOwners(pr) ? "" : "coord");
+  NYH_MAIL.credit = (c, pr) => (lkMemoOwners(pr) ? "" : credit(c, pr));
+  NYH_VERB["dispute-credit"] = "Apply";
+}
 // read on the mail as what it is: a credit memo
 "object" == typeof CM_CATS && (CM_CATS["dispute-credit"] = CM_CATS["dispute-credit"] || "Credit memo");
 // a dispute still open near the month's end, or two weeks old: the Owner settles it (accept the difference with
@@ -191863,7 +191884,7 @@ function lkDisputeFor(c, low, amt) {
           // a memo that came before the dispute (read as a credit on the bill) is that same mail row: it now offers to apply
           const mr = memo && "credit" === memo.pr.kind && out.find((x) => "mail" === x.kind && x.commId === memo.c.id && "credit" === x.pkind);
           if (mr) return void (mr.title = `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now`);
-          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind && x.commId === memo.c.id)) return;
           if (memo)
             return void out.push({
               key: key,
@@ -191871,7 +191892,8 @@ function lkDisputeFor(c, low, amt) {
               kind: "dispute",
               pkind: "dispute-credit",
               title: "credit" === memo.pr.kind ? `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now` : memo.pr.summary,
-              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
+              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${pay3HeldPaid(b) ? `closes: ${b.number} was already paid, so it is a refund due from ${b.vendor} under Owed Back` : "closes"}`,
+              moneyNow: !0,
               amount: +b.short.held,
               verb: "Approve",
               no: "",
