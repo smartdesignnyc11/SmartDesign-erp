@@ -482,7 +482,7 @@ function vbPost(x, f, m, after) {
   save(), mbCloseModal(), render();
   // billed over what arrived (the receipt): the person who received holds it at what arrived for the Owner, from here
   const overArr = "function" == typeof pay3OverArrived && null != pay3OverArrived(b);
-  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}${overArr ? `; what arrived on its order comes to ${money2(pay3ArrivedLeft(b))}` : ""}. It waits ${paid ? "under Paid Before Approval" : "in Bills and Payroll"} for ${overArr ? "the Owner" : vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }].concat(overArr && !isOwner() ? [{ label: "Hold at What Arrived", run: () => pay3ArrivedHold(b) }] : []));
+  rcToast(`Bill ${b.number || ""} entered: ${money(billTotal(b))} to ${b.vendor}${paid}${overArr ? `; ${pay3ArrWords(b).replace(/^Billed/, "billed")}` : ""}. It waits ${paid ? "under Paid Before Approval" : "in Bills and Payroll"} for ${overArr ? "the Owner" : vbRouteWords(billTotal(b))}`, [{ label: "Open", run: flowGo.bill(b) }].concat(overArr && !isOwner() ? [{ label: "Hold at What Arrived", run: () => pay3ArrivedHold(b) }] : []));
   return !1;
 }
 

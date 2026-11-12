@@ -317,7 +317,89 @@ async def s_memo2(p, c):
     finally:
         await b.close()
 
-SECTIONS = [('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines), ('lot', s_lot), ('phone', s_phone), ('stmt', s_stmt), ('memo2', s_memo2)]
+# the accounting review, 11-12: 500 of 900 sf of Tino's flooring received on PO-2026-047 ($8.90/sf, 8.875% tax, $8,000
+# paid ahead on the card), and Tino bills the whole order on one line tied to no PO line
+PARTIAL = """async () => { const wait = ms => new Promise(r => setTimeout(r, ms)), po = DB.pos.find(x => x.number === 'PO-2026-047');
+  setCurrent(po.projectId); poAction(po, 'receive'); await wait(400);
+  const m = document.getElementById('mbm'), q = m.querySelector('[data-purq]'); q.value = '500'; q.dispatchEvent(new Event('input', { bubbles: true })); m.querySelector('#mbm-ok').click(); await wait(500);
+  DB.bills.push({ id: 'b_tino', vendor: 'Tino', number: 'TINO-7781', date: today(), due: iso(addDays(today(), 15)), entityId: po.entityId || 'ent1', projectId: 'p121', poId: po.id, cat: 'materials', code: '09', line: 'estimate:es1:l8',
+    lines: [{ id: uid('bl'), desc: 'White oak flooring, 900 sf', amount: 8721 }], payMethod: 'ACH', notes: '', status: 'submitted', approvals: [], createdBy: 'Chen Biron', createdAt: appNowIso() });
+  save(); render(); await wait(200);
+  return { got: po.lines[0].received, status: po.status, want: r2(500 * 8.9 * (1 + (+po.tax || 0) / 100)), paid: poPaid(po) }; }"""
+
+async def s_partial(p, c):
+    """a partial receipt (S1-1, S1-2, S1-3 of the 11-12 accounting review): what arrived is received quantity at the
+    order's price with its tax, whatever was prepaid; a bill over it says so with the three amounts and is the Owner's;
+    money paid ahead of delivery is said on the bill, the order and the Owner's Do Now, one number"""
+    for phone in (False, True):
+        dev = 'phone' if phone else 'desktop'
+        b, pg, errs = await open_app(p, phone)
+        try:
+            await sign_in(pg, 'u_chen'); S0 = await pg.evaluate(PARTIAL)
+            want = S0['want']; over = round(8721 - want, 2); ahead = round(8000 - want, 2)
+            c.ok(S0['got'] == 500 and S0['status'] == 'partial' and want == 4844.94 and S0['paid'] == 8000, f'partial ({dev}): 500 of 900 sf received through the sheet; $8,000 was paid ahead ({S0})')
+            r = await pg.evaluate("""() => { const b = DB.bills.find(x => x.id === 'b_tino'), A = pay3Arr(b), R = rtFor(b), po = DB.pos.find(x => x.id === b.poId);
+              return { due: billTotal(b), billed: A.billed, arrived: A.arrived, over: A.over, payable: A.payable, left: pay3ArrivedLeft(b), ov: pay3OverArrived(b), top: R.top, kinds: R.why.filter(w => w.role === 'owner').map(w => w.kind), msg: R.why.map(w => w.msg).join(' | '),
+                state: billState(b).text, flags: billFlags(b), pc: (pcCheck(b).holds || []).map(h => [h.key, h.what, h.money]), ahead: poPaidAhead(po) }; }""")
+            c.ok(r['due'] == 721 and r['billed'] == 8721 and r['arrived'] == want and r['left'] == want and r['over'] == over and r['payable'] == 0,
+                 f"partial ({dev}): what arrived is 500 sf at $8.90 with the order's tax, $4,844.94, not $0; billed $8,721, $3,876.06 over ({r})")
+            c.ok(r['top'] == 'owner' and 'over-arrived' in r['kinds'] and 'Billed $8,721' in r['msg'] and 'arrived $4,844.94' in r['msg'] and '$3,876.06 over what arrived' in r['msg'],
+                 f"partial ({dev}): the bill routes to the Owner as an exception, with billed, arrived and over ({r['msg']})")
+            c.ok('then the Owner' in r['state'] and 'over what arrived' in r['state'] and any('$3,876.06 over what arrived' in f for f in r['flags'])
+                 and any(h[0] == 'threeway' and '$3,876.06 over what arrived' in h[1] and h[2] == over for h in r['pc']),
+                 f"partial ({dev}): the bill's status, its Controls and the Payment Check say it, with no PO line on the bill ({r['state']!r}, {r['flags']}, {r['pc']})")
+            aw = 'Paid ahead of delivery: $8,000 paid on PO-2026-047, $4,844.94 arrived, $3,155.06 ahead'
+            c.ok(r['ahead'] == {'paid': 8000, 'arrived': want, 'ahead': ahead} and 'paid-ahead' in r['kinds'] and any(aw in f for f in r['flags']) and any(h[0] == 'ahead' and aw in h[1] and h[2] == ahead for h in r['pc']),
+                 f"partial ({dev}): paid ahead of delivery is one number, on the bill's Controls, the Payment Check and the route ({r['ahead']}, {r['kinds']})")
+            # the order's page (the coordinator cannot open Bills and Payroll): the bill over what arrived, the money ahead, the Hold
+            await pg.evaluate("() => { poOpen = DB.pos.find(x => x.number === 'PO-2026-047').id; view = 'po'; render(); }"); await pg.wait_for_timeout(500)
+            t = await pg.evaluate("() => [...document.querySelectorAll('.view.on .pu-arr, .view.on .p0-pomoney')].map(e => e.innerText).join(' || ')")
+            wide = await pg.evaluate("() => document.documentElement.scrollWidth > innerWidth + 1")
+            c.ok('$3,876.06 over what arrived' in t and aw in t and not wide, f'partial ({dev}): the order says the bill is over what arrived and the money is ahead of delivery, no sideways scroll ({t!r})')
+            await pg.locator('[data-pay3arrpo="b_tino"]').first.click(); await pg.wait_for_timeout(400)
+            m = await modal(pg)
+            f = await pg.evaluate("() => { const m = document.getElementById('mbm'); return [m.querySelector('[data-f=\"amount\"]').value, m.querySelector('[data-pay3held]').value]; }")
+            c.ok(m and '$4,844.94' in m['text'] and '$0.00' not in m['text'] and '$3,876.06 over what arrived' in m['text'] and aw in m['text'] and f == ['4844.94', '$3,876.06'],
+                 f"partial ({dev}): Hold at What Arrived says what arrived and is filled in: 4844.94 arrived, $3,876.06 held back ({f}; {m and m['text'][:300]!r})")
+            await pg.fill('#mbm [data-f="why"]', '400 sf backordered to 10/5'); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(400)
+            h = await pg.evaluate("() => DB.bills.find(x => x.id === 'b_tino').arrivedHold || null")
+            c.ok(h and h['amount'] == want and h['held'] == over and h['by'] == 'Chen Biron', f'partial ({dev}): the hold is on the bill at what arrived, for the Owner ({h})')
+            # the Owner: the flag is on Do Now with the amounts; Approve Part starts from what the receipt backs of the $721 due
+            await sign_in(pg, 'u_owner')
+            rows = await pg.evaluate("() => PRED.waitingOnMe.rows().filter(x => /TINO-7781/.test(x.title || '')).map(x => (x.detail || '') + ' ' + (x.why || ''))")
+            c.ok(rows and '$3,876.06 over what arrived' in rows[0] and aw in rows[0], f"partial ({dev}): the Owner's Do Now carries the bill with over what arrived and paid ahead of delivery ({rows})")
+            await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'b_tino'); b.status = 'pm-approved'; b.approvals.push({ role: 'pm', by: 'Alan Mishali', action: 'pm approved', t: appNowIso() }); save(); pay3ShortPay(b); }"); await pg.wait_for_timeout(400)
+            m = await modal(pg)
+            f = await pg.evaluate("() => { const m = document.getElementById('mbm'); return [m.querySelector('[data-f=\"amount\"]').value, m.querySelector('[data-pay3held]').value]; }")
+            c.ok(m and 'the receipt backs $0 of the $721 due' in m['text'] and aw in m['text'] and f == ['0', '$721'], f"partial ({dev}): the Owner's sheet starts at $0 more, $721 disputed, and says why ({f}; {m and m['text'][:400]!r})")
+            await pg.fill('#mbm [data-f="why"]', '400 sf backordered; the prepayment covers what arrived'); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(500)
+            a = await pg.evaluate("() => { const b = DB.bills.find(x => x.id === 'b_tino'); return { st: b.status, short: b.short && [b.short.approved, b.short.held, b.short.state], open: payOpen(b), ahead: poAheadWords(DB.pos.find(x => x.id === b.poId)) }; }")
+            c.ok(a['st'] == 'approved' and a['short'] == [0, 721, 'open'] and a['open'] == 0 and aw in a['ahead'], f'partial ({dev}): nothing more is payable, $721 is in dispute, and the order still says $3,155.06 ahead ({a})')
+            # the class, with no prepayment: freight by the received share, an open claim comes off, the sheet is filled in
+            k = await pg.evaluate("""async () => { const wait = ms => new Promise(r => setTimeout(r, ms));
+              const po = { id: 'po_pf', number: 'PO-PF-1', projectId: 'p121', vendor: 'Ferguson', date: today(), expected: today(), status: 'partial', shipTo: 'site', dropAt: 'curb', type: 'materials', tax: 0, shipping: 120, matchedTxns: [], receipts: [{ at: today() }],
+                lines: [{ id: 'pf1', item: 'Copper pipe 3/4 in.', qty: 100, unit: 'ft', price: 6, received: 50 }, { id: 'pf2', item: 'Fittings', qty: 40, unit: 'ea', price: 5, received: 40 }] };
+              DB.pos.push(po);
+              const b = { id: 'b_pf', number: 'FER-PF-9', vendor: 'Ferguson', poId: po.id, projectId: 'p121', date: today(), due: today(), status: 'submitted', createdBy: 'Chen Biron', entityId: 'ent1', cat: 'materials', lines: [{ id: uid('bl'), desc: 'Invoice', amount: 920 }], approvals: [] };
+              DB.bills.push(b); save();
+              const V = poArrivedValue(po), A = pay3Arr(b), none = poPaidAhead(po);
+              // all of it in and paid with the tax the vendor added on the invoice: nothing is ahead of delivery
+              const t0 = { id: 't_pf', date: today(), acct: 'ac1', desc: 'FERGUSON', amt: -1000, poId: po.id, cat: 'materials', projectId: 'p121', status: 'coded' };
+              DB.txns.push(t0); const half = poPaidAhead(po); po.lines[0].received = 100; const full = poPaidAhead(po); po.lines[0].received = 50; DB.txns = DB.txns.filter(x => x.id !== 't_pf');
+              po.issues = [{ claim: true, status: 'open', type: 'damaged', lineId: 'pf2', item: 'Fittings', qty: 4, unit: 'ea', amount: 20 }];
+              const V2 = poArrivedValue(po);
+              signIn('u_chen'); render(); pay3ArrivedHold(b); await wait(300);
+              const m = document.getElementById('mbm'), f = [m.querySelector('[data-f="amount"]').value, m.querySelector('[data-pay3held]').value]; mbCloseModal();
+              DB.pos = DB.pos.filter(x => x.id !== 'po_pf'); DB.bills = DB.bills.filter(x => x.id !== 'b_pf'); save();
+              return { V: [V.sub, V.freight, V.total], A: [A.billed, A.arrived, A.over, A.applied, A.payable], none, half, full, V2: [V2.good, V2.total], f }; }""")
+            c.ok(k['half'] == {'paid': 1000, 'arrived': 575, 'ahead': 425} and k['full'] and k['full']['ahead'] == 0, f"partial ({dev}): $1,000 paid on $575 arrived is $425 ahead; once all of it is in, nothing is ahead of delivery ({k['half']}, {k['full']})")
+            c.ok(k['V'] == [500, 75, 575] and k['A'] == [920, 575, 345, 0, 575] and k['none'] is None and k['V2'] == [480, 555] and k['f'] == ['555', '$365.00'],
+                 f'partial ({dev}): no prepayment: $500 of $800 arrived takes $75 of the $120 freight; a $20 claim comes off; the sheet is filled in ({k})')
+            c.ok(not errs, f'partial ({dev}): page errors {errs[:2]}')
+        finally:
+            await b.close()
+
+SECTIONS = [('partial', s_partial), ('match', s_match), ('hold', s_hold), ('memo', s_memo), ('lines', s_lines), ('lot', s_lot), ('phone', s_phone), ('stmt', s_stmt), ('memo2', s_memo2)]
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default=''); a = ap.parse_args()
     want = {x.strip() for x in a.section.split(',') if x.strip()}
