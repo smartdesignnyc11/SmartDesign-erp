@@ -283,7 +283,8 @@ async def sec_tamper(p, c):
     # the History strip on the record
     await pg.evaluate("x => { clientOpen = x.cid; docOpen = {kind: 'invoice', id: x.id}; view = 'billing'; render(); }", inv)
     await pg.wait_for_timeout(200)
-    strip = await pg.evaluate("() => { const s = document.querySelector('.view.on .tr-hist'); return s ? s.innerText : ''; }")
+    # (the editor's strip, or the document viewer's for the seats that read the document first: src/docview.js)
+    strip = await pg.evaluate("() => { const s = document.querySelector('#dv .tr-hist') || document.querySelector('.view.on .tr-hist'); return s ? s.innerText : ''; }")
     c.ok('History' in strip and 'courtesy credit' in strip and re.search(r'reversed|re-posted|amended', strip, re.I), f'the invoice page shows a History strip: {strip[:160]!r}')
     # delete is refused on posted records
     n0 = await pg.evaluate("x => DB.clients.find(c => c.id === x.cid).invoices.length", inv)

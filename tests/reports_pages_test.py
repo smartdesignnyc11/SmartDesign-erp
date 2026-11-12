@@ -189,9 +189,13 @@ async def part_cash(c, pg, uid, phone, errs, dev):
     c.ok(i is not None, f'{tag}: no At Risk row for the bill paid before approval {X["rows"]}')
     if i is not None:
         await tap(pg, pg.locator('.view.on > .rw-front .rw-rrow').nth(i), phone)
-        st = await pg.evaluate("() => ({ view, bill: /WW-2026-118/.test((document.querySelector('#drawer.on') || {}).innerText || '') || [...document.querySelectorAll('#drawer.on input')].some(i => i.value === 'WW-2026-118') })")
+        # the bill opens on its sheet (#drawer) or, for the seats that read the document first (src/docview.js: the
+        # controller), as its document in the viewer (#dv, data-rec "bill:<id>"); either way it is this bill
+        st = await pg.evaluate("""() => { const dv = document.getElementById('dv'), b = (DB.bills || []).find(x => x.number === 'WW-2026-118');
+            return { view, bill: /WW-2026-118/.test((document.querySelector('#drawer.on') || {}).innerText || '') || [...document.querySelectorAll('#drawer.on input')].some(i => i.value === 'WW-2026-118')
+              || !!(dv && b && dv.dataset.rec === 'bill:' + b.id && /WW-2026-118/.test((dv.querySelector('.dv-doc') || {}).innerText || '')) }; }""")
         c.ok(st['view'] != 'bank' and st['bill'], f'{tag}: the $33,500 row opens {st}, want the bill WW-2026-118')
-        await pg.evaluate("() => { if (typeof closeEditor === 'function') closeEditor(); if (typeof mbCloseModal === 'function') try { mbCloseModal(); } catch (e) {} }")
+        await pg.evaluate("() => { if (typeof dvClose === 'function') dvClose(); if (typeof closeEditor === 'function') closeEditor(); if (typeof mbCloseModal === 'function') try { mbCloseModal(); } catch (e) {} }")
         await open_reports(pg, phone, 'Cash')
     # the views, and no second "ours" figure anywhere on them
     for k, label in (('funds', 'Client Funds'), ('ar', 'Receivables'), ('ap', 'Payables'), ('weeks', 'Next 13 Weeks')):

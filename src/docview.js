@@ -121,14 +121,45 @@ function dvClose() {
   el && el.remove();
   document.body.classList.remove("dv-open");
 }
+// An estimate being built opens in its editor, whoever opens it: a draft, or any estimate opened from a building
+// workflow (the client's Estimates panel, which Sales and the job page open it on; Discovery's Open Discovery; the
+// job's estimate). Sent and signed documents opened from anywhere else (Billing's lists, Today, Cmd-K, Ask, a toast)
+// open as the document. Decided by the record's status and where it was opened from, never per screen.
+let dvBuildId = ""; // one-shot: the estimate a building workflow just asked to open
+function dvBuilding(r) {
+  if (!r || "estimate" !== r.kind || !r.d) return !1;
+  if ("draft" === r.d.status || dvBuildId === r.d.id) return !0;
+  return "clients" === view && "undefined" != typeof clientTab && "fin" === clientTab && "undefined" != typeof finTab && "estimates" === finTab;
+}
+// Discovery (src/livejobs.js: Open Discovery, the estimate's panel) opens its estimate to work on it
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-ljopen]") : null;
+    if (!b) return;
+    const [, kind, id] = String(b.dataset.ljopen || "").split("|");
+    "estimate" === kind && id && (dvBuildId = id);
+  },
+  !0,
+);
+// the job page opens its estimate where it is built
+if ("function" == typeof jpOpenDoc) {
+  const base = jpOpenDoc;
+  jpOpenDoc = function (c, kind, id) {
+    "estimate" === kind && id && (dvBuildId = id);
+    return base.apply(this, arguments);
+  };
+}
 function dvIntercept() {
   if ("undefined" == typeof docOpen || !docOpen) return void (dvEditing = null);
   const id = docOpen.id;
   if (id === dvEditing) return;
-  if (dvFresh.has(id) || !dvOn()) return dvFresh.delete(id), void (dvEditing = id);
+  if (dvFresh.has(id) || !dvOn()) return dvFresh.delete(id), dvBuildId === id && (dvBuildId = ""), void (dvEditing = id);
   const cid = clientOpen || "",
     r = dvFind(docOpen.kind, id, cid);
   if (!r) return void (dvEditing = id);
+  if (dvBuilding(r)) return (dvBuildId = ""), void (dvEditing = id);
+  dvBuildId = "";
   // the page under the document stays the list the person came from; the document opens on top of it
   (docOpen = null), (dvEditing = null), (dvCur = { kind: r.kind, id: id, cid: r.c.id, view: view }), (dvMore = !1);
   // Billing's flag for a client opened from its list (setView("clients") then shows the list) is the editor's; with the
@@ -429,6 +460,19 @@ function dvNotes(r) {
   }
   return out.length ? `<div class="dv-notes small">${out.map((x) => `<div>${x}</div>`).join("")}</div>` : "";
 }
+// the record's History (who posted, reversed, re-posted or changed what, and why): the strip the editor and the bill
+// sheet carry (truthHistoryHtml), under the document, for the office only; a draft has nothing posted, as in the editor
+function dvHistoryStrip(r) {
+  if ((dvCur && dvCur.portal) || "function" != typeof truthHistoryHtml || "function" != typeof truthKeyOf) return "";
+  try {
+    if ("bill" === r.kind) return ["draft", "submitted"].includes(r.b.status) ? "" : `<div class="dv-hist no-doc-print">${truthHistoryHtml(truthKeyOf("bill", r.b.id)) || ""}</div>`;
+    if ("draft" === r.d.status) return "";
+    const h = truthHistoryHtml(truthKeyOf(r.d.type || ("credit" === r.kind ? "invoice" : r.kind), r.d.id));
+    return h ? `<div class="dv-hist no-doc-print">${h}</div>` : "";
+  } catch (e) {
+    return "";
+  }
+}
 function dvDraw() {
   if (!dvCur) return;
   const r = dvFind(dvCur.kind, dvCur.id, dvCur.cid);
@@ -447,7 +491,7 @@ function dvDraw() {
   el.setAttribute("role", "dialog"), el.setAttribute("aria-modal", "true"), el.setAttribute("aria-label", `${DV_LABEL[r.kind]} ${num}`);
   el.dataset.rec = dvCur.kind + ":" + dvCur.id;
   el.className = ph ? "dv-ph" : "";
-  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}${"bill" !== r.kind && r.d.title ? `<span class="dv-tt"> — ${esc(r.d.title)}</span>` : ""}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div></div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div></div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
+  el.innerHTML = `<div class="dv-sheet"><div class="dv-hd"><div class="dv-ttl"><h2>${esc(DV_LABEL[r.kind])} ${esc(num)}${"bill" !== r.kind && r.d.title ? `<span class="dv-tt"> — ${esc(r.d.title)}</span>` : ""}</h2><div class="small muted">${esc(who)} · <span class="dv-st">${esc(dvStatusWord(r))}</span></div></div><button type="button" class="btn dv-x" data-dvact="close" aria-label="Close">${DV_ICON.x}<span>Close</span></button></div>${dvNotes(r)}<div class="dv-body"><style>${CX_CSS}</style><div class="dv-doc">${dvDocHtml(r)}</div>${dvHistoryStrip(r)}</div><div class="dv-bar">${more.length ? `<button type="button" class="btn dv-b dv-moreb" data-dvact="more" aria-expanded="${dvMore}" aria-haspopup="menu">${DV_ICON.more}<span>More</span></button>` : ""}<span class="grow"></span>${inline.slice().reverse().map(btn).join("")}</div>${dvMore && more.length ? `<div class="dv-menu" role="menu">${more.map((a) => `<button type="button" role="menuitem" class="dv-mi" data-dvact="${esc(a.id)}">${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`;
   document.body.classList.add("dv-open");
   ph && dvReflow(el);
   const body = el.querySelector(".dv-body");
