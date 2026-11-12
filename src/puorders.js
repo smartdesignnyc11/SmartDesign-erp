@@ -107,7 +107,11 @@ function puPoHeadHtml(po) {
         lb = puPoLineBilled(po, l),
         recd = +l.received || 0,
         recTone = recd > (+l.qty || 0) + 1e-9 ? "bad" : recd >= (+l.qty || 0) && +l.qty ? "ok" : "";
-      return `<li class="pu-pol"><b data-nocase>${esc(l.item || l.desc || "Line")}</b><span class="pu-pole ${est ? "" : "warn"}" data-nocase>${est ? `Estimate line: ${esc(est)}` : "No estimate line: link one below"}</span><span class="pu-polv" data-nocase><span class="${recTone}">Received ${esc(String(r2(recd)))} of ${esc(String(+l.qty || 0))} ${esc(l.unit || "")}</span>${null != lb ? ` · Billed ${money(lb)} of ${money(amt)}` : one ? ` · Billed ${money(billed)} of ${money(t)}` : ""}</span></li>`;
+      // a line billed back to the client or on overhead is linked, and says so; an unlinked one is linked from here (the
+      // order's own picker, polPicker, through data-polpick), not from a button far down the page
+      const other = !est && "function" == typeof polLinked && polLinked(l) ? polLabel(l) : "",
+        canLink = !est && !other && ["draft", "pending"].includes(po.status) && !puReadOnly() && !["client", "crew", "driver"].includes(role());
+      return `<li class="pu-pol"><b data-nocase>${esc(l.item || l.desc || "Line")}</b><span class="pu-pole ${est || other ? "" : "warn"}" data-nocase>${est ? `Estimate line: ${esc(est)}` : other ? esc(other) : canLink ? `No estimate line <button type="button" class="btn sm pu-pollink" data-polpick="${esc(l.id)}">Link the Line</button>` : "No estimate line: link one below"}</span><span class="pu-polv" data-nocase><span class="${recTone}">Received ${esc(String(r2(recd)))} of ${esc(String(+l.qty || 0))} ${esc(l.unit || "")}</span>${null != lb ? ` · Billed ${money(lb)} of ${money(amt)}` : one ? ` · Billed ${money(billed)} of ${money(t)}` : ""}</span></li>`;
     };
   return `<section class="pu-poh card" id="pu-poh" data-pupoh="${esc(po.id)}" aria-label="The order">
     <div class="pu-poh-hd"><div class="pu-poh-tt"><span class="pu-pok">Purchase Order</span><h2 data-nocase>${esc(po.number || "Draft")}</h2><span class="pu-poh-who" data-nocase>${esc(po.vendor || "No vendor yet")}${p ? ` · ${esc(puJob(p))}` : ""}</span></div><span class="pill ${tone}">${esc(word)}</span></div>
