@@ -133301,7 +133301,8 @@ if (
   (document.addEventListener(
     "click",
     (e) => {
-      const b = e.target.closest && e.target.closest("#nav-groups button, #tabbar button, #mtabs button");
+      // (a module's name opens its overview, Alan 11-12: it leaves the record on screen as every menu entry does)
+      const b = e.target.closest && e.target.closest("#nav-groups button, #nav-groups a.mn-head, #tabbar button, #mtabs button");
       if (b)
         try {
           if (void 0 !== docOpen && docOpen) {
@@ -202596,10 +202597,12 @@ function mnRail() {
         // the group's own page (All Projects, an overview), else its first: where a walk's "go to Accounting" lands
         main = g.items.find((it) => it.head && !it.job) || g.items.find((it) => !it.job);
       // the name opens the module's overview (data-mnover: the page it opens) and is lit while that page is on screen;
-      // the chevron beside it only shows or hides the module's pages
+      // the chevron beside it only shows or hides the module's pages. The chevron is a link with a button's role, not a
+      // <button>: a press on a menu button leaves the record on screen (the "rail leaves record" listener), and the
+      // chevron changes nothing but the list. The name leaves the record as every entry does (that listener names it).
       const here = !!cur && !!g.over && cur.g.id === g.id && cur.it === g.over,
         id = esc(g.id);
-      return `<div class="mn-row"><a href="#" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}${here ? " here" : ""}" data-mnhead="${id}" data-mnover="${esc((g.over && g.over.v) || "")}" aria-expanded="${o}" aria-controls="mn-k-${id}"${here ? ' aria-current="page"' : ""}>${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><button type="button" class="mn-chev" data-mnchev="${id}" aria-expanded="${o}" aria-controls="mn-k-${id}" aria-label="${o ? "Hide" : "Show"} ${esc(g.n)} Pages" title="${o ? "Hide" : "Show"} ${esc(g.n)} Pages">${mnSvg(MN_CHEV)}</button></div><div class="mn-kids" id="mn-k-${id}" data-mngr="${id}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
+      return `<div class="mn-row"><a href="#" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}${here ? " here" : ""}" data-mnhead="${id}" data-mnover="${esc((g.over && g.over.v) || "")}" aria-expanded="${o}" aria-controls="mn-k-${id}"${here ? ' aria-current="page"' : ""}>${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><a href="#" role="button" class="mn-chev" data-mnchev="${id}" aria-expanded="${o}" aria-controls="mn-k-${id}" aria-label="${o ? "Hide" : "Show"} ${esc(g.n)} Pages" title="${o ? "Hide" : "Show"} ${esc(g.n)} Pages">${mnSvg(MN_CHEV)}</a></div><div class="mn-kids" id="mn-k-${id}" data-mngr="${id}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
     };
   let html = '<div class="mn-cap">Your Day</div>';
   if (B.field) {
@@ -202627,8 +202630,8 @@ function mnRail() {
     a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnOpen(a.dataset.mnhead, 1));
   });
   wrap.querySelectorAll("[data-mnchev]").forEach((b) => {
-    // a button: Enter and Space press it; d === 0 is the keyboard's click
-    b.onclick = (e) => (e.preventDefault(), e.stopPropagation(), mnToggle(b.dataset.mnchev, 0 === e.detail));
+    b.onclick = (e) => (e.preventDefault(), mnToggle(b.dataset.mnchev));
+    b.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(b.dataset.mnchev, 1));
   });
   rs && (rs.style.display = "none");
   // the strip under the header: a job's own pages while a job is open (with the job switcher); a Design page carries

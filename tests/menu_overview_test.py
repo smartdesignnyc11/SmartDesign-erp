@@ -161,6 +161,19 @@ async def run(p, c, uid, phone):
         await tap(pg, pg.locator('#v-ovjobs [data-ovflaggo]').first, phone)
         st = await pg.evaluate("({ view, job: S && S.id })")
         c.ok(st['job'] == fl['got'][0] and st['view'] in ('jbill', 'dash'), f'{tag0}: the flag opens {st}')
+    # RECORD: with a record open, the chevron leaves it open (it changes nothing but the list); the name leaves it, as
+    # every menu entry does
+    if await pg.evaluate("(ROLE_VIEWS[role()] || []).includes('billing') && !!document.querySelector('#nav-groups [data-mnhead=\"money\"]')"):
+        opened = await pg.evaluate("""() => { const c = DB.clients.find(x => (x.invoices || []).length); if (!c) return false;
+          clientOpen = c.id; docOpen = { kind: 'invoice', id: c.invoices[0].id }; view = 'billing'; render(); return !!docOpen; }""")
+        if opened:
+            await pg.wait_for_timeout(300)
+            await open_menu(pg, phone)
+            await tap(pg, pg.locator('#nav-groups [data-mnchev="buy"]').first, phone)
+            c.ok(await pg.evaluate("!!docOpen && view === 'billing'"), f'{tag0}: the chevron closed the open invoice')
+            await tap(pg, pg.locator('#nav-groups [data-mnhead="money"]').first, phone)
+            st = await pg.evaluate("({ doc: !!docOpen, view })")
+            c.ok(not st['doc'] and st['view'] != 'billing', f'{tag0}: the name left the open invoice open ({st})')
     # LINKS: a link that names a retired overview still lands where its content moved
     for v in ('ovbuy', 'ovmoney'):
         if not await pg.evaluate("v => (ROLE_VIEWS[role()] || []).includes(v)", v): continue

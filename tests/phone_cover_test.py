@@ -242,7 +242,7 @@ async def main():
         # Contract and Billing (the Estimates chip), and a new one starts from the job's one + (New for this job)
         job = await pg.evaluate("() => (DB.projects.find(p => p.clientId && /State/.test(p.name || p.address || '')) || DB.projects.find(p => p.clientId)).id")
         await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
-        await pg.locator('#nav-groups [data-mnhead=jobs]').first.tap(); await pg.wait_for_timeout(400)
+        await pg.locator('#nav-groups [data-mnchev=jobs]').first.tap(); await pg.wait_for_timeout(400)   # 11-12: the chevron lists the jobs
         await pg.locator(f'#nav-groups [data-mngr=jobs] button[data-pid="{job}"]').first.tap(); await pg.wait_for_timeout(500)
         c.ok(await pg.evaluate("j => S.id === j && view === 'dash'", job), f'3: the job in the menu opens that job: {await pg.evaluate("() => [S.id, view]")}')
         await pg.locator('.view.on [data-jpsec=jbill]').first.tap(); await pg.wait_for_timeout(500)
@@ -268,7 +268,7 @@ async def main():
         await pg.locator('#menu-btn').tap(); await pg.wait_for_timeout(300)
         taps = 0
         # the 11-03 menu: Estimates is a page of Sales and Clients, which opens on its name (no arrow)
-        exp = pg.locator('#nav-groups [data-mnhead=sales]')
+        exp = pg.locator('#nav-groups [data-mnchev=sales]')   # 11-12: the chevron shows the pages (the name opens the Pipeline)
         if await exp.count():
             await exp.first.tap(); taps += 1; await pg.wait_for_timeout(250); await pg.screenshot(path=os.path.join(SHOTS, 'pm_menu_projects_open.png'))
         kid = pg.locator('#nav-groups [data-mngr=sales] button', has_text=re.compile('^Estimates$'))

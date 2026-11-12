@@ -73,7 +73,7 @@ async def open_reports(pg, phone, label):
     """the menu as the person: the phone's menu button, the Reports group by its name, then the page"""
     if phone and not await pg.evaluate("() => !!document.querySelector('.rail.open')"):
         await tap(pg, pg.locator('#menu-btn:visible').first, phone)
-    h = pg.locator('#nav-groups [data-mnhead="reports"]').first
+    h = pg.locator('#nav-groups [data-mnchev="reports"]').first   # the chevron shows the pages (11-12: the name opens Reports' own page)
     if not await h.count(): return None
     if await h.get_attribute('aria-expanded') != 'true': await tap(pg, h, phone)
     kids = await pg.evaluate("""() => [...document.querySelectorAll('#nav-groups [data-mngr="reports"] button')].map(b => { const c = b.cloneNode(true); c.querySelectorAll('.n, svg').forEach(x => x.remove()); return c.textContent.replace(/\\s+/g, ' ').trim(); })""")
