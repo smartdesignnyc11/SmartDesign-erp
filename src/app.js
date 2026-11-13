@@ -64739,6 +64739,27 @@ function pgDelivered(key) {
     }
   );
 }
+// Work billed on a schedule line by an invoice that is not an application: an invoice drawn from the estimate line
+// the schedule line stands for (fromLine === sv.lineRef). sovBilled reads applications alone, so 45 Cranberry's design
+// phases read "billed 0%" while INV-2026-D45-1 had billed half of each ($21,350, paid), and Ask's unbilled work said
+// $23,366 of design not billed (founder review, wave 3). A deposit is never work done; a draft is not billed yet; an
+// original replaced by a live revision is counted once, through the revision.
+function pgBilledOffSchedule(c, sv) {
+  const sched = +(sv && sv.scheduled) || 0;
+  if (!sv || !sv.lineRef || !(sched > 0)) return 0;
+  const inv = (c && c.invoices) || [],
+    live = (i) => "void" !== i.status && "draft" !== i.status;
+  let amt = 0;
+  inv.forEach((i) => {
+    if ("sov" === i.mode || !live(i) || ("function" == typeof invIsDeposit && invIsDeposit(i))) return;
+    if (sv.projectId && i.projectId && i.projectId !== sv.projectId) return;
+    if (i.revisedBy && inv.some((x) => x.number === i.revisedBy && x.id !== i.id && live(x))) return;
+    (i.lines || []).forEach((l) => {
+      l && l.fromLine === sv.lineRef && (amt += lineAmount(l, i));
+    });
+  });
+  return amt ? (amt / sched) * 100 : 0;
+}
 function pgEvidence(c, p, sv) {
   const key = sv.lineRef || "",
     fin = key && "function" == typeof lineFin ? lineFin(key) : null,
@@ -64746,7 +64767,7 @@ function pgEvidence(c, p, sv) {
     line = ref ? ref.line : null,
     code = line ? line.code || ("function" == typeof codeForLine ? codeForLine(line) : "") : "",
     scheduled = +sv.scheduled || 0,
-    billedPct = r2(sovBilled(c, sv.id)),
+    billedPct = r2(sovBilled(c, sv.id) + pgBilledOffSchedule(c, sv)),
     cost = fin ? fin.actual : 0,
     budget = fin ? fin.budget : 0,
     committed = fin ? fin.committed : 0,
