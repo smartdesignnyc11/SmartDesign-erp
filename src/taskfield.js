@@ -346,16 +346,44 @@ function tkClockCovers(emp, at) {
   const ms = new Date(at).getTime();
   return (DB.time || []).find((t) => t.empId === emp.id && t.in && t.out && new Date(t.in).getTime() <= ms && ms < new Date(t.out).getTime()) || null;
 }
+// Clock In looks at today before it punches (the crew's review, 11-12: a first Clock In on a day already closed and sent
+// made a second punch for the foreman to sort out, and said so only afterwards). A day of today's that is closed and
+// sent for approval is said first, with Start Another Shift: the person decides, nothing is punched until they do.
+// A lunch break (a closed punch not yet sent) is not asked about. The automatic clock asks the same way (tkGeoTick).
+function tkTodaySent(emp) {
+  const td = today();
+  return (DB.time || [])
+    .filter((t) => emp && t.empId === emp.id && t.date === td && t.in && t.out && (/^(submitted|approved)$/.test(String(t.status || "")) || t.payrollId))
+    .sort((a, b) => String(a.in).localeCompare(String(b.in)));
+}
+function tkTodaySentSay(sent) {
+  const spans = sent.map((t) => `${stampTime(t.in)} to ${stampTime(t.out)}`).join(" and "),
+    ahead = sent.some((t) => String(t.out) > String(appNowIso()));
+  return { spans: spans, ahead: ahead, fore: tkFirst((tdyRoleUser("foreman") || {}).name || "the foreman") };
+}
+function tkAnotherShiftSheet(sent, go) {
+  const s = tkTodaySentSay(sent),
+    m = mbModal(
+      "Today Is Already Sent",
+      `<p>Your ${esc(fmt(today()))} hours, ${esc(s.spans)}, are already sent for approval.</p><p class="small muted">${s.ahead ? `That day ends after now, so a new punch overlaps it: both are marked, the hours are not counted twice, and ${esc(s.fore)} picks one.` : "Clocking in again starts a second shift for today. The first one stays as it is."}</p>`,
+      { submit: "Start Another Shift", onSubmit: () => (setTimeout(go, 0), !0) },
+    ),
+    c = m && m.querySelector("#mbm-cancel");
+  c && (c.textContent = "Not Now");
+  return m;
+}
 if ("function" == typeof clockEvent) {
   const base = clockEvent;
-  clockEvent = async function (kind) {
+  clockEvent = async function (kind, opts) {
     let emp = null,
       hit = null;
     try {
       emp = "in" === kind && "function" == typeof myEmp ? myEmp() : null;
+      const sent = emp && !(opts && opts.again) && !(DB.time || []).some((t) => t.empId === emp.id && !t.out) ? tkTodaySent(emp) : [];
+      if (sent.length) return void tkAnotherShiftSheet(sent, () => clockEvent("in", { again: !0 }));
       hit = emp && tkClockCovers(emp, appNowIso());
     } catch (e) {}
-    const r = await base.apply(this, arguments);
+    const r = await base.call(this, kind);
     try {
       const e = hit && (DB.time || []).find((t) => t.empId === emp.id && !t.out && t.id !== hit.id);
       if (e && !e.overlapOf) {
@@ -370,6 +398,34 @@ if ("function" == typeof clockEvent) {
         toast(`Clocked in, but your ${fmt(hit.date)} already runs ${stampTime(hit.in)} to ${stampTime(hit.out)}${sent ? " and was sent for approval" : ""}. Both punches are marked so the hours are not counted twice; ${fore} sorts it out.`, [{ label: "Open", run: () => ("function" == typeof openTime ? openTime(hit.id) : setView("time")) }]);
       }
     } catch (x) {}
+    return r;
+  };
+}
+
+// ---- the driver's Route: Receive a Delivery, beside the slip's photo ---------------------------------------------------
+// The driver had the slip's photo and nothing to count against. The button opens Deliveries on every job (he drives
+// for all of them); Receive on an order there is the one receive sheet: a count per line, Good / Short / Damaged /
+// Wrong, the slip's photo.
+function tkDriverReceiveMount() {
+  if ("route" !== view || "driver" !== role() || !(ROLE_VIEWS.driver || []).includes("recv")) return;
+  const card = document.querySelector("#v-route #trk-capture");
+  if (!card || card.querySelector("[data-drvrecv]")) return;
+  const n = (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && !("function" == typeof poIsSub && poIsSub(po))).length;
+  card.insertAdjacentHTML("beforeend", `<button type="button" class="btn trk-big" data-drvrecv style="margin-top:8px">Receive a Delivery</button><div class="small muted" style="margin-top:6px">${n ? `${n} order${1 === n ? "" : "s"} to count in, line by line.` : "Nothing is on order right now."}</div>`);
+  card.querySelector("[data-drvrecv]").onclick = () => {
+    recvAll = !0;
+    setView("recv");
+  };
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tkDriverReceiveMount();
+    } catch (e) {
+      console.warn("driver receive", e);
+    }
     return r;
   };
 }

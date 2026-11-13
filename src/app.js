@@ -15113,18 +15113,21 @@ function seedCrew() {
     };
     return (e.work = [{ projectId: proj, code: code, hours: hoursOf(e), note: "" }]), e;
   };
+  // A seed never writes a punch that ends after the app's clock (the crew's review, 11-12). The four days waiting on
+  // the foreman were dated the demo day itself and closed at 2:00 to 4:48 PM, while the demo's clock reads anywhere
+  // from 7:30 AM to 5:30 PM: Alberto opened the app at 3:20 PM to a day already ended at 4:48 PM and sent, and his
+  // first Clock In made a double punch. They are yesterday's days now (9/2, waiting on approval this morning), 9/1 is
+  // approved, and nobody has hours for today until they clock in. The three approved 9/2 days they replace are gone
+  // (te4 to te6: one person cannot have two days on one date).
   (DB.time = [
     mk("te1", "em1", "2026-09-01", "07:02", "15:34", 30, "p121", "07", !0),
     mk("te2", "em2", "2026-09-01", "07:10", "16:05", 30, "p121", "03", !0),
     mk("te3", "em3", "2026-09-01", "07:30", "15:30", 30, "p121", "12", !0),
-    mk("te4", "em1", "2026-09-02", "06:58", "15:40", 30, "p121", "12", !0),
-    mk("te5", "em2", "2026-09-02", "07:05", "15:35", 30, "p121", "03", !0),
-    mk("te6", "em3", "2026-09-02", "07:45", "15:30", 30, "p121", "12", !0),
-    mk("te7", "em1", "2026-09-03", "07:00", "15:30", 30, "p121", "12", !1),
+    mk("te7", "em1", "2026-09-02", "07:00", "15:30", 30, "p121", "12", !1),
     mk(
       "te8",
       "em2",
-      "2026-09-03",
+      "2026-09-02",
       "07:12",
       "16:48",
       30,
@@ -15133,11 +15136,11 @@ function seedCrew() {
       !1,
       "Plumbing prep — stayed late for the inspector walk",
     ),
-    mk("te9", "em3", "2026-09-03", "08:02", "15:30", 30, "p121", "12", !1),
-    mk("te10", "em4", "2026-09-03", "08:00", "14:00", 0, "p121", "06", !1),
+    mk("te9", "em3", "2026-09-02", "08:02", "15:30", 30, "p121", "12", !1),
+    mk("te10", "em4", "2026-09-02", "08:00", "14:00", 0, "p121", "06", !1),
   ]),
-    (DB.time[9].geoIn = { lat: 40.728, lng: -73.99, dist: 4200 }),
-    (DB.time[7].work = [
+    (DB.time.find((t) => "te10" === t.id).geoIn = { lat: 40.728, lng: -73.99, dist: 4200 }),
+    (DB.time.find((t) => "te8" === t.id).work = [
       { projectId: "p121", code: "05", hours: 5.6, note: "Rough plumbing garden bath" },
       { projectId: "p121", code: "03", hours: 3.5, note: "Blocking for the tub deck" },
     ]);
@@ -34590,6 +34593,9 @@ function renderRecv() {
   return billActionBase(b, a, why);
 }),
   ROLE_VIEWS.crew.push("recv"),
+  // the driver receives at the vendor's counter and at the curb (the crew's review, 11-12: no line counts, no Short
+  // or Damaged, because Deliveries was not one of his pages)
+  ROLE_VIEWS.driver.push("recv"),
   ROLE_VIEWS.coord.push("recv"),
   ROLE_VIEWS.pm.push("recv"),
   ROLE_VIEWS.owner.push("recv"),
@@ -35999,7 +36005,7 @@ renderRecv = function () {
       .map(([g, f]) => {
         const list = pos.filter(f);
         return list.length
-          ? `<h3 class="rep-h">${g} <span class="small muted">${list.length}</span></h3>${list.map(({ po: po, p: p }) => `<div class="card recv-po click" data-recvgo="${po.projectId}"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · ${esc(p?.project.name || "")}${po.needBy ? ` · needed ${fmt(po.needBy)}` : ""}</span><span class="grow"></span><span class="small ${"Late" === g ? "bad" : ""}">${po.expected ? fmt(po.expected) : "no date"}</span></div><div class="small muted">${po.lines.map((l) => esc(l.item || l.desc || "")).join(", ")}</div></div>`).join("")}`
+          ? `<h3 class="rep-h">${g} <span class="small muted">${list.length}</span></h3>${list.map(({ po: po, p: p }) => `<div class="card recv-po click" data-recvgo="${po.projectId}"><div class="row" style="align-items:baseline"><b>${esc(po.vendor)}</b><span class="small muted">${esc(po.number)} · ${esc(p?.project.name || "")}${po.needBy ? ` · needed ${fmt(po.needBy)}` : ""}</span><span class="grow"></span><span class="small ${"Late" === g ? "bad" : ""}">${po.expected ? fmt(po.expected) : "no date"}</span></div><div class="small muted">${po.lines.map((l) => esc(l.item || l.desc || "")).join(", ")}</div>${"function" == typeof poIsSub && poIsSub(po) ? "" : `<div class="row" style="margin-top:8px"><button type="button" class="btn sm" data-recvall="${esc(po.id)}">${po.lines.some((l) => +l.received > 0) ? "Receive the Rest" : "Receive"}</button></div>`}</div>`).join("")}`
           : "";
       })
       .join("") || '<div class="card muted">Nothing on order.</div>'
@@ -36009,7 +36015,11 @@ renderRecv = function () {
     }),
     root.querySelectorAll("[data-recvgo]").forEach(
       (el) =>
-        (el.onclick = () => {
+        (el.onclick = (e) => {
+          // Receive on the row opens the one receive sheet right here; the rest of the row opens the job's page
+          const b = e && e.target && e.target.closest ? e.target.closest("[data-recvall]") : null,
+            po = b && (DB.pos || []).find((x) => x.id === b.dataset.recvall);
+          if (po) return void rcReceiveSome(po);
           (recvAll = !1), setCurrent(el.dataset.recvgo), render();
         }),
     );

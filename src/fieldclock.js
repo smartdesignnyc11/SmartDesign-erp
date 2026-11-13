@@ -90,7 +90,7 @@ function tkGeoOff(u) {
 
 // ---- one reading of where the phone is, applied ------------------------------------------------------------------------
 // pos {lat, lng, acc}; at: the moment (the app's clock, appNowIso(), unless a test says otherwise)
-let tkGeo = { outSince: "", outPos: null, last: null, lastAt: "", timer: null, asked: "" };
+let tkGeo = { outSince: "", outPos: null, last: null, lastAt: "", timer: null, asked: "", again: "" };
 function tkgSiteNear(pos) {
   let best = null;
   (DB.projects || []).forEach((p) => {
@@ -200,6 +200,24 @@ function tkGeoTick(pos, at0) {
       m = new Date(at),
       mins = 60 * m.getHours() + m.getMinutes();
     if (!open && (!sh.days.includes(m.getDay()) || mins < hmToMin(sh.start) - 60 || mins > hmToMin(sh.end) + 120)) return { did: "none", why: "outside the site's hours" };
+    // today is already closed and sent for approval: the app asks, it does not punch a second shift on its own
+    const sent = !open && String(at).slice(0, 10) === today() && "function" == typeof tkTodaySent ? tkTodaySent(emp) : [];
+    if (sent.length && tkGeo.again !== near.p.id + "|" + today()) {
+      const key = "sent|" + near.p.id + "|" + today();
+      if (tkGeo.asked === key) return { did: "none", why: "today already sent; asked" };
+      tkGeo.asked = key;
+      const s = tkTodaySentSay(sent);
+      toast(`You are at ${tkgSay(near.p)}, and your ${fmt(today())} hours (${s.spans}) are already sent for approval.`, [
+        {
+          label: "Start Another Shift",
+          run: () => {
+            tkGeo.again = near.p.id + "|" + today();
+            tkGeoTick(pos, at0 ? at : appNowIso());
+          },
+        },
+      ]);
+      return { did: "asked", why: "today already sent" };
+    }
     if (open) {
       const from = tkgJob(open.projectId);
       tkgPunchOut(open, pos, at);
