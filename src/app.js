@@ -30543,6 +30543,23 @@ function poPaidDirect(po) {
       .reduce((a, t) => a - t.amt, 0),
   );
 }
+// What is still to come on an open order: its total (tax and freight with it) less what its bills already carry as
+// cost and what was paid on it with no bill (already cost to date). An order all received is no longer committed:
+// what it still owes arrives as its bill. One definition, read by the job's committed, by the cost codes and by the
+// estimate lines (jobFin, jobFinEacLines), so the three add up.
+function poOpenCommitted(po, bills) {
+  if (!po || !["issued", "partial"].includes(po.status)) return 0;
+  const billedOn = (bills || DB.bills || [])
+    .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
+    .reduce((x, b) => x + billCost(b), 0);
+  return Math.max(0, poTotal(po).total - billedOn - poPaidDirect(po));
+}
+// Each line's share of its order (by the goods' value; equal parts when no line has a value), in the lines' order.
+function poLineShares(po) {
+  const v = (po.lines || []).map((l) => (+l.qty || 0) * (+l.price || 0)),
+    t = v.reduce((a, x) => a + x, 0);
+  return v.map((x) => (t ? x / t : 1 / v.length));
+}
 function txnViaBill(t, bills) {
   return (
     !!t.billId ||
@@ -30676,24 +30693,9 @@ function jobFin(p, range) {
     pos = DB.pos.filter(
       (po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status),
     ),
-    committed =
-      (r2(pos.reduce((a, po) => a + poTotal(po).sub, 0)),
-      r2(
-        bills
-          .filter((b) => "void" !== b.status && "rejected" !== b.status && pos.some((po) => po.id === b.poId))
-          .reduce((a, b) => a + billCost(b), 0),
-      ),
-      r2(
-        DB.pos
-          .filter((po) => po.projectId === p.id && ["issued", "partial"].includes(po.status))
-          .reduce((a, po) => {
-            const tot = poTotal(po).total,
-              billedOn = bills
-                .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
-                .reduce((x, b) => x + billCost(b), 0);
-            return a + Math.max(0, tot - billedOn - poPaidDirect(po));
-          }, 0),
-      )),
+    // Committed is what is still to come on the job's open orders (poOpenCommitted): one figure for the job, and the
+    // same figure spread over each order's lines for the cost codes below, so the codes add up to it.
+    committed = r2(pos.reduce((a, po) => a + poOpenCommitted(po, bills), 0)),
     ctc = +(p.ctc || 0),
     eac = r2(
       p.ctcReviewed ? Math.max(actual + committed, actual + ctc) : Math.max(budget, actual + committed),
@@ -30742,20 +30744,16 @@ function jobFin(p, range) {
     Object.entries(laborByCode).forEach(([code, v]) => (bump(code, "labor", v), (laborSrc[code] || []).forEach((id) => byCode[code].src.includes(id) || byCode[code].src.push(id)))),
     stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0, "stock:" + (u.id || u.at))),
     pos.forEach((po) => {
-      const tot = poTotal(po).sub,
-        open = Math.max(
-          0,
-          tot -
-            bills
-              .filter((b) => b.poId === po.id && "void" !== b.status)
-              .reduce((a, b) => a + billCost(b), 0) -
-            poPaidDirect(po),
-        );
-      po.lines.forEach((l) => {
-        const ref = l.line ? findLine(l.line) : null,
-          code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
-        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0, "po:" + po.id);
-      });
+      // the order's open amount, tax and freight with it, on each line by its share of the order's goods: the cost
+      // codes' committed add up to the job's (they read $38,010 under the job's $38,721: the tax on one order)
+      const open = poOpenCommitted(po, bills),
+        S = poLineShares(po);
+      open &&
+        po.lines.forEach((l, i) => {
+          const ref = l.line ? findLine(l.line) : null,
+            code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
+          bump(l.billable ? "RB" : code, "committed", open * S[i], "po:" + po.id);
+        });
     }),
     byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.values(byCode).forEach((b) => {
@@ -69462,7 +69460,9 @@ const renderPortfolioBase_p6 = renderPortfolio;
                   : "on target"
               : "",
         },
-        { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || "" },
+        // A job with no contract says so (a PM review, S2-4: 206 Lenox read blank across Contract, Billed, Owed and EAC
+    // while its crew logged hours): the row is never blank where money is concerned.
+    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract warn">No contract yet</span>', text: "No contract yet", sort: 0 } },
         { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
         { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
         {
@@ -89211,13 +89211,60 @@ const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", b
       u = n && (DB.users || []).find((x) => String(x.name || "").trim().toLowerCase() === n);
     return u ? u.role : "";
   };
-function apprOwner(it) {
+// ---- who a thing waits on: the one routing function (a PM review, S2-3) -----------------------------------------------
+// A rule names a role (DELEGATION, a Purchasing row's actor, a Needs Your Hand route). A role is a seat, and a seat
+// nobody sits in owns nothing: the firm folded the coordinator's seat into a PM on 11-09, and six purchasing exceptions
+// (about $15K of overages and credits) read "Waiting on the coordinator" while the PM who now buys was told nothing
+// waited on him. seatFor(role, job) is the answer every queue reads:
+//   the role, when an active user holds it;
+//   else the job's PM (the PM named on the job, or the one PM on its team; with no job, or none named, every PM);
+//   else the owner. Nothing is ever in nobody's queue.
+// It returns { role, uid, name, from }: the role whose queue holds the thing, the one person when the rule names one
+// (uid, name), and the empty seat it fell from (from), so a row can say who it waits on by name.
+const seatOff = (u) => !u || !0 === u.inactive || !0 === u.disabled || !0 === u.removed || !1 === u.active || "inactive" === u.status || "removed" === u.status,
+  seatUsers = (r) => (DB.users || []).filter((u) => u.role === r && !seatOff(u)),
+  seatHeld = (r) => seatUsers(r).length > 0;
+function seatFor(r, p) {
+  r = r || "owner";
+  if ("owner" === r || seatHeld(r)) return { role: r, uid: "", name: "", from: "" };
+  const pms = "pm" === r ? [] : seatUsers("pm"),
+    first = (n) => String(n || "").trim().toLowerCase().split(/\s+/)[0],
+    // the job's PM: the one named on the job (project.pm), else the one PM on its team, else the firm's only PM
+    names = p && p.project ? String(p.project.pm || "").split(/[,/&]| and /).map(first).filter(Boolean) : [],
+    onTeam = p && Array.isArray(p.team) ? pms.filter((u) => p.team.includes(u.id)) : [],
+    named = pms.find((u) => names.includes(first(u.name))) || (1 === onTeam.length ? onTeam[0] : null) || (1 === pms.length ? pms[0] : null);
+  if (pms.length) return { role: "pm", uid: named ? named.id : "", name: named ? named.name : pms.map((u) => u.name).join(" or "), from: r };
+  const o = seatUsers("owner")[0];
+  return { role: "owner", uid: "", name: o ? o.name : "", from: r };
+}
+// Is the signed-in person the one a role's work waits on (for this job)?
+function seatIsMe(r, p) {
+  const s = seatFor(r, p),
+    me = currentUser();
+  return s.role === role() && (!s.uid || !me || s.uid === me.id);
+}
+// The words after "Waiting on": the role's own word while its seat is held, the person's name once it has fallen.
+function seatWord(r, p, words) {
+  const s = seatFor(r, p),
+    W = words || APPR_WHO;
+  return s.from ? s.name || W[s.role] || s.role : W[r] || r;
+}
+// the job an approval is about, when it names one
+function apprProject(it) {
+  const id = it && (it.projectId || it.pid || (it.open && (it.open.project || it.open.proj)) || (it.p && it.p.id));
+  return (id && (DB.projects || []).find((x) => x.id === id)) || null;
+}
+function apprSeat(it) {
   const d = DELEGATION[it.kind] || DELEGATION.other;
   let r = "";
   try {
     r = d.who ? d.who(it) : "";
   } catch (e) {}
-  return apprCanOpen(r) ? r : apprCanOpen(d.role) ? d.role : "owner";
+  const s = seatFor(apprCanOpen(r) ? r : apprCanOpen(d.role) ? d.role : "owner", apprProject(it));
+  return apprCanOpen(s.role) ? s : { role: "owner", uid: "", name: "", from: s.from };
+}
+function apprOwner(it) {
+  return apprSeat(it).role;
 }
 // "19 more wait on the others (the PM 16, the coordinator 3)"
 function apprWhoSay(items) {
@@ -126186,6 +126233,10 @@ function finAnswer(raw) {
           (x) =>
             `${x.name} — ${money(x.actual)} spent + ${money(x.committed)} committed against a ${money(x.budget)} budget: over by ${money(x.over)}`,
         ),
+        // cost on no estimate line is in the estimate at completion, and the answer names it (jobFinUnlined)
+        ...((J.eacUnlined && J.eacUnlined.rows) || []).map(
+          (r) => `Not on an estimate line: ${r.name} — ${money(r.actual)} spent${r.committed ? ` + ${money(r.committed)} committed` : ""}, all of it in the estimate at completion`,
+        ),
         `Budget ${money(J.budget)} · estimate at completion ${money(J.eac)} · ${tpCostWords(J)} · ${tpJobPct(job)}% complete, measured on site`,
       ],
       finGoJob(job.id),
@@ -131378,6 +131429,38 @@ const OV_TILES = {
     },
   },
   ovStatus = (text, cls, sort) => ({ text: text, cls: cls, sort: null == sort ? text : sort });
+// Crew hours on a job's signed daily logs that no time entry on that job carries, for that person and day. Labour
+// reaches job cost through the clock (time entries at the burdened rate), so these hours are not in cost to date:
+// a flag with its dollar size, never a silent cost and never a silent gap.
+function jobLogHoursUnclocked(p) {
+  const out = { hours: 0, cost: 0, days: new Set(), people: new Set() };
+  (((DB.field && DB.field.logs) || []).filter((l) => l.projectId === p.id && "draft" !== l.status) || []).forEach((l) =>
+    (l.crew || []).forEach((cw) => {
+      if (!cw.empId) return;
+      const clocked = (DB.time || [])
+          .filter((e) => e.projectId === p.id && e.empId === cw.empId && e.date === l.date && "rejected" !== e.status)
+          .reduce((a, e) => a + hoursOf(e), 0),
+        gap = r2((+cw.hours || 0) - clocked);
+      if (gap < 0.25) return;
+      const emp = (DB.employees || []).find((x) => x.id === cw.empId);
+      (out.hours += gap), (out.cost += gap * (emp ? laborRate(emp) : 0)), out.days.add(l.date), out.people.add(cw.name || cw.empId);
+    }),
+  );
+  return { hours: r2(out.hours), cost: r2(out.cost), days: out.days.size, people: [...out.people] };
+}
+function ovNoContractCost(r) {
+  const J = r.J,
+    U = jobLogHoursUnclocked(r.p),
+    cost = r2((+J.actual || 0) + (+J.committed || 0)),
+    say = J.committed > 0.005 ? "to date and committed" : "cost to date",
+    // the short words fit the column; the whole sentence is the cell's title and the phone row's line
+    say2 = U.hours ? `${U.hours} h on daily logs, not clocked${U.cost ? `: about ${money(U.cost)} not in cost` : ""}` : "";
+  return {
+    html: `<span class="ov-cost">${money(cost)}</span><span class="ov-costk small muted">${say}</span>${U.hours ? `<span class="ov-unclocked small warn" data-say="${esc(say2)}" title="${esc(say2)}">${U.hours} h not clocked</span>` : ""}`,
+    text: money(cost),
+    sort: cost,
+  };
+}
 function ovProjectCols() {
   return [
     { key: "name", label: "Project", cls: "name", w: "20%", get: (r) => ovProj(r.p) },
@@ -131409,7 +131492,9 @@ function ovProjectCols() {
               : "on target"
           : "",
     },
-    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || "" },
+    // A job with no contract says so (a PM review, S2-4: 206 Lenox read blank across Contract, Billed, Owed and EAC
+    // while its crew logged hours): the row is never blank where money is concerned.
+    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract warn">No contract yet</span>', text: "No contract yet", sort: 0 } },
     { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
     { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
     {
@@ -131422,7 +131507,10 @@ function ovProjectCols() {
         return { text: `${v}%`, sort: v };
       },
     },
-    { key: "eac", label: "EAC", type: "money", w: "96px", get: (r) => (r.J.contract ? r.J.eac : "") },
+    // The job's one estimate at completion (jobFin). With no contract and no budget it is the cost to date and what is
+    // committed, shown and named as that; crew hours on signed daily logs that no time entry carries are not cost yet,
+    // and the row says how many.
+    { key: "eac", label: "EAC", type: "money", w: "96px", get: (r) => (r.J.contract ? r.J.eac : ovNoContractCost(r)) },
     {
       key: "next",
       label: "Next Milestone",
@@ -143801,11 +143889,12 @@ if (
         },
         {
           key: "ahead",
-          k: "Over-Billed (WIP)",
+          // the firm's figure carries its scope in its name: a job's own Over-Billed (WIP) is a different number
+          k: BILLED_AHEAD_ALL,
           v: aheadAmt ? "+" + tlK(aheadAmt) : "$0",
           tone: aheadAmt > 1e5 ? "warn" : "",
           s: ahead.length
-            ? `${tlN(ahead.length, "job")} invoiced past earned work — owed back if a job stalls`
+            ? `${tlN(ahead.length, "job")} added together: billed less what each job's cost has earned, owed back if a job stalls. Each job's Budget has its own figure and its Billed Ahead of the Work, line by line`
             : "no job is billed past its earned work",
           pred: (r) => r.ahead > 0,
         },
@@ -169760,11 +169849,14 @@ function igDlPhotos(dr, p) {
     } catch (e) {}
     try {
       (out || []).forEach((it) => {
-        it.who = apprOwner(it);
+        const s = apprSeat(it);
+        (it.who = s.role), s.from && ((it.whoUid = s.uid), (it.whoName = s.name), (it.whoFrom = s.from));
       });
       if (!(opts && opts.everyone)) {
-        const me = role();
-        return (out || []).filter((it) => it.who === me);
+        const me = role(),
+          uid = (currentUser() || {}).id;
+        // an item that fell from an empty seat to one job's PM is that PM's, not every PM's
+        return (out || []).filter((it) => it.who === me && (!it.whoUid || !uid || it.whoUid === uid));
       }
     } catch (e) {
       console.warn("delegation", e);
@@ -170624,18 +170716,14 @@ function jobFinEacLines(J, p) {
         (x.tagA += -t.amt);
     }),
     (DB.pos || [])
-      .filter((po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status))
+      .filter((po) => po.projectId === p.id)
       .forEach((po) => {
-        const tot = poTotal(po).sub,
-          open = Math.max(
-            0,
-            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billCost(b), 0),
-          );
-        tot &&
-          open &&
-          (po.lines || []).forEach((l) => {
-            const x = l.line && byKey[l.line];
-            x && (x.tagC += (open * ((+l.qty || 0) * (+l.price || 0))) / tot);
+        const open = poOpenCommitted(po, bills),
+          S = poLineShares(po);
+        open &&
+          (po.lines || []).forEach((l, i) => {
+            const x = l.line && !l.billable && byKey[l.line];
+            x && (x.tagC += open * S[i]);
           });
       });
   // Distribute each cost code's actual and committed (jobFin's own figures, after every adjustment) to its
@@ -170678,11 +170766,58 @@ function jobFinEac(J, p) {
   try {
     const L = jobFinEacLines(J, p);
     if (!L.length) return null;
-    const lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0));
-    return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L };
+    // Cost on no estimate line is still cost: it is in the estimate at completion with the lines (a PM review, S1-1:
+    // 121 State's tile and Projects read $388,888 while its Budget table added the unlined cost and read $393,986).
+    const U = jobFinUnlined(J, L),
+      lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0) + U.total);
+    return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L, unlined: U };
   } finally {
     jobFinEacBusy = !1;
   }
+}
+// Billing ahead has two questions and each has its own name, its own number and one line saying what it counts (a PM
+// review, S1-2: a job read $131,058 and $66,470 and Projects read $156K, with nothing saying how they differ):
+//   Over-Billed (WIP)           everything billed on the job less what its cost has earned (the contract at the share
+//                               of the estimated cost spent, jobFin's over): the accounting figure the close posts
+//   Billed Ahead of the Work    line by line, billed to date less the work measured on site, the lines above zero
+//                               (billedAhead): what billing holds on the next application
+//   Over-Billed (WIP), All Jobs the first, added over every job on the list (Projects)
+// Every screen that prints one of them reads this, so a label never carries two numbers.
+function billedAheadSay(p) {
+  const J = jobFin(p),
+    A = "function" == typeof billedAhead ? billedAhead(p.id) : { total: 0, n: 0 },
+    pct = Math.round(100 * (+J.pct || 0));
+  return {
+    wip: {
+      label: "Over-Billed (WIP)",
+      amount: r2(+J.over || 0),
+      what: `Everything billed on this job (${money(J.billed)}) less what its cost has earned (${money(J.earned)}: the contract at ${pct}% of the estimated cost spent). The accounting figure; the close posts it.`,
+    },
+    work: {
+      label: "Billed Ahead of the Work",
+      amount: r2(+A.total || 0),
+      n: A.n || 0,
+      what: A.n
+        ? `Line by line: billed to date less the work measured on site, on the ${A.n} line${1 === A.n ? "" : "s"} billed past it. Billing holds ${1 === A.n ? "this line" : "these lines"} on the next application.`
+        : "Line by line: billed to date less the work measured on site. No line is billed past its work.",
+    },
+  };
+}
+const BILLED_AHEAD_ALL = "Over-Billed (WIP), All Jobs";
+// The job's cost that sits on no estimate or change-order line: what is spent and what is committed on a cost code no
+// line carries (paint bought on a job whose estimate has no paint line). The lines forecast themselves (each at the
+// greater of its budget and actual + committed); this cost has no budget to sit inside, so all of it is forecast.
+// Purchases billed back to the client are their own row (J.rebillCost), never here. The lines, this and the billed-back
+// row add up to the job's cost to date and committed, to the cent (tests/finance_xcheck.py, INV ONE EAC).
+function jobFinUnlined(J, L) {
+  const has = new Set((L || []).map((x) => String(x.code))),
+    rows = ((J && J.byCode) || [])
+      .filter((r) => "RB" !== r.code && !has.has(String(r.code)))
+      .map((r) => ({ code: r.code, name: r.name, actual: r2(Math.max(0, +r.actual || 0)), committed: r2(Math.max(0, +r.committed || 0)), src: (r.src || []).slice() }))
+      .filter((r) => r.actual > 0.005 || r.committed > 0.005),
+    actual = r2(rows.reduce((a, r) => a + r.actual, 0)),
+    committed = r2(rows.reduce((a, r) => a + r.committed, 0));
+  return { actual: actual, committed: committed, total: r2(actual + committed), rows: rows };
 }
 if ("function" == typeof jobFin) {
   const jobFinBase_tp = jobFin;
@@ -170701,6 +170836,7 @@ if ("function" == typeof jobFin) {
           L &&
             L.eacFromLines &&
             ((J.eacLines = L.eacLines),
+            (J.eacUnlined = L.eacUnlined),
             (J.eacFromLines = !0),
             jobFinDerive(J, p, Math.max(L.eac, r2(J.actual + J.committed)))),
           J
@@ -170710,12 +170846,14 @@ if ("function" == typeof jobFin) {
       const E = p.ctcReviewed ? null : jobFinEac(J, p);
       E &&
         ((J.eacLines = E.lines),
+        (J.eacUnlined = E.unlined),
         (J.eacFromLines = !0),
         jobFinDerive(J, p, E.eac),
         (J.defs = String(J.defs || "").replace(
           "% complete = actual ÷ estimated total cost",
           "estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed · cost basis % = actual ÷ estimated total cost",
-        )));
+        )),
+        (J.defs += " · estimate at completion = each estimate and change-order line at the greater of its budget and actual + committed, plus all cost on no estimate line, plus purchases billed back · margin at completion = (contract + billed back - estimate at completion) ÷ (contract + billed back)"));
     } catch (e) {
       console.warn("eac by line", e);
     }
@@ -171662,7 +171800,7 @@ if ("function" == typeof opsStudioSchedule) {
 function tpEacNote(J, p) {
   return p && p.ctcReviewed
     ? "Estimate at completion = actual + the PM's reviewed cost to complete (it wins over the line roll-up)."
-    : "Estimate at completion = actual + committed + cost to complete, rolled up from the estimate and approved change-order lines: each line at the greater of its budget and what is spent and committed on it. A short-paid bill counts only the amount approved.";
+    : "Estimate at completion = actual + committed + cost to complete, rolled up from the estimate and approved change-order lines: each line at the greater of its budget and what is spent and committed on it, plus all cost on no estimate line. A short-paid bill counts only the amount approved.";
 }
 // What the client is shown as complete: what the pay applications certified (billed to date, gross, on the
 // latest application) and what is measured on site. Never the firm's internal earned revenue.
@@ -200498,6 +200636,44 @@ let nyhFoldBusy = 0,
     }
   };
 }
+// Needs Your Hand routes each row to a role (r.route). A role nobody holds owns nothing: its rows go where the one
+// routing function sends them (seatFor: the job's PM, then the owner), so the person the work fell to reads them in
+// Needs Your Hand, Approvals and Today, and nobody is told nothing waits while a row sits in an empty seat.
+{
+  const base = nyhRows,
+    proj = (r) => {
+      const id = r && (r.projectId || r.pid || (r.p && r.p.id) || (r.open && r.open.project));
+      return (id && (DB.projects || []).find((x) => x.id === id)) || null;
+    },
+    moved = (r) => {
+      const s = seatFor(r.route, proj(r));
+      return s.from ? Object.assign({}, r, { route: s.role, fellFrom: s.from, uid: s.uid || r.uid || "" }) : r;
+    };
+  nyhRows = function (opts) {
+    const o = opts || {},
+      R = base.apply(this, arguments);
+    try {
+      const empty = Object.keys(APPR_WHO).filter((r) => "owner" !== r && !seatHeld(r));
+      if (!empty.length || !Array.isArray(R)) return R;
+      if (o.everyone) return R.map(moved);
+      const want = o.role || role(),
+        uid = (currentUser() || {}).id,
+        have = new Set(R.map((r) => r.key)),
+        add = [];
+      empty.forEach((er) => {
+        if (er === want) return;
+        (base.call(this, Object.assign({}, o, { role: er })) || []).forEach((r) => {
+          const m = moved(r);
+          m.route === want && (!m.uid || !uid || m.uid === uid) && !have.has(m.key) && (have.add(m.key), add.push(m));
+        });
+      });
+      return add.length ? R.concat(add) : R;
+    } catch (e) {
+      console.warn("needs your hand seat", e);
+      return R;
+    }
+  };
+}
 {
   const base = render;
   render = function () {
@@ -202115,7 +202291,7 @@ function tdyModel() {
   // counted as tasks (they were five of the coordinator's "Tasks 9")
   // (procurement P1) read from the Buy Board's one reader, bbTodayItems: late, or due to order this week. The PM's Today
   // keeps its five filters (the today lane's budget); his job's buying is on its Overview (Buying on This Job).
-  const buy = "coord" === r && may("proc") ? tdyBuyItems() : null;
+  const buy = seatFor("coord").role === r && may("proc") ? tdyBuyItems() : null;
   const order = (L) => {
     try {
       return standardOrder(L, stdQueueTie);

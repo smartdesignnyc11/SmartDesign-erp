@@ -287,6 +287,11 @@ const PR_SPECS = {
       bits = [];
     +need ? bits.push(`${need} need${"1" === need ? "s" : ""} you${first ? ": " + first : ""}`) : bits.push("Nothing needs you");
     next && bits.push("Next " + next);
+    // a job with no contract says so on the phone too, with its cost (the Projects table's own cells; lane F, S2-4)
+    const con = get(/^contract/i),
+      eac = get(/^eac/i),
+      part = (c) => (eac && eac.querySelector(c) ? prTxt(eac.querySelector(c)) : "");
+    con && /no contract yet/i.test(prTxt(con)) && bits.push(`No contract yet${part(".ov-cost") ? `, ${part(".ov-cost")} ${part(".ov-costk")}` : ""}${part(".ov-unclocked") ? `; ${eac.querySelector(".ov-unclocked").dataset.say || part(".ov-unclocked")}` : ""}`);
     return { title: prTxt(name), dot: prTone(health) || "ok", meta: bits.join(" · ") };
   },
   // Decisions (finding 9): what, who owes it, what it holds up, days late; the action is Decide (the Record It sheet)

@@ -93,6 +93,26 @@ function puMe() {
 function puWho(actor, name) {
   return name || PU_ROLE_WORD[actor] || actor || "someone";
 }
+// Whose tap a row is, through the one routing function (seatFor, src/app.js): a row names a role (x.actor); a role nobody
+// holds falls to the job's PM, then to the owner, and the row then says who by name. Every page's Needs You, its count,
+// the menu's number and Waiting on Someone Else read these two, never a role compared on the page.
+function puRowProject(x) {
+  const id = x && (x.pid || (x.r && x.r.p && x.r.p.id) || (x.need && x.need.p && x.need.p.id) || (x.po && x.po.projectId) || (x.p && x.p.id));
+  return (id && (DB.projects || []).find((p) => p.id === id)) || null;
+}
+function puMine(x) {
+  const a = x && x.actor;
+  if (!a || !PU_ROLE_WORD[a]) return a === puMe();
+  const s = seatFor(a, puRowProject(x)),
+    me = currentUser();
+  return s.role === puMe() && (!s.uid || !me || s.uid === me.id);
+}
+function puWaitWord(x) {
+  const a = x && x.actor;
+  if (!a || !PU_ROLE_WORD[a]) return (x && x.who) || PU_ROLE_WORD[a] || "someone";
+  const s = seatFor(a, puRowProject(x));
+  return s.from ? s.name || PU_ROLE_WORD[s.role] : x.who || PU_ROLE_WORD[a];
+}
 function puClientWord(p) {
   const c = p && (DB.clients || []).find((x) => x.id === p.clientId);
   if (!c) return "the client";
@@ -180,8 +200,9 @@ function puNeed(r) {
   else if (!r.price) o = { actor: "coord", why: "No price yet.", act: "Ask for Quotes", k: "quote", tone: r.late ? "bad" : "" };
   else o = { actor: "coord", why: `Order by ${fmt(r.orderBy)}.`, act: "Order", k: "order", tone: r.late ? "bad" : "" };
   const st = puStockSay(stock),
-    b = "draft" === o.b ? (o.actor === puMe() ? "mine" : "others") : o.b || (!due ? "later" : o.actor === puMe() ? "mine" : "others");
-  return Object.assign(base, o, { b: b, why: [o.why, st].filter(Boolean).join(" "), when: r.ordered && r.eta ? `Promised ${fmt(r.eta)}${r.needBy ? `, needed on site ${fmt(r.needBy)}` : ""}` : r.orderBy ? `Order by ${fmt(r.orderBy)}${r.orderBy < td ? ", passed" : ""}` : r.needBy ? `On site ${fmt(r.needBy)}` : "No date yet" });
+    mineRow = puMine({ actor: o.actor, r: r }),
+    b = "draft" === o.b ? (mineRow ? "mine" : "others") : o.b || (!due ? "later" : mineRow ? "mine" : "others");
+  return Object.assign(base, o, { b: b, who: PU_ROLE_WORD[o.actor] ? puWaitWord({ actor: o.actor, who: o.who, r: r }) : o.who, why: [o.why, st].filter(Boolean).join(" "), when: r.ordered && r.eta ? `Promised ${fmt(r.eta)}${r.needBy ? `, needed on site ${fmt(r.needBy)}` : ""}` : r.orderBy ? `Order by ${fmt(r.orderBy)}${r.orderBy < td ? ", passed" : ""}` : r.needBy ? `On site ${fmt(r.needBy)}` : "No date yet" });
 }
 function puNeeds(pid) {
   let R = [];
@@ -252,7 +273,7 @@ function puOrderRows(pid) {
   puLineOverRows(pid).forEach(put);
   puPreAwardRows(pid).forEach(put);
   puOverOrder(pid).forEach((x) =>
-    put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
+    put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, pid: x.po.projectId, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
   );
   (DB.pos || [])
     .filter((po) => puLive(po) && (!pid || po.projectId === pid))
@@ -263,11 +284,11 @@ function puOrderRows(pid) {
       paid > rec + 1 &&
         !dep &&
         !(po.sc || po.retainagePct) &&
-        put({ id: "prepay:" + po.id, name: `${po.vendor}: ${money(paid)} paid before delivery`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${po.number} · ${money(rec)} received · promised ${po.expected ? fmt(po.expected) : "no date"}`, why: "It comes off the next bill; hold the bill until it does.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "warn" });
+        put({ id: "prepay:" + po.id, name: `${po.vendor}: ${money(paid)} paid before delivery`, pid: po.projectId, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${po.number} · ${money(rec)} received · promised ${po.expected ? fmt(po.expected) : "no date"}`, why: "It comes off the next bill; hold the bill until it does.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "warn" });
       (po.issues || [])
         .filter((i) => (i.claim || ["short", "damaged", "wrong"].includes(i.type)) && "open" === (i.status || "open"))
         .forEach((i, k) =>
-          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", actRun: () => puCloseClaimSheet(po, i), run: () => flowGo.po(po)(), tone: "bad" }),
+          put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, pid: po.projectId, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", actRun: () => puCloseClaimSheet(po, i), run: () => flowGo.po(po)(), tone: "bad" }),
         );
     });
   try {
@@ -276,7 +297,7 @@ function puOrderRows(pid) {
       .forEach((c) => {
         const it = selItem(c.itemId),
           age = dayDiff(c.raisedAt, today());
-        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: `It does not go to the site until the claim closes. ${c.vendor || "The vendor"} owes a replacement${it && +it.cost ? `, or a ${money(r2(+it.cost * (+c.qty || 1)))} credit` : ""}.`, act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad", tile: "owed", money: 0, claim: 1 });
+        put({ id: "selclaim:" + c.id, name: `${it ? it.name : "Item"}: ${c.kind} on arrival`, pid: c.projectId, job: puJob(DB.projects.find((p) => p.id === c.projectId)), line: `Claim with ${c.vendor || "the vendor"}${age > 0 ? `, ${age} days open` : ""}`, why: `It does not go to the site until the claim closes. ${c.vendor || "The vendor"} owes a replacement${it && +it.cost ? `, or a ${money(r2(+it.cost * (+c.qty || 1)))} credit` : ""}.`, act: "Open the Item", run: () => ("function" == typeof selOpenItem ? selOpenItem(c.itemId) : setView("sel")), tone: "bad", tile: "owed", money: 0, claim: 1 });
       });
   } catch (e) {}
   try {
@@ -286,7 +307,7 @@ function puOrderRows(pid) {
         const risk = retRisk(r),
           exp = retExpected(r),
           credit = ["shipped", "received"].includes(r.status);
-        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(exp)} owed back`, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}${Math.abs(retValue(r) - exp) > 0.5 ? ` · ${money(retValue(r))} of goods, less ${money(r2(retValue(r) - exp))} in fees` : ""}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
+        put({ id: "ret:" + r.id, name: credit ? `${r.vendor}: ${money(exp)} credit to confirm` : `${r.name}: ${money(exp)} owed back`, pid: r.projectId, job: puJob(DB.projects.find((p) => p.id === r.projectId)), line: `${r.vendor}${r.rma ? ` · ${r.rma}` : ""} · ${risk.label || "no return-by date"}${Math.abs(retValue(r) - exp) > 0.5 ? ` · ${money(retValue(r))} of goods, less ${money(r2(retValue(r) - exp))} in fees` : ""}`, why: credit ? "Shipped back; the credit is not on a statement yet." : (retDaysLeft(r) ?? 0) < 0 ? "The return window closed. Ask anyway, or write it off with a reason." : "Ship it back before the window closes.", act: credit ? "Find the Credit" : "Open the Return", run: () => ("function" == typeof retOne ? retOne(r) : retModal()), tone: 3 === risk.lvl ? "bad" : "warn", money: exp, tile: "owed" });
       });
   } catch (e) {}
   try {
@@ -377,13 +398,13 @@ function puVendorRows() {
       run: () => puFilterVendors("now9"),
       tone: "bad",
     });
-  return R.map((x) => Object.assign(x, { b: "controller" === x.actor ? (me === "controller" ? "mine" : "others") : x.actor === me ? "mine" : "others", who: x.who || PU_ROLE_WORD[x.actor] }));
+  return R.map((x) => Object.assign(x, { b: puMine(x) ? "mine" : "others", who: puWaitWord(x) }));
 }
 function puStockRows() {
   const R = [];
   (DB.inventory || [])
     .filter((i) => "tool" !== i.type && puReorder(i) > 0 && invAvailable(i) <= puReorder(i))
-    .forEach((i) => R.push({ b: "coord" === puMe() ? "mine" : "others", actor: "coord", who: "the coordinator", id: "inv:" + i.id, name: `${i.name}: at its reorder point`, job: "", line: `${puUnits(invAvailable(i), i.unit)} at the ${String(locName(i.loc)).toLowerCase()} · reorder at ${puUnits(puReorder(i), i.unit)}`, why: "Restock it from the warehouse order, or let the next store run pick it up.", act: "Restock", run: () => puPlus("inv", "restock"), tone: "warn" }));
+    .forEach((i) => R.push({ b: puMine({ actor: "coord" }) ? "mine" : "others", actor: "coord", who: puWaitWord({ actor: "coord" }), id: "inv:" + i.id, name: `${i.name}: at its reorder point`, job: "", line: `${puUnits(invAvailable(i), i.unit)} at the ${String(locName(i.loc)).toLowerCase()} · reorder at ${puUnits(puReorder(i), i.unit)}`, why: "Restock it from the warehouse order, or let the next store run pick it up.", act: "Restock", run: () => puPlus("inv", "restock"), tone: "warn" }));
   return R;
 }
 function puQuoteRows() {
@@ -413,8 +434,9 @@ function puQuoteRows() {
         } catch (e) {}
         return any ? r2(t) : null;
       })(),
-      mine = "coord" === st.actor;
-    R.push({ b: mine ? "mine" : "others", actor: st.actor, who: mine ? "" : st.who, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: st.label, why: `Budget ${null != budget ? money(budget) : "none on the line"} · Quotes In ${got} of ${asked || 0} · Due ${q.dueDate ? fmt(q.dueDate) : q.dueWanted ? fmt(q.dueWanted) : "not set"}. ${st.why}`, act: st.act, run: () => rfqOpenFor(q.id) });
+      qp = DB.projects.find((p) => p.id === q.projectId),
+      mine = "coord" === st.actor && puMine({ actor: "coord", p: qp });
+    R.push({ b: mine ? "mine" : "others", actor: st.actor, pid: q.projectId || "", who: mine ? "" : "coord" === st.actor ? puWaitWord({ actor: "coord", p: qp }) : st.who, id: "rfq:" + q.id, name: `${q.number} · ${q.title || (q.lines || []).map((l) => l.item).slice(0, 2).join(", ") || "request for quote"}`, pid: q.projectId, job: puJob(DB.projects.find((p) => p.id === q.projectId)), line: st.label, why: `Budget ${null != budget ? money(budget) : "none on the line"} · Quotes In ${got} of ${asked || 0} · Due ${q.dueDate ? fmt(q.dueDate) : q.dueWanted ? fmt(q.dueWanted) : "not set"}. ${st.why}`, act: st.act, run: () => rfqOpenFor(q.id) });
   });
   return R;
 }
@@ -422,11 +444,11 @@ function puQuoteRows() {
 const PU_ROWS = {
   // the menu's Buy Board is every job's; the page's own heading counts the rows its filters show
   proc: () => puNeeds("").filter((x) => "mine" === x.b),
-  po: () => puOrderRows("").filter((x) => x.actor === puMe()),
-  recv: () => puDelivRows("").filter((x) => x.actor === puMe()),
+  po: () => puOrderRows("").filter(puMine),
+  recv: () => puDelivRows("").filter(puMine),
   vendors: () => puVendorRows().filter((x) => "mine" === x.b),
   inv: () => puStockRows().filter((x) => "mine" === x.b),
-  rfq: () => puQuoteRows().filter((x) => "mine" === x.b && "coord" === puMe()),
+  rfq: () => puQuoteRows().filter((x) => "mine" === x.b),
 };
 function puCount(v) {
   try {
@@ -637,7 +659,7 @@ function puBuyRender() {
       puSecHtml("mine", "Needs You", mine, { count: "proc", scoped: !!(bbProj || bbVendor || bbTrade), pick: 1, sel: bbSel, empty: "Nothing waits on you. Every due need is ordered, asked for or with someone else." }) +
       puSecHtml("route", "On Today's Route", route, { quiet: 1, note: "Counted once, in the route approval on Deliveries" }) +
       // inside a job, its orders promised after the day the site needs them (they live on Deliveries; the PM reads them here)
-      (puInJob() ? puSecHtml("promise", "Promised After It Is Needed", puDelivRows(puInJob()).filter((x) => x.need).map((x) => Object.assign({}, x, { who: "the coordinator, expediting" })), { others: 1 }) : "") +
+      (puInJob() ? puSecHtml("promise", "Promised After It Is Needed", puDelivRows(puInJob()).filter((x) => x.need).map((x) => Object.assign({}, x, { who: `${puWaitWord(x)}, expediting` })), { others: 1 }) : "") +
       puSecHtml("others", "Waiting on Someone Else", others, { others: 1, sel: bbSel }) +
       (later.length ? `<section class="pu-sec" data-pusec="laterfold"><div class="pu-sh"><h3>Later</h3></div>${laterBtn}</section>${puLaterOpen ? puSecHtml("later", "Later Needs", later, { pick: 1, sel: bbSel }) : ""}` : ""),
     panel = !phone ? `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${sel ? bbPanelHtml(sel.r, picked.length) : bbPanelHtml(null)}</aside>` : "",
@@ -659,9 +681,8 @@ function puPageHtml(v, parts) {
 function puOrders() {
   const pid = puInJob(),
     rows = puOrderRows(pid),
-    me = puMe(),
-    mine = rows.filter((x) => x.actor === me),
-    others = rows.filter((x) => x.actor !== me && "tile" !== x.actor).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
+    mine = rows.filter(puMine),
+    others = rows.filter((x) => !puMine(x) && "tile" !== x.actor).map((x) => Object.assign({}, x, { who: puWaitWord(x) })),
     owed = rows.filter((x) => "owed" === x.tile),
     lineOver = rows.filter((x) => "lineover" === x.tile),
     lineOverSum = r2(lineOver.reduce((a, x) => a + (x.money || 0), 0)),
@@ -699,14 +720,13 @@ function puOrders() {
 function puDeliveries() {
   const pid = puInJob(),
     rows = puDelivRows(pid),
-    me = puMe(),
-    mine = rows.filter((x) => x.actor === me),
-    others = rows.filter((x) => x.actor !== me).map((x) => Object.assign({}, x, { who: PU_ROLE_WORD[x.actor] })),
+    mine = rows.filter(puMine),
+    others = rows.filter((x) => !puMine(x)).map((x) => Object.assign({}, x, { who: puWaitWord(x) })),
     td = today(),
     arriving = (DB.pos || [])
       .filter((po) => ["issued", "partial"].includes(po.status) && (!pid || po.projectId === pid))
-      .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
-    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: puHeldBy(it) ? `Held: ${puHeldBy(it).kind} on arrival, claim open with ${puHeldBy(it).vendor || it.vendor || "the vendor"}. It does not go to the site until the claim closes.` : "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, tone: puHeldBy(it) ? "bad" : "", run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
+      .map((po) => ({ id: "arr:" + po.id, po: po, name: `${po.number} · ${po.vendor}`, pid: po.projectId, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${(po.lines || []).map((l) => `${l.item} ${+l.received || 0} of ${l.qty} ${l.unit || ""}`.trim()).slice(0, 2).join("; ")}`, why: po.expected ? `Promised ${fmt(po.expected)}` : "No date promised", act: "Receive", run: () => puReceive(po) })),
+    office = ((DB.sel || {}).items || []).filter((it) => ["office", "ship"].includes(it.stage) && (!pid || it.projectId === pid)).map((it) => ({ id: "sel:" + it.id, name: it.name, pid: it.projectId, job: puJob(DB.projects.find((p) => p.id === it.projectId)), line: `${it.vendor || ""} · ${"ship" === it.stage ? "in transit" : "at the office"}`, why: puHeldBy(it) ? `Held: ${puHeldBy(it).kind} on arrival, claim open with ${puHeldBy(it).vendor || it.vendor || "the vendor"}. It does not go to the site until the claim closes.` : "ship" === it.stage ? ((it.dates || {}).eta ? `Arriving ${fmt(it.dates.eta)}` : "No date yet") : `On site ${fmt(selNeedOnSite(it))}: deliver it with the route`, tone: puHeldBy(it) ? "bad" : "", run: () => ("function" == typeof selOpenItem ? selOpenItem(it.id) : setView("sel")) })),
     back = (() => {
       try {
         return retOpen().filter((r) => ["raise", "authorised", "toship"].includes(r.status) && (!pid || r.projectId === pid)).map((r) => ({ id: "back:" + r.id, name: r.name, job: r.vendor, line: retRisk(r).label || "", why: r.rma ? `${r.rma}: ship it back` : "No return authorisation yet", run: () => ("function" == typeof retOne ? retOne(r) : retModal()) }));
@@ -806,8 +826,8 @@ function puStock() {
 function puQuotes() {
   const rows = puQuoteRows(),
     me = puMe(),
-    mine = "coord" === me ? rows.filter((x) => "mine" === x.b) : [],
-    others = rows.filter((x) => "others" === x.b || ("coord" !== me && "mine" === x.b)).map((x) => Object.assign({}, x, { who: x.who || "the coordinator" })),
+    mine = rows.filter((x) => "mine" === x.b),
+    others = rows.filter((x) => "others" === x.b).map((x) => Object.assign({}, x, { who: x.who || puWaitWord({ actor: "coord", pid: x.pid }) })),
     subs = puNeeds("").filter((x) => "sub" === x.r.kind && !(x.r.rfqs || []).length && +x.r.price > 2500),
     emptyNote = subs.length ? `Nothing waits on you. ${subs.length} subcontract scope${1 === subs.length ? "" : "s"} over $2,500 ${1 === subs.length ? "has" : "have"} no bids yet: ${subs.map((x) => x.name).join(" and ")}, on the Buy Board.` : "Nothing waits on you.",
     book = (() => {
@@ -1645,6 +1665,7 @@ function puLineOverRows(pid) {
     out.push({
       id: "lineover:" + k,
       name: `${ref.doc.number}${ref.line.num ? ` line ${ref.line.num}` : ""}: ${money(c.over)} over its budget`,
+      pid: p ? p.id : "",
       job: puJob(p),
       line: `${ref.line.item || ref.line.desc || ""} · budget ${money(c.budget)} · spent ${money(c.actual)} · on order ${money(c.onOrder)}${c.drafted ? ` (${money(c.drafted)} in draft ${c.drafts.map((po) => po.number).join(", ")})` : ""}`,
       why: draft ? `Draft ${draft.number} puts the line over. Cut it to what is left, or issue it with a reason.` : "Spent and ordered past the line's budget: a change order, or the reason it is absorbed.",
@@ -2092,7 +2113,7 @@ if ("function" == typeof mGo) {
 function puPreAwardRows(pid) {
   return (DB.pos || [])
     .filter((po) => po.preAward && !["cancelled", "received"].includes(po.status) && (!pid || po.projectId === pid) && puPreAwardLost(po))
-    .map((po) => ({ id: "preaward:" + po.id, name: `${po.number}: ${po.preAward.number} was lost`, job: puJob((DB.projects || []).find((p) => p.id === po.projectId)), line: `Long-Lead, Before Award · ${po.vendor || "no vendor"} · ${money(poTotal(po).total)}`, why: "The estimate it was bought for is lost. Cancel the order, or ask the vendor what a cancellation costs.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad", actor: "coord" }));
+    .map((po) => ({ id: "preaward:" + po.id, name: `${po.number}: ${po.preAward.number} was lost`, pid: po.projectId, job: puJob((DB.projects || []).find((p) => p.id === po.projectId)), line: `Long-Lead, Before Award · ${po.vendor || "no vendor"} · ${money(poTotal(po).total)}`, why: "The estimate it was bought for is lost. Cancel the order, or ask the vendor what a cancellation costs.", act: "Open the Order", run: () => flowGo.po(po)(), tone: "bad", actor: "coord" }));
 }
 // the one validator: a second sub with no reason, and a long-lead order before award without the owner, are held at Issue
 if ("function" == typeof poValid) {

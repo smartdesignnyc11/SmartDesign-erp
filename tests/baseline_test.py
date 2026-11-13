@@ -24,8 +24,10 @@ async def main():
         c.ok(r['today'] == '2026-09-03', f"app day {r['today']}")
         # truthpct (BACKLOG §1.2): the EAC rolls up by estimate line, so 121 State earns $1,532.47 less this year
         # (EAC $384,087.50 -> $388,887.50). Income 144292 -> 142759, net -3797 -> -5330.
-        c.ok(r['income'] == 142759, f"YTD income {r['income']} (was 144292 before truthpct)")
-        c.ok(r['net'] == -5330, f"YTD net {r['net']} (was -3797 before truthpct)")
+        # lane F (11-12, one EAC for a job): 121 State's $1,466.05 of paint on no estimate line is in its estimate at
+        # completion ($388,887.50 -> $390,353.55), so it earns $460.55 less. Income 142759 -> 142299, net -5330 -> -5790.
+        c.ok(r['income'] == 142299, f"YTD income {r['income']} (was 142759 before lane F, 144292 before truthpct)")
+        c.ok(r['net'] == -5790, f"YTD net {r['net']} (was -5330 before lane F, -3797 before truthpct)")
         # leaks (BACKLOG 1.5 #2): a job is held per line, never whole. 121 State's measured framing and electrical
         # ($12,651.25) were held because the job is billed ahead on the WIP schedule; they now propose an application:
         # ready to bill 20980 / 2 rows / 1 held -> 33631.25 / 3 rows / 0 held, and Billing's badge 2 -> 3.

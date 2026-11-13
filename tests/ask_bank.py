@@ -236,8 +236,8 @@ SANITY = {  # question text -> HANDOFF.md figure
     'how much cash do we have': 184231, 'How is cash?': 184231, "what's our AR": 92265, 'what should we invoice today': 47600,
     'What could we invoice today?': 47600, 'What can I invoice today?': 47600, 'How is cash, truly?': -4151,
     'what is safe to spend': -4151, 'how much is unmatched in the bank': 75272, 'what is the backlog': 582941,
-    'net income year to date': -5330, 'what was revenue this year': 142759, 'what do we owe vendors': 0,
-    'how much payroll is past due': 16040, 'how much is WIP over billed': 156274}  # HANDOFF.md after truthpct
+    'net income year to date': -5790, 'what was revenue this year': 142299, 'what do we owe vendors': 0,
+    'how much payroll is past due': 16040, 'how much is WIP over billed': 156735}  # HANDOFF.md after lane F (11-12, one EAC: cost on no estimate line is in it)
 # BACKLOG 1.3: the screens' Approvals counts. Since DELEGATION (one item, one queue) the owner holds WW-2026-118,
 # the brain's change and 8 lessons; the PM the submitted bill, crew hours, site questions, decisions, a meeting and
 # the submittal; billing and the controller own no approval kind (they were shown everyone's decisions and hours).

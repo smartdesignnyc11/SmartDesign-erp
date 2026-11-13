@@ -482,7 +482,9 @@ async def t_labels(C, p, phone):
     t = await js(pg, "const e = document.querySelector('#v-reports [data-todeposit]'); return { amt: e ? +e.dataset.todeposit : null, text: e ? e.innerText : '', low: cashForecast().low, safe: PRED.safeToSpend.figure(), w1: cashForecast().weeks[0].inflow };")
     C.ok(t['amt'] is not None and abs(t['amt'] - 21350) < 0.01 and 'Rivera' in t['text'], f'LBL {dev}: the Cash Forecast shows Rivera\'s $21,350 as week one\'s to deposit: {t}')
     # $104,999.32 since the Accounting lane's set-aside (BACKLOG §1.35 item 1); the check not yet deposited stays outside it
-    C.ok(abs(t['safe'] - 104999.32) < 0.01, f'LBL {dev}: outside Safe to Spend (still $104,999.32): {t}')
+    # ($104,538.77 since lane F, 11-12: 121 State earns $460.55 less once its cost on no estimate line is in its EAC, so
+    # $460.55 more of the cash received is set aside)
+    C.ok(abs(t['safe'] - 104538.77) < 0.01, f'LBL {dev}: outside Safe to Spend (still $104,538.77): {t}')
     await sign_in(pg, 'u_owner')
     await nav_to(pg, 'jobs', 'ovjobs')
     tt = await pg.evaluate("() => (document.getElementById('v-ovjobs') || document.body).innerText")
