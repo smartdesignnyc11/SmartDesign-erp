@@ -145,9 +145,9 @@ function dvClose() {
   document.body.classList.remove("dv-open");
 }
 // An estimate being built opens in its editor, whoever opens it: a draft, or any estimate opened from a building
-// workflow (the client's Estimates panel, which Sales and the job page open it on; Discovery's Open Discovery; the
-// job's estimate). Sent and signed documents opened from anywhere else (Billing's lists, Today, Cmd-K, Ask, a toast)
-// open as the document. Decided by the record's status and where it was opened from, never per screen.
+// workflow (the client's Estimates panel, which Sales and Clients opens it on; Discovery's Open Discovery). Sent and
+// signed documents opened from anywhere else (Billing's lists, the job's Contract and Billing, Today, Cmd-K, Ask, a
+// toast) open as the document. Decided by the record's status and where it was opened from, never per screen.
 let dvBuildId = ""; // one-shot: the estimate a building workflow just asked to open
 function dvBuilding(r) {
   if (!r || "estimate" !== r.kind || !r.d) return !1;
@@ -165,14 +165,9 @@ document.addEventListener(
   },
   !0,
 );
-// the job page opens its estimate where it is built
-if ("function" == typeof jpOpenDoc) {
-  const base = jpOpenDoc;
-  jpOpenDoc = function (c, kind, id) {
-    "estimate" === kind && id && (dvBuildId = id);
-    return base.apply(this, arguments);
-  };
-}
+// The job's Contract and Billing is a list of the job's documents, not a building workflow: a sent or signed estimate
+// opened there is the document (Record Client Approval is its blue, one tap; the walk's J8 took one more with the
+// editor), and a draft opens its editor by its status.
 function dvIntercept() {
   if ("undefined" == typeof docOpen || !docOpen) return void (dvEditing = null);
   const id = docOpen.id;

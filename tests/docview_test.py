@@ -219,6 +219,16 @@ async def lists_open(p, phone, uid):
     r = await rec(pg)
     C.ok(r == 'editor:estimate:es13881', f'{who}: a draft estimate opens in its editor, never the viewer ({r})')
     await pg.evaluate("() => { docOpen = null; dvClose(); render(); }")
+    # by status and entry point: a signed estimate opened from the job's Contract and Billing is the document; the
+    # same estimate opened on the client's Estimates panel (where it is built and converted) is the editor
+    await pg.evaluate("() => jpOpenDoc(DB.clients.find(c => c.id === 'cl121'), 'estimate', 'es1')")
+    r = await rec(pg)
+    C.ok(r == 'estimate:es1', f'{who}: a signed estimate opened from the job page opens as its document ({r})')
+    await pg.evaluate("() => { dvClose(); clientOpen = 'cl121'; clientTab = 'fin'; finTab = 'estimates'; docOpen = { kind: 'estimate', id: 'es1' }; view = 'clients'; render(); }")
+    r = await rec(pg)
+    if await pg.evaluate("() => (ROLE_VIEWS[role()] || []).includes('clients') && view === 'clients'"):
+        C.ok(r == 'editor:estimate:es1', f'{who}: the same estimate on the client\'s Estimates panel opens its editor ({r})')
+    await pg.evaluate("() => { docOpen = null; dvClose(); view = 'billing'; render(); }")
     if uid == 'u_billing':
         # the job's Contract and Billing
         await pg.evaluate("() => jpOpenJob('p121', 'jbill')")
