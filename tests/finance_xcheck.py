@@ -10,6 +10,7 @@ The run ends with `N flags` and exits 1 when N > 0.
   python3 finance_xcheck.py                 all figures, owner and controller
   python3 finance_xcheck.py --figure cash   only one figure family (cash, ar, unmatched, ap, wip, backlog,
                                             net, safe, rtb, job121, ledger, stock); repeatable or comma-separated
+  python3 finance_xcheck.py --figure onejob       only one job, one EAC and one margin (below)
   python3 finance_xcheck.py --figure invariants   only the ledger invariants (below)
   python3 finance_xcheck.py --figure money        only the money definitions (BACKLOG §1.35, below)
   python3 finance_xcheck.py --figure reports      only the Reports pages against their twins (below)
@@ -59,6 +60,17 @@ The Reports pages (the Reports lane, 11-04; docs/mockups/reports/SPEC.md), read 
   INV REPORTS WIP         each job's earned follows from its own printed cost-to-cost numbers (cost for progress over
                           projected cost, times the contract), and the WIP Schedule's note says what it leaves out
   INV REPORTS READ        opening every Reports page and chip leaves the data byte for byte as it was
+
+One job, one estimate at completion and one margin (lane F, 11-12, a PM review: 121 State read $393,986 on its Budget
+table, 21% on its tile and $388,888 on Projects). As the PM and the owner, for every demo job, read off the screens
+(--figure onejob):
+  INV ONE EAC             the EAC and the margin at completion on the job's Overview tile, its Budget (the margin tile,
+                          the Total row's Forecast and the rows' own sum), Projects and Ask are the job's one figure
+                          (jobFin); cost on no estimate line is in it; the lines, the unlined cost and what is billed
+                          back add up to the job's cost to date and committed; the PM's phone reads the same
+  INV NO CONTRACT JOB     a job with no contract says "No contract yet" on Projects and shows its cost, never blanks; an
+                          hour clocked to it is cost on its row; crew hours on its daily logs that no time entry
+                          carries are named with their size
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -112,7 +124,8 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
-                    'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports'}.get(
+                    'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
+                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -123,7 +136,8 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
-         'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ'}
+         'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ',
+         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -1353,6 +1367,155 @@ async def check_reports(p, R):
         for e in errs[:3]: R.flag('inv_rptwin', f'{uid}: page', e[:200], 'no page errors')
         await b.close()
 
+# ---- INV ONE EAC and INV NO CONTRACT JOB (lane F, 11-12). Read off the screens a person opens: the job's Overview tile,
+# its Budget, Projects, and Ask typed into its box. Nothing here calls a figure's function to compare it with itself: the
+# job's one figure (jobFin) is read once and every screen's printed text is held against it.
+INV_ONEJOB_JS = r"""
+  const phone = innerWidth < 600, out = [];
+  const num = s => { const m = String(s == null ? '' : s).replace(/[−–]/g, '-').match(/-?\$\s?([\d,]+(?:\.\d+)?)/); return m ? +m[1].replace(/,/g, '') : NaN; };
+  const pct = s => { const m = String(s == null ? '' : s).match(/(-?\d+(?:\.\d+)?)\s*%/); return m ? +m[1] : NaN; };
+  for (const p of DB.projects.filter(x => !x.archived)) {
+    const J = jobFin(p), nm = String(p.project.name).replace(/ —.*$/, '');
+    const L = J.eacLines || [], U = J.eacUnlined || { actual: 0, committed: 0, total: 0, rows: [] }, rb = (J.byCode || []).find(x => x.code === 'RB') || {};
+    const o = { id: p.id, job: nm, contract: J.contract, eac: J.eac, gp: J.estGPPct, actual: J.actual, committed: J.committed, lines: L.length,
+      reviewed: !!p.ctcReviewed, unlined: U.total, unlinedRows: (U.rows || []).map(r => r.name),
+      tieA: Math.round((L.reduce((a, x) => a + x.actual, 0) + U.actual + (+rb.actual || 0)) * 100) / 100,
+      tieC: Math.round((L.reduce((a, x) => a + x.committed, 0) + U.committed + (+rb.committed || 0)) * 100) / 100,
+      lineEac: Math.round(L.reduce((a, x) => a + x.eac, 0) * 100) / 100, rebill: +J.rebillCost || 0,
+      codesA: Math.round((J.byCode || []).reduce((a, x) => a + (+x.actual || 0), 0) * 100) / 100,
+      codesC: Math.round((J.byCode || []).reduce((a, x) => a + (+x.committed || 0), 0) * 100) / 100 };
+    // the job's Overview tile
+    setCurrent(p.id); view = 'dash'; if (typeof jpSub !== 'undefined') jpSub = ''; render(); await sleep(200);
+    const tile = document.querySelector('.view.on [data-tl="margin"] .gl-v');
+    o.tile = tile ? pct(tile.innerText) : null;
+    // its Budget
+    view = 'costs'; render(); await sleep(250);
+    const host = document.getElementById('jp-budget');
+    const mg = host && host.querySelector('#jp-margin b');
+    o.budgetMargin = mg ? pct(mg.innerText) : null;
+    const rows = host ? [...host.querySelectorAll('[data-jpline]')].filter(e => e.getClientRects().length) : [];
+    o.rows = rows.length;
+    o.rowsForecast = Math.round(rows.reduce((a, e) => a + (+e.dataset.forecast || 0), 0) * 100) / 100;
+    o.rowsActual = Math.round(rows.reduce((a, e) => a + (+e.dataset.actual || 0), 0) * 100) / 100;
+    o.rowsCommitted = Math.round(rows.reduce((a, e) => a + (+e.dataset.committed || 0), 0) * 100) / 100;
+    // each row as printed: Forecast is never under Actual + Committed on the same row
+    o.rowBad = rows.filter(e => (+e.dataset.forecast || 0) + 0.5 < (+e.dataset.actual || 0) + (+e.dataset.committed || 0)).map(e => e.dataset.jpline);
+    const tot = host && host.querySelector('#jp-eac');
+    o.totalForecast = tot ? num(tot.innerText) : null;
+    const nl = rows.find(e => e.dataset.jpline === '__noline');
+    o.noline = nl ? Math.round(((+nl.dataset.actual || 0) + (+nl.dataset.committed || 0)) * 100) / 100 : 0;
+    // Projects
+    if (!phone) {
+      view = 'ovjobs'; render(); await sleep(250);
+      const v = document.getElementById('v-ovjobs') || document.querySelector('.view.on');
+      const ths = [...v.querySelectorAll('.dg-t thead th')].map(t => t.innerText.trim().toUpperCase());
+      const tr = v.querySelector(`.dg-t tr[data-edit="ov:jobs:${p.id}"]`) || [...v.querySelectorAll('.dg-t tbody tr')].find(r => r.innerText.includes(nm));
+      const cell = k => { const i = ths.indexOf(k); return tr && i > -1 ? tr.children[i].innerText.replace(/\s+/g, ' ').trim() : null; };
+      o.pjContract = cell('CONTRACT'); o.pjEac = cell('EAC'); o.pjBilled = cell('BILLED');
+    }
+    out.push(o);
+  }
+  return out;
+"""
+INV_NOCONTRACT_JS = r"""
+  // an invented hour on the job with no contract: 4 h clocked today by the first crew member on its team
+  const p = DB.projects.find(x => !jobFin(x).contract && !x.archived);
+  if (!p) return { none: true };
+  const emp = DB.employees.find(e => /Alberto/.test(e.name)) || DB.employees[0];
+  const read = async () => { view = 'ovjobs'; render(); await sleep(250);
+    const v = document.getElementById('v-ovjobs') || document.querySelector('.view.on');
+    const ths = [...v.querySelectorAll('.dg-t thead th')].map(t => t.innerText.trim().toUpperCase());
+    const tr = v.querySelector(`.dg-t tr[data-edit="ov:jobs:${p.id}"]`);
+    const cell = k => { const i = ths.indexOf(k); return tr && i > -1 ? tr.children[i].innerText.replace(/\s+/g, ' ').trim() : null; };
+    return { contract: cell('CONTRACT'), eac: cell('EAC'), actual: jobFin(p).actual }; };
+  const before = await read();
+  const logged = ((DB.field && DB.field.logs) || []).filter(l => l.projectId === p.id).reduce((a, l) => a + (l.crew || []).reduce((b, c) => b + (+c.hours || 0), 0), 0);
+  const day = today();
+  DB.time.push({ id: 'te_xcheck_nc', empId: emp.id, date: day, in: day + 'T08:00:00', out: day + 'T12:00:00', breakMin: 0, projectId: p.id, code: '02', notes: '', status: 'approved', approvedBy: 'Alan', source: 'test', work: [{ projectId: p.id, code: '02', hours: 4, note: '' }] });
+  const after = await read();
+  DB.time = DB.time.filter(e => e.id !== 'te_xcheck_nc');
+  return { job: p.project.name, before, after, logged, rate: laborRate(emp) };
+"""
+async def check_onejob(p, R):
+    if not (R.want('inv_oneeac') or R.want('inv_nocontract')): return
+    js = lambda body: "async () => { const sleep = ms => new Promise(r => setTimeout(r, ms)); try { " + body + " } catch (e) { return { error: String(e && e.stack || e) }; } }"
+    def read(key, surface, ok, seen, expected):
+        if not R.want(key): return
+        R.readings.append({'figure': key, 'surface': surface, 'raw': str(seen)[:300], 'value': None, 'expected': expected, 'ok': bool(ok)})
+        if not ok: R.flag(key, surface, str(seen)[:400], expected)
+        elif R.verbose: print('  ok', label(key), '|', surface, '|', str(seen)[:100])
+    money0 = lambda v: '${:,.0f}'.format(round(v + 1e-9))
+    for uid, phone in (('u_alan', False), ('u_owner', False), ('u_alan', True)):
+        b, pg, errs = await open_app(p, phone)
+        await sign_in(pg, uid)
+        who = uid + (' phone' if phone else '')
+        res = await pg.evaluate(js(INV_ONEJOB_JS))
+        if isinstance(res, dict) and 'error' in res:
+            R.flag('inv_oneeac', f'{who}: the one-job check could not run', res['error'][:300], 'it runs'); await b.close(); continue
+        read('inv_oneeac', f'{who}: the instrument reads every demo job', len(res) >= 4 and any(x['unlined'] > 0 for x in res) and any(x['rows'] > 5 for x in res),
+             [(x['job'], x['rows'], x['unlined']) for x in res], 'four jobs, one with cost on no estimate line, the Budget rows read')
+        for x in res:
+            S = lambda name: f"{who} · {x['job']} · {name}"
+            eac, gp = x['eac'], x['gp']
+            # the records: the lines, the unlined cost and what is billed back are the job's cost and committed, to the cent
+            if x['lines']:
+                read('inv_oneeac', S('lines + cost on no estimate line + billed back = cost to date and committed'),
+                     abs(x['tieA'] - x['actual']) < 0.05 and abs(x['tieC'] - x['committed']) < 0.05,
+                     f"actual {x['tieA']:,.2f} of {x['actual']:,.2f}, committed {x['tieC']:,.2f} of {x['committed']:,.2f}", 'they add up')
+                read('inv_oneeac', S('the cost codes add up to the job'), abs(x['codesA'] - x['actual']) < 0.05 and abs(x['codesC'] - x['committed']) < 0.05,
+                     f"codes actual {x['codesA']:,.2f} of {x['actual']:,.2f}, committed {x['codesC']:,.2f} of {x['committed']:,.2f}", 'they add up')
+                if not x['reviewed']:
+                    want = max(x['lineEac'] + x['unlined'] + x['rebill'], x['actual'] + x['committed'])
+                    read('inv_oneeac', S('EAC = each line at the greater of budget and actual + committed, plus cost on no line, plus billed back'),
+                         abs(eac - want) < 0.05, f"{eac:,.2f}", f"{want:,.2f}")
+            if x['contract']:
+                # one margin: the Overview tile and the Budget's margin print the job's margin at completion
+                read('inv_oneeac', S('Overview tile, Margin at Completion'), x['tile'] is not None and abs(x['tile'] - round(gp)) < 0.01, f"{x['tile']}%", f"{round(gp)}% ({gp}%)")
+                read('inv_oneeac', S('Budget, Margin at Completion'), x['budgetMargin'] is not None and abs(x['budgetMargin'] - round(gp)) < 0.01, f"{x['budgetMargin']}%", f"{round(gp)}% ({gp}%)")
+                # and it is the margin of the EAC the same screens print: (contract - EAC) / contract
+                read('inv_oneeac', S('the margin printed is the margin of the EAC printed'), abs(round(100 * (x['contract'] - eac) / x['contract'] * 100) / 100 - gp) < 0.011 or x['rebill'] > 0,
+                     f"{gp}%", f"(contract {x['contract']:,.0f} - EAC {eac:,.0f}) / contract")
+            if x['rows']:
+                read('inv_oneeac', S("Budget rows' Forecast add up to the EAC"), abs(x['rowsForecast'] - eac) < 0.5, f"{x['rowsForecast']:,.2f}", f"{eac:,.2f}")
+                read('inv_oneeac', S("Budget rows' Actual and Committed add up to the job's"), abs(x['rowsActual'] - x['actual']) < 0.05 and abs(x['rowsCommitted'] - x['committed']) < 0.05,
+                     f"actual {x['rowsActual']:,.2f}, committed {x['rowsCommitted']:,.2f}", f"{x['actual']:,.2f} and {x['committed']:,.2f}")
+                read('inv_oneeac', S('no Budget row forecasts less than its own actual + committed'), not x['rowBad'], x['rowBad'], 'none')
+                read('inv_oneeac', S('Not on an Estimate Line is the cost the EAC adds'), abs(x['noline'] - x['unlined']) < 0.5 or x['reviewed'], f"{x['noline']:,.2f}", f"{x['unlined']:,.2f}")
+                if not phone:
+                    read('inv_oneeac', S('Budget table, Total row Forecast'), x['totalForecast'] is not None and abs(x['totalForecast'] - round(eac)) <= 1, x['totalForecast'], money0(eac))
+            if not phone and x['contract']:
+                read('inv_oneeac', S('Projects, EAC'), x['pjEac'] == money0(eac), x['pjEac'], money0(eac))
+            if not phone and not x['contract']:
+                read('inv_nocontract', S('Projects, Contract'), 'No contract yet' in (x['pjContract'] or ''), x['pjContract'], 'No contract yet')
+                read('inv_nocontract', S('Projects, the cost'), bool(re.search(r'\$[\d,]+', x['pjEac'] or '')) and money0(x['actual'] + x['committed']) in (x['pjEac'] or ''), x['pjEac'], money0(x['actual'] + x['committed']) + ', never blank')
+        # Ask, typed into its box, for each job with a contract
+        if not phone and R.want('inv_oneeac'):
+            for x in res:
+                if not x['contract']: continue
+                a = await ask(pg, f"what is the EAC on {x['job']}")
+                m = re.search(r'Estimate at completion on .*? is ' + MONEY, a or '')
+                read('inv_oneeac', f"{who} · {x['job']} · Ask, EAC", bool(m) and abs(parse_money(m.group(1))[0] - round(x['eac'])) <= 1, (a or 'no answer')[:120], money0(x['eac']))
+                m = re.search(r'(-?\d+(?:\.\d+)?)% margin at completion', a or '')
+                read('inv_oneeac', f"{who} · {x['job']} · Ask, margin at completion", bool(m) and abs(float(m.group(1)) - x['gp']) < 0.011, (m.group(0) if m else (a or 'no answer')[:160]), f"{x['gp']}%")
+                a = await ask(pg, f"what is the margin on {x['job']}")
+                m = re.match(r'\s*(-?\d+(?:\.\d+)?)% estimated gross margin', a or '')
+                read('inv_oneeac', f"{who} · {x['job']} · Ask, margin", bool(m) and abs(float(m.group(1)) - x['gp']) < 0.011, (a or 'no answer')[:120], f"{x['gp']}% estimated gross margin")
+        # the job with no contract: an hour clocked to it is cost on its row; hours on its logs with no time entry are named
+        if not phone and uid == 'u_alan' and R.want('inv_nocontract'):
+            nc = await pg.evaluate(js(INV_NOCONTRACT_JS))
+            if nc.get('error') or nc.get('none'):
+                R.flag('inv_nocontract', f'{who}: the job with no contract', str(nc)[:300], 'a demo job with no contract is read')
+            else:
+                want = round(4 * nc['rate'] * 100) / 100
+                got = nc['after']['actual'] - nc['before']['actual']
+                read('inv_nocontract', f"{who} · {nc['job']} · 4 h clocked to the job is its cost", abs(got - want) < 0.5 and money0(nc['after']['actual']) in (nc['after']['eac'] or ''),
+                     f"cost {nc['before']['actual']:,.2f} -> {nc['after']['actual']:,.2f}; Projects reads {nc['after']['eac']}", f"+{want:,.2f}, on the row")
+                if nc['logged'] > 0:
+                    read('inv_nocontract', f"{who} · {nc['job']} · hours on its daily logs that no time entry carries are named", re.search(r'[\d.]+ h on daily logs, not clocked', nc['before']['eac'] or '') is not None,
+                         nc['before']['eac'], f"{nc['logged']:g} h on daily logs, not clocked")
+        for e in errs[:3]: R.flag('inv_oneeac', f'{who}: page', e[:200], 'no page errors')
+        await b.close()
+
 async def check_invariants(p, R):
     if not R.want('inv_dep'): return
     def read(key, surface, ok, seen, expected):
@@ -1438,7 +1601,7 @@ async def check_invariants(p, R):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -1456,6 +1619,7 @@ async def main():
         await check_invariants(p, R)
         await check_money(p, R)
         await check_reports(p, R)
+        await check_onejob(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

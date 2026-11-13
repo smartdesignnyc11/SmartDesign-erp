@@ -618,7 +618,7 @@ function rwJobsHtml() {
       : "",
     lead = wip
       ? "Earned is the contract times the percent complete: cost for progress (cost to date less money paid ahead) over the projected cost. Over-Billed (WIP) is the accounting number the close posts; Billed Ahead of the Work is billing's line-by-line check. The gap goes to the controller."
-      : "Margin at completion is each job's contract less its projected cost: every estimate and change-order line at the greater of budget and actual plus committed. A job opens its own page.";
+      : "Margin at completion is each job's contract less its projected cost: every estimate and change-order line at the greater of budget and actual plus committed, plus all cost on no estimate line. A job opens its own page.";
   let company = "";
   if (!pm) {
     const R = [today().slice(0, 4) + "-01-01", today()],

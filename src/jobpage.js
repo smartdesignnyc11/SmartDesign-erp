@@ -781,7 +781,12 @@ function jpBill() {
   host.innerHTML = `<h2 class="jp-vh">Contract and Billing</h2>${phone ? needs + contract + docs : `<div class="jp-two"><div class="jp-main">${needs}${docs}</div><aside class="jp-aside">${contract}</aside></div>`}`;
 }
 
-// ---- Budget: the Costs page, reshaped (the same figures: lineProfit and jobFin) --------------------------------------
+// ---- Budget: the Costs page, reshaped (the same figures: jobFin and its lines) ---------------------------------------
+// One job, one estimate at completion (a PM review, S1-1): each row's committed, actual and forecast are the job's own
+// by line (jobFin's eacLines, the lines its estimate at completion is added from), so a row's forecast is never under
+// its own actual + committed and the Total row is the job's estimate at completion, the figure the tile, Projects,
+// Reports and Ask read. Before, the rows read lineProfit (only what was coded straight to the line) beside a forecast
+// from the job, and the table totalled $393,986 where every other screen said $388,888.
 function jpLines() {
   const p = S,
     J = jobFin(p),
@@ -793,7 +798,9 @@ function jpLines() {
   return lineProfit(p).map((r) => {
     const e = eac.get(r.key),
       g = pr.get(r.key),
-      forecast = r2(e && null != e.eac ? +e.eac : Math.max(+r.budget || 0, (+r.actual || 0) + (+r.committed || 0))),
+      actual = r2(e ? +e.actual || 0 : +r.actual || 0),
+      committed = r2(e ? +e.committed || 0 : +r.committed || 0),
+      forecast = r2(e && null != e.eac ? +e.eac : Math.max(+r.budget || 0, actual + committed)),
       done = g && g.pr && null != g.pr.pct && "cost" !== g.pr.basis ? Math.round(g.pr.pct) : null;
     return {
       key: r.key,
@@ -801,11 +808,11 @@ function jpLines() {
       name: (r.line && (r.line.item || r.line.desc)) || r.label,
       doc: r.doc ? r.doc.number : "",
       budget: +r.budget || 0,
-      committed: +r.committed || 0,
-      actual: +r.actual || 0,
+      committed: committed,
+      actual: actual,
       forecast: forecast,
       variance: r2(forecast - (+r.budget || 0)),
-      spentPct: r.budget ? (100 * Math.max(r.actual, forecast)) / r.budget : 0,
+      spentPct: r.budget ? (100 * Math.max(actual, forecast)) / r.budget : 0,
       done: done,
       billed: null != r.billedPct ? Math.round(r.billedPct) : null,
     };
@@ -814,9 +821,10 @@ function jpLines() {
 // How far over its budget a line is, said one way everywhere (the card, the row, the tile, the This Job list, the margin
 // panel): "13% over", never the share spent ("113%" read as 113% over).
 const jpOverWord = (l) => `${Math.max(1, Math.round(l.spentPct - 100))}% over`;
-// Cost on the job that sits on no estimate line (a bill, a card line or labour coded to the job but not to a line): the
-// lines alone summed short of Cost to Date ($100,044 under $105,084). It is a row of its own, flagged: money with no line
-// cannot be held to a budget or billed back.
+// Cost on the job that sits on no estimate line: what is spent or committed on a cost code no estimate or change-order
+// line carries (jobFinUnlined, the same rows the job's estimate at completion adds), with what was bought back for the
+// client and not yet on an invoice line. It is a row of its own, flagged: money with no line cannot be held to a budget
+// or billed back. All of it is forecast (it has no budget to sit inside), so the Total row is the job's own estimate.
 function jpNoLine(J, L) {
   const a = r2((+J.actual || 0) - L.reduce((x, l) => x + l.actual, 0)),
     c = r2((+J.committed || 0) - L.reduce((x, l) => x + l.committed, 0));
@@ -824,21 +832,47 @@ function jpNoLine(J, L) {
     ? null
     : { key: "__noline", noline: !0, name: "Not on an Estimate Line", doc: "", budget: 0, committed: c, actual: a, forecast: r2(a + c), variance: r2(a + c), spentPct: 0, done: null, billed: null };
 }
+// What a PM's reviewed cost to complete adds to (or takes off) the lines' own forecasts: once reviewed, the job's
+// estimate at completion is cost to date plus the PM's cost to complete, and the Total row still reads the job's.
+function jpReviewRow(J, L) {
+  const d = r2((+J.eac || 0) - L.reduce((x, l) => x + l.forecast, 0));
+  return Math.abs(d) < 0.5 ? null : { key: "__review", review: !0, name: "Reviewed Cost to Complete", doc: "", budget: 0, committed: 0, actual: 0, forecast: d, variance: d, spentPct: 0, done: null, billed: null };
+}
 function jpNoLineDetail(l) {
   const p = S,
     out = [],
+    U = jobFin(p).eacUnlined,
     live = (b) => !["void", "rejected"].includes(b.status);
-  (DB.bills || [])
-    .filter((b) => b.projectId === p.id && !("function" == typeof billHasLine ? billHasLine(b) : b.line) && live(b))
-    .forEach((b) => out.push([`${b.vendor || "Bill"}${b.number ? " " + b.number : ""} · ${fmt(b.date)}`, money("function" == typeof billCost ? billCost(b) : +b.amount || 0)]));
-  (DB.txns || [])
-    .filter((t) => t.projectId === p.id && !t.line && !t.billId && +t.amt < 0)
-    .forEach((t) => out.push([`Card or bank: ${String(t.desc || t.vendor || "").slice(0, 40)} · ${fmt(t.date)}`, money(-t.amt)]));
-  out.push(["Total with no estimate line (the rest is crew time and stock coded to the job only)", money(l.actual)]);
-  out.push(["Put each on its line: cost with no line cannot be held to a budget or billed back. Money that leaks here cannot go to raises, bonuses, more staff, charity or extra value for the client.", ""]);
+  if (U && U.rows.length) {
+    // each cost code no line carries, and the records behind it (the ids jobFin keeps on the code)
+    U.rows.forEach((r) => {
+      out.push([`${r.name} (cost code ${r.code}), no estimate line carries it`, money(r2(r.actual + r.committed))]);
+      r.src.forEach((id) => {
+        const [k, ref] = String(id).split(/:(.*)/),
+          b = "bill" === k && (DB.bills || []).find((x) => x.id === ref),
+          t = "txn" === k && (DB.txns || []).find((x) => x.id === ref),
+          po = "po" === k && (DB.pos || []).find((x) => x.id === ref);
+        b && live(b) && out.push([`${b.vendor || "Bill"}${b.number ? " " + b.number : ""} \u00b7 ${fmt(b.date)}`, ""]);
+        t && out.push([`Card or bank: ${String(t.desc || t.vendor || "").slice(0, 40)} \u00b7 ${fmt(t.date)}`, money(-t.amt)]);
+        po && out.push([`${po.number} \u00b7 ${po.vendor || ""}, still to come`, ""]);
+      });
+      const h = r.src.filter((id) => /^time:/.test(id)).length;
+      h && out.push([`Crew time, ${h} time ${1 === h ? "entry" : "entries"} clocked to this cost code`, ""]);
+    });
+  } else {
+    (DB.bills || [])
+      .filter((b) => b.projectId === p.id && !("function" == typeof billHasLine ? billHasLine(b) : b.line) && live(b))
+      .forEach((b) => out.push([`${b.vendor || "Bill"}${b.number ? " " + b.number : ""} \u00b7 ${fmt(b.date)}`, money("function" == typeof billCost ? billCost(b) : +b.amount || 0)]));
+    (DB.txns || [])
+      .filter((t) => t.projectId === p.id && !t.line && !t.billId && +t.amt < 0)
+      .forEach((t) => out.push([`Card or bank: ${String(t.desc || t.vendor || "").slice(0, 40)} \u00b7 ${fmt(t.date)}`, money(-t.amt)]));
+  }
+  out.push(["Total with no estimate line", money(r2(l.actual + l.committed))]);
+  out.push(["Put each on its line, or add the line with a change order: cost with no line cannot be held to a budget or billed back, and all of it is in the forecast. Money that leaks here cannot go to raises, bonuses, more staff, charity or extra value for the client.", ""]);
   return out;
 }
 function jpLineFlag(l) {
+  if (l.review) return ["PM's review", l.forecast > 0 ? "warn" : "ok"];
   if (l.noline) return [l.actual || l.committed ? "No estimate line" : "", "bad"];
   if (l.variance > 0.5) return [jpOverWord(l), "bad"];
   if (null != l.done && null != l.billed && l.done - l.billed > 5) return ["Billed behind", "warn"];
@@ -848,6 +882,7 @@ function jpLineFlag(l) {
 const jpPct = (n) => (null == n ? "—" : n + "%");
 function jpLineDetail(l) {
   if (l.noline) return jpNoLineDetail(l);
+  if (l.review) return [[`The PM reviewed the cost to complete${S.ctcReviewed ? " on " + fmt(String(S.ctcReviewed).slice(0, 10)) : ""}: the job's estimate at completion is cost to date plus that figure, ${money(jobFin(S).eac)}. This row is the difference from the lines' own forecasts.`, ""]];
   const out = [];
   (DB.pos || [])
     .filter((po) => !["void", "cancelled"].includes(po.status) && ((po.lines || []).some((x) => x.line === l.key || x.lineKey === l.key) || po.line === l.key))
@@ -916,9 +951,11 @@ function jpBudget() {
     J = jobFin(p),
     L0 = jpLines(),
     NL = jpNoLine(J, L0),
-    L = NL ? L0.concat([NL]) : L0,
+    L1 = NL ? L0.concat([NL]) : L0,
+    RV = jpReviewRow(J, L1),
+    L = RV ? L1.concat([RV]) : L1,
     O = L0.filter((l) => l.variance > 0.5),
-    A = "function" == typeof pbAhead ? pbAhead(p.id) : { total: 0 },
+    BA = billedAheadSay(p),
     phone = jpPhone(),
     U = ("function" == typeof spUnbilled ? spUnbilled(p.id) : []).filter((r) => ["reimbursable", "floated"].includes(r.kind)),
     uAmt = r2(U.reduce((a, r) => a + (+r.gap || 0), 0)),
@@ -932,12 +969,18 @@ function jpBudget() {
           ["Margin at Completion", `${est}%`, `Plan ${plan}%`, est < plan ? "warn" : "", "jp-margin"],
           ["Cost to Date", money(J.actual), "Bills, bank and card lines, stock and labor", "", ""],
           ["Over Budget", `${O.length} line${1 === O.length ? "" : "s"}`, O.length ? `${O[0].name.split(/ [—–-] /)[0]}, +${money(O[0].variance)}` : "every line within its budget", O.length ? "bad" : "", ""],
-          ["Billed Ahead of the Work", money(A.total || 0), `Over-Billed (WIP) ${money(J.over || 0)}`, "", ""],
+          [BA.work.label, money(BA.work.amount), BA.work.n ? `on ${BA.work.n} line${1 === BA.work.n ? "" : "s"}, against the work measured on site` : "no line is billed past its work", "", "jp-ahead"],
         ]
           .map(([k, val, s, tone, id]) => `<div class="jp-kpi"${id ? ` id="${id}"` : ""}><span>${esc(k)}</span><b class="${tone}">${esc(val)}</b><span>${esc(s)}</span></div>`)
           .join("")}</div>`,
+    // the two measures of billing ahead, each on its own line with what it counts (billedAheadSay): never one tile
+    // carrying both numbers with no word on how they differ
+    ahead =
+      BA.work.amount > 0.005 || BA.wip.amount > 0.005
+        ? `<div class="jp-card0 jp-aheads" id="jp-aheads">${[BA.work, BA.wip].map((m) => `<div class="jp-aheadrow" data-ahead="${m === BA.wip ? "wip" : "work"}" data-v="${m.amount}"><b>${esc(m.label)} ${money(m.amount)}</b><span>${esc(m.what)}</span></div>`).join("")}</div>`
+        : "",
     detail = (l) => `<div class="jp-detail">${jpLineDetail(l).map(([k, val]) => `<div><span>${esc(k)}</span><b>${esc(val)}</b></div>`).join("")}</div>`,
-    attrs = (l) => `data-jpline="${esc(l.key)}" data-budget="${l.budget}" data-committed="${l.committed}" data-actual="${l.actual}"`,
+    attrs = (l) => `data-jpline="${esc(l.key)}" data-budget="${l.budget}" data-committed="${l.committed}" data-actual="${l.actual}" data-forecast="${l.forecast}"`,
     lines = phone
       ? `<div class="jp-bcards">${L.map((l) => {
           const f = jpLineFlag(l),
@@ -958,11 +1001,11 @@ function jpBudget() {
           const f = jpLineFlag(l),
             open = jpBudOpen === l.key;
           return `<tr class="${"bad" === f[1] ? "over" : ""} ${open ? "open" : ""}" ${attrs(l)}><td><button type="button" class="jp-lbtn" data-jpopen="${esc(l.key)}" aria-expanded="${open}"><b>${esc(l.name)}</b><span class="jp-bdoc">${esc(l.doc)}${"On budget" === f[0] ? "" : ` · <span class="${f[1]}">${esc("bad" === f[1] ? (l.noline ? "cost with no estimate line" : `${f[0]} budget`) : f[0].toLowerCase())}</span>`}</span></button>${open ? detail(l) : ""}</td><td class="n">${money(l.budget)}</td><td class="n">${l.committed ? money(l.committed) : "—"}</td><td class="n">${l.actual ? money(l.actual) : "—"}</td><td class="n">${money(l.forecast)}</td><td class="n ${l.variance > 0.5 ? "bad" : ""}"><b>${l.variance ? (l.variance > 0 ? "+" : "") + money(l.variance) : "—"}</b></td><td class="n">${jpPct(l.done)}</td><td class="n">${jpPct(l.billed)}</td></tr>`;
-        }).join("")}</tbody><tfoot><tr><td>Total</td>${["budget", "committed", "actual", "forecast", "variance"].map((k) => `<td class="n">${money(r2(L.reduce((a, l) => a + l[k], 0)))}</td>`).join("")}<td></td><td></td></tr></tfoot></table>`,
+        }).join("")}</tbody><tfoot><tr id="jp-btotal" data-eac="${J.eac}" data-rows="${r2(L.reduce((a, l) => a + l.forecast, 0))}"><td>Total<span class="jp-bdoc jp-btnote">Forecast is the job's estimate at completion, cost on no estimate line included</span></td>${["budget", "committed", "actual"].map((k) => `<td class="n">${money(r2(L.reduce((a, l) => a + l[k], 0)))}</td>`).join("")}<td class="n" id="jp-eac">${money(J.eac)}</td><td class="n">${money(r2(J.eac - L.reduce((a, l) => a + l.budget, 0)))}</td><td></td><td></td></tr></tfoot></table>`,
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
       : `<div class="jp-billback ok" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>Nothing: everything bought for the client is on an invoice.</span></div>`;
-  host.innerHTML = `${kpis}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
+  host.innerHTML = `${kpis}${ahead}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
 }
 
 // ---- Decisions: everything waiting on an answer --------------------------------------------------------------------
@@ -1454,6 +1497,10 @@ table.jp-bt tr.over td{background:var(--bad-2)}
 table.jp-bt tfoot td{font-weight:700}
 .jp-lbtn{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;display:inline-flex;flex-direction:column;gap:2px}
 .jp-bdoc{font-size:12px;color:var(--ink-3)}
+.jp-btnote{display:block;font-weight:400}
+.jp-aheads{display:flex;flex-direction:column;gap:8px;padding:12px 16px;margin:0 0 12px}
+.jp-aheadrow{display:flex;flex-direction:column;gap:2px}
+.jp-aheadrow span{color:var(--ink-2);font-size:13px}
 .jp-detail{margin-top:8px;display:flex;flex-direction:column;gap:2px;font-size:13px}
 .jp-detail>div{display:flex;gap:12px;justify-content:space-between;padding:4px 0;border-top:1px dashed var(--rule)}
 .jp-billback{background:#fff7ed;border:1px solid #fdba74;border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:6px;color:#7c2d12;font-size:14px;margin:0 0 16px}

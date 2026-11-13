@@ -1208,8 +1208,14 @@ if ("function" == typeof mApprovals) {
         ap > 0.005 && (it.detail = `${p0M(p0Invoice(b))} invoiced less ${p0M(ap)} prepaid, ${p0M(billTotal(b))} due · ${it.detail || ""}`);
       });
       const add = p0ApprItems();
-      add.forEach((it) => (it.who = "prepay" === it.kind ? "coord" : "controller"));
-      return out.concat(opts && opts.everyone ? add : add.filter((it) => it.who === role()));
+      // whose queue: DELEGATION's role for the kind, through the one routing function (apprSeat: an empty seat's work
+      // falls to the job's PM, then to the owner)
+      const uid = (currentUser() || {}).id;
+      add.forEach((it) => {
+        const s = apprSeat(it);
+        (it.who = s.role), s.from && ((it.whoUid = s.uid), (it.whoName = s.name), (it.whoFrom = s.from));
+      });
+      return out.concat(opts && opts.everyone ? add : add.filter((it) => it.who === role() && (!it.whoUid || !uid || it.whoUid === uid)));
     } catch (e) {
       console.warn("p0 approvals", e);
       return out;
