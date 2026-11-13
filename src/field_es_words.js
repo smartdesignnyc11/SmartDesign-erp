@@ -1233,6 +1233,7 @@ esAdd({
   "Show {t} Pages": "Mostrar las Páginas de {t}",
   "Hide {t} Pages": "Ocultar las Páginas de {t}",
   Stock: "Inventario",
+  "{x} is checking whether the stock fits {x}": "{x} está revisando si lo del inventario sirve para {x}",
   "not clocked in": "sin marcar entrada",
   "Hours on {x}": "Horas en {x}",
   "{n} hours on {x}": "{n} horas en {x}",
