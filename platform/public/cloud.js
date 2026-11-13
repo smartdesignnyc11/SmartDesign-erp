@@ -285,17 +285,26 @@ window.Cloud = (() => {
   // (Alan's two addresses), otherwise this sign-in. The database checks the same key.
   const ownKey = () => (profile && profile.private_key) || (user() && user().id) || '';
   const ownName = k => 'own:' + ownKey() + ':' + k;
-  const ownIds = {};                                                                      // own shard -> ids (or keys) last put into DB
+  // own shard -> the ids (or keys) this device knows the server holds: what setPart last put into DB, and what a
+  // save or a read left in step (remember). A record the device made itself is known once its save is answered.
+  // Before, only setPart's were known, so the server's copy of records this device had made (the echo of its own
+  // save landing before the save's answer, a version poll in that gap, the person's other device saving the row)
+  // was added beside them: live 11-13 the owner's 36 mails became 72, here and then on the server; and a mail the
+  // other device deleted stayed here and was sent back.
+  const ownIds = {};
+  const idOf = i => (i && i.id != null ? i.id : null);
+  // A list holds one id once: the first record with an id stays (records without an id are left alone).
+  const uniqId = arr => { const seen = new Set(); return arr.filter(i => { const id = idOf(i); if (id === null) return true; if (seen.has(id)) return false; seen.add(id); return true; }); };
   function split(DB, k, out) {
     const r = PRIV[k], me = meApp(), mine = !!(me && user());
     if (r.kind === 'list') {
       const arr = Array.isArray(DB[k]) ? DB[k] : [];
       out[k] = arr.filter(i => !r.priv(i));
-      if (mine) out[ownName(k)] = arr.filter(i => r.priv(i) && i.owner === me);
+      if (mine) out[ownName(k)] = uniqId(arr.filter(i => r.priv(i) && i.owner === me));
     } else if (r.kind === 'nested') {
       const obj = DB[k] || {}, arr = Array.isArray(obj[r.field]) ? obj[r.field] : [];
       out[k] = Object.assign({}, obj, {[r.field]: arr.filter(i => !r.priv(i))});
-      if (mine) out[ownName(k)] = arr.filter(i => r.priv(i) && i.owner === me);
+      if (mine) out[ownName(k)] = uniqId(arr.filter(i => r.priv(i) && i.owner === me));
     } else {
       const obj = DB[k] || {}, people = new Set((DB.users || []).map(u => u.id)), shared = {};
       for (const key of Object.keys(obj)) if (!people.has(key)) shared[key] = obj[key];
@@ -339,12 +348,20 @@ window.Cloud = (() => {
     }
     const get = () => r.kind === 'list' ? (DB[k] || []) : ((DB[k] || {})[r.field] || []);
     const put = arr => { if (r.kind === 'list') DB[k] = arr; else { DB[k] = DB[k] || {}; DB[k][r.field] = arr; } };
-    if (own) { const was = new Set(ownIds[name] || []); const list = Array.isArray(data) ? data : []; put(get().filter(i => !was.has(i && i.id)).concat(list)); ownIds[name] = list.map(i => i && i.id); }
-    else if (r.kind === 'list') { DB[k] = (Array.isArray(data) ? data : []).concat((DB[k] || []).filter(r.priv)); }
-    else { const keepPriv = ((DB[k] || {})[r.field] || []).filter(r.priv); DB[k] = Object.assign({}, data || {}); DB[k][r.field] = ((data || {})[r.field] || []).concat(keepPriv); }
+    // The incoming list replaces every record with one of its ids, and every record the server was known to hold
+    // (what is gone from the list was deleted elsewhere). What stays beside it is only what this device made and has
+    // not saved yet. No list comes out holding an id twice, and a row already doubled on the server opens clean.
+    const ids = L => new Set(L.map(idOf).filter(x => x !== null));
+    const not = S => i => { const id = idOf(i); return id === null || !S.has(id); };
+    if (own) { const list = uniqId(Array.isArray(data) ? data : []), inc = ids(list), was = new Set(ownIds[name] || []); put(get().filter(not(was)).filter(not(inc)).concat(list)); ownIds[name] = [...inc]; }
+    else if (r.kind === 'list') { const list = Array.isArray(data) ? data : []; DB[k] = list.concat((DB[k] || []).filter(r.priv).filter(not(ids(list)))); }
+    else { const list = (data || {})[r.field] || [], keepPriv = ((DB[k] || {})[r.field] || []).filter(r.priv).filter(not(ids(list))); DB[k] = Object.assign({}, data || {}); DB[k][r.field] = list.concat(keepPriv); }
     return k;
   }
-  function remember(name, data, version) { last[name] = hash(JSON.stringify(data)); base[name] = clone(data); versions[name] = version; }
+  function remember(name, data, version) {
+    last[name] = hash(JSON.stringify(data)); base[name] = clone(data); versions[name] = version;
+    if (name.startsWith('own:')) ownIds[name] = [...new Set([...(ownIds[name] || []), ...(Array.isArray(data) ? data.map(idOf).filter(x => x !== null) : isObj(data) ? Object.keys(data) : [])])];
+  }
   function assemble(rows) {
     if (!rows.length) return null; const DB = {projects: []};
     const own = rows.filter(r => r.name.startsWith('own:'));
@@ -365,18 +382,26 @@ window.Cloud = (() => {
   // The hosted watcher leaves new mail, calendar changes and Drive files in own:<person>:inbox while the app is
   // shut. The app files them through its own sync code (gsIngestServer), then the inbox is emptied with the
   // version it was read at, so anything the watcher added meanwhile is read on the next pass, never lost.
+  // When the emptying save is refused (the watcher added more meanwhile) the inbox is read again and still holds the
+  // finds already filed: the app is handed only what it has not been handed (a changed entry is a new find).
   let inbox = null, draining = false;
+  const handed = new Set();                                                               // list|item already given to the app, until the inbox is emptied
   async function drainInbox() {
     if (draining || !inbox || !window.__cloudPerson || typeof window.gsIngestServer !== 'function') return;
     const box = inbox; inbox = null; draining = true;
     try {
       const has = Object.values(box.data || {}).some(v => Array.isArray(v) && v.length);
       if (!has) return;
-      window.gsIngestServer(box.data);
+      const key = (k, x) => k + '|' + JSON.stringify(x), fresh = {};
+      for (const [k, v] of Object.entries(box.data)) fresh[k] = Array.isArray(v) ? v.filter(x => !handed.has(key(k, x))) : v;
+      if (Object.values(fresh).some(v => Array.isArray(v) && v.length)) {
+        window.gsIngestServer(fresh);
+        for (const [k, v] of Object.entries(fresh)) if (Array.isArray(v)) v.forEach(x => handed.add(key(k, x)));
+      }
       const {data: res} = await sb.rpc('save_collections', {p_items: [{name: box.name, data: {}, base: versions[box.name] || 0}]});
       const r = (res || [])[0] || {};
       if (r.conflict) { const row = await pullOne(box.name); if (row) { remember(box.name, row.data, row.version); inbox = {name: box.name, data: row.data}; } }
-      else if (r.version) remember(box.name, {}, r.version);
+      else if (r.version) { remember(box.name, {}, r.version); handed.clear(); }
     } catch (e) { console.warn('inbox', e); }
     finally { draining = false; if (inbox) setTimeout(drainInbox, 500); }
   }
