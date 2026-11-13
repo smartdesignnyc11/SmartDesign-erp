@@ -29,7 +29,7 @@ Records: asks and warnings in `docs/DECISIONS.md` (11-12); every finding in `doc
 | R | Record Payment reusing a matched deposit. LIVE, top priority | Committed |
 | S | Sync bringing back deleted lines; Clear Everything and the audit head | Committed |
 | G | Hold at What Arrived showing $0; a bill over arrival not reaching the Owner; paid ahead of delivery; the credit memo Approve on a paid bill; the rfq pin; the two month misses; office ship-to and the certificate rule | Committed |
-| C | Automatic clock-in (one switch, punches visible, the overlap pick); the foreman's hand-off to crew; receiving for the foreman and, from wave 3, the driver | Building |
+| C | Automatic clock-in (one switch, punches visible, the overlap pick); the foreman's hand-off to crew; receiving for the foreman and, from wave 3, the driver | Live 11-13 (201dee8); real GPS and an expert walk on a phone still owed |
 | T | The item table: shared lines counted once, "the bill" with no bill, unit prices, statuses, an order from a row, the sort, sheet import headers | Live 11-13 (merged at 1bf3f76) |
 | F | One EAC and margin per job; the billed-ahead names; purchasing exceptions with nobody in the coordinator seat; a job with cost and no contract | Building |
 | A | Ask's answers to the owner's plain questions, and the question bank | Started, nothing written |
