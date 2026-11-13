@@ -52,7 +52,7 @@ ORDER = {
     'u_angel': [DAY, 'Today', 'Messages', WORK, 'Daily Log', 'Site', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise'] + FOOT,
     'u_alberto': [DAY, 'Clock', 'Messages', WORK, 'Requests', 'Schedule', 'Photos', 'Deliveries', 'Drawings'] + FOOT,
     # Stock: the driver picks for the route from it (docs/mockups/purchasing/SPEC.md, decision 1)
-    'u_alex': [DAY, 'Route', 'Messages', WORK, 'Clock', 'Receipts', 'Requests', 'Stock'] + FOOT,
+    'u_alex': [DAY, 'Route', 'Messages', WORK, 'Clock', 'Receipts', 'Requests', 'Deliveries', 'Stock'] + FOOT,   # Deliveries: the driver receives at the counter and the curb (11-13)
 }
 GROUPS = set(W6) | {'Company and Settings'}
 
