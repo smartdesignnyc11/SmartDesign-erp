@@ -671,12 +671,12 @@ async def part_excel(p, c):
     if ws:
         vals = [cell.value for row in ws.iter_rows() for cell in row]
         # 121 State's net profit carries TINO's $8,000 prepayment as job cost (it was uncoded overhead): 20191.11 -> 12191.11
-        # 121 State's net profit on the sheet is income 122,165.24 - posted job cost 101,693.94 - overhead 8,748.05 =
-        # 11,723.25. Two moves from 12,191.11: lane F (11-12, one EAC: its cost on no estimate line is in its EAC, so it
-        # earns 460.55 less: income 122,625.79 -> 122,165.24), and master 5592a6d, where its allocated overhead reads
-        # 8,748.05 against 8,740.74 before (7.31 more; not this lane's: the same on master alone). The firm's net is
-        # -5,329.88 - 460.55 = -5,790.43.
-        c.ok(11723.25 in vals and -5790.43 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
+        # 121 State's net profit on the sheet is income 122,165.24 - posted job cost 101,693.94 - overhead 8,740.74 =
+        # 11,730.56. One move from 12,191.11: lane F (11-12, one EAC: its cost on no estimate line is in its EAC, so it
+        # earns 460.55 less: income 122,625.79 -> 122,165.24). Its allocated overhead is 8,740.74 again: the 7.31 more
+        # that master 5592a6d showed came from the clock-in seed's four days re-dated into closed August (put back
+        # 11-13, lane C c7c1507). The firm's net is -5,329.88 - 460.55 = -5,790.43.
+        c.ok(11730.56 in vals and -5790.43 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
     c.ok(r['last'] and r['last']['file'].endswith('.xlsx') and 'Exported' in r['toast'], f'Excel button: {r["last"]} {r["toast"]!r}')
     c.ok(not errs, f'excel errors {errs[:3]}')
     await b.close()
