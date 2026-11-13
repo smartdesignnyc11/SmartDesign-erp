@@ -401,9 +401,14 @@ async def s_clock(pg, c):
       DB.time.push({ id: 'te_t1', empId: e.id, date: td, in: a, out: b, breakMin: 0, projectId: S.id, code: '', notes: '', status: 'submitted', work: [{ projectId: S.id, code: '02', hours: 6, note: '' }] });
       const n0 = DB.time.filter(t => t.empId === e.id).length; window.getGeo = async () => null;
       try { await clockEvent('in'); } catch (x) {}
+      // 11-12: it says the day is already sent before it punches, with Start Another Shift
+      const m = document.getElementById('mbm'), asked = { text: m ? m.innerText : '', n: DB.time.filter(t => t.empId === e.id).length };
+      const ok = m && m.querySelector('#mbm-ok'); ok && ok.click();
+      await new Promise(r => setTimeout(r, 400));
       const nw = DB.time.find(t => t.empId === e.id && !t.out);
-      return { before: n0, after: DB.time.filter(t => t.empId === e.id).length, of: nw ? nw.overlapOf || '' : '', toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
-    c.ok(r['after'] == r['before'] + 1 and r['of'] == 'te_t1' and 'not counted twice' in r['toast'], f'clock: Clock In inside a day already sent clocks in and marks the overlap, out loud ({r})')
+      return { before: n0, asked, after: DB.time.filter(t => t.empId === e.id).length, of: nw ? nw.overlapOf || '' : '', toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
+    c.ok('already sent for approval' in r['asked']['text'] and 'Start Another Shift' in r['asked']['text'] and r['asked']['n'] == r['before'], f"clock: Clock In on a day already sent says so first and punches nothing ({r['asked']})")
+    c.ok(r['after'] == r['before'] + 1 and r['of'] == 'te_t1' and 'not counted twice' in r['toast'], f'clock: Start Another Shift inside a day already sent clocks in and marks the overlap, out loud ({r})')
     html = await pg.evaluate("""() => { const e = myEmp(); DB.time = DB.time.filter(t => t.id !== 'te_t1');
       const x = { id: 'te_t2', empId: e.id, date: '2026-09-02', in: '2026-09-02T07:30:00', out: '2026-09-02T07:31:12', breakMin: 0, projectId: S.id, code: '', notes: '', status: 'open', work: [] };
       DB.time.push(x); save(); try { openTime('te_t2'); } catch (z) {} return document.body.innerHTML; }""")
@@ -465,8 +470,11 @@ async def s_autoclock(pg, c):
     # an automatic punch inside a day already on the clock is marked and goes to payroll's hold
     r5 = await pg.evaluate(f"""() => {{ const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === today()));
       DB.time.push({{ id: 'te_ov', empId: e.id, date: today(), in: today() + 'T07:00:00', out: today() + 'T15:30:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'approved', work: [] }});
-      const r = tkGeoTick({site}, {at('09:15')}); const n = DB.time.find(t => t.id === r.id); return {{ did: r.did, of: n && n.overlapOf, held: tkTimeOverlaps(e.id).length }}; }}""")
-    c.ok(r5['did'] == 'in' and r5['of'] == 'te_ov' and r5['held'] >= 1, f"autoclock: an overlap with a day on the clock is marked and goes to payroll's hold ({r5})")
+      const r = tkGeoTick({site}, {at('09:15')}); const n0 = DB.time.filter(t => t.empId === e.id && !t.out).length;
+      const b = [...document.querySelectorAll('#toast a, #toast button')].find(x => /Start Another Shift/.test(x.innerText)); b && b.click();
+      const n = DB.time.find(t => t.empId === e.id && !t.out); return {{ did: r.did, before: n0, of: n && n.overlapOf, held: tkTimeOverlaps(e.id).length }}; }}""")
+    c.ok(r5['did'] == 'asked' and r5['before'] == 0, f'autoclock: arriving on a day already sent asks first and punches nothing ({r5})')
+    c.ok(r5['of'] == 'te_ov' and r5['held'] >= 1, f"autoclock: Start Another Shift inside a day on the clock is marked and goes to payroll's hold ({r5})")
     await pg.evaluate("() => { currentUser().lang = 'es'; save(); render(); }")
     await pg.evaluate("() => { delete currentUser().geoAck; render(); }")
     await go(pg, 'time')
@@ -484,9 +492,9 @@ async def s_payhold(pg, c):
     """Alan, 11-06, option 1: overlapping hours are held out of the pay run until the foreman picks; never paid twice"""
     await sign_in(pg, 'u_owner')
     r = await pg.evaluate("""() => { DB.company.payAnchor = '2026-08-28'; const P = payPeriodOf(today());
-      const alex = DB.employees.find(e => e.id === 'em3'), d = today();
+      const alex = DB.employees.find(e => e.id === 'em3'), d = today(), y = DB.time.find(t => t.id === 'te9').date;
       DB.time.filter(t => t.date >= P.from && t.date <= d).forEach(t => (t.status = 'approved'));
-      DB.time.push({ id: 'te_ov2', empId: 'em3', date: d, in: d + 'T10:00:00', out: d + 'T16:00:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'approved', work: [], overlapOf: 'te9' });
+      DB.time.push({ id: 'te_ov2', empId: 'em3', date: y, in: y + 'T10:00:00', out: y + 'T16:00:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'approved', work: [], overlapOf: 'te9' });
       save(); const O = tkTimeOverlaps('em3'); const run = payrollFromTime({ quiet: true });
       const te9 = DB.time.find(t => t.id === 'te9'), ov = DB.time.find(t => t.id === 'te_ov2');
       const others = DB.time.filter(t => t.date >= P.from && t.date <= d && t.status === 'approved' && !['te9', 'te_ov2'].includes(t.id));

@@ -700,3 +700,7 @@ function esAnswerDecorate() {
   const s = document.createElement("style");
   (s.id = "es-css"), (s.textContent = css), document.head.appendChild(s);
 })();
+// The stock check's note on a field request (item table round, 11-13): it reached the foreman's Spanish screens in English.
+esAdd({
+  "{x} is checking whether the stock fits {t}": "{x} está revisando si lo que hay en bodega sirve para {t}",
+});
