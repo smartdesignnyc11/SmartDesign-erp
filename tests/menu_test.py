@@ -183,8 +183,9 @@ async def press(pg, sel):
     return ok
 
 async def open_group(pg, gid):
-    """a group opens on its name; tapping an open group's name closes it, so only a closed one is tapped"""
-    return await pg.evaluate("g => { const h = document.querySelector(`#nav-groups [data-mnhead=\"${g}\"]`); if (!h) return false;"
+    """a group's pages show on its chevron (Alan, 11-12: its name opens the module's overview, tests/menu_overview_test.py);
+    pressing the chevron of an open group hides them, so only a closed one is pressed"""
+    return await pg.evaluate("g => { const h = document.querySelector(`#nav-groups [data-mnchev=\"${g}\"]`); if (!h) return false;"
                              " if (h.getAttribute('aria-expanded') !== 'true') h.click(); return document.querySelector(`#nav-groups [data-mnhead=\"${g}\"]`).getAttribute('aria-expanded') === 'true'; }", gid)
 
 def kid_sel(gid, k):

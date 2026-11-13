@@ -233,6 +233,16 @@ M.drive = async (P, prefer) => {
     });
     m.querySelectorAll('input[type=checkbox]').forEach(c => { const l = norm((c.closest('label') || c.parentElement || {}).innerText);
       if (!c.checked && /approve|confirm|true record|checked|agree|understand/i.test(l)) c.click(); });
+    // The Order sheet's certificate stop (Alan, 10-25) offers Set Curb or Shipped. The buyer takes it only for goods that
+    // ship or drop (a boxed heat mat, a fixture): she knows a slab, cabinets or anything the vendor templates, fabricates
+    // or installs comes inside, and those wait for the certificate. Her reason goes in the Why field the tap opens.
+    const curb = m.querySelector('[data-fldropcurb]');
+    if (curb && vis(curb)) {
+      if (/slab|countertop|cabinet|millwork|applianc|install|templat|fabricat/i.test(title + ' ' + norm((m.querySelector('p') || {}).innerText) + ' ' + ((m.querySelector('[data-f="item"]') || {}).value || ''))) steps.push(`[${title}] carried inside: waits for the certificate`);
+      else { curb.click(); await sleep(15); const w = m.querySelector('[data-f="dropWhy"]');
+        if (w && vis(w)) { w.value = 'Ships boxed by carrier to the site; our crew carries it in.'; w.dispatchEvent(new Event('input', { bubbles: true })); }
+        steps.push(`[${title}] Set Curb or Shipped`); }
+    }
     let btn = prefer ? [...m.querySelectorAll('button, [data-trpick]')].find(b => vis(b) && !b.disabled && RX(prefer).test(norm(b.innerText))) : null;
     btn = btn || [...m.querySelectorAll('.btn.primary, button.primary')].find(b => vis(b) && !b.disabled);
     if (!btn) { steps.push(`[${title}] no blue button`); break; }

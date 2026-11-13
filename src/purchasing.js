@@ -1489,11 +1489,12 @@ function puNewNeed() {
   js && (js.onchange = () => (m.querySelector("#pu-nl").innerHTML = `<option value="">Pick the line it is bought for</option>${opts(js.value)}<option value="__none">No line covers it</option>`));
   return m;
 }
-// the old Purchasing overview opens the role's first Purchasing page
+// the old Purchasing overview opens the role's first Purchasing page; opened by the module's name in the menu it is the
+// module's overview (Alan, 11-12; mnOverV, src/app.js)
 {
   const base = render;
   render = function () {
-    if ("ovbuy" === view) view = puHomeView();
+    if ("ovbuy" === view && "ovbuy" !== mnOverV) view = puHomeView();
     const r = base.apply(this, arguments);
     try {
       puDemoLines(), puDraw(), puCrumbs(), puDocDecorate(), puFfeCrumb();
@@ -2320,7 +2321,7 @@ if ("function" == typeof renderPODoc) {
       if (!po || "function" != typeof pay3OverArrived || isOwner()) return h;
       const B = (DB.bills || []).filter((b) => b.poId === po.id && !b.short && !b.dispute && pay3Can(b) && null != pay3OverArrived(b));
       return B.length
-        ? `<div class="note warn pu-arr" role="status">${B.map((b) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow" data-nocase><b>${esc(b.number || "A bill")}</b> bills ${money(billTotal(b))}; what arrived on ${esc(po.number)} comes to ${money2(pay3ArrivedLeft(b))}${"function" == typeof pay3ClaimWords && pay3ClaimWords(po) ? ` (${esc(pay3ClaimWords(po))})` : ""}${b.arrivedHold ? `. Held at ${money(b.arrivedHold.amount)} by ${esc(b.arrivedHold.by)} for the Owner` : ""}.</span><button type="button" class="btn sm" data-pay3arrpo="${esc(b.id)}">${b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"}</button></div>`).join("")}</div>` + h
+        ? `<div class="note warn pu-arr" role="status">${B.map((b) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow" data-nocase><b>${esc(b.number || "A bill")}</b>: ${esc(pay3ArrWords(b).replace(/^Billed/, "billed"))}${b.arrivedHold ? `. Held at ${pay3M(b.arrivedHold.amount)} by ${esc(b.arrivedHold.by)} for the Owner` : ""}.</span><button type="button" class="btn sm" data-pay3arrpo="${esc(b.id)}">${b.arrivedHold ? "Change the Hold at What Arrived" : "Hold at What Arrived"}</button></div>`).join("")}</div>` + h
         : h;
     } catch (e) {
       return h;

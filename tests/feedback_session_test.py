@@ -62,9 +62,10 @@ async def nav_to(pg, grp, phone):
         await tap(pg, '#menu-btn:visible, .tv-phmenu:visible', phone)
         await wait(pg, 300)
     # the 11-03 menu: a group opens on its name, then its first page is tapped; Today, Tasks and Messages are entries
-    head = pg.locator(f'#nav-groups [data-mnhead="{grp}"]')
+    # (11-12: the group's name opens its overview; the chevron beside it shows its pages)
+    head = pg.locator(f'#nav-groups [data-mnchev="{grp}"]')
     if await head.count():
-        if await head.first.get_attribute('aria-expanded') != 'true': await tap(pg, f'#nav-groups [data-mnhead="{grp}"]', phone)
+        if await head.first.get_attribute('aria-expanded') != 'true': await tap(pg, f'#nav-groups [data-mnchev="{grp}"]', phone)
         await wait(pg, 300)
         await tap(pg, f'#nav-groups [data-mngr="{grp}"] button', phone)
     else:

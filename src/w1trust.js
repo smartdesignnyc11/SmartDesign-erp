@@ -399,7 +399,19 @@ function w1Snap(el) {
     v === d0 ? delete fields[sig] : (fields[sig] = { v, d0 });
   });
   if (!Object.keys(fields).length) return void (prev && w1Put(st.key, null));
-  w1Put(st.key, { title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" }); // wall clock: how old a draft is on this device, for its retention
+  w1Put(st.key, Object.assign({ title: st.title, at: appNowIso(), wall: Date.now(), fields, screen: st.screen, opener: st.opener, open: !0, scope: "sheet" }, w1MoneySheet(el, st.title) ? { money: !0 } : {})); // wall clock: how old a draft is on this device, for its retention
+}
+// A sheet whose one press records, pays or reverses money (Record Payment, a bill's payment, a pay run, Reverse
+// Payment) is never opened again by a reload (lane R, 11-12: Record Payment came back over Billing after a reload,
+// armed, one press from posting a payment nobody had just asked for). What was typed is kept all the same: the
+// person opens the sheet again themselves and finds it there, with Discard Draft.
+const W1_MONEY_TITLE = /^(record (the )?payments?\b|reverse (the )?payment\b|payment \u00b7|pay (run|bill|the)\b)/i,
+  W1_MONEY_PRESS = /\bpayments?\b/i;
+function w1MoneySheet(el, title) {
+  if (W1_MONEY_TITLE.test(w1Norm(title))) return !0;
+  if (!el || !el.querySelector) return !1;
+  const ok = el.querySelector("#mbm-ok, .btn.primary");
+  return !!el.querySelector("#py-amt") || (!!ok && W1_MONEY_PRESS.test(w1Norm(ok.textContent)));
 }
 // after a tap inside the sheet: still open, what is typed now is the draft
 function w1AfterAct(el) {
@@ -624,7 +636,7 @@ let w1Reloaded = !1,
 function w1ReopenAfterReload() {
   if (w1Reloaded || w1Opened || !w1Uid() || "1" !== document.body.dataset.booted) return;
   const k = w1ScreenKey(w1Screen()),
-    L = w1Drafts().filter((x) => x.open && "sheet" === x.scope && x.screen && Date.now() - (x.wall || 0) < 864e5);
+    L = w1Drafts().filter((x) => x.open && "sheet" === x.scope && x.screen && Date.now() - (x.wall || 0) < 864e5 && !x.money && !w1MoneySheet(null, x.title));
   // the sheet that was open on this screen; else one whose opener is on this page: a control that opens its sheet on
   // another screen (Today's File Late Log opens the Daily Log's sheet, a bill's Open its drawer on Bills and Payroll),
   // so the reload lands where that control is and the same press brings the sheet back
