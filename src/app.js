@@ -133515,7 +133515,8 @@ if (
   (document.addEventListener(
     "click",
     (e) => {
-      const b = e.target.closest && e.target.closest("#nav-groups button, #tabbar button, #mtabs button");
+      // (a module's name opens its overview, Alan 11-12: it leaves the record on screen as every menu entry does)
+      const b = e.target.closest && e.target.closest("#nav-groups button, #nav-groups a.mn-head, #tabbar button, #mtabs button");
       if (b)
         try {
           if (void 0 !== docOpen && docOpen) {
@@ -202497,8 +202498,11 @@ document.addEventListener(
    on the phone (the drawer) and the desktop (the rail):
      Your Day    Today, Tasks, Messages (MN_DAY): one entry each, each with the one number that waits on the person.
      Work        Projects (the person's jobs, then All Projects), Purchasing, Sales and Clients, Accounting, Design,
-                 Reports (MN_WORK): a group opens when its name is tapped (the whole row; no arrow), one at a time,
-                 and lists its pages under it. The group of the page on screen is the open one.
+                 Reports (MN_WORK): a group's name opens the module's overview page and lists its pages under it;
+                 the chevron at its right only shows or hides the pages, one group at a time (Alan, 11-12: "When I
+                 click projects or purchasing it just shows me a drop down. That's not effective." Before, 11-03,
+                 the name only opened the list and there was no arrow). The group of the page on screen is the
+                 open one.
      The foot    Company and Settings (MN_FOOT, a group), then Record a Feedback Session (fbsession.js mounts its
                  button in .mn-fbs).
    The field roles (foreman, crew, driver) keep a short, field-first list under the same headings: their own day
@@ -202768,10 +202772,22 @@ const MN_ALIAS = Object.assign({ sdraw: "plans", hbforecast: "salesnum", hbdash:
     setup:
       '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4.4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
   };
+// A module's name opens the module's overview page (Alan, 11-12: "When I click projects or purchasing it just shows
+// me a drop down. That's not effective. It's better that it takes me to an overview page for the modules."). Each
+// group's overview is the page the code already holds for it: All Projects, the Purchasing and Accounting overviews
+// (retired into the Buy Board and Banking on 11-03, kept as views; a link that names one still forwards), the
+// Pipeline (the Sales overview), Reports' own page and the Company and Settings hub. Design has none of its own (its
+// overview is All Projects' In Design filter): its name opens its first page. A role that may not open the overview
+// gets the group's first page it may open.
+const MN_OVER = { jobs: "ovjobs", buy: "ovbuy", sales: "ovsales", money: "ovmoney", reports: "reports", setup: "cohub" },
+  // the chevron at the right of a module's name: it only shows or hides the module's pages
+  MN_CHEV = '<path d="M6 9l6 6 6-6"/>';
 // mnLastGrp: the menu group the person came through (a page in two places lights the one they used); mnOpenG: the
-// group they opened by its name (null: the group of the page on screen)
+// group they opened by its chevron (null: the group of the page on screen); mnOverV: the overview the person opened
+// by its module's name (the forwards of the retired overviews stand aside for it while it is the page on screen)
 let mnLastGrp = "",
-  mnOpenG = null;
+  mnOpenG = null,
+  mnOverV = "";
 // the labels each page has carried (its old names too), so a heading is renamed only while it names the page
 const MN_KNOWN = {};
 function mnKnow(v, l) {
@@ -202900,7 +202916,15 @@ function mnBuild(r) {
     rk = "design_mgr" === r ? "designer" : r,
     may = (it) => has(it.v) && !(it.unless && has(it.unless)) && !(it.roles && !it.roles.includes(rk)) && !(it.not && it.not.includes(rk)),
     shown = (it) => !it.quiet || it.v === view,
-    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
+    // over: the page the group's name opens. The overview when the role may open it: the group's own entry for it
+    // (All Projects, Pipeline, Job Profitability, Company and Settings) or, where the menu lists none, an entry under
+    // the group's name (syn: Purchasing, Accounting); else the first page of the group the role may open.
+    over = (g, items) => {
+      const v = MN_OVER[g.id],
+        own = v && items.find((it) => !it.job && it.v === v && !it.tab);
+      return own || (v && has(v) ? { v: v, l: g.n, tab: "", sec: "", head: !0, syn: !0 } : items.find((it) => !it.job) || items[0]);
+    },
+    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items, over: over(g, items) }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),
     out = { r: r, field: !!M.field, home: M.home, day: [], work: [], groups: [], more: [], bottom: null };
   const foot = mnGroupItems(MN_FOOT).filter(may).filter(shown);
@@ -202936,7 +202960,8 @@ const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billT
 function mnCur(B) {
   if (!B) return null;
   const groups = B.field ? [{ id: "field", items: B.day.concat(B.work), flat: 1 }].concat(B.bottom ? [B.bottom] : []) : B.groups,
-    all = groups.flatMap((g) => g.items.filter((it) => !it.job).map((it) => ({ g: g, it: it }))),
+    // a module's overview the menu lists under no entry (Purchasing, Accounting) is placed by its group's name
+    all = groups.flatMap((g) => g.items.filter((it) => !it.job).concat(g.over && g.over.syn && g.over.v === mnOverV ? [g.over] : []).map((it) => ({ g: g, it: it }))),
     placed = (v) => all.some((x) => x.it.v === v),
     // Company Settings open on the job's settings page: they are Settings, not the job's
     company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
@@ -203012,19 +203037,31 @@ function mnGo(g, it) {
   } catch (e) {}
   setView(it.v);
 }
-// a group's name: open it, or close it when it is open (one at a time). On the desktop's narrowed rail there is no
-// room to list a group's pages: its name opens its first page.
+const mnGroupOf = (B, gid) => (B && B.groups.concat(B.bottom || []).find((x) => x.id === gid)) || null;
+// a module's name: open its overview page (g.over) and show its pages under it. On the phone the sheet closes on the
+// page, as it does for every entry; the module is the open one when the menu is opened again.
+function mnOpen(gid, keys) {
+  const g = mnGroupOf(mnBuild(role()), gid);
+  if (!g || !g.over) return;
+  mnOverV = g.over.syn ? g.over.v : "";
+  mnGo(g, g.over);
+  mnOpenG = gid;
+  mnRail();
+  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  h && h.focus({ preventScroll: !0 });
+}
+// the chevron beside a module's name: show its pages, or hide them when they show (one module at a time). It never
+// changes the page.
 function mnToggle(gid, keys) {
   const B = mnBuild(role()),
-    g = B && B.groups.concat(B.bottom || []).find((x) => x.id === gid);
+    g = mnGroupOf(B, gid);
   if (!g) return;
-  if (document.body.classList.contains("rail-min") && innerWidth > 760) return void mnGo(g, g.items[0]);
   const cur = mnCur(B),
     open = null === mnOpenG ? (cur && !cur.g.day ? cur.g.id : "") : mnOpenG;
   mnOpenG = open === gid ? "" : gid;
   mnRail();
-  // from the keyboard, the focus stays on the name it was on (the redraw replaced it)
-  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  // from the keyboard, the focus stays on the chevron it was on (the redraw replaced it)
+  const h = keys && document.querySelector(`#nav-groups [data-mnchev="${gid}"]`);
   h && h.focus({ preventScroll: !0 });
 }
 function mnRail() {
@@ -203034,6 +203071,8 @@ function mnRail() {
     // the foot's Settings button: in the firm's workspace Settings is in the menu's foot
     rs = document.getElementById("rail-settings");
   if (!wrap || !mnOn(r)) return void (rs && (rs.style.display = ""));
+  // an overview opened by its module's name stays the overview only while it is the page on screen
+  mnOverV && view !== mnOverV && (mnOverV = "");
   const B = mnBuild(r),
     cur = mnCur(B);
   cur && (mnLastGrp = cur.g.id);
@@ -203050,7 +203089,13 @@ function mnRail() {
       const o = open === g.id,
         // the group's own page (All Projects, an overview), else its first: where a walk's "go to Accounting" lands
         main = g.items.find((it) => it.head && !it.job) || g.items.find((it) => !it.job);
-      return `<a href="#" role="button" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}" data-mnhead="${esc(g.id)}" aria-expanded="${o}" aria-controls="mn-k-${esc(g.id)}">${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><div class="mn-kids" id="mn-k-${esc(g.id)}" data-mngr="${esc(g.id)}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
+      // the name opens the module's overview (data-mnover: the page it opens) and is lit while that page is on screen;
+      // the chevron beside it only shows or hides the module's pages. The chevron is a link with a button's role, not a
+      // <button>: a press on a menu button leaves the record on screen (the "rail leaves record" listener), and the
+      // chevron changes nothing but the list. The name leaves the record as every entry does (that listener names it).
+      const here = !!cur && !!g.over && cur.g.id === g.id && cur.it === g.over,
+        id = esc(g.id);
+      return `<div class="mn-row"><a href="#" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}${here ? " here" : ""}" data-mnhead="${id}" data-mnover="${esc((g.over && g.over.v) || "")}" aria-expanded="${o}" aria-controls="mn-k-${id}"${here ? ' aria-current="page"' : ""}>${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><a href="#" role="button" class="mn-chev" data-mnchev="${id}" aria-expanded="${o}" aria-controls="mn-k-${id}" aria-label="${o ? "Hide" : "Show"} ${esc(g.n)} Pages" title="${o ? "Hide" : "Show"} ${esc(g.n)} Pages">${mnSvg(MN_CHEV)}</a></div><div class="mn-kids" id="mn-k-${id}" data-mngr="${id}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
     };
   let html = '<div class="mn-cap">Your Day</div>';
   if (B.field) {
@@ -203074,8 +203119,12 @@ function mnRail() {
     b.onclick = () => mnGo(g, it);
   });
   wrap.querySelectorAll("[data-mnhead]").forEach((a) => {
-    a.onclick = (e) => (e.preventDefault(), mnToggle(a.dataset.mnhead));
-    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(a.dataset.mnhead, 1));
+    a.onclick = (e) => (e.preventDefault(), mnOpen(a.dataset.mnhead));
+    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnOpen(a.dataset.mnhead, 1));
+  });
+  wrap.querySelectorAll("[data-mnchev]").forEach((b) => {
+    b.onclick = (e) => (e.preventDefault(), mnToggle(b.dataset.mnchev));
+    b.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(b.dataset.mnchev, 1));
   });
   rs && (rs.style.display = "none");
   // the strip under the header: a job's own pages while a job is open (with the job switcher); a Design page carries
@@ -203203,6 +203252,7 @@ if ("function" == typeof signIn) {
         M = u && MENU[u.role];
       (mnLastGrp = ""),
         (mnOpenG = null),
+        (mnOverV = ""),
         M && M.home && (ROLE_VIEWS[u.role] || []).includes(M.home) && view !== M.home && !document.body.classList.contains("ws-mb") && ((view = M.home), render());
     } catch (e) {}
     return out;
@@ -203271,6 +203321,64 @@ function mnApprLink() {
   q.insertAdjacentHTML("beforebegin", '<a href="#" class="td-more td2-more" data-mnappr>Open the Approvals Page</a>');
   v.querySelector("[data-mnappr]").onclick = (e) => (e.preventDefault(), (window.mApprKind = "all"), setView("mapprove"));
 }
+// The module overviews, as the page a module's name opens (Alan, 11-12; the PM reviewer's checklist of the same day).
+// Two small fills, each read from what the pages already count (no new store, list or number):
+//  - Purchasing: a link into each Purchasing page the person's menu lists, with that page's own Needs You (puCount, the
+//    menu's number), what waits on others, and its first rows by name: the dollars over an order or a line, the
+//    credits owed back, the late deliveries and the requests are one tap from the overview.
+//  - Projects: a job with no contract value (jobFin's contract, the number the table reads) says so above the table,
+//    with the way into its Contract and Billing: work on a job with nothing to bill against is work not billed.
+const OV_PG_ROWS = { proc: () => puNeeds(""), po: () => puOrderRows(""), rfq: () => puQuoteRows(), recv: () => puDelivRows(""), vendors: () => puVendorRows(), inv: () => puStockRows() },
+  OV_GO = '<path d="M9 6l6 6-6 6"/>';
+function ovFillBuy() {
+  const host = document.getElementById("ovbuy-body"),
+    list = document.getElementById("ov-list-ovbuy");
+  if ("ovbuy" !== view || !host || !list || "function" != typeof puCount || "object" != typeof PU_ROWS) return;
+  host.querySelectorAll("[data-ovpages]").forEach((x) => x.remove());
+  const g = mnGroupOf(mnBuild(role()), "buy"),
+    items = g ? g.items.filter((it) => !it.job && !it.tab && OV_PG_ROWS[it.v]) : [];
+  if (!items.length) return;
+  const html = items
+    .map((it, i) => {
+      let all = [],
+        mine = [];
+      try {
+        (all = OV_PG_ROWS[it.v]() || []), (mine = PU_ROWS[it.v]() || []);
+      } catch (e) {
+        console.warn("purchasing overview", it.v, e);
+      }
+      const ids = new Set(mine.map((x) => x.id)),
+        rest = all.filter((x) => !ids.has(x.id)),
+        top = mine.concat(rest).slice(0, 2).map((x) => x.name).filter(Boolean),
+        more = all.length - top.length,
+        say = `${mine.length ? `${mine.length} need${1 === mine.length ? "s" : ""} you` : "Nothing waits on you"}${rest.length ? ` \u00b7 ${rest.length} waiting on others` : ""}`,
+        tone = mine.some((x) => "bad" === x.tone) ? " bad" : mine.length ? " warn" : "";
+      return `<button type="button" class="ov-pg${tone}" data-ovpg="${i}"><span class="ov-pg-b"><b>${esc(it.l)}</b><span class="ov-pg-n" data-nocase>${esc(say)}</span>${top.length ? `<span class="ov-pg-s" data-nocase>${esc(top.join("; "))}${more > 0 ? `, and ${more} more` : ""}</span>` : ""}</span>${mnSvg(OV_GO)}</button>`;
+    })
+    .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-pages" data-ovpages="buy" role="group" aria-label="Purchasing Pages">${html}</div>`);
+  host.querySelectorAll("[data-ovpg]").forEach((b) => (b.onclick = () => mnGo(g, items[+b.dataset.ovpg])));
+}
+function ovFillJobs() {
+  const host = document.getElementById("ovjobs-body"),
+    list = document.getElementById("ov-list-ovjobs");
+  if ("ovjobs" !== view || !host || !list || "object" != typeof OV_BUILD || "function" != typeof OV_BUILD.jobs) return;
+  host.querySelectorAll("[data-ovflags]").forEach((x) => x.remove());
+  let rows = [];
+  try {
+    rows = OV_BUILD.jobs().filter((r) => r && r.p && r.J && !(r.J.contract > 0));
+  } catch (e) {
+    console.warn("projects overview", e);
+  }
+  if (!rows.length) return;
+  const may = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+    to = may("jbill") ? "jbill" : "dash",
+    html = rows
+      .map((r) => `<div class="ov-flag" data-ovflag="${esc(r.p.id)}"><span data-nocase><b>${esc(shortName(r.p))}</b> has no contract value. Work on it has nothing to bill against until an estimate is signed.</span><button type="button" class="btn sm" data-ovflaggo="${esc(r.p.id)}">${"jbill" === to ? "Open Contract and Billing" : "Open the Job"}</button></div>`)
+      .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-flags" data-ovflags="jobs">${html}</div>`);
+  host.querySelectorAll("[data-ovflaggo]").forEach((b) => (b.onclick = () => ("function" == typeof jpOpenJob ? jpOpenJob(b.dataset.ovflaggo, to) : (setCurrent(b.dataset.ovflaggo), setView(to)))));
+}
 {
   const base = render;
   render = function () {
@@ -203279,6 +203387,11 @@ function mnApprLink() {
       mnAsk(), mnHeading(), mnApprLink();
     } catch (e) {
       console.warn("menu headings", e);
+    }
+    try {
+      ovFillBuy(), ovFillJobs();
+    } catch (e) {
+      console.warn("module overviews", e);
     }
     return r;
   };

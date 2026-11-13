@@ -248,10 +248,14 @@ async def open_menu(pg, phone):
 async def head(pg, gid):
     return pg.locator(f'#nav-groups [data-mnhead="{gid}"]').first
 
+async def chev(pg, gid):
+    return pg.locator(f'#nav-groups [data-mnchev="{gid}"]').first
+
 async def ensure_open(pg, gid, phone):
-    """open a group by tapping its name, unless it is open"""
+    """show a group's pages by its chevron, unless they show (Alan, 11-12: the name opens the module's overview; the
+    chevron beside it shows or hides its pages)"""
     await open_menu(pg, phone)
-    h = await head(pg, gid)
+    h = await chev(pg, gid)
     if not await h.count(): return False
     if await h.get_attribute('aria-expanded') != 'true':
         await tap(pg, h, phone)
@@ -314,13 +318,15 @@ async def run_role(c, pg, u, phone, errs, reach, table):
         c.ok(st['sw'] <= st['w'], f'{tag}: the open menu scrolls sideways ({st["sw"]}px at {st["w"]})')
         short = [f"{e['label']} {e['h']}px" for e in M if e['vis'] and e['kind'] in ('top', 'head', 'kid', 'fbs') and e['h'] < 44]
         c.ok(not short, f'{tag}: entries under 44px tall: {short}')
-    # ---- OPEN: a group opens on its name; one at a time; the page stays; the phone's menu stays open
+    # ---- OPEN (Alan, 11-12; before: 11-03, a group opened on its name and carried no arrow): the chevron at the right
+    # of a group's name shows its pages; one at a time; the page stays; the phone's menu stays open. The name itself
+    # opens the module's overview (tests/menu_overview_test.py).
     heads = [e for e in M if e['kind'] == 'head']
-    c.ok(not any(e['arrow'] for e in M), f'{tag}: an arrow toggle beside a group')
     nav_w = await pg.evaluate("() => Math.round(document.getElementById('nav-groups').getBoundingClientRect().width)")
     v0 = await pg.evaluate('view')
     for h in heads:
-        loc = await head(pg, h['grp'])
+        loc = await chev(pg, h['grp'])
+        c.ok(await loc.count() == 1, f'{tag}: "{h["label"]}" has no chevron')
         if not await loc.count(): continue
         await open_menu(pg, phone)
         if await loc.get_attribute('aria-expanded') == 'true': await tap(pg, loc, phone)   # closed first
@@ -328,18 +334,19 @@ async def run_role(c, pg, u, phone, errs, reach, table):
         s = await pg.evaluate(f"""() => {{ const vis = e => !!e && e.getClientRects().length > 0 && !e.closest('[hidden]');
           const H = [...document.querySelectorAll('#nav-groups [data-mnhead]')];
           const me = document.querySelector('#nav-groups [data-mnhead="{h['grp']}"]'), kids = document.querySelector('#nav-groups [data-mngr="{h['grp']}"]');
-          const r = me.getBoundingClientRect();
+          const k = document.querySelector('#nav-groups [data-mnchev="{h['grp']}"]').getBoundingClientRect(), r0 = me.getBoundingClientRect();
+          const r = {{ width: k.right - r0.left, height: r0.height }};
           return {{ exp: me.getAttribute('aria-expanded'), kids: !!kids && vis(kids) && [...kids.querySelectorAll('button')].some(vis),
             others: H.filter(x => x !== me && x.getAttribute('aria-expanded') === 'true').map(x => x.dataset.mnhead), view, w: Math.round(r.width), h: Math.round(r.height),
             open: document.querySelector('.rail').classList.contains('open') }}; }}""")
-        c.ok(s['exp'] == 'true' and s['kids'], f'{tag}: tapping "{h["label"]}" opens it ({s})')
+        c.ok(s['exp'] == 'true' and s['kids'], f'{tag}: the chevron of "{h["label"]}" opens it ({s})')
         c.ok(not s['others'], f'{tag}: "{h["label"]}" open beside {s["others"]} (one group at a time)')
-        c.ok(s['view'] == v0, f'{tag}: tapping the group "{h["label"]}" changed the page to {s["view"]}')
-        c.ok(s['w'] >= nav_w - 24, f'{tag}: "{h["label"]}" is {s["w"]}px of a {nav_w}px menu (the whole row is the target)')
-        if phone: c.ok(s['open'], f'{tag}: the menu closed when "{h["label"]}" was tapped')
+        c.ok(s['view'] == v0, f'{tag}: the chevron of "{h["label"]}" changed the page to {s["view"]}')
+        c.ok(s['w'] >= nav_w - 24, f'{tag}: "{h["label"]}" and its chevron are {s["w"]}px of a {nav_w}px menu (the whole row is the target)')
+        if phone: c.ok(s['open'], f'{tag}: the menu closed when the chevron of "{h["label"]}" was tapped')
         await tap(pg, loc, phone)
         ex = await loc.get_attribute('aria-expanded')
-        c.ok(ex == 'false', f'{tag}: tapping "{h["label"]}" again leaves it {ex}')
+        c.ok(ex == 'false', f'{tag}: the chevron of "{h["label"]}" pressed again leaves it {ex}')
     # ---- NUMBERS: only where something waits, one style, each equals its page
     M = await pg.evaluate(MENU_JS)
     styles = set()

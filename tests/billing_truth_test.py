@@ -46,7 +46,7 @@ async def menu_tap(pg, v):
       if (!b) return null; const k = b.closest('[data-mngr]'); return k ? k.dataset.mngr : ''; }""", v)
     if head is None: return False
     if head:
-        h = pg.locator(f'#nav-groups [data-mnhead="{head}"]').first
+        h = pg.locator(f'#nav-groups [data-mnchev="{head}"]').first   # the chevron shows the pages (11-12: the name opens the overview)
         if await h.get_attribute('aria-expanded') != 'true': await h.click(); await pg.wait_for_timeout(200)
     await pg.locator(f'#nav-groups button[data-v="{v}"]:not([data-tab]):not([data-pid])').first.click()
     await pg.wait_for_timeout(400)

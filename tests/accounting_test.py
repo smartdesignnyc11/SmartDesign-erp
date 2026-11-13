@@ -55,7 +55,7 @@ async def go_entry(pg, label, phone):
     if phone:
         await pg.evaluate("() => { const b = document.querySelector('#menu-btn'); b && b.offsetParent && b.click(); }")
         await pg.wait_for_timeout(200)
-    head = pg.locator('#nav-groups [data-mnhead="money"]').first
+    head = pg.locator('#nav-groups [data-mnchev="money"]').first   # the chevron shows the pages (11-12: the name opens the overview)
     if await head.count():
         exp = await head.get_attribute('aria-expanded')
         if exp != 'true':

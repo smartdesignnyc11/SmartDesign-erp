@@ -765,7 +765,8 @@ function acGoChip(pg, k) {
   const base = setView;
   setView = function (v) {
     try {
-      const f = AC_FWD[v];
+      // (the Accounting overview opened by the module's name in the menu is the overview: Alan, 11-12; mnOverV)
+      const f = v !== mnOverV && AC_FWD[v];
       f && acMay(f[0]) && ((acChip[f[0]] = f[1]), (v = f[0]));
       // Books opens on its Close (the controller's first question: can I close the month?); on the phone, where the close
       // is read and not run (SPEC §2 Books, 9), on its Ledger
@@ -778,7 +779,7 @@ function acGoChip(pg, k) {
   const base = render;
   render = function () {
     try {
-      const f = AC_FWD[view];
+      const f = view !== mnOverV && AC_FWD[view];
       f && acMay(f[0]) && ((acChip[f[0]] = f[1]), (view = f[0]));
       acPrep();
     } catch (e) {}

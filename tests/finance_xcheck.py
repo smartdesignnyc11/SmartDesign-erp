@@ -209,7 +209,7 @@ async def nav(pg, grp, sub=None, tabs=()):
     # the 11-03 menu lists each page under its group, which opens on its name (no sub-nav strip): the group, then the page
     target = sub or {'jobs': 'ovjobs'}.get(grp, grp)
     await pg.evaluate("""v => { const b = document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`); if (!b) return false;
-      const k = b.closest('[data-mngr]'), h = k && document.querySelector(`#nav-groups [data-mnhead="${k.dataset.mngr}"]`);
+      const k = b.closest('[data-mngr]'), h = k && document.querySelector(`#nav-groups [data-mnchev="${k.dataset.mngr}"]`);
       h && h.getAttribute('aria-expanded') !== 'true' && h.click();
       document.querySelector(`#nav-groups button[data-v="${v}"]:not([data-tab]):not([data-pid])`).click(); return true; }""", target)
     await pg.wait_for_timeout(200)
