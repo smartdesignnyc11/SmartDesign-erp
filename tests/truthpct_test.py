@@ -60,8 +60,8 @@ async def sec_fin(p, c):
     r = await pg.evaluate(f"""() => {{ const b = DB.bills.find(x => x.number === 'WW-2026-118');
         pay3ShortPay(b, 29700, 'Invoice is for 10 units; PO was 9');
         const J = jobFin({J121}); return {{ eac: J.eac, win: (J.eacLines.find(x => x.name.startsWith('Windows')) || {{}}).over, held: b.short && b.short.held }} }}""")
-    c.ok(r['held'] == 3800 and r['eac'] == 385087.5 and r['win'] == 0,
-         f"short-paid WW-2026-118 counts only $29,700: EAC {r['eac']} (385,087.50), Windows over {r['win']}, held {r['held']}")
+    c.ok(r['held'] == 3800 and r['eac'] == 386553.55 and r['win'] == 0,
+         f"short-paid WW-2026-118 counts only $29,700: EAC {r['eac']} (386,553.55: 385,087.50 by line + 1,466.05 on no estimate line, lane F), Windows over {r['win']}, held {r['held']}")
     # A PM-reviewed cost to complete wins
     r = await pg.evaluate(f"""() => {{ const p = {J121}; p.ctc = 300000; p.ctcReviewed = '2026-09-03';
         const J = jobFin(p); const out = {{ eac: J.eac, actual: J.actual, lines: !!J.eacFromLines }}; delete p.ctc; delete p.ctcReviewed; return out }}""")
