@@ -181,7 +181,9 @@ async def t_labels(c, p):
     await b.close()
     b, pg, errs = await fresh(p, 'u_alex', True)
     r = await js(pg, """
-      setCurrent('p121'); DB.time = DB.time.filter(t => !(t.empId === 'em3' && !t.out));
+      // his day for today out of the way: with a day already closed and sent, Clock In asks first (Start Another Shift,
+      // tests/fieldclock_test.py); this check is that Route's Clock In clocks in and keeps him on Route
+      setCurrent('p121'); DB.time = DB.time.filter(t => !(t.empId === 'em3' && (!t.out || t.date === today())));
       view = 'route'; render(); await sleep(250);
       const btn = document.getElementById('fm-rclock'); const lab = btn && btn.innerText;
       btn && btn.click(); await sleep(400);

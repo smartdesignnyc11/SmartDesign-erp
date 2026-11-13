@@ -18,10 +18,12 @@ Each check is the reviewer's own steps, at 390x844 with touch, on invented data.
                   Short / Damaged / Wrong, the slip's photo. A material with an open order behind it opens the same
                   sheet.
 The crew and driver review (11-12):
-  today     S1    No punch ends after the app's clock: a fresh demo has no closed day for today for anyone who clocks.
-                  A first Clock In is one clean punch. With today's day already closed and sent, Clock In says so and
-                  offers Start Another Shift before anything is punched, by hand and by location; a lunch break is
-                  not asked about.
+  today     S1    Clock In looks at today before it punches. With today's day already closed and sent (the demo's
+                  crew), Clock In says so and offers Start Another Shift before anything is punched, by hand and by
+                  location; with no day for today the first Clock In is one clean punch; a lunch break is not asked
+                  about. The seed keeps every field punch in the open month (11-13: dating the waiting days 8/31
+                  moved closed August's earned revenue by $1,746.02), and a clock-in day leaves a closed month's
+                  revenue and work in progress exactly as they were.
   driver    S2    The driver has Deliveries: Receive a Delivery on Route, every job's orders, and Receive opens the one
                   receive sheet (counts, Good / Short / Damaged / Wrong, the slip's photo).
   donephoto S2    Done stays one tap and then offers a photo: Add a Photo opens the camera and the photo lands on the
@@ -252,7 +254,7 @@ async def s_overlap(pg, c):
     r = await pg.evaluate(PAIR, [base['id'], auto])
     await shot(pg, 'overlap_crew_closed')
     c.ok(r['weekPick'] and r['hoursPick'] and not r['approve'] and '1:00 PM' in ' '.join(r['hours']), f"overlap: closed, the pair still reads Pick One and not Approve ({r['hours']}, {r['approve']})")
-    c.ok('4 days' in r['week'], f"overlap: two punches on one day are one day worked (8/31, 9/1, 9/2 and today) ({r['week'][:80]!r})")
+    c.ok('3 days' in r['week'], f"overlap: two punches on one day are one day worked (9/1, 9/2 and today) ({r['week'][:80]!r})")
     # Approve refuses, wherever it is pressed, and says why
     ST = "([a, b]) => [a, b].map(id => DB.time.find(t => t.id === id).status)"
     said = await pg.evaluate("id => { const why = timeApprove(DB.time.find(t => t.id === id), 'Angel'); return [why, (document.getElementById('toast') || {}).innerText || '']; }", base['id'])
@@ -386,37 +388,30 @@ async def s_receive(pg, c):
 
 
 async def s_today(pg, c):
-    """S1 (crew review): no punch ends after the app's clock; Clock In looks at today before it punches"""
-    r = await pg.evaluate("""() => { const now = appNowIso(), td = today(), first = td + 'T07:30:00';
-      const field = new Set(DB.users.filter(u => /^(foreman|crew|driver)$/.test(u.role) || ['u_angel', 'u_alberto', 'u_alex', 'u_satish'].includes(u.id)).map(u => u.employeeId).filter(Boolean));
-      const T = DB.time.filter(t => field.has(t.empId));
-      const say = t => [t.id, empName(t.empId), t.in, t.out, t.status];
-      return { now, n: T.length, ahead: T.filter(t => (t.out && t.out > now) || (t.in && t.in > now)).map(say),
-               // the demo's clock reads 7:30 AM at the earliest: a closed punch for today would end after it at some hour
-               today: T.filter(t => t.date === td && t.out && t.out > first).map(say), waiting: T.filter(t => t.status === 'submitted').length }; }""")
-    c.ok(r['n'] > 0 and not r['ahead'], f"today: no punch of anyone who clocks ends (or starts) after the app's clock, {r['now'][11:16]} ({r['ahead']})")
-    c.ok(not r['today'], f"today: a fresh demo has no closed day for today, at whatever hour it is opened ({r['today']})")
-    c.ok(r['waiting'] >= 3, f"today: the foreman still has days waiting on approval ({r['waiting']})")
-    for uid, view, sel in (('u_alberto', 'time', '#clock-in'), ('u_alex', 'time', '#clock-in')):
-        await sign_in(pg, uid); await go(pg, view)
-        await pg.evaluate("() => { window.getGeo = async () => null; delete currentUser().geoAck; }")
-        r = await pg.evaluate("() => { const e = myEmp(); return { btn: (document.querySelector('#clock-in') || {}).innerText || '', rows: [...document.querySelectorAll('#time-table tr[data-edit]')].filter(x => x.getClientRects().length).length, mine: DB.time.filter(t => t.empId === e.id && t.date === today()).length }; }")
-        c.ok(r['btn'] == 'Clock In' and r['mine'] == 0, f"today: {uid} starts the day not clocked in, with no entry for today ({r})")
-        await tap(pg, sel)
-        await pg.wait_for_timeout(500)
-        r = await pg.evaluate("() => { const e = myEmp(), L = DB.time.filter(t => t.empId === e.id && t.date === today()); return { n: L.length, open: L.filter(t => !t.out).length, of: L.map(t => t.overlapOf || '').join(''), ov: tkTimeOverlaps(e.id).length, modal: !!document.getElementById('mbm'), toast: (document.getElementById('toast') || {}).innerText || '' }; }")
-        await shot(pg, f'today_first_clockin_{uid}')
-        c.ok(r['n'] == 1 and r['open'] == 1 and not r['of'] and r['ov'] == 0 and not r['modal'] and 'already' not in r['toast'], f"today: {uid}'s first Clock In is one clean punch, nothing for the foreman to sort out ({r})")
-    # Alberto's day closes and is sent; Clock In again says so before it punches
+    """S1 (crew review): Clock In looks at today before it punches; a closed month never moves"""
+    await sign_in(pg, 'u_owner')
+    # what a closed month reads: August's revenue, and 121 State's cost, earned revenue and work in progress as of 8/31
+    CLOSED = """() => { const p = DB.projects.find(x => x.id === 'p121'), J = jobFin(p, ['', '2026-08-31']), r = v => Math.round((+v || 0) * 100) / 100;
+      return { aug: r(companyPL(['2026-08-01', '2026-08-31']).income), cost: r(J.cost), earned: r(J.earned), over: r(J.overUnder), eac: r(J.eac) }; }"""
+    before = await pg.evaluate(CLOSED)
+    r = await pg.evaluate("""() => { const td = today(), month = td.slice(0, 7);
+      const field = new Set(DB.users.filter(u => ['u_angel', 'u_alberto', 'u_alex', 'u_satish'].includes(u.id)).map(u => u.employeeId).filter(Boolean));
+      const T = DB.time.filter(t => field.has(t.empId)), say = t => [t.id, empName(t.empId), t.date, t.status];
+      return { n: T.length, early: T.filter(t => t.date.slice(0, 7) < month).map(say), ahead: T.filter(t => t.date > td).map(say), waiting: T.filter(t => t.status === 'submitted').map(t => t.date) }; }""")
+    c.ok(r['n'] > 0 and not r['early'], f"today: the seed dates no field punch in a month before the open one ({r['early']})")
+    c.ok(not r['ahead'], f"today: and none on a day to come ({r['ahead']})")
+    c.ok(len(r['waiting']) >= 3, f"today: the foreman has days waiting on approval ({r['waiting']})")
+    # Alberto's 9/3 is closed and sent: Clock In says so before it punches
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
-    await pg.evaluate("""() => { const e = myEmp(), t = DB.time.find(x => x.empId === e.id && !x.out), td = today();
-      t.in = td + 'T07:30:00'; t.out = td + 'T07:31:00'; t.status = 'submitted'; t.work = [{ projectId: t.projectId, code: '05', hours: 0.02, note: '' }]; save(); render(); }""")
+    await pg.evaluate("() => { window.getGeo = async () => null; delete currentUser().geoAck; }")
+    day = await pg.evaluate("() => { const e = myEmp(), d = DB.time.find(t => t.empId === e.id && t.date === today() && t.out && t.status === 'submitted'); return d ? { id: d.id, ahead: d.out > appNowIso() } : null; }")
+    c.ok(bool(day), f"today: Alberto's day is closed and sent for approval ({day})")
     n0 = await pg.evaluate("() => DB.time.length")
     await tap(pg, '#clock-in')
     await pg.wait_for_timeout(300)
     t = await mbm_text(pg)
     await shot(pg, 'today_already_sent')
-    c.ok('already sent for approval' in t and '7:30 AM to 7:31 AM' in t and 'Start Another Shift' in t and await pg.evaluate("() => DB.time.length") == n0, f'today: with the day closed and sent, Clock In says so and punches nothing ({t[:120]!r})')
+    c.ok('already sent for approval' in t and '7:12 AM to 4:48 PM' in t and 'Start Another Shift' in t and await pg.evaluate("() => DB.time.length") == n0, f'today: with the day closed and sent, Clock In says so and punches nothing ({t[:120]!r})')
     r = await pg.evaluate("() => { const b = document.querySelector('#mbm #mbm-ok'), k = document.querySelector('#mbm #mbm-cancel'); const h = e => e ? Math.round(e.getBoundingClientRect().height) : 0; return { ok: h(b), no: h(k), noText: k ? k.innerText : '', side: document.documentElement.scrollWidth - innerWidth }; }")
     c.ok(r['ok'] >= 44 and r['no'] >= 44 and r['noText'] == 'Not Now' and r['side'] <= 0, f'today: Start Another Shift and Not Now are 44px targets ({r})')
     await tap(pg, '#mbm #mbm-cancel')
@@ -424,8 +419,10 @@ async def s_today(pg, c):
     await tap(pg, '#clock-in')
     await tap(pg, '#mbm #mbm-ok')
     await pg.wait_for_timeout(500)
-    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, of: nw ? nw.overlapOf || '' : 'none', ov: tkTimeOverlaps(e.id).length }; }", n0)
-    c.ok(r['n'] == 1 and r['of'] == '' and r['ov'] == 0, f'today: Start Another Shift starts a second shift that overlaps nothing ({r})')
+    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, of: nw ? nw.overlapOf || '' : 'none', toast: (document.getElementById('toast') || {}).innerText || '' }; }", n0)
+    # the seeded day ends at 4:48 PM: before then a second shift overlaps it and says so; after it, it is clean
+    want = day['id'] if day and day['ahead'] else ''
+    c.ok(r['n'] == 1 and r['of'] == want and (not want or 'not counted twice' in r['toast']), f"today: Start Another Shift punches once, marked as overlapping only while the sent day has not ended ({r}, want overlap of {want!r})")
     # the automatic clock asks the same way
     await pg.evaluate("() => { const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && !t.out)); tkGeoAgree(currentUser()); }")
     n0 = await pg.evaluate("() => DB.time.length")
@@ -433,16 +430,27 @@ async def s_today(pg, c):
     toast = await pg.evaluate(TOAST)
     c.ok(res.get('did') == 'asked' and await pg.evaluate("() => DB.time.length") == n0 and 'already sent for approval' in toast and 'Start Another Shift' in toast, f'today: the automatic clock asks too, and punches nothing ({res}, {toast[:80]!r})')
     await tap(pg, '#toast a, #toast button', 'Start Another Shift')
-    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, src: nw && nw.source, ov: tkTimeOverlaps(e.id).length }; }", n0)
-    c.ok(r['n'] == 1 and r['src'] == 'geo' and r['ov'] == 0, f'today: Start Another Shift there makes the automatic punch ({r})')
-    # a lunch break (closed, not sent) is not asked about
+    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, src: nw && nw.source, of: nw && nw.overlapOf }; }", n0)
+    c.ok(r['n'] == 1 and r['src'] == 'geo' and r['of'] == (day or {}).get('id'), f'today: Start Another Shift there makes the automatic punch, marked against the day it sits in ({r})')
+    # the driver, with no day for today: the first Clock In is one clean punch; back from a break it just clocks in
     await sign_in(pg, 'u_alex'); await go(pg, 'time')
-    await pg.evaluate("() => { window.getGeo = async () => null; const e = myEmp(), t = DB.time.find(x => x.empId === e.id && !x.out), td = today(); t.in = td + 'T07:30:00'; t.out = td + 'T07:31:00'; t.status = 'open'; save(); render(); }")
+    await pg.evaluate("() => { window.getGeo = async () => null; const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === today())); save(); render(); }")
+    await tap(pg, '#clock-in')
+    await pg.wait_for_timeout(500)
+    r = await pg.evaluate("() => { const e = myEmp(), L = DB.time.filter(t => t.empId === e.id && t.date === today()); return { n: L.length, open: L.filter(t => !t.out).length, of: L.map(t => t.overlapOf || '').join(''), ov: tkTimeOverlaps(e.id).length, modal: !!document.getElementById('mbm'), toast: (document.getElementById('toast') || {}).innerText || '' }; }")
+    await shot(pg, 'today_first_clockin')
+    c.ok(r['n'] == 1 and r['open'] == 1 and not r['of'] and r['ov'] == 0 and not r['modal'] and 'already' not in r['toast'], f"today: with no day for today, the first Clock In is one clean punch ({r})")
+    await pg.evaluate("() => { const e = myEmp(), t = DB.time.find(x => x.empId === e.id && !x.out), td = today(); t.in = td + 'T07:30:00'; t.out = td + 'T07:31:00'; t.status = 'open'; save(); render(); }")
     n0 = await pg.evaluate("() => DB.time.length")
     await tap(pg, '#clock-in')
     await pg.wait_for_timeout(500)
     r = await pg.evaluate("n0 => ({ n: DB.time.length - n0, modal: !!document.getElementById('mbm') })", n0)
     c.ok(r['n'] == 1 and not r['modal'], f'today: back from a break, Clock In just clocks in ({r})')
+    # a clock-in day moves nothing in a closed month: August's revenue, and 121 State's cost, earned and WIP at 8/31
+    await sign_in(pg, 'u_owner')
+    punched = await pg.evaluate("() => DB.time.filter(t => t.date === today() && /^(phone|geo)$/.test(t.source || '')).length")
+    after = await pg.evaluate(CLOSED)
+    c.ok(punched >= 3 and after == before, f"today: after {punched} punches today, closed August reads exactly as before ({before} -> {after})")
 
 
 async def s_driver(pg, c):

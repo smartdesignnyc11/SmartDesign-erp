@@ -15171,12 +15171,13 @@ function seedCrew() {
     };
     return (e.work = [{ projectId: proj, code: code, hours: hoursOf(e), note: "" }]), e;
   };
-  // A seed never writes a punch that ends after the app's clock (the crew's review, 11-12). The four days waiting on
-  // the foreman were dated the demo day itself and closed at 2:00 to 4:48 PM, while the demo's clock reads anywhere
-  // from 7:30 AM to 5:30 PM: Alberto opened the app at 3:20 PM to a day already ended at 4:48 PM and sent, and his
-  // first Clock In made a double punch. They are Monday's days now (8/31, the first day of the same week and pay
-  // period, still waiting on the foreman), so nobody has hours for today until they clock in. Every entry, its hours
-  // and its status are otherwise as they were: the year's figures do not move (tests/baseline_test.py).
+  // The four days waiting on the foreman are dated the demo day itself (9/3), as they always were. On 11-12 they
+  // were moved to Monday 8/31 so that nobody had a day already closed "today" at whatever hour the demo's clock
+  // read; that put 30.1 hours of 121 State labour (1,119.80 at their rates, 1,366.16 with burden) into August, a
+  // closed month, and its cost-to-cost earned revenue moved by 1,746.02 (closetie_test, truthpct_test). A closed
+  // month's figures never move, and September has no free day before the 3rd for the same three people (9/1 and 9/2
+  // hold their approved days), so the days stay on 9/3. Clock In looks at today before it punches instead
+  // (tkTodaySent, src/taskfield.js): a day already closed and sent is said, with Start Another Shift.
   (DB.time = [
     mk("te1", "em1", "2026-09-01", "07:02", "15:34", 30, "p121", "07", !0),
     mk("te2", "em2", "2026-09-01", "07:10", "16:05", 30, "p121", "03", !0),
@@ -15184,11 +15185,11 @@ function seedCrew() {
     mk("te4", "em1", "2026-09-02", "06:58", "15:40", 30, "p121", "12", !0),
     mk("te5", "em2", "2026-09-02", "07:05", "15:35", 30, "p121", "03", !0),
     mk("te6", "em3", "2026-09-02", "07:45", "15:30", 30, "p121", "12", !0),
-    mk("te7", "em1", "2026-08-31", "07:00", "15:30", 30, "p121", "12", !1),
+    mk("te7", "em1", "2026-09-03", "07:00", "15:30", 30, "p121", "12", !1),
     mk(
       "te8",
       "em2",
-      "2026-08-31",
+      "2026-09-03",
       "07:12",
       "16:48",
       30,
@@ -15197,8 +15198,8 @@ function seedCrew() {
       !1,
       "Plumbing prep — stayed late for the inspector walk",
     ),
-    mk("te9", "em3", "2026-08-31", "08:02", "15:30", 30, "p121", "12", !1),
-    mk("te10", "em4", "2026-08-31", "08:00", "14:00", 0, "p121", "06", !1),
+    mk("te9", "em3", "2026-09-03", "08:02", "15:30", 30, "p121", "12", !1),
+    mk("te10", "em4", "2026-09-03", "08:00", "14:00", 0, "p121", "06", !1),
   ]),
     (DB.time.find((t) => "te10" === t.id).geoIn = { lat: 40.728, lng: -73.99, dist: 4200 }),
     (DB.time.find((t) => "te8" === t.id).work = [
