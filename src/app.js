@@ -1219,7 +1219,13 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
+// A line the firm does not price (lane P, 11-12): Excluded (out of the scope, printed so the client sees it is not
+// in the price) or TBD (to be priced). It prints its item with the word where the amount was and counts $0 in the
+// line's amount, its budget, the document's totals and the schedule of values built from it. One test, used by all.
+const lineUnpriced = (l) => !!(l && (l.excluded || l.tbd)),
+  lineUnpricedWord = (l) => (l && l.excluded ? "Excluded" : l && l.tbd ? "TBD" : "");
 function lineAmount(l, doc) {
+  if (lineUnpriced(l)) return 0;
   if (doc && "sov" === doc.mode) {
     // stored materials bill their dollars (G703 column F), not a percentage rounded to two places: $23,400 stored
     // on a $32,000 line was 73.13% = $23,401.60. The rest of the line's % is work in place.
@@ -1324,6 +1330,7 @@ function clientFin(c) {
     pctBilled: sovTotal ? Math.round((sovBilledAmt / sovTotal) * 100) : 0,
   };
 }
+const HVAC_CODE_NAME = "HVAC & mechanical";
 const COST_CODES = [
     ["01", "General conditions & supervision", ["close", "insp"]],
     ["02", "Demolition & disposal", ["demo"]],
@@ -9155,6 +9162,37 @@ function renderFinTab(c, f, projs) {
     head + `<div class="card">${body}</div>`
   );
 }
+// A line's section and whether it is priced (lane P, 11-12), under the item in the simple editor. The section is the
+// heading the client's document prints the line under, with that section's subtotal ("PLUMBING $124,500"); the
+// document's own sections are offered so the same one is picked, not retyped. Priced / Excluded / TBD: an Excluded
+// or TBD line prints its item with that word where the amount was and counts $0 (lineUnpriced).
+const docSections = (d) => [...new Set(((d && d.lines) || []).map((l) => String(l.group || "").trim()).filter(Boolean))],
+  docSectionsListHtml = (d) => `<datalist id="doc-sections-${esc(d.id)}">${docSections(d).map((g) => `<option value="${esc(g)}"></option>`).join("")}</datalist>`,
+  docLinePricing = (l) => (l && l.excluded ? "excluded" : l && l.tbd ? "tbd" : "priced");
+function docLineSectionHtml(d, l, editable, kind) {
+  const sec = String(l.group || ""),
+    st = docLinePricing(l);
+  if (!editable && !sec && "priced" === st) return "";
+  return `<div class="ln-sec no-doc-print"><input data-f="group" value="${esc(sec)}" placeholder="Section" title="The heading this line prints under, with the section's subtotal" aria-label="Section" list="doc-sections-${esc(d.id)}" ${editable ? "" : "readonly"}>${"invoice" === kind && "priced" === st ? "" : `<select data-f="pricing" title="Priced, excluded from the scope, or to be priced" aria-label="Pricing" ${editable ? "" : "disabled"}>${[["priced", "Priced"], ["excluded", "Excluded"], ["tbd", "TBD"]].map(([v, n]) => `<option value="${v}" ${v === st ? "selected" : ""}>${n}</option>`).join("")}</select>`}</div>`;
+}
+// Priced / Excluded / TBD on a line. The flag is what counts (lineAmount and lineBudget read it); the rate and the
+// budget cost a person typed are set aside and zeroed as well, so nothing that reads a line's rate or cost on its own
+// can count an unpriced line, and they come back when the line is priced again.
+function docLineSetPricing(l, v) {
+  const was = docLinePricing(l);
+  if (!["priced", "excluded", "tbd"].includes(v) || v === was) return;
+  if ("priced" === was) {
+    (l.pricedWas = { rate: l.rate, cost: l.cost, costSet: l.costSet }), (l.rate = 0);
+    l.cost && ((l.cost = ""), (l.costSet = !1));
+  }
+  delete l.excluded, delete l.tbd;
+  "excluded" === v ? (l.excluded = !0) : "tbd" === v && (l.tbd = !0);
+  if ("priced" === v && l.pricedWas) {
+    +l.rate || (l.rate = l.pricedWas.rate || 0);
+    l.cost || !l.pricedWas.cost || ((l.cost = l.pricedWas.cost), (l.costSet = l.pricedWas.costSet));
+    delete l.pricedWas;
+  }
+}
 function renderDocEditor(c, d) {
   if (!d) return '<div class="empty">Document not found.</div>';
   const kind = d.type,
@@ -9196,7 +9234,7 @@ function renderDocEditor(c, d) {
                 .join(
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
-            : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
+            : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}>${docLineSectionHtml(d, l, editable, kind)}</td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${lineUnpriced(l) ? `<span class="muted" style="font-weight:400">${lineUnpricedWord(l)}</span>` : money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${docSectionsListHtml(d)}${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
   return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}${"invoice" === kind && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005 ? `<span class="pill warn" style="margin-left:6px" data-unbanked="${r2(invoiceUnbanked(c, d))}">${money(invoiceUnbanked(c, d))} recorded, not yet in the bank</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}${((p) => (p ? " · " + esc(p.project.name) : ""))((DB.projects || []).find((x) => x.id === d.projectId))}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
@@ -9558,13 +9596,20 @@ function wireDocEditor(c) {
         inp.addEventListener("change", (e) => {
           const f = e.target.dataset.f;
           if ("taxable" === f) l.taxable = e.target.checked;
+          else if ("pricing" === f) docLineSetPricing(l, e.target.value);
+          else if ("group" === f) {
+            (l.group = e.target.value.trim()), l.group || delete l.group;
+            // the other lines are offered the section just typed, without redrawing the table under the cursor
+            const dl = document.getElementById("doc-sections-" + d.id);
+            dl && (dl.outerHTML = docSectionsListHtml(d));
+          }
           else if (["qty", "rate", "pct", "cost"].includes(f)) {
             let v = +e.target.value || 0;
             "pct" === f && ((v = Math.min(v, 100 - (+l.prevPct || 0))), (l.pctByHand = !0)),
               "cost" === f && ((l.costSet = "" !== String(e.target.value).trim()), l.costSet || (v = "")),
               (l[f] = v);
           } else l[f] = e.target.value;
-          save(), ("function" == typeof rxLineSync && rxLineSync(c, d)) || rerender();
+          save(), ("pricing" !== f && "function" == typeof rxLineSync && rxLineSync(c, d)) || rerender();
         }),
       );
     }),
@@ -9720,6 +9765,22 @@ function docMarkSentSheet(c, d) {
     },
   );
 }
+// The schedule-of-values lines an estimate becomes: one per priced line, in the estimate's order. An Excluded or TBD
+// line is no part of the contract, so it gets no line to bill against (a TBD line priced later comes in by change order).
+function sovLinesFromEstimate(c, d, t) {
+  const k = t.sub ? (t.sub - t.disc + t.tax) / t.sub : 1;
+  return (d.lines || [])
+    .filter((l) => !lineUnpriced(l))
+    .map((l, i) => ({
+      id: uid("sv"),
+      taxable: !!l.taxable,
+      desc: (l.num ? l.num + ". " : "") + (l.item || l.desc),
+      scheduled: r2(lineAmount(l, d) * k),
+      source: "Contract",
+      order: i,
+      lineRef: `estimate:${d.id}:${l.id}`,
+    }));
+}
 async function docAction(c, d, a) {
   if ("marksent" === a) return "draft" === d.status ? docMarkSentSheet(c, d) : void 0;
   const k = d.type,
@@ -9810,23 +9871,10 @@ async function docAction(c, d, a) {
       (c.contractDate = today()),
       (c.sov = c.sov.filter((v) => "Contract" !== v.source)),
       "construction" === d.template && ctNumber(d),
-      d.lines
-        .slice()
-        .reverse()
-        .forEach((l, i) =>
-          c.sov.unshift({
-            id: uid("sv"),
-            taxable: !!l.taxable,
-            desc: (l.num ? l.num + ". " : "") + (l.item || l.desc),
-            scheduled: r2(lineAmount(l, d) * (t.sub ? (t.sub - t.disc + t.tax) / t.sub : 1)),
-            source: "Contract",
-            order: i,
-            lineRef: `estimate:${d.id}:${l.id}`,
-          }),
-        ),
+      c.sov.unshift(...sovLinesFromEstimate(c, d, t)),
       c.sov.forEach((v, i) => (v.order = i)),
       (d.status = "converted"),
-      act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.length} SOV lines`),
+      act(`${d.number} converted — contract ${money(t.total)}, ${d.lines.filter((l) => !lineUnpriced(l)).length} SOV lines`),
       docMark(d),
       // never a second job: an estimate with no job goes on the job named above (estJobFor), and says so
       !d.projectId &&
@@ -10806,6 +10854,16 @@ const LINE_KW = [
     ["inspect", "14"],
     ["general cond", "01"],
     ["supervis", "01"],
+    // HVAC and mechanical, last on purpose: only a line no earlier word claims lands here, so no line that had a
+    // code by its words moves. The third entry marks them for codesInit, which keeps them on the HVAC code's number.
+    ["hvac", "22", "hvac"],
+    ["ductwork", "22", "hvac"],
+    ["air handler", "22", "hvac"],
+    ["condenser", "22", "hvac"],
+    ["mini-split", "22", "hvac"],
+    ["mini split", "22", "hvac"],
+    ["ventilation", "22", "hvac"],
+    ["mechanical", "22", "hvac"],
   ],
   codeForLine = (l) =>
     (LINE_KW.find(([w]) => ((l.item || "") + " " + (l.desc || "")).toLowerCase().includes(w)) || [
@@ -38700,6 +38758,9 @@ const txnStateBase = txnState;
     ["19", "Filing & expediting", ["file"]],
     ["20", "Testing & surveys", ["test"]],
     ["21", "Special inspections", ["sinsp"]],
+    // HVAC and mechanical (lane P, 11-12): a real estimate's HVAC lines sat on 99 Unassigned. The next free number,
+    // added here so the list stays in number order. Nothing stored is moved: a record keeps the code it was given.
+    ["22", HVAC_CODE_NAME, ["hvac"]],
   ].forEach((c) => {
     COST_CODES.some((x) => x[0] === c[0]) || COST_CODES.splice(COST_CODES.length - 1, 0, c);
   });
@@ -38707,7 +38768,7 @@ const LINE_CATS = {
     design: { n: "Design", codes: ["15", "16", "17", "18", "19", "20", "21", "14"] },
     construction: {
       n: "Construction",
-      codes: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14"],
+      codes: ["01", "02", "03", "04", "05", "06", "22", "07", "08", "09", "10", "11", "12", "13", "14"],
     },
     materials: { n: "Finish materials", codes: ["04", "08", "09", "10", "11", "13"] },
   },
@@ -38744,6 +38805,7 @@ function targetMarginFor(cat) {
   return +(DB.company.targetMargin || {})[cat] || +DB.company.minMargin || 20;
 }
 function lineBudget(l, d) {
+  if (lineUnpriced(l)) return { budget: 0, defaulted: !1 };
   const cost = +l.cost || 0;
   if (cost) return { budget: cost, defaulted: !1 };
   // a line whose budget a person typed as 0 (a builder's fee, a markup) has no cost: never a default budget, which
@@ -40457,7 +40519,7 @@ function sovSplitLump(c) {
   if (!est) return !1;
   const t = docTotal(est),
     factor = t.sub ? (t.sub - t.disc + t.tax) / t.sub : 1,
-    lines = "construction" === est.template ? (ctNumber(est), ctOrdered(est)) : est.lines,
+    lines = ("construction" === est.template ? (ctNumber(est), ctOrdered(est)) : est.lines).filter((l) => !lineUnpriced(l)),
     sum = r2(lines.reduce((a, l) => a + lineAmount(l, est) * factor, 0));
   if (Math.abs(sum - (+lump.scheduled || 0)) > Math.max(1, 0.005 * lump.scheduled)) return !1;
   const made = lines.map((l, i) => ({
@@ -40744,6 +40806,20 @@ function libSeed() {
     (DB.__libv = 1);
 }
 function codesInit() {
+  // A workspace that already gave its own code the number the HVAC code ships with keeps it (its records say that
+  // number and mean that code); HVAC then takes the next free number. No stored record is touched either way.
+  const own = DB.company.customCodes || [],
+    hv = COST_CODES.find((x) => HVAC_CODE_NAME === x[1] && (x[2] || []).includes("hvac"));
+  if (hv) {
+    if (own.some(([code, name]) => code === hv[0] && name !== HVAC_CODE_NAME)) {
+      const was = hv[0],
+        used = new Set([...COST_CODES.filter((x) => x !== hv).map((x) => x[0]), ...own.map((x) => x[0])]);
+      let n = +was;
+      for (; used.has(String(n).padStart(2, "0")); ) n++;
+      (hv[0] = String(n).padStart(2, "0")), (LINE_CATS.construction.codes = LINE_CATS.construction.codes.map((c) => (c === was ? hv[0] : c)));
+    }
+    LINE_KW.forEach((k) => "hvac" === k[2] && (k[1] = hv[0]));
+  }
   (DB.company.customCodes || []).forEach(([code, name, cat]) => {
     COST_CODES.some((x) => x[0] === code) || COST_CODES.splice(COST_CODES.length - 1, 0, [code, name, []]),
       LINE_CATS[cat] && !LINE_CATS[cat].codes.includes(code) && LINE_CATS[cat].codes.push(code);
@@ -67046,7 +67122,7 @@ if ("function" == typeof renderTime) {
     return r;
   };
 }
-const fmShipOn = (l) => r2((+l.shipping || 0) * (1 + (+l.shipMarkupPct || 0) / 100)),
+const fmShipOn = (l) => (lineUnpriced(l) ? 0 : r2((+l.shipping || 0) * (1 + (+l.shipMarkupPct || 0) / 100))),
   lineAmountBase_fmfix = lineAmount;
 lineAmount = function (l, doc) {
   const base = lineAmountBase_fmfix(l, doc);
@@ -67077,7 +67153,7 @@ function fmDefaultMarkup() {
     : 10;
 }
 lineBudget = function (l, d) {
-  const unit = +l.cost || 0;
+  const unit = lineUnpriced(l) ? 0 : +l.cost || 0;
   return unit && fmIsFinishLine(l, d) && d && "sov" !== d.mode
     ? { budget: r2((+l.qty || 0) * unit + (+l.shipping || 0)), defaulted: !1 }
     : lineBudgetBase_fmfix(l, d);
@@ -108352,6 +108428,33 @@ if ("function" == typeof render) {
     return r;
   };
 }
+// Clear Everything empties the audit trail with the rest. Its head (DB.auditHead) and each month close's recorded head
+// (DB.periods.closes[].auditHead) pointed into the removed rows, so auditVerify read "the trail ends at 0, its head says
+// N" on every device, as if the books had been tampered with. The chain starts again from genesis, the closes' anchors
+// into the removed rows go, and the new trail's first row says who cleared it, when, and what went.
+function rdWipeAudit(was) {
+  const rows = Array.isArray(was) ? was.length : 0,
+    head = DB.auditHead ? { n: DB.auditHead.n, h: DB.auditHead.h } : null,
+    closes = ((DB.periods || {}).closes || []).filter((c) => c && c.auditHead);
+  closes.forEach((c) => delete c.auditHead);
+  delete DB.auditHead;
+  DB.audit = [];
+  const by = (("function" == typeof currentUser && currentUser()) || {}).name || "";
+  audit(
+    "company",
+    "wipe",
+    "cleared-everything",
+    { auditRows: rows, auditHead: head, closeAnchors: closes.map((c) => c.month) },
+    { auditRows: 0 },
+    `Clear Everything (Settings, Take the Demo Out): every record but the settings was removed, with the ${rows} audit ${1 === rows ? "row" : "rows"} before this one; the trail starts again here`,
+    by ? { by: by } : void 0,
+  );
+  try {
+    auditSeal();
+  } catch (e) {
+    console.warn("audit seal", e);
+  }
+}
 function rdWipe(what) {
   const before = {};
   if (
@@ -108461,6 +108564,7 @@ function rdWipe(what) {
       (DB.employees = []),
       (DB.__wiped = { at: appNowIso(), ghosts: ghosts }),
       (DB.currentId = "");
+    rdWipeAudit(before.audit);
   }
   saveNow(),
     render(),
