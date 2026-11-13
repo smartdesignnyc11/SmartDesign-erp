@@ -489,7 +489,7 @@ function dvNotes(r) {
       .forEach((f) => {
         const pend = "proposed" === f.status;
         out.push(
-          `<span data-dvrefund="${esc(f.id)}">Refund of ${money(f.amount)} to ${esc(f.to)}: ${esc(dvRefundWord(c, f))}${pend ? ` · waiting on ${esc(dvRefundApproverWord())}` : ""}.${pend && dvMayApproveRefund(f) ? ` <button type="button" class="btn sm" data-dvact="rfdecline:${esc(f.id)}">Decline</button>` : ""}${"approved" === f.status && !f.txnId ? ` <button type="button" class="btn sm" data-dvact="rfmatch:${esc(f.id)}">Match to Bank Line</button>` : ""}</span>`,
+          `<span data-dvrefund="${esc(f.id)}">Refund of ${esc(dvRefundWords(c, f))}: ${esc(dvRefundWord(c, f))}${pend ? ` · waiting on ${esc(dvRefundApproverWord())}` : ""}.${pend && dvMayApproveRefund(f) ? ` <button type="button" class="btn sm" data-dvact="rfdecline:${esc(f.id)}">Decline</button>` : ""}${"approved" === f.status && !f.txnId ? ` <button type="button" class="btn sm" data-dvact="rfmatch:${esc(f.id)}">Match to Bank Line</button>` : ""}</span>`,
         );
       });
   }
@@ -742,8 +742,37 @@ if ("function" == typeof lkRevise) {
     const n = base.apply(this, arguments);
     try {
       n && d && (n.lines || []).forEach((l, i) => d.lines && d.lines[i] && !l.revOfLine && (l.revOfLine = d.lines[i].id));
+      if (n && d) {
+        // The revision is dated the day it is made and remembers the original's date (it prints "Revised <its date>,
+        // original <that date>"; a pay application's "Work through" stays the original's). Its due date is worked out
+        // from its own date and its terms (cxDueFor, the one terms source), never copied from the original: a
+        // document dated today is not due on a day already past.
+        n.originalDate = d.originalDate || d.date || "";
+        "invoice" === n.type && n.date && "function" == typeof cxDueFor && (n.due = cxDueFor(n.date, n.terms));
+        "function" == typeof docMark && docMark(n);
+        save();
+      }
     } catch (e) {}
     return n;
+  };
+}
+// A revision asks for a billed-ahead reason only for the lines it bills further than the invoice it replaces: one that
+// changes a description, and no amount, bills nothing further and is not asked (re-review, 11-13).
+if ("function" == typeof pbFurther) {
+  const base = pbFurther;
+  pbFurther = function (c, d) {
+    const F = base.apply(this, arguments) || [];
+    try {
+      if (!F.length || !d || !d.revisionOf) return F;
+      const o = (c.invoices || []).find((x) => x.number === d.revisionOf && x.id !== d.id);
+      if (!o) return F;
+      return F.filter((x) => {
+        const ol = (o.lines || []).find((y) => y.id === x.l.revOfLine);
+        return !ol || (+x.l.pct || 0) > (+ol.pct || 0) + 0.005 || Math.abs((+x.l.scheduled || 0) - (+ol.scheduled || 0)) > 0.005;
+      });
+    } catch (e) {
+      return F;
+    }
   };
 }
 // a signed estimate is the contract: the change is a New Change Order on its job
@@ -1021,6 +1050,28 @@ function dvPayAcct(p) {
 function dvOnAccount(c) {
   return r2((c.payments || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0));
 }
+// Where a refund goes, in the words the confirm sheet uses, everywhere it is said (the note, the toasts, the trail,
+// Approvals): "<amount> to <client>, to the <account> ending 4471 it was paid from", never "to Wire from Chase"
+function dvRefundAcctWords(f) {
+  const a = (DB.accounts || []).find((x) => x.id === f.acctId);
+  return a ? `the ${a.name}${/account/i.test(a.name || "") ? "" : " account"}${a.last4 ? " ending " + a.last4 : ""}` : "the account";
+}
+function dvRefundWords(c, f) {
+  return `${dvM(f.amount)} to ${(c && c.name) || "the client"}, to ${dvRefundAcctWords(f)} it was paid from`;
+}
+// What can be refunded on an invoice against one of its payments: the credit the client holds on the account when
+// there is any, otherwise what this invoice is overpaid by; never more than the bank has of that payment (x.left), and
+// less what is already proposed. With neither, a refund goes out only with a credit on the invoice for the same
+// amount (withCredit), which is what makes the money the client's to have back.
+function dvRefundLimit(c, inv, x, withCredit) {
+  const cash = x && x.banked ? Math.max(0, x.left) : 0,
+    asked = (f) => "proposed" === f.status,
+    onAcct = dvOnAccount(c),
+    over = Math.max(0, r2(invoicePaid(c, inv) - docTotal(inv).total));
+  if (onAcct > 0.005) return { basis: "account", has: onAcct, max: r2(Math.max(0, Math.min(cash, onAcct - dvRefunds(c).filter(asked).reduce((a, f) => a + (+f.amount || 0), 0)))) };
+  if (over > 0.005) return { basis: "overpaid", has: over, max: r2(Math.max(0, Math.min(cash, over - dvRefunds(c).filter((f) => asked(f) && f.invoiceId === inv.id).reduce((a, f) => a + (+f.amount || 0), 0)))) };
+  return { basis: "credit", has: 0, max: withCredit ? r2(cash) : 0 };
+}
 // Approve, confirmed: the sheet says the amount, who it goes to and the account it goes out of, the right way round
 function dvRefundConfirm(c, id) {
   const f = dvRefunds(c).find((x) => x.id === id);
@@ -1033,7 +1084,7 @@ function dvRefundConfirm(c, id) {
     how = onAcct >= f.amount - 0.05 ? `It draws down the ${dvM(onAcct)} credit on the account; nothing billed changes.` : f.withCredit ? `A credit memo on ${f.invoiceNumber} goes with it, so nothing is owed again; it reduces what was billed.` : `${dvM(f.amount)} is owed again on ${f.invoiceNumber}.`;
   mbModal(
     `Approve the Refund of ${dvM(f.amount)}`,
-    `<p style="margin:0 0 8px" data-dvconfirm>Refund ${esc(dvM(f.amount))} to ${esc(c.name)}${f.method ? ` by ${esc(f.method)}` : ""}, out of ${esc(acct)}, the account their payment${src ? ` of ${esc(fmtL(src.date))}` : ""} on ${esc(f.invoiceNumber)} came into.</p><p class="small muted" style="margin:0">${esc(how)} Proposed by ${esc(f.by)}: ${esc(f.why)}. It reads "approved, not in the bank" until its bank line is matched.</p>`,
+    `<p style="margin:0 0 8px" data-dvconfirm>Refund of ${esc(dvRefundWords(c, f))}${src ? `: their ${esc(f.method || "payment")} of ${esc(fmtL(src.date))} on ${esc(f.invoiceNumber)}` : ""}.</p><p class="small muted" style="margin:0">${esc(how)} Proposed by ${esc(f.by)}: ${esc(f.why)}. It reads "approved, not in the bank" until its bank line is matched.</p>`,
     { submit: "Approve", onSubmit: () => void dvRefundDecide(c, id, !0) },
   );
 }
@@ -1045,6 +1096,17 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
   if (!x) return { ok: !1, why: "Pick a payment received on this invoice" };
   if (!x.banked) return { ok: !1, why: `That payment is ${PAY_NOT_IN_BANK}: only money the bank has is refunded` };
   if (!(amt > 0) || amt > x.left + 0.005) return { ok: !1, why: `Refund between $0.01 and ${money(x.left)} of that payment` };
+  const L = dvRefundLimit(c, inv, x, withCredit);
+  if (amt > L.max + 0.005)
+    return {
+      ok: !1,
+      why:
+        "account" === L.basis
+          ? `${dvM(L.has)} is on the account${L.max < L.has - 0.005 ? ` and ${dvM(L.max)} of it can still be refunded` : ""}: refund ${dvM(L.max)} at most`
+          : "overpaid" === L.basis
+            ? `${inv.number} is overpaid by ${dvM(L.has)}: refund ${dvM(L.max)} at most`
+            : `Nothing is on the account and ${inv.number} is not overpaid: credit ${inv.number} for the amount to refund it`,
+    };
   if (!w) return { ok: !1, why: "Say why the money goes back" };
   const f = {
     id: uid("cc"),
@@ -1068,7 +1130,7 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
   };
   (DB.clientCredits = DB.clientCredits || []).push(f);
   apStamp("client-refund", f, `refund of ${money(amt)} proposed by ${f.by}`, "proposed", { after: { amount: amt, paymentId: x.p.id, to: f.to }, note: w });
-  docAudit(c, inv, "refund-proposed", `${money(amt)} to ${f.to}: ${w}`);
+  docAudit(c, inv, "refund-proposed", `${dvRefundWords(c, f)}: ${w}`);
   return save(), { ok: !0, f: f };
 }
 // Approved: a negative payment tied to the payment it returns (refundOf). With a credit the invoice stays settled: the
@@ -1109,10 +1171,10 @@ function dvRefundDecide(c, id, yes, note) {
     const paid = invoicePaid(c, inv);
     inv.status = paid >= docTotal(inv).total - 0.005 ? "paid" : paid > 0.005 ? "partial" : inv.due && inv.due < today() ? "overdue" : "sent";
   }
-  inv && docAudit(c, inv, "refund-approved", `${money(f.amount)} to ${f.to}`);
-  (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Refund of ${money(f.amount)} to ${f.to} approved: ${f.why}` });
+  inv && docAudit(c, inv, "refund-approved", dvRefundWords(c, f));
+  (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Refund of ${dvRefundWords(c, f)} approved: ${f.why}` });
   save(), render();
-  rcToast(`Refund of ${money(f.amount)} approved: it goes back to ${f.to}; it reads "approved, not in the bank" until the bank line is matched`, inv ? [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }] : null);
+  rcToast(`Refund of ${dvRefundWords(c, f)} approved; it reads "approved, not in the bank" until the bank line is matched`, inv ? [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }] : null);
   return f;
 }
 // a credit for a refund with no line chosen: spread over the invoice's lines in order, as far as each allows (pre-tax)
@@ -1132,20 +1194,24 @@ function dvCreditLump(c, inv, amount) {
 function dvRefundSheet(c, inv) {
   const R = dvRefundable(c, inv);
   if (!R.length) return toast(`No money received on ${inv.number} is left to refund`);
-  const banked = R.filter((x) => x.banked);
+  const banked = R.filter((x) => x.banked),
+    x0 = banked[0] || R[0],
+    L0 = dvRefundLimit(c, inv, x0, !1);
   mbModal(
     `Refund on ${esc(inv.number)}`,
     `<p class="small" style="margin:0 0 8px">A refund is a proposal until ${esc(dvRefundApproverWord())} approves it. It goes back only to the account the payment came from, and reads "approved, not in the bank" until its bank line is matched.</p>
     ${banked.length ? "" : `<div class="note warn">No payment on ${esc(inv.number)} is in the bank yet; only money the bank has is refunded.</div>`}
     ${mbF("Payment It Returns", mbSel("pay", R.map((x) => [x.p.id, `${fmtL(x.p.date)} · ${money(+x.p.amount)} · ${dvPayAcct(x.p)}${x.banked ? "" : " (not in the bank)"}${x.left < +x.p.amount - 0.005 ? ` · ${money(x.left)} left` : ""}`]), (banked[0] || R[0]).p.id))}
-    ${mbF("Amount", mbIn("amount", String((banked[0] || R[0]).left), "", "number"))}
+    ${mbF("Amount", mbIn("amount", L0.max > 0.005 ? String(L0.max) : "", "", "number"))}
     ${mbF("Why", mbIn("why", "", "e.g. the client overpaid; the tile line was credited"))}
     ${
       // a refund returns credit the client holds or overpaid: with credit on the account it draws that down, with no
       // credit memo and nothing billed changed; only with none is crediting the invoice offered, unticked, said plainly
-      dvOnAccount(c) > 0.005
-        ? `<div class="small" style="margin-top:8px" data-dvonacct>${esc(money(dvOnAccount(c)))} is held as credit on ${esc(c.name)}'s account: the refund draws it down, with no credit memo, and nothing billed changes. A refund over that is owed again on ${esc(inv.number)}.</div>`
-        : `<label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px"><input type="checkbox" data-f="credit"> <span>Also credit ${esc(inv.number)} for the same amount: a credit memo that reduces what was billed. Unticked, the refund is owed again on ${esc(inv.number)}.</span></label>`
+      "account" === L0.basis
+        ? `<div class="small" style="margin-top:8px" data-dvonacct>${esc(dvM(L0.has))} is held as credit on ${esc(c.name)}'s account: the refund draws it down, with no credit memo, and nothing billed changes. ${esc(dvM(L0.max))} at most can be refunded${L0.max < L0.has - 0.005 ? " (the rest is already asked for, or is more than the bank has of this payment)" : ""}.</div>`
+        : "overpaid" === L0.basis
+          ? `<div class="small" style="margin-top:8px" data-dvoverpaid>${esc(inv.number)} is overpaid by ${esc(dvM(L0.has))}: ${esc(dvM(L0.max))} at most can be refunded, with no credit memo, and nothing billed changes.</div>`
+          : `<div class="small" style="margin-top:8px" data-dvnothing>Nothing is on ${esc(c.name)}'s account and ${esc(inv.number)} is not overpaid, so there is nothing to refund as it stands.</div><label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px"><input type="checkbox" data-f="credit"> <span>Credit ${esc(inv.number)} for the amount and refund it: a credit memo that reduces what was billed. Without it nothing is refunded.</span></label>`
     }`,
     {
       submit: "Propose the Refund",
@@ -1154,7 +1220,7 @@ function dvRefundSheet(c, inv) {
         if (!x.ok) return toast(x.why), !1;
         render();
         dvOpen("invoice", inv.id, c.id);
-        rcToast(`Refund of ${money(x.f.amount)} proposed: it waits on ${dvRefundApproverWord()} in Approvals`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]);
+        rcToast(`Refund of ${dvRefundWords(c, x.f)} proposed: it waits on ${dvRefundApproverWord()} in Approvals`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]);
       },
     },
   );
@@ -1186,7 +1252,7 @@ function dvRefundMatchSheet(c, id) {
   const f = dvRefunds(c).find((x) => x.id === id);
   if (!f) return;
   const L = dvRefundLines(f);
-  if (!L.length) return toast(`No ${money(f.amount)} out of ${f.to} is in the bank's lines yet; it stays "approved, not in the bank" until it is`);
+  if (!L.length) return toast(`No ${dvM(f.amount)} out of ${dvRefundAcctWords(f)} is in the bank's lines yet; it stays "approved, not in the bank" until it is`);
   mbModal(`Match the Refund of ${money(f.amount)}`, mbF("Bank Line", mbSel("t", L.map((t) => [t.id, `${fmtL(t.date)} · ${t.desc || ""} · ${money(t.amt)}`]), L[0].id)), {
     submit: "Match",
     onSubmit: (v) => {
@@ -1218,7 +1284,7 @@ if ("function" == typeof mApprovals) {
               sev: "warn",
               n: money(f.amount),
               title: `Refund ${money(f.amount)} to ${c.name}`,
-              detail: `${f.invoiceNumber} · back to ${f.to} · ${f.why} · proposed by ${f.by}`,
+              detail: `${f.invoiceNumber} · ${dvRefundWords(c, f)} · ${f.why} · proposed by ${f.by}`,
               yes: "Review the Refund",
               who: dvRefundApprover(),
               due: today(),

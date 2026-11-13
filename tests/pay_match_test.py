@@ -53,11 +53,21 @@ KLEIN = """
   const lineOf = (py) => (payBankLine(py) || {}).id || '';
   const snap = () => ({ ar: ar(K), n: K.payments.length, back35: lineOf(py35), banked35: payBankedAmt(K, py35), st38: invoiceStatus(K, i38), st35: invoiceStatus(K, i35),
     credit: r2(K.payments.filter(p => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0)), t2: JSON.stringify(t2.match || null) + '|' + (t2.invoiceId || '') });
-  // the person's way in: Billing, the invoice, its Record Payment button
+  // the person's way in: Billing, the invoice, its Record Payment button. For billing the invoice opens as its document
+  // first (src/docview.js): Record Payment is on the document's bar, and under More on the phone; where the editor
+  // opens instead, it is the editor's own button. Both run the one docAction "pay", so the same sheet opens.
+  const vis = (q) => [...document.querySelectorAll(q)].find(x => x.offsetParent);
+  const dvBtn = async (act) => {
+    if (!document.getElementById('dv')) return null;
+    let b = vis('#dv .dv-bar [data-dvact="' + act + '"]');
+    if (!b) { const m = vis('#dv [data-dvact="more"]'); m && m.click(); await sleep(200); b = vis('#dv .dv-menu [data-dvact="' + act + '"]'); }
+    return b || null;
+  };
   const openPay = async (c, inv) => {
     try { mbCloseModal(); } catch (e) {}
+    try { dvClose(); } catch (e) {}
     view = 'billing'; clientOpen = c.id; docOpen = { kind: 'invoice', id: inv.id }; render(); await sleep(450);
-    const b = [...document.querySelectorAll('[data-docact="pay"]')].find(x => x.offsetParent) || document.querySelector('[data-docact="pay"]');
+    const b = (await dvBtn('pay')) || vis('[data-docact="pay"]') || document.querySelector('[data-docact="pay"]');
     const seen = !!(b && b.offsetParent);
     b && b.click(); await sleep(400);
     return seen;
@@ -127,7 +137,7 @@ async def t_scenario(c, p, phone):
       try { mbCloseModal(); } catch (e) {}
       // Find in Bank on the invoice: nothing is recorded, and the used deposit is not put forward
       view = 'billing'; clientOpen = K.id; docOpen = { kind: 'invoice', id: i38.id }; render(); await sleep(400);
-      const fb = [...document.querySelectorAll('[data-docact="findbank"]')].find(x => x.offsetParent) || document.querySelector('[data-docact="findbank"]');
+      const fb = (await dvBtn('findbank')) || [...document.querySelectorAll('[data-docact="findbank"]')].find(x => x.offsetParent) || document.querySelector('[data-docact="findbank"]');
       fb && fb.click(); await sleep(450);
       const toast2 = (document.getElementById('toast') || {}).innerText || '', verify = document.body.innerText.includes('DEPOSIT CHECK 2214 KLEIN') && !!document.querySelector('#mbm, .drawer.on, #drawer.on');
       try { mbCloseModal(); } catch (e) {}

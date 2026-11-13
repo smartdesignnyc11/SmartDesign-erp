@@ -586,10 +586,12 @@ function cxDocHtml(c, d, o) {
     terms = cxClean(d.terms, c, re),
     dates = [
       `Date: ${cxDate(d.date)}`,
-      "progress" === kind ? `Work through: ${cxDate(d.date)}` : "",
+      "progress" === kind ? `Work through: ${cxDate((d.revisionOf && d.originalDate) || d.date)}` : "",
       inv && d.due ? `Due: ${cxDate(d.due)}` : "",
       "estimate" === kind && d.validUntil ? `Valid until: ${cxDate(d.validUntil)}` : "",
       d.revisionOf ? `Revises ${esc(d.revisionOf)}` : "",
+      // a revision is dated the day it is made; the date of the invoice it replaces stays in print
+      d.revisionOf && d.originalDate && d.originalDate !== d.date ? `Revised ${cxDate(d.date)}, original ${cxDate(d.originalDate)}` : "",
     ].filter(Boolean);
   let body = "";
   if ("progress" === kind) body = cxPayAppHtml(c, d, re);

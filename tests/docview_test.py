@@ -302,6 +302,19 @@ async def revise(p, phone):
     C.ok(sb == sb0, f'billing on the {dev}: while the revision is a draft, billed to date counts INV-2026-038 once, not twice ({sb0[:3]} / {sb[:3]})')
     C.ok(await pg.evaluate("() => DB.audit.some(a => a.refId === 'in3' && a.action === 'revise-reason' && /wrong percentage/.test(a.note))"), f'billing on the {dev}: the reason is in the audit trail with who and when')
     if n:
+        # re-review 11-13: the revision is dated today, due by its own date and terms (never the original's due date),
+        # remembers the original's date and prints it; unchanged, it is not asked for a billed-ahead reason, and a
+        # line billed further than the original still is
+        rv = await pg.evaluate("""(nid) => { const c = DB.clients.find(c => c.id === 'cl121'), n = c.invoices.find(i => i.id === nid), o = c.invoices.find(i => i.id === 'in3');
+          const t = cxDocHtml(c, n, { print: false }).replace(/<style[\\s\\S]*?<\\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
+          const same = pbFurther(c, n).length;
+          const more = n.lines.filter(l => l.sovId && +l.pct > 0).some(l => { const was = l.pct; l.pct = was + 30; const hit = pbFurther(c, n).some(x => x.l.id === l.id); l.pct = was; return hit; });
+          return { date: n.date, due: n.due, want: cxDueFor(n.date, n.terms), today: today(), odue: o.due, orig: n.originalDate, odate: o.date, same: same, more: more,
+                   line: (/Revised [A-Z][a-z]+ \\d{1,2}, 20\\d\\d, original [A-Z][a-z]+ \\d{1,2}, 20\\d\\d/.exec(t) || [''])[0], wt: (/Work through: [A-Z][a-z]+ \\d{1,2}, 20\\d\\d/.exec(t) || [''])[0], owt: cxDate(o.date) }; }""", n['id'])
+        C.ok(rv['date'] == rv['today'] and rv['due'] == rv['want'] and rv['due'] >= rv['date'] and rv['orig'] == rv['odate'],
+             f'billing on the {dev}: the revision is dated today and due by its own date and terms, and remembers the original\'s date ({rv})')
+        C.ok(rv['line'] and rv['owt'] in rv['line'] and rv['owt'] in rv['wt'], f'billing on the {dev}: it prints "Revised <today>, original <date>" and keeps the original\'s Work through ({rv["line"]!r}, {rv["wt"]!r})')
+        C.ok(rv['same'] == 0 and rv['more'], f'billing on the {dev}: an unchanged revision bills nothing further ahead and is not asked why; a line raised 30 points still is ({rv["same"]}, {rv["more"]})')
         # the revision goes out: the original is voided (its posting reversed), the revision is posted
         pre = await pg.evaluate("""async (nid) => {
           const c = DB.clients.find(c => c.id === 'cl121'), n = c.invoices.find(i => i.id === nid);
@@ -311,8 +324,10 @@ async def revise(p, phone):
           return n.status;
         }""", n['id'])
         await pg.wait_for_timeout(300)
+        gate = await pg.evaluate("() => (document.getElementById('mbm') || {}).innerText || ''")
+        C.ok('Billed Ahead' not in gate, f'billing on the {dev}: sending a revision that changes no amount does not ask for a billed-ahead reason ({gate[:80]!r})')
         if pre == 'draft' and await pg.locator('#mbm').count():
-            # the job is billed ahead of the work (the seed's own state): the gate asks why, as it does for any progress invoice
+            # any other gate the send has (the client gate) is answered as the person would
             await pg.locator('#mbm input, #mbm textarea').first.fill('re-issue of INV-2026-038 at the same percentages')
             await pg.locator('#mbm #mbm-ok').click()
             await pg.wait_for_timeout(600)
@@ -534,6 +549,16 @@ async def refund(p, phone):
     C.ok(a['onacct'] >= 500, f'billing {who}: the fixture: the Kleins hold credit on the account to refund from ({held}, {a["onacct"]})')
     no = await pg.evaluate("() => { const c = DB.clients.find(c => c.id === 'cl45'), d = c.invoices.find(i => i.id === 'inD45r'); return dvRefundPropose(c, d, c.payments.find(p => p.invoiceId === d.id).id, 100, 'test', false) }")
     C.ok(not no['ok'] and 'bank' in no['why'], f'billing {who}: money the bank does not have is never refunded ({no["why"]})')
+    # re-review 11-13: the Refund sheet's amount is what can be refunded (the credit on the account), never the whole
+    # payment: on INV-2026-031 ($97,000 received, in the bank) with $600 on the account it holds 600, and more is refused
+    await pg.evaluate("() => { clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: 'in1' }; view = 'billing'; render(); }")
+    await dv_tap(pg, 'Refund')
+    pf = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in1'), x = dvRefundable(c, d).find(y => y.banked), n0 = dvRefunds(c).length;
+      const v = +((document.querySelector('#mbm [data-f=amount]') || {}).value || 0), over = dvRefundPropose(c, d, x.p.id, r2(dvOnAccount(c) + 1), 'more than the account holds', false);
+      try { mbCloseModal(); } catch (e) {} dvClose();
+      return { v: v, onacct: dvOnAccount(c), cash: x.left, over: over.ok, why: over.why || '', made: dvRefunds(c).length - n0 }; }""")
+    C.ok(abs(pf['v'] - pf['onacct']) < 0.01 and pf['cash'] > pf['onacct'], f'billing {who}: the Refund sheet on INV-2026-031 holds the ${pf["onacct"]:,.2f} on the account, not the ${pf["cash"]:,.0f} payment ({pf["v"]})')
+    C.ok(not pf['over'] and pf['made'] == 0 and 'at most' in pf['why'], f'billing {who}: a refund over what is on the account is refused and nothing is proposed ({pf["why"]})')
     await pg.evaluate("() => { clientOpen = 'cl121'; docOpen = { kind: 'invoice', id: 'in2' }; view = 'billing'; render(); }")
     await dv_tap(pg, 'Refund')
     C.ok(await pg.locator('#mbm').count() == 1, f'billing {who}: Refund opens its sheet')
@@ -558,6 +583,8 @@ async def refund(p, phone):
          f'billing {who}: billing cannot approve the refund it proposed')
     t = await pg.evaluate("() => (document.querySelector('#dv .dv-notes') || {}).innerText || ''")
     C.ok('proposed, not approved' in t, f'billing {who}: the document says the refund waits for approval ({t[:120]})')
+    C.ok('to Sarah & David Klein, to the Chase Business Checking account ending 4471 it was paid from' in t and 'to Check' not in t and 'to Wire' not in t,
+         f'billing {who}: the note says who the refund goes to and the account it was paid from, never "to Wire from" ({t[:160]})')
     C.ok(await pg.evaluate("() => !mApprovals().some(x => x.kind === 'refund')"), f'billing {who}: the refund is not in billing\'s own Approvals')
     # the owner approves it from Approvals
     await sign_in(pg, 'u_owner')
@@ -577,7 +604,7 @@ async def refund(p, phone):
     await dv_tap(pg, 'Approve the Refund')
     cf = await pg.evaluate("() => (document.querySelector('#mbm [data-dvconfirm]') || {}).textContent || ''")
     still = await pg.evaluate("() => dvRefunds(DB.clients.find(c => c.id === 'cl121'))[0].status")
-    C.ok(still == 'proposed' and re.search(r'\$500\b', cf) and 'Klein' in cf and 'out of' in cf and 'came into' in cf,
+    C.ok(still == 'proposed' and re.search(r'\$500\b', cf) and 'to Sarah & David Klein, to the Chase Business Checking account ending 4471 it was paid from' in cf,
          f'the owner {who}: Approve opens a confirm sheet that restates the amount, who it goes to and the account, and nothing is approved yet ({still}: {cf[:160]})')
     await shot(pg, f'u_owner_{dev}_refund_confirm')
     await pg.locator('#mbm #mbm-ok').click()
@@ -614,6 +641,10 @@ async def refund(p, phone):
     await dv_tap(pg, 'Refund')
     bx = await pg.evaluate("() => { const b = document.querySelector('#mbm [data-f=credit]'); return b ? { on: b.checked, t: b.closest('label').textContent } : null }")
     C.ok(bx and not bx['on'] and 'reduces what was billed' in bx['t'], f'billing {who}: with nothing on the account, Credit the invoice is offered unticked and says what it does ({bx})')
+    nb = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in1'), p = dvRefundable(c, d).find(x => x.banked), n0 = dvRefunds(c).length;
+      const v = (document.querySelector('#mbm [data-f=amount]') || {}).value, R = dvRefundPropose(c, d, p.p.id, 300, 'nothing to refund', false);
+      return { v: v, ok: R.ok, why: R.why || '', made: dvRefunds(c).length - n0 }; }""")
+    C.ok(nb['v'] == '' and not nb['ok'] and nb['made'] == 0, f'billing {who}: with nothing on the account and no overpayment the amount is empty, and a refund with no credit is refused ({nb})')
     await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} }")
     cw = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === 'in1'), p = dvRefundable(c, d).find(x => x.banked);
       const R = dvRefundPropose(c, d, p.p.id, 300, 'deposit overstated by the stair runner', true); return R.ok ? R.f.id : R.why; }""")
