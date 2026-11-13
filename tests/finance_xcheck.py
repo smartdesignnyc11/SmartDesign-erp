@@ -67,7 +67,8 @@ table, 21% on its tile and $388,888 on Projects). As the PM and the owner, for e
   INV ONE EAC             the EAC and the margin at completion on the job's Overview tile, its Budget (the margin tile,
                           the Total row's Forecast and the rows' own sum), Projects and Ask are the job's one figure
                           (jobFin); cost on no estimate line is in it; the lines, the unlined cost and what is billed
-                          back add up to the job's cost to date and committed; the PM's phone reads the same
+                          back add up to the job's cost to date and committed; EAC = cost to date + committed + forecast
+                          to go (each line's budget left, never below zero); the PM's phone reads the same
   INV NO CONTRACT JOB     a job with no contract says "No contract yet" on Projects and shows its cost, never blanks; an
                           hour clocked to it is cost on its row; crew hours on its daily logs that no time entry
                           carries are named with their size
@@ -1387,6 +1388,9 @@ INV_ONEJOB_JS = r"""
       tieA: Math.round((L.reduce((a, x) => a + x.actual, 0) + U.actual + (+rb.actual || 0)) * 100) / 100,
       tieC: Math.round((L.reduce((a, x) => a + x.committed, 0) + U.committed + (+rb.committed || 0)) * 100) / 100,
       lineEac: Math.round(L.reduce((a, x) => a + x.eac, 0) * 100) / 100, rebill: +J.rebillCost || 0,
+      // forecast to go: what each line still has to spend inside its budget (never below zero); cost on no line has none
+      togo: Math.round(L.reduce((a, x) => a + Math.max(0, x.budget - x.actual - x.committed), 0) * 100) / 100,
+      rbOpen: Math.round(Math.max(0, (+rb.actual || 0) + (+rb.committed || 0) - (+J.rebillCost || 0)) * 100) / 100,
       codesA: Math.round((J.byCode || []).reduce((a, x) => a + (+x.actual || 0), 0) * 100) / 100,
       codesC: Math.round((J.byCode || []).reduce((a, x) => a + (+x.committed || 0), 0) * 100) / 100 };
     // the job's Overview tile
@@ -1473,6 +1477,13 @@ async def check_onejob(p, R):
                     want = max(x['lineEac'] + x['unlined'] + x['rebill'], x['actual'] + x['committed'])
                     read('inv_oneeac', S('EAC = each line at the greater of budget and actual + committed, plus cost on no line, plus billed back'),
                          abs(eac - want) < 0.05, f"{eac:,.2f}", f"{want:,.2f}")
+            # the ledger invariant: EAC = cost to date + committed + forecast to go, from the one function (jobFin); a job
+            # with no lines, or a reviewed cost to complete, is never under its cost to date and committed
+            read('inv_oneeac', S('EAC is never under cost to date + committed'), eac + 0.005 >= x['actual'] + x['committed'], f"{eac:,.2f}", f">= {x['actual'] + x['committed']:,.2f}")
+            if x['lines'] and not x['reviewed']:
+                want = max(x['actual'] + x['committed'] - x['rbOpen'] + x['togo'], x['actual'] + x['committed'])
+                read('inv_oneeac', S('EAC = cost to date + committed + forecast to go'), abs(eac - want) < 0.05,
+                     f"{eac:,.2f}", f"{x['actual']:,.2f} + {x['committed']:,.2f} + {x['togo']:,.2f} to go = {want:,.2f}")
             if x['contract']:
                 # one margin: the Overview tile and the Budget's margin print the job's margin at completion
                 read('inv_oneeac', S('Overview tile, Margin at Completion'), x['tile'] is not None and abs(x['tile'] - round(gp)) < 0.01, f"{x['tile']}%", f"{round(gp)}% ({gp}%)")
