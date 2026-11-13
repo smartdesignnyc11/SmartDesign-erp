@@ -37,6 +37,11 @@ The coordinator's wave-2 review (11-12), each a class:
            Marked bought, no order on file, with Find the Order, and is counted; a damaged receipt or an open claim
            reads Delivered, damaged: claim open
   DATE     sorting by Delivery Date sorts the date each row shows (delivered or promised, else need-by), blanks last
+  LEFT     the Request Quotes sheet and the Table say the same dollars left on a line (lineCommitment's)
+  HEADERS  Import a Sheet reads Item or Item Name as the description and Alan's own column names; a sheet with no
+           description column is refused with the column that is missing and the ones found
+  BAR      a pick that cannot be quoted or ordered (two jobs, a subcontract scope with a material) disables the button
+           and says why, before the click
   ORDER    an order started from a row carries the row's line, or asks for the line or the bill-back before the draft;
            a draft with an unlinked line is never a dead end: the refusal and the order's header both carry Link the Line
 Usage: python3 pu_table_test.py [--desktop|--phone] [--only TOGGLE,FILL,...] [--shots]
@@ -622,6 +627,104 @@ async def s_order(pg, c, dev):
     await js(pg, "() => { DB.pos = DB.pos.filter(p => p.id !== 'po_psord'); save(); }", None, 200)
 
 
+# invented rows under Alan's own column names, a plain sheet, and one with no description column
+ALAN_SHEET = """FM Invoice #,Category,Vendor Name,Item Name,Quantity,Client Price per Unit,FM Client Price,FM Budget Cost,FM Actual Cost
+FM3,Plumbing Fixtures,Atlantic Bath Supply,Deck-mount tub spout,2,252,504,210,198
+FM3,Lighting,Lumen Row,Flush mount 12in,3,99,297,90,
+"""
+PLAIN_SHEET = """FM Number,Item,Qty,Room,Budget,Purchased,Vendor
+FM4,Soap dish wall mount,2,Powder Room,45,41,Atlantic Bath Supply
+"""
+NODESC_SHEET = """FM Number,Qty,Room,Budget,Vendor
+FM4,2,Powder Room,45,Atlantic Bath Supply
+"""
+
+
+async def s_left(pg, c, dev):
+    """Second pass (11-12): Request Quotes read "$0 left on the line" for the countertop slab where the Table read "$75,000
+    line". Both are lineCommitment's (the $76,000 millwork order is on that line); the Table says what is left too."""
+    await board(pg)
+    want = await js(pg, """() => ['Tile – garden bath', 'Garden kitchen countertop slab'].map(f => { const x = psItems('').find(y => y.desc.includes(f)), C = x && lineCommitment(x.lineKey);
+      return x && C ? { id: x.id, f, left: C.left, budget: C.budget, pick: x.pickable } : { f }; })""", None, 0)
+    R = {r['id']: r for r in await rows(pg)}
+    bad = []
+    for w in want:
+        cell = R.get(w.get('id'), {'cells': {}})['cells'].get('budget', '')
+        m = re.search(r'\$([\d,]+) left', cell)
+        if not m or abs(MONEY(m.group(1)) - w['left']) > 1 or f"${w['budget']:,.0f} line" not in cell: bad.append(f"{w['f']}: {cell!r}, lineCommitment left {w.get('left')}")
+    c.ok(len(want) == 2 and not bad, f'LEFT {dev}: the Table says the line\'s budget and what is left on it, lineCommitment\'s ({bad})')
+    for w in want:
+        if w.get('pick'):
+            await pg.locator(f'#pu-table [data-psrow="{w["id"]}"] [data-pspick]').first.click(); await pg.wait_for_timeout(350)
+    q = pg.locator('#pu-table .ps-bar [data-psdo="quote"]')
+    if await q.count():
+        await q.first.click(); await pg.wait_for_timeout(1000)
+    sheet = await js(pg, "() => ((document.querySelector('#mbm .mbm-bd') || {}).innerText || '').replace(/\\s+/g, ' ')", None, 0)
+    lefts = sorted({MONEY(m) for m in re.findall(r'\$([\d,]+) left on the line', sheet)})
+    c.ok(lefts == sorted({w.get('left', -1) for w in want}), f'LEFT {dev}: the Request Quotes sheet says the same dollars left on each line ({lefts}; the Table and lineCommitment {[w.get("left") for w in want]})')
+    await reset(pg)
+
+
+async def s_headers(pg, c, dev):
+    """Second pass: a sheet headed FM Number, Item, Qty... was refused ("No Description column") and the toast said to paste
+    the sheet first. Item and Item Name read as the description; Alan's own column names import."""
+    await board(pg)
+    async def paste(text):
+        if not await js(pg, "() => !!document.querySelector('#mbm #ps-imp-text')", None, 0):
+            await pg.locator('#pu-table [data-psx="import"]').first.click(); await pg.wait_for_timeout(500)
+            await pg.select_option('#ps-imp-job', 'p121')
+        await pg.fill('#ps-imp-text', text); await pg.wait_for_timeout(450)
+        return await js(pg, "() => ({ prev: ((document.querySelector('#mbm .ps-imp-prev') || {}).innerText || '').replace(/\\s+/g, ' ').trim(), rows: [...document.querySelectorAll('#mbm .ps-imp-row')].map(e => e.innerText.replace(/\\s+/g, ' ').trim()) })", None, 0)
+    n0 = await js(pg, "() => DB.sel.items.length", None, 0)
+    # no description column: the refusal names it and the columns found; Import says the same, not "paste the sheet first"
+    v = await paste(NODESC_SHEET)
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(500)
+    toast = await js(pg, "() => (document.getElementById('toast') || {}).innerText || ''", None, 0)
+    still = await js(pg, "() => !!document.querySelector('#mbm #ps-imp-text')", None, 0)
+    c.ok('Description' in v['prev'] and 'Item Name' in v['prev'] and all(h in v['prev'] for h in ('FM Number', 'Qty', 'Room', 'Budget', 'Vendor')),
+         f'HEADERS {dev}: a sheet with no description column is refused with the column that is missing and the ones found ({v["prev"]!r})')
+    c.ok(still and 'Description' in toast and 'paste the sheet first' not in toast, f'HEADERS {dev}: Import then says which column is missing, not to paste the sheet ({toast!r})')
+    # Item reads as the description
+    v = await paste(PLAIN_SHEET)
+    c.ok(len(v['rows']) == 1 and 'FM4' in v['rows'][0] and 'Soap dish wall mount' in v['rows'][0] and '$45.00 each, $90' in v['rows'][0] and '$41.00 each, $82' in v['rows'][0] and '1 item to import' in v['prev'],
+         f'HEADERS {dev}: FM Number, Item, Qty, Room, Budget, Purchased, Vendor reads as one item ({v})')
+    # Alan's own column names
+    v = await paste(ALAN_SHEET)
+    c.ok(len(v['rows']) == 2 and all(t in v['rows'][0] for t in ('FM3', 'Plumbing Fixtures', 'Deck-mount tub spout', 'qty 2', '$210.00 each, $420', '$198.00 each, $396', '$252.00 each')) and 'Item Name' in v['prev'],
+         f'HEADERS {dev}: Alan\'s column names read: FM invoice, category, item, quantity, budget cost, actual cost and the client price ({v})')
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(700)
+    it = await js(pg, """() => DB.sel.items.filter(i => i.projectId === 'p121' && i.fm === 'FM3').map(i => ({ name: i.name, cat: i.category, vendor: i.vendor, qty: i.qty, cost: i.cost, markup: i.markupPct, client: selUnitPrice(i),
+      imp: i.imported && i.imported.bought, actual: i.actual }))""", None, 0)
+    spout = next((x for x in it if x['name'] == 'Deck-mount tub spout'), {})
+    flush = next((x for x in it if x['name'] == 'Flush mount 12in'), {})
+    c.ok(len(it) == 2 and spout.get('cat') == 'Plumbing Fixtures' and spout.get('vendor') == 'Atlantic Bath Supply' and spout.get('qty') == 2 and spout.get('cost') == 210 and spout.get('client') == 252
+         and spout.get('imp') == 396 and spout.get('actual') is None and flush.get('cost') == 90 and flush.get('client') == 99 and not flush.get('imp'),
+         f'HEADERS {dev}: the two items land with their category, vendor, cost and the sheet\'s client price; the actual cost kept as imported ({it})')
+    await reset(pg)
+    await js(pg, "n0 => { DB.sel.items.length = n0; save(); }", n0, 200)
+
+
+async def s_bar(pg, c, dev):
+    """Second pass: a pick across two jobs, or a subcontract scope with a material, was refused only by a toast after the
+    click. The bar disables the button and says why while the pick is invalid."""
+    async def pick(ids):
+        await board(pg)
+        for i in ids:
+            await pg.locator(f'#pu-table [data-psrow="{i}"] [data-pspick]').first.click(); await pg.wait_for_timeout(350)
+        return await js(pg, """() => { const b = k => document.querySelector('#pu-table .ps-bar [data-psdo="' + k + '"]');
+          return { quote: !!b('quote') && b('quote').disabled, order: !!b('order') && b('order').disabled, blue: [...document.querySelectorAll('#pu-table .ps-bar .btn.primary')].map(e => e.innerText.trim()),
+            text: ((document.querySelector('#pu-table .ps-bar') || {}).innerText || '').replace(/\\s+/g, ' ') }; }""", None, 0)
+    ids = await js(pg, """() => { const X = psItems('').filter(x => x.pickable), a = X.find(x => x.pid === 'p121' && x.r.kind === 'material' && x.lineKey && !x.r.dec), b = X.find(x => x.pid !== 'p121'),
+      s = X.find(x => x.pid === 'p121' && x.r.kind === 'sub'); return { two: [a && a.id, b && b.id], mix: [s && s.id, a && a.id], ok: [a && a.id] }; }""", None, 0)
+    r = await pick(ids['two'])
+    c.ok(all(ids['two']) and r['quote'] and r['order'] and not r['blue'] and re.search(r'one job at a time', r['text'], re.I), f'BAR {dev}: rows from two jobs: both buttons are off and the bar says one job at a time ({r})')
+    r = await pick(ids['mix'])
+    c.ok(all(ids['mix']) and r['quote'] and r['order'] and not r['blue'] and re.search(r'subcontract scope', r['text'], re.I), f'BAR {dev}: a subcontract scope with a material: both buttons are off and the bar says why ({r})')
+    r = await pick(ids['ok'])
+    c.ok(not r['quote'] and not r['order'] and len(r['blue']) == 1, f'BAR {dev}: a pick that can be bought leaves both on, one blue ({r})')
+    await reset(pg)
+
+
 async def s_open(pg, c, dev):
     await board(pg)
     po = await js(pg, "() => DB.pos.find(p => p.number === 'PO-2026-048').id", None, 0)
@@ -786,8 +889,8 @@ async def run(dev):
             pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
         await sign_in(pg, 'u_chen')
-        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('SHARE', s_share), ('SOURCE', s_source), ('TRUTH', s_truth), ('DATE', s_date), ('OPEN', s_open), ('PICK', s_pick)]
-        steps += [('EXPORT', s_export), ('IMPORT', s_import), ('SCAN', s_scan)] if not phone else [('PHONE', s_phone)]
+        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('SHARE', s_share), ('SOURCE', s_source), ('TRUTH', s_truth), ('DATE', s_date), ('LEFT', s_left), ('OPEN', s_open), ('PICK', s_pick), ('BAR', s_bar)]
+        steps += [('EXPORT', s_export), ('IMPORT', s_import), ('HEADERS', s_headers), ('SCAN', s_scan)] if not phone else [('PHONE', s_phone)]
         steps += [('ORDER', s_order)]   # last: it drafts orders
         for k, fn in steps:
             if not on(k): continue

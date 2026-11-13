@@ -669,26 +669,46 @@ function bbDo(r, k) {
   if ("other" === k) return bbOtherVendor(r);
   if ("expedite" === k || "chase" === k) return bbExpedite(r, k);
 }
+// Why a pick cannot be ordered, or quoted, as picked: the rules Order and Ask for Quotes refuse by, in one place, so a
+// bar can say it and turn its button off while the person picks (the coordinator, 11-12: two jobs, or a subcontract
+// scope with a material, were refused only by a toast after the tap). "" when the pick can go on.
+function bbPickWhy(L, how) {
+  const R = (L || []).filter(Boolean);
+  if (!R.length) return "Pick at least one line";
+  const jobs = new Set(R.map((r) => r.p.id)),
+    req = R.filter((r) => "request" === r.kind);
+  if ("quote" === how) {
+    if (jobs.size > 1) return `Ask for quotes one job at a time: these lines are on ${jobs.size} jobs`;
+    if (req.length) return R.length > 1 ? "Ask for quotes on a field request on its own" : "";
+    const miss = R.find((r) => !("ffe" === r.kind ? r.it : r.lineKey)),
+      subs = R.filter((r) => "sub" === r.kind);
+    if (miss) return `${miss.name} has no estimate or change-order line to quote from`;
+    return subs.length && subs.length !== R.length ? "Ask for bids on a subcontract scope on its own: it is leveled by scope, not by price per item" : "";
+  }
+  if (jobs.size > 1) return `Order one job at a time: these lines are on ${jobs.size} jobs`;
+  const held = R.find((r) => r.dec),
+    sub = R.find((r) => "sub" === r.kind),
+    on = R.find((r) => r.ordered),
+    ffe = R.filter((r) => "ffe" === r.kind),
+    rest = R.filter((r) => "ffe" !== r.kind && "request" !== r.kind);
+  if (held) return `${held.name} waits on a decision; it can be ordered once it is made`;
+  if (sub) return `${sub.name} is a subcontract scope: Ask for Bids, then award it as a subcontract`;
+  if (on) return `${on.name} is on order already: expedite it or pick another vendor`;
+  if (ffe.length && (req.length || rest.length)) return "Order the FF&E items on their own: they go on one order per vendor through the buy run";
+  return req.length > 1 || (req.length && rest.length) ? "Order a field request on its own: it becomes a material and an order" : "";
+}
 function bbOrder(L) {
-  const R = L.filter(Boolean);
-  if (!R.length) return toast("Pick at least one line");
-  const jobs = new Set(R.map((r) => r.p.id));
-  if (jobs.size > 1) return toast(`Order one job at a time: these lines are on ${jobs.size} jobs`);
-  const pid = R[0].p.id,
-    held = R.find((r) => r.dec);
-  if (held) return toast(`${held.name} waits on a decision; it can be ordered once it is made`);
-  const sub = R.find((r) => "sub" === r.kind);
-  if (sub) return toast(`${sub.name} is a subcontract scope: Ask for Bids, then award it as a subcontract`);
-  if (R.some((r) => r.ordered)) return toast(`${R.find((r) => r.ordered).name} is on order already: expedite it or pick another vendor`);
+  const R = L.filter(Boolean),
+    why = bbPickWhy(R, "order");
+  if (why) return toast(why);
+  const pid = R[0].p.id;
   // the order carries its row's line from the start: a selection or a material on no line is asked for before the draft
   const ask = R.find(bbNeedsLine);
   if (ask) return bbAskLine(ask, R);
   const ffe = R.filter((r) => "ffe" === r.kind),
     req = R.filter((r) => "request" === r.kind),
     rest = R.filter((r) => "ffe" !== r.kind && "request" !== r.kind);
-  if (ffe.length && (req.length || rest.length)) return toast("Order the FF&E items on their own: they go on one order per vendor through the buy run");
   if (ffe.length) return (procSel = new Set(ffe.map((r) => r.it.id))), procRunModal(), bbPick.clear();
-  if (req.length > 1 || (req.length && rest.length)) return toast("Order a field request on its own: it becomes a material and an order");
   if (req.length) {
     const r = req[0];
     return bbPick.clear(), requestAction(pid, r.q.id, "po"), void setTimeout(() => render(), 0);
@@ -784,21 +804,14 @@ if ("function" == typeof poRefuse) {
   };
 }
 function bbQuote(L) {
-  const R = L.filter(Boolean);
-  if (!R.length) return toast("Pick at least one line");
-  const jobs = new Set(R.map((r) => r.p.id));
-  if (jobs.size > 1) return toast(`Ask for quotes one job at a time: these lines are on ${jobs.size} jobs`);
+  const R = L.filter(Boolean),
+    why = bbPickWhy(R, "quote");
+  if (why) return toast(why);
   const pid = R[0].p.id,
     req = R.filter((r) => "request" === r.kind);
-  if (req.length) {
-    if (R.length > 1) return toast("Ask for quotes on a field request on its own");
-    return bbPick.clear(), reqRfq(pid, req[0].q.id);
-  }
+  if (req.length) return bbPick.clear(), reqRfq(pid, req[0].q.id);
   const keys = R.map((r) => ("ffe" === r.kind ? "sel:" + r.it.id : r.lineKey)),
-    miss = R.find((r, i) => !keys[i]),
     subs = R.filter((r) => "sub" === r.kind);
-  if (miss) return toast(`${miss.name} has no estimate or change-order line to quote from`);
-  if (subs.length && subs.length !== R.length) return toast("Ask for bids on a subcontract scope on its own: it is leveled by scope, not by price per item");
   const trade = subs.length ? ((COST_CODES.find((c) => c[0] === subs[0].code) || [])[1] || "Subcontract").split(/[ &,]/)[0] : "",
     q = rfqFromLines(pid, keys, subs.length ? { sub: !0, category: trade } : {});
   // the RFQ line names the material it buys, so the award marks that material ordered

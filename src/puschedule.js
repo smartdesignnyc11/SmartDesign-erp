@@ -454,6 +454,8 @@ function psMoney(x, ctx) {
   x.over = "line" === x.budgetFrom ? (C && C.over > 0.5 ? C.over : 0) : null != b && null != x.bought && x.bought > b + 0.5 ? r2(x.bought - b) : 0;
   x.under = "selection" === x.budgetFrom && firm && null != b && null != x.bought && x.bought < b - 0.5 ? r2(b - x.bought) : 0;
   x.lineOver = C && C.over > 0.5 && x.shared ? C.over : 0;
+  // what is left on the line the item's budget is (lineCommitment's left, the dollars the Request Quotes sheet says)
+  x.line = C && ("line" === x.budgetFrom || x.shared) ? { budget: C.budget, left: C.left, over: C.over > 0.5 ? C.over : 0 } : null;
   // bought for the client and not billed back: the one bill-back reading (rbRows), for this row's order lines
   x.notBilled = x.pls.some((y) => ctx.rb.has("rbpl:" + y.pl.id));
   // which columns the record holds a value for (the suite holds each to a filled cell)
@@ -707,12 +709,14 @@ function psCellHtml(x, k, card) {
     return `<button type="button" class="ps-open" data-psopen="${sv(x.id)}"><b data-nocase>${esc(x.desc)}</b></button>${sub(esc([x.descSub, psScope() ? "" : x.job].filter(Boolean).join(" · ")))}`;
   if ("qty" === k) return `<span class="ps-main" data-nocase>${esc(psQty(x))}</span>`;
   if ("room" === k) return `<span class="ps-main" title="${sv(x.room)}${x.roomRead ? ": read from the item's words" : ""}" data-nocase>${esc(x.room || "")}</span>`;
-  if ("budget" === k)
+  if ("budget" === k) {
+    const left = x.line ? sub(`${money(x.line.left)} left${x.line.over ? `, ${money(x.line.over)} over` : ""}`, x.line.over ? "bad" : "") : "";
     return null != x.budget
-      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.it ? sub(psUnitSay(selQty(x.it), selCost(x.it), x.it.unit, x.budget, selShip(x.it))) : sub("line" === x.budgetFrom ? "line budget" : "")}`
+      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.it ? sub(psUnitSay(selQty(x.it), selCost(x.it), x.it.unit, x.budget, selShip(x.it))) : sub("line" === x.budgetFrom ? "line budget" : "") + left}`
       : x.shared
-        ? `<span class="ps-main ps-dim" title="${money(x.shared.budget)} for the ${x.shared.n} items on the line" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} line`)}`
+        ? `<span class="ps-main ps-dim" title="${money(x.shared.budget)} for the ${x.shared.n} items on the line" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} line`)}${left}`
         : "";
+  }
   if ("bought" === k) {
     if (null == x.bought)
       return null != x.typedPrice
@@ -868,8 +872,16 @@ function psRender(root) {
   if (picked.length) {
     const priced = picked.filter((x) => x.r && +x.r.price > 0),
       total = r2(priced.reduce((a, x) => a + +x.r.price, 0)),
-      quotes = priced.length < picked.length || total > 2500;
-    bar = `<div class="ps-bar bb-bar" data-nocase><span class="ps-bt"><b>${picked.length} picked</b>${total ? ` · ${money(total)} to buy` : ""}${quotes ? " · three quotes over $2,500" : ""}</span><button type="button" class="btn${quotes ? " primary" : ""}" data-psdo="quote">Request Quotes</button><button type="button" class="btn${quotes ? "" : " primary"}" data-psdo="order">Order</button><button type="button" class="btn ps-clear" data-psdo="clear">Clear</button></div>`;
+      quotes = priced.length < picked.length || total > 2500,
+      // the doors' own rules (bbPickWhy: what bbQuote and bbOrder refuse), asked while picking: the button is off and the
+      // bar says why, instead of a toast after the tap
+      PR = picked.map((x) => x.r),
+      noQ = "function" == typeof bbPickWhy ? bbPickWhy(PR, "quote") : "",
+      noO = "function" == typeof bbPickWhy ? bbPickWhy(PR, "order") : "",
+      blue = quotes ? (noQ ? (noO ? "" : "order") : "quote") : noO ? (noQ ? "" : "quote") : "order",
+      why = [...new Set([noQ, noO].filter(Boolean))],
+      btn = (k, label, no) => `<button type="button" class="btn${blue === k ? " primary" : ""}" data-psdo="${k}"${no ? ` disabled aria-disabled="true" title="${esc(no)}"` : ""}>${label}</button>`;
+    bar = `<div class="ps-bar bb-bar" data-nocase><span class="ps-bt"><b>${picked.length} picked</b>${total ? ` · ${money(total)} to buy` : ""}${quotes && !noQ ? " · three quotes over $2,500" : ""}${why.length ? `<span class="ps-why" role="status">${why.map(esc).join(" ")}</span>` : ""}</span>${btn("quote", "Request Quotes", noQ)}${btn("order", "Order", noO)}<button type="button" class="btn ps-clear" data-psdo="clear">Clear</button></div>`;
   }
   root.innerHTML = `<div class="pu pr-keep ps ${phone ? "ps-phone" : "ps-desk"}${picked.length ? " ps-picking" : ""}" data-pupage="proc" id="pu-table" data-os-keep>${puHeadHtml("proc")}${psModesHtml()}${filters}${sum}${body}${exp}${bar}</div>`;
   psWire(root);
@@ -1064,19 +1076,39 @@ function psPrint(client) {
 // ---- the one import: a coordinator's own sheet into the job's FF&E items -------------------------------------------
 // The sheet's shape (invented demo, tests/pu_table_test.py): Alan's columns, with a section row per FM package and
 // category ("FM1 - 1.Accessories and Hardware") whose package and category the items under it take.
+// Alan's own sheet (11-12) heads its columns FM Invoice #, Category, Vendor Name, Item Name, Quantity, Client Price per
+// Unit, FM Client Price, FM Budget Cost, FM Actual Cost: each is read (an FM column that is a price is never the invoice),
+// and Item or Item Name is the description where no column says Description. One header fills one column.
 const PS_IMP_COLS = [
-  ["inv", /^(invoice|fm)/i],
-  ["lead", /lead/i],
-  ["sku", /item\s*#|sku|model|item no/i],
-  ["desc", /desc/i],
-  ["qty", /^q(ua)?n?ti?t?y?$|^qnty$|^qty$/i],
-  ["room", /room|location|space/i],
-  ["budget", /budget/i],
-  ["bought", /purchas|actual|paid/i],
-  ["vendor", /vendor|supplier|source/i],
-  ["status", /status/i],
-  ["deliv", /deliver|eta|arriv/i],
+  ["inv", /^(invoice|fm)(?!.*(price|cost|budget|actual|client))/i, "Invoice"],
+  ["cat", /^categ/i, "Category"],
+  ["lead", /lead/i, "Lead Time"],
+  ["sku", /item\s*(#|no\b|number)|sku|model/i, "Item #"],
+  ["desc", /desc/i, "Description"],
+  ["qty", /^q(ua)?n?ti?t?y?$|^qnty$|^qty$/i, "Qty"],
+  ["room", /room|location|space/i, "Room"],
+  ["clientEach", /client.*(per\s*unit|each|unit)|unit.*client/i, "Client Price Each"],
+  ["client", /client/i, "Client Price"],
+  ["budget", /budget/i, "Budget Price"],
+  ["bought", /purchas|actual|paid/i, "Purchased Price"],
+  ["vendor", /vendor|supplier|source/i, "Vendor"],
+  ["status", /status/i, "Status"],
+  ["deliv", /deliver|eta|arriv/i, "Delivery Date"],
 ];
+const PS_IMP_ITEM = /^item(\s*name)?$|^name$|^product(\s*name)?$/i;
+// which column each header fills: { at: {key: index}, read: [[header, our name]], unread: [headers] }
+function psImpMap(H) {
+  const at = {},
+    used = new Set(),
+    read = [],
+    T = H.map((h) => String(h || "").trim());
+  PS_IMP_COLS.forEach(([k, re, name]) => {
+    let i = T.findIndex((h, j) => h && !used.has(j) && re.test(h));
+    "desc" === k && i < 0 && (i = T.findIndex((h, j) => h && !used.has(j) && PS_IMP_ITEM.test(h)));
+    i >= 0 && ((at[k] = i), used.add(i), read.push([T[i], name]));
+  });
+  return { at: at, read: read, unread: T.filter((h, j) => h && !used.has(j)) };
+}
 const psNum = (s) => {
   const v = parseFloat(String(s || "").replace(/[$,\s]/g, ""));
   return isFinite(v) ? v : 0;
@@ -1103,15 +1135,18 @@ function psDateOf(s) {
 }
 function psParseSheet(text) {
   const rows = asCsv(text),
-    hi = rows.findIndex((r) => r.some((c) => /desc/i.test(c))),
+    hi = rows.findIndex((r) => r.some((c) => /desc/i.test(c) || PS_IMP_ITEM.test(String(c || "").trim()))),
     out = [];
-  if (hi < 0) return { items: out, error: "No Description column: the first row with Description is read as the header." };
+  if (hi < 0) {
+    // refused: the one column the import cannot do without, and what the first row does hold
+    const first = rows.find((r) => r.some((c) => String(c || "").trim())) || [],
+      M0 = psImpMap(first),
+      found = M0.read.map(([h, nm]) => (h.toLowerCase() === nm.toLowerCase() ? h : `${h} (${nm})`)).concat(M0.unread);
+    return { items: out, cols: M0, error: first.length ? `The Description column is missing: a column headed Description, Item or Item Name is required. Found in the first row: ${found.join(", ")}.` : "" };
+  }
   const H = rows[hi],
-    at = {};
-  PS_IMP_COLS.forEach(([k, re]) => {
-    const i = H.findIndex((h) => re.test(String(h).trim()));
-    i >= 0 && !(k in at) && (at[k] = i);
-  });
+    M = psImpMap(H),
+    at = M.at;
   let fm = "",
     cat = "";
   rows.slice(hi + 1).forEach((r) => {
@@ -1121,9 +1156,9 @@ function psParseSheet(text) {
     if (sec && r.slice(1).every((c) => !String(c || "").trim())) return void ((fm = sec[1].replace(/\s|-/g, "").toUpperCase()), (cat = sec[3].trim()));
     if (!v("desc")) return;
     const qty = psNum(v("qty")) || 1;
-    out.push({ fm: (v("inv") || fm).replace(/\s|-/g, "").toUpperCase(), category: cat, lead: psLeadDays(v("lead")), sku: v("sku"), name: v("desc"), qty: qty, room: v("room"), cost: psNum(v("budget")), bought: psNum(v("bought")), vendor: v("vendor"), stage: psStageOf(v("status")), statusText: v("status"), deliv: psDateOf(v("deliv")) });
+    out.push({ fm: (v("inv") || fm).replace(/\s|-/g, "").toUpperCase(), category: v("cat") || cat, clientEach: psNum(v("clientEach")), client: psNum(v("client")), lead: psLeadDays(v("lead")), sku: v("sku"), name: v("desc"), qty: qty, room: v("room"), cost: psNum(v("budget")), bought: psNum(v("bought")), vendor: v("vendor"), stage: psStageOf(v("status")), statusText: v("status"), deliv: psDateOf(v("deliv")) });
   });
-  return { items: out, error: "" };
+  return { items: out, cols: M, error: "" };
 }
 // One item on the job: the same FM number, the same room and the same SKU (or, with none, the same name). The sheet's own
 // repeats count too: the second of two identical rows is not imported twice.
@@ -1141,7 +1176,9 @@ function psImpMark(pid, L) {
 // the sheet's prices: per unit (a budget of $145 for 2 is $290) or line totals (the $290 is the line); said in the preview
 function psImpMoney(x, perUnit) {
   const q = +x.qty || 1;
-  return perUnit ? { costEach: x.cost, budget: r2(x.cost * q), boughtEach: x.bought, bought: r2(x.bought * q) } : { costEach: r2(x.cost / q), budget: x.cost, boughtEach: r2(x.bought / q), bought: x.bought };
+  // the client's price per unit: its own column, else the client price column read on the sheet's basis
+  const clientEach = +x.clientEach || (+x.client ? (perUnit ? +x.client : r2(+x.client / q)) : 0);
+  return Object.assign({ clientEach: clientEach }, perUnit ? { costEach: x.cost, budget: r2(x.cost * q), boughtEach: x.bought, bought: r2(x.bought * q) } : { costEach: r2(x.cost / q), budget: x.cost, boughtEach: r2(x.bought / q), bought: x.bought });
 }
 function psImportSheet() {
   if (psRO()) return toast("Purchasing is read only for your role: the coordinator imports the sheet");
@@ -1162,7 +1199,7 @@ function psImportSheet() {
           N = L.filter((x) => !x.skip),
           pu = perUnit();
         if (!p) return toast("Pick the job these items are for"), !1;
-        if (!N.length) return toast(L.length ? "Every row is already on this job or repeats another: nothing imported" : "Nothing to import: paste the sheet first"), !1;
+        if (!N.length) return toast(L.length ? "Every row is already on this job or repeats another: nothing imported" : parsed.error ? parsed.error : String(m.querySelector("#ps-imp-text").value || "").trim() ? "No item rows under the header: nothing to import" : "Nothing to import: paste the sheet first"), !1;
         let no = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid).length;
         const who = (currentUser() || {}).name || "",
           rooms = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid && i.room).map((i) => i.room),
@@ -1173,7 +1210,9 @@ function psImportSheet() {
             ["ord", "ship"].includes(x.stage) ? (dates.eta = x.deliv) : ["site", "office", "inst"].includes(x.stage) && (dates["office" === x.stage ? "office" : "site"] = x.deliv);
             // the budget is the selection's own (its unit cost); the purchased price is the sheet's word, kept beside it as
             // imported, never as the item's actual (no bill or bank line is behind it)
-            return selNew({ projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: M.costEach, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: null, imported: { at: today(), from: "sheet", by: who, basis: pu ? "unit" : "line", bought: x.bought ? M.bought : 0, boughtEach: x.bought ? M.boughtEach : 0 }, by: who });
+            // the sheet's client price sets the item's markup over its cost, so the client is shown the sheet's price
+            const mk = M.clientEach > 0 && M.costEach > 0 ? { markupPct: Math.round((M.clientEach / M.costEach - 1) * 1e6) / 1e4 } : {};
+            return selNew({ ...mk, projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: M.costEach, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: null, imported: { at: today(), from: "sheet", by: who, basis: pu ? "unit" : "line", bought: x.bought ? M.bought : 0, boughtEach: x.bought ? M.boughtEach : 0 }, by: who });
           });
         const skip = L.length - N.length;
         try {
@@ -1192,13 +1231,15 @@ function psImportSheet() {
       rep = L.length - n - dup,
       pu = perUnit(),
       ok = m.querySelector("#mbm-ok"),
-      each = (v, t) => (pu ? `${unitMoney(v)} each, ${money(t)}` : `${money(t)} for the line, ${unitMoney(v)} each`);
+      each = (v, t) => (pu ? `${unitMoney(v)} each, ${money(t)}` : `${money(t)} for the line, ${unitMoney(v)} each`),
+      C = parsed.cols,
+      colsSay = C && C.read.length && !parsed.error ? `<p class="ps-imp-cols">Columns read: ${C.read.map(([h, nm]) => (h.toLowerCase() === nm.toLowerCase() ? esc(h) : `${esc(h)} as ${esc(nm)}`)).join(", ")}.${C.unread.length ? ` Not read: ${C.unread.map(esc).join(", ")}.` : ""}</p>` : "";
     m.querySelector(".ps-imp-prev").innerHTML = parsed.error
       ? `<p class="warn">${esc(parsed.error)}</p>`
       : L.length
-        ? `<p class="ps-imp-sum">${n ? `${n} item${1 === n ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}${rep ? `; ${rep} repeat${1 === rep ? "s" : ""} a row above` : ""}</p>${L.map((x) => {
+        ? `<p class="ps-imp-sum">${n ? `${n} item${1 === n ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}${rep ? `; ${rep} repeat${1 === rep ? "s" : ""} a row above` : ""}</p>${colsSay}${L.map((x) => {
             const M = psImpMoney(x, pu);
-            return `<div class="ps-imp-row${x.skip ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `qty ${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}<span class="ps-imp-m">Budget ${x.cost ? esc(each(M.costEach, M.budget)) : "none"} · Purchased ${x.bought ? esc(each(M.boughtEach, M.bought)) + " (imported)" : "none"}${x.skip ? ` · ${esc(x.skip)}` : ""}</span></div>`;
+            return `<div class="ps-imp-row${x.skip ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `qty ${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}<span class="ps-imp-m">Budget ${x.cost ? esc(each(M.costEach, M.budget)) : "none"} · Purchased ${x.bought ? esc(each(M.boughtEach, M.bought)) + " (imported)" : "none"}${M.clientEach ? ` · Client ${unitMoney(M.clientEach)} each` : ""}${x.skip ? ` · ${esc(x.skip)}` : ""}</span></div>`;
           }).join("")}`
         : "";
     ok && (ok.textContent = n > 0 ? `Import ${n} Item${1 === n ? "" : "s"}` : "Import");
@@ -1291,8 +1332,9 @@ table.ps-t tr.ps-g td{background:var(--paper-3);font-size:12px;color:var(--ink-2
 .ps-x{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .ps-x .btn{display:inline-flex;align-items:center;gap:6px}
 .ps-bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-top:10px;box-shadow:0 -2px 8px rgba(0,0,0,.06)}
-.ps-bar .ps-bt{flex:1 1 auto;font-size:12.5px}
-.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px} .ps-imp-m{display:block;color:var(--ink-3);font-size:12px}
+.ps-bar .ps-bt{flex:1 1 auto;font-size:12.5px} .ps-bar .ps-why{display:block;color:var(--bad);font-weight:600;margin-top:2px}
+.ps-bar .btn[disabled]{opacity:.5;cursor:not-allowed}
+.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px} .ps-imp-cols{color:var(--ink-3);font-size:12px;margin:0 0 6px} .ps-imp-m{display:block;color:var(--ink-3);font-size:12px}
 .ps-phone .ps-modes{display:flex;width:100%}
 .ps-modes .ps-mode{flex:1 1 0;justify-content:center}
 @media (max-width:760px){
