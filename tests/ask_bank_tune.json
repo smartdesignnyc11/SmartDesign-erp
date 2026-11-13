@@ -3220,6 +3220,207 @@
     "ops",
     "field"
    ]
+  },
+  {
+   "id": "AFL1",
+   "role": "u_owner",
+   "q": "where is money leaking",
+   "truth": "tdCaught(td2Model().M.appr).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 20): 'where is money leaking' listed the 17 inventory items; the answer is Today's Caught for You, the same count as Today's 'N caught for you'",
+   "tags": [
+    "money",
+    "family"
+   ]
+  },
+  {
+   "id": "AFL2",
+   "role": "u_owner",
+   "q": "money leaks",
+   "truth": "tdCaught(td2Model().M.appr).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 20): 'where is money leaking' listed the 17 inventory items; the answer is Today's Caught for You, the same count as Today's 'N caught for you'",
+   "tags": [
+    "money",
+    "family"
+   ]
+  },
+  {
+   "id": "AFL3",
+   "role": "u_owner",
+   "q": "what are the money leaks",
+   "truth": "tdCaught(td2Model().M.appr).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 20): 'where is money leaking' listed the 17 inventory items; the answer is Today's Caught for You, the same count as Today's 'N caught for you'",
+   "tags": [
+    "money",
+    "family"
+   ]
+  },
+  {
+   "id": "AFL4",
+   "role": "u_owner",
+   "q": "where are we losing money",
+   "truth": "tdCaught(td2Model().M.appr).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 20): 'where is money leaking' listed the 17 inventory items; the answer is Today's Caught for You, the same count as Today's 'N caught for you'",
+   "tags": [
+    "money",
+    "family"
+   ]
+  },
+  {
+   "id": "AFL5",
+   "role": "u_controller",
+   "q": "any leaks?",
+   "truth": "tdCaught(td2Model().M.appr).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 20): 'where is money leaking' listed the 17 inventory items; the answer is Today's Caught for You, the same count as Today's 'N caught for you'",
+   "tags": [
+    "money",
+    "family"
+   ]
+  },
+  {
+   "id": "AFU1",
+   "role": "u_owner",
+   "q": "what haven't we billed",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFU2",
+   "role": "u_owner",
+   "q": "what's not billed",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFU3",
+   "role": "u_owner",
+   "q": "work done not billed",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFU4",
+   "role": "u_owner",
+   "q": "unbilled work",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFU5",
+   "role": "u_billing",
+   "q": "what have we not invoiced yet",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFU6",
+   "role": "u_billing",
+   "q": "what hasn't been billed",
+   "truth": "readyToBill().amount",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 rows 21, 23): 'what haven't we billed' listed the 6 invoices that HAVE been billed ($283,365); every phrasing gives Ready to Bill's total, the Billing tile's figure",
+   "tags": [
+    "money",
+    "family",
+    "negation"
+   ]
+  },
+  {
+   "id": "AFP1",
+   "role": "u_owner",
+   "q": "what did we promise the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): 'what did we promise the Kleins' said none from an empty promise ledger while the Kleins waited on open tasks",
+   "tags": [
+    "ops",
+    "family"
+   ]
+  },
+  {
+   "id": "AFP2",
+   "role": "u_owner",
+   "q": "what have we promised the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): 'what did we promise the Kleins' said none from an empty promise ledger while the Kleins waited on open tasks",
+   "tags": [
+    "ops",
+    "family"
+   ]
+  },
+  {
+   "id": "AFP3",
+   "role": "u_owner",
+   "q": "what do we owe the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): 'what did we promise the Kleins' said none from an empty promise ledger while the Kleins waited on open tasks",
+   "tags": [
+    "ops",
+    "family"
+   ]
+  },
+  {
+   "id": "AFP4",
+   "role": "u_alan",
+   "q": "what are we committed to for the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): 'what did we promise the Kleins' said none from an empty promise ledger while the Kleins waited on open tasks",
+   "tags": [
+    "ops",
+    "family"
+   ]
   }
  ]
 }

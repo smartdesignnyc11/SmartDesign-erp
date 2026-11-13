@@ -1008,6 +1008,12 @@ function paDidHtml(did, open, summary) {
           k = h.indexOf(a);
         h = k > -1 ? h.slice(0, k) + b + h.slice(k + a.length) : h;
       }
+      // a local answer's rows name their records (Ask's leak answer, src/askfamily.js): each name opens its record
+      if ("a" === m.who && !m.md && (m.links || []).length) {
+        const i = h.indexOf('<ul class="pa-w">'),
+          j = i > -1 ? h.indexOf("</ul>", i) : -1;
+        j > -1 && (h = h.slice(0, i) + h.slice(i, j).replace(/<li>([\s\S]*?)<\/li>/g, (x, body) => `<li>${paLinked(body, m)}</li>`) + h.slice(j));
+      }
     } catch (e) {
       console.warn("assistant message", e);
     }
@@ -1320,7 +1326,7 @@ paSend = function (text, opts) {
       a = a || paOut({ headline: "That broke on my side.", note: "Say it another way and I will try again; nothing was changed." });
       (a.q = q),
         (paNow = a),
-        paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps, did: a.did || [], cut: !!a.cut, summary: a.summary || "", links: a.links || [] } : { note: a.note, work: a.work || [], go: a.go || null, mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })), kind: a.kind, readAs: a.readAs || "" });
+        paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps, did: a.did || [], cut: !!a.cut, summary: a.summary || "", links: a.links || [] } : { note: a.note, work: a.work || [], go: a.go || null, mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })), kind: a.kind, readAs: a.readAs || "", links: (a.links || []).filter((L) => L && L.text && L.go).map((L) => ({ text: L.text, label: L.label || "", go: L.go })) });
     },
     release = () => {
       (paBusy = !1), (paSteps = []), (paLive = null), (paStopFn = null), (paStreamAbort = null);

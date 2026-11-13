@@ -941,17 +941,11 @@ function p2nOweAnswer(raw) {
   }
   const c = p2nClientNamed(obj);
   if (!c) return null;
-  const all = openTasks("all").filter((x) => tkOwedBy(x, "client") && (tkClientOfTask(x) || {}).id === c.id),
-    mine = all.filter((x) => tkOwnerMatch(x.assignee, me)),
-    T = t2Sort("i" === subj ? mine : all);
-  const others = "i" === subj ? all.length - mine.length : 0;
-  return paOut({
-    kind: "tasks",
-    headline: T.length ? `${"i" === subj ? "You owe" : "We owe"} ${c.name} ${T.length} thing${1 === T.length ? "" : "s"}${T.filter((x) => x.late).length ? `, ${T.filter((x) => x.late).length} late` : ""}.` : `${"i" === subj ? "You owe" : "We owe"} ${c.name} nothing open right now.`,
-    work: T.slice(0, 8).map(line),
-    note: `From the open tasks and promises on ${c.name}'s jobs that they are waiting for${others ? `; ${others} more ${1 === others ? "is" : "are"} on others at the firm` : ""}. What ${c.name} owes us is a money question: ask "what do the ${String(c.name).split(/\s+/).pop()}s owe us".`,
-    go: paGo({ view: "tkall", tkOwed: "client", project: "" }),
-  });
+  // one answer for "what do we owe" and "what did we promise" a client (src/askfamily.js): the tasks they wait for,
+  // the promise ledger and the Standard's client rules. This branch listed the tasks alone while the promise reader
+  // read the ledger alone and said "none" (founder review, wave 3).
+  const a = afPromises({ clients: [c], jobs: [], l: String(raw || "").toLowerCase() }, "i" === subj ? "i" : "we");
+  return a ? paOut(Object.assign(a, { go: a.go ? paGo(a.go) : null, family: "promises", interp: a.ran ? a.ran + "." : null })) : null;
 }
 {
   const base = paAsk;

@@ -113542,6 +113542,8 @@ function csGo(go) {
         (go.project && "function" == typeof setCurrent && setCurrent(go.project),
         go.client && (clientOpen = go.client),
         go.comm && (cmOpen = go.comm),
+        // Today with Caught for You open (Ask's leak answer opens the list it read)
+        go.tdQuiet && "undefined" != typeof td2QuietOpen && (td2QuietOpen = !0),
         go.own)
       )
         try {
@@ -119190,12 +119192,40 @@ const QA_ENTITY = [
     documents: "modified",
   },
   qaHas = (l, rx) => rx.test(l);
+// "Where is X" asks where a tool or a material is only when X is one: "where is money leaking" listed all 17
+// inventory items (founder review, wave 3).
+function qaNamesStock(t) {
+  if (/\b(inventory|stock|tools?|materials?|warehouse|shop|truck|van|bin|shelf)\b/.test(t)) return !0;
+  try {
+    const stop = /^(with|from|that|this|what|where|size|inch|feet|pack|case|roll|each|assorted|white|black|blue|new-work|select)$/,
+      words = new Set(
+        eqRows("inventory").flatMap((r) =>
+          String(r.name || r.item || "")
+            .toLowerCase()
+            .split(/[^a-z]+/)
+            .filter((w) => w.length >= 4 && !stop.test(w)),
+        ),
+      );
+    return t.split(/[^a-z]+/).some((w) => words.has(w) || words.has(w.replace(/s$/, "")));
+  } catch (e) {
+    return !1;
+  }
+}
+const QA_WHERE_IS = /\b(where is|where's|wheres|location of)\b/,
+  QA_NOT_BILLED = /\b(not|never|haven't|hasn't|didn't)\b[^.?]*\b(billed|invoiced|bill|invoice)\b|\bun-?(billed|invoiced)\b/;
 function qaEntity(l) {
   const t = String(l).replace(
     /\bby (vendor|client|customer|project|job|person|assignee|status|month|category|trade)s?\b/g,
     " ",
   );
-  for (const [rx, e] of QA_ENTITY) if (rx.test(t)) return e;
+  // what was NOT billed is never answered with the list of what was ("what haven't we billed" listed the six invoices
+  // that were); the unbilled family answers it (src/askfamily.js)
+  if (QA_NOT_BILLED.test(t) && !/\b(invoices?|bills?|change orders?|cos?)\b/.test(t)) return "";
+  for (const [rx, e] of QA_ENTITY) {
+    if (!rx.test(t)) continue;
+    if ("inventory" === e && QA_WHERE_IS.test(t) && !/\b(inventory|stock|material|materials|tool|tools)\b/.test(t) && !qaNamesStock(t.replace(QA_WHERE_IS, " "))) continue;
+    return e;
+  }
   return "";
 }
 function qaWhere(l, entity) {
@@ -173441,18 +173471,10 @@ const AG_OPS = [
     id: "invoicenow",
     re: /\b(ready to bill|ready to invoice|invoice today|bill today|could we invoice|can (i|we) (bill|invoice)|should we invoice|what can (i|we) bill)\b/,
     kind: "money",
+    // one answer with "what haven't we billed" (src/askfamily.js); this copy said "held: billed $0 ahead of earned
+    // work" of a line held for $10,170 (a held row carries its amount and reason, not an over-billed figure)
     run(P) {
-      const R0 = readyToBill(),
-        R = (R0.rows || []).filter((r) => agOnJob(P, r.p && r.p.id) && (!P.clients.length || P.clients.some((c) => r.c && r.c.id === c.id))),
-        tot = R.reduce((a, r) => a + (+r.amount || 0), 0),
-        held = (R0.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
-      return {
-        headline: R.length ? `${money(tot)} is ready to bill on ${agN(R.length, "item")}: ${R.map((r) => `${agShort(r.p)} ${money(r.amount)}`).join(", ")}.` : `Nothing is ready to bill${P.clients.length ? ` for ${P.clients[0].name}` : ""}: $0.`,
-        note: held.length ? held.map((h) => `${agShort(h.p)} is held: billed ${money(h.over)} ahead of earned work.`).join(" ") : "",
-        work: R.map((r) => r.title),
-        go: agGo("billing"),
-        ran: agRan("ready to bill", (P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []).concat(agWhereJob(P)), "", R.length),
-      };
+      return afUnbilled(P);
     },
   },
 ];
@@ -191437,26 +191459,11 @@ AG_FIN.unshift(
     id: "unbilledwork",
     re: /\b(done|finished|complete[d]?|earned|measured|installed)\b.*\bnot (yet )?(billed|invoiced)\b|\bwork\b.*\b(unbilled|not (yet )?billed)\b|\bunbilled work\b/,
     kind: "money",
+    // one unbilled answer (src/askfamily.js): Ready to Bill's rows and total, with each application's lines under it.
+    // This reader summed the schedule's lines on its own: $36,017 beside the Billing Queue's $32,331, with 45
+    // Cranberry's design phases read "billed 0%" though half of each was billed and paid (founder review, wave 3).
     run(P) {
-      const jobs = (P.jobs.length ? P.jobs : DB.projects || []).filter((p) => {
-          try {
-            return pgRows(p.id).length;
-          } catch (e) {
-            return !1;
-          }
-        }),
-        rows = jobs.flatMap((p) => lkUnbilledWork(p.id).map((w) => Object.assign({ p: p }, w))),
-        ready = rows.filter((w) => !w.held),
-        amt = r2(ready.reduce((a, w) => a + w.amount, 0));
-      return {
-        headline: ready.length
-          ? `${money(amt)} of work is done and not billed yet${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(ready.map((w) => `${w.co ? w.co + " " : ""}${w.desc} ${money(w.amount)}`))}.`
-          : `Nothing measured is ahead of billing${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
-        note: "Each line on its own evidence (the schedule, deliveries, the foreman's measure); a change order line bills from 0. A line measured only by cost is held until someone measures it." + (rows.length > ready.length ? ` ${agN(rows.length - ready.length, "line")} held.` : ""),
-        work: rows.map((w) => `${agShort(w.p)} · ${w.co ? w.co + " " : ""}${w.desc} — measured ${Math.round(w.measured)}%, billed ${Math.round(w.billed)}%: ${money(w.amount)} not billed${w.held ? ` (held: ${w.held})` : ""}`),
-        go: agGo("billing"),
-        ran: agRan("schedule of values lines", agWhereJob(P).concat(["measured is more than billed"]), "", rows.length),
-      };
+      return afUnbilled(P);
     },
   },
 );
@@ -195927,7 +195934,10 @@ AG_ASST.unshift(
       if ("client" === role() || P.vendors.length) return null;
       const who = P.people[0] || null;
       if (!who && !P.clients.length) return null;
-      if (!who && !/\b(promise[ds]?|promised|committed)\b/.test(P.l)) return null;
+      // what we promised or owe a client is one answer (src/askfamily.js): the tasks they wait for, the ledger and the
+      // Standard. This branch read the ledger alone and said "none" while the Kleins waited on three tasks; "what do
+      // we owe the Kleins" (src/p2nav.js) read the tasks alone.
+      if (!who) return afPromises(P, /\bi\b/.test(P.l) && !/\bwe\b/.test(P.l) ? "i" : "we");
       const pids = P.clients.length ? (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id) : P.jobs.length ? P.jobs.map((p) => p.id) : null,
         // what is owed "this week" is due by its Sunday, not by today (the period Ask reads for spend runs to today)
         to = P.period ? ("this week" === P.period.key && "function" == typeof appWeek ? appWeek().sun || P.period.to : P.period.to) : "",
@@ -202302,7 +202312,9 @@ Object.assign(STD_MAP, {
     C.rows = function () {
       const R = base.apply(this, arguments) || [];
       try {
-        if (!tdOn()) return R;
+        // whether Today is this person's Home, not whether Today is on screen: Ask's "where is money leaking" read
+        // Caught for You from the Ask page and counted 36 where Today said 33 (one question, one number)
+        if (!(TD_ROLES.includes(role()) && "classic" !== ((DB.company || {}).homeMode || "brief"))) return R;
         const me = tdyMe(),
           mine = new Set(tkAll({ open: !0, uid: me.id }).map((t) => "task:" + t.id));
         return R.filter((r) => !mine.has(r.key));
