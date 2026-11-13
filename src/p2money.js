@@ -914,7 +914,12 @@ const pbWords = (A) =>
     return h;
   };
 }
-// billing a line further ahead of its work needs a reason, recorded on the invoice and in the audit
+// billing a line further ahead of its work needs a reason, recorded on the invoice and in the audit.
+// The gate reads every line that has a measure, cost-to-cost included (billing review 11-12, S1-2, BACKLOG 11 row
+// 25): it read only the schedule and delivered measures, so a line measured by its cost (121 State's demolition,
+// 7.67% by cost, 51.67% billed) took another 10% and went out with no reason asked. Cost is weak evidence of
+// progress, which is why pbAhead does not call such a line billed ahead on its own; but billing past every measure
+// the app has is exactly what needs a person's reason. A line with no measure at all (basis none) is not read.
 function pbFurther(c, d) {
   if (!d || "invoice" !== d.type || "sov" !== d.mode || !d.projectId) return [];
   const A = pbAhead(d.projectId),
@@ -930,12 +935,12 @@ function pbFurther(c, d) {
     .filter((l) => l.sovId && +l.pct > 0)
     .map((l) => {
       const r = rows.find((x) => x.sv && x.sv.id === l.sovId);
-      if (!r || !r.pr || null == r.pr.pct || r.pr.stale || !["schedule", "delivered"].includes(r.pr.basis)) return null;
+      if (!r || !r.pr || null == r.pr.pct || !["schedule", "delivered", "cost"].includes(r.pr.basis)) return null;
       const prev = r2("draft" === d.status ? sovBilled(c, l.sovId, d.id) : +l.prevPct || 0),
         to = r2(prev + (+l.pct || 0)),
         dep = pgIsCO(r.sv) ? 0 : A.depPct,
         net = r2(to - r.pr.pct - Math.min(dep, Math.max(0, to - r.pr.pct)));
-      return net > (cfg.ahead || 5) ? { l: l, to: to, pct: r2(r.pr.pct), amount: r2(((+l.scheduled || r.ev.scheduled || 0) * (+l.pct || 0)) / 100) } : null;
+      return net > (cfg.ahead || 5) ? { l: l, to: to, pct: r2(r.pr.pct), basis: r.pr.basis, amount: r2(((+l.scheduled || r.ev.scheduled || 0) * (+l.pct || 0)) / 100) } : null;
     })
     .filter(Boolean);
 }
@@ -948,7 +953,7 @@ function pbFurther(c, d) {
         if (F.length)
           return void billAskWhy(
             `Billed Ahead of the Work: ${esc(d.number || "")}`,
-            `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete`).join("<br>")}<br>Say why these lines bill further ahead of the work. Nothing is changed in what is billed; the reason goes on the invoice's record.`,
+            `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}`).join("<br>")}<br>Say why these lines bill further ahead of the work. Nothing is changed in what is billed; the reason goes on the invoice's record.`,
             "Send With the Reason",
             "e.g. the contract bills the windows on delivery to the shop",
             (w) => {
