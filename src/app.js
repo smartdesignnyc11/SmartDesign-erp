@@ -108383,6 +108383,33 @@ if ("function" == typeof render) {
     return r;
   };
 }
+// Clear Everything empties the audit trail with the rest. Its head (DB.auditHead) and each month close's recorded head
+// (DB.periods.closes[].auditHead) pointed into the removed rows, so auditVerify read "the trail ends at 0, its head says
+// N" on every device, as if the books had been tampered with. The chain starts again from genesis, the closes' anchors
+// into the removed rows go, and the new trail's first row says who cleared it, when, and what went.
+function rdWipeAudit(was) {
+  const rows = Array.isArray(was) ? was.length : 0,
+    head = DB.auditHead ? { n: DB.auditHead.n, h: DB.auditHead.h } : null,
+    closes = ((DB.periods || {}).closes || []).filter((c) => c && c.auditHead);
+  closes.forEach((c) => delete c.auditHead);
+  delete DB.auditHead;
+  DB.audit = [];
+  const by = (("function" == typeof currentUser && currentUser()) || {}).name || "";
+  audit(
+    "company",
+    "wipe",
+    "cleared-everything",
+    { auditRows: rows, auditHead: head, closeAnchors: closes.map((c) => c.month) },
+    { auditRows: 0 },
+    `Clear Everything (Settings, Take the Demo Out): every record but the settings was removed, with the ${rows} audit ${1 === rows ? "row" : "rows"} before this one; the trail starts again here`,
+    by ? { by: by } : void 0,
+  );
+  try {
+    auditSeal();
+  } catch (e) {
+    console.warn("audit seal", e);
+  }
+}
 function rdWipe(what) {
   const before = {};
   if (
@@ -108492,6 +108519,7 @@ function rdWipe(what) {
       (DB.employees = []),
       (DB.__wiped = { at: appNowIso(), ghosts: ghosts }),
       (DB.currentId = "");
+    rdWipeAudit(before.audit);
   }
   saveNow(),
     render(),
