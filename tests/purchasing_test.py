@@ -852,12 +852,14 @@ async def s_picks(p, c):
             pick = lambda i: pg.locator(f'.view.on [data-pusec="mine"] [data-bbpick="{i}"]').first
             two = await pg.evaluate("""() => { const vis = [...document.querySelectorAll('.view.on [data-pusec="mine"] [data-bbpick]')].map(e => e.dataset.bbpick), L = buyList('').filter(r => vis.includes(r.id));
               for (const a of L) for (const b of L) if (a !== b && !(+a.price > 0) && !bbPickWhy([a, b], 'quote')) return [a.id, b.id];
-              return []; }""")
+              // the demo's Needs You may hold one such line only (the countertop slab): then that one
+              const one = L.find(a => !(+a.price > 0) && !bbPickWhy([a], 'quote')); return one ? [one.id] : []; }""")
             for i in two:
                 await pd_press(pick(i))
             BAR = "() => { const b = [...document.querySelectorAll('.view.on .bb-bar')].find(x => x.getClientRects().length); if (!b) return null; return { t: b.innerText.replace(/\\s+/g, ' '), blue: [...b.querySelectorAll('.btn.primary')].map(x => x.innerText.trim()), other: [...b.querySelectorAll('.btn:not(.primary)')].map(x => x.innerText.trim()) }; }"
             bar = await pg.evaluate(BAR)
-            c.ok(bar and '2 lines picked' in bar['t'] and 'no price' in bar['t'], f'picks {dev}: the bar says 2 lines picked and the lines with no price ({bar})')
+            said = '2 lines picked' if len(two) == 2 else '1 line picked'
+            c.ok(two and bar and said in bar['t'] and 'no price' in bar['t'], f'picks {dev}: the bar says {said} and the lines with no price ({bar})')
             c.ok(bar and bar['blue'] == ['Ask for Quotes'] and 'order, with a reason' in [x.lower() for x in bar['other']], f'picks {dev}: a line with no price: Ask for Quotes is the blue, Order, With a Reason the other ({bar})')
             blues = await pg.evaluate("() => [...document.querySelectorAll('.view.on .btn.primary')].filter(x => x.getClientRects().length).length")
             c.ok(blues == 1, f'picks {dev}: one blue on the screen while the bar shows ({blues})')
