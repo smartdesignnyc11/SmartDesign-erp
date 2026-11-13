@@ -311,8 +311,8 @@ async def revise(p, phone):
           const more = n.lines.filter(l => l.sovId && +l.pct > 0).some(l => { const was = l.pct; l.pct = was + 30; const hit = pbFurther(c, n).some(x => x.l.id === l.id); l.pct = was; return hit; });
           return { date: n.date, due: n.due, want: cxDueFor(n.date, n.terms), today: today(), odue: o.due, orig: n.originalDate, odate: o.date, same: same, more: more,
                    line: (/Revised [A-Z][a-z]+ \\d{1,2}, 20\\d\\d, original [A-Z][a-z]+ \\d{1,2}, 20\\d\\d/.exec(t) || [''])[0], wt: (/Work through: [A-Z][a-z]+ \\d{1,2}, 20\\d\\d/.exec(t) || [''])[0], owt: cxDate(o.date) }; }""", n['id'])
-        C.ok(rv['date'] == rv['today'] and rv['due'] == rv['want'] and rv['due'] >= rv['date'] and rv['orig'] == rv['odate'],
-             f'billing on the {dev}: the revision is dated today and due by its own date and terms, and remembers the original\'s date ({rv})')
+        C.ok(rv['date'] == rv['today'] and rv['due'] == rv['odue'] and rv['orig'] == rv['odate'],
+             f'billing on the {dev}: the revision is dated today, keeps the original\'s due date and remembers the original\'s date ({rv})')
         C.ok(rv['line'] and rv['owt'] in rv['line'] and rv['owt'] in rv['wt'], f'billing on the {dev}: it prints "Revised <today>, original <date>" and keeps the original\'s Work through ({rv["line"]!r}, {rv["wt"]!r})')
         C.ok(rv['same'] == 0 and rv['more'], f'billing on the {dev}: an unchanged revision bills nothing further ahead and is not asked why; a line raised 30 points still is ({rv["same"]}, {rv["more"]})')
         # the revision goes out: the original is voided (its posting reversed), the revision is posted
@@ -439,6 +439,69 @@ async def revise_ledger(p, phone):
     C.ok(z['inAug'] == a['inAug'] and abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and not mine and r['rvDate'].startswith('2026-09'),
          f'{who}: with August closed, nothing is written into August, no flag or error, and September nets to zero ({r}, flags {mine}, Aug rows {a["inAug"]} to {z["inAug"]})')
     C.ok(not errs, f'revise ledger on the {dev}: no page errors ({errs[:2]})')
+    await b.close()
+
+
+OVERDUE = """(n) => { const c = DB.clients.find(c => c.id === 'cl121'), back = (k) => iso(addDays(parse(today()), -k));
+  const d = newDoc(c, 'invoice', { mode: 'items', fields: { projectId: 'p121', title: 'Fixture: overdue millwork ' + n, taxRate: 0, retainagePct: 0, terms: 'Net 15',
+    lines: [{ id: uid('l'), item: 'Millwork, supplied', desc: 'Oak, stained', qty: 1, rate: 1000, taxable: false }] } });
+  dvFresh.delete(d.id); d.date = back(35); d.due = back(20); d.status = 'sent'; d.sentAt = d.date; docMark(d); save(); return d.id; }"""
+AGE = """(id) => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === id), a = arRows().find(r => r.i.id === id), k = acCollections('').rows.find(r => r.i.id === id);
+  return { st: invoiceStatus(c, d), raw: d.status, due: d.due, date: d.date, age: a ? a.age : null, bucket: a ? a.bucket : null, bal: a ? a.bal : null, coll: k ? k.age : null,
+           next: acNextReminder(d.due), terms: d.terms }; }"""
+
+
+async def revise_aging(p, phone):
+    """Alan's rule, 11-13: a revision keeps the original invoice's due date, so re-issuing an overdue invoice (for a
+    description or for an amount) never resets collections aging; the due date moves only when the person changes
+    the terms on the revision, and then it is worked out from the revision's own date"""
+    dev = 'phone' if phone else 'desktop'
+    who = f'billing on the {dev}'
+    b, pg, errs = await boot(p, phone, 'u_billing')
+
+    async def reissue(iid, why, change):
+        await pg.evaluate("""([iid, why, change]) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid);
+          const n = dvRevise(c, o, why); change === 'desc' ? (n.lines[0].desc = 'Oak, stained and sealed') : (n.lines[0].rate = 1100); window.__ag = n.id; docAction(c, n, 'send'); }""", [iid, why, change])
+        await pg.wait_for_timeout(400)
+        await pg.evaluate(GATE, 'revision: ' + why)
+        await pg.wait_for_timeout(500)
+        return await pg.evaluate("() => window.__ag")
+
+    for n, (change, label, bal) in enumerate((('desc', 'a description-only change', 1000), ('amount', 'an amount change ($1,000 to $1,100)', 1100))):
+        iid = await pg.evaluate(OVERDUE, n)
+        a = await pg.evaluate(AGE, iid)
+        C.ok(a['st'] == 'overdue' and a['age'] == 20 and a['coll'] == 20, f'{who}: the fixture is 20 days overdue in AR aging and on the collections list ({a})')
+        nid = await reissue(iid, 'millwork line corrected', change)
+        z = await pg.evaluate(AGE, nid)
+        o = await pg.evaluate(AGE, iid)
+        C.ok(o['raw'] == 'void' and o['age'] is None and o['coll'] is None, f'{who}: the original is voided and off the open list once its revision goes out ({o})')
+        C.ok(z['date'] > a['date'] and z['due'] == a['due'] and z['st'] == 'overdue', f'{who}: revised with {label}, the revision is dated today, keeps the due date and still reads overdue ({z})')
+        C.ok(z['age'] == 20 and z['bucket'] == a['bucket'] and z['coll'] == 20 and z['next'] == a['next'] and abs(z['bal'] - bal) < 0.01,
+             f'{who}: revised with {label}, it is still 20 days overdue in AR aging and on the collections list, on the same reminder step, for ${bal:,} ({z})')
+    # (3) the terms changed on the revision, in the editor's Terms field: due is worked out from the revision's date
+    iid = await pg.evaluate(OVERDUE, 9)
+    nid = await pg.evaluate("""(iid) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid); clientOpen = c.id; view = 'billing';
+      const n = dvRevise(c, o, 'terms renegotiated'); render(); return n.id; }""", iid)
+    await pg.wait_for_timeout(400)
+    a = await pg.evaluate(AGE, nid)
+
+    async def set_terms(v):
+        f = pg.locator(f'#doc-{nid} [data-d="terms"]').first
+        if await f.count() and await f.is_visible():
+            await f.fill(v)
+            await pg.keyboard.press('Tab')
+        else:   # the phone draws the document's fields in its own sheet: the same field, the same change
+            await pg.evaluate("([nid, v]) => { const el = document.querySelector('#doc-' + nid + ' [data-d=\"terms\"]'); el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); }", [nid, v])
+        await pg.wait_for_timeout(350)
+        return await pg.evaluate("""(nid) => { const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.id === nid), el = document.querySelector('#doc-' + nid + ' [data-d="due"]');
+          return { due: d.due, terms: d.terms, want: cxDueFor(d.date, d.terms), today: today(), shown: el ? el.value : null, trail: (d.history || []).concat(DB.audit || []).some(h => /due-moved/.test(h.action || '')) }; }""", nid)
+    C.ok(await pg.locator(f'#doc-{nid} [data-d="terms"]').count() == 1 and a['due'] < a['date'], f'{who}: the draft revision opens in its editor with the original\'s due date, already past ({a})')
+    t = await set_terms('Net 30')
+    C.ok(t['terms'] == 'Net 30' and t['due'] == t['want'] and t['due'] > t['today'] and t['shown'] in (t['due'], None) and t['trail'],
+         f'{who}: Net 30 typed on the revision works its due date out from the revision\'s own date, shows it and writes the move to the trail ({t})')
+    t2 = await set_terms('Net 15')
+    C.ok(t2['due'] == a['due'], f'{who}: back on the original\'s Net 15, the original\'s due date stands again ({t2["due"]}, was {a["due"]})')
+    C.ok(not errs, f'revise aging on the {dev}: no page errors ({errs[:2]})')
     await b.close()
 
 
@@ -695,7 +758,7 @@ async def portal(p, phone):
 
 
 async def main():
-    only = sys.argv[1:] or ['lists', 'revise', 'ledger', 'credit', 'refund', 'portal']
+    only = sys.argv[1:] or ['lists', 'revise', 'ledger', 'aging', 'credit', 'refund', 'portal']
     async with async_playwright() as p:
         for phone in (False, True):
             if 'lists' in only:
@@ -703,6 +766,7 @@ async def main():
                     await lists_open(p, phone, uid)
             if 'revise' in only: await revise(p, phone); await revise_settled(p, phone)
             if 'ledger' in only and not phone: await revise_ledger(p, phone)
+            if 'aging' in only: await revise_aging(p, phone)
             if 'credit' in only: await credit(p, phone)
             if 'refund' in only: await refund(p, phone)
             if 'portal' in only: await portal(p, phone)

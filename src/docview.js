@@ -744,11 +744,13 @@ if ("function" == typeof lkRevise) {
       n && d && (n.lines || []).forEach((l, i) => d.lines && d.lines[i] && !l.revOfLine && (l.revOfLine = d.lines[i].id));
       if (n && d) {
         // The revision is dated the day it is made and remembers the original's date (it prints "Revised <its date>,
-        // original <that date>"; a pay application's "Work through" stays the original's). Its due date is worked out
-        // from its own date and its terms (cxDueFor, the one terms source), never copied from the original: a
-        // document dated today is not due on a day already past.
+        // original <that date>"; a pay application's "Work through" stays the original's). It KEEPS the original's
+        // due date (Alan's rule, 11-13): the client already owed the original by that day, so re-issuing an overdue
+        // invoice, for a description or for an amount, never makes it read as current or drops it off the collections
+        // ladder (due / 7 / 15 / 30). The due date moves only when the person changes the terms on the revision
+        // (dvRevisionTerms) or types a due date, as on any invoice.
         n.originalDate = d.originalDate || d.date || "";
-        "invoice" === n.type && n.date && "function" == typeof cxDueFor && (n.due = cxDueFor(n.date, n.terms));
+        "invoice" === n.type && d.due && (n.due = d.due);
         "function" == typeof docMark && docMark(n);
         save();
       }
@@ -756,6 +758,42 @@ if ("function" == typeof lkRevise) {
     return n;
   };
 }
+// The terms changed on a draft revision: its due date is worked out from the revision's own date and the new terms
+// (cxDueFor, the one terms source). Terms that state the same number of days as the invoice it replaces (a reworded
+// "Net 15") change nothing: the original's due date stands. The move is written to the invoice's trail.
+function dvRevisionTerms(c, d) {
+  if (!c || !d || "invoice" !== d.type || !d.revisionOf || "draft" !== d.status || "function" != typeof cxDueFor || "function" != typeof cxTermsDays) return !1;
+  const o = (c.invoices || []).find((x) => x.number === d.revisionOf && x.id !== d.id),
+    days = cxTermsDays(d.terms),
+    was = d.due || "",
+    same = null == days || (o && days === cxTermsDays(o.terms)),
+    // back to the original's days after a move: the original's due date again; a due date typed by hand is left alone
+    to = same ? (d.dueByTerms && o && o.due) || was : cxDueFor(d.date, d.terms);
+  if (!to || to === was) return !1;
+  (d.due = to), same ? delete d.dueByTerms : (d.dueByTerms = !0);
+  try {
+    docAudit(c, d, "due-moved", `terms changed to "${d.terms || ""}": due ${fmtL(was)} becomes ${fmtL(to)}${o ? `; ${o.number} was due ${fmtL(o.due)}` : ""}`);
+  } catch (e) {}
+  return save(), !0;
+}
+// the editor's Terms field (wireDocEditor writes the value first, on the field itself; this hears the same change after)
+document.addEventListener("change", (e) => {
+  try {
+    const el = e.target;
+    if (!el || !el.dataset || "terms" !== el.dataset.d || "undefined" == typeof docOpen || !docOpen || "invoice" !== docOpen.kind) return;
+    const root = el.closest && el.closest('[id^="doc-"]'),
+      c = (DB.clients || []).find((x) => (x.invoices || []).some((i) => i.id === docOpen.id)),
+      d = c && c.invoices.find((i) => i.id === docOpen.id);
+    if (!d || (root && root.id !== "doc-" + d.id)) return;
+    if (dvRevisionTerms(c, d)) {
+      const due = root && root.querySelector('[data-d="due"]');
+      due && (due.value = d.due);
+      toast(`Due ${fmtL(d.due)}: worked out from ${d.number}'s date and its new terms`);
+    }
+  } catch (x) {
+    console.warn("docview: revision terms", x);
+  }
+});
 // A revision asks for a billed-ahead reason only for the lines it bills further than the invoice it replaces: one that
 // changes a description, and no amount, bills nothing further and is not asked (re-review, 11-13).
 if ("function" == typeof pbFurther) {
