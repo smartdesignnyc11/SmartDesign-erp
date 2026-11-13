@@ -378,7 +378,7 @@ async def part_books(p, c):
     B = await books(pg)
     A = await pg.evaluate("""() => { const R = ['2026-01-01', today()], P = companyPL(R), Bal = companyBalance(),
         S = rpPL(R), G = glBalances({entityId: 'all', to: today()}), J = {};
-        DB.projects.forEach(p => { const x = jobFin(p); J[p.id] = {contract: x.contract, actual: x.actual, eac: x.eac, earned: x.earned, billed: x.billed, overUnder: x.overUnder, backlog: x.backlog, labor: x.laborCost,
+        DB.projects.forEach(p => { const x = jobFin(p); J[p.id] = {contract: x.contract, actual: x.actual, committed: x.committed, rb: (x.byCode || []).filter(r => r.code === 'RB').reduce((a, r) => a + r.actual + r.committed, 0), eac: x.eac, earned: x.earned, billed: x.billed, overUnder: x.overUnder, backlog: x.backlog, labor: x.laborCost,
             lines: (x.eacLines || []).map(l => ({key: l.key, budget: l.budget, actual: l.actual, committed: l.committed, eac: l.eac}))} });
         const bk = DB.clients.map(clientFin).reduce((a, f) => (['current','d30','d60','d90'].forEach(k => a[k] = (a[k] || 0) + (+f.buckets[k] || 0)), a), {});
         return {P: {income: P.income, invoiced: P.invoiced, wipAdj: P.wipAdj, collected: P.collected, cogsT: P.cogsT, ohT: P.ohT, net: P.net, needs: (P.oh || {})['Needs Category'] || 0},
@@ -417,7 +417,11 @@ async def part_books(p, c):
         if x['lines']:
             for l in x['lines']:
                 c.ok(abs(l['eac'] - max(l['budget'], r2(l['actual'] + l['committed']))) <= EPS, f'{pid} line {l["key"]} EAC {l["eac"]} is not max(budget {l["budget"]}, actual + committed {r2(l["actual"] + l["committed"])})')
-            eq(x['eac'], max(r2(sum(l['eac'] for l in x['lines'])), r2(x['actual'])), f'{pid} EAC = the lines\' EAC')
+            # lane F (11-12, one EAC for a job): cost on no estimate line is in the estimate at completion. Recomputed here
+            # as what the job's cost to date and committed hold beyond its lines and what is billed back.
+            unlined = max(0, r2(x['actual'] + x['committed'] - x['rb'] - sum(l['actual'] + l['committed'] for l in x['lines'])))
+            unlined = 0 if unlined < 0.01 * len(x['lines']) else unlined   # a cent a line of rounding is not a cost
+            eq(x['eac'], max(r2(sum(l['eac'] for l in x['lines']) + unlined), r2(x['actual'])), f'{pid} EAC = the lines\' EAC + cost on no estimate line')
         # money paid ahead (a prepayment not yet taken off a bill) is cost, not progress: procurement P0, 2026-10-25
         eq(x['earned'], r2(B.contract(pid) * r2(B.job_actual(pid) - B.prepaid_not_progress(pid)) / x['eac']), f'{pid} earned = contract × (cost less money paid ahead) ÷ EAC')
         eq(x['overUnder'], r2(B.billed_gross(pid) - x['earned']), f'{pid} WIP over/under = billed − earned')
@@ -579,7 +583,10 @@ async def part_entity(p, c):
         return {n: un.length, amt: un.reduce((a, o) => a + o.amount, 0), ic: DB.bills.filter(b => b.ic).length, before, after, elim: E.elim, elimWip: E.elimWip, colsNet: r2(E.cols.reduce((a, x) => a + x.P.net, 0)), consNet: cons.net, inc: r2(inc), cost: r2(cost), consInc: cons.income, consCost: cons.cogsT, icRev: E.cols.map(x => x.P.icRevenue), icCost: E.cols.map(x => x.P.icCost), by} }""")
     c.ok(r['ic'] >= 1, f'no intercompany bill created: {r}')
     # the group billing itself makes no consolidated profit: the markup is eliminated (a cent per bill of rounding)
-    c.ok(abs(r['after'] - r['before']) <= 0.01 * r['ic'], f"consolidated net moved {r['before']} -> {r['after']} when the subsidiaries billed their hours")
+    # (the bound is a cent per bill, held to the cent: with two bills the net moved -5,790.43 -> -5,790.41, exactly two
+    # cents, and the bare float comparison 0.020000000000436557 <= 0.02 failed on the arithmetic, not on the books. The
+    # job's cost moves one cent with the bills' rounding, 105,083.95 -> 105,083.96, and its earned follows it.)
+    c.ok(round(abs(r['after'] - r['before']), 2) <= round(0.01 * r['ic'], 2), f"consolidated net moved {r['before']} -> {r['after']} when the subsidiaries billed their hours")
     c.ok(abs(r2(r['inc'] - r['elim'] - r['elimWip']) - r['consInc']) <= EPS, f"entities' income {r['inc']} − eliminations {r['elim']} − intercompany profit in WIP {r['elimWip']} ≠ consolidated {r['consInc']}")
     c.ok(abs(r2(r['colsNet'] - r['elimWip']) - r['consNet']) <= EPS, f"entities' net {r['colsNet']} − intercompany profit in WIP {r['elimWip']} ≠ consolidated {r['consNet']}")
     c.ok(r['elimWip'] > 0, f"no intercompany profit in WIP eliminated: {r['elimWip']}")
@@ -591,13 +598,14 @@ async def part_entity(p, c):
 async def part_lines(p, c):
     b, pg, errs = await page(p)
     r = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'), J = jobFin(p), L = rpLineRows(p), C = rpJobCost(p);
-        return {contract: J.contract, actual: J.actual, eac: J.eac, earned: J.earned, rows: L, lineSum: C.lineSum, noLine: C.noLine, rounding: C.lineRounding, lineDiff: C.lineDiff,
+        return {contract: J.contract, actual: J.actual, eac: J.eac, unlined: (J.eacUnlined || {}).total || 0, earned: J.earned, rows: L, lineSum: C.lineSum, noLine: C.noLine, rounding: C.lineRounding, lineDiff: C.lineDiff,
           codes: C.codes, legacy: projectProfit(p).lines.reduce((a, l) => a + l.actual, 0)} }""")
     sm = lambda k: r2(sum(x[k] for x in r['rows']))
     c.ok(abs(sm('contract') - r['contract']) <= EPS, f"lines' contract {sm('contract')} vs the job's {r['contract']}")
     c.ok(abs(r2(r['lineSum'] + r['noLine'] + r['rounding']) - r['actual']) <= EPS and r['lineDiff'] == 0, f"lines {r['lineSum']} + no line {r['noLine']} + rounding {r['rounding']} vs the job {r['actual']}")
     c.ok(abs(r['rounding']) <= 0.01 * len(r['rows']), f"rounding {r['rounding']} is more than a cent a line")
-    c.ok(abs(sm('eac') - r['eac']) <= EPS, f"lines' EAC {sm('eac')} vs the job's {r['eac']}")
+    # (lane F, 11-12: the job's EAC is its lines' plus the cost on no estimate line, $1,466.05 of paint on 121 State)
+    c.ok(abs(r2(sm('eac') + r['unlined']) - r['eac']) <= EPS and abs(r['unlined'] - r['noLine']) <= EPS, f"lines' EAC {sm('eac')} + cost on no estimate line {r['unlined']} (the cost row says {r['noLine']}) vs the job's {r['eac']}")
     for x in r['rows']:
         c.ok(abs(x['eac'] - max(x['budget'], r2(x['actual'] + x['committed']))) <= EPS, f"{x['name']}: EAC {x['eac']} ≠ max(budget, actual + committed)")
         c.ok(abs(x['marginAtCompletion'] - r2(x['contract'] - x['eac'])) <= EPS and abs(x['marginToDate'] - r2(x['earned'] - x['actual'])) <= EPS, f"{x['name']}: margins")
@@ -661,9 +669,12 @@ async def part_excel(p, c):
     if ws:
         vals = [cell.value for row in ws.iter_rows() for cell in row]
         # 121 State's net profit carries TINO's $8,000 prepayment as job cost (it was uncoded overhead): 20191.11 -> 12191.11
-        # (lane F, 11-12: 121 State earns $460.55 less once its cost on no estimate line is in its EAC: 12191.11 -> 11730.56,
-        # the firm's net -5329.88 -> -5790.43)
-        c.ok(11730.56 in vals and -5790.43 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
+        # 121 State's net profit on the sheet is income 122,165.24 - posted job cost 101,693.94 - overhead 8,748.05 =
+        # 11,723.25. Two moves from 12,191.11: lane F (11-12, one EAC: its cost on no estimate line is in its EAC, so it
+        # earns 460.55 less: income 122,625.79 -> 122,165.24), and master 5592a6d, where its allocated overhead reads
+        # 8,748.05 against 8,740.74 before (7.31 more; not this lane's: the same on master alone). The firm's net is
+        # -5,329.88 - 460.55 = -5,790.43.
+        c.ok(11723.25 in vals and -5790.43 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
     c.ok(r['last'] and r['last']['file'].endswith('.xlsx') and 'Exported' in r['toast'], f'Excel button: {r["last"]} {r["toast"]!r}')
     c.ok(not errs, f'excel errors {errs[:3]}')
     await b.close()
