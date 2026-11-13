@@ -61,7 +61,8 @@ FAMILIES = [
         'what work is done but not billed', "what hasn't been billed", 'what should we invoice today', 'what is ready to bill']),
     dict(id='promises', roles=['u_owner', 'u_alan'], nums=['tasks'], says='n', qs=[
         'what did we promise the Kleins', 'what have we promised the Kleins', 'what do we owe the Kleins',
-        'what have we committed to the Kleins', 'what do I owe the Kleins', 'what are we still owing the Kleins']),
+        'what have we committed to the Kleins', 'what do I owe the Kleins', 'what are we still owing the Kleins',
+        'what did we tell the Kleins', 'what did we say to the Kleins']),
 ]
 # (who, question, the family it must land in, or None for "not a family")
 NEIGHBOURS = [
@@ -69,6 +70,7 @@ NEIGHBOURS = [
     ('u_owner', 'is there a leak in the roof at 121 State', None),
     ('u_owner', 'what do the Kleins owe us', None),
     ('u_owner', 'what do we owe vendors', None),
+    ('u_alan', 'what did we tell Angel', None),
     ('u_billing', 'which change orders are approved but not billed', None),
     ('u_owner', "what have we bought for clients that we haven't billed", None),
     ('u_billing', 'which invoices are not paid', None),
@@ -192,12 +194,35 @@ async def families(p, c):
     T = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p45'), R = pgRows('p45');
         return { billed: jobFin(p).billed, lines: R.reduce((a, r) => a + r.ev.scheduled * r.ev.billedPct / 100, 0),
                  sd: (R.find(r => r.sv.desc === 'Schematic design') || { ev: {} }).ev.billedPct,
-                 work: lkUnbilledWork('p45').map(w => [w.desc, Math.round(w.amount)]) }; }""")
+                 work: R.filter(r => r.pr && r.pr.period > 0).map(r => [r.sv.desc, Math.round(pgPeriodAmt(r))]) }; }""")
     if VERBOSE: print('  45 Cranberry', T)
     c.ok(near(T['lines'], T['billed'], 0.5), f"tie: 45 Cranberry's schedule lines carry ${T['lines']:,.2f} billed; the job's invoices ${T['billed']:,.2f}")
     c.ok(near(T['sd'], 50), f"tie: Schematic design reads billed {T['sd']}%; INV-2026-D45-1 billed 50% of it")
     c.ok(dict(T['work']).get('Schematic design') == 3500 and 'Construction documents' not in dict(T['work']),
-         f"tie: measured and not billed on 45 Cranberry is the work past what was invoiced ({T['work']})")
+         f"tie: measured past what was invoiced on 45 Cranberry is the work past the invoices ({T['work']})")
+    # One Ready to Bill per job: the Billing Queue's rows, the job's figure (jobReadyToBill), the job page's tile as
+    # drawn, and Ask's unbilled answer for the job agree on every job; the firm total is the Billing tile's
+    for uid in ('u_owner', 'u_billing'):
+        await sign_in(pg, uid)
+        J = await pg.evaluate("""async () => { const out = [];
+            for (const p of DB.projects) {
+              const rows = readyToBill().rows.filter(r => r.p && r.p.id === p.id), billing = Math.round(rows.reduce((a, r) => a + r.amount, 0) * 100) / 100;
+              setCurrent(p.id); view = 'dash'; render();
+              const el = document.querySelector('#jp-rtb'), t = el ? el.innerText : null, m = t && t.match(/\\$[\\d,]+(\\.\\d+)?/);
+              const a = await Promise.resolve(paAsk("what haven't we billed on " + String(p.project.name).replace(/ —.*$/, '')));
+              out.push({ id: p.id, name: p.project.name, billing, job: jobReadyToBill(p.id).amt, tile: t == null ? null : (m ? +m[0].replace(/[$,]/g, '') : 0),
+                         ask: a && a.fam ? a.fam.total : null, askJob: a && a.family });
+            }
+            view = 'home'; render();
+            const A = await Promise.resolve(paAsk("what haven't we billed"));
+            return { jobs: out, tile: readyToBill().amount, ask: A.fam && A.fam.total }; }""")
+        for j in J['jobs']:
+            if VERBOSE: print('  rtb', uid, j)
+            ok = near(j['job'], j['billing'], 0.5) and (j['tile'] is None or near(j['tile'], round(j['billing']), 1)) and (j['ask'] is None or near(j['ask'], j['billing'], 0.5))
+            c.ok(ok, f"one Ready to Bill · {uid} · {j['name']}: Billing rows {j['billing']}, job {j['job']}, job page tile {j['tile']}, Ask {j['ask']} ({j['askJob']})")
+        c.ok(near(J['ask'], J['tile'], 0.5), f"one Ready to Bill · {uid}: Ask's firm total {J['ask']} is the Billing tile's {J['tile']}")
+    cr = next(j for j in J['jobs'] if j['id'] == 'p45')
+    c.ok(cr['tile'] == 17080, f"45 Cranberry's job page tile reads the milestone due, $17,080 ({cr['tile']})")
     c.ok(not errs, f'page errors: {errs[:3]}')
     await b.close()
 

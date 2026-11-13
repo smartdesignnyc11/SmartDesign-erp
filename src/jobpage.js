@@ -398,13 +398,20 @@ function jpNextUp(p) {
     .forEach((i) => out.push({ d: i.date, what: `${i.agency ? i.agency + " " : ""}${i.name}`, insp: i.id }));
   return out.sort((a, b) => a.d.localeCompare(b.d)).slice(0, 6);
 }
+// The job's Ready to Bill is the Billing Queue's (jobReadyToBill, src/app.js): one number on the job and on Billing.
+// It read the schedule's lines alone, $8,225 on 45 Cranberry beside Billing's $17,080 milestone. `say` is the
+// figure in words: the measured lines on a job billed line by line, else the Billing rows (a milestone, hours).
 function jpReady(pid) {
-  let W = [];
+  let J = { rows: [], held: [], amt: 0, lines: [] };
   try {
-    W = lkUnbilledWork(pid);
+    J = jobReadyToBill(pid);
   } catch (e) {}
-  const ready = W.filter((w) => !w.held);
-  return { W: W, ready: ready, amt: r2(ready.reduce((a, w) => a + w.amount, 0)), held: W.length - ready.length };
+  const W = J.lines,
+    ready = W.filter((w) => !w.held),
+    say = ready.length
+      ? `${money(J.amt)} of measured work on ${ready.length} line${1 === ready.length ? "" : "s"}: ${ready.map((w) => (w.co ? w.co + " " : "") + w.desc.split(/ [—–-] |,/)[0]).join(" and ")}`
+      : J.rows.map((r) => String(r.title || "").replace(/^[^:]*:\s*/, "")).join("; ");
+  return { W: W, ready: ready, amt: J.amt, held: W.length - ready.length, rows: J.rows, say: say };
 }
 const jpCanBill = () => ["owner", "pm", "billing", "controller"].includes(role()) && jpMay("billing");
 function jpTileHtml(id, k, v, s, tone) {
@@ -560,9 +567,9 @@ function jpReadyHtml(p) {
   const R = jpReady(p.id);
   return `<section class="jp-ready" id="jp-rtb"><b>Ready to Bill on This Job</b><span>${
     R.amt
-      ? `${money(R.amt)} of measured work on ${R.ready.length} line${1 === R.ready.length ? "" : "s"}: ${esc(R.ready.map((w) => (w.co ? w.co + " " : "") + w.desc.split(/ [—–-] |,/)[0]).join(" and "))}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`
+      ? `${R.ready.length ? "" : money(R.amt) + ": "}${esc(R.say)}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`
       : `Nothing measured and unbilled on this job${R.held ? `; ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held` : ""}.`
-  }</span>${R.amt && jpCanBill() ? `<button type="button" class="jp-link jp-tap" data-jpdraft="1">Draft the Application</button>` : ""}</section>`;
+  }</span>${R.ready.length && jpCanBill() ? `<button type="button" class="jp-link jp-tap" data-jpdraft="1">Draft the Application</button>` : ""}</section>`;
 }
 function jpSectionsHtml(p) {
   const cur = jpCur(),
@@ -722,8 +729,8 @@ function jpNeeds(p) {
   if (R.amt)
     out.push({
       key: "rtb",
-      title: `${money(R.amt)} of measured work ready to bill`,
-      why: `${R.ready.map((w) => w.desc.split(/ [—–-] |,/)[0]).join(" and ")}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`,
+      title: `${money(R.amt)} ${R.ready.length ? "of measured work " : ""}ready to bill`,
+      why: `${R.ready.length ? R.ready.map((w) => w.desc.split(/ [—–-] |,/)[0]).join(" and ") : R.say}.${R.held ? ` ${R.held} line${1 === R.held ? "" : "s"} billed ahead ${1 === R.held ? "is" : "are"} held.` : ""}`,
     });
   c &&
     (c.changeOrders || [])
@@ -759,11 +766,11 @@ function jpBill() {
     D = jpDocs(p),
     shown = D.filter((d) => "All" === jpDocKind || d.kind === jpDocKind),
     chips = ["All", "Estimates", "Change Orders", "Invoices", "Payments"],
-    needs = `<section class="jp-card0" id="jb-needs"><div class="jp-ph"><h3>Needs You</h3>${!phone && R.amt && jpCanBill() ? `<button type="button" class="btn primary" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button>` : ""}</div>${
+    needs = `<section class="jp-card0" id="jb-needs"><div class="jp-ph"><h3>Needs You</h3>${!phone && R.ready.length && jpCanBill() ? `<button type="button" class="btn primary" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button>` : ""}</div>${
       N.length
         ? N.map((n) => `<div class="jp-need ${n.open || "rtb" === n.key ? "jp-click" : ""}" data-jprow="${esc(n.key)}"><b>${esc(n.title)}</b><span>${esc(n.why)}</span>${n.open ? `<button type="button" class="btn sm jp-tap" data-jpneed="${esc(n.key)}">${esc(n.act || "Open")}</button>` : ""}</div>`).join("")
         : '<p class="jp-empty">Nothing on this contract needs you.</p>'
-    }${phone && R.amt && jpCanBill() ? `<div class="jp-pf"><button type="button" class="btn primary jp-wide" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button></div>` : ""}</section>`,
+    }${phone && R.ready.length && jpCanBill() ? `<div class="jp-pf"><button type="button" class="btn primary jp-wide" data-jpdraft="1">Draft the Application, ${money(R.amt)}</button></div>` : ""}</section>`,
     contract = `<section class="jp-card0" id="jb-contract"><div class="jp-ph"><h3>The Contract</h3></div>${rows
       .map(([k, v, w]) => `<div class="jp-kv" data-label="${esc(k)}" data-amt="${r2(+v || 0)}"><span style="font-weight:${w}">${esc(k)}</span><b style="font-weight:${w}">${money(+v || 0)}</b></div>`)
       .join("")}${A.total ? `<p class="jp-note">Billed ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}: ${money(A.total)}. Those lines hold until the work catches up.</p>` : ""}</section>`,

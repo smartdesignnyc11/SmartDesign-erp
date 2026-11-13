@@ -144639,15 +144639,7 @@ function readyToBill() {
       const held = [];
       return (
         (DB.projects || []).forEach((p) => {
-          const cx = (DB.clients || []).some((c) =>
-            (c.estimates || []).some(
-              (e) =>
-                e.projectId === p.id &&
-                "converted" === e.status &&
-                ("construction" === e.template || !e.template),
-            ),
-          );
-          if (!cx) return;
+          if (!pgBillsByLine(p)) return;
           let R = null;
           try {
             R = "function" == typeof pgRows ? pgRows(p.id) : null;
@@ -144690,6 +144682,26 @@ function readyToBill() {
     }) || { rows: [], held: [], amount: 0, n: 0 }
   );
 }
+// A job's Ready to Bill: the one reading behind every "Ready to Bill" figure for a job (the job page's tile and
+// Needs, the Progress pane's line, Ask). It is the Billing Queue's rows for the job, so the job and Billing say one
+// number. 45 Cranberry's job page read the schedule's lines on their own ($8,225 of phases measured past what was
+// invoiced) beside Billing's $17,080: its design fee bills by milestone, 40% at filing, and its phases are not
+// billed line by line. `lines` are the measured lines behind an application, on a job billed line by line only.
+function jobReadyToBill(pid) {
+  const R = readyToBill(),
+    rows = (R.rows || []).filter((r) => r.p && r.p.id === pid),
+    held = (R.held || []).filter((h) => h.p && h.p.id === pid);
+  let lines = [];
+  try {
+    lines = lkUnbilledWork(pid);
+  } catch (e) {}
+  return { rows: rows, held: held, amt: r2(rows.reduce((a, r) => a + (+r.amount || 0), 0)), lines: lines, byLine: rows.some((r) => "application" === r.kind) || lines.length > 0 };
+}
+// A job is billed line by line (an application, each schedule line on its own evidence) when its contract is a
+// construction estimate: the same test readyToBill makes. A design fee bills by milestone or by the hour.
+function pgBillsByLine(p) {
+  return !!p && (DB.clients || []).some((c) => (c.estimates || []).some((e) => e.projectId === p.id && "converted" === e.status && ("construction" === e.template || !e.template)));
+}
 if (
   (ocWrapTiles("billing", (T) => {
     const t = T.find((x) => "ready" === x.key);
@@ -144713,9 +144725,10 @@ if (
     try {
       const pid = void 0 !== spProj && "all" !== spProj ? spProj : S && S.id,
         R = readyToBill(),
-        mine = R.rows.filter((r) => r.p && r.p.id === pid),
-        hold = R.held.filter((x) => x.p.id === pid),
-        amt = r2(mine.reduce((a, r) => a + r.amount, 0)),
+        J = jobReadyToBill(pid),
+        mine = J.rows,
+        hold = J.held,
+        amt = J.amt,
         line = `<div class="oc-rtb small" data-ocrtb="${esc(pid || "")}"><b>Ready to Bill on this job: ${money(amt)}</b> · ${mine.length ? esc(mine.map((r) => r.title).join(" · ")) : "nothing earned is waiting on an invoice"}${hold.length ? ` · ${tlN(hold.length, "line")} held (${money(r2(hold.reduce((a, x) => a + x.amount, 0)))}), each with its reason below` : ""} · ${money(R.amount)} across the firm</div>`;
       h = h.replace(/(<h3 style="margin:0">[^<]*— ready to bill<\/h3>)/, "$1");
       const i = h.indexOf('<div class="sel-stats">');
@@ -191388,6 +191401,8 @@ if ("function" == typeof fin2ClosePageHtml) {
 function lkUnbilledWork(pid) {
   const out = [];
   try {
+    // the same test Ready to Bill makes: a design fee billed by milestone or by the hour has no line-by-line reading
+    if (!pgBillsByLine((DB.projects || []).find((x) => x.id === pid))) return out;
     pgRows(pid).forEach((r) => {
       if (!(r.pr && r.pr.period > 0)) return;
       out.push({ sv: r.sv, desc: r.sv.desc, co: pgIsCO(r.sv) ? r.sv.source : "", measured: r.pr.pct, billed: r.ev.billedPct, amount: r2(pgPeriodAmt(r)), held: pgLineHold(r) });
@@ -191404,9 +191419,10 @@ if ("function" == typeof render) {
         const host = document.getElementById("v-dash");
         host && host.querySelectorAll(".lk-rtb").forEach((x) => x.remove());
         if (host) {
+          // the figure is the job's Ready to Bill (jobReadyToBill), the Billing Queue's; the lines are what is behind it
           const W = lkUnbilledWork(S.id),
             ready = W.filter((w) => !w.held),
-            amt = r2(ready.reduce((a, w) => a + w.amount, 0));
+            amt = jobReadyToBill(S.id).amt;
           if (ready.length) {
             const d = document.createElement("div");
             (d.className = "note lk-rtb"),
@@ -195928,11 +195944,13 @@ AG_ASST.unshift(
     id: "owed",
     first: !0,
     kind: "ops",
-    re: /\b(promise[ds]?|promised|committed to|owe[ds]?|owing)\b/,
+    re: /\b(promise[ds]?|promised|committed to|owe[ds]?|owing)\b|\b(did|have|what) (we|i) (tell|told|say|said)( to)?\b/,
     not: /\bhow much\b|\bowes? us\b|\bdo they owe\b|\b(invoices?|bills?|balance|money|\$)\b/,
     run(P) {
       if ("client" === role() || P.vendors.length) return null;
       const who = P.people[0] || null;
+      // "what did we tell the Kleins" is what we promised them; told to a person on the crew, it is not a debt
+      if (/\b(tell|told|say|said)\b/.test(P.l) && !/\b(promise[ds]?|promised|committed|owe[ds]?|owing)\b/.test(P.l) && (who || !P.clients.length)) return null;
       if (!who && !P.clients.length) return null;
       // what we promised or owe a client is one answer (src/askfamily.js): the tasks they wait for, the ledger and the
       // Standard. This branch read the ledger alone and said "none" while the Kleins waited on three tasks; "what do

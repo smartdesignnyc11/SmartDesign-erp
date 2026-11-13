@@ -3421,6 +3421,32 @@
     "ops",
     "family"
    ]
+  },
+  {
+   "id": "AFP5",
+   "role": "u_owner",
+   "q": "what did we tell the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): what we told a client is what we promised them; one answer with 'what did we promise the Kleins'",
+   "tags": [
+    "ops",
+    "family"
+   ]
+  },
+  {
+   "id": "AFP6",
+   "role": "u_owner",
+   "q": "what did we say to the Kleins",
+   "truth": "openTasks('all').filter(x => tkOwedBy(x, 'client') && (tkClientOfTask(x) || {}).id === H.C('Klein').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "founder wave 3 (BACKLOG 11 row 22): what we told a client is what we promised them; one answer with 'what did we promise the Kleins'",
+   "tags": [
+    "ops",
+    "family"
+   ]
   }
  ]
 }
