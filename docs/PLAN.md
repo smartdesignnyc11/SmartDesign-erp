@@ -30,13 +30,13 @@ Records: asks and warnings in `docs/DECISIONS.md` (11-12); every finding in `doc
 | S | Sync bringing back deleted lines; Clear Everything and the audit head | Committed |
 | G | Hold at What Arrived showing $0; a bill over arrival not reaching the Owner; paid ahead of delivery; the credit memo Approve on a paid bill; the rfq pin; the two month misses; office ship-to and the certificate rule | Committed |
 | C | Automatic clock-in (one switch, punches visible, the overlap pick); the foreman's hand-off to crew; receiving for the foreman and, from wave 3, the driver | Building |
-| T | The item table: shared lines counted once, "the bill" with no bill, unit prices, statuses, an order from a row, the sort, sheet import headers | Committed |
+| T | The item table: shared lines counted once, "the bill" with no bill, unit prices, statuses, an order from a row, the sort, sheet import headers | Live 11-13 (merged at 1bf3f76) |
 | F | One EAC and margin per job; the billed-ahead names; purchasing exceptions with nobody in the coordinator seat; a job with cost and no contract | Building |
 | A | Ask's answers to the owner's plain questions, and the question bank | Started, nothing written |
 | B | Billable expenses on invoices, the billed-ahead reason, the deposit line | Started, nothing written |
 | M | Alan's 11-12 ask: a module's name opens its overview page | Committed |
 | P | Estimate section headings and subtotals; Excluded and TBD rows; an HVAC cost code | Committed |
-| D2 | Documents first: every S1 and S2 of its review | Committed; not released |
+| D2 | Documents first: every S1 and S2 of its review; the refund amount capped at what can be refunded; a revision keeps the original due date (so aging is not reset) | Final fix in hand; then one integration run and release |
 
 **What ships, in what order.**
 1. **R, first and alone:** review, fast tier, the billing expert's walk on both devices, one release with nothing else in it.
@@ -68,7 +68,7 @@ All modules are on the canvas: https://claude.ai/artifact/VJDX1ffw2nmGuyz4qGY6Gm
 
 ## Alan's 11-06 asks (18:05): the purchasing item table and documents first
 Full spec additions are in `docs/DECISIONS.md`, 11-06 18:05.
-- **Purchasing item table: Live 11-07 (a504d66). Five S1s found on it on 11-12: lane T, the section above.**
+- **Purchasing item table: Live 11-07 (a504d66). Five S1s found on it on 11-12; lane T fixed them, live 11-13.**
   - Alan's eleven columns, one row per item, across pricing, purchased and delivered. Invoice is the FM package, the client's materials invoice.
   - It is a column view of the Buy Board's one list (`buyList`, status from `puNeedStatus`). No new store.
   - Phone cards, a client FF&E schedule export, and Chen's sheets imported once.
