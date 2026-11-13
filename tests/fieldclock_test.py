@@ -17,6 +17,15 @@ Each check is the reviewer's own steps, at 390x844 with touch, on invented data.
   receive   S2-5  The foreman's Site opens the one receive sheet from its Deliveries card: a count per line, Good /
                   Short / Damaged / Wrong, the slip's photo. A material with an open order behind it opens the same
                   sheet.
+The crew and driver review (11-12):
+  today     S1    No punch ends after the app's clock: a fresh demo has no closed day for today for anyone who clocks.
+                  A first Clock In is one clean punch. With today's day already closed and sent, Clock In says so and
+                  offers Start Another Shift before anything is punched, by hand and by location; a lunch break is
+                  not asked about.
+  driver    S2    The driver has Deliveries: Receive a Delivery on Route, every job's orders, and Receive opens the one
+                  receive sheet (counts, Good / Short / Damaged / Wrong, the slip's photo).
+  donephoto S2    Done stays one tap and then offers a photo: Add a Photo opens the camera and the photo lands on the
+                  task; ignoring it skips it; a task that needs proof still stops for the photo first.
 
 Arrivals and leaves are fed to the app's own location function (tkGeoTick) with a position and a time, and in one
 check through the browser's mocked geolocation. Real GPS on a real phone is not tested here.
@@ -202,12 +211,19 @@ async def s_list(pg, c):
 async def s_overlap(pg, c):
     """S1-3: Pick One where the foreman sees the overlap, Approve refuses, payroll holds"""
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
-    base = await pg.evaluate("() => { const e = myEmp(); const d = DB.time.find(t => t.empId === e.id && t.date === today() && t.out); tkGeoAgree(currentUser()); return d ? { id: d.id, st: d.status, inn: d.in, out: d.out } : null; }")
+    base = await pg.evaluate("""() => { const e = myEmp(), td = today(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === td));
+      const d = { id: 'te_day', empId: e.id, date: td, in: td + 'T07:12:00', out: td + 'T16:48:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'submitted', approvedBy: '', geoIn: null, geoOut: null, source: 'manual',
+        work: [{ projectId: 'p121', code: '05', hours: 9.1, note: 'Rough plumbing garden bath' }] };
+      DB.time.push(d); save(); tkGeoAgree(currentUser()); return { id: d.id, st: d.status, inn: d.in, out: d.out }; }""")
     c.ok(bool(base) and base['st'] == 'submitted', f"overlap: Alberto's 9/3 is on the clock and sent ({base})")
     res = await pg.evaluate(f"() => tkGeoTick({SITE}, today() + 'T12:00:00')")
+    asked = await pg.evaluate(TOAST)
+    n = await pg.evaluate("() => DB.time.filter(t => t.empId === myEmp().id && !t.out).length")
+    c.ok(res.get('did') == 'asked' and n == 0 and 'already sent for approval' in asked and 'Start Another Shift' in asked, f'overlap: arriving on a day already sent asks first and punches nothing ({res}, {asked[:90]!r})')
+    await tap(pg, '#toast a, #toast button', 'Start Another Shift')
     toast = await pg.evaluate(TOAST)
-    c.ok(res.get('did') == 'in' and 'already runs' in toast and 'not counted twice' in toast, f'overlap: arriving on a day already on the clock says so ({toast[:110]!r})')
-    auto = res.get('id')
+    auto = await pg.evaluate("() => (DB.time.find(t => t.empId === myEmp().id && !t.out) || {}).id || ''")
+    c.ok(bool(auto) and 'already runs' in toast and 'not counted twice' in toast, f'overlap: Start Another Shift inside a day already on the clock says it overlaps ({toast[:110]!r})')
     PAIR = """([a, b]) => { const q = s => [...document.querySelectorAll(s)].filter(e => e.getClientRects().length);
       const hours = [...document.querySelectorAll('#fcrew-body .card')].find(c => /Hours to Approve/i.test((c.querySelector('h3') || {}).innerText || ''));
       const week = [...document.querySelectorAll('#fcrew-body .card')].find(c => /This Week/i.test((c.querySelector('h3') || {}).innerText || ''));
@@ -369,7 +385,139 @@ async def s_receive(pg, c):
     await pg.evaluate(CLOSE)
 
 
-SECTIONS = {'switch': s_switch, 'list': s_list, 'overlap': s_overlap, 'handoff': s_handoff, 'receive': s_receive}
+async def s_today(pg, c):
+    """S1 (crew review): no punch ends after the app's clock; Clock In looks at today before it punches"""
+    r = await pg.evaluate("""() => { const now = appNowIso(), td = today(), first = td + 'T07:30:00';
+      const field = new Set(DB.users.filter(u => /^(foreman|crew|driver)$/.test(u.role) || ['u_angel', 'u_alberto', 'u_alex', 'u_satish'].includes(u.id)).map(u => u.employeeId).filter(Boolean));
+      const T = DB.time.filter(t => field.has(t.empId));
+      const say = t => [t.id, empName(t.empId), t.in, t.out, t.status];
+      return { now, n: T.length, ahead: T.filter(t => (t.out && t.out > now) || (t.in && t.in > now)).map(say),
+               // the demo's clock reads 7:30 AM at the earliest: a closed punch for today would end after it at some hour
+               today: T.filter(t => t.date === td && t.out && t.out > first).map(say), waiting: T.filter(t => t.status === 'submitted').length }; }""")
+    c.ok(r['n'] > 0 and not r['ahead'], f"today: no punch of anyone who clocks ends (or starts) after the app's clock, {r['now'][11:16]} ({r['ahead']})")
+    c.ok(not r['today'], f"today: a fresh demo has no closed day for today, at whatever hour it is opened ({r['today']})")
+    c.ok(r['waiting'] >= 3, f"today: the foreman still has days waiting on approval ({r['waiting']})")
+    for uid, view, sel in (('u_alberto', 'time', '#clock-in'), ('u_alex', 'time', '#clock-in')):
+        await sign_in(pg, uid); await go(pg, view)
+        await pg.evaluate("() => { window.getGeo = async () => null; delete currentUser().geoAck; }")
+        r = await pg.evaluate("() => { const e = myEmp(); return { btn: (document.querySelector('#clock-in') || {}).innerText || '', rows: [...document.querySelectorAll('#time-table tr[data-edit]')].filter(x => x.getClientRects().length).length, mine: DB.time.filter(t => t.empId === e.id && t.date === today()).length }; }")
+        c.ok(r['btn'] == 'Clock In' and r['mine'] == 0, f"today: {uid} starts the day not clocked in, with no entry for today ({r})")
+        await tap(pg, sel)
+        await pg.wait_for_timeout(500)
+        r = await pg.evaluate("() => { const e = myEmp(), L = DB.time.filter(t => t.empId === e.id && t.date === today()); return { n: L.length, open: L.filter(t => !t.out).length, of: L.map(t => t.overlapOf || '').join(''), ov: tkTimeOverlaps(e.id).length, modal: !!document.getElementById('mbm'), toast: (document.getElementById('toast') || {}).innerText || '' }; }")
+        await shot(pg, f'today_first_clockin_{uid}')
+        c.ok(r['n'] == 1 and r['open'] == 1 and not r['of'] and r['ov'] == 0 and not r['modal'] and 'already' not in r['toast'], f"today: {uid}'s first Clock In is one clean punch, nothing for the foreman to sort out ({r})")
+    # Alberto's day closes and is sent; Clock In again says so before it punches
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    await pg.evaluate("""() => { const e = myEmp(), t = DB.time.find(x => x.empId === e.id && !x.out), td = today();
+      t.in = td + 'T07:30:00'; t.out = td + 'T07:31:00'; t.status = 'submitted'; t.work = [{ projectId: t.projectId, code: '05', hours: 0.02, note: '' }]; save(); render(); }""")
+    n0 = await pg.evaluate("() => DB.time.length")
+    await tap(pg, '#clock-in')
+    await pg.wait_for_timeout(300)
+    t = await mbm_text(pg)
+    await shot(pg, 'today_already_sent')
+    c.ok('already sent for approval' in t and '7:30 AM to 7:31 AM' in t and 'Start Another Shift' in t and await pg.evaluate("() => DB.time.length") == n0, f'today: with the day closed and sent, Clock In says so and punches nothing ({t[:120]!r})')
+    r = await pg.evaluate("() => { const b = document.querySelector('#mbm #mbm-ok'), k = document.querySelector('#mbm #mbm-cancel'); const h = e => e ? Math.round(e.getBoundingClientRect().height) : 0; return { ok: h(b), no: h(k), noText: k ? k.innerText : '', side: document.documentElement.scrollWidth - innerWidth }; }")
+    c.ok(r['ok'] >= 44 and r['no'] >= 44 and r['noText'] == 'Not Now' and r['side'] <= 0, f'today: Start Another Shift and Not Now are 44px targets ({r})')
+    await tap(pg, '#mbm #mbm-cancel')
+    c.ok(await pg.evaluate("() => DB.time.length") == n0, 'today: Not Now punches nothing')
+    await tap(pg, '#clock-in')
+    await tap(pg, '#mbm #mbm-ok')
+    await pg.wait_for_timeout(500)
+    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, of: nw ? nw.overlapOf || '' : 'none', ov: tkTimeOverlaps(e.id).length }; }", n0)
+    c.ok(r['n'] == 1 and r['of'] == '' and r['ov'] == 0, f'today: Start Another Shift starts a second shift that overlaps nothing ({r})')
+    # the automatic clock asks the same way
+    await pg.evaluate("() => { const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && !t.out)); tkGeoAgree(currentUser()); }")
+    n0 = await pg.evaluate("() => DB.time.length")
+    res = await pg.evaluate(f"() => tkGeoTick({SITE}, today() + 'T09:00:00')")
+    toast = await pg.evaluate(TOAST)
+    c.ok(res.get('did') == 'asked' and await pg.evaluate("() => DB.time.length") == n0 and 'already sent for approval' in toast and 'Start Another Shift' in toast, f'today: the automatic clock asks too, and punches nothing ({res}, {toast[:80]!r})')
+    await tap(pg, '#toast a, #toast button', 'Start Another Shift')
+    r = await pg.evaluate("n0 => { const e = myEmp(), nw = DB.time.find(t => t.empId === e.id && !t.out); return { n: DB.time.length - n0, src: nw && nw.source, ov: tkTimeOverlaps(e.id).length }; }", n0)
+    c.ok(r['n'] == 1 and r['src'] == 'geo' and r['ov'] == 0, f'today: Start Another Shift there makes the automatic punch ({r})')
+    # a lunch break (closed, not sent) is not asked about
+    await sign_in(pg, 'u_alex'); await go(pg, 'time')
+    await pg.evaluate("() => { window.getGeo = async () => null; const e = myEmp(), t = DB.time.find(x => x.empId === e.id && !x.out), td = today(); t.in = td + 'T07:30:00'; t.out = td + 'T07:31:00'; t.status = 'open'; save(); render(); }")
+    n0 = await pg.evaluate("() => DB.time.length")
+    await tap(pg, '#clock-in')
+    await pg.wait_for_timeout(500)
+    r = await pg.evaluate("n0 => ({ n: DB.time.length - n0, modal: !!document.getElementById('mbm') })", n0)
+    c.ok(r['n'] == 1 and not r['modal'], f'today: back from a break, Clock In just clocks in ({r})')
+
+
+async def s_driver(pg, c):
+    """S2 (crew review): the driver receives at the curb on the one receive sheet"""
+    await sign_in(pg, 'u_alex'); await go(pg, 'route')
+    r = await pg.evaluate("() => { const b = document.querySelector('#v-route [data-drvrecv]'); const x = b ? b.getBoundingClientRect() : null; return { views: (ROLE_VIEWS.driver || []).includes('recv'), btn: b ? b.innerText.trim() : '', h: x ? Math.round(x.height) : 0, side: document.documentElement.scrollWidth - innerWidth, blue: [...document.querySelectorAll('#v-route .btn.primary')].filter(e => e.getClientRects().length).length }; }")
+    await shot(pg, 'driver_route')
+    c.ok(r['views'] and r['btn'] == 'Receive a Delivery' and r['h'] >= 44 and r['side'] <= 0, f"driver: Route has Receive a Delivery, a 44px target ({r})")
+    await tap(pg, '#v-route [data-drvrecv]')
+    r = await pg.evaluate("() => { const row = [...document.querySelectorAll('#v-recv .recv-po')].find(e => /PO-2026-047/.test(e.innerText)); const b = row && [...row.querySelectorAll('button')].find(x => x.getClientRects().length && /^Receive/.test(x.innerText.trim())); const x = b ? b.getBoundingClientRect() : null; return { view, row: row ? row.innerText.replace(/\\s+/g, ' ').slice(0, 90) : '', btn: b ? b.innerText.trim() : '', h: x ? Math.round(x.height) : 0, sub: [...document.querySelectorAll('#v-recv .recv-po')].filter(e => /PO-2026-048/.test(e.innerText) && [...e.querySelectorAll('button')].some(x => /^Receive/.test(x.innerText.trim()))).length, side: document.documentElement.scrollWidth - innerWidth }; }")
+    await shot(pg, 'driver_deliveries')
+    c.ok(r['view'] == 'recv' and r['btn'] == 'Receive' and r['h'] >= 44 and r['side'] <= 0, f"driver: it opens Deliveries on every job, each order with Receive ({r})")
+    c.ok(r['sub'] == 0, f"driver: a subcontract has no Receive ({r['sub']})")
+    await pg.evaluate("() => { const row = [...document.querySelectorAll('#v-recv .recv-po')].find(e => /PO-2026-047/.test(e.innerText)); const b = row && [...row.querySelectorAll('button')].find(x => x.getClientRects().length && /^Receive/.test(x.innerText.trim())); b && b.setAttribute('data-fc-go', '1'); }")
+    await tap(pg, '[data-fc-go]')
+    s = await pg.evaluate("""() => { const m = document.getElementById('mbm'); if (!m) return null;
+      return { counts: [...m.querySelectorAll('[data-purq]')].map(i => i.value), conds: [...new Set([...m.querySelectorAll('.pu-conds button')].map(b => b.innerText.trim()))].join(' '), slip: !!m.querySelector('[data-puslip]'), n: document.querySelectorAll('#mbm').length }; }""")
+    await shot(pg, 'driver_sheet')
+    c.ok(bool(s) and s['counts'] and s['slip'] and s['n'] == 1 and all(k in s['conds'] for k in ('Good', 'Short', 'Damaged', 'Wrong')), f"driver: Receive is the one receive sheet: counts, Good / Short / Damaged / Wrong, the slip's photo ({s})")
+    if s:
+        await pg.fill('#mbm [data-purq]', '900')
+        await tap(pg, '#mbm .pu-conds button', 'Damaged')
+        await pg.fill('#mbm [data-pubad]', '40')
+        await pg.locator('#mbm [data-puslip]').set_input_files(files=[{'name': 'slip.jpg', 'mimeType': 'image/jpeg', 'buffer': b'\xff\xd8\xff\xe0' + b'\x00' * 64 + b'\xff\xd9'}])
+        await pg.evaluate("() => { const b = document.querySelector('#mbm #mbm-ok'); b && b.click(); }"); await pg.wait_for_timeout(700)
+        po = await pg.evaluate("() => { const po = DB.pos.find(x => x.number === 'PO-2026-047'); return { rec: po.lines[0].received, claims: (po.issues || []).filter(i => i.claim).map(i => [i.type, i.qty]), slip: ((po.receipts || []).slice(-1)[0] || {}).slip || '', by: ((po.issues || []).slice(-1)[0] || {}).by || '' }; }")
+        c.ok(po['rec'] == 860 and po['claims'] == [['damaged', 40]] and po['slip'] and 'Alex' in po['by'], f"driver: 860 sf received good, 40 claimed damaged, the slip on the receipt, by the driver ({po})")
+    await pg.evaluate(CLOSE)
+
+
+async def s_donephoto(pg, c):
+    """S2 (crew review): Done offers a photo; one tap opens the camera; skipped unless the task needs proof"""
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    PH = "id => { const x = (tkResolve(`sched:${id}:p121`) || {}).x; return x ? tdyPhotosFor(x).length : -1; }"
+    ST = "id => DB.projects.find(p => p.id === 'p121').tasks.find(t => t.id === id).status"
+    await pg.evaluate("() => { window.__cam = 0; window.mReadPhoto = (cb) => { window.__cam++; cb('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP'); }; }")
+    p0 = {k: await pg.evaluate(PH, k) for k in ('frame', 'win', 'ext')}
+    ok = await tap(pg, '#fm-today [data-fm-done="frame"]')
+    await pg.wait_for_timeout(300)
+    t = await pg.evaluate("() => ({ text: (document.getElementById('toast') || {}).innerText || '', acts: [...document.querySelectorAll('#toast a, #toast button')].filter(e => e.getClientRects().length).map(e => [e.innerText.trim(), Math.round(e.getBoundingClientRect().height), Math.round(e.getBoundingClientRect().width)]), side: document.documentElement.scrollWidth - innerWidth })")
+    await shot(pg, 'donephoto_offer')
+    c.ok(ok and await pg.evaluate(ST, 'frame') == 'done', 'donephoto: Done is still one tap')
+    c.ok('marked done' in t['text'] and any(a[0] == 'Add a Photo' for a in t['acts']) and any(a[0] == 'Undo' for a in t['acts']), f"donephoto: the toast offers a photo, with Undo ({t['text'][:80]!r}, {t['acts']})")
+    c.ok(all(a[1] >= 44 and a[2] >= 44 for a in t['acts']) and t['side'] <= 0, f"donephoto: Add a Photo and Undo are 44px targets ({t['acts']})")
+    await tap(pg, '#toast a, #toast button', 'Add a Photo')
+    await pg.wait_for_timeout(300)
+    r = {'cam': await pg.evaluate("() => window.__cam"), 'n': await pg.evaluate(PH, 'frame'), 'toast': await pg.evaluate(TOAST)}
+    c.ok(r['cam'] == 1 and r['n'] == p0['frame'] + 1 and 'Photo added' in r['toast'], f'donephoto: one tap opens the camera and the photo lands on the task ({r})')
+    # skipping it: the next task is done with no photo, and that is allowed
+    ok = await tap(pg, '#fm-today [data-fm-done="win"]')
+    await pg.wait_for_timeout(300)
+    c.ok(ok and await pg.evaluate(ST, 'win') == 'done' and await pg.evaluate(PH, 'win') == p0['win'], 'donephoto: the photo can be skipped: the task is done without one')
+    await tap(pg, '#toast a, #toast button', 'Undo')
+    c.ok(await pg.evaluate(ST, 'win') != 'done', 'donephoto: Undo on the offer puts the task back')
+    # a task that needs proof still stops for the photo before it is done
+    await pg.evaluate("() => { const t = DB.projects.find(p => p.id === 'p121').tasks.find(t => t.id === 'demo'); const R = tkResolve('sched:demo:p121'); R.rec.needsPhoto = true; save(); render(); }")
+    await tap(pg, '#fm-today [data-fm-done="demo"]')
+    await pg.wait_for_timeout(300)
+    t = await mbm_text(pg)
+    c.ok('Proof Needed' in t and await pg.evaluate(ST, 'demo') != 'done', f'donephoto: a task that needs a photo is not done until it has one ({t[:60]!r})')
+    await pg.evaluate(CLOSE)
+    # the task sheet's Done offers it too (the foreman, from a row's sheet)
+    await sign_in(pg, 'u_angel'); await go(pg, 'ftoday')
+    await pg.evaluate("() => { window.__cam = 0; window.mReadPhoto = (cb) => { window.__cam++; cb('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP'); }; tkSheet('sched:ext:p121'); }")
+    await pg.wait_for_timeout(300)
+    ok = await tap(pg, '#mbm [data-tksdone]')
+    await pg.wait_for_timeout(400)
+    t = await pg.evaluate(TOAST)
+    c.ok(ok and await pg.evaluate(ST, 'ext') == 'done' and 'Add a Photo' in t, f"donephoto: the task sheet's Done offers the photo too ({t[:80]!r})")
+    await tap(pg, '#toast a, #toast button', 'Add a Photo')
+    await pg.wait_for_timeout(300)
+    c.ok(await pg.evaluate(PH, 'ext') == p0['ext'] + 1, 'donephoto: and the photo lands on that task')
+
+
+SECTIONS = {'switch': s_switch, 'list': s_list, 'overlap': s_overlap, 'handoff': s_handoff, 'receive': s_receive, 'today': s_today, 'driver': s_driver, 'donephoto': s_donephoto}
 
 
 async def main():
