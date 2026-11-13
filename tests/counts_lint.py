@@ -11,6 +11,12 @@ plus foreman and client on phone 390x844, it walks every view the role may open 
   (d) Ask's headline count (paAsk(q).headline) differs from the screen that lists the same things.
   (e) a pair the walk cannot click to: the Buy Board Table's "bought for the client, not billed back" against the
       purchases Ready to Bill names (one reading, rbRows), and its Needs switch against the menu's Buy Board number.
+  (f) billing ahead (lane F, 11-12, a PM review: $156K, $131,058 and $66,470 for one job with nothing saying how they
+      differ). As the PM: no label for billing ahead carries two different numbers across Projects, the job's Budget and
+      Today; each measure on the job says what it counts; the firm's tile is the jobs' sum and names its scope.
+  (g) an empty seat (lane F, 11-12): with no user holding the coordinator's role, every Purchasing page's Needs You
+      (its tile, its rows, the menu's number) holds what waited on the coordinator, for the job's PM; no row anywhere
+      waits on "the coordinator"; another person's row names the PM; the PM's Today carries the buying.
 
 Each flag prints as `RULE | role | label | numbers seen with where`. The last line is `N flags`; exit 1 if N > 0.
   python3 counts_lint.py [--role owner,pm] [--json] [--verbose] [--all-projects]
@@ -160,6 +166,71 @@ class Lint:
     def note(self, s):
         self.notes.append(s)
         if self.args.verbose and not self.args.json: print('  note:', s, flush=True)
+
+# ---------------------------------------------------------------- rule (f): billing ahead, read off the PM's screens
+AHEAD_JS = r"""async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const num = s => { const m = String(s == null ? '' : s).replace(/[−–]/g, '-').match(/\$\s?([\d,]+(?:\.\d+)?)\s*([kKmM])?/); if (!m) return null;
+    return +m[1].replace(/,/g, '') * (m[2] ? (/k/i.test(m[2]) ? 1e3 : 1e6) : 1); };
+  const LABELS = /^(Over-Billed \(WIP\)[^$\d]*?|Billed Ahead of the Work[^$\d]*?)\s*[:,]?\s*\+?(\$[\d,]+(?:\.\d+)?[kKmM]?)/;
+  const obs = [], jobs = [];
+  const read = (root, scope, where) => { if (!root) return;
+    // a tile: its label and its figure; then any "Label $N" said in a line of text
+    root.querySelectorAll('.gl, .jp-kpi, .kpi').forEach(t => { if (!t.getClientRects().length) return;
+      const k = (t.querySelector('.gl-k') || t.querySelector('span') || {}).innerText || '', v = (t.querySelector('.gl-v') || t.querySelector('b') || {}).innerText || '';
+      if (/Over-Billed \(WIP\)|Billed Ahead of the Work/.test(k) && num(v) != null) obs.push([k.trim(), num(v), scope + ' › ' + where + ' tile']);
+      const sub = [...t.querySelectorAll('span')].map(e => e.innerText).join(' \n ');
+      sub.split(/\n|·/).forEach(seg => { const m = seg.trim().match(LABELS); if (m) obs.push([m[1].trim(), num(m[2]), scope + ' › ' + where + ' tile, small print']); }); });
+    root.querySelectorAll('[data-ahead] b').forEach(e => { const m = e.innerText.trim().match(LABELS); if (m) obs.push([m[1].trim(), num(m[2]), scope + ' › ' + where]); });
+  };
+  view = 'ovjobs'; render(); await sleep(300);
+  const pv = document.getElementById('v-ovjobs') || document.querySelector('.view.on');
+  read(pv, 'firm', 'Projects');
+  const ft = [...pv.querySelectorAll('.gl')].find(t => /Over-Billed \(WIP\)/.test(t.innerText));
+  const firmLabel = ft ? ((ft.querySelector('.gl-k') || {}).innerText || '').trim() : '', firmSeen = ft ? num((ft.querySelector('.gl-v') || {}).innerText) : null;
+  let firm = 0;
+  for (const p of DB.projects.filter(x => !x.archived)) {
+    const J = jobFin(p), nm = String(p.project.name).replace(/ —.*$/, '');
+    firm += Math.max(0, +J.over || 0);
+    if (!J.contract) continue;
+    setCurrent(p.id); view = 'costs'; render(); await sleep(250);
+    const host = document.getElementById('jp-budget');
+    read(host, nm, 'Budget');
+    const row = k => host && host.querySelector(`[data-ahead="${k}"]`);
+    const A = typeof billedAhead === 'function' ? billedAhead(p.id) : { total: 0 };
+    const shown = (+J.over || 0) > 0.005 || (+A.total || 0) > 0.005;
+    jobs.push({ job: nm, shown, wip: Math.round((+J.over || 0) * 100) / 100, work: Math.round((+A.total || 0) * 100) / 100,
+      wipSeen: row('wip') ? num(row('wip').querySelector('b').innerText) : null, workSeen: row('work') ? num(row('work').querySelector('b').innerText) : null,
+      wipWhat: row('wip') ? row('wip').querySelector('span').innerText.trim() : '', workWhat: row('work') ? row('work').querySelector('span').innerText.trim() : '' });
+  }
+  view = 'home'; render(); await sleep(400);
+  const tv = document.querySelector('.view.on'), tm = tv ? tv.innerText.match(/has (\$[\d,]+) billed ahead of the work/) : null;
+  const first = jobs.filter(j => j.work > 0).sort((a, b) => b.work - a.work)[0];
+  return { obs, jobs, firmLabel, firmSeen, firm: Math.round(firm), firmTol: firmSeen != null && firmSeen % 1000 === 0 ? 501 : 1, today: tm ? num(tm[1]) : null, todayWant: first ? Math.round(first.work) : 0 };
+}"""
+# ---------------------------------------------------------------- rule (g): an empty seat, read off the Purchasing pages
+SEAT_JS = r"""async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const NAME = { proc: 'Buy Board', po: 'Orders', recv: 'Deliveries', vendors: 'Vendors', inv: 'Stock', rfq: 'Quotes' }, pages = {};
+  for (const v of Object.keys(NAME)) {
+    if (!(ROLE_VIEWS[role()] || []).includes(v)) continue;
+    try { bbProj = ''; bbVendor = ''; bbTrade = ''; mnLastGrp = ''; } catch (e) {}
+    view = v; render(); await sleep(300);
+    const root = document.querySelector(`.view.on [data-pupage="${v}"]`);
+    if (!root) continue;
+    const mine = root.querySelector('[data-pusec="mine"]'), tile = root.querySelector('[data-putile="mine"] b');
+    const rows = mine ? [...mine.querySelectorAll('[data-purow]')] : [];
+    const whos = [...root.querySelectorAll('.pu-who')].map(e => e.innerText.trim());
+    const me = (currentUser() || {}).name || '';
+    pages[v] = { name: NAME[v], tile: tile ? +tile.innerText : null, rows: rows.length, count: puCount(v), menu: (typeof OC_BADGE === 'object' && OC_BADGE[v]) ? OC_BADGE[v].n() : null,
+      ids: rows.map(e => e.dataset.purow), acts: rows.filter(e => e.querySelector('.pu-act')).length,
+      coordWords: whos.filter(w => /coordinator/i.test(w)).length, named: whos.filter(w => /Waiting on Alan\b/.test(w)).length, who: [...new Set(whos)].slice(0, 4) };
+    // the Buy Board's menu number is the board's own reader (needs("buy")), held to the page by the lint's Buy Board rule
+    if (v === 'proc') pages[v].menu = null;
+  }
+  const M = tdyModel();
+  return { pages, today: { buy: M.buy ? M.buy.length : 0, prepay: M.all.filter(i => i.kind === 'prepay').length, n: M.all.length } };
+}"""
 
 # ---------------------------------------------------------------- page driving
 async def settle(pg, ms=120):
@@ -626,13 +697,14 @@ async def main():
     ap.add_argument('--all-projects', action='store_true')
     ap.add_argument('--dump', help='append every label/number observation to this file')
     ap.add_argument('--no-clicks', action='store_true', help='skip the click checks (b); quick rule (a)/(c)/(d) run')
+    ap.add_argument('--pairs', action='store_true', help='only the pairs the walk cannot click to: rules (e), (f) and (g)')
     args = ap.parse_args()
     want = set(args.role.split(',')) if args.role else None
     lint = Lint(args); t0 = time.time()
     async with async_playwright() as p:
         # the office roles' phone bar carries the Tasks badge: the one-number check alone, at 390px (taskfix #1)
         office = [r for r in RUNS if not r[2] and r[0] in TASKS_ONE and (not want or r[0] in want)]
-        if office and not args.no_clicks:
+        if office and not args.no_clicks and not args.pairs:
             b, pg, errs = await open_app(p, True)
             for tag, uid, ph in office:
                 try:
@@ -642,7 +714,7 @@ async def main():
                     lint.flag('ERR', tag + '@phone', 'tasks', str(e)[:200])
             await b.close()
         for phone in (False, True):
-            runs = [r for r in RUNS if r[2] == phone and (not want or r[0] in want)]
+            runs = [] if args.pairs else [r for r in RUNS if r[2] == phone and (not want or r[0] in want)]
             if not runs: continue
             b, pg, errs = await open_app(p, phone)
             for tag, uid, ph in runs:
@@ -669,6 +741,74 @@ async def main():
                 lint.note(f"pu table pair: {r}")
             except Exception as e:
                 lint.flag('ERR', 'coord', 'pu table pair', str(e)[:200])
+            await b.close()
+        # ---- (f) billing ahead: one label, one number, and each measure says what it counts
+        if not want or 'pm' in want:
+            b, pg, errs = await open_app(p, False)
+            try:
+                await sign_in(pg, 'u_alan')
+                r = await pg.evaluate(AHEAD_JS)
+                seen = {}   # label -> {amount: where}
+                for lab, amt, where in r['obs']:
+                    seen.setdefault(lab, {}).setdefault(round(amt), []).append(where)
+                for lab, by_amt in seen.items():
+                    # one label on one job may show one amount; the same label on two jobs is two scopes, so group by job
+                    by_scope = {}
+                    for amt, wh in by_amt.items():
+                        for w in wh: by_scope.setdefault(w.split(' › ')[0], {}).setdefault(amt, []).append(w)
+                    for scope, amts in by_scope.items():
+                        if len(amts) > 1:
+                            lint.flag('PAIR', 'pm', lab, '; '.join(f"${a:,} {' / '.join(w)}" for a, w in amts.items()))
+                    # and a label never means a job's figure on one screen and the firm's on another
+                    scopes = {w.split(' › ')[0] for wh in by_amt.values() for w in wh}
+                    if 'firm' in scopes and len(scopes) > 1 and len(by_amt) > 1:
+                        lint.flag('PAIR', 'pm', lab, 'the same label for the firm and for a job: ' + '; '.join(f"${a:,} {wh[0]}" for a, wh in by_amt.items()))
+                for j in r['jobs']:
+                    if not j['shown']: continue
+                    if j['wipSeen'] is None or abs(j['wipSeen'] - j['wip']) > 0.5:
+                        lint.flag('PAIR', 'pm', 'Over-Billed (WIP)', f"{j['job']} Budget prints {j['wipSeen']} · the job's own {j['wip']}")
+                    if j['workSeen'] is None or abs(j['workSeen'] - j['work']) > 0.5:
+                        lint.flag('PAIR', 'pm', 'Billed Ahead of the Work', f"{j['job']} Budget prints {j['workSeen']} · the job's own {j['work']}")
+                    if not (j['wipWhat'] and j['workWhat'] and j['wipWhat'] != j['workWhat']):
+                        lint.flag('PAIR', 'pm', 'billing ahead, what each counts', f"{j['job']}: Over-Billed (WIP) says \"{(j['wipWhat'] or '')[:60]}\" · Billed Ahead of the Work says \"{(j['workWhat'] or '')[:60]}\"")
+                if r['firmSeen'] is None or abs(r['firmSeen'] - r['firm']) > r['firmTol']:
+                    lint.flag('PAIR', 'pm', r['firmLabel'] or 'Over-Billed (WIP) on Projects', f"Projects tile {r['firmSeen']} · the jobs' sum {r['firm']}")
+                if r['today'] is not None and abs(r['today'] - r['todayWant']) > 0.5:
+                    lint.flag('PAIR', 'pm', 'Billed Ahead of the Work', f"Today says {r['today']} · the job's Budget {r['todayWant']}")
+                lint.note(f"billing ahead pair: {r['firmLabel']} {r['firmSeen']}; {[(j['job'], j['wipSeen'], j['workSeen']) for j in r['jobs']]}; Today {r['today']}")
+            except Exception as e:
+                lint.flag('ERR', 'pm', 'billing ahead pair', str(e)[:200])
+            await b.close()
+        # ---- (g) an empty seat: with no coordinator, what waited on that seat is the job's PM's, counted and named
+        if not want or 'pm' in want:
+            b, pg, errs = await open_app(p, False)
+            try:
+                await pg.evaluate("() => { DB.users.filter(u => u.role === 'coord').forEach(u => (u.role = 'pm')); }")
+                await sign_in(pg, 'u_owner')
+                base = await pg.evaluate(SEAT_JS)
+                await sign_in(pg, 'u_alan')
+                r = await pg.evaluate(SEAT_JS)
+                for v, x in r['pages'].items():
+                    nums = {x['tile'], x['rows'], x['count'], x['menu']} - {None}
+                    if len(nums) > 1:
+                        lint.flag('PAIR', 'pm, no coordinator', f"{x['name']} Needs You", f"tile {x['tile']} · rows {x['rows']} · puCount {x['count']} · menu {x['menu']}")
+                    if x['coordWords']:
+                        lint.flag('PAIR', 'pm, no coordinator', f"{x['name']}: a row waits on an empty seat", f"{x['coordWords']} row(s) read \"Waiting on the coordinator\"")
+                po = r['pages'].get('po') or {}
+                # the six purchasing exceptions the reviewer listed: the over-the-order, the prepayment, the claim, the returns
+                kinds = sorted({i.split(':')[0] for i in po.get('ids', [])})
+                if not ((po.get('rows') or 0) >= 6 and {'over', 'prepay', 'selclaim', 'ret'} <= set(kinds)):
+                    lint.flag('PAIR', 'pm, no coordinator', 'Orders Needs You', f"{po.get('rows')} rows of kinds {kinds}; the six exceptions are not the PM's")
+                if (po.get('rows') or 0) and po.get('acts', 0) < po.get('rows', 0):
+                    lint.flag('PAIR', 'pm, no coordinator', 'Orders Needs You', f"{po.get('acts')} of {po.get('rows')} rows carry their action button")
+                if not r['today']['buy'] or not r['today']['prepay']:
+                    lint.flag('PAIR', 'pm, no coordinator', 'Today', f"Buy Board items {r['today']['buy']}, the prepayment to confirm {r['today']['prepay']}: the buying is not on the PM's Today")
+                bpo = base['pages'].get('po') or {}
+                if bpo.get('coordWords') or not bpo.get('named'):
+                    lint.flag('PAIR', 'owner, no coordinator', 'Orders, Waiting on Someone Else', f"{bpo.get('coordWords')} row(s) wait on the coordinator; {bpo.get('named')} name the PM ({bpo.get('who')})")
+                lint.note(f"empty seat pair: {dict((v, (x['tile'], x['rows'], x['count'], x['menu'])) for v, x in r['pages'].items())}; Today {r['today']}; owner sees {bpo.get('who')}")
+            except Exception as e:
+                lint.flag('ERR', 'pm', 'empty seat pair', str(e)[:200])
             await b.close()
     by = {}
     for f in lint.flags: by[f['rule']] = by.get(f['rule'], 0) + 1

@@ -89054,7 +89054,7 @@ const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", b
 // (about $15K of overages and credits) read "Waiting on the coordinator" while the PM who now buys was told nothing
 // waited on him. seatFor(role, job) is the answer every queue reads:
 //   the role, when an active user holds it;
-//   else the job's PM (the PM named on the job; with no job, or none named, every PM);
+//   else the job's PM (the PM named on the job, or the one PM on its team; with no job, or none named, every PM);
 //   else the owner. Nothing is ever in nobody's queue.
 // It returns { role, uid, name, from }: the role whose queue holds the thing, the one person when the rule names one
 // (uid, name), and the empty seat it fell from (from), so a row can say who it waits on by name.
@@ -89066,8 +89066,10 @@ function seatFor(r, p) {
   if ("owner" === r || seatHeld(r)) return { role: r, uid: "", name: "", from: "" };
   const pms = "pm" === r ? [] : seatUsers("pm"),
     first = (n) => String(n || "").trim().toLowerCase().split(/\s+/)[0],
-    names = p && p.project ? [p.project.pm, p.project.userName].map(first).filter(Boolean) : [],
-    named = pms.find((u) => names.includes(first(u.name))) || (1 === pms.length ? pms[0] : null);
+    // the job's PM: the one named on the job (project.pm), else the one PM on its team, else the firm's only PM
+    names = p && p.project ? String(p.project.pm || "").split(/[,/&]| and /).map(first).filter(Boolean) : [],
+    onTeam = p && Array.isArray(p.team) ? pms.filter((u) => p.team.includes(u.id)) : [],
+    named = pms.find((u) => names.includes(first(u.name))) || (1 === onTeam.length ? onTeam[0] : null) || (1 === pms.length ? pms[0] : null);
   if (pms.length) return { role: "pm", uid: named ? named.id : "", name: named ? named.name : pms.map((u) => u.name).join(" or "), from: r };
   const o = seatUsers("owner")[0];
   return { role: "owner", uid: "", name: o ? o.name : "", from: r };
