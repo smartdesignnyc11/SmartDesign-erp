@@ -619,8 +619,16 @@ function puBuyRender() {
       unpriced = picked.filter((x) => !(x.val && x.val.amt > 0)),
       total = r2(priced.reduce((a, x) => a + x.val.amt, 0)),
       quotes = unpriced.length > 0 || total > 2500,
-      jobs = [...new Set(picked.map((x) => x.job))];
-    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase data-pubar="${total}" data-punoprice="${unpriced.length}"> · ${priced.length ? `${money(total)} for ${priced.length === picked.length ? (1 === picked.length ? "it" : "all") : priced.length} priced` : "none priced"}${unpriced.length ? `, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span></span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${quotes ? "" : "primary"}" id="bb-order">${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${quotes ? "primary" : ""}" id="bb-quote">Ask for Quotes</button></span></div>`;
+      jobs = [...new Set(picked.map((x) => x.job))],
+      // a pick the doors would refuse (bbPickWhy, the rules bbOrder and bbQuote go by) turns its button off and says
+      // why here, not in a toast after the tap; the one blue goes to the door still open
+      PR = picked.map((x) => x.r),
+      noO = "function" == typeof bbPickWhy ? bbPickWhy(PR, "order") : "",
+      noQ = "function" == typeof bbPickWhy ? bbPickWhy(PR, "quote") : "",
+      blue = quotes ? (noQ ? (noO ? "" : "order") : "quote") : noO ? (noQ ? "" : "quote") : "order",
+      why = [...new Set([noQ, noO].filter(Boolean))],
+      off = (no) => (no ? ` disabled aria-disabled="true" title="${esc(no)}"` : "");
+    bar = `<div class="bb-bar pu-bar"><span class="pu-bt"><b>${picked.length} line${1 === picked.length ? "" : "s"} picked</b><span data-nocase data-pubar="${total}" data-punoprice="${unpriced.length}"> · ${priced.length ? `${money(total)} for ${priced.length === picked.length ? (1 === picked.length ? "it" : "all") : priced.length} priced` : "none priced"}${unpriced.length ? `, ${unpriced.length} with no price yet` : ""} · ${esc(jobs.join(", "))}</span>${why.length ? `<span class="pu-barwhy" role="status" data-nocase style="display:block;color:var(--bad);font-weight:600">${why.map(esc).join(" ")}</span>` : ""}</span><span class="pu-bb"><button type="button" class="btn sm ghost" id="pu-clear">Clear</button><button type="button" class="btn ${"order" === blue ? "primary" : ""}" id="bb-order"${off(noO)}>${quotes ? "Order, With a Reason" : `Order ${picked.length} Line${1 === picked.length ? "" : "s"}`}</button><button type="button" class="btn ${"quote" === blue ? "primary" : ""}" id="bb-quote"${off(noQ)}>Ask for Quotes</button></span></div>`;
   }
   const laterFirst = later[0] && later[0].r.orderBy,
     laterLast = later.length && later[later.length - 1].r.orderBy,
@@ -846,7 +854,9 @@ const puHomeView = () => ((ROLE_VIEWS[role()] || []).includes("proc") && !["cont
 function puDraw() {
   const v = view;
   Object.keys(PU_PAGES).forEach((x) => x !== v && puDrop(x));
-  if (!PU_PAGES[v] || !puOffice() || puRecordOpen(v)) return void (PU_PAGES[v] && puDrop(v));
+  // the driver's Deliveries is the field's page (every job's orders, each with Receive), not the office's queue of
+  // what waits on whom (the crew's review, 11-12): he receives at the counter and at the curb, he does not chase
+  if (!PU_PAGES[v] || !puOffice() || puRecordOpen(v) || ("recv" === v && "driver" === role())) return void (PU_PAGES[v] && puDrop(v));
   const host = puHost(v);
   if (!host) return;
   puOpenRows = {};

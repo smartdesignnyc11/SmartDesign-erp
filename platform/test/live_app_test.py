@@ -130,8 +130,12 @@ async def main():
         srv = await A.evaluate("""(async () => { const sh = await Cloud.pullOne('comms'); const own = await Cloud.pullOne('own:' + Cloud.user().id + ':comms');
             return {shared: (sh && sh.data || []).filter(c => c.source === 'demo' || c.source === 'google').length, own: own ? own.data.length : -1,
                     localDemo: (DB.comms || []).filter(c => c.source === 'demo').length, localOwn: (Cloud.shards(DB)['own:' + Cloud.user().id + ':comms'] || []).length,
+                    ownIds: own ? new Set(own.data.map(c => c.id)).size : -1, localIds: new Set((DB.comms || []).filter(c => c.source === 'demo').map(c => c.id)).size,
                     person: window.__cloudPerson, me: paMe().id, owners: [...new Set((DB.comms || []).filter(c => c.source === 'demo').map(c => c.owner))]}; })()""")
         ok(srv['shared'] == 0 and srv['own'] == n_mail, f'on the server the mail is only in the owner\'s own row: {srv}')
+        # each id once, on the server and on the device (11-13: the echo of the device's own save doubled the list; the
+        # workspace is emptied at the start, own rows included, so nothing here is left over from an earlier run)
+        ok(srv['ownIds'] == srv['own'] and srv['localIds'] == srv['localDemo'] == n_mail, f"no mail id is held twice: server {srv['own']} rows / {srv['ownIds']} ids, device {srv['localDemo']} rows / {srv['localIds']} ids")
         await F.evaluate("Cloud.pollOnce()"); await F.wait_for_timeout(3000)
         leak = await F.evaluate("(DB.comms || []).filter(c => c.source === 'demo' || c.source === 'google').length + ((DB.calendar||{}).external||[]).filter(e => e.source === 'demo' || e.source === 'google').length + (DB.gdrive||[]).length")
         ok(leak == 0, f'the foreman\'s phone holds none of the owner\'s mail, events or files ({leak})')

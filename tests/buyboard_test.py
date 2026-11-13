@@ -221,8 +221,14 @@ async def phone(c, p):
         c.ok(all(w >= 44 and h >= 44 for w, h in st['picks']), f"phone: picks are 44px targets {st['picks']}")
         c.ok(st['tabs'] == 0 and st['first'] == 'Needs You' and 'Buy Board' in (st['lit'] or ''), f"phone: Needs You first, no tab row, the Buy Board tab lit {st}")
         await shot(pg, 'p1_tobuy.png')
-        await pg.locator('#v-proc .bb-pick').nth(2).click(); await pg.wait_for_timeout(200)
-        await pg.locator('#v-proc .bb-pick').nth(4).click(); await pg.wait_for_timeout(250)
+        # two lines that can go on together (11-12: a pick the doors refuse, such as a subcontract scope with a material,
+        # turns both buttons off and says why, so it has no blue; tests/pu_table_test.py BAR holds that)
+        two = await pg.evaluate("""() => { const vis = [...document.querySelectorAll('#v-proc .bb-pick')].filter(x => x.getClientRects().length).map(x => x.dataset.bbpick),
+          L = buyList('').filter(r => vis.includes(r.id));
+          for (const a of L) for (const b of L) if (a !== b && (!bbPickWhy([a, b], 'quote') || !bbPickWhy([a, b], 'order'))) return [a.id, b.id];
+          return []; }""")
+        for i in two:
+            await pg.locator(f'#v-proc .bb-pick[data-bbpick="{i}"]').first.click(); await pg.wait_for_timeout(250)
         bar = await pg.evaluate("() => { const b = document.querySelector('#v-proc .bb-bar'); return b ? { t: b.innerText.replace(/\\s+/g, ' '), prim: [...document.querySelectorAll('#v-proc .btn.primary')].filter(x => x.getClientRects().length).map(x => x.innerText.trim()) } : null; }")
         c.ok(bar and '2 lines picked' in bar['t'] and 'Ask for Quotes' in bar['t'] and len(bar['prim']) == 1, f'phone: two picked lines: the count, the total, and one blue {bar}')
         await shot(pg, 'p2_two_picked.png')

@@ -27,6 +27,25 @@ store.
   PHONE    one card per item (description and room, status, vendor, delivery date, budget against purchased), no sideways
            scroll, every control 44px, the status chips wrap
   SCAN     the desktop at 1440: Invoice and Item # on one line, every sub-line one line, nothing scrolls sideways
+The coordinator's wave-2 review (11-12), each a class:
+  SHARE    a line's budget counts once: under every grouping (room, invoice, vendor, status, job) the budgets the group
+           headers show plus the lines shared across groups equal the header's Budget; a group on a shared line says so
+  SOURCE   a Purchased price names its true source and the record exists: an order on file, in that vendor's price
+           history; a figure typed from a receipt is shown as typed and is not in Purchased or Under budget
+  TRUTH    a unit price multiplies to the amount beside it (the windows: the order's $29,700 at $3,300 each, the bill's
+           $3,800 over said apart); a bought or delivered status has an order or a receipt behind it, else it reads
+           Marked bought, no order on file, with Find the Order, and is counted; a damaged receipt or an open claim
+           reads Delivered, damaged: claim open
+  DATE     sorting by Delivery Date sorts the date each row shows (delivered or promised, else need-by), blanks last
+  LEFT     the Request Quotes sheet and the Table say the same dollars left on a line (lineCommitment's)
+  HEADERS  Import a Sheet reads Item or Item Name as the description and Alan's own column names; a sheet with no
+           description column is refused with the column that is missing and the ones found
+  BAR      a pick that cannot be quoted or ordered (two jobs, a subcontract scope with a material) disables the button
+           and says why, before the click
+  UNPRICED an estimate line marked Excluded or TBD (lineUnpriced) is not offered to buy: not on Needs, not in the Table,
+           not in Order From Lines, not in the line picker
+  ORDER    an order started from a row carries the row's line, or asks for the line or the bill-back before the draft;
+           a draft with an unlinked line is never a dead end: the refusal and the order's header both carry Link the Line
 Usage: python3 pu_table_test.py [--desktop|--phone] [--only TOGGLE,FILL,...] [--shots]
 """
 import asyncio, os, re, sys
@@ -389,6 +408,368 @@ async def s_tie(pg, c, dev):
     c.ok(same, f'TIE {dev}: buyList with no options is unchanged (the opt-in adds rows only when asked)')
 
 
+MONEY = lambda t: float(t.replace(',', ''))
+BOUGHT_WORDS = ('purchased', 'backordered', 'partly delivered', 'delivered', 'installed', 'returned')
+
+
+async def s_share(pg, c, dev):
+    """S1-1 (coordinator, wave 2): grouped by room the group budgets added up to $507,861 against a header of $331,260,
+    one $75,000 line counted in two kitchens. A line's budget counts once, under every grouping."""
+    await board(pg)
+    read = """() => { const vis = e => e.getBoundingClientRect().height > 0, tx = e => (e.innerText || '').replace(/\\s+/g, ' ').trim();
+      return { head: +document.querySelector('[data-pstot=budget]').dataset.v, groups: [...document.querySelectorAll('#pu-table [data-psgroup]')].filter(vis).map(tx),
+        across: [...document.querySelectorAll('#pu-table [data-psacross]')].filter(vis).map(tx) }; }"""
+    for grp in ('room', 'inv', 'vendor', 'status', 'job'):
+        await js(pg, "g => psSet({ group: g })", grp, 450)
+        r = await js(pg, read, None, 0)
+        shown = sum(MONEY(m) for g in r['groups'] for m in re.findall(r'budget \$([\d,]+(?:\.\d+)?)', g, re.I))
+        shared = sum(MONEY(m) for a in r['across'] for m in re.findall(r'^Across [a-z ]+?\s*\$([\d,]+(?:\.\d+)?)', a))
+        c.ok(r['groups'] and abs(shown + shared - r['head']) <= len(r['groups']) + 1,
+             f'SHARE {dev}: grouped by {grp}, the group budgets (${shown:,.0f}) plus the lines shared across groups (${shared:,.0f}) equal the header (${r["head"]:,.0f}); {len(r["groups"])} groups')
+    await js(pg, "() => psSet({ group: 'room' })", None, 450)
+    r = await js(pg, read, None, 0)
+    gk = next((g for g in r['groups'] if g.startswith('Garden kitchen')), '')
+    pk = next((g for g in r['groups'] if g.startswith('Parlor kitchen')), '')
+    c.ok(re.search(r'shares the \$75,000 line with .*Parlor kitchen', gk) and re.search(r'shares the \$75,000 line with .*Garden kitchen', pk) and 'budget $75,000' not in gk + pk,
+         f'SHARE {dev}: the two kitchens each say they share the $75,000 line, and neither shows it as its own budget ({gk!r}; {pk!r})')
+    c.ok(r['across'] and '$75,000' in r['across'][0], f'SHARE {dev}: the lines whose items sit in more than one room are listed once, across rooms ({[a[:120] for a in r["across"]]})')
+
+
+async def s_source(pg, c, dev):
+    """S1-2: Ferguson's rows read a Purchased Price from "the bill" while Ferguson's record had no bill, nothing paid and no
+    price history. A Purchased price names its source; the record exists; the vendor's history has it."""
+    await board(pg)
+    await js(pg, "() => psSet({ group: 'none' })", None, 400)
+    R = await rows(pg)
+    counted = [r for r in R if re.match(r'\$[\d,]', r['cells'].get('bought', '')) and not re.search(r'typed|imported', r['cells'].get('bought', ''), re.I)]
+    M = await js(pg, """ids => { const X = new Map(psItems('').map(x => [x.id, x])), D = pwData();
+      return ids.map(id => { const x = X.get(id); if (!x) return { id, gone: 1 };
+        return { id, vendor: x.vendor, pos: x.pls.map(y => { const po = DB.pos.find(p => p.id === y.po.id), B = D.byId['po:' + y.po.id + ':' + y.pl.id] || null;
+          let hist = false; try { hist = !!B && (itemPriceHistory(B.key, { vendor: y.po.vendor }) || { rows: [] }).rows.some(r => r.id === B.id); } catch (e) {}
+          const v = (DB.vendors || []).find(v => v.name === y.po.vendor);
+          return { n: y.po.number, on: !!po && po.status !== 'cancelled', st: po ? po.status : '', vend: po ? po.vendor : '', hist, rec: !v || puVendorPrices(v).length > 0,
+            bills: DB.bills.filter(b => b.poId === y.po.id && !['void', 'rejected'].includes(b.status)).length }; }) }; }); }""", [r['id'] for r in counted], 0)
+    by = {m['id']: m for m in M}
+    bad = []
+    for r in counted:
+        cell, m = r['cells']['bought'], by.get(r['id'], {})
+        nums = re.findall(r'PO-\d{4}-\d+', cell)
+        pos = {p['n']: p for p in m.get('pos', [])}
+        if not nums or any(n not in pos or not pos[n]['on'] for n in nums): bad.append(f"{r['cells'].get('desc', '')[:30]}: {cell[:50]!r} names no order on file"); continue
+        if re.search(r'\bbill', cell, re.I) and not any(pos[n]['bills'] for n in nums): bad.append(f"{r['cells'].get('desc', '')[:30]}: says a bill, and its order has none")
+        for n in nums:
+            p = pos[n]
+            if p['st'] in ('draft', 'pending'): continue
+            if p['vend'] not in r['cells'].get('vendor', ''): bad.append(f"{n}: the row's vendor {r['cells'].get('vendor')!r} is not the order's {p['vend']!r}")
+            if not p['hist'] or not p['rec']: bad.append(f"{n}: not in {p['vend']}'s price history ({p['hist']}, record {p['rec']})")
+    c.ok(counted and not bad, f'SOURCE {dev}: every Purchased price names an order on file that is in its vendor\'s price history ({len(counted)} rows; {bad[:4]})')
+    # Ferguson: no order, no bill, no card line: the receipt figure typed on the selection is shown as that, and not counted
+    ferg = [r for r in R if 'Ferguson' in r['cells'].get('vendor', '') and re.search(r'\$[\d,]', r['cells'].get('bought', ''))]
+    fv = await js(pg, """() => { const v = DB.vendors.find(x => /^Ferguson/.test(x.name)); return { bills: DB.bills.filter(b => /^Ferguson/.test(b.vendor || '')).length, pos: DB.pos.filter(p => /^Ferguson/.test(p.vendor || '')).length,
+      prices: v ? puVendorPrices(v).length : 0 }; }""", None, 0)
+    off = [r['cells']['bought'][:60] for r in ferg if 'the bill' in r['cells']['bought'].lower() or not re.search(r'typed from a receipt', r['cells']['bought'], re.I)]
+    c.ok(ferg and fv['bills'] == 0 and fv['pos'] == 0 and fv['prices'] == 0 and not off, f'SOURCE {dev}: Ferguson has no order, bill or price history ({fv}), and its {len(ferg)} rows say the price was typed from a receipt, never "the bill" ({off[:3]})')
+    t = await js(pg, """() => ({ bought: +document.querySelector('[data-pstot=bought]').dataset.v, under: +((document.querySelector('[data-pstot=under]') || {}).dataset || {}).v || 0,
+      typed: +((document.querySelector('[data-pstot=typed]') || {}).dataset || {}).v || 0 })""", None, 0)
+    first = lambda cell: MONEY(re.match(r'\$([\d,]+(?:\.\d+)?)', cell).group(1))
+    want = sum(first(r['cells']['bought']) for r in counted)
+    under = sum(MONEY(m) for r in R for m in re.findall(r'\$([\d,]+(?:\.\d+)?) under budget', r['cells'].get('bought', '')))
+    c.ok(abs(t['bought'] - want) <= len(counted) + 1 and abs(t['under'] - under) <= len(R) and t['typed'] > 0,
+         f'SOURCE {dev}: Purchased (${t["bought"]:,.0f}) is the rows with an order behind them (${want:,.0f}); Under budget (${t["under"]:,.0f}) is the rows that say it (${under:,.0f}); typed figures are totalled apart (${t["typed"]:,.0f})')
+
+
+async def s_truth(pg, c, dev):
+    """S1-3: a unit price that does not multiply to the amount beside it; a bought status with nothing behind it; a
+    damaged delivery reading plain Delivered."""
+    await board(pg)
+    await js(pg, "() => psSet({ group: 'none' })", None, 400)
+    R = await rows(pg)
+    bad = []
+    for r in R:
+        qm = re.match(r'([\d,]+(?:\.\d+)?)', r['cells'].get('qty', ''))
+        for col in ('budget', 'bought'):
+            cell = r['cells'].get(col, '')
+            a, u = re.match(r'\$([\d,]+(?:\.\d+)?)', cell), re.search(r'\$([\d,]+\.\d\d) (?:each|per \w+)', cell)
+            if not (qm and a and u): continue
+            f = re.search(r'\+ \$([\d,]+(?:\.\d+)?) freight', cell)
+            if abs(MONEY(qm.group(1)) * MONEY(u.group(1)) + (MONEY(f.group(1)) if f else 0) - MONEY(a.group(1))) > 1: bad.append(f"{r['cells'].get('desc', '')[:28]} {col}: {cell[:44]!r} for {qm.group(1)}")
+    c.ok(R and not bad, f'TRUTH {dev}: every unit price multiplies to the amount beside it ({bad[:4]})')
+    win = next((x['cells'].get('bought', '') for x in R if 'Double-hung windows' in x['cells'].get('desc', '')), '')
+    c.ok(win.startswith('$29,700') and '$3,300.00 each' in win and re.search(r'Billed \$33,500: \$3,800 over', win),
+         f'TRUTH {dev}: the windows show the order ($29,700 at $3,300.00 each) and the bill\'s $3,800 over it apart ({win!r})')
+    # a bought status has a record behind it: an issued order, or (for where it is) a receipt or a return on file
+    proof = await js(pg, """() => psItems('').map(x => { const m = x.m, it = x.it, live = DB.pos.filter(p => !['cancelled', 'draft'].includes(p.status));
+      const order = /:order:/.test(x.id) || live.some(p => (p.lines || []).some(l => (m && l.materialId === m.id) || (it && (l.selId === it.id || it.poId === p.id)) || (x.r.q && l.requestId === x.r.q.id)));
+      const receipt = !!it && (!!it.receipt || (DB.sel.recv || []).some(v => v.itemId === it.id) || (DB.sel.returns || []).some(v => v.itemId === it.id && !['cancelled', 'rejected'].includes(v.status)));
+      const marked = (m && ['ordered', 'shipped', 'on-site'].includes(m.status)) || (it && ['ord', 'ship', 'office', 'site', 'inst'].includes(it.stage));
+      return { id: x.id, order, receipt, marked: !!marked }; })""", None, 0)
+    P = {p['id']: p for p in proof}
+    st = lambda r: r['cells'].get('status', '').lower()
+    bare = [f"{r['cells'].get('desc', '')[:28]}: {r['cells'].get('status', '')[:24]!r}" for r in R if st(r).startswith(BOUGHT_WORDS) and not (P[r['id']]['order'] or P[r['id']]['receipt'])]
+    c.ok(not bare, f'TRUTH {dev}: no row reads purchased or delivered with nothing behind it ({len(bare)}: {bare[:6]})')
+    none = [r for r in R if P[r['id']]['marked'] and not P[r['id']]['order'] and not P[r['id']]['receipt']]
+    off = [f"{r['cells'].get('desc', '')[:28]}: {r['cells'].get('status', '')[:40]!r}" for r in none if not st(r).startswith('marked bought, no order on file')]
+    finds = await js(pg, "() => [...document.querySelectorAll('#pu-table [data-psfind]')].filter(e => e.getBoundingClientRect().height > 0).map(e => e.dataset.psfind)", None, 0)
+    flag = await js(pg, "() => +((document.querySelector('[data-pstot=noorder]') || {}).dataset || {}).v || 0", None, 0)
+    c.ok(len(none) >= 5 and not off and all(r['id'] in finds for r in none) and flag == len(none),
+         f'TRUTH {dev}: a row marked bought with no order reads Marked bought, no order on file, with Find the Order, and is counted ({len(none)} rows, flag {flag}; {off[:3]}; {len(finds)} buttons)')
+    # Find the Order, through the screen: an invented order line nobody's row stands for is linked to the insulation
+    await js(pg, """() => { DB.pos.push({ id: 'po_psfind', number: 'PO-2026-098', projectId: 'p121', vendor: 'Kamco Supply', date: '2026-08-28', expected: '2026-09-16', status: 'issued',
+      lines: [{ id: 'pl_psfind', item: 'Insulation, R-21 batts', qty: 40, unit: 'bag', price: 62, line: 'estimate:es1:l6', received: 0 }], receipts: [] }); render(); }""", None, 500)
+    ins = next((r['id'] for r in R if r['cells'].get('desc', '').startswith('Insulation')), '')
+    b = pg.locator(f'#pu-table [data-psfind="{ins}"]')
+    if ins and await b.count():
+        await b.first.click(); await pg.wait_for_timeout(600)
+        sheet = await js(pg, "() => ({ t: ((document.querySelector('#mbm .mbm-hd h3') || {}).textContent || '').trim(), opts: [...document.querySelectorAll('#mbm [data-psfo]')].map(e => (e.closest('label') || e).innerText.replace(/\\s+/g, ' ').trim()) })", None, 0)
+        c.ok('Find the Order' in sheet['t'] and any('PO-2026-098' in o for o in sheet['opts']), f'TRUTH {dev}: Find the Order opens a sheet with the job\'s unlinked order lines ({sheet})')
+        pick = pg.locator('#mbm [data-psfo="po_psfind:pl_psfind"]')
+        if await pick.count():
+            await pick.first.check(); await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(700)
+        R2 = await rows(pg)
+        row = next((r for r in R2 if r['cells'].get('desc', '').startswith('Insulation')), {'cells': {}})
+        toast = await js(pg, "() => (document.getElementById('toast') || {}).innerText || ''", None, 0)
+        c.ok(st(row).startswith('purchased') and 'PO-2026-098' in row['cells'].get('bought', '') and 'PO-2026-098' in toast and 'Open' in toast,
+             f'TRUTH {dev}: linked, the insulation reads Purchased on PO-2026-098, with a toast that opens it ({row["cells"].get("status")!r}, {row["cells"].get("bought")!r}; {toast!r})')
+    else: c.ok(False, f'TRUTH {dev}: the insulation row has Find the Order ({ins})')
+    await reset(pg)
+    await js(pg, "() => { DB.pos = DB.pos.filter(p => p.id !== 'po_psfind'); DB.projects.find(p => p.id === 'p121').materials.forEach(m => { if (m.po === 'PO-2026-098') m.po = ''; }); save(); }", None, 200)
+    # a damaged delivery never reads plain Delivered: the range (a selection's receipt and claim), and an order's claim
+    await board(pg)
+    R = await rows(pg)
+    rng = next((x['cells'].get('status', '') for x in R if 'Range, 36' in x['cells'].get('desc', '')), '')
+    c.ok(rng.startswith('Delivered, damaged: claim open'), f'TRUTH {dev}: the dented range reads Delivered, damaged: claim open ({rng!r})')
+    await js(pg, """() => { const po = DB.pos.find(p => p.number === 'PO-2026-041'), l = po.lines[0];
+      (po.issues = po.issues || []).push({ id: 'is_pstest', at: '2026-08-24', type: 'damaged', lineId: l.id, item: l.item, qty: 12, unit: l.unit, amount: 150, claim: true, status: 'open' }); render(); }""", None, 400)
+    R = await rows(pg)
+    tile = next((x['cells'].get('status', '') for x in R if 'Calacatta' in x['cells'].get('desc', '') or 'Tile – primary bath' in x['cells'].get('desc', '')), '')
+    c.ok(tile.startswith('Delivered, damaged: claim open'), f'TRUTH {dev}: an order line with an open damage claim reads the same ({tile!r})')
+    await js(pg, "() => { const po = DB.pos.find(p => p.number === 'PO-2026-041'); po.issues = (po.issues || []).filter(i => i.id !== 'is_pstest'); render(); }", None, 200)
+
+
+async def s_date(pg, c, dev):
+    """S2-5: sorted by Delivery Date the need-by rows came in no order. One date per row sorts: the one it shows."""
+    await board(pg)
+    await js(pg, "() => psSet({ group: 'none' })", None, 400)
+    for d in ('asc', 'desc'):
+        await js(pg, "d => psSortBy('deliv', d)", d, 400)
+        R = await rows(pg)
+        shown = [(bool(re.search(r'\d+/\d+', r['cells'].get('deliv', ''))), r['sv'].get('deliv') or '') for r in R]
+        unsorted = [r['cells'].get('deliv') for r, (has, sv) in zip(R, shown) if has and not sv]
+        dates = [sv for has, sv in shown if has]
+        tail = [has for has, sv in shown]
+        c.ok(len(dates) > 10 and not unsorted and dates == sorted(dates, reverse=(d == 'desc')) and (False not in tail or True not in tail[tail.index(False):]),
+             f'DATE {dev}: sorted {d}, every date shown is in order (need-by where nothing is promised), blanks last ({len(unsorted)} shown and not sorted: {unsorted[:4]}; {dates[:5]})')
+    need = await js(pg, "() => [...document.querySelectorAll('#pu-table [data-pscol=deliv]')].filter(e => /need/.test(e.innerText)).length", None, 0)
+    c.ok(need > 0, f'DATE {dev}: a row with nothing promised shows its need-by date ({need})')
+
+
+async def s_order(pg, c, dev):
+    """S2-4: the order drafted from the Build.com sink row could not issue: "not linked to an estimate line". An order
+    started from a row carries its line, or the sheet asks for the line or the bill-back before the draft is made."""
+    async def order_row(frag):
+        await board(pg)
+        info = await js(pg, "f => { const x = psItems('').find(y => y.desc.includes(f)); return x ? { id: x.id, sel: x.it && x.it.id, pick: x.pickable } : null; }", frag, 0)
+        if not info or not info['pick']: return info, False
+        await pg.locator(f'#pu-table [data-psrow="{info["id"]}"] [data-pspick]').first.click()
+        await pg.wait_for_timeout(350)
+        await pg.locator('#pu-table .ps-bar [data-psdo="order"]').first.click()
+        await pg.wait_for_timeout(900)
+        asked = await js(pg, "() => !!document.querySelector('#mbm [data-bbl], #mbm #mbm-alt') && /line/i.test((document.querySelector('#mbm .mbm-hd h3') || {}).textContent || '')", None, 0)
+        return info, asked
+    po_of = """sel => { const po = DB.pos.filter(p => p.status !== 'cancelled' && (p.lines || []).some(l => l.selId === sel)).pop(); if (!po) return null;
+      const l = po.lines.find(l => l.selId === sel); return { id: po.id, n: po.number, st: po.status, kind: polKind(l), line: l.line || '', billable: !!l.billable, bad: poValid(po).filter(r => /not linked/.test(r)) }; }"""
+    # the sink is on FM12 and on no contract line: the sheet asks; No Line marks it billed back to the client
+    info, asked = await order_row('Undermount fireclay sink')
+    c.ok(info and asked, f'ORDER {dev}: the sink has no estimate line, so Order asks for the line or the bill-back before the draft ({info}, asked {asked})')
+    if asked:
+        await pg.locator('#mbm #mbm-alt').click(); await pg.wait_for_timeout(1200)
+    po = await js(pg, po_of, info['sel'], 300) if info else None
+    c.ok(po and not po['bad'] and po['kind'] == 'rebill', f'ORDER {dev}: its draft carries the bill-back from the start: nothing to link before Issue ({po})')
+    if po:
+        await js(pg, "id => flowGo.po(DB.pos.find(p => p.id === id))()", po['id'], 700)
+        b = pg.locator('.view.on [data-poact="issue"]')
+        if await b.count():
+            await b.first.click(); await pg.wait_for_timeout(700)
+        toast = await js(pg, "() => (document.getElementById('toast') || {}).innerText || ''", None, 0)
+        c.ok('not linked' not in toast, f'ORDER {dev}: Issue is not refused for a missing line ({toast[:140]!r})')
+    await reset(pg)
+    # the other way out: pick the contract line in the same sheet; the order line is on it
+    info, asked = await order_row('Thermostatic shower set')
+    key = ''
+    if asked:
+        key = await js(pg, "() => { const r = document.querySelector('#mbm [data-bbl]'); r && (r.checked = true); return r ? r.dataset.bbl : ''; }", None, 100)
+        await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(1200)
+    po = await js(pg, po_of, info['sel'], 300) if info else None
+    c.ok(asked and key and po and po['line'] == key and not po['bad'], f'ORDER {dev}: a line picked in the sheet is on the order line from the start ({key!r}; {po})')
+    await reset(pg)
+    # a draft that still has an unlinked line (made another way) is never a dead end: the order's header carries Link the
+    # Line beside the line, and the refusal at Issue carries it too; it opens the order's own line picker
+    await js(pg, """() => { DB.pos.push({ id: 'po_psord', number: 'PO-2026-097', projectId: 'p121', vendor: 'Build.com', date: today(), needBy: '2026-10-26', expected: '2026-10-20', status: 'draft', shipTo: 'Office',
+      lines: [{ id: 'pl_psord', item: 'Zinc house numbers, set of three', qty: 1, unit: 'ea', price: 96, line: '', received: 0 }], tax: 0, shipping: 0, matchedTxns: [] }); save(); flowGo.po(DB.pos.find(p => p.id === 'po_psord'))(); }""", None, 800)
+    pre = await js(pg, "() => polLinked(DB.pos.find(p => p.id === 'po_psord').lines[0])", None, 0)
+    top = await js(pg, "() => [...document.querySelectorAll('#pu-poh [data-polpick]')].filter(e => e.getBoundingClientRect().height > 0).map(e => e.innerText.trim())", None, 0)
+    c.ok(not pre and top == ['Link the Line'], f'ORDER {dev}: the order\'s header shows the unlinked line with Link the Line beside it ({top}; linked before {pre})')
+    b = pg.locator('.view.on [data-poact="issue"]')
+    if await b.count():
+        await b.first.click(); await pg.wait_for_timeout(700)
+    tb = pg.locator('#toast button, #toast a').filter(has_text='Link the Line')
+    has = await tb.count()
+    c.ok(has > 0, f'ORDER {dev}: refused at Issue, the toast carries Link the Line ({await js(pg, "() => (document.getElementById(\'toast\') || {}).innerText || \'\'", None, 0)!r})')
+    if has:
+        await tb.first.click(); await pg.wait_for_timeout(600)
+    else:
+        await pg.locator('#pu-poh [data-polpick]').first.click(); await pg.wait_for_timeout(600)
+    opt = pg.locator("#mbm [data-polk='rebill']")
+    c.ok(await opt.count() > 0, f'ORDER {dev}: it opens the order\'s line picker in place')
+    if await opt.count():
+        await opt.first.click(); await pg.wait_for_timeout(700)
+    after = await js(pg, "() => { const po = DB.pos.find(p => p.id === 'po_psord'); return { kind: polKind(po.lines[0]), bad: poValid(po).filter(r => /not linked/.test(r)) }; }", None, 0)
+    c.ok(after['kind'] == 'rebill' and not after['bad'], f'ORDER {dev}: after the picker the line is linked and the validator has no link reason left ({after})')
+    await reset(pg)
+    await js(pg, "() => { DB.pos = DB.pos.filter(p => p.id !== 'po_psord'); save(); }", None, 200)
+
+
+# invented rows under Alan's own column names, a plain sheet, and one with no description column
+ALAN_SHEET = """FM Invoice #,Category,Vendor Name,Item Name,Quantity,Client Price per Unit,FM Client Price,FM Budget Cost,FM Actual Cost
+FM3,Plumbing Fixtures,Atlantic Bath Supply,Deck-mount tub spout,2,252,504,210,198
+FM3,Lighting,Lumen Row,Flush mount 12in,3,99,297,90,
+"""
+PLAIN_SHEET = """FM Number,Item,Qty,Room,Budget,Purchased,Vendor
+FM4,Soap dish wall mount,2,Powder Room,45,41,Atlantic Bath Supply
+"""
+NODESC_SHEET = """FM Number,Qty,Room,Budget,Vendor
+FM4,2,Powder Room,45,Atlantic Bath Supply
+"""
+
+
+async def s_left(pg, c, dev):
+    """Second pass (11-12): Request Quotes read "$0 left on the line" for the countertop slab where the Table read "$75,000
+    line". Both are lineCommitment's (the $76,000 millwork order is on that line); the Table says what is left too."""
+    await board(pg)
+    want = await js(pg, """() => ['Tile – garden bath', 'Garden kitchen countertop slab'].map(f => { const x = psItems('').find(y => y.desc.includes(f)), C = x && lineCommitment(x.lineKey);
+      return x && C ? { id: x.id, f, left: C.left, budget: C.budget, pick: x.pickable } : { f }; })""", None, 0)
+    R = {r['id']: r for r in await rows(pg)}
+    bad = []
+    for w in want:
+        cell = R.get(w.get('id'), {'cells': {}})['cells'].get('budget', '')
+        m = re.search(r'\$([\d,]+) left', cell)
+        if not m or abs(MONEY(m.group(1)) - w['left']) > 1 or f"${w['budget']:,.0f} line" not in cell: bad.append(f"{w['f']}: {cell!r}, lineCommitment left {w.get('left')}")
+    c.ok(len(want) == 2 and not bad, f'LEFT {dev}: the Table says the line\'s budget and what is left on it, lineCommitment\'s ({bad})')
+    for w in want:
+        if w.get('pick'):
+            await pg.locator(f'#pu-table [data-psrow="{w["id"]}"] [data-pspick]').first.click(); await pg.wait_for_timeout(350)
+    q = pg.locator('#pu-table .ps-bar [data-psdo="quote"]')
+    if await q.count():
+        await q.first.click(); await pg.wait_for_timeout(1000)
+    sheet = await js(pg, "() => ((document.querySelector('#mbm .mbm-bd') || {}).innerText || '').replace(/\\s+/g, ' ')", None, 0)
+    lefts = sorted({MONEY(m) for m in re.findall(r'\$([\d,]+) left on the line', sheet)})
+    c.ok(lefts == sorted({w.get('left', -1) for w in want}), f'LEFT {dev}: the Request Quotes sheet says the same dollars left on each line ({lefts}; the Table and lineCommitment {[w.get("left") for w in want]})')
+    await reset(pg)
+
+
+async def s_headers(pg, c, dev):
+    """Second pass: a sheet headed FM Number, Item, Qty... was refused ("No Description column") and the toast said to paste
+    the sheet first. Item and Item Name read as the description; Alan's own column names import."""
+    await board(pg)
+    async def paste(text):
+        if not await js(pg, "() => !!document.querySelector('#mbm #ps-imp-text')", None, 0):
+            await pg.locator('#pu-table [data-psx="import"]').first.click(); await pg.wait_for_timeout(500)
+            await pg.select_option('#ps-imp-job', 'p121')
+        await pg.fill('#ps-imp-text', text); await pg.wait_for_timeout(450)
+        return await js(pg, "() => ({ prev: ((document.querySelector('#mbm .ps-imp-prev') || {}).innerText || '').replace(/\\s+/g, ' ').trim(), rows: [...document.querySelectorAll('#mbm .ps-imp-row')].map(e => e.innerText.replace(/\\s+/g, ' ').trim()) })", None, 0)
+    n0 = await js(pg, "() => DB.sel.items.length", None, 0)
+    # no description column: the refusal names it and the columns found; Import says the same, not "paste the sheet first"
+    v = await paste(NODESC_SHEET)
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(500)
+    toast = await js(pg, "() => (document.getElementById('toast') || {}).innerText || ''", None, 0)
+    still = await js(pg, "() => !!document.querySelector('#mbm #ps-imp-text')", None, 0)
+    c.ok('Description' in v['prev'] and 'Item Name' in v['prev'] and all(h in v['prev'] for h in ('FM Number', 'Qty', 'Room', 'Budget', 'Vendor')),
+         f'HEADERS {dev}: a sheet with no description column is refused with the column that is missing and the ones found ({v["prev"]!r})')
+    c.ok(still and 'Description' in toast and 'paste the sheet first' not in toast, f'HEADERS {dev}: Import then says which column is missing, not to paste the sheet ({toast!r})')
+    # Item reads as the description
+    v = await paste(PLAIN_SHEET)
+    c.ok(len(v['rows']) == 1 and 'FM4' in v['rows'][0] and 'Soap dish wall mount' in v['rows'][0] and '$45.00 each, $90' in v['rows'][0] and '$41.00 each, $82' in v['rows'][0] and '1 item to import' in v['prev'],
+         f'HEADERS {dev}: FM Number, Item, Qty, Room, Budget, Purchased, Vendor reads as one item ({v})')
+    # Alan's own column names
+    v = await paste(ALAN_SHEET)
+    c.ok(len(v['rows']) == 2 and all(t in v['rows'][0] for t in ('FM3', 'Plumbing Fixtures', 'Deck-mount tub spout', 'qty 2', '$210.00 each, $420', '$198.00 each, $396', '$252.00 each')) and 'Item Name' in v['prev'],
+         f'HEADERS {dev}: Alan\'s column names read: FM invoice, category, item, quantity, budget cost, actual cost and the client price ({v})')
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(700)
+    it = await js(pg, """() => DB.sel.items.filter(i => i.projectId === 'p121' && i.fm === 'FM3').map(i => ({ name: i.name, cat: i.category, vendor: i.vendor, qty: i.qty, cost: i.cost, markup: i.markupPct, client: selUnitPrice(i),
+      imp: i.imported && i.imported.bought, actual: i.actual }))""", None, 0)
+    spout = next((x for x in it if x['name'] == 'Deck-mount tub spout'), {})
+    flush = next((x for x in it if x['name'] == 'Flush mount 12in'), {})
+    c.ok(len(it) == 2 and spout.get('cat') == 'Plumbing Fixtures' and spout.get('vendor') == 'Atlantic Bath Supply' and spout.get('qty') == 2 and spout.get('cost') == 210 and spout.get('client') == 252
+         and spout.get('imp') == 396 and spout.get('actual') is None and flush.get('cost') == 90 and flush.get('client') == 99 and not flush.get('imp'),
+         f'HEADERS {dev}: the two items land with their category, vendor, cost and the sheet\'s client price; the actual cost kept as imported ({it})')
+    await reset(pg)
+    await js(pg, "n0 => { DB.sel.items.length = n0; save(); }", n0, 200)
+
+
+async def s_bar(pg, c, dev):
+    """Second pass: a pick across two jobs, or a subcontract scope with a material, was refused only by a toast after the
+    click. The bar disables the button and says why while the pick is invalid."""
+    async def pick(ids):
+        await board(pg)
+        for i in ids:
+            await pg.locator(f'#pu-table [data-psrow="{i}"] [data-pspick]').first.click(); await pg.wait_for_timeout(350)
+        return await js(pg, """() => { const b = k => document.querySelector('#pu-table .ps-bar [data-psdo="' + k + '"]');
+          return { quote: !!b('quote') && b('quote').disabled, order: !!b('order') && b('order').disabled, blue: [...document.querySelectorAll('#pu-table .ps-bar .btn.primary')].map(e => e.innerText.trim()),
+            text: ((document.querySelector('#pu-table .ps-bar') || {}).innerText || '').replace(/\\s+/g, ' ') }; }""", None, 0)
+    ids = await js(pg, """() => { const X = psItems('').filter(x => x.pickable), a = X.find(x => x.pid === 'p121' && x.r.kind === 'material' && x.lineKey && !x.r.dec), b = X.find(x => x.pid !== 'p121'),
+      s = X.find(x => x.pid === 'p121' && x.r.kind === 'sub'); return { two: [a && a.id, b && b.id], mix: [s && s.id, a && a.id], ok: [a && a.id] }; }""", None, 0)
+    r = await pick(ids['two'])
+    c.ok(all(ids['two']) and r['quote'] and r['order'] and not r['blue'] and re.search(r'one job at a time', r['text'], re.I), f'BAR {dev}: rows from two jobs: both buttons are off and the bar says one job at a time ({r})')
+    r = await pick(ids['mix'])
+    c.ok(all(ids['mix']) and r['quote'] and r['order'] and not r['blue'] and re.search(r'subcontract scope', r['text'], re.I), f'BAR {dev}: a subcontract scope with a material: both buttons are off and the bar says why ({r})')
+    r = await pick(ids['ok'])
+    c.ok(not r['quote'] and not r['order'] and len(r['blue']) == 1, f'BAR {dev}: a pick that can be bought leaves both on, one blue ({r})')
+    await reset(pg)
+    # the Needs board's own bar goes by the same rule (bbPickWhy)
+    await board(pg, table=False)
+    nb = await js(pg, """() => { const vis = [...document.querySelectorAll('#buy-board [data-bbpick]')].filter(e => e.getBoundingClientRect().height > 0).map(e => e.dataset.bbpick), L = buyList('').filter(r => vis.includes(r.id));
+      const s = L.find(r => r.kind === 'sub'), m = L.find(r => r.kind !== 'sub' && r.kind !== 'request' && r.lineKey && s && r.p.id === s.p.id); return [s && s.id, m && m.id]; }""", None, 0)
+    for i in nb:
+        if i:
+            await pg.locator(f'#buy-board [data-bbpick="{i}"]').first.click(); await pg.wait_for_timeout(350)
+    r = await js(pg, """() => ({ quote: !!document.querySelector('#bb-quote') && document.querySelector('#bb-quote').disabled, order: !!document.querySelector('#bb-order') && document.querySelector('#bb-order').disabled,
+      text: ((document.querySelector('#buy-board .pu-bar') || {}).innerText || '').replace(/\\s+/g, ' ') })""", None, 0)
+    c.ok(all(nb) and r['quote'] and r['order'] and re.search(r'subcontract scope', r['text'], re.I), f'BAR {dev}: on Needs, a subcontract scope with a material: both buttons are off and the bar says why ({nb}; {r})')
+    await reset(pg)
+
+
+async def s_unpriced(pg, c, dev):
+    """The estimate-layout lane (11-13): a line marked Excluded or TBD has no price, so nothing is bought against it."""
+    mark = """on => { const c = DB.clients.find(x => (x.estimates || []).some(e => e.id === 'es1')), e = c.estimates.find(x => x.id === 'es1'), co = (c.changeOrders || []).find(x => x.id === 'co1');
+      const a = e.lines.find(l => l.id === 'l11'), b = co && co.lines.find(l => l.id === 'l3'); on ? (a.excluded = true, b && (b.tbd = true)) : (delete a.excluded, b && delete b.tbd);
+      try { typeof dataBump === 'function' && dataBump(); } catch (x) {} render(); return [a.item, b ? b.item : '']; }"""
+    keys = ['estimate:es1:l11', 'co:co1:l3']
+    seen = """keys => ({ needs: buyList('').filter(r => keys.includes(r.key) && ['line', 'sub'].includes(r.kind)).length, table: psItems('').filter(x => keys.includes(x.r.key) && ['line', 'sub'].includes(x.kind)).length })"""
+    await board(pg)
+    before = await js(pg, seen, keys, 0)
+    names = await js(pg, mark, True, 500)
+    after = await js(pg, seen, keys, 0)
+    R = await rows(pg)
+    shown = [r['cells'].get('desc', '')[:30] for r in R if any(n and n in r['cells'].get('desc', '') for n in names)]
+    c.ok(before['needs'] == 2 and before['table'] == 2 and after == {'needs': 0, 'table': 0} and not shown, f'UNPRICED {dev}: an Excluded and a TBD line leave Needs and the Table ({before} to {after}; still shown {shown})')
+    # Order From Lines
+    await js(pg, "() => ctPOPicker('p121', '*')", None, 700)
+    pick = await js(pg, "() => ((document.querySelector('#mbm table.ctp') || document.querySelector('#mbm .mbm-bd') || {}).innerText || '').replace(/\\s+/g, ' ')", None, 0)
+    c.ok(pick and 'Demolition' in pick and not any(n and n in pick for n in names), f'UNPRICED {dev}: Order From Lines lists the job\'s lines without them ({[n for n in names if n and n in pick]}; {len(pick)} chars)')
+    await reset(pg)
+    # the line picker a need without a line opens, and the order's own line picker
+    await board(pg)
+    link = await js(pg, """keys => { const r = buyList('').find(x => x.kind === 'material' && x.p.id === 'p121' && !x.ordered); bbLinkLine(r);
+      const L = [...document.querySelectorAll('#mbm [data-bbl]')].map(e => e.dataset.bbl); mbCloseModal();
+      const po = DB.pos.find(p => p.projectId === 'p121'), h = polPickerHtml(po, po.lines[0]);
+      return { n: L.length, bad: L.filter(k => keys.includes(k)), pol: keys.filter(k => h.includes('data-polk="' + k + '"')), poln: (h.match(/data-polk="(estimate|co):/g) || []).length }; }""", keys, 200)
+    c.ok(link['n'] > 3 and not link['bad'] and link['poln'] > 3 and not link['pol'], f'UNPRICED {dev}: neither line picker offers them ({link})')
+    await js(pg, mark, False, 400)
+    back = await js(pg, seen, keys, 0)
+    c.ok(back == before, f'UNPRICED {dev}: unmarked, they are offered again ({back})')
+    await reset(pg)
+
+
 async def s_open(pg, c, dev):
     await board(pg)
     po = await js(pg, "() => DB.pos.find(p => p.number === 'PO-2026-048').id", None, 0)
@@ -553,8 +934,9 @@ async def run(dev):
             pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
         await sign_in(pg, 'u_chen')
-        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('OPEN', s_open), ('PICK', s_pick)]
-        steps += [('EXPORT', s_export), ('IMPORT', s_import), ('SCAN', s_scan)] if not phone else [('PHONE', s_phone)]
+        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('SHARE', s_share), ('SOURCE', s_source), ('TRUTH', s_truth), ('DATE', s_date), ('LEFT', s_left), ('UNPRICED', s_unpriced), ('OPEN', s_open), ('PICK', s_pick), ('BAR', s_bar)]
+        steps += [('EXPORT', s_export), ('IMPORT', s_import), ('HEADERS', s_headers), ('SCAN', s_scan)] if not phone else [('PHONE', s_phone)]
+        steps += [('ORDER', s_order)]   # last: it drafts orders
         for k, fn in steps:
             if not on(k): continue
             try: await fn(pg, c, dev)

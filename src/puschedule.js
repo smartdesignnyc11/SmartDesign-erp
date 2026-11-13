@@ -24,8 +24,23 @@
      Budget Price     the selection's budget (qty x unit cost + freight); an item alone on its estimate line carries the
                       line's budget (lineCommitment); items sharing a lump-sum line say so and the line's budget is
                       counted once in the totals
-     Purchased Price  the order line (qty x price, pre-tax) or what was billed against it when more; a selection bought
-                      with no order reads its recorded actual. Over and under the budget show alike, in plain words.
+     Purchased Price  the order line (qty x price, pre-tax, its share of the freight said beside the unit price); what
+                      was billed or paid past the order is said apart, never folded into the amount. Over and under the
+                      budget show alike, in plain words.
+
+   The coordinator's wave-2 review (11-12), each fixed as a class:
+     One budget       a line's budget counts once under every grouping: to the one group that holds every item on it,
+                      else in the "Across ..." row, and each group on it says which line it shares and with whom
+                      (psGroupShare). The groups' budgets plus the shared lines are the header's Budget.
+     The source       a Purchased price is an order's (its number is the label). A figure typed from a receipt on a
+                      selection (it.actual, "What it actually cost") has no order, bill or card charge behind it: it is
+                      shown as typed, kept out of Purchased and Under budget, and totalled apart, as an imported price is.
+                      So the table and the vendor's record (itemPriceHistory) see the same purchases.
+     The proof        purchased or delivered rests on a record: an issued order, or for where it is, a receipt or a return
+                      on file (psProofOf). With none the status is "Marked bought, no order on file", with Find the Order
+                      (psFindOrder), and it is counted. A receipt marked damaged or wrong, or an open claim, reads
+                      "Delivered, damaged: claim open" (psCondOf).
+     One date         Delivery Date sorts the date the row shows: delivered or promised, else need-by; blanks last.
    ===================================================================================================================== */
 
 // ---- buyList's opt-in: what is ordered and what has arrived ------------------------------------------------------------
@@ -123,6 +138,7 @@ function psMoreRows(scope, base) {
 const PS_STATUS = [
   ["selecting", "Selecting", ""],
   ["needed", "Needed", "amber"],
+  ["unbacked", "Marked bought, no order on file", "red"],
   ["pricing", "Pricing", "blue"],
   ["draft", "Draft order", "amber"],
   ["approval", "Waiting for approval", "amber"],
@@ -200,6 +216,32 @@ function psStatusOf(r, pls) {
   if (q || (r.rfqs || []).length || (r.m && "quoted" === r.m.status)) return "pricing";
   return "needed";
 }
+// What stands behind a bought status (CLAUDE.md, Financial truth): an issued order; and for where the thing is, a
+// selection's receipt (its own, or the receiving log's) or its return.
+function psProofOf(r, pls) {
+  const it = r.it;
+  return { order: pls.some((x) => "draft" !== x.po.status), receipt: !!(it && (it.receipt || (((DB.sel || {}).recv) || []).some((x) => x.itemId === it.id) || psReturnOf(it))) };
+}
+// What arrived damaged, wrong or short and is not settled: a selection's open claim (a split shipment is not one), or its
+// receipt marked damaged or wrong with no claim ever raised; an order line's open delivery claim (po.issues).
+function psCondOf(it, pls) {
+  try {
+    if (it) {
+      const C = claimsFor(it.id).filter((c) => "partial" !== c.kind),
+        open = C.find((c) => CLAIM_OPEN.includes(c.status)),
+        rc = it.receipt && ["damaged", "wrong"].includes(it.receipt.condition) ? it.receipt.condition : "";
+      if (open) return { kind: open.kind, claim: "open", vendor: open.vendor || it.vendor || "" };
+      if (rc && !C.length) return { kind: rc, claim: "none", vendor: it.vendor || "" };
+    }
+    for (const { po: po, pl: pl } of pls) {
+      const c = (po.issues || []).find((i) => i.claim && i.lineId === pl.id && "open" === (i.status || "open"));
+      if (c) return { kind: c.type || "damaged", claim: "open", vendor: po.vendor || "" };
+    }
+  } catch (e) {}
+  return null;
+}
+const PS_COND_WORD = { damaged: "damaged", wrong: "wrong item", short: "short" };
+const psStatusWord = (x) => (x.cond && ["delivered", "partial", "installed"].includes(x.status) ? `${PS_WORD[x.status]}, ${PS_COND_WORD[x.cond.kind] || x.cond.kind}: ${"open" === x.cond.claim ? "claim open" : "no claim raised"}` : PS_WORD[x.status]);
 function psLeadOf(r, pls) {
   const it = r.it,
     m = r.m,
@@ -290,7 +332,12 @@ function psItem(r) {
     pl0 = (pls[0] || {}).pl || null,
     lineKey = r.lineKey && /^(estimate|co):/.test(r.lineKey) ? r.lineKey : "",
     ref = lineKey ? findLine(lineKey) : null,
-    status = psStatusOf(r, pls),
+    // where the records say it is; with no order behind a bought word it is only marked so, and with no receipt either
+    // the status itself says that
+    said = psStatusOf(r, pls),
+    proof = psProofOf(r, pls),
+    marked = PS_BOUGHT.includes(said) && !proof.order ? said : "",
+    status = marked && !proof.receipt ? "unbacked" : said,
     L = psLeadOf(r, pls);
   // Invoice (Alan, 11-06: "FM 1 is an invoice #"): the client invoice that bills this item, opened from the cell; else
   // the FM number as entered on the selection or its order, not yet invoiced in the app; else not invoiced
@@ -309,12 +356,12 @@ function psItem(r) {
     room = roomOwn || psRoomFrom([desc, pl0 && pl0.desc, m && m.notes].filter(Boolean).join(" "), p.id),
     sku = (pl0 && pl0.sku) || (it && (it.sku || (it.clip && it.clip.sku))) || (m && m.sku) || "",
     // delivery: the day it came, else the day promised
-    arrived = ["delivered", "installed", "returned"].includes(status) || "partial" === status,
+    arrived = ["delivered", "installed", "returned"].includes(said) || "partial" === said,
     rec = pls.map((x) => x.po).find((po) => po.receivedOn || (po.receipts || []).length),
     lastRec = rec ? rec.receivedOn || [...(rec.receipts || [])].map((x) => x.date || x.at || "").filter(Boolean).sort().pop() || "" : "",
     itCame = it ? (it.dates || {}).site || (it.dates || {}).office || "" : "",
     promised = (pl0 && pl0.eta) || (pls[0] && pls[0].po.expected) || (it && (it.dates || {}).eta) || r.eta || (m && m.eta) || "",
-    deliv = arrived ? String(lastRec || itCame || promised).slice(0, 10) : PS_BOUGHT.includes(status) || "draft" === status || "approval" === status ? String(promised).slice(0, 10) : "",
+    deliv = arrived ? String(lastRec || itCame || promised).slice(0, 10) : PS_BOUGHT.includes(said) || "draft" === said || "approval" === said ? String(promised).slice(0, 10) : "",
     needBy = r.needBy || "";
   let orderBy = r.orderBy || "";
   try {
@@ -353,8 +400,12 @@ function psItem(r) {
     roomRead: !roomOwn && !!room,
     vendor: (POs[0] && POs[0].vendor) || r.vendor || (it && it.vendor) || (m && m.vendor) || "",
     status: status,
+    marked: marked,
+    cond: psCondOf(it, pls),
     deliv: deliv,
     delivKind: deliv ? (arrived ? "arrived" : "promised") : "",
+    // the one date the row shows and sorts by: delivered or promised, else the day it is needed
+    dateShown: deliv || needBy || "",
     needBy: needBy,
     late: !!(deliv && needBy && deliv > needBy && !["installed", "returned"].includes(status)),
     budget: it ? selLineCost(it) : null,
@@ -364,10 +415,12 @@ function psItem(r) {
   };
 }
 // Purchased Price, on the budget's basis: before tax, freight in. An order line is its qty x price plus its share of the
-// order's freight (the budget of a selection carries its freight too); an order paid or billed past its total adds what
-// the Orders page's Over the Order says (puOverOrder), when the order is this row's alone. A selection bought with no
-// order reads its recorded actual (a bill or a bank line) before tax. A coordinator's imported sheet is shown as
-// imported, never as what was paid.
+// order's freight (the budget of a selection carries its freight too). What was billed or paid past the order's total
+// (puOverOrder, the Orders page's Over the Order) is said beside it and totalled apart, never added to the amount: the
+// windows read the order's $29,700 at $3,300 each, and "Billed $33,500: $3,800 over". A selection with no order may carry
+// a figure typed from a receipt (it.actual, "What it actually cost"): no order, bill or card charge is behind it, so it is
+// shown as typed and is not a purchase (the vendor's record and itemPriceHistory do not have it either). A coordinator's
+// imported sheet likewise.
 function psFreight(po, pl) {
   const sub = (po.lines || []).reduce((a, l) => a + psExt(l), 0);
   return sub > 0 && +po.shipping ? r2((+po.shipping * psExt(pl)) / sub) : 0;
@@ -380,15 +433,17 @@ function psMoney(x, ctx) {
   x.ordered = ordered;
   // Over the Order, as the Orders page says it: each of this row's orders paid or billed past its total
   x.poOver = [...new Set(live.map((y) => y.po))].map((po) => ctx.over.get(po.id)).filter(Boolean);
-  const mine = r2(x.poOver.filter((o) => 1 === ctx.rows.get(o.po.id)).reduce((a, o) => a + o.over, 0));
   x.importedPrice = null;
-  if (live.length) (x.bought = r2(ordered + mine)), (x.boughtFrom = live.map((y) => y.po.number).filter((v, i, a) => a.indexOf(v) === i).join(", "));
-  else if (drafts.length) (x.bought = r2(drafts.reduce((a, y) => a + psExt(y.pl) + psFreight(y.po, y.pl), 0))), (x.boughtFrom = `${drafts[0].po.number} (draft)`);
-  else if (x.it && x.it.actual && selActual(x.it) && PS_BOUGHT.includes(x.status)) (x.bought = r2((+x.it.actual.cost || 0) + (+x.it.actual.shipping || 0))), (x.boughtFrom = "the bill");
-  else (x.bought = null), (x.boughtFrom = "");
-  null == x.bought && x.imported && +x.imported.bought > 0 && (x.importedPrice = r2(+x.imported.bought));
-  // bought (by its status) with nothing to say what it cost: no order and no bill on file
-  x.noOrder = PS_BOUGHT.includes(x.status) && null == x.bought && null == x.importedPrice;
+  x.typedPrice = null;
+  x.typedRef = "";
+  if (live.length) (x.bought = ordered), (x.boughtFrom = live.map((y) => y.po.number).filter((v, i, a) => a.indexOf(v) === i).join(", ")), (x.source = "order");
+  else if (drafts.length) (x.bought = r2(drafts.reduce((a, y) => a + psExt(y.pl) + psFreight(y.po, y.pl), 0))), (x.boughtFrom = `${drafts[0].po.number} (draft)`), (x.source = "draft");
+  else (x.bought = null), (x.boughtFrom = ""), (x.source = "");
+  // the receipt figure typed on the selection, before tax as the budget is: said, not counted
+  if (null == x.bought && x.it && x.it.actual && selActual(x.it)) (x.typedPrice = r2((+x.it.actual.cost || 0) + (+x.it.actual.shipping || 0))), (x.typedRef = String(x.it.actual.ref || "")), (x.source = "typed");
+  null == x.bought && null == x.typedPrice && x.imported && +x.imported.bought > 0 && ((x.importedPrice = r2(+x.imported.bought)), (x.source = "imported"));
+  // bought by its mark or its receipt, with no order on file: found from the row (psFindOrder)
+  x.noOrder = !!x.marked && null == x.bought;
   let C = null;
   try {
     C = x.lineKey ? lineCommitment(x.lineKey) : null;
@@ -399,10 +454,12 @@ function psMoney(x, ctx) {
   x.over = "line" === x.budgetFrom ? (C && C.over > 0.5 ? C.over : 0) : null != b && null != x.bought && x.bought > b + 0.5 ? r2(x.bought - b) : 0;
   x.under = "selection" === x.budgetFrom && firm && null != b && null != x.bought && x.bought < b - 0.5 ? r2(b - x.bought) : 0;
   x.lineOver = C && C.over > 0.5 && x.shared ? C.over : 0;
+  // what is left on the line the item's budget is (lineCommitment's left, the dollars the Request Quotes sheet says)
+  x.line = C && ("line" === x.budgetFrom || x.shared) ? { budget: C.budget, left: C.left, over: C.over > 0.5 ? C.over : 0 } : null;
   // bought for the client and not billed back: the one bill-back reading (rbRows), for this row's order lines
   x.notBilled = x.pls.some((y) => ctx.rb.has("rbpl:" + y.pl.id));
   // which columns the record holds a value for (the suite holds each to a filled cell)
-  x.src = { inv: !0, lead: null != x.lead, sku: !!x.sku, desc: !!x.desc, qty: !!x.qty, room: !!x.room, budget: null != x.budget || !!x.shared, bought: null != x.bought || null != x.importedPrice, vendor: !!x.vendor, status: !0, deliv: !!x.deliv };
+  x.src = { inv: !0, lead: null != x.lead, sku: !!x.sku, desc: !!x.desc, qty: !!x.qty, room: !!x.room, budget: null != x.budget || !!x.shared, bought: null != x.bought || null != x.importedPrice || null != x.typedPrice, vendor: !!x.vendor, status: !0, deliv: !!x.dateShown };
   return x;
 }
 // The price against what the firm paid before: the PO page's one check (poLinePriceCheck, the order itself left out of its
@@ -439,8 +496,8 @@ const PS_COLS = [
   { k: "budget", n: "Budget Price", w: 88, num: 1, val: (x) => (null != x.budget ? x.budget : x.shared ? x.shared.budget : "") },
   { k: "bought", n: "Purchased Price", w: 112, num: 1, val: (x) => (null == x.bought ? "" : x.bought) },
   { k: "vendor", n: "Vendor", w: 88, val: (x) => x.vendor },
-  { k: "status", n: "Status", w: 108, val: (x) => x.status, rank: PS_RANK },
-  { k: "deliv", n: "Delivery Date", w: 84, type: "date", val: (x) => x.deliv || "" },
+  { k: "status", n: "Status", w: 124, val: (x) => x.status, rank: PS_RANK },
+  { k: "deliv", n: "Delivery Date", w: 84, type: "date", val: (x) => x.dateShown || "" },
 ];
 const psCol = (k) => PS_COLS.find((c) => c.k === k) || null;
 
@@ -526,27 +583,60 @@ function psGroups(rows) {
     return { key: k, name: "status" === psGroup ? PS_WORD[k] : ref ? `${L[0].lineRef}: ${ref.line.item || ""}` : k, rows: L, line: ref ? k : "" };
   });
 }
-// the totals: budgets counted once per estimate line, purchases summed; over the budget is each selection's plus each
-// line's Over the Line once; over the order is each order's Over the Order once
-function psTotals(rows) {
+// A line's budget counts once (the coordinator, 11-12: by room the groups added up to $507,861 against a header of
+// $331,260, one $75,000 line in two kitchens). Under any grouping a line whose items all sit in one group is that group's;
+// a line whose items sit in several is nobody's alone: it goes in the Across row, and each group on it says which line it
+// shares and with whom. So the groups' budgets plus the shared lines are the header's Budget.
+const PS_GROUP_NOUN = { room: ["room", "rooms"], inv: ["invoice", "invoices"], vendor: ["vendor", "vendors"], status: ["status", "statuses"], job: ["job", "jobs"] };
+function psGroupShare(G) {
+  const at = new Map();
+  G.forEach((g, i) => ((g.shares = []), g.rows.forEach((x) => ("line" === x.budgetFrom || x.shared) && x.lineKey && (at.has(x.lineKey) || at.set(x.lineKey, new Set()), at.get(x.lineKey).add(i)))));
+  const across = [];
+  at.forEach((S, k) => {
+    if (S.size < 2) return;
+    let C = null;
+    try {
+      C = lineCommitment(k);
+    } catch (e) {}
+    const b = (C && C.budget) || 0,
+      x = G[[...S][0]].rows.find((y) => y.lineKey === k);
+    across.push({ key: k, budget: b, ref: (x && x.lineRef) || k, groups: [...S].map((i) => G[i].name) });
+    S.forEach((i) => G[i].shares.push({ key: k, budget: b, others: [...S].filter((j) => j !== i).map((j) => G[j].name) }));
+  });
+  G.forEach((g) => (g.sharedKeys = new Set(g.shares.map((s) => s.key))));
+  return across;
+}
+function psShareSay(g) {
+  const N = PS_GROUP_NOUN[psGroup] || PS_GROUP_NOUN.room;
+  return (g.shares || []).map((s) => `shares the ${money(s.budget)} line with ${s.others.length > 2 ? `${s.others.length} other ${N[1]}` : s.others.join(" and ")}`).join(" · ");
+}
+// the totals: budgets counted once per estimate line (a line in skip is left out: a group's shared lines), purchases
+// summed; over the budget is each selection's plus each line's Over the Line once; over the order is each order's Over the
+// Order once; typed and imported figures are not purchases and are totalled apart
+function psTotals(rows, skip) {
   let budget = 0,
     bought = 0,
     over = 0,
     under = 0,
-    imported = 0;
+    imported = 0,
+    typed = 0,
+    unbacked = 0,
+    recvNoOrder = 0;
   const lines = new Map(),
     pos = new Map();
   rows.forEach((x) => {
-    if ("line" === x.budgetFrom || x.shared) lines.set(x.lineKey, lineCommitment(x.lineKey) || {});
+    if ("line" === x.budgetFrom || x.shared) (skip && skip.has(x.lineKey)) || lines.set(x.lineKey, lineCommitment(x.lineKey) || {});
     else if (null != x.budget) budget += x.budget;
     null != x.bought && (bought += x.bought);
     null != x.importedPrice && (imported += x.importedPrice);
+    null != x.typedPrice && (typed += x.typedPrice);
+    "unbacked" === x.status ? unbacked++ : x.noOrder && recvNoOrder++;
     "selection" === x.budgetFrom && ((over += x.over || 0), (under += x.under || 0));
     (x.poOver || []).forEach((o) => pos.set(o.po.id, o.over));
   });
   lines.forEach((c) => ((budget += c.budget || 0), (over += c.over > 0.5 ? c.over : 0)));
   const poOver = [...pos.values()].reduce((a, v) => a + v, 0);
-  return { budget: r2(budget), bought: r2(bought), over: r2(over), under: r2(under), poOver: r2(poOver), imported: r2(imported) };
+  return { budget: r2(budget), bought: r2(bought), over: r2(over), under: r2(under), poOver: r2(poOver), imported: r2(imported), typed: r2(typed), unbacked: unbacked, recvNoOrder: recvNoOrder };
 }
 
 // ---- drawing -------------------------------------------------------------------------------------------------------
@@ -573,8 +663,31 @@ function psModesHtml() {
   return `<div class="ps-modes" role="group" aria-label="Show the Buy Board as"><button type="button" class="ps-mode${on ? "" : " on"}" data-psmode="needs" aria-pressed="${!on}">${PS_IC.list}<span>Needs</span>${badge}</button><button type="button" class="ps-mode${on ? " on" : ""}" data-psmode="table" aria-pressed="${on}">${PS_IC.table}<span>Table</span></button></div>`;
 }
 const psDays = (n) => (null == n ? "" : `${n} day${1 === +n ? "" : "s"}`);
+// A unit price is shown only where it multiplies to the amount beside it (the coordinator, 11-12: "$33,500 / $3,300.00
+// each" for 9 windows): qty x price, with the freight in the amount said after it. "each", or "per sf" for a measure.
+const psPer = (u) => (!u || /^(ea|each|pc|pcs|piece|pieces|set|sets)$/i.test(String(u)) ? "each" : `per ${u}`);
+function psUnitSay(qty, price, unit, total, freight) {
+  if (!(+qty > 1) || !(+price > 0) || null == total) return "";
+  const f = +freight || 0;
+  if (Math.abs(r2(+qty * +price) + f - total) > 0.5) return "";
+  return `${unitMoney(+price)} ${esc(psPer(unit))}${f > 0.005 ? ` + ${money(f)} freight` : ""}`;
+}
+// what took an order past its total: its bills, else a card charge or a bank payment matched to it
+function psOverHow(o) {
+  let billed = 0,
+    paid = 0;
+  try {
+    (billed = puPoBilled(o.po)), (paid = poPaid(o.po));
+  } catch (e) {}
+  if (billed >= paid - 0.005) return "Billed";
+  const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id)),
+    T = (DB.txns || []).filter((t) => (o.po.matchedTxns || []).includes(t.id));
+  return T.length && T.every((t) => cards.has(t.acct)) ? "Charged on the card" : "Paid";
+}
+const psMarkSay = (x) => `Marked ${String(PS_WORD[x.marked] || "bought").toLowerCase()} ${x.m ? "on the materials list" : x.imported ? "in the imported sheet" : "on the selection"}`;
+const psFindBtn = (x) => (x.noOrder && !psRO() ? `<button type="button" class="btn sm ps-find" data-psfind="${esc(x.id)}">Find the Order</button>` : "");
 const psQty = (x) => (x.qty ? `${+x.qty}${x.unit ? " " + x.unit : ""}` : "");
-function psCellHtml(x, k) {
+function psCellHtml(x, k, card) {
   const sv = (v) => esc(String(null == v ? "" : v)),
     // a sub-line is one line on the desktop: its whole text rides in its title
     sub = (t, cls) => (t ? `<span class="ps-sub${cls ? " " + cls : ""}" title="${sv(String(t).replace(/<[^>]*>/g, ""))}" data-nocase>${t}</span>` : "");
@@ -585,7 +698,9 @@ function psCellHtml(x, k) {
         : x.fm
           ? `<span class="ps-main" data-nocase>${esc(x.fm)}</span><span class="ps-sub warn" title="Not yet invoiced in the app: the FM number as entered" data-nocase>Not yet invoiced</span>`
           : `<span class="ps-main ps-dim${x.notBilled ? " warn" : ""}" data-nocase>Not invoiced</span>`;
-    return main + sub(esc(x.lineRef || "No estimate line"), x.lineRef ? "" : "warn") + (x.notBilled ? sub("Bought for the client, not billed back", "bad") : "");
+    // on no contract line and marked so at the order (bbAskLine), or its order line billed back: said, not a warning
+    const back = !x.lineRef && (((x.it || x.m || {}).billBack && !0) || x.pls.some((y) => y.pl.billable));
+    return main + sub(esc(x.lineRef || (back ? "Billed back to the client" : "No estimate line")), x.lineRef || back ? "" : "warn") + (x.notBilled ? sub("Bought for the client, not billed back", "bad") : "");
   }
   if ("lead" === k)
     return `<span class="ps-main${x.orderLate ? " bad" : ""}" title="${sv(x.leadFrom)}" data-nocase>${psDays(x.lead)}</span>${x.orderLate ? `<span class="ps-sub bad" title="Order by ${fmt(x.orderBy)}: passed" data-nocase>${fmt(x.orderBy)} passed</span>` : x.leadFrom && /observed/.test(x.leadFrom) ? sub("observed") : ""}`;
@@ -594,23 +709,26 @@ function psCellHtml(x, k) {
     return `<button type="button" class="ps-open" data-psopen="${sv(x.id)}"><b data-nocase>${esc(x.desc)}</b></button>${sub(esc([x.descSub, psScope() ? "" : x.job].filter(Boolean).join(" · ")))}`;
   if ("qty" === k) return `<span class="ps-main" data-nocase>${esc(psQty(x))}</span>`;
   if ("room" === k) return `<span class="ps-main" title="${sv(x.room)}${x.roomRead ? ": read from the item's words" : ""}" data-nocase>${esc(x.room || "")}</span>`;
-  if ("budget" === k)
+  if ("budget" === k) {
+    const left = x.line ? sub(`${money(x.line.left)} left${x.line.over ? `, ${money(x.line.over)} over` : ""}`, x.line.over ? "bad" : "") : "";
     return null != x.budget
-      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.qty > 1 && x.it ? sub(`${unitMoney(selCost(x.it))} each`) : sub("line" === x.budgetFrom ? "line budget" : "")}`
+      ? `<span class="ps-main" data-nocase>${money(x.budget)}</span>${x.it ? sub(psUnitSay(selQty(x.it), selCost(x.it), x.it.unit, x.budget, selShip(x.it))) : sub("line" === x.budgetFrom ? "line budget" : "") + left}`
       : x.shared
-        ? `<span class="ps-main ps-dim" title="${money(x.shared.budget)} for the ${x.shared.n} items on the line" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} line`)}`
+        ? `<span class="ps-main ps-dim" title="${money(x.shared.budget)} for the ${x.shared.n} items on the line" data-nocase>In the line</span>${sub(`${money(x.shared.budget)} line`)}${left}`
         : "";
+  }
   if ("bought" === k) {
     if (null == x.bought)
-      return null != x.importedPrice
-        ? `<span class="ps-main ps-dim" data-nocase>${money(x.importedPrice)}</span>${sub("Imported from a sheet: no bill or bank line behind it", "warn")}`
-        : x.noOrder
-          ? sub("No order or bill on file", "bad")
+      return null != x.typedPrice
+        ? `<span class="ps-main ps-dim" data-nocase>${money(x.typedPrice)}</span>${sub(`Typed from a receipt${x.typedRef ? ` (${esc(x.typedRef)})` : ""}: no order, bill or card charge behind it`, "warn")}`
+        : null != x.importedPrice
+          ? `<span class="ps-main ps-dim" data-nocase>${money(x.importedPrice)}</span>${sub("Imported from a sheet: no bill or bank line behind it", "warn")}`
           : "";
-    const one = 1 === x.pls.length && +x.pls[0].pl.qty > 1 ? x.pls[0].pl : null,
+    const one = 1 === x.pls.length ? x.pls[0] : null,
       up = psPriceUp(x);
-    return `<span class="ps-main" data-nocase>${money(x.bought)}</span>${one ? sub(`${unitMoney(+one.price || 0)} each`) : ""}${sub(esc(x.boughtFrom || ""))}${(x.poOver || [])
-      .map((o) => sub(`${money(o.over)} over ${esc(o.po.number)}: ${money(o.out)} paid or billed on ${money(o.tot)}`, "bad"))
+    // the order's amount and the unit price that multiplies to it; what was billed or paid past the order is said apart
+    return `<span class="ps-main" data-nocase>${money(x.bought)}</span>${one ? sub(psUnitSay(one.pl.qty, one.pl.price, one.pl.unit, x.bought, psFreight(one.po, one.pl))) : ""}${sub(esc(x.boughtFrom || ""))}${(x.poOver || [])
+      .map((o) => sub(`${psOverHow(o)} ${money(o.out)}: ${money(o.over)} over ${esc(o.po.number)}'s ${money(o.tot)}`, "bad"))
       .join("")}${x.over ? sub(`${money(x.over)} over budget`, "bad") : x.under ? sub(`${money(x.under)} under budget`, "good") : ""}${x.lineOver ? sub(`The line is ${money(x.lineOver)} over its budget`, "bad") : ""}${
       up ? sub(`Up from ${unitMoney(up.was)} last time${up.from ? ` (${esc(up.from)})` : ""}`, "bad") : ""
     }`;
@@ -619,16 +737,21 @@ function psCellHtml(x, k) {
   if ("status" === k) {
     let next = "";
     try {
-      const s = !PS_BOUGHT.includes(x.status) && x.r && "buy" === x.r.tab ? puNeedStatus(x.r) : null;
+      const s = !PS_BOUGHT.includes(x.status) && "unbacked" !== x.status && x.r && "buy" === x.r.tab ? puNeedStatus(x.r) : null;
       next = s ? s.why || "" : "";
     } catch (e) {}
-    const st = psStock(x);
-    return `<span class="ps-chip ${PS_TONE[x.status] || ""}" data-nocase>${esc(PS_WORD[x.status])}</span>${next ? `<span class="ps-sub ps-next" title="${esc(next)}" data-nocase>${esc(next)}</span>` : ""}${st ? sub(esc(st), "blue") : ""}`;
+    const st = psStock(x),
+      word = psStatusWord(x),
+      hurt = word !== PS_WORD[x.status],
+      // marked bought with nothing behind it says how it was marked; received with no order says that; the way to the
+      // order is on the row (the phone's card carries the button on its own line)
+      mark = "unbacked" === x.status ? sub(esc(psMarkSay(x))) : x.noOrder ? sub("No order on file", "bad") : "";
+    return `<span class="ps-chip ${hurt ? "red" : PS_TONE[x.status] || ""}${word.length > 18 ? " long" : ""}" data-nocase>${esc(word)}</span>${mark}${next ? `<span class="ps-sub ps-next" title="${esc(next)}" data-nocase>${esc(next)}</span>` : ""}${st ? sub(esc(st), "blue") : ""}${card ? "" : psFindBtn(x)}`;
   }
   if ("deliv" === k)
     return x.deliv
       ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "promised", x.late ? "bad" : "")}`
-      : x.needBy && !PS_BOUGHT.includes(x.status)
+      : x.needBy
         ? `<span class="ps-sub" title="Needed on site ${fmt(x.needBy)}" data-nocase>need ${fmt(x.needBy)}</span>`
         : "";
   return "";
@@ -648,28 +771,45 @@ function psRowHtml(x) {
 function psCardHtml(x) {
   // a label shows only beside a value; the cell is there either way (the sort and the suite read it)
   const cell = (k, label) => {
-      const h = psCellHtml(x, k),
+      const h = psCellHtml(x, k, !0),
         has = !!h.replace(/<[^>]*>/g, "").trim();
       return `${label && has ? `<span class="ps-k">${label}</span>` : ""}<span data-pscol="${k}" data-sv="${esc(String(psSortVal(x, psCol(k))))}"${has ? "" : " hidden"}>${has ? h : ""}</span>`;
     },
     line = (cls, html) => (/<span class="ps-k">/.test(html) ? `<div class="ps-cl${cls ? " " + cls : ""}">${html}</div>` : html);
-  return `<div class="ps-card${psPick.has(x.id) ? " on" : ""}" data-psrow="${esc(x.id)}">${psPickHtml(x)}<div class="ps-cb"><div class="ps-ct">${cell("desc")}${cell("status")}</div>${line("", cell("room", "Room") + cell("vendor", "Vendor"))}${line("", cell("deliv", "Delivery"))}${line("ps-cm", cell("budget", "Budget") + cell("bought", "Purchased"))}${line("ps-meta", cell("inv", "Invoice") + cell("sku", "Item #") + cell("qty", "Qty") + cell("lead", "Lead"))}</div></div>`;
+  return `<div class="ps-card${psPick.has(x.id) ? " on" : ""}" data-psrow="${esc(x.id)}">${psPickHtml(x)}<div class="ps-cb"><div class="ps-ct">${cell("desc")}${cell("status")}</div>${line("", cell("room", "Room") + cell("vendor", "Vendor"))}${line("", cell("deliv", "Delivery"))}${line("ps-cm", cell("budget", "Budget") + cell("bought", "Purchased"))}${line("ps-meta", cell("inv", "Invoice") + cell("sku", "Item #") + cell("qty", "Qty") + cell("lead", "Lead"))}${psFindBtn(x) ? `<div class="ps-act">${psFindBtn(x)}</div>` : ""}</div></div>`;
 }
 function psGroupHead(g, phone, span) {
   if (!g.name) return "";
-  const T = psTotals(g.rows);
+  // the group's own budget: its selections', and the lines whose items all sit in it (a line shared with another group
+  // is said, and counted once in the Across row)
+  const T = psTotals(g.rows, g.sharedKeys),
+    share = psShareSay(g);
   let C = null;
   try {
     C = g.line ? lineCommitment(g.line) : null;
   } catch (e) {}
   const items = r2(g.rows.reduce((a, x) => a + (x.bought || 0), 0)),
-    attrs = C ? ` data-pskey="${esc(g.line)}" data-psbudget="${C.budget}" data-psused="${C.used}" data-psitems="${items}"` : "",
+    // a line's own group counts the line when an item under it carries it and no other group holds one of its items
+    mine = !!C && !(g.sharedKeys && g.sharedKeys.has(g.line)) && g.rows.some((x) => x.lineKey === g.line && ("line" === x.budgetFrom || x.shared)),
+    extra = C ? r2(T.budget - (mine ? C.budget : 0)) : 0,
+    attrs = ` data-psgbudget="${T.budget}"${C ? ` data-pskey="${esc(g.line)}" data-psbudget="${C.budget}" data-psused="${C.used}" data-psitems="${items}"` : ""}`,
     say = C
-      ? `Line budget ${money(C.budget)} · spent and on order ${money(C.used)}${C.over > 0.5 ? ` · ${money(C.over)} over` : ` · ${money(C.left)} left`}${C.used - items > 1 ? ` · ${money(r2(C.used - items))} of it labour, stock or bills with no order line` : ""}`
-      : `${g.rows.length} item${1 === g.rows.length ? "" : "s"}${T.budget ? ` · budget ${money(T.budget)}` : ""}${T.bought ? ` · purchased ${money(T.bought)}` : ""}`;
+      ? `${mine ? `Line budget ${money(C.budget)}` : `The ${money(C.budget)} line`} · spent and on order ${money(C.used)}${C.over > 0.5 ? ` · ${money(C.over)} over` : ` · ${money(C.left)} left`}${C.used - items > 1 ? ` · ${money(r2(C.used - items))} of it labour, stock or bills with no order line` : ""}${extra > 0.5 ? ` · selections budget ${money(extra)}` : ""}${share ? ` · ${share}` : ""}`
+      : `${g.rows.length} item${1 === g.rows.length ? "" : "s"}${T.budget ? ` · budget ${money(T.budget)}` : ""}${share ? ` · ${share}` : ""}${T.bought ? ` · purchased ${money(T.bought)}` : ""}`;
   return phone
     ? `<div class="ps-gh" data-psgroup="${esc(g.key)}"${attrs}><div class="ps-ght" role="heading" aria-level="3" data-nocase>${esc(g.name)}</div><span class="ps-gs" data-nocase>${esc(say)}</span></div>`
     : `<tr class="ps-g" data-psgroup="${esc(g.key)}"${attrs}><td colspan="${span}"><b data-nocase>${esc(g.name)}</b><span class="ps-gs" data-nocase>${esc(say)}</span></td></tr>`;
+}
+// The lines whose items sit in more than one group: each budget once, after the groups.
+function psAcrossHtml(across, phone, span) {
+  if (!across.length) return "";
+  const N = PS_GROUP_NOUN[psGroup] || PS_GROUP_NOUN.room,
+    tot = r2(across.reduce((a, l) => a + l.budget, 0)),
+    name = `Across ${N[1]}`,
+    say = `${money(tot)} in ${across.length} estimate line${1 === across.length ? "" : "s"} whose items sit in more than one ${N[0]}, each counted once: ${across.map((l) => `${l.ref} ${money(l.budget)} (${l.groups.join(", ")})`).join("; ")}`;
+  return phone
+    ? `<div class="ps-gh ps-across" data-psacross="${tot}"><div class="ps-ght" role="heading" aria-level="3" data-nocase>${esc(name)}</div><span class="ps-gs" data-nocase>${esc(say)}</span></div>`
+    : `<tr class="ps-g ps-across" data-psacross="${tot}"><td colspan="${span}"><b data-nocase>${esc(name)}</b><span class="ps-gs" data-nocase>${esc(say)}</span></td></tr>`;
 }
 function psSelHtml(id, label, cur, opts) {
   return `<select id="${id}" class="ps-sel" aria-label="${esc(label)}"><option value="">${esc(label)}: All</option>${opts.map(([v, n]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
@@ -713,24 +853,35 @@ function psRender(root) {
       T.over ? `<span class="bad" data-pstot="over" data-v="${T.over}">Over budget <b>${money(T.over)}</b></span>` : ""
     }${T.under ? `<span class="good" data-pstot="under" data-v="${T.under}">Under budget <b>${money(T.under)}</b></span>` : ""}${T.poOver ? `<span class="bad" data-pstot="poover" data-v="${T.poOver}">Over the order <b>${money(T.poOver)}</b></span>` : ""}${
       rb.length ? `<span class="bad" data-pstot="notbilled" data-v="${rb.length}"><b>${rb.length}</b> bought for the client, not billed back (${money(rbAmt)})</span>` : ""
+    }${T.unbacked ? `<span class="bad" data-pstot="noorder" data-v="${T.unbacked}"><b>${T.unbacked}</b> marked bought, no order on file</span>` : ""}${T.recvNoOrder ? `<span class="warn" data-pstot="recvnoorder" data-v="${T.recvNoOrder}"><b>${T.recvNoOrder}</b> received, no order on file</span>` : ""}${
+      T.typed ? `<span class="warn" data-pstot="typed" data-v="${T.typed}">Typed from a receipt, no bill behind it <b>${money(T.typed)}</b></span>` : ""
     }${T.imported ? `<span class="warn" data-pstot="imported" data-v="${T.imported}">Imported, no bill behind it <b>${money(T.imported)}</b></span>` : ""}</div>`,
     exp = `<div class="ps-x"><button type="button" class="btn" data-psx="csv">${PS_IC.dl}<span>Export CSV</span></button><button type="button" class="btn" data-psx="client">${PS_IC.print}<span>Client FF&amp;E Schedule</span></button><button type="button" class="btn" data-psx="internal">${PS_IC.print}<span>Internal Schedule</span></button>${psRO() ? "" : `<button type="button" class="btn" data-psx="import">${PS_IC.up2}<span>Import a Sheet</span></button>`}</div>`,
     G = psGroups(rows),
+    across = "none" === psGroup ? [] : psGroupShare(G),
     span = PS_COLS.length + 1,
     body = !rows.length
       ? `<p class="pu-empty" data-nocase>No items${psF.room || psF.vendor || psF.status || psF.q ? " match these filters" : " on this job yet"}.</p>`
       : phone
-        ? `<div class="ps-cards">${G.map((g) => psGroupHead(g, !0) + g.rows.map(psCardHtml).join("")).join("")}</div>`
+        ? `<div class="ps-cards">${G.map((g) => psGroupHead(g, !0) + g.rows.map(psCardHtml).join("")).join("")}${psAcrossHtml(across, !0)}</div>`
         : `<div class="ps-wrap"><table class="ps-t"><thead><tr><th class="ps-pkc" aria-label="Pick"></th>${PS_COLS.map((c) => {
             const s = psSorts[0] && psSorts[0].k === c.k ? psSorts[0] : null;
             return `<th data-pscol="${c.k}" class="ps-c-${c.k}${c.num ? " num" : ""}"${c.w ? ` style="width:${c.w}px"` : ""} aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="ps-sortb" data-pssort="${c.k}" title="Sort by ${esc(c.n)}">${esc(c.n)}${s ? ("desc" === s.dir ? PS_IC.down : PS_IC.up) : ""}</button></th>`;
-          }).join("")}</tr></thead><tbody>${G.map((g) => psGroupHead(g, !1, span) + g.rows.map(psRowHtml).join("")).join("")}</tbody></table></div>`;
+          }).join("")}</tr></thead><tbody>${G.map((g) => psGroupHead(g, !1, span) + g.rows.map(psRowHtml).join("")).join("")}${psAcrossHtml(across, !1, span)}</tbody></table></div>`;
   let bar = "";
   if (picked.length) {
     const priced = picked.filter((x) => x.r && +x.r.price > 0),
       total = r2(priced.reduce((a, x) => a + +x.r.price, 0)),
-      quotes = priced.length < picked.length || total > 2500;
-    bar = `<div class="ps-bar bb-bar" data-nocase><span class="ps-bt"><b>${picked.length} picked</b>${total ? ` · ${money(total)} to buy` : ""}${quotes ? " · three quotes over $2,500" : ""}</span><button type="button" class="btn${quotes ? " primary" : ""}" data-psdo="quote">Request Quotes</button><button type="button" class="btn${quotes ? "" : " primary"}" data-psdo="order">Order</button><button type="button" class="btn ps-clear" data-psdo="clear">Clear</button></div>`;
+      quotes = priced.length < picked.length || total > 2500,
+      // the doors' own rules (bbPickWhy: what bbQuote and bbOrder refuse), asked while picking: the button is off and the
+      // bar says why, instead of a toast after the tap
+      PR = picked.map((x) => x.r),
+      noQ = "function" == typeof bbPickWhy ? bbPickWhy(PR, "quote") : "",
+      noO = "function" == typeof bbPickWhy ? bbPickWhy(PR, "order") : "",
+      blue = quotes ? (noQ ? (noO ? "" : "order") : "quote") : noO ? (noQ ? "" : "quote") : "order",
+      why = [...new Set([noQ, noO].filter(Boolean))],
+      btn = (k, label, no) => `<button type="button" class="btn${blue === k ? " primary" : ""}" data-psdo="${k}"${no ? ` disabled aria-disabled="true" title="${esc(no)}"` : ""}>${label}</button>`;
+    bar = `<div class="ps-bar bb-bar" data-nocase><span class="ps-bt"><b>${picked.length} picked</b>${total ? ` · ${money(total)} to buy` : ""}${quotes && !noQ ? " · three quotes over $2,500" : ""}${why.length ? `<span class="ps-why" role="status">${why.map(esc).join(" ")}</span>` : ""}</span>${btn("quote", "Request Quotes", noQ)}${btn("order", "Order", noO)}<button type="button" class="btn ps-clear" data-psdo="clear">Clear</button></div>`;
   }
   root.innerHTML = `<div class="pu pr-keep ps ${phone ? "ps-phone" : "ps-desk"}${picked.length ? " ps-picking" : ""}" data-pupage="proc" id="pu-table" data-os-keep>${puHeadHtml("proc")}${psModesHtml()}${filters}${sum}${body}${exp}${bar}</div>`;
   psWire(root);
@@ -775,10 +926,11 @@ function psWire(root) {
   root.querySelectorAll("[data-psrow]").forEach(
     (tr) =>
       (tr.onclick = (e) => {
-        if (e.target.closest("[data-pspick], .ps-pk, a")) return;
+        if (e.target.closest("[data-pspick], .ps-pk, a, [data-psfind]")) return;
         psOpen(tr.dataset.psrow);
       }),
   );
+  root.querySelectorAll("[data-psfind]").forEach((b) => (b.onclick = (e) => (e.stopPropagation(), psFindOrder(b.dataset.psfind))));
   root.querySelectorAll("[data-psinv]").forEach(
     (a) =>
       (a.onclick = (e) => {
@@ -810,6 +962,59 @@ function psOpen(id) {
   if (x.m && "function" == typeof openEditor) return openEditor("mat", x.m.id);
   toast("Nothing more to open on this item");
 }
+// Find the Order: a row bought by its mark or its receipt, with no order on file, is linked to the order line that bought
+// it. The candidates are the job's order lines nobody's item stands for (the table's own order rows), the vendor's and
+// the closest words first. Linking writes the order line's own link (materialId, selId), as an order made from the row
+// does, so the row then reads the order's price, dates and bills. A material only marked ordered can be put back to buy.
+function psFindOrder(id) {
+  if (psRO()) return toast("Purchasing is read only for your role: the coordinator finds the order");
+  const all = psItems(""),
+    x = all.find((y) => y.id === id);
+  if (!x || !(x.m || x.it)) return toast("That item is no longer on the list");
+  const words = (t) => new Set(String(t || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2)),
+    W = words(x.desc),
+    C = all
+      .filter((y) => y !== x && y.pid === x.pid && y.r && y.r.pl && y.r.po && 1 === y.pls.length && "draft" !== y.r.po.status && !y.r.pl.materialId && !y.r.pl.selId && !y.r.pl.requestId)
+      .map((y) => {
+        const H = words(`${y.desc} ${y.r.pl.desc || ""}`);
+        return { po: y.r.po, pl: y.r.pl, score: 2 * [...W].filter((w) => H.has(w)).length + (x.vendor && y.vendor === x.vendor ? 3 : 0) + (x.lineKey && y.lineKey === x.lineKey ? 1 : 0) };
+      })
+      .sort((a, b) => b.score - a.score),
+    back = x.m && "purchased" === x.marked;
+  const m = mbModal(
+    `Find the Order — <span data-nocase>${esc(x.desc)}</span>`,
+    `<p class="small muted" style="margin:0 0 8px" data-nocase>${esc(x.desc)}, ${esc(x.job)}: ${esc(psMarkSay(x).toLowerCase())}, with no order on file. ${C.length ? "Pick the order line that bought it; the vendor's and the closest words are first. The row then reads the order's price, dates and bills." : "No order line on this job is waiting for an item: every one already stands for something."}${back ? " If it was never ordered, put it back to buy." : ""}</p><div class="bb-links">${C.map((c, i) => `<label class="bb-link"><input type="radio" name="psfo" data-psfo="${esc(c.po.id + ":" + c.pl.id)}" ${0 === i && c.score > 1 ? "checked" : ""}><span><b data-nocase>${esc(c.po.number)} · ${esc(c.po.vendor || "")}</b><span class="small muted" data-nocase>${esc(c.pl.item || c.pl.desc || "Order line")} · ${esc(`${+c.pl.qty || 0} ${c.pl.unit || ""}`.trim())} · ${money(psExt(c.pl))}${c.po.date ? ` · ordered ${fmt(c.po.date)}` : ""}${c.score > 1 ? " · matches it" : ""}</span></span></label>`).join("")}</div>`,
+    {
+      submit: C.length ? "Link the Order" : null,
+      alt: back
+        ? {
+            label: "It Was Not Ordered",
+            run: () => {
+              const was = x.m.status;
+              (x.m.status = "not-ordered"), (x.m.po = "");
+              try {
+                audit("material", x.m.id, "status", was, "not-ordered", "Find the Order on the Buy Board: no order on file, back to buy");
+              } catch (e) {}
+              save(), render();
+              toast(`${x.desc} is back to buy: no order was on file`, { label: "Open", run: () => psOpen(id) });
+            },
+          }
+        : void 0,
+      onSubmit: () => {
+        const el = m.querySelector("[data-psfo]:checked"),
+          c = el && C.find((k) => k.po.id + ":" + k.pl.id === el.dataset.psfo);
+        if (!c) return toast("Pick the order line that bought it"), !1;
+        x.m ? ((c.pl.materialId = x.m.id), (x.m.po = c.po.number), x.m.vendor || (x.m.vendor = c.po.vendor || "")) : ((c.pl.selId = x.it.id), (x.it.poId = c.po.id));
+        try {
+          audit("po", c.po.id, "line linked to its item", "", x.desc, `Find the Order on the Buy Board: ${c.po.number} · ${c.pl.item || c.pl.desc || ""}`);
+        } catch (e) {}
+        save(), render();
+        toast(`${x.desc} is on ${c.po.number} from ${c.po.vendor || "the vendor"}`, { label: "Open", run: () => flowGo.po(c.po)() });
+      },
+    },
+  );
+  return m;
+}
 // Request Quotes and Order: the Buy Board's own doors (bbQuote reaches rfqStartFromLines through puQuoteDoor; bbOrder
 // the one order sheet), each behind the stock check
 function psDo(k) {
@@ -826,7 +1031,7 @@ function psDo(k) {
 function psCsvRows(rows) {
   const head = PS_COLS.map((c) => c.n).concat(["Job", "Estimate Line", "Order"]);
   return [head].concat(
-    rows.map((x) => [x.inv || "Not invoiced", null == x.lead ? "" : x.lead, x.sku, x.desc, x.qty || "", x.room, null != x.budget ? x.budget : x.shared ? `in the line (${x.shared.budget})` : "", null == x.bought ? "" : x.bought, x.vendor, PS_WORD[x.status], x.deliv, x.job, x.lineRef, x.boughtFrom || ""]),
+    rows.map((x) => [x.inv || "Not invoiced", null == x.lead ? "" : x.lead, x.sku, x.desc, x.qty || "", x.room, null != x.budget ? x.budget : x.shared ? `in the line (${x.shared.budget})` : "", null == x.bought ? "" : x.bought, x.vendor, psStatusWord(x), x.deliv, x.job, x.lineRef, x.boughtFrom || ""]),
   );
 }
 function psCsv(download) {
@@ -854,8 +1059,8 @@ function psScheduleHtml(client) {
     groups.has(k) || groups.set(k, []), groups.get(k).push(x);
   });
   const cols = client
-      ? [["Invoice", (x) => x.inv || ""], ["Item #", (x) => x.sku], ["Description", (x) => x.desc + (x.descSub ? `\n${x.descSub}` : "")], ["Qty", psQty], ["Status", (x) => PS_WORD[x.status]], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]]
-      : [["Invoice", (x) => x.inv], ["Lead Time", (x) => psDays(x.lead)], ["Item #", (x) => x.sku], ["Description", (x) => x.desc], ["Qty", psQty], ["Budget Price", (x) => (null != x.budget ? money(x.budget) : x.shared ? "in the line" : "")], ["Purchased Price", (x) => (null == x.bought ? "" : money(x.bought) + (x.over ? ` (${money(x.over)} over)` : x.under ? ` (${money(x.under)} under)` : ""))], ["Vendor", (x) => x.vendor], ["Status", (x) => PS_WORD[x.status]], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]],
+      ? [["Invoice", (x) => x.inv || ""], ["Item #", (x) => x.sku], ["Description", (x) => x.desc + (x.descSub ? `\n${x.descSub}` : "")], ["Qty", psQty], ["Status", (x) => psStatusWord(x)], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]]
+      : [["Invoice", (x) => x.inv], ["Lead Time", (x) => psDays(x.lead)], ["Item #", (x) => x.sku], ["Description", (x) => x.desc], ["Qty", psQty], ["Budget Price", (x) => (null != x.budget ? money(x.budget) : x.shared ? "in the line" : "")], ["Purchased Price", (x) => (null == x.bought ? "" : money(x.bought) + (x.over ? ` (${money(x.over)} over)` : x.under ? ` (${money(x.under)} under)` : ""))], ["Vendor", (x) => x.vendor], ["Status", (x) => psStatusWord(x)], ["Delivery Date", (x) => (x.deliv ? fmt(x.deliv) : "")]],
     T = psTotals(rows),
     co = (DB.company && DB.company.name) || "";
   return `<!doctype html><html><head><meta charset="utf-8"><title>FF&amp;E Schedule</title><style>body{font:12px/1.45 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#1D2430;margin:32px}h1{font-size:22px;margin:0 0 4px}.s{color:#6B7383}h2{font-size:14px;margin:22px 0 6px;border-bottom:1px solid #E2E5EA;padding-bottom:4px}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:11px;color:#4B5563;border-bottom:1px solid #E2E5EA;padding:5px 6px}td{padding:5px 6px;border-bottom:1px solid #F1F3F6;vertical-align:top;white-space:pre-line}.p{margin-top:16px}@media print{.p{display:none}}</style></head><body><h1>FF&amp;E Schedule</h1><div class="s">${esc([co, jobs.length === 1 ? jobs[0] : "All jobs", `Prepared ${fmtL(today())}`].filter(Boolean).join(" · "))}</div>${
@@ -871,19 +1076,39 @@ function psPrint(client) {
 // ---- the one import: a coordinator's own sheet into the job's FF&E items -------------------------------------------
 // The sheet's shape (invented demo, tests/pu_table_test.py): Alan's columns, with a section row per FM package and
 // category ("FM1 - 1.Accessories and Hardware") whose package and category the items under it take.
+// Alan's own sheet (11-12) heads its columns FM Invoice #, Category, Vendor Name, Item Name, Quantity, Client Price per
+// Unit, FM Client Price, FM Budget Cost, FM Actual Cost: each is read (an FM column that is a price is never the invoice),
+// and Item or Item Name is the description where no column says Description. One header fills one column.
 const PS_IMP_COLS = [
-  ["inv", /^(invoice|fm)/i],
-  ["lead", /lead/i],
-  ["sku", /item\s*#|sku|model|item no/i],
-  ["desc", /desc/i],
-  ["qty", /^q(ua)?n?ti?t?y?$|^qnty$|^qty$/i],
-  ["room", /room|location|space/i],
-  ["budget", /budget/i],
-  ["bought", /purchas|actual|paid/i],
-  ["vendor", /vendor|supplier|source/i],
-  ["status", /status/i],
-  ["deliv", /deliver|eta|arriv/i],
+  ["inv", /^(invoice|fm)(?!.*(price|cost|budget|actual|client))/i, "Invoice"],
+  ["cat", /^categ/i, "Category"],
+  ["lead", /lead/i, "Lead Time"],
+  ["sku", /item\s*(#|no\b|number)|sku|model/i, "Item #"],
+  ["desc", /desc/i, "Description"],
+  ["qty", /^q(ua)?n?ti?t?y?$|^qnty$|^qty$/i, "Qty"],
+  ["room", /room|location|space/i, "Room"],
+  ["clientEach", /client.*(per\s*unit|each|unit)|unit.*client/i, "Client Price Each"],
+  ["client", /client/i, "Client Price"],
+  ["budget", /budget/i, "Budget Price"],
+  ["bought", /purchas|actual|paid/i, "Purchased Price"],
+  ["vendor", /vendor|supplier|source/i, "Vendor"],
+  ["status", /status/i, "Status"],
+  ["deliv", /deliver|eta|arriv/i, "Delivery Date"],
 ];
+const PS_IMP_ITEM = /^item(\s*name)?$|^name$|^product(\s*name)?$/i;
+// which column each header fills: { at: {key: index}, read: [[header, our name]], unread: [headers] }
+function psImpMap(H) {
+  const at = {},
+    used = new Set(),
+    read = [],
+    T = H.map((h) => String(h || "").trim());
+  PS_IMP_COLS.forEach(([k, re, name]) => {
+    let i = T.findIndex((h, j) => h && !used.has(j) && re.test(h));
+    "desc" === k && i < 0 && (i = T.findIndex((h, j) => h && !used.has(j) && PS_IMP_ITEM.test(h)));
+    i >= 0 && ((at[k] = i), used.add(i), read.push([T[i], name]));
+  });
+  return { at: at, read: read, unread: T.filter((h, j) => h && !used.has(j)) };
+}
 const psNum = (s) => {
   const v = parseFloat(String(s || "").replace(/[$,\s]/g, ""));
   return isFinite(v) ? v : 0;
@@ -910,15 +1135,18 @@ function psDateOf(s) {
 }
 function psParseSheet(text) {
   const rows = asCsv(text),
-    hi = rows.findIndex((r) => r.some((c) => /desc/i.test(c))),
+    hi = rows.findIndex((r) => r.some((c) => /desc/i.test(c) || PS_IMP_ITEM.test(String(c || "").trim()))),
     out = [];
-  if (hi < 0) return { items: out, error: "No Description column: the first row with Description is read as the header." };
+  if (hi < 0) {
+    // refused: the one column the import cannot do without, and what the first row does hold
+    const first = rows.find((r) => r.some((c) => String(c || "").trim())) || [],
+      M0 = psImpMap(first),
+      found = M0.read.map(([h, nm]) => (h.toLowerCase() === nm.toLowerCase() ? h : `${h} (${nm})`)).concat(M0.unread);
+    return { items: out, cols: M0, error: first.length ? `The Description column is missing: a column headed Description, Item or Item Name is required. Found in the first row: ${found.join(", ")}.` : "" };
+  }
   const H = rows[hi],
-    at = {};
-  PS_IMP_COLS.forEach(([k, re]) => {
-    const i = H.findIndex((h) => re.test(String(h).trim()));
-    i >= 0 && !(k in at) && (at[k] = i);
-  });
+    M = psImpMap(H),
+    at = M.at;
   let fm = "",
     cat = "";
   rows.slice(hi + 1).forEach((r) => {
@@ -928,9 +1156,9 @@ function psParseSheet(text) {
     if (sec && r.slice(1).every((c) => !String(c || "").trim())) return void ((fm = sec[1].replace(/\s|-/g, "").toUpperCase()), (cat = sec[3].trim()));
     if (!v("desc")) return;
     const qty = psNum(v("qty")) || 1;
-    out.push({ fm: (v("inv") || fm).replace(/\s|-/g, "").toUpperCase(), category: cat, lead: psLeadDays(v("lead")), sku: v("sku"), name: v("desc"), qty: qty, room: v("room"), cost: psNum(v("budget")), bought: psNum(v("bought")), vendor: v("vendor"), stage: psStageOf(v("status")), statusText: v("status"), deliv: psDateOf(v("deliv")) });
+    out.push({ fm: (v("inv") || fm).replace(/\s|-/g, "").toUpperCase(), category: v("cat") || cat, clientEach: psNum(v("clientEach")), client: psNum(v("client")), lead: psLeadDays(v("lead")), sku: v("sku"), name: v("desc"), qty: qty, room: v("room"), cost: psNum(v("budget")), bought: psNum(v("bought")), vendor: v("vendor"), stage: psStageOf(v("status")), statusText: v("status"), deliv: psDateOf(v("deliv")) });
   });
-  return { items: out, error: "" };
+  return { items: out, cols: M, error: "" };
 }
 // One item on the job: the same FM number, the same room and the same SKU (or, with none, the same name). The sheet's own
 // repeats count too: the second of two identical rows is not imported twice.
@@ -948,7 +1176,9 @@ function psImpMark(pid, L) {
 // the sheet's prices: per unit (a budget of $145 for 2 is $290) or line totals (the $290 is the line); said in the preview
 function psImpMoney(x, perUnit) {
   const q = +x.qty || 1;
-  return perUnit ? { costEach: x.cost, budget: r2(x.cost * q), boughtEach: x.bought, bought: r2(x.bought * q) } : { costEach: r2(x.cost / q), budget: x.cost, boughtEach: r2(x.bought / q), bought: x.bought };
+  // the client's price per unit: its own column, else the client price column read on the sheet's basis
+  const clientEach = +x.clientEach || (+x.client ? (perUnit ? +x.client : r2(+x.client / q)) : 0);
+  return Object.assign({ clientEach: clientEach }, perUnit ? { costEach: x.cost, budget: r2(x.cost * q), boughtEach: x.bought, bought: r2(x.bought * q) } : { costEach: r2(x.cost / q), budget: x.cost, boughtEach: r2(x.bought / q), bought: x.bought });
 }
 function psImportSheet() {
   if (psRO()) return toast("Purchasing is read only for your role: the coordinator imports the sheet");
@@ -969,7 +1199,7 @@ function psImportSheet() {
           N = L.filter((x) => !x.skip),
           pu = perUnit();
         if (!p) return toast("Pick the job these items are for"), !1;
-        if (!N.length) return toast(L.length ? "Every row is already on this job or repeats another: nothing imported" : "Nothing to import: paste the sheet first"), !1;
+        if (!N.length) return toast(L.length ? "Every row is already on this job or repeats another: nothing imported" : parsed.error ? parsed.error : String(m.querySelector("#ps-imp-text").value || "").trim() ? "No item rows under the header: nothing to import" : "Nothing to import: paste the sheet first"), !1;
         let no = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid).length;
         const who = (currentUser() || {}).name || "",
           rooms = ((DB.sel || {}).items || []).filter((i) => i.projectId === pid && i.room).map((i) => i.room),
@@ -980,7 +1210,9 @@ function psImportSheet() {
             ["ord", "ship"].includes(x.stage) ? (dates.eta = x.deliv) : ["site", "office", "inst"].includes(x.stage) && (dates["office" === x.stage ? "office" : "site"] = x.deliv);
             // the budget is the selection's own (its unit cost); the purchased price is the sheet's word, kept beside it as
             // imported, never as the item's actual (no bill or bank line is behind it)
-            return selNew({ projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: M.costEach, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: null, imported: { at: today(), from: "sheet", by: who, basis: pu ? "unit" : "line", bought: x.bought ? M.bought : 0, boughtEach: x.bought ? M.boughtEach : 0 }, by: who });
+            // the sheet's client price sets the item's markup over its cost, so the client is shown the sheet's price
+            const mk = M.clientEach > 0 && M.costEach > 0 ? { markupPct: Math.round((M.clientEach / M.costEach - 1) * 1e6) / 1e4 } : {};
+            return selNew({ ...mk, projectId: pid, no: ++no, room: x.room, name: x.name, qty: x.qty, cost: M.costEach, vendor: x.vendor, sku: x.sku, leadDays: x.lead, fm: x.fm, stage: x.stage, category: x.category || "", dates: dates, actual: null, imported: { at: today(), from: "sheet", by: who, basis: pu ? "unit" : "line", bought: x.bought ? M.bought : 0, boughtEach: x.bought ? M.boughtEach : 0 }, by: who });
           });
         const skip = L.length - N.length;
         try {
@@ -999,13 +1231,15 @@ function psImportSheet() {
       rep = L.length - n - dup,
       pu = perUnit(),
       ok = m.querySelector("#mbm-ok"),
-      each = (v, t) => (pu ? `${unitMoney(v)} each, ${money(t)}` : `${money(t)} for the line, ${unitMoney(v)} each`);
+      each = (v, t) => (pu ? `${unitMoney(v)} each, ${money(t)}` : `${money(t)} for the line, ${unitMoney(v)} each`),
+      C = parsed.cols,
+      colsSay = C && C.read.length && !parsed.error ? `<p class="ps-imp-cols">Columns read: ${C.read.map(([h, nm]) => (h.toLowerCase() === nm.toLowerCase() ? esc(h) : `${esc(h)} as ${esc(nm)}`)).join(", ")}.${C.unread.length ? ` Not read: ${C.unread.map(esc).join(", ")}.` : ""}</p>` : "";
     m.querySelector(".ps-imp-prev").innerHTML = parsed.error
       ? `<p class="warn">${esc(parsed.error)}</p>`
       : L.length
-        ? `<p class="ps-imp-sum">${n ? `${n} item${1 === n ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}${rep ? `; ${rep} repeat${1 === rep ? "s" : ""} a row above` : ""}</p>${L.map((x) => {
+        ? `<p class="ps-imp-sum">${n ? `${n} item${1 === n ? "" : "s"} to import` : "Nothing new to import"}${dup ? `; ${dup} already on this job` : ""}${rep ? `; ${rep} repeat${1 === rep ? "s" : ""} a row above` : ""}</p>${colsSay}${L.map((x) => {
             const M = psImpMoney(x, pu);
-            return `<div class="ps-imp-row${x.skip ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `qty ${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}<span class="ps-imp-m">Budget ${x.cost ? esc(each(M.costEach, M.budget)) : "none"} · Purchased ${x.bought ? esc(each(M.boughtEach, M.bought)) + " (imported)" : "none"}${x.skip ? ` · ${esc(x.skip)}` : ""}</span></div>`;
+            return `<div class="ps-imp-row${x.skip ? " dup" : ""}">${esc([x.fm, x.category, x.name, x.room, `qty ${x.qty}`, x.statusText || "pricing"].filter(Boolean).join(" · "))}<span class="ps-imp-m">Budget ${x.cost ? esc(each(M.costEach, M.budget)) : "none"} · Purchased ${x.bought ? esc(each(M.boughtEach, M.bought)) + " (imported)" : "none"}${M.clientEach ? ` · Client ${unitMoney(M.clientEach)} each` : ""}${x.skip ? ` · ${esc(x.skip)}` : ""}</span></div>`;
           }).join("")}`
         : "";
     ok && (ok.textContent = n > 0 ? `Import ${n} Item${1 === n ? "" : "s"}` : "Import");
@@ -1078,6 +1312,8 @@ table.ps-t td{padding:7px 8px;border-bottom:1px solid var(--rule-2);vertical-ali
   table.ps-t td{padding:6px 7px}
   table.ps-t .ps-sub,table.ps-t .ps-main,table.ps-t .ps-inv{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   table.ps-t .ps-chip{max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:top}
+  table.ps-t .ps-chip.long{white-space:normal}
+  table.ps-t .ps-find{max-width:100%;padding:0 8px}
   table.ps-t .ps-open b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 }
 table.ps-t td.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -1090,18 +1326,22 @@ table.ps-t tr.ps-g td{background:var(--paper-3);font-size:12px;color:var(--ink-2
 .ps-inv{color:var(--accent);font-weight:600;text-decoration:none} .ps-inv:hover{text-decoration:underline} .ps-main.warn{color:var(--warn)}
 .ps-open{border:0;background:transparent;padding:0;text-align:left;font:inherit;color:var(--ink);cursor:pointer} .ps-open:hover b{color:var(--accent)}
 .ps-chip{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11.5px;font-weight:600;background:var(--neutral-2);color:var(--neutral);white-space:nowrap}
+.ps-chip.long{white-space:normal;border-radius:8px;line-height:1.3;padding:2px 8px}
+.ps-find{margin-top:4px;white-space:nowrap} .ps-act{margin-top:8px}
 .ps-sub.blue{color:var(--info)} .ps-chip.blue{background:var(--info-2);color:var(--info)} .ps-chip.green{background:var(--ok-2);color:var(--ok)} .ps-chip.amber{background:var(--warn-2);color:var(--warn)} .ps-chip.red{background:var(--bad-2);color:var(--bad)}
 .ps-x{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .ps-x .btn{display:inline-flex;align-items:center;gap:6px}
 .ps-bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-top:10px;box-shadow:0 -2px 8px rgba(0,0,0,.06)}
-.ps-bar .ps-bt{flex:1 1 auto;font-size:12.5px}
-.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px} .ps-imp-m{display:block;color:var(--ink-3);font-size:12px}
+.ps-bar .ps-bt{flex:1 1 auto;font-size:12.5px} .ps-bar .ps-why{display:block;color:var(--bad);font-weight:600;margin-top:2px}
+.ps-bar .btn[disabled]{opacity:.5;cursor:not-allowed}
+.ps-imp-prev{margin-top:8px;font-size:12.5px} .ps-imp-row{padding:4px 0;border-bottom:1px solid var(--rule-2)} .ps-imp-row.dup{color:var(--ink-3);text-decoration:line-through} .ps-imp-sum{font-weight:600;margin:0 0 4px} .ps-imp-cols{color:var(--ink-3);font-size:12px;margin:0 0 6px} .ps-imp-m{display:block;color:var(--ink-3);font-size:12px}
 .ps-phone .ps-modes{display:flex;width:100%}
 .ps-modes .ps-mode{flex:1 1 0;justify-content:center}
 @media (max-width:760px){
   .ps-modes{display:flex;width:100%}
   /* the page's own rule for buttons in a view (.view.on button:not(...)) sets 36px; the id makes these the person's 44 */
-  #v-proc .ps-mode,#v-proc .ps-chipb,#v-proc .ps-x .btn,#v-proc .ps-bar .btn,#v-proc .ps-card .ps-open{min-height:44px}
+  #v-proc .ps-mode,#v-proc .ps-chipb,#v-proc .ps-x .btn,#v-proc .ps-bar .btn,#v-proc .ps-card .ps-open,#v-proc .ps-card .ps-find{min-height:44px}
+  .ps-card .ps-find{margin-top:0;padding:0 16px}
   .ps .ps-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .ps .ps-sel,.ps .ps-q{min-height:44px;width:100%;min-width:0;font-size:14px}
   .ps .ps-q{grid-column:1 / -1}

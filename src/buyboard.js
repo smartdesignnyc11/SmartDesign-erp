@@ -66,6 +66,9 @@ const BB_BUYOUT_DAYS = 10;
 // An estimate or change-order line with something left to buy (src "line" or "co"): the line's material portion when
 // the line carries one (rfqMatBudget), never its labour; or a subcontract scope to buy out (kind "sub").
 function bbLineNeed(p, c, d, l, key, src) {
+  // an Excluded or TBD line (lineUnpriced, the estimate layout) has no price: it is not a need, so it is on neither the
+  // Buy Board nor its Table
+  if ("function" == typeof lineUnpriced && lineUnpriced(l)) return null;
   const f = lineFin(key);
   if (!f) return null;
   // what is left is the line's one left (lineCommitment, src/app.js): draft orders count, so a drafted buy is not bought
@@ -669,23 +672,46 @@ function bbDo(r, k) {
   if ("other" === k) return bbOtherVendor(r);
   if ("expedite" === k || "chase" === k) return bbExpedite(r, k);
 }
+// Why a pick cannot be ordered, or quoted, as picked: the rules Order and Ask for Quotes refuse by, in one place, so a
+// bar can say it and turn its button off while the person picks (the coordinator, 11-12: two jobs, or a subcontract
+// scope with a material, were refused only by a toast after the tap). "" when the pick can go on.
+function bbPickWhy(L, how) {
+  const R = (L || []).filter(Boolean);
+  if (!R.length) return "Pick at least one line";
+  const jobs = new Set(R.map((r) => r.p.id)),
+    req = R.filter((r) => "request" === r.kind);
+  if ("quote" === how) {
+    if (jobs.size > 1) return `Ask for quotes one job at a time: these lines are on ${jobs.size} jobs`;
+    if (req.length) return R.length > 1 ? "Ask for quotes on a field request on its own" : "";
+    const miss = R.find((r) => !("ffe" === r.kind ? r.it : r.lineKey)),
+      subs = R.filter((r) => "sub" === r.kind);
+    if (miss) return `${miss.name} has no estimate or change-order line to quote from`;
+    return subs.length && subs.length !== R.length ? "Ask for bids on a subcontract scope on its own: it is leveled by scope, not by price per item" : "";
+  }
+  if (jobs.size > 1) return `Order one job at a time: these lines are on ${jobs.size} jobs`;
+  const held = R.find((r) => r.dec),
+    sub = R.find((r) => "sub" === r.kind),
+    on = R.find((r) => r.ordered),
+    ffe = R.filter((r) => "ffe" === r.kind),
+    rest = R.filter((r) => "ffe" !== r.kind && "request" !== r.kind);
+  if (held) return `${held.name} waits on a decision; it can be ordered once it is made`;
+  if (sub) return `${sub.name} is a subcontract scope: Ask for Bids, then award it as a subcontract`;
+  if (on) return `${on.name} is on order already: expedite it or pick another vendor`;
+  if (ffe.length && (req.length || rest.length)) return "Order the FF&E items on their own: they go on one order per vendor through the buy run";
+  return req.length > 1 || (req.length && rest.length) ? "Order a field request on its own: it becomes a material and an order" : "";
+}
 function bbOrder(L) {
-  const R = L.filter(Boolean);
-  if (!R.length) return toast("Pick at least one line");
-  const jobs = new Set(R.map((r) => r.p.id));
-  if (jobs.size > 1) return toast(`Order one job at a time: these lines are on ${jobs.size} jobs`);
-  const pid = R[0].p.id,
-    held = R.find((r) => r.dec);
-  if (held) return toast(`${held.name} waits on a decision; it can be ordered once it is made`);
-  const sub = R.find((r) => "sub" === r.kind);
-  if (sub) return toast(`${sub.name} is a subcontract scope: Ask for Bids, then award it as a subcontract`);
-  if (R.some((r) => r.ordered)) return toast(`${R.find((r) => r.ordered).name} is on order already: expedite it or pick another vendor`);
+  const R = L.filter(Boolean),
+    why = bbPickWhy(R, "order");
+  if (why) return toast(why);
+  const pid = R[0].p.id;
+  // the order carries its row's line from the start: a selection or a material on no line is asked for before the draft
+  const ask = R.find(bbNeedsLine);
+  if (ask) return bbAskLine(ask, R);
   const ffe = R.filter((r) => "ffe" === r.kind),
     req = R.filter((r) => "request" === r.kind),
     rest = R.filter((r) => "ffe" !== r.kind && "request" !== r.kind);
-  if (ffe.length && (req.length || rest.length)) return toast("Order the FF&E items on their own: they go on one order per vendor through the buy run");
   if (ffe.length) return (procSel = new Set(ffe.map((r) => r.it.id))), procRunModal(), bbPick.clear();
-  if (req.length > 1 || (req.length && rest.length)) return toast("Order a field request on its own: it becomes a material and an order");
   if (req.length) {
     const r = req[0];
     return bbPick.clear(), requestAction(pid, r.q.id, "po"), void setTimeout(() => render(), 0);
@@ -696,22 +722,117 @@ function bbOrder(L) {
   return bbPick.clear(), ctPOPicker(pid, "*", keys);
 }
 const bbOrderPicked = () => bbOrder([...bbPick].map(bbFind));
+// ---- an order started from a row carries the row's line from the start (CLAUDE.md "How purchasing starts") ------------
+// The coordinator, 11-12: the draft made from the Build.com sink's row could not issue ("not linked to an estimate line"),
+// and the way to link it was far down the order's page. Three parts, one rule:
+//   1. Order asks first, in the one line picker (bbLinkLine), when the row's selection or material names no line and the
+//      order's own defaults can find none: the contract line, or No Line, which marks the need billed back to the client
+//      (a selection on an FM invoice and on no contract line is that).
+//   2. The order line takes its need's link before any guess (poLinkDefaults, below): the selection's or the material's
+//      line, or its bill-back (the PO line's own "billed back to the client", polKind rebill).
+//   3. A draft that still has an unlinked line is never a dead end: the refusal carries Link the Line (poRefuse, below),
+//      which opens the order's own line picker.
+function bbNeedsLine(r) {
+  const rec = "ffe" === r.kind ? r.it : "material" === r.kind ? r.m : null;
+  if (!rec || rec.billBack) return !1;
+  try {
+    if ("ffe" === r.kind) return !selEstLine(rec);
+    return !(rec.line && findLine(rec.line)) && !("function" == typeof polGuess && polGuess({ projectId: r.p.id }, { materialId: rec.id, item: rec.name, code: "" }));
+  } catch (e) {
+    return !1;
+  }
+}
+function bbAskLine(r, R) {
+  const rec = bbLinkTarget(r),
+    fm = (r.it && r.it.fm) || "",
+    by = ((currentUser() || {}).name) || role(),
+    // on to the order, past the stock check already made for these rows (src/purchasing.js)
+    go = () =>
+      setTimeout(() => {
+        R.forEach((x) => (x.__puChecked = 1));
+        try {
+          bbOrder(R);
+        } finally {
+          R.forEach((x) => delete x.__puChecked);
+        }
+      }, 0);
+  return bbLinkLine(r, {
+    why: `The order carries its line from the start, so it can be issued. If no line in the contract covers it, No Line marks it billed back to the client${fm ? ` (${fm})` : ""}.`,
+    alt: {
+      label: "No Line: Bill It Back",
+      run: () => {
+        rec.billBack = { by: by, at: appNowIso() };
+        try {
+          audit({ material: "material", ffe: "sel" }[r.kind], rec.id, "billed back", "", "on no contract line", `Order from the Buy Board${fm ? `: ${fm}` : ""}`);
+        } catch (e) {}
+        save(), go();
+      },
+    },
+    done: (key) => ((r.lineKey = key), go()),
+  });
+}
+// Purchasing never offers an Excluded or TBD line (lineUnpriced): not in the lines a request for quote or a need's line
+// picker reads (poLineOptions, through rfqLineSources), and not as an order line's guessed link (polGuess). Order From
+// Lines (ctPOPicker) and the order's own picker (polPickerHtml) leave them out in src/app.js.
+if ("function" == typeof poLineOptions && "function" == typeof lineUnpriced) {
+  const base = poLineOptions;
+  poLineOptions = function () {
+    const out = base.apply(this, arguments);
+    return Array.isArray(out) ? out.filter((o) => !(o && o.line && lineUnpriced(o.line))) : out;
+  };
+}
+if ("function" == typeof polGuess && "function" == typeof lineUnpriced) {
+  const base = polGuess;
+  polGuess = function () {
+    const k = base.apply(this, arguments),
+      f = k ? findLine(k) : null;
+    return f && lineUnpriced(f.line) ? null : k;
+  };
+}
+if ("function" == typeof poLinkDefaults) {
+  const base = poLinkDefaults;
+  poLinkDefaults = function (po) {
+    let n = 0;
+    try {
+      if (po && ["draft", "pending"].includes(po.status)) {
+        const p = (DB.projects || []).find((x) => x.id === po.projectId);
+        (po.lines || []).forEach((l) => {
+          if (polLinked(l)) return;
+          const it = l.selId ? ((DB.sel || {}).items || []).find((x) => x.id === l.selId) : null,
+            m = !it && l.materialId && p ? (p.materials || []).find((x) => x.id === l.materialId) : null,
+            rec = it || m;
+          if (!rec) return;
+          const key = it ? ("function" == typeof selEstLine && (selEstLine(it) || {}).key) || "" : m.line || "",
+            f = key && /^(estimate|co):/.test(key) ? findLine(key) : null;
+          if (f) (l.line = key), l.code || (l.code = lineCode(f.line, f.doc)), (l.linkBy = "need"), n++;
+          else if (rec.billBack) (l.billable = !0), (l.linkBy = "need"), n++;
+        });
+      }
+    } catch (e) {
+      console.warn("order line from its need", e);
+    }
+    return n + (base.apply(this, arguments) || 0);
+  };
+}
+if ("function" == typeof poRefuse) {
+  const base = poRefuse;
+  poRefuse = function (po, R) {
+    try {
+      const l = po && ["draft", "pending"].includes(po.status) && (R || []).some((x) => /not linked/.test(x)) && !["client", "crew", "driver"].includes(role()) && "function" == typeof polPicker ? (po.lines || []).find((x) => (x.item || x.desc || +x.price || +x.qty) && !polLinked(x)) : null;
+      if (l) return rcToast(`${po.number || "This purchase order"} cannot be issued — ${(R || []).join("; ")}`, [{ label: "Link the Line", run: () => polPicker(po, l) }], 9e3);
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
 function bbQuote(L) {
-  const R = L.filter(Boolean);
-  if (!R.length) return toast("Pick at least one line");
-  const jobs = new Set(R.map((r) => r.p.id));
-  if (jobs.size > 1) return toast(`Ask for quotes one job at a time: these lines are on ${jobs.size} jobs`);
+  const R = L.filter(Boolean),
+    why = bbPickWhy(R, "quote");
+  if (why) return toast(why);
   const pid = R[0].p.id,
     req = R.filter((r) => "request" === r.kind);
-  if (req.length) {
-    if (R.length > 1) return toast("Ask for quotes on a field request on its own");
-    return bbPick.clear(), reqRfq(pid, req[0].q.id);
-  }
+  if (req.length) return bbPick.clear(), reqRfq(pid, req[0].q.id);
   const keys = R.map((r) => ("ffe" === r.kind ? "sel:" + r.it.id : r.lineKey)),
-    miss = R.find((r, i) => !keys[i]),
     subs = R.filter((r) => "sub" === r.kind);
-  if (miss) return toast(`${miss.name} has no estimate or change-order line to quote from`);
-  if (subs.length && subs.length !== R.length) return toast("Ask for bids on a subcontract scope on its own: it is leveled by scope, not by price per item");
   const trade = subs.length ? ((COST_CODES.find((c) => c[0] === subs[0].code) || [])[1] || "Subcontract").split(/[ &,]/)[0] : "",
     q = rfqFromLines(pid, keys, subs.length ? { sub: !0, category: trade } : {});
   // the RFQ line names the material it buys, so the award marks that material ordered
