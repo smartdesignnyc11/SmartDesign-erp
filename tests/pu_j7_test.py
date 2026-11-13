@@ -391,10 +391,13 @@ async def s_partial(p, c):
               signIn('u_chen'); render(); pay3ArrivedHold(b); await wait(300);
               const m = document.getElementById('mbm'), f = [m.querySelector('[data-f="amount"]').value, m.querySelector('[data-pay3held]').value]; mbCloseModal();
               DB.pos = DB.pos.filter(x => x.id !== 'po_pf'); DB.bills = DB.bills.filter(x => x.id !== 'b_pf'); save();
-              return { V: [V.sub, V.freight, V.total], A: [A.billed, A.arrived, A.over, A.applied, A.payable], none, half, full, V2: [V2.good, V2.total], f }; }""")
-            c.ok(k['half'] == {'paid': 1000, 'arrived': 575, 'ahead': 425} and k['full'] and k['full']['ahead'] == 0, f"partial ({dev}): $1,000 paid on $575 arrived is $425 ahead; once all of it is in, nothing is ahead of delivery ({k['half']}, {k['full']})")
-            c.ok(k['V'] == [500, 75, 575] and k['A'] == [920, 575, 345, 0, 575] and k['none'] is None and k['V2'] == [480, 555] and k['f'] == ['555', '$365.00'],
-                 f'partial ({dev}): no prepayment: $500 of $800 arrived takes $75 of the $120 freight; a $20 claim comes off; the sheet is filled in ({k})')
+              return { tax: +po.tax || 0, V: [V.sub, V.freight, V.total], A: [A.billed, A.arrived, A.over, A.applied, A.payable], none, half, full, V2: [V2.good, V2.total], f }; }""")
+            # the order's tax settles on save (the house rate on materials), so the sums read it, as the match section does
+            tx = 1 + k['tax'] / 100; v1 = round(500 * tx + 75, 2); v2 = round(480 * tx + 75, 2)
+            c.ok(k['half'] == {'paid': 1000, 'arrived': v1, 'ahead': round(1000 - v1, 2)} and k['full'] and k['full']['arrived'] == round(800 * tx + 120, 2) and k['full']['ahead'] == 0,
+                 f"partial ({dev}): $1,000 paid on ${v1} arrived is ahead by the difference; once all of it is in, nothing is ahead of delivery ({k['half']}, {k['full']})")
+            c.ok(k['V'] == [500, 75, v1] and k['A'] == [920, v1, round(920 - v1, 2), 0, v1] and k['none'] is None and k['V2'] == [480, v2] and float(k['f'][0]) == v2 and k['f'][1] == f'${920 - v2:,.2f}',
+                 f'partial ({dev}): no prepayment: $500 of $800 arrived takes $75 of the $120 freight, with the tax; a $20 claim comes off; the sheet is filled in ({k})')
             c.ok(not errs, f'partial ({dev}): page errors {errs[:2]}')
         finally:
             await b.close()
