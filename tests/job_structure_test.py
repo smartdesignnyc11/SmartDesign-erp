@@ -174,7 +174,10 @@ async def run(c, p, phone):
     dev = 'phone' if phone else 'desktop'
     b, pg, errs = await open_app(p, phone)
     await sign_in(pg, 'u_alan')
-    base = await js(pg, """setCurrent('p121'); return { lp: lineProfit(S).map(r => ({ key: r.key, budget: r.budget, actual: r.actual, committed: r.committed, billedPct: r.billedPct })),
+    # lane F (11-12, an approved design: one EAC for a job): a Budget row's budget, actual and committed are the job's own
+    # by line (jobFin's eacLines, the lines its estimate at completion is added from), not lineProfit's (only what was
+    # coded straight to the line), so the rows and the Total row are the job's one estimate at completion
+    base = await js(pg, """setCurrent('p121'); return { lp: (jobFin(S).eacLines || []).map(r => ({ key: r.key, budget: r.budget, actual: r.actual, committed: r.committed })),
       est: jobFin(S).estGPPct, plan: jobFin(S).plannedGPPct };""")
     seeded = await seed_other(pg)
 
@@ -390,7 +393,7 @@ async def run(c, p, phone):
     lines = [x for x in bud if x['key'] != '__noline']
     c.ok(len(lines) == len(lp), f'{dev} BUDGET: one row per estimate and change-order line ({len(lines)} of {len(lp)})')
     bad = [x['key'] for x in lines if x['key'] not in lp or abs(x['budget'] - lp[x['key']]['budget']) > .01 or abs(x['actual'] - lp[x['key']]['actual']) > .01 or abs(x['committed'] - lp[x['key']]['committed']) > .01]
-    c.ok(not bad, f'{dev} BUDGET: budget, actual and committed equal the Costs line figures ({bad[:3]})')
+    c.ok(not bad, f"{dev} BUDGET: budget, actual and committed equal the job's own line figures ({bad[:3]})")
     win = next((x for x in bud if 'Windows' in x['txt']), None)
     c.ok(win and '$29,700' in win['txt'] and '$33,500' in win['txt'], f'{dev} BUDGET: Windows reads $29,700 budget and $33,500 actual, as Costs did ({win and win["txt"][:160]})')
     # $33,500 on $29,700 is 13% over its budget: "113%" read as 113% over (one wording, the row, the card, the Overview)

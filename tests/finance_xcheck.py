@@ -99,11 +99,15 @@ PINNED = {
                                  # ($9,800, 9/2) stopped reading paid by the earlier 8/15 check 2205: it is held as
                                  # possibly already paid (ap_maybe_paid) until a person confirms it with a reason
     'ap_maybe_paid':   9800,     # possibly already paid by an earlier bank line: held, not owed, not paid before approval
-    'wip_over':        156274,   # net over-billing on the WIP schedule ($156,274.27; $154,741.80 before truthpct)
-    'backlog':         582941,   # contract - earned ($582,940.76; $581,408.29 before truthpct)
-    'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
-    'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
-    'safe':            104999,   # safe to spend ($104,999.32: the Accounting lane, 11-03, BACKLOG §1.35 item 1, an approved
+    # lane F (11-12, an approved design: one EAC for a job, cost on no estimate line included) moved these on purpose:
+    # 121 State's $1,466.05 of paint sits on a cost code no estimate line carries, and it is now in the estimate at
+    # completion ($388,887.50 -> $390,353.55). Its cost basis falls and it earns $460.55 less: WIP over-billed, backlog and
+    # 121's over-billing rise by $460.55; YTD income, net and safe to spend fall by it. Closed months are unchanged.
+    'wip_over':        156735,   # net over-billing on the WIP schedule ($156,734.82; $156,274.27 before lane F; $154,741.80 before truthpct)
+    'backlog':         583401,   # contract - earned ($583,401.31; $582,940.76 before lane F; $581,408.29 before truthpct)
+    'net':             -5790,    # YTD net, management view (-$5,790.43; -$5,329.88 before lane F; -$3,797.41 before truthpct)
+    'income':          142299,   # YTD earned revenue ($142,298.69; $142,759.24 before lane F; $144,291.71 before truthpct)
+    'safe':            104539,   # safe to spend ($104,538.77; $104,999.32 before lane F: the Accounting lane, 11-03, BACKLOG §1.35 item 1, an approved
                                  # definition: the set-aside is cash received with a bank line less earned, job by job,
                                  # 121 State's $169,750 less $122,626 = $47,124, not all of Over-Billed (WIP) $156,274, which
                                  # set aside $92,265 billed and never paid; -$4,150.74 before, -$2,618.27 before truthpct)
@@ -111,11 +115,11 @@ PINNED = {
                                  # (lane 1, round one, 2026-10-26: TRIAGE class 2's accept, nothing proposed on a job billed ahead: 121 State's application $12,651 and the windows' stored materials, now $10,170, are held with the reason; $46,301 / 4 rows before)
                                  # (before that: $47,601 until pilotfix2 removed the seed's 6.5 designer hours dated 9/4, a day not yet worked, billed as ready; $20,980 / 2 rows before leaks)
     'rtb_n':           3,
-    'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
+    'wip_job:121 State Street':   131518,   # $131,518.27; $131,057.72 before lane F; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,
     'wip_job:140 Prospect Place': 22512,
     'pct121':          14,       # 121 State % complete, one number (tpJobPct, BACKLOG §1.2)
-    'eac121':          388888,   # 121 State estimate at completion ($388,887.50; $384,087.50 before truthpct)
+    'eac121':          390354,   # 121 State estimate at completion ($390,353.55; $388,887.50 before lane F; $384,087.50 before truthpct)
     'drift':           0,
 }
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
@@ -541,7 +545,8 @@ async def check_role(pg, R, uid):
     if gate('ovjobs', 'Projects'):
         await nav(pg, 'jobs', 'ovjobs'); t = await text_of(pg, 'ovjobs')
         # the cost-to-cost figure is "Over-Billed (WIP)" (lane 1, 2026-10-26: "Billed Ahead of the Work" is the line-by-line control)
-        R.money('wip_over', S('Projects › tile "Over-Billed (WIP)"'), t, r'Over-Billed \(WIP\)\s*\n\s*\+?' + MONEY)
+        # (lane F, 11-12: the firm's figure names its scope, "Over-Billed (WIP), All Jobs"; a job's own is another number)
+        R.money('wip_over', S('Projects › tile "Over-Billed (WIP), All Jobs"'), t, r'Over-Billed \(WIP\), All Jobs\s*\n\s*\+?' + MONEY)
         if R.want('ar'):
             owed = re.findall(r'\n[^\t\n]+\t[^\t\n]*\t\d+\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t(\$[\d,]+)\t', t)
             tot = sum(parse_money(x)[0] for x in owed)

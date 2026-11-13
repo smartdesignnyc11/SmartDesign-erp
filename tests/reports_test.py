@@ -661,7 +661,9 @@ async def part_excel(p, c):
     if ws:
         vals = [cell.value for row in ws.iter_rows() for cell in row]
         # 121 State's net profit carries TINO's $8,000 prepayment as job cost (it was uncoded overhead): 20191.11 -> 12191.11
-        c.ok(12191.11 in vals and -5329.88 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
+        # (lane F, 11-12: 121 State earns $460.55 less once its cost on no estimate line is in its EAC: 12191.11 -> 11730.56,
+        # the firm's net -5329.88 -> -5790.43)
+        c.ok(11730.56 in vals and -5790.43 in vals, f'the P&L by Project sheet lacks the numbers as numbers: {vals[:30]}')
     c.ok(r['last'] and r['last']['file'].endswith('.xlsx') and 'Exported' in r['toast'], f'Excel button: {r["last"]} {r["toast"]!r}')
     c.ok(not errs, f'excel errors {errs[:3]}')
     await b.close()
