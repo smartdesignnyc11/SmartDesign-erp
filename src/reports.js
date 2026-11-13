@@ -903,8 +903,12 @@ function rpLineHtml(p) {
   const C = rpJobCost(p),
     T = {};
   ["contract", "billed", "collected", "earned", "actual", "committed", "eac", "marginToDate", "marginAtCompletion"].forEach((k) => (T[k] = rpSum(rows, (r) => r[k])));
-  const earnDiff = r2((+J.earned || 0) - T.earned),
-    eacDiff = r2((+J.eac || 0) - T.eac),
+  // cost on no estimate line is in the job's estimate at completion (jobFinUnlined, lane F 11-12): its row carries its
+  // committed and its forecast, so the EAC column adds up to the Job row and nothing is left as an unnamed difference
+  const U = J.eacUnlined || { actual: 0, committed: 0, total: 0 },
+    uRow = Math.abs(C.noLine) > RP_EPS || U.total > RP_EPS,
+    earnDiff = r2((+J.earned || 0) - T.earned),
+    eacDiff = r2((+J.eac || 0) - T.eac - U.total),
     cell = (v) => rpMoneyCell(v);
   return `<div class="rp-lines" data-rplines="${esc(p.id)}"><p class="small muted">Each estimate line and approved change-order line: contract value, what was billed and collected, what is earned (the line's contract × its cost ÷ its estimate at completion), cost and commitments, and margin to date and at completion. Cost by line is the job's own: a cost code with several lines shares its untraced cost by budget, so lines, cost codes and the job agree.</p><div class="tw"><table class="t rep-t rp-t"><thead><tr><th>Line</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Earned</th><th class="money">Cost to Date</th><th class="money">Committed</th><th class="money">Est. at Completion</th><th class="money">Margin to Date</th><th class="money">Margin at Completion</th></tr></thead><tbody>${rows
     .map(
@@ -912,10 +916,13 @@ function rpLineHtml(p) {
         `<tr><td>${esc(r.name)}${r.co ? ' <span class="small muted">· change order</span>' : ""}<div class="small muted">${esc(r.code || "")}</div></td>${cell(r.contract)}${cell(r.billed)}${cell(r.collected)}${cell(r.earned)}${cell(r.actual)}${cell(r.committed)}${cell(r.eac)}${cell(r.marginToDate)}${cell(r.marginAtCompletion)}</tr>`,
     )
     .join("")}<tr class="grand"><td>Lines</td>${["contract", "billed", "collected", "earned", "actual", "committed", "eac", "marginToDate", "marginAtCompletion"].map((k) => cell(T[k])).join("")}</tr>${
-    Math.abs(C.noLine) > RP_EPS
-      ? `<tr class="dim"><td>Cost on cost codes with no estimate line</td><td></td><td></td><td></td><td></td>${cell(C.noLine)}<td></td><td></td><td></td><td></td></tr>`
+    uRow
+      ? `<tr class="dim" data-rpnoline="${U.total}"><td>Cost on cost codes with no estimate line${U.total > RP_EPS ? '<div class="small muted">no budget to sit inside: all of it is in the estimate at completion</div>' : ""}</td><td></td><td></td><td></td><td></td>${cell(C.noLine)}${U.committed > RP_EPS ? cell(U.committed) : "<td></td>"}${U.total > RP_EPS ? cell(U.total) : "<td></td>"}<td></td><td></td></tr>`
       : ""
-  }${Math.abs(C.lineRounding) > RP_EPS ? `<tr class="dim"><td>Rounding (each line rounds to the cent)</td><td></td><td></td><td></td><td></td>${cell(C.lineRounding)}<td></td><td></td><td></td><td></td></tr>` : ""}${Math.abs(earnDiff) > RP_EPS ? `<tr class="dim"><td>The job earns on its total cost, not line by line</td><td></td><td></td><td></td>${cell(earnDiff)}<td></td><td></td>${Math.abs(eacDiff) > RP_EPS ? cell(eacDiff) : "<td></td>"}<td></td><td></td></tr>` : ""}<tr class="grand"><td>Job</td>${cell(J.contract)}${cell(J.billed)}${cell(J.collected)}${cell(J.earned)}${cell(J.actual)}${cell(J.committed)}${cell(J.eac)}${cell(r2(J.earned - J.actual))}${cell(r2(J.contract - J.eac))}</tr></tbody></table></div><div class="small rp-tieline" data-rptieline="lines">${Math.abs(C.lineDiff) <= RP_EPS ? `<span class="rp-ok">${RP_ICON_TIE} Ties</span>` : `<span class="rp-off">${RP_ICON_OFF} Off by ${rpCents(Math.abs(C.lineDiff))}</span>`} Lines ${rpCents(C.lineSum)} + cost on codes with no line ${rpCents(C.noLine)}${Math.abs(C.lineRounding) > RP_EPS ? ` + rounding ${rpCents(C.lineRounding)}` : ""} = ${rpCents(r2(C.lineSum + C.noLine + C.lineRounding))}; the job's cost to date is ${rpCents(C.actual)}.</div></div>`;
+  }${Math.abs(C.lineRounding) > RP_EPS ? `<tr class="dim"><td>Rounding (each line rounds to the cent)</td><td></td><td></td><td></td><td></td>${cell(C.lineRounding)}<td></td><td></td><td></td><td></td></tr>` : ""}${Math.abs(earnDiff) > RP_EPS ? `<tr class="dim"><td>The job earns on its total cost, not line by line</td><td></td><td></td><td></td>${cell(earnDiff)}<td></td><td></td>${Math.abs(eacDiff) > RP_EPS && !p.ctcReviewed ? cell(eacDiff) : "<td></td>"}<td></td><td></td></tr>` : ""}${
+    // a PM's reviewed cost to complete is the job's estimate at completion: named, never folded into another row
+    p.ctcReviewed && Math.abs(eacDiff) > RP_EPS ? `<tr class="dim" data-rpreview="${eacDiff}"><td>The PM's reviewed cost to complete, against the lines' forecast</td><td></td><td></td><td></td><td></td><td></td><td></td>${cell(eacDiff)}<td></td><td></td></tr>` : ""
+  }<tr class="grand"><td>Job</td>${cell(J.contract)}${cell(J.billed)}${cell(J.collected)}${cell(J.earned)}${cell(J.actual)}${cell(J.committed)}${cell(J.eac)}${cell(r2(J.earned - J.actual))}${cell(r2(J.contract - J.eac))}</tr></tbody></table></div><div class="small rp-tieline" data-rptieline="lines">${Math.abs(C.lineDiff) <= RP_EPS ? `<span class="rp-ok">${RP_ICON_TIE} Ties</span>` : `<span class="rp-off">${RP_ICON_OFF} Off by ${rpCents(Math.abs(C.lineDiff))}</span>`} Lines ${rpCents(C.lineSum)} + cost on codes with no line ${rpCents(C.noLine)}${Math.abs(C.lineRounding) > RP_EPS ? ` + rounding ${rpCents(C.lineRounding)}` : ""} = ${rpCents(r2(C.lineSum + C.noLine + C.lineRounding))}; the job's cost to date is ${rpCents(C.actual)}.</div></div>`;
 }
 // Overhead analysis: the pool by category, month by month, as a % of revenue; the burden rate; absorbed against
 // actual; and the monthly revenue that covers the overhead at the current gross margin.

@@ -40,25 +40,28 @@ async def sec_fin(p, c):
           ytd: companyPL(['2026-01-01', today()]).income, aug: companyPL(['2026-08-01', '2026-08-31']).income,
           over: DB.projects.map(wipRow).reduce((a, w) => a + w.over, 0), other: other,
           aug31: jobFin(p, ['', '2026-08-31']).eac }} }}""")
-    c.ok(r['eac'] == 388887.5, f"121 State EAC {r['eac']} (target $388,887.50, was $384,087.50)")
+    # lane F (11-12, an approved design: one EAC for a job): the $1,466.05 (37.92 crew hours clocked to code 12, Paint & restoration) on a cost code no estimate line
+    # carries is in the estimate at completion, so every figure below that follows from it moved by what that implies
+    # (EAC +$1,466.05; earned -$460.55; over-billing and backlog +$460.55; YTD revenue -$460.55).
+    c.ok(r['eac'] == 390353.55, f"121 State EAC {r['eac']} (target $390,353.55: $388,887.50 by line + $1,466.05 on no estimate line)")
     c.ok(r['win'] == 3800 and r['mill'] == 1000, f"line overruns Windows {r['win']} (+3,800) Millwork {r['mill']} (+1,000)")
     c.ok(r['millDep'] == 38000, f"Millwork deposit read {r['millDep']} (38,000)")
-    c.ok(r['gp'] == 20.83, f"margin at completion {r['gp']}% (target 20.83%, was 21.81%)")
-    c.ok(r['earned'] == 122625.79, f"121 State earned {r['earned']} (target $122,625.79, was $124,158.26)")
-    c.ok(r['ou'] == 131057.72, f"121 State over-billing {r['ou']} (target $131,057.72, was $129,525.25)")
-    c.ok(r['backlog'] == 368574.21, f"121 State backlog {r['backlog']} (target $368,574.21, was $367,041.74)")
-    c.ok(abs(r['ytd'] - (144291.71 - 1532.47)) < 0.01, f"YTD revenue {r['ytd']} (target 144,291.71 - 1,532.47 = 142,759.24)")
+    c.ok(r['gp'] == 20.53, f"margin at completion {r['gp']}% (target 20.53%, was 20.83% before the unlined cost, 21.81% bid)")
+    c.ok(r['earned'] == 122165.24, f"121 State earned {r['earned']} (target $122,165.24, was $122,625.79)")
+    c.ok(r['ou'] == 131518.27, f"121 State over-billing {r['ou']} (target $131,518.27, was $131,057.72)")
+    c.ok(r['backlog'] == 369034.76, f"121 State backlog {r['backlog']} (target $369,034.76, was $368,574.21)")
+    c.ok(abs(r['ytd'] - (144291.71 - 1532.47 - 460.55)) < 0.01, f"YTD revenue {r['ytd']} (target 144,291.71 - 1,532.47 - 460.55 = 142,298.69)")
     c.ok(r['aug'] == 135175.13, f"August revenue {r['aug']} unchanged (135,175.13)")
     c.ok(r['aug31'] == 384087.5, f"the August 31 read keeps the estimate it was reported on: {r['aug31']}")
-    c.ok(abs(r['over'] - 156274.27) < 0.01, f"firm WIP over-billing {r['over']} (154,741.80 + 1,532.47)")
+    c.ok(abs(r['over'] - 156734.82) < 0.01, f"firm WIP over-billing {r['over']} (154,741.80 + 1,532.47 + 460.55)")
     c.ok(r['other'] == [['45 Cranberry St — design', 16104, 18645.45], ['206 Lenox — 3rd floor turnover', 0, 0],
                         ['140 Prospect Place — design', 124670, 1488]], f"other jobs unchanged {r['other']}")
     # A short-pay counts only the amount approved: Approve PO Amount on WW-2026-118 ($29,700; $3,800 disputed)
     r = await pg.evaluate(f"""() => {{ const b = DB.bills.find(x => x.number === 'WW-2026-118');
         pay3ShortPay(b, 29700, 'Invoice is for 10 units; PO was 9');
         const J = jobFin({J121}); return {{ eac: J.eac, win: (J.eacLines.find(x => x.name.startsWith('Windows')) || {{}}).over, held: b.short && b.short.held }} }}""")
-    c.ok(r['held'] == 3800 and r['eac'] == 385087.5 and r['win'] == 0,
-         f"short-paid WW-2026-118 counts only $29,700: EAC {r['eac']} (385,087.50), Windows over {r['win']}, held {r['held']}")
+    c.ok(r['held'] == 3800 and r['eac'] == 386553.55 and r['win'] == 0,
+         f"short-paid WW-2026-118 counts only $29,700: EAC {r['eac']} (386,553.55: 385,087.50 by line + 1,466.05 on no estimate line, lane F), Windows over {r['win']}, held {r['held']}")
     # A PM-reviewed cost to complete wins
     r = await pg.evaluate(f"""() => {{ const p = {J121}; p.ctc = 300000; p.ctcReviewed = '2026-09-03';
         const J = jobFin(p); const out = {{ eac: J.eac, actual: J.actual, lines: !!J.eacFromLines }}; delete p.ctc; delete p.ctcReviewed; return out }}""")
@@ -98,14 +101,14 @@ async def sec_screens(p, c):
     c.ok(re.search(r'% COMPLETE', hdr, re.I) and re.search(r'\bEAC\b', hdr), f"Projects table has % Complete and EAC columns: {hdr[:200]}")
     row = re.search(r'\n121 State Street\t[^\n]*', t)
     row = row.group(0) if row else ''
-    c.ok('\t14%\t' in row and '$388,888' in row, f"Projects row 121 State: 14% and EAC $388,888: {row[:220]}")
+    c.ok('\t14%\t' in row and '$390,354' in row, f"Projects row 121 State: 14% and EAC $390,354: {row[:220]}")
     await go(pg, 'dashboard'); t = await text(pg, 'dashboard')
-    c.ok(re.search(r'121 State Street · bid 21\.81% → forecast 20\.83% \([^)]*\) · 14% complete', t),
-         "Dashboard Margin at Completion: 121 State bid 21.81% -> forecast 20.83% · 14% complete")
+    c.ok(re.search(r'121 State Street · bid 21\.81% → forecast 20\.53% \([^)]*\) · 14% complete', t),
+         "Dashboard Margin at Completion: 121 State bid 21.81% -> forecast 20.53% · 14% complete")
     await pg.evaluate("() => { view = 'reports'; repTab = 'portfolio'; render() }"); await pg.wait_for_timeout(200)
     t = await text(pg, 'reports')
     m = re.search(r'\n121 State Street\t(?:[^\t]*\t){8}\s*(\$[\d,]+)[^\n]*\n[^\n]*\n\s*(\d+)%', t)
-    c.ok(m and m.group(1) == '$388,888' and m.group(2) == '14', f"Portfolio: Proj. Cost and % Complete {m.groups() if m else None}")
+    c.ok(m and m.group(1) == '$390,354' and m.group(2) == '14', f"Portfolio: Proj. Cost and % Complete {m.groups() if m else None}")
     await pg.evaluate("() => { view = 'reports'; repTab = 'wip'; wipTab = 'schedule'; render() }"); await pg.wait_for_timeout(200)
     t = await text(pg, 'reports')
     m = re.search(r'\n121 State Street\n[^\n]*\n\t[^\t]*\t[^\t]*\t(\d+)%\n(\d+)% cost basis', t)
@@ -136,14 +139,14 @@ async def sec_ask(p, c):
         a = await ask(pg, 'which job is bleeding?')
         c.ok('121 State Street — health' in a and '14% complete' in a and '25% complete' not in a, f"{uid} Ask which job is bleeding: {a[:200]}")
         a = await ask(pg, 'what is our backlog')
-        c.ok('$582,941' in a and '121 State Street · $368,574 backlog' in a and '14% complete' in a and '25% complete' not in a, f"{uid} Ask backlog: {a[:240]}")
+        c.ok('$583,401' in a and '121 State Street · $369,035 backlog' in a and '14% complete' in a and '25% complete' not in a, f"{uid} Ask backlog: {a[:240]}")
         a = await ask(pg, 'what is the margin on 121 State Street')
-        c.ok(a.startswith('20.83% estimated gross margin') and '25% through its estimated cost (cost-to-cost)' in a and 'complete cost-to-cost' not in a,
+        c.ok(a.startswith('20.53% estimated gross margin') and '25% through its estimated cost (cost-to-cost)' in a and 'complete cost-to-cost' not in a,
              f"{uid} Ask margin: {a[:300]}")
         a = await ask(pg, 'margin by job')
-        c.ok('121 State Street · 20.83%' in a and '14% complete' in a and '25% complete' not in a, f"{uid} Ask margin by job: {a[:300]}")
+        c.ok('121 State Street · 20.53%' in a and '14% complete' in a and '25% complete' not in a, f"{uid} Ask margin by job: {a[:300]}")
         a = await ask(pg, 'what is the EAC on 121 State Street')
-        c.ok(a.startswith('Estimate at completion on 121 State Street is $388,888'), f"{uid} Ask EAC: {a[:120]}")
+        c.ok(a.startswith('Estimate at completion on 121 State Street is $390,354'), f"{uid} Ask EAC: {a[:120]}")
         a = await ask(pg, 'how is 121 State doing')
         c.ok('25% through its estimated cost (cost-to-cost)' in a and '14% complete' in a, f"{uid} Ask job profile: {a[:400]}")
         # the cost ratio is never printed as "% complete"
@@ -188,7 +191,7 @@ async def sec_pay(p, c):
     await b.close()
 
 
-CLIENT_LEAK = re.compile(r'\$124,158|\$122,626|\bearned\b|work completed|daily log|last update from|\b25% complete', re.I)
+CLIENT_LEAK = re.compile(r'\$124,158|\$122,626|\$122,165|\bearned\b|work completed|daily log|last update from|\b25% complete', re.I)
 
 
 async def sec_portal(p, c):
