@@ -24,7 +24,7 @@ async def main():
         c.ok(r['today'] == '2026-09-03', f"app day {r['today']}")
         # truthpct (BACKLOG §1.2): the EAC rolls up by estimate line, so 121 State earns $1,532.47 less this year
         # (EAC $384,087.50 -> $388,887.50). Income 144292 -> 142759, net -3797 -> -5330.
-        # lane F (11-12, one EAC for a job): 121 State's $1,466.05 of paint on no estimate line is in its estimate at
+        # lane F (11-12, one EAC for a job): 121 State's $1,466.05 on no estimate line (37.92 crew hours clocked to code 12) is in its estimate at
         # completion ($388,887.50 -> $390,353.55), so it earns $460.55 less. Income 142759 -> 142299, net -5330 -> -5790.
         c.ok(r['income'] == 142299, f"YTD income {r['income']} (was 142759 before lane F, 144292 before truthpct)")
         c.ok(r['net'] == -5790, f"YTD net {r['net']} (was -5330 before lane F, -3797 before truthpct)")

@@ -40,7 +40,7 @@ async def sec_fin(p, c):
           ytd: companyPL(['2026-01-01', today()]).income, aug: companyPL(['2026-08-01', '2026-08-31']).income,
           over: DB.projects.map(wipRow).reduce((a, w) => a + w.over, 0), other: other,
           aug31: jobFin(p, ['', '2026-08-31']).eac }} }}""")
-    # lane F (11-12, an approved design: one EAC for a job): the $1,466.05 of paint on a cost code no estimate line
+    # lane F (11-12, an approved design: one EAC for a job): the $1,466.05 (37.92 crew hours clocked to code 12, Paint & restoration) on a cost code no estimate line
     # carries is in the estimate at completion, so every figure below that follows from it moved by what that implies
     # (EAC +$1,466.05; earned -$460.55; over-billing and backlog +$460.55; YTD revenue -$460.55).
     c.ok(r['eac'] == 390353.55, f"121 State EAC {r['eac']} (target $390,353.55: $388,887.50 by line + $1,466.05 on no estimate line)")

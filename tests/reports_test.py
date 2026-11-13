@@ -606,7 +606,7 @@ async def part_lines(p, c):
     c.ok(abs(sm('contract') - r['contract']) <= EPS, f"lines' contract {sm('contract')} vs the job's {r['contract']}")
     c.ok(abs(r2(r['lineSum'] + r['noLine'] + r['rounding']) - r['actual']) <= EPS and r['lineDiff'] == 0, f"lines {r['lineSum']} + no line {r['noLine']} + rounding {r['rounding']} vs the job {r['actual']}")
     c.ok(abs(r['rounding']) <= 0.01 * len(r['rows']), f"rounding {r['rounding']} is more than a cent a line")
-    # (lane F, 11-12: the job's EAC is its lines' plus the cost on no estimate line, $1,466.05 of paint on 121 State)
+    # (lane F, 11-12: the job's EAC is its lines' plus the cost on no estimate line, $1,466.05 on 121 State: 37.92 crew hours clocked to code 12)
     c.ok(abs(r2(sm('eac') + r['unlined']) - r['eac']) <= EPS and abs(r['unlined'] - r['noLine']) <= EPS, f"lines' EAC {sm('eac')} + cost on no estimate line {r['unlined']} (the cost row says {r['noLine']}) vs the job's {r['eac']}")
     for x in r['rows']:
         c.ok(abs(x['eac'] - max(x['budget'], r2(x['actual'] + x['committed']))) <= EPS, f"{x['name']}: EAC {x['eac']} ≠ max(budget, actual + committed)")
