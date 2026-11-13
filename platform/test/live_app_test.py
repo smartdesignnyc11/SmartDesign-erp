@@ -21,7 +21,17 @@ async def person(b, who, phone):
     await pg.wait_for_selector('#cl-email', timeout=60000)
     await pg.fill('#cl-email', QA[who]['email']); await pg.fill('#cl-pass', QA[who]['password'])
     await pg.click('#cl-form button[type=submit]')
-    await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
+    # a boot that never finishes says why (11-13: the first sign-in after two releases timed out with nothing to read)
+    log, open_reqs = [], {}
+    pg.on('console', lambda m: log.append(f'{m.type}: {m.text[:200]}'))
+    pg.on('request', lambda r: open_reqs.__setitem__(id(r), r.url.split('?')[0][-90:]))
+    pg.on('requestfinished', lambda r: open_reqs.pop(id(r), None)); pg.on('requestfailed', lambda r: (open_reqs.pop(id(r), None), log.append(f'request failed: {r.url.split("?")[0][-90:]} {r.failure}')))
+    try:
+        await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
+    except Exception:
+        state = await pg.evaluate("({booted: document.body.dataset.booted || '', cloud: window.Cloud && Cloud.state ? JSON.stringify(Cloud.state).slice(0, 300) : 'no Cloud', signin: !!document.querySelector('#cl-email'), text: document.body.innerText.slice(0, 300)})")
+        print(f'BOOT TIMEOUT as {who}: state {state}\n  page errors {errs[:5]}\n  requests still open {list(open_reqs.values())[:12]}\n  console (last 25) ' + '\n    '.join(log[-25:]))
+        raise
     await pg.wait_for_timeout(1500)
     return pg, errs
 

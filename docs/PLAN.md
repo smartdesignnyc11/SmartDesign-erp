@@ -38,7 +38,7 @@ Records: asks and warnings in `docs/DECISIONS.md` (11-12); every finding in `doc
 | B | Billable expenses on invoices, the billed-ahead reason, the deposit line | Started, nothing written |
 | M | Alan's 11-12 ask: a module's name opens its overview page | Committed |
 | P | Estimate section headings and subtotals; Excluded and TBD rows; an HVAC cost code | Committed |
-| D2 | Documents first: every S1 and S2 of its review; the refund amount capped at what can be refunded; a revision keeps the original due date (so aging is not reset) | Final fix in hand; then one integration run and release |
+| D2 | Documents first: every S1 and S2 of its review; the refund amount capped at what can be refunded; a revision keeps the original due date (so aging is not reset) | Live 11-13 (a1e41bc) |
 
 **What ships, in what order.**
 1. **R, first and alone:** review, fast tier, the billing expert's walk on both devices, one release with nothing else in it.
@@ -75,7 +75,7 @@ Full spec additions are in `docs/DECISIONS.md`, 11-06 18:05.
   - It is a column view of the Buy Board's one list (`buyList`, status from `puNeedStatus`). No new store.
   - Phone cards, a client FF&E schedule export, and Chen's sheets imported once.
   - It holds off `buyboard.js`, `purchasing.js` and `buyList` until P2 merges (integ17).
-- **Documents first: held back 11-07; fix round D2 running 11-12, the section above.**
+- **Documents first: live 11-13 (a1e41bc), after the D2 fix round.**
   - Tapping an estimate, CO or invoice on Contract and Billing or Accounting › Billing opens the client's document, with the actions on it.
   - Edit on a posted document is a linked void and re-issue, or a change order.
   - A credit memo applies to one invoice, with tax and SOV reversed.
