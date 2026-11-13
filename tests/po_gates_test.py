@@ -114,6 +114,49 @@ async def main():
             # issued orders already out are not re-judged (the lesson scan reads poValid on them)
             r = await pg.evaluate("() => poValid(DB.pos.find(x => x.number === 'PO-2026-047'))")
             c.ok(not any('certificate' in x or 'over what is left' in x for x in r), f'{tag}: an issued order is not re-judged ({r})')
+            # 8. the certificate stop on the Order sheet is never a dead end (the 11-07 month lost the radiant mats and the
+            # slab on it): the note says the stop and offers Set Curb or Shipped; the tap asks why, the reason is
+            # required, and it goes on the order and in its audit row. The mats' delivery is guessed (inside, unsure).
+            await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} buyOrderDialog({ pid: 'p121', mid: 'm6' }); }"); await pg.wait_for_timeout(400)
+            s8 = await pg.evaluate("""async () => { const T = [], toast0 = toast; toast = function () { T.push(String(arguments[0])); return toast0.apply(this, arguments); };
+              const wait = ms => new Promise(r => setTimeout(r, ms)), m = document.getElementById('mbm'), q = k => m.querySelector(`[data-f="${k}"]`);
+              const set = (k, v) => { q(k).value = v; q(k).dispatchEvent(new Event('input', { bubbles: true })); q(k).dispatchEvent(new Event('change', { bubbles: true })); };
+              set('vendor', 'Ferguson'); set('qty', '1'); set('price', '100'); q('needBy').value || set('needBy', iso(addDays(today(), 12))); await wait(120);
+              const paper = m.querySelector('.fl-paper'), why = m.querySelector('.fl-dropwhy'), issue = () => [...m.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
+              const r = { vendor: q('vendor').value, drop0: q('dropAt').value, stop: paper.hidden ? '' : paper.textContent, bad: paper.classList.contains('bad'), tap: !!paper.querySelector('[data-fldropcurb]'), why0: !why.hidden, blue: m.querySelectorAll('.btn.primary').length };
+              const n0 = DB.pos.length; issue(); await wait(300); r.held = DB.pos.length === n0 && T[T.length - 1];
+              const tap = paper.querySelector('[data-fldropcurb]'); tap && tap.click(); await wait(150);
+              Object.assign(r, { drop1: q('dropAt').value, stop1: paper.hidden ? '' : paper.textContent, why1: !why.hidden });
+              issue(); await wait(300); r.noWhy = DB.pos.length === n0 && T[T.length - 1];
+              set('dropWhy', 'Ferguson ships the mats boxed; our crew carries them in'); issue(); await wait(900);
+              const po = DB.pos.slice(n0)[0];
+              r.po = po ? { drop: po.dropAt, why: (po.dropWhy || {}).why || '', by: (po.dropWhy || {}).by || '', aud: DB.audit.filter(a => a.refId === po.id && a.action === 'delivery').map(a => a.note || a.why || a.text || JSON.stringify(a)).join(' | ') } : null;
+              po && (DB.pos = DB.pos.filter(x => x.id !== po.id)); try { mbCloseModal(); } catch (e) {} toast = toast0; save();
+              return r; }""")
+            c.ok(s8['vendor'] == 'Ferguson' and s8['drop0'] == 'inside' and 'carried inside' in s8['stop'] and 'certificate' in s8['stop'] and s8['bad'] and s8['tap'] and not s8['why0'] and s8['blue'] == 1,
+                 f'{tag}: the Order sheet says the certificate stop and offers Set Curb or Shipped, one blue button ({s8})')
+            c.ok(s8['held'] and 'certificate' in s8['held'], f'{tag}: carried inside with no certificate, Issue PO is held and says why ({s8["held"]!r})')
+            c.ok(s8['drop1'] == 'curb' and 'certificate of insurance' not in s8['stop1'] and s8['why1'] and s8['noWhy'] and 'Say how you know' in s8['noWhy'],
+                 f'{tag}: the tap sets Curb or Shipped, lifts the stop and asks why; no reason, no order ({s8})')
+            c.ok(s8['po'] and s8['po']['drop'] == 'curb' and 'ships the mats' in s8['po']['why'] and s8['po']['by'] == 'Chen Biron' and 'ships the mats' in s8['po']['aud'],
+                 f'{tag}: with the reason the order goes as a curb drop, the reason on it and in its audit row ({s8["po"]})')
+            # 9. Ship To is read before the lines (the coordinator's review, 11-12): an appliance shipped to the office, the
+            # shop, the warehouse or another address is not on the client's site, so no certificate holds it, and its
+            # page offers no delivery guess; the same order to the job site is carried inside and stops
+            s9 = await pg.evaluate("""() => { const mk = (ship, extra) => Object.assign({ id: 'po_off', number: 'PO-OFF-1', projectId: 'p121', vendor: 'Ferguson', status: 'draft', type: 'materials', shipTo: ship, date: today(), needBy: iso(addDays(today(), 10)),
+                lines: [{ id: 'plo', item: 'Refrigerator, 36 in. panel-ready', qty: 1, unit: 'ea', price: 900 }], tax: 0, shipping: 0, matchedTxns: [] }, extra || {});
+              const cert = (po) => poValid(po).filter(x => /certificate/.test(x)), out = { coi: (poVendorReal('Ferguson') || {}).insuranceExp || '' };
+              ['Office', 'shop', 'Warehouse', 'willcall', 'vendor', 'other', 'site', 'Site', ''].forEach(s => { const po = mk(s); out[s || 'unset'] = { stop: poPaper(po).stop.length, valid: cert(po).length, onSite: poOnSite(po) }; });
+              out.officeSaidInside = poPaper(mk('Office', { dropAt: 'inside' })).stop.length;
+              const po = mk('Office'); DB.pos.push(po); const h = renderPODoc(po).replace(/<[^>]+>/g, ' '); out.page = { guess: /Delivery guessed|certificate of insurance is needed/.test(h), change: /data-podropchg/.test(renderPODoc(po)) };
+              out.blocked = PRED.vendorsBlocked.test(poVendorReal('Ferguson')); po.status = 'issued'; out.blockedIssued = PRED.vendorsBlocked.test(poVendorReal('Ferguson')); out.books = coiBookings(poVendorReal('Ferguson')).length;
+              DB.pos = DB.pos.filter(x => x.id !== 'po_off'); return out; }""")
+            off = [s9[k] for k in ('Office', 'shop', 'Warehouse', 'willcall', 'vendor', 'other')]
+            c.ok(not s9['coi'] and all(not x['stop'] and not x['valid'] and not x['onSite'] for x in off) and not s9['officeSaidInside'],
+                 f'{tag}: an appliance shipped to the office, shop, warehouse, will-call, the vendor or another address is not held for a certificate ({s9})')
+            c.ok(all(s9[k]['stop'] and s9[k]['valid'] and s9[k]['onSite'] for k in ('site', 'Site', 'unset')), f'{tag}: the same appliance to the job site is carried inside and stops for the certificate ({s9})')
+            c.ok(not s9['page']['guess'] and not s9['page']['change'] and not s9['blocked'] and not s9['blockedIssued'] and s9['books'] == 0,
+                 f'{tag}: the office order\'s page guesses no delivery, and issued it neither blocks the vendor nor books a COI check ({s9})')
             c.ok(not errs, f'{tag}: no page errors ({errs[:3]})')
             await b.close()
     c.done()

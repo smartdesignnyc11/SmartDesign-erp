@@ -409,7 +409,14 @@ function pcCheck(b, o) {
       const any = (po.lines || []).some((l) => +l.received > 0) || (po.receipts || []).length || ["received", "partial"].includes(po.status);
       // a difference already disputed (approved at the PO amount) is not billed past the delivery
       const shortMoney = r2(short.reduce((a, x) => a + x.money, 0) - pcDisputed(b));
-      short.length && shortMoney > 0.5
+      // the receipt's own value first (pay3Arr: one reading, whatever the bill's lines are tied to); the line-by-line
+      // reading stays for a bill inside what arrived overall but over on one line
+      const AR = "function" == typeof pay3Arr && !b.short ? pay3Arr(b) : null,
+        AW = "function" == typeof pay3AheadWords ? pay3AheadWords(b) : "";
+      AW && H("ahead", AW, { money: (poPaidAhead(po) || {}).ahead || 0, who: "owner", next: "Open the PO", act: "po" });
+      AR && AR.over > 1
+        ? H("threeway", pay3ArrWords(b), { money: AR.over, who: "owner", next: "Open the PO", act: "po" })
+        : short.length && shortMoney > 0.5
         ? H("threeway", `Billed for more than was received: ${short.map((x) => `${x.pl.item || x.pl.desc} billed ${r2(x.billedQ)}, received ${x.got}`).join("; ")}`, { money: shortMoney, next: "Open the PO", act: "po" })
         : !any
           ? H("threeway", `Nothing has been received on ${po.number} yet: no delivery to match this invoice to`, { money: amt, next: "Open the PO", act: "po" })

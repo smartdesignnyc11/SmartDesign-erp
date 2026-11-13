@@ -467,7 +467,8 @@ async def s_reader(p, c):
               // a countertop slab is carried inside: from a sender with no COI it waits (Alan, 10-25); at the curb it issues
               const dz = box.querySelector('[data-f="dropAt"]'); res.drop = dz ? dz.value : '';
               if (dz && dz.value === 'inside') { const n1 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
-                await new Promise(res => setTimeout(res, 400)); res.insideHeld = DB.pos.length === n1 && !DB.vendors.find(v => v.name === nm) && /certificate/.test(document.getElementById('toast').innerText); dz.value = 'curb'; }
+                await new Promise(res => setTimeout(res, 400)); res.insideHeld = DB.pos.length === n1 && !DB.vendors.find(v => v.name === nm) && /certificate/.test(document.getElementById('toast').innerText); res.oneTap = !!box.querySelector('.fl-paper [data-fldropcurb]'); dz.value = 'curb'; flSheetChecks(box);
+                const dw = box.querySelector('[data-f="dropWhy"]'); dw && (dw.value = 'the yard confirmed a curbside drop; our crew carries it in'); }
               const n0 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
               await new Promise(res => setTimeout(res, 900));
               res.vendor = !!DB.vendors.find(v => v.name === nm); res.po = DB.pos.slice(n0).map(x => x.vendor + ':' + x.status);

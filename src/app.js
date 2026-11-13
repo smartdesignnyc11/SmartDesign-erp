@@ -64220,7 +64220,12 @@ function rtFor(o) {
       s.ref &&
       "function" == typeof pay3OverArrived &&
       null != pay3OverArrived(s.ref) &&
-      why.push({ role: "owner", kind: "over-arrived", msg: billTotal(s.ref) > pay3ArrivedLeft(s.ref) + 1 ? `Billed ${money(s.amount)} where what arrived comes to ${money2(pay3ArrivedLeft(s.ref))}: the Owner approves part and disputes the rest` : `A claim with no price is open on its order (${pay3ClaimWords(pay3PO(s.ref).po)}): the Owner approves part and disputes the rest` });
+      why.push({ role: "owner", kind: "over-arrived", msg: pay3Arr(s.ref).over > 1 ? `${pay3ArrWords(s.ref)}: the Owner approves part and disputes the rest` : `A claim with no price is open on its order (${pay3ClaimWords(pay3PO(s.ref).po)}): the Owner approves part and disputes the rest` });
+  } catch (e) {}
+  // paid ahead of delivery: more money is asked for while the vendor already holds more than what arrived
+  try {
+    const aw = "bill" === s.kind && s.ref && "function" == typeof pay3AheadWords ? pay3AheadWords(s.ref) : "";
+    aw && why.push({ role: "owner", kind: "paid-ahead", msg: aw });
   } catch (e) {}
   // Exceptions only (Alan, 10-26; the 11-05 call before Purchasing deploys): a bill against an order already issued,
   // inside what the order holds, is routine whatever its size (the owner approved the commitment when the order went
@@ -64230,7 +64235,7 @@ function rtFor(o) {
     const po = (DB.pos || []).find((p) => p.id === s.poId);
     po &&
       ["issued", "partial", "received", "closed"].includes(po.status) &&
-      !why.some((w) => ["over-po", "over-arrived"].includes(w.kind)) &&
+      !why.some((w) => ["over-po", "over-arrived", "paid-ahead"].includes(w.kind)) &&
       ((byAmount = "pm"), Object.assign(why[0], { role: "pm", msg: `${money(s.amount)} against ${po.number}, issued at ${money(poTotal(po).total)}: routine, the project manager approves it` }));
   }
   c.noLine &&
@@ -141714,21 +141719,21 @@ const pay3Short = (b) => !!(b && b.short && +b.short.held > 0);
 // not. Counting every other bill flagged each of two waiting bills "$340 over" for one $340 overage (two Caught for
 // You rows, the overage twice in the leak sum), and the dispute landed on whichever the owner opened first, the
 // earlier CM-0102, not CM-0109 that took PO-2026-048 over its $76,000 (month walk E216).
-function pay3PO(b) {
-  const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
-  if (!po) return null;
+function pay3Others(b, po) {
   const B = DB.bills || [],
     waiting = (x) => ["submitted", "pm-approved"].includes(x.status) && !("function" == typeof billPaidUnapproved && billPaidUnapproved(x)),
     before = (x) => {
       const a = String(x.date || ""),
         c = String(b.date || "");
       return a < c || (a === c && B.indexOf(x) < B.indexOf(b));
-    },
-    total = poTotal(po).total,
-    other = r2(
-      B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)))
-        .reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0),
-    ),
+    };
+  return B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)));
+}
+function pay3PO(b) {
+  const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
+  if (!po) return null;
+  const total = poTotal(po).total,
+    other = r2(pay3Others(b, po).reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0)),
     received =
       (po.lines || []).some((l) => +l.received > 0) ||
       ["received", "partial"].includes(po.status) ||
@@ -141738,22 +141743,89 @@ function pay3PO(b) {
 // The three-way match reads the receipt (J7: NEM-5851 and GOW-5482 billed the whole order when 6 boards came short
 // and 31 sf came cracked): what arrived in good order on the bill's PO, at the order's prices and tax, less what the
 // other committed bills already took. Null when nothing is received (no third leg) or the bill is within it.
-function pay3ArrivedLeft(b) {
+//
+// One reading, in the vendor's own money (the accounting review, 11-12: 500 of 900 sf of Tino's flooring received, the
+// whole order billed, $8,000 paid ahead on the card, and the Hold sheet said "$0.00 arrived"). The old sum compared the
+// bill's balance after the prepayment came off it ($721) with what arrived less "what other bills took", and the
+// prepayment taken off this very bill was counted as another bill's take ($4,845 - $8,000 = $0). A prepayment is a
+// payment, never a billing of the goods, so the match is invoice against receipt: what the vendor invoiced (before any
+// prepayment comes off) against what arrived, less what the other committed invoices took. What is paid is its own
+// question, asked next (poPaidAhead).
+// What arrived on an order: received quantity at the order's unit price, less the open claims, with the order's tax
+// and the received share of its freight (all of it once everything is in).
+function poArrivedValue(po) {
+  const L = (po && po.lines) || [],
+    ordered = r2(L.reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)),
+    sub = r2(L.reduce((a, l) => a + Math.min(+l.received || 0, +l.qty || 0) * (+l.price || 0), 0)),
+    less = po ? puClaimsLess(po).amount : 0,
+    good = r2(Math.max(0, sub - less)),
+    all = L.length > 0 && L.every((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001),
+    freight = r2(all ? +po.shipping || 0 : ordered > 0 ? ((+po.shipping || 0) * sub) / ordered : 0);
+  return { ordered: ordered, sub: sub, less: less, good: good, all: all, freight: freight, total: r2(good * (1 + (+((po && po.tax) || 0)) / 100) + freight) };
+}
+// A bill against what arrived on its order. Null when nothing is received (no third leg) or the bill is a deposit
+// (a prepayment the terms allow, not a billing of goods). billed: the vendor's invoice; arrived: what arrived that
+// this invoice may take; over: billed past it; applied: prepayments taken off this bill; payable: what of the
+// balance due (billTotal) the receipt backs once the prepayment is counted.
+function pay3Arr(b) {
   const P = pay3PO(b);
   if (!P || !P.received) return null;
   const po = P.po,
-    sub = r2((po.lines || []).reduce((a, l) => a + Math.min(+l.received || 0, +l.qty || 0) * (+l.price || 0), 0)),
-    less = puClaimsLess(po).amount,
-    all = (po.lines || []).every((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001),
-    val = r2(Math.max(0, sub - less) * (1 + (+po.tax || 0) / 100) + (all ? +po.shipping || 0 : 0)),
-    other = r2(P.total - P.left);
-  return r2(Math.max(0, val - other));
+    goods = "function" != typeof p0Sub || !p0Sub(po),
+    ap = (x) => (goods && "function" == typeof p0AppliedOn ? p0AppliedOn(x) : 0),
+    dep = (x) => goods && "function" == typeof p0IsDeposit && p0IsDeposit(x);
+  if (dep(b)) return null;
+  const V = poArrivedValue(po),
+    other = r2(pay3Others(b, po).filter((x) => !dep(x)).reduce((a, x) => a + billTotal(x) + ap(x) - pay3HeldCost(x), 0)),
+    applied = ap(b),
+    billed = r2(billTotal(b) + applied),
+    arrived = r2(Math.max(0, V.total - other));
+  return { po: po, V: V, billed: billed, applied: applied, due: billTotal(b), arrived: arrived, over: r2(Math.max(0, billed - arrived)), payable: r2(Math.max(0, Math.min(arrived, billed) - applied)) };
+}
+function pay3ArrivedLeft(b) {
+  const A = pay3Arr(b);
+  return A ? A.arrived : null;
 }
 // over what arrived: billed above it, or a claim open on the order whose value the order cannot say (a lump-sum line)
 function pay3OverArrived(b) {
-  const a = pay3ArrivedLeft(b),
-    P = null != a && pay3PO(b);
-  return null != a && (billTotal(b) > a + 1 || (P && puClaimsLess(P.po).unknown.length > 0)) ? a : null;
+  const A = pay3Arr(b);
+  return A && (A.billed > A.arrived + 1 || puClaimsLess(A.po).unknown.length > 0) ? A.arrived : null;
+}
+// whole dollars read as dollars, anything else to the cent
+const pay3M = (x) => (Math.abs(+x - Math.round(+x)) < 0.005 ? money(+x) : money2(+x));
+// the three amounts, in the words every screen shares: "Billed $8,721, arrived $4,844.94 on PO-2026-047 (500 of 900
+// sf ...): $3,876.06 over what arrived"
+function pay3ArrWords(b) {
+  const A = pay3Arr(b);
+  if (!A) return "";
+  const L = (A.po.lines || []).filter((l) => +l.qty > 0 && (+l.received || 0) < +l.qty - 0.001),
+    part = 1 === L.length ? `${+L[0].received || 0} of ${+L[0].qty} ${L[0].unit || ""}`.trim() : L.length ? `${L.length} lines short` : "",
+    cw = pay3ClaimWords(A.po),
+    paren = [part, cw].filter(Boolean).join("; ");
+  return `Billed ${pay3M(A.billed)}, arrived ${pay3M(A.arrived)} on ${A.po.number}${paren ? ` (${paren})` : ""}: ${A.over > 1 ? `${pay3M(A.over)} over what arrived` : puClaimsLess(A.po).unknown.length ? "a claim with no price is open" : "within what arrived"}`;
+}
+// Paid ahead of delivery (the leak the review found: $8,000 paid against $4,845 on site, said nowhere). One number for
+// the order, its bills and the Owner: the order's one "paid" (poPaid: every payment of its bills and every bank or
+// card line it holds, each once) against what arrived. Goods only: a subcontract's is Paying Ahead of Work.
+function poPaidAhead(po) {
+  if (!po || "cancelled" === po.status || ["subcontract", "service"].includes(po.type) || ("function" == typeof p0Sub && p0Sub(po))) return null;
+  const paid = r2("function" == typeof poPaid ? poPaid(po) : 0);
+  if (!(paid > 0.005)) return null;
+  // everything in and nothing claimed: nothing is ahead of delivery (tax or freight the vendor added on the invoice is
+  // the over-the-PO check's question, not this one)
+  const V = poArrivedValue(po);
+  return { paid: paid, arrived: V.total, ahead: V.all && !(V.less > 0.005) ? 0 : r2(Math.max(0, paid - V.total)) };
+}
+function poAheadWords(po) {
+  const H = poPaidAhead(po);
+  return H && H.ahead > 0.5 ? `Paid ahead of delivery: ${pay3M(H.paid)} paid on ${po.number}, ${pay3M(H.arrived)} arrived, ${pay3M(H.ahead)} ahead` : "";
+}
+// on a bill: its order is paid ahead of delivery while this bill (not a deposit) still waits to be approved or paid
+function pay3AheadWords(b) {
+  if (!b || !b.poId || b.short || ["void", "rejected", "paid", "verified"].includes(b.status) || ("function" == typeof p0IsDeposit && p0IsDeposit(b))) return "";
+  const po = (DB.pos || []).find((p) => p.id === b.poId),
+    w = po ? poAheadWords(po) : "";
+  return w ? `${w}${billTotal(b) > 0.005 ? `; this bill asks for ${pay3M(billTotal(b))} more` : ""}` : "";
 }
 // The words on a bill or an order for what its open claims take off what arrived ("less 6 cement boards claimed,
 // $162.60 at Gowanus's quote"), and for a claim whose price the order cannot say
@@ -141914,28 +141986,32 @@ function pay3ApproveAsBilled(b, a, why) {
 // what arrived to the Owner). It approves nothing and pays nothing; the Owner's sheet shows it.
 function pay3ArrivedHold(b) {
   if (!b || !pay3Can(b)) return toast(`${(b && b.number) || "This bill"} is not waiting on an approval`), !1;
-  const tot = billTotal(b),
-    a = pay3ArrivedLeft(b),
+  // in the vendor's invoice money: what they billed (before a prepayment comes off) against what arrived
+  const A = pay3Arr(b),
+    tot = A ? A.billed : billTotal(b),
+    a = A ? A.arrived : null,
     P = pay3PO(b),
+    aw = pay3AheadWords(b),
+    pre = a > 0 && a < tot - 0.005 ? a : 0,
     m = mbModal(
       `Hold at What Arrived — ${esc(b.vendor)} ${esc(b.number || "")}`,
-      `<div class="note">Bill ${esc(b.number || "")} is ${money(tot)}. ${P ? `What arrived in good order on ${esc(P.po.number)} comes to ${money2(a || 0)} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""}).` : ""} Say what to approve and why; the Owner approves that part and disputes the rest with the vendor.</div>
-      <div class="grid2" style="margin-top:10px">${mbF("Amount That Arrived", mbIn("amount", "", a ? String(a) : "", "number"))}${mbF("Held Back", `<input data-pay3held readonly value="" tabindex="-1">`)}</div>
+      `<div class="note" data-nocase>Bill ${esc(b.number || "")} is ${pay3M(tot)}${A && A.applied > 0.005 ? ` (${pay3M(A.applied)} paid ahead comes off it, so ${pay3M(A.due)} is due)` : ""}. ${A ? `${esc(pay3ArrWords(b))}.` : P ? `Nothing is received on ${esc(P.po.number)} yet.` : ""}${aw ? ` ${esc(aw)}.` : ""} Say what arrived and why; the Owner approves that part and disputes the rest with the vendor.</div>
+      <div class="grid2" style="margin-top:10px">${mbF("Amount That Arrived", mbIn("amount", pre ? String(pre) : "", "", "number"))}${mbF("Held Back", `<input data-pay3held readonly value="${pre ? money2(r2(tot - pre)) : ""}" tabindex="-1">`)}</div>
       ${mbF("Reason", mbIn("why", "", "e.g. 6 cement boards backordered; 31 sf of tile cracked, claimed"))}`,
       {
         submit: "Hold at What Arrived",
         onSubmit: (f) => {
           const amt = r2(+f.amount || 0),
             why = String(f.why || "").trim();
-          if (!(amt > 0) || amt >= tot - 0.005) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), `Above $0 and below ${money(tot)}: what arrived`), !1;
+          if (!(amt > 0) || amt >= tot - 0.005) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), `Above $0 and below ${pay3M(tot)}: what arrived`), !1;
           if (!why) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="why"]'), "Say what did not arrive or came damaged"), !1;
           const by = (currentUser() || {}).name || role();
-          b.arrivedHold = { amount: amt, held: r2(tot - amt), why: why, by: by, role: role(), at: appNowIso() };
+          b.arrivedHold = { amount: amt, held: r2(tot - amt), billed: tot, why: why, by: by, role: role(), at: appNowIso() };
           try {
             audit("bill", b.id, "held-at-arrived", null, { amount: amt, held: r2(tot - amt) }, why);
           } catch (e) {}
           save(), render();
-          rcToast(`${b.number || "The bill"} held at ${money(amt)}, what arrived; ${money(r2(tot - amt))} waits on the Owner to approve part and dispute the rest`, [{ label: "Open", run: flowGo.bill(b) }]);
+          rcToast(`${b.number || "The bill"} held at ${pay3M(amt)}, what arrived; ${pay3M(r2(tot - amt))} waits on the Owner to approve part and dispute the rest`, [{ label: "Open", run: flowGo.bill(b) }]);
         },
       },
     );
@@ -141944,10 +142020,24 @@ function pay3ArrivedHold(b) {
       out = m.querySelector("[data-pay3held]");
     inp.addEventListener("input", () => {
       const v = +inp.value || 0;
-      out.value = v > 0 && v < tot ? money(r2(tot - v)) : "";
+      out.value = v > 0 && v < tot ? money2(r2(tot - v)) : "";
     });
   } catch (e) {}
   return m;
+}
+// What the Owner's sheet starts from, of the balance due: the order's room, and what the receipt backs once the
+// prepayment taken off the bill is counted (the coordinator's hold, when she placed one, is the receipt's amount).
+// zeroOk: a prepayment already covers more than what arrived, so "$0 more" is a real answer.
+function pay3Start(b) {
+  const A = pay3Arr(b),
+    d = pay3Default(b),
+    tot = billTotal(b),
+    over = !!A && (A.over > 1 || null != pay3OverArrived(b)),
+    held = over && b.arrivedHold && +b.arrivedHold.amount > 0 ? Math.min(+b.arrivedHold.amount, A.arrived) : over ? A.arrived : 0,
+    pay = over ? r2(Math.max(0, held - A.applied)) : null,
+    zeroOk = !!A && A.applied > 0.005 && over && pay < 0.005,
+    amt = null != pay && pay < tot - 0.005 && (pay > 0 || zeroOk) ? (d > 0 ? Math.min(d, pay) : pay) : d;
+  return { amt: amt, zeroOk: zeroOk, has: amt > 0 || zeroOk };
 }
 function pay3ShortPay(b, amt, why, opts) {
   if (!pay3Can(b))
@@ -141967,11 +142057,12 @@ function pay3ShortPay(b, amt, why, opts) {
     t = paid ? billPaidTxn(b) : null,
     a = t && (DB.accounts || []).find((x) => x.id === t.acct);
   if (null == amt || !why) {
-    const def = pay3Default(b) || "",
+    const S0 = pay3Start(b),
+      def = S0.has ? S0.amt : "",
       fl = billFlags(b).filter((f) => !/^Paid from /.test(f)),
       m = mbModal(
         `${pay3Label(b)} — ${esc(b.vendor)}`,
-        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `, and what arrived in good order on it comes to ${money2(pay3ArrivedLeft(b))} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""})` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${money(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
+        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `. ${esc(pay3ArrWords(b))}${pay3Arr(b).applied > 0.005 ? `; ${pay3M(pay3Arr(b).applied)} paid ahead came off this bill, so the receipt backs ${pay3M(pay3Arr(b).payable)} of the ${money(tot)} due` : ""}` : ""}${pay3AheadWords(b) ? `. ${esc(pay3AheadWords(b))}` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${pay3M(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${"" !== def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
         {
           submit: "Approve and Dispute",
           alt: opts && opts.billed ? { label: `Approve as Billed (${money(tot)})` } : null,
@@ -141998,12 +142089,13 @@ function pay3ShortPay(b, amt, why, opts) {
         out = m.querySelector("[data-pay3held]");
       inp.addEventListener("input", () => {
         const v = +inp.value || 0;
-        out.value = v > 0 && v < tot ? money(r2(tot - v)) : "";
+        out.value = (v > 0 || (S0.zeroOk && "" !== inp.value.trim())) && v < tot ? money(r2(tot - v)) : "";
       });
     } catch (e) {}
     return !1;
   }
-  if (!((amt = r2(+amt || 0)) > 0) || amt >= tot - 0.005)
+  // $0 more is an answer only when a prepayment taken off the bill already covers what arrived
+  if ((amt = r2(+amt || 0)) < 0 || (!(amt > 0) && !pay3Start(b).zeroOk) || amt >= tot - 0.005)
     return toast(`Approve an amount above $0 and below ${money(tot)} — the rest is what is disputed`), !1;
   const held = r2(tot - amt);
   if (
@@ -182093,7 +182185,13 @@ const PO_DROP = { curb: "Curb or Shipped", inside: "Carried Inside" },
   poDropAt = (po) => (po && PO_DROP[po.dropAt] ? po.dropAt : ""),
   // the order's delivery as the papers read it: as said on the order, else guessed from its lines
   poDropOf = (po) => (poDropAt(po) ? { at: po.dropAt, guessed: !1, sure: !0 } : Object.assign({ guessed: !0 }, poDropGuessOf(((po && po.lines) || []).map((l) => `${l.item || ""} ${l.desc || ""}`).join(" ; ")))),
-  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase())));
+  // Ship To is read before anything is guessed from the lines (the coordinator's review, 11-12: an appliance ordered to
+  // the Office was held for a certificate). Only a delivery to the job's own address can be carried inside the client's
+  // home: the office, the shop, the warehouse, will-call, held at the vendor or any other address is not their site,
+  // whatever the items are. The seed and the restock write "Office" and "Warehouse" as words, so the test is "not the
+  // job site", never a list of the places that are not.
+  poShipOff = (po) => !["", "site", "job site"].includes(String((po && po.shipTo) || "site").trim().toLowerCase()),
+  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !poShipOff(po)));
 // a vendor's open orders that bring them on site (the papers' rule, for every reader)
 function vendorOnSitePOs(name, exceptId) {
   const n = String(name || "").toLowerCase();
@@ -182218,7 +182316,7 @@ if ("function" == typeof renderPODoc) {
           // where it is delivered rules the papers (a COI only for who comes inside): the choice sits on the order, set
           // or not, while it can still change
           D = poDropOf(po),
-          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
+          dr = ["subcontract", "service"].includes(po.type) || poShipOff(po) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
           w =
             dr +
             P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
@@ -182958,6 +183056,12 @@ document.addEventListener("click", (e) => {
 //   stays open on a memo for the cracked tile);
 // - an audit row on every apply.
 // A memo that cannot apply stays unapplied and says why. Returns { ok, msg }.
+// the held part of a short-paid bill was already paid (the bill was paid in full before the dispute, or since): its
+// credit is money coming back, so it is the Owner's to approve (Do Now) and a refund due under Owed Back
+function pay3HeldPaid(b) {
+  const s = b && b.short;
+  return !!s && (!!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005));
+}
 function pay3MemoApply(c, b, amount, memoNo) {
   const by = (currentUser() || {}).name || role(),
     amt = r2(+amount || 0),
@@ -182976,7 +183080,7 @@ function pay3MemoApply(c, b, amount, memoNo) {
   const held = r2(+s.held || 0);
   if (amt < held - 1) return { ok: !1, msg: `${money2(amt)} is less than the ${money2(held)} in dispute on ${b.number}: the Owner decides the rest on the bill` };
   const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
-    paidHeld = !!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005),
+    paidHeld = pay3HeldPaid(b),
     over = r2(Math.max(0, amt - held));
   // the vendor credit on the returns ledger: what is over the dispute, or all of it on a paid bill (a refund due)
   const owed = (v, why) => {
@@ -190372,6 +190476,8 @@ function nyhApplyMail(c, pr) {
   } catch (e) {
     return void toast("Could not apply: " + (e.message || e));
   }
+  // a credit memo that could not apply (no number, less than the dispute, the wrong seat) stays unapplied and says why
+  if (!did && !pr.applied && pr.waits) return "dispute-credit" !== pr.kind && toast(pr.waits), save(), void render();
   pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
   nyhMarkCopies(c, pr, did);
   save(), render();
@@ -192140,7 +192246,20 @@ function lkDisputeFor(c, low, amt) {
     return base.apply(this, arguments);
   };
 }
-"undefined" != typeof NYH_MAIL && ((NYH_MAIL["dispute-credit"] = () => "coord"), (NYH_VERB["dispute-credit"] = "Apply"));
+// Whose hand: the coordinator who claimed it applies a memo that only lowers what is still to be paid (J7, 11-06). On a
+// bill already paid, the held part included, the credit is money the vendor owes back: that one is the Owner's, on the
+// dispute's own row below with one Approve (leaks2 [8]; the 11-06 route sent every memo to the coordinator, and the
+// dispute's row stood aside for her mail row, so the Owner had no row at all). One owner per memo, never two rows.
+const lkMemoOwners = (pr) => {
+  const b = pr && pr.billId && (DB.bills || []).find((x) => x.id === pr.billId);
+  return !!(b && b.short && "open" === b.short.state && pay3HeldPaid(b));
+};
+if ("undefined" != typeof NYH_MAIL) {
+  const credit = NYH_MAIL.credit;
+  NYH_MAIL["dispute-credit"] = (c, pr) => (lkMemoOwners(pr) ? "" : "coord");
+  NYH_MAIL.credit = (c, pr) => (lkMemoOwners(pr) ? "" : credit(c, pr));
+  NYH_VERB["dispute-credit"] = "Apply";
+}
 // read on the mail as what it is: a credit memo
 "object" == typeof CM_CATS && (CM_CATS["dispute-credit"] = CM_CATS["dispute-credit"] || "Credit memo");
 // a dispute still open near the month's end, or two weeks old: the Owner settles it (accept the difference with
@@ -192165,7 +192284,7 @@ function lkDisputeFor(c, low, amt) {
           // a memo that came before the dispute (read as a credit on the bill) is that same mail row: it now offers to apply
           const mr = memo && "credit" === memo.pr.kind && out.find((x) => "mail" === x.kind && x.commId === memo.c.id && "credit" === x.pkind);
           if (mr) return void (mr.title = `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now`);
-          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind && x.commId === memo.c.id)) return;
           if (memo)
             return void out.push({
               key: key,
@@ -192173,7 +192292,8 @@ function lkDisputeFor(c, low, amt) {
               kind: "dispute",
               pkind: "dispute-credit",
               title: "credit" === memo.pr.kind ? `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now` : memo.pr.summary,
-              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
+              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${pay3HeldPaid(b) ? `closes: ${b.number} was already paid, so it is a refund due from ${b.vendor} under Owed Back` : "closes"}`,
+              moneyNow: !0,
               amount: +b.short.held,
               verb: "Approve",
               no: "",
@@ -192474,8 +192594,9 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
-    ${mbF("Delivery", `<select data-f="dropAt">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
+    ${mbF("Delivery", `<select data-f="dropAt" data-guess="${poDropGuess(r)}">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
     <div class="note bad small fl-paper" role="alert" hidden></div>
+    <div class="fl-dropwhy" hidden>${mbF("Why Curb or Shipped", `<input data-f="dropWhy" placeholder="e.g. they confirmed a curbside drop; our crew carries it in">`)}</div>
     ${ovL ? `<div class="note bad small fl-over" role="alert" data-left="${ovL.left}" data-budget="${ovL.budget}" data-name="${esc(ovL.name)}" hidden><div class="fl-over-t"></div>${mbF("Why Over the Line", `<input data-f="overWhy" placeholder="e.g. the vendor's price rose; a change order follows">`)}</div>` : ""}
     ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
@@ -192490,6 +192611,7 @@ function buyOrderDialog(o) {
         if (!fromQuote && !poVendorReal(f.vendor)) return toast("Choose the supplier — a vendor on file"), !1;
         // a sender not on file has no certificate of insurance: carried inside, it waits for one (Alan, 10-25)
         if (fromQuote && "inside" === f.dropAt) return toast(FL_QUOTE_INSIDE), !1;
+        if (flDropWhyNeeded(f.vendor, f.dropAt, poDropGuess(r)) && !(f.dropWhy && f.dropWhy.trim().length >= 8)) return toast(FL_DROP_WHY), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
@@ -192516,6 +192638,28 @@ function buyOrderDialog(o) {
   );
 }
 const FL_QUOTE_INSIDE = "Not on file yet, so no certificate of insurance: a delivery carried inside needs one before the order. If it drops at the curb or ships, choose Curb or Shipped";
+// The certificate stop on the Order sheet (Alan, 10-25) is never a dead end (the 11-07 month: the radiant mats and the
+// slab sat on "Issue PO" with a toast and no next step). The note under Delivery says the stop and offers the same
+// one tap as the order page's Change: Set Curb or Shipped, with the reason. The reason is asked whenever a delivery
+// guessed as carried inside is set to the curb for a supplier with no current certificate (or not on file yet); it
+// goes on the order and in its audit row, because it is the step that lifts the gate. Goods that truly come inside
+// (a slab the yard installs) still wait for the certificate: the note says so.
+const FL_DROP_WHY = "Say how you know it drops at the curb or ships: a sentence, so the audit trail says why no certificate is needed",
+  flDropWhyNeeded = (vn, dz, guess) => {
+    if ("curb" !== dz || "inside" !== guess) return !1;
+    if ("__quote__" === vn) return !0;
+    const v = vn && poVendorReal(vn);
+    return !!v && (!v.insuranceExp || v.insuranceExp < today());
+  };
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest && e.target.closest("[data-fldropcurb]"),
+    root = b && b.closest("#mbm"),
+    dz = root && root.querySelector('[data-f="dropAt"]');
+  if (!dz) return;
+  e.preventDefault(), (dz.value = "curb"), flSheetChecks(root);
+  const w = root.querySelector('[data-f="dropWhy"]');
+  w && w.focus();
+});
 // The Order sheet says the vendor's papers and the line overage as they are entered, not after Issue PO.
 function flSheetChecks(root) {
   const q = (k) => root.querySelector(`[data-f="${k}"]`),
@@ -192528,8 +192672,14 @@ function flSheetChecks(root) {
   if (paper) {
     const dz = q("dropAt") ? q("dropAt").value : "",
       P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", dropAt: dz, lines: [{ qty: qty, price: price }] }) : "__quote__" === vn && "inside" === dz ? { stop: [FL_QUOTE_INSIDE], warn: [] } : { stop: [], warn: [] },
-      t = P.stop.concat(P.warn);
+      t = P.stop.concat(P.warn),
+      guess = (q("dropAt") && q("dropAt").dataset.guess) || "",
+      // the one tap is offered only when it lifts the stop: carried inside now, and nothing stops the same order at the curb
+      lifts = "inside" === dz && P.stop.length && ("__quote__" === vn || !poPaper({ id: "", vendor: vn, type: "materials", dropAt: "curb", lines: [{ qty: qty, price: price }] }).stop.length),
+      why = root.querySelector(".fl-dropwhy");
     (paper.hidden = !t.length), (paper.className = `note small fl-paper ${P.stop.length ? "bad" : "warn"}`), (paper.textContent = t.join(". ") + (t.length ? "." : ""));
+    lifts && paper.insertAdjacentHTML("beforeend", ` <span class="fl-dropfix">If the vendor installs it or carries it inside, the order waits for their certificate. If it drops at the curb or ships, nobody comes inside: <button type="button" class="btn sm" data-fldropcurb>Set Curb or Shipped</button></span>`);
+    why && (why.hidden = !flDropWhyNeeded(vn, dz, guess));
   }
   if (ov) {
     const over = r2(qty * price - +ov.dataset.left);
@@ -192604,6 +192754,13 @@ function flIssueOrder(r, v, f, tk) {
   try {
     audit("po", po.id, "ordered-from-line", "", `${po.number} ${v.name} ${money(poTotal(po).total)}`, r.name);
   } catch (e) {}
+  // guessed carried inside, ordered as a curb drop from a supplier with no current certificate: who said so, and why
+  if ("curb" === po.dropAt && "inside" === poDropGuess(r) && f.dropWhy && String(f.dropWhy).trim()) {
+    po.dropWhy = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: String(f.dropWhy).trim() };
+    try {
+      audit("po", po.id, "delivery", "inside (guessed)", "curb", `${PO_DROP.curb}, set on the order sheet: ${po.dropWhy.why}`);
+    } catch (e) {}
+  }
   const keep = S;
   S = p;
   try {
@@ -200090,6 +200247,40 @@ function billHoldSheet(b, kind) {
 // Approval, Approvals, the Payment Check), not only inside its drawer (S1 fix, owner review 2026-10-21).
 function billHeld(b) {
   return !!(b && b.onHold && "open" === b.onHold.state);
+}
+// The bill's Controls say the third leg and the money ahead, whatever its lines are tied to (a bill entered with one
+// line and no PO line read "the delivery and this invoice agree"); its status says the Owner is next.
+{
+  const base = billFlags;
+  billFlags = function (b) {
+    const f = base.apply(this, arguments);
+    try {
+      if (b && b.poId && Array.isArray(f) && !b.short && !["void", "rejected", "paid", "verified"].includes(b.status)) {
+        const A = pay3Arr(b);
+        A && A.over > 1 && f.push(pay3ArrWords(b));
+        const aw = pay3AheadWords(b);
+        aw && f.push(aw);
+      }
+    } catch (e) {
+      console.warn("arrived flags", e);
+    }
+    return f;
+  };
+}
+{
+  const base = billState;
+  billState = function (b) {
+    const S = base.apply(this, arguments);
+    try {
+      if (b && b.poId && !b.short && ["submitted", "pm-approved"].includes(b.status) && S && !S.held) {
+        const A = pay3Arr(b),
+          over = A && A.over > 1,
+          ahead = !!pay3AheadWords(b);
+        if (over || ahead) return Object.assign({}, S, { cls: "warn", exc: !0, text: `${"submitted" === b.status ? "Awaiting PM review, then the Owner" : "Awaiting Owner approval"}: ${over ? "billed over what arrived" : "paid ahead of delivery"}` });
+      }
+    } catch (e) {}
+    return S;
+  };
 }
 function billHeldText(b) {
   return `Held by ${b.onHold.by}: ${String(b.onHold.why || "").length > 60 ? String(b.onHold.why).slice(0, 57).replace(/\s+\S*$/, "") + "…" : b.onHold.why}`;

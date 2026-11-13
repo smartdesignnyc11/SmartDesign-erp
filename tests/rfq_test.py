@@ -427,7 +427,7 @@ async def main():
             await pg.locator(f'#mbm [data-f="{k}"]').check()
         await ok_modal(pg, 400)
         # a second person approves a new vendor: never the person who added it
-        mid = await pg.evaluate("() => poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' })")
+        mid = await pg.evaluate("() => poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10', dropAt: 'curb' })")
         C.ok(any('second person' in x for x in mid), f'until a second person approves, the vendor gets no PO ({mid})')
         await pg.locator('[data-rfqvet]').first.click(); await pg.wait_for_timeout(300)
         await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
@@ -437,9 +437,11 @@ async def main():
         await pg.evaluate("() => rfqVetSheet(DB.vendors.find(v => v.name === 'Tri-State Connector Supply').id)"); await pg.wait_for_timeout(300)
         await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
         await pg.evaluate("() => { signIn('u_chen'); render(); }"); await pg.wait_for_timeout(200)
-        vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
+        vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10', dropAt: 'curb' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
         # since the chain lane, poValid also refuses a line with no estimate, change-order or overhead link; this
-        # synthetic PO has none, so only that reason may remain: vetting no longer stops it
+        # synthetic PO has none, so only that reason may remain: vetting no longer stops it. The order is a curb drop
+        # (dropAt: 'curb', as purchasing_test plants it): with no drop said, the lines are guessed as carried inside and
+        # the certificate gate (Alan, 10-25) rightly stops a vendor with no COI on file; that gate is not this check's
         C.ok(not [x for x in vv['r'] if 'not linked' not in x] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; vetting no longer stops the PO ({vv})')
         # New PO never creates a vendor silently: an unknown name stops it with New Vendor…, which adds a draft
         await pg.evaluate("() => { setCurrent('p121'); view = 'po'; render(); ctPOPicker('p121', '*'); }"); await pg.wait_for_timeout(400)
