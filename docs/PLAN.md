@@ -2,13 +2,60 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
+Last updated 2026-11-13, 00:10 UTC: the 11-12 all-out hour (the section below). Fifteen expert reports are in, eleven fix lanes are building, and nothing from the hour is merged or live. Before that: Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
 
 ## 0. Usage rule (Alan)
 - **10-25: at 75% of the week; Alan: "I don't want to wait till Thursday."** Lean order to Thursday: merge and deploy the wrapping lanes; Projects census plus the PM and IA walk (est. 6%); the Projects mockup (est. 3%); a lean Pilot 3, PM and coordinator, day 1 only (est. 10–12%). **Changed 10-25:** Alan said yes to the Today mockups; the Today build lane (est. 8%) runs this week. **Then Alan: the pilot is very important.** Pilot 3 day 1 (PM and coordinator) runs this week too, on a pinned build with navigation and Buy Board; the separate Projects expert walk folds into it. Estimates assume 1M tokens is about 8% (not measured; checked with Alan after the walk).
 - Warn before any heavy step.
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
+
+## The 11-12 all-out hour (Alan): expert reviews, then eleven lanes
+Records: asks and warnings in `docs/DECISIONS.md` (11-12); every finding in `docs/BACKLOG.md` §11; the board and the merge plan in `docs/LANES.md`; the retro in `docs/PROCESS.md`.
+
+**What the experts found (15 reports, 124 findings: S1 28, S2 30, S3 66).**
+- 23 of the 28 S1s are on the LIVE build. 11 of them came in with features released on 11-06 and 11-07 that no expert had worked through the screens.
+- Seat scores, each on the part of its brief it reached: PM 7, coordinator 6, foreman 6, crew and driver 6, designer 6, founder 6, accounting 5. Round 4 was 7.5 to 8, so the bar of 9 is further away than the last grades said.
+- Every report lists what it did not reach (BACKLOG §11, "Not walked"). Nobody reached the Controller's job pages or quantity on progress bills, both released 11-09.
+
+**Standing warnings to Alan until the fixes are live** (DECISIONS 11-12):
+- When recording a client payment, check the bank line the sheet has already chosen.
+- Do not pay from automatic clock punches.
+- Recommended: he tells Chen and Jeanette the same; both have logins since 11-09.
+
+**Running (checked in the worktrees 11-13, 00:01 UTC; nothing reviewed, nothing merged).**
+| Lane | What it fixes | State |
+|---|---|---|
+| R | Record Payment reusing a matched deposit. LIVE, top priority | Committed |
+| S | Sync bringing back deleted lines; Clear Everything and the audit head | Committed |
+| G | Hold at What Arrived showing $0; a bill over arrival not reaching the Owner; paid ahead of delivery; the credit memo Approve on a paid bill; the rfq pin; the two month misses; office ship-to and the certificate rule | Committed |
+| C | Automatic clock-in (one switch, punches visible, the overlap pick); the foreman's hand-off to crew; receiving for the foreman and, from wave 3, the driver | Building |
+| T | The item table: shared lines counted once, "the bill" with no bill, unit prices, statuses, an order from a row, the sort, sheet import headers | Committed |
+| F | One EAC and margin per job; the billed-ahead names; purchasing exceptions with nobody in the coordinator seat; a job with cost and no contract | Building |
+| A | Ask's answers to the owner's plain questions, and the question bank | Started, nothing written |
+| B | Billable expenses on invoices, the billed-ahead reason, the deposit line | Started, nothing written |
+| M | Alan's 11-12 ask: a module's name opens its overview page | Committed |
+| P | Estimate section headings and subtotals; Excluded and TBD rows; an HVAC cost code | Committed |
+| D2 | Documents first: every S1 and S2 of its review | Committed; not released |
+
+**What ships, in what order.**
+1. **R, first and alone:** review, fast tier, the billing expert's walk on both devices, one release with nothing else in it.
+2. **Then S, G, C, T and F, each as it goes green:** one at a time, each on top of the last. Green means reviewed, passing on the merged head, and walked by the seat's expert.
+3. **A, B, M and P:** not placed by the main session yet. Recommended: A and B after F; M after F; P after a money review and before documents first.
+4. **Documents first (D2) last:** only after all its S1s are fixed and its four experts have walked it again.
+5. One full tier per deploy batch on the merged head.
+
+**Next, with no lane yet.**
+- Two S1s, both the designer's: Today shows overdue decisions as "NO DATE"; selections reach the client and get bought with no estimate line.
+- 8 S2 and 59 S3 in BACKLOG §11. The first three after the S1s:
+  1. Every job gets a site location, filled from its address. Automatic clock-in works on one demo job only, and the eleven real jobs may have none.
+  2. Done on a task offers the camera, and a task that needs a photo cannot close without one. Three experts hit it.
+  3. The PM's one table of his jobs' money (budget, committed, actual, forecast, over). The PM now buys and owns the job's money, and the company budget view is closed to him.
+- The seats' unwalked work (BACKLOG §11, "Not walked"), starting with accounting: its second pass did not run.
+
+**Waiting on Alan** (DECISIONS, top two rows): the release rule (no release without the seat's expert walking it; recommended yes), and who owns purchasing exceptions with the coordinator seat empty (recommended: the job's PM, then the owner; lane F built that).
+
+**Not measured.** Journeys passing per device (last 1 of 10 on 11-07), and what this hour used. Eleven lanes, their tiers and a second expert walk per seat is a big spend: the main session gives Alan the number before the full tiers run.
 
 ## Every menu through the ten questions (Alan, 11-03 night: "Keep doing this and updating the site till it's done")
 All modules are on the canvas: https://claude.ai/artifact/VJDX1ffw2nmGuyz4qGY6Gm (version 21, below the job structure). The bar is docs/mockups/QUESTIONS.md. Each module is mocked up first, reviewed against the ten questions, then built and deployed once it passes the full tier. No approvals are asked overnight; real-people actions still wait for Alan.
@@ -21,12 +68,12 @@ All modules are on the canvas: https://claude.ai/artifact/VJDX1ffw2nmGuyz4qGY6Gm
 
 ## Alan's 11-06 asks (18:05): the purchasing item table and documents first
 Full spec additions are in `docs/DECISIONS.md`, 11-06 18:05.
-- **Purchasing item table: Running (lane P5).**
+- **Purchasing item table: Live 11-07 (a504d66). Five S1s found on it on 11-12: lane T, the section above.**
   - Alan's eleven columns, one row per item, across pricing, purchased and delivered. Invoice is the FM package, the client's materials invoice.
   - It is a column view of the Buy Board's one list (`buyList`, status from `puNeedStatus`). No new store.
   - Phone cards, a client FF&E schedule export, and Chen's sheets imported once.
   - It holds off `buyboard.js`, `purchasing.js` and `buyList` until P2 merges (integ17).
-- **Documents first: Running (lane D).**
+- **Documents first: held back 11-07; fix round D2 running 11-12, the section above.**
   - Tapping an estimate, CO or invoice on Contract and Billing or Accounting › Billing opens the client's document, with the actions on it.
   - Edit on a posted document is a linked void and re-issue, or a change order.
   - A credit memo applies to one invoice, with tax and SOV reversed.
@@ -491,6 +538,8 @@ What remains, in order. Usage is a share of one week's allowance.
 ## 5. Waiting on Alan
 | Asked | Decision or action | Default until then |
 |---|---|---|
+| 2026-11-12 | A release rule: no release without the seat's expert doing the changed work through the screens, on both devices (the 11-12 retro in `docs/PROCESS.md`) | Recommended yes, for any release touching money, hours or a client document; he can waive it for a named release. Applied to the 11-12 lanes meanwhile |
+| 2026-11-12 | Who owns purchasing exceptions now that nobody holds the Coordinator seat | The job's PM, then the owner (lane F's `seatFor`) |
 | 2026-10-11 | Which email address the vendor follow-ups come from (recommend purchasing@ on the firm's domain) | Outbox only (demo) |
 | 2026-10-11 | Who the accountant is. To confirm with them: use tax; the overhead method; Mercer & Bond development costs capitalised; revenue recognition for tax; stock held as inventory | The defaults in §1.13 item 8, labelled "confirm with your accountant" |
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |
