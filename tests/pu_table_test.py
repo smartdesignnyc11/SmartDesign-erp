@@ -42,6 +42,8 @@ The coordinator's wave-2 review (11-12), each a class:
            description column is refused with the column that is missing and the ones found
   BAR      a pick that cannot be quoted or ordered (two jobs, a subcontract scope with a material) disables the button
            and says why, before the click
+  UNPRICED an estimate line marked Excluded or TBD (lineUnpriced) is not offered to buy: not on Needs, not in the Table,
+           not in Order From Lines, not in the line picker
   ORDER    an order started from a row carries the row's line, or asks for the line or the bill-back before the draft;
            a draft with an unlinked line is never a dead end: the refusal and the order's header both carry Link the Line
 Usage: python3 pu_table_test.py [--desktop|--phone] [--only TOGGLE,FILL,...] [--shots]
@@ -736,6 +738,38 @@ async def s_bar(pg, c, dev):
     await reset(pg)
 
 
+async def s_unpriced(pg, c, dev):
+    """The estimate-layout lane (11-13): a line marked Excluded or TBD has no price, so nothing is bought against it."""
+    mark = """on => { const c = DB.clients.find(x => (x.estimates || []).some(e => e.id === 'es1')), e = c.estimates.find(x => x.id === 'es1'), co = (c.changeOrders || []).find(x => x.id === 'co1');
+      const a = e.lines.find(l => l.id === 'l11'), b = co && co.lines.find(l => l.id === 'l3'); on ? (a.excluded = true, b && (b.tbd = true)) : (delete a.excluded, b && delete b.tbd);
+      try { typeof dataBump === 'function' && dataBump(); } catch (x) {} render(); return [a.item, b ? b.item : '']; }"""
+    keys = ['estimate:es1:l11', 'co:co1:l3']
+    seen = """keys => ({ needs: buyList('').filter(r => keys.includes(r.key) && ['line', 'sub'].includes(r.kind)).length, table: psItems('').filter(x => keys.includes(x.r.key) && ['line', 'sub'].includes(x.kind)).length })"""
+    await board(pg)
+    before = await js(pg, seen, keys, 0)
+    names = await js(pg, mark, True, 500)
+    after = await js(pg, seen, keys, 0)
+    R = await rows(pg)
+    shown = [r['cells'].get('desc', '')[:30] for r in R if any(n and n in r['cells'].get('desc', '') for n in names)]
+    c.ok(before['needs'] == 2 and before['table'] == 2 and after == {'needs': 0, 'table': 0} and not shown, f'UNPRICED {dev}: an Excluded and a TBD line leave Needs and the Table ({before} to {after}; still shown {shown})')
+    # Order From Lines
+    await js(pg, "() => ctPOPicker('p121', '*')", None, 700)
+    pick = await js(pg, "() => ((document.querySelector('#mbm table.ctp') || document.querySelector('#mbm .mbm-bd') || {}).innerText || '').replace(/\\s+/g, ' ')", None, 0)
+    c.ok(pick and 'Demolition' in pick and not any(n and n in pick for n in names), f'UNPRICED {dev}: Order From Lines lists the job\'s lines without them ({[n for n in names if n and n in pick]}; {len(pick)} chars)')
+    await reset(pg)
+    # the line picker a need without a line opens, and the order's own line picker
+    await board(pg)
+    link = await js(pg, """keys => { const r = buyList('').find(x => x.kind === 'material' && x.p.id === 'p121' && !x.ordered); bbLinkLine(r);
+      const L = [...document.querySelectorAll('#mbm [data-bbl]')].map(e => e.dataset.bbl); mbCloseModal();
+      const po = DB.pos.find(p => p.projectId === 'p121'), h = polPickerHtml(po, po.lines[0]);
+      return { n: L.length, bad: L.filter(k => keys.includes(k)), pol: keys.filter(k => h.includes('data-polk="' + k + '"')), poln: (h.match(/data-polk="(estimate|co):/g) || []).length }; }""", keys, 200)
+    c.ok(link['n'] > 3 and not link['bad'] and link['poln'] > 3 and not link['pol'], f'UNPRICED {dev}: neither line picker offers them ({link})')
+    await js(pg, mark, False, 400)
+    back = await js(pg, seen, keys, 0)
+    c.ok(back == before, f'UNPRICED {dev}: unmarked, they are offered again ({back})')
+    await reset(pg)
+
+
 async def s_open(pg, c, dev):
     await board(pg)
     po = await js(pg, "() => DB.pos.find(p => p.number === 'PO-2026-048').id", None, 0)
@@ -900,7 +934,7 @@ async def run(dev):
             pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
         await sign_in(pg, 'u_chen')
-        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('SHARE', s_share), ('SOURCE', s_source), ('TRUTH', s_truth), ('DATE', s_date), ('LEFT', s_left), ('OPEN', s_open), ('PICK', s_pick), ('BAR', s_bar)]
+        steps = [('TOGGLE', s_toggle), ('FILL', s_fill), ('INVOICE', s_invoice), ('STATUS', s_status), ('SORT', s_sort), ('FILTER', s_filter), ('TIE', s_tie), ('SHARE', s_share), ('SOURCE', s_source), ('TRUTH', s_truth), ('DATE', s_date), ('LEFT', s_left), ('UNPRICED', s_unpriced), ('OPEN', s_open), ('PICK', s_pick), ('BAR', s_bar)]
         steps += [('EXPORT', s_export), ('IMPORT', s_import), ('HEADERS', s_headers), ('SCAN', s_scan)] if not phone else [('PHONE', s_phone)]
         steps += [('ORDER', s_order)]   # last: it drafts orders
         for k, fn in steps:

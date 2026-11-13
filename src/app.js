@@ -52250,7 +52250,8 @@ function ctPOPicker(projectId, preferId, preKey) {
       const jobName = (DB.projects.find((x) => x.id === projectId) || { project: {} }).project.name || "";
       return `<div class="f"><label>From${jobName ? ` · <span class="muted">buying for ${esc(jobName)}</span>` : ""}</label><select id="ctp-doc"><option value="*" ${"*" === docId ? "selected" : ""}>All estimates, change orders and invoices on this job (${docs.length})</option>${docs.map((x) => `<option value="${x.id}" ${x.id === docId ? "selected" : ""}>${esc(x.number)} · ${esc(x.title || "")} · ${x.status}</option>`).join("")}</select></div><datalist id="ct-vendors">${vendors.map((v) => `<option value="${esc(v)}">`).join("")}</datalist>\n      <div class="small muted" style="margin-bottom:6px">Tick a whole line (one PO line for the sub or supplier) or individual items from its item list. One purchase order is created per vendor, in draft, linked back to the line so costs land on it.</div>\n      <div class="tw" style="max-height:52vh;overflow:auto"><table class="t ctp"><thead><tr><th></th><th>Line / item</th><th style="width:64px">Qty</th><th style="width:54px">Unit</th><th style="width:96px">Unit cost</th><th>Vendor</th><th>PO</th></tr></thead><tbody>${shown
         .map((d) => {
-          const lines = ctOrdered(d);
+          // an Excluded or TBD line has no price: nothing is ordered against it (lineUnpriced)
+          const lines = ctOrdered(d).filter((l) => !lineUnpriced(l));
           return (
             ("*" === docId
               ? `<tr class="ctp-doc"><td colspan="7"><b>${esc(d.number)}</b> · ${esc(d.title || "")} <span class="small muted">${"co" === d.type ? "change order" : d.type} · ${d.status}</span></td></tr>`
@@ -194172,7 +194173,7 @@ function invLineModal(invId, lineId) {
 }
 // ---- the picker: search the job's estimate and change-order lines, billed back, or an overhead category
 function polPickerHtml(po, l) {
-  const opts = po.projectId ? lineOptions(po.projectId) : [],
+  const opts = po.projectId ? lineOptions(po.projectId).filter((o) => !lineUnpriced(o.line)) : [],
     cur = l.billable ? "rebill" : l.ohCat ? "oh:" + l.ohCat : l.line || "",
     opt = (k, title, sub, q) =>
       `<button type="button" class="pol-opt${cur === k ? " on" : ""}" data-polk="${esc(k)}" data-q="${esc(String(q || title).toLowerCase())}"><b>${title}</b>${sub ? `<span class="small muted">${sub}</span>` : ""}</button>`;

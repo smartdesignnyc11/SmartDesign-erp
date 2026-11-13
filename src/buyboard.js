@@ -66,6 +66,9 @@ const BB_BUYOUT_DAYS = 10;
 // An estimate or change-order line with something left to buy (src "line" or "co"): the line's material portion when
 // the line carries one (rfqMatBudget), never its labour; or a subcontract scope to buy out (kind "sub").
 function bbLineNeed(p, c, d, l, key, src) {
+  // an Excluded or TBD line (lineUnpriced, the estimate layout) has no price: it is not a need, so it is on neither the
+  // Buy Board nor its Table
+  if ("function" == typeof lineUnpriced && lineUnpriced(l)) return null;
   const f = lineFin(key);
   if (!f) return null;
   // what is left is the line's one left (lineCommitment, src/app.js): draft orders count, so a drafted buy is not bought
@@ -767,6 +770,24 @@ function bbAskLine(r, R) {
     },
     done: (key) => ((r.lineKey = key), go()),
   });
+}
+// Purchasing never offers an Excluded or TBD line (lineUnpriced): not in the lines a request for quote or a need's line
+// picker reads (poLineOptions, through rfqLineSources), and not as an order line's guessed link (polGuess). Order From
+// Lines (ctPOPicker) and the order's own picker (polPickerHtml) leave them out in src/app.js.
+if ("function" == typeof poLineOptions && "function" == typeof lineUnpriced) {
+  const base = poLineOptions;
+  poLineOptions = function () {
+    const out = base.apply(this, arguments);
+    return Array.isArray(out) ? out.filter((o) => !(o && o.line && lineUnpriced(o.line))) : out;
+  };
+}
+if ("function" == typeof polGuess && "function" == typeof lineUnpriced) {
+  const base = polGuess;
+  polGuess = function () {
+    const k = base.apply(this, arguments),
+      f = k ? findLine(k) : null;
+    return f && lineUnpriced(f.line) ? null : k;
+  };
 }
 if ("function" == typeof poLinkDefaults) {
   const base = poLinkDefaults;
