@@ -421,7 +421,9 @@ async def part_books(p, c):
             # as what the job's cost to date and committed hold beyond its lines and what is billed back.
             unlined = max(0, r2(x['actual'] + x['committed'] - x['rb'] - sum(l['actual'] + l['committed'] for l in x['lines'])))
             unlined = 0 if unlined < 0.01 * len(x['lines']) else unlined   # a cent a line of rounding is not a cost
-            eq(x['eac'], max(r2(sum(l['eac'] for l in x['lines']) + unlined), r2(x['actual'])), f'{pid} EAC = the lines\' EAC + cost on no estimate line')
+            # (each line rounds to the cent on its own, so what is left beyond them is good to a cent a line)
+            want = max(r2(sum(l['eac'] for l in x['lines']) + unlined), r2(x['actual']))
+            c.ok(abs(x['eac'] - want) <= 0.01 * len(x['lines']), f"{pid} EAC = the lines' EAC + cost on no estimate line: app {money(x['eac'])} vs recomputed {money(want)}")
         # money paid ahead (a prepayment not yet taken off a bill) is cost, not progress: procurement P0, 2026-10-25
         eq(x['earned'], r2(B.contract(pid) * r2(B.job_actual(pid) - B.prepaid_not_progress(pid)) / x['eac']), f'{pid} earned = contract × (cost less money paid ahead) ÷ EAC')
         eq(x['overUnder'], r2(B.billed_gross(pid) - x['earned']), f'{pid} WIP over/under = billed − earned')
