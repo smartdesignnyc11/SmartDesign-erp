@@ -224,7 +224,9 @@ async def phone(c, p):
         # two lines that can go on together (11-12: a pick the doors refuse, such as a subcontract scope with a material,
         # turns both buttons off and says why, so it has no blue; tests/pu_table_test.py BAR holds that)
         two = await pg.evaluate("""() => { const vis = [...document.querySelectorAll('#v-proc .bb-pick')].filter(x => x.getClientRects().length).map(x => x.dataset.bbpick),
-          L = buyList('').filter(r => vis.includes(r.id) && r.kind === 'material' && r.lineKey && !r.dec && !r.ordered); return L.filter(r => r.p.id === L[0].p.id).slice(0, 2).map(r => r.id); }""")
+          L = buyList('').filter(r => vis.includes(r.id));
+          for (const a of L) for (const b of L) if (a !== b && (!bbPickWhy([a, b], 'quote') || !bbPickWhy([a, b], 'order'))) return [a.id, b.id];
+          return []; }""")
         for i in two:
             await pg.locator(f'#v-proc .bb-pick[data-bbpick="{i}"]').first.click(); await pg.wait_for_timeout(250)
         bar = await pg.evaluate("() => { const b = document.querySelector('#v-proc .bb-bar'); return b ? { t: b.innerText.replace(/\\s+/g, ' '), prim: [...document.querySelectorAll('#v-proc .btn.primary')].filter(x => x.getClientRects().length).map(x => x.innerText.trim()) } : null; }")
