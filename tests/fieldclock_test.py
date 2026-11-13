@@ -252,7 +252,7 @@ async def s_overlap(pg, c):
     r = await pg.evaluate(PAIR, [base['id'], auto])
     await shot(pg, 'overlap_crew_closed')
     c.ok(r['weekPick'] and r['hoursPick'] and not r['approve'] and '1:00 PM' in ' '.join(r['hours']), f"overlap: closed, the pair still reads Pick One and not Approve ({r['hours']}, {r['approve']})")
-    c.ok('3 days' in r['week'], f"overlap: two punches on one day are one day worked ({r['week'][:80]!r})")
+    c.ok('4 days' in r['week'], f"overlap: two punches on one day are one day worked (8/31, 9/1, 9/2 and today) ({r['week'][:80]!r})")
     # Approve refuses, wherever it is pressed, and says why
     ST = "([a, b]) => [a, b].map(id => DB.time.find(t => t.id === id).status)"
     said = await pg.evaluate("id => { const why = timeApprove(DB.time.find(t => t.id === id), 'Angel'); return [why, (document.getElementById('toast') || {}).innerText || '']; }", base['id'])
