@@ -68,7 +68,12 @@ table, 21% on its tile and $388,888 on Projects). As the PM and the owner, for e
                           the Total row's Forecast and the rows' own sum), Projects and Ask are the job's one figure
                           (jobFin); cost on no estimate line is in it; the lines, the unlined cost and what is billed
                           back add up to the job's cost to date and committed; EAC = cost to date + committed + forecast
-                          to go (each line's budget left, never below zero); the PM's phone reads the same
+                          to go (each line's budget left, never below zero); the PM's phone reads the same.
+                          Once the PM reviews a job's cost to complete (done through the screen as u_alan, read as
+                          u_controller), the lines and the cost on no estimate line are the same records; the Budget rows
+                          still add up to its Total row, with no balancing row; and the estimate at completion is cost to
+                          date + the PM's figure, on its own named line (a controller review, F3: once reviewed, the
+                          unlined row read the old $5,098.77 double count with a -$38,902.32 balancing row)
   INV NO CONTRACT JOB     a job with no contract says "No contract yet" on Projects and shows its cost, never blanks; an
                           hour clocked to it is cost on its row; crew hours on its daily logs that no time entry
                           carries are named with their size
@@ -101,7 +106,7 @@ PINNED = {
                                  # possibly already paid (ap_maybe_paid) until a person confirms it with a reason
     'ap_maybe_paid':   9800,     # possibly already paid by an earlier bank line: held, not owed, not paid before approval
     # lane F (11-12, an approved design: one EAC for a job, cost on no estimate line included) moved these on purpose:
-    # 121 State's $1,466.05 of paint sits on a cost code no estimate line carries, and it is now in the estimate at
+    # 121 State's $1,466.05 (37.92 crew hours clocked to code 12, not paint bought) sits on a cost code no estimate line carries, and it is now in the estimate at
     # completion ($388,887.50 -> $390,353.55). Its cost basis falls and it earns $460.55 less: WIP over-billed, backlog and
     # 121's over-billing rise by $460.55; YTD income, net and safe to spend fall by it. Closed months are unchanged.
     'wip_over':        156735,   # net over-billing on the WIP schedule ($156,734.82; $156,274.27 before lane F; $154,741.80 before truthpct)
@@ -575,7 +580,7 @@ async def check_role(pg, R, uid):
         R.count('unmatched_n', S(s), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S(s), t, r'bank items? not yet matched — ' + MONEY)
         for j in ('121 State Street', '45 Cranberry St', '140 Prospect Place'):
-            R.money('wip_job:' + j, S(s), t, re.escape(j) + r'[^\n]* — ' + MONEY + r' invoiced ahead of the work', required=False)
+            R.money('wip_job:' + j, S(s), t, re.escape(j) + r'[^\n]* — Over-Billed \(WIP\) ' + MONEY, required=False)
         for k, pat in (('cash', r'[Cc]ash[^\n$]*' + MONEY), ('ar', r'[Rr]eceivable[^\n$]*' + MONEY), ('backlog', r'[Bb]acklog[^\n$]*' + MONEY),
                        ('net', r'[Nn]et (?:profit|income)[^\n$]*' + MONEY), ('safe', r'[Ss]afe to spend[^\n$]*' + MONEY),
                        ('rtb', r'(?:[Rr]eady to bill|earned and not billed|not yet invoiced)[^\n$]*' + MONEY),
@@ -1384,7 +1389,7 @@ INV_ONEJOB_JS = r"""
     const J = jobFin(p), nm = String(p.project.name).replace(/ —.*$/, '');
     const L = J.eacLines || [], U = J.eacUnlined || { actual: 0, committed: 0, total: 0, rows: [] }, rb = (J.byCode || []).find(x => x.code === 'RB') || {};
     const o = { id: p.id, job: nm, contract: J.contract, eac: J.eac, gp: J.estGPPct, actual: J.actual, committed: J.committed, lines: L.length,
-      reviewed: !!p.ctcReviewed, unlined: U.total, unlinedRows: (U.rows || []).map(r => r.name),
+      reviewed: !!p.ctcReviewed, ctc: +(p.ctc || 0), unlined: U.total, unlinedRows: (U.rows || []).map(r => r.name),
       tieA: Math.round((L.reduce((a, x) => a + x.actual, 0) + U.actual + (+rb.actual || 0)) * 100) / 100,
       tieC: Math.round((L.reduce((a, x) => a + x.committed, 0) + U.committed + (+rb.committed || 0)) * 100) / 100,
       lineEac: Math.round(L.reduce((a, x) => a + x.eac, 0) * 100) / 100, rebill: +J.rebillCost || 0,
@@ -1409,8 +1414,13 @@ INV_ONEJOB_JS = r"""
     o.rowsCommitted = Math.round(rows.reduce((a, e) => a + (+e.dataset.committed || 0), 0) * 100) / 100;
     // each row as printed: Forecast is never under Actual + Committed on the same row
     o.rowBad = rows.filter(e => (+e.dataset.forecast || 0) + 0.5 < (+e.dataset.actual || 0) + (+e.dataset.committed || 0)).map(e => e.dataset.jpline);
-    const tot = host && host.querySelector('#jp-eac');
+    // the Total row's Forecast (the rows' own sum) and the estimate at completion the Budget prints: the same cell until
+    // the PM reviews the cost to complete, then its own line under the Total
+    const tot = host && host.querySelector('#jp-btotal [data-total="forecast"]'), eacEl = host && host.querySelector('#jp-eac');
     o.totalForecast = tot ? num(tot.innerText) : null;
+    o.eacShown = eacEl ? num(eacEl.innerText) : null;
+    o.reviewLine = !!(host && host.querySelector('#jp-breview, #jp-btotal [id="jp-eac"]:not([data-total])'));
+    o.plugRows = rows.filter(e => !['__noline'].includes(e.dataset.jpline) && /^__/.test(e.dataset.jpline)).map(e => e.dataset.jpline);
     const nl = rows.find(e => e.dataset.jpline === '__noline');
     o.noline = nl ? Math.round(((+nl.dataset.actual || 0) + (+nl.dataset.committed || 0)) * 100) / 100 : 0;
     // Projects
@@ -1454,15 +1464,28 @@ async def check_onejob(p, R):
         if not ok: R.flag(key, surface, str(seen)[:400], expected)
         elif R.verbose: print('  ok', label(key), '|', surface, '|', str(seen)[:100])
     money0 = lambda v: '${:,.0f}'.format(round(v + 1e-9))
-    for uid, phone in (('u_alan', False), ('u_owner', False), ('u_alan', True)):
+    for uid, phone, review in (('u_alan', False, False), ('u_owner', False, False), ('u_alan', True, False), ('u_controller', False, True)):
         b, pg, errs = await open_app(p, phone)
+        who = uid + (' phone' if phone else '') + (" after the PM's review" if review else '')
+        if review:
+            # the PM reviews 121 State's cost to complete through the screen: Budget, Review Cost to Complete, a figure on
+            # the first cost code and nothing on the rest, Save (an invented figure, under the lines' own forecast)
+            await sign_in(pg, 'u_alan')
+            await pg.evaluate("() => { const p = DB.projects.find(x => /121 State/.test(x.project.name)); setCurrent(p.id); view = 'costs'; render(); }")
+            await pg.wait_for_timeout(300)
+            await pg.click('#btn-ctc')
+            await pg.wait_for_selector('#mbm [data-ctc]')
+            for i, el in enumerate(await pg.query_selector_all('#mbm [data-ctc]')):
+                await el.fill('250000' if i == 0 else '0')
+            await pg.click('#mbm #mbm-ok')
+            await pg.wait_for_timeout(300)
         await sign_in(pg, uid)
-        who = uid + (' phone' if phone else '')
         res = await pg.evaluate(js(INV_ONEJOB_JS))
         if isinstance(res, dict) and 'error' in res:
             R.flag('inv_oneeac', f'{who}: the one-job check could not run', res['error'][:300], 'it runs'); await b.close(); continue
-        read('inv_oneeac', f'{who}: the instrument reads every demo job', len(res) >= 4 and any(x['unlined'] > 0 for x in res) and any(x['rows'] > 5 for x in res),
-             [(x['job'], x['rows'], x['unlined']) for x in res], 'four jobs, one with cost on no estimate line, the Budget rows read')
+        read('inv_oneeac', f'{who}: the instrument reads every demo job', len(res) >= 4 and any(x['unlined'] > 0 for x in res) and any(x['rows'] > 5 for x in res)
+             and (not review or any(x['reviewed'] and x['unlined'] > 0 and x['rows'] > 5 for x in res)),
+             [(x['job'], x['rows'], x['unlined'], x['reviewed']) for x in res], 'four jobs, one with cost on no estimate line, the Budget rows read' + (", 121 State reviewed by the PM" if review else ''))
         for x in res:
             S = lambda name: f"{who} · {x['job']} · {name}"
             eac, gp = x['eac'], x['gp']
@@ -1477,6 +1500,10 @@ async def check_onejob(p, R):
                     want = max(x['lineEac'] + x['unlined'] + x['rebill'], x['actual'] + x['committed'])
                     read('inv_oneeac', S('EAC = each line at the greater of budget and actual + committed, plus cost on no line, plus billed back'),
                          abs(eac - want) < 0.05, f"{eac:,.2f}", f"{want:,.2f}")
+                else:
+                    # reviewed: the PM's cost to complete is the estimate at completion, never under cost to date + committed
+                    want = max(x['actual'] + x['committed'], x['actual'] + x['ctc'])
+                    read('inv_oneeac', S("reviewed: EAC = cost to date + the PM's cost to complete"), abs(eac - want) < 0.05, f"{eac:,.2f}", f"{want:,.2f}")
             # the ledger invariant: EAC = cost to date + committed + forecast to go, from the one function (jobFin); a job
             # with no lines, or a reviewed cost to complete, is never under its cost to date and committed
             read('inv_oneeac', S('EAC is never under cost to date + committed'), eac + 0.005 >= x['actual'] + x['committed'], f"{eac:,.2f}", f">= {x['actual'] + x['committed']:,.2f}")
@@ -1492,13 +1519,20 @@ async def check_onejob(p, R):
                 read('inv_oneeac', S('the margin printed is the margin of the EAC printed'), abs(round(100 * (x['contract'] - eac) / x['contract'] * 100) / 100 - gp) < 0.011 or x['rebill'] > 0,
                      f"{gp}%", f"(contract {x['contract']:,.0f} - EAC {eac:,.0f}) / contract")
             if x['rows']:
-                read('inv_oneeac', S("Budget rows' Forecast add up to the EAC"), abs(x['rowsForecast'] - eac) < 0.5, f"{x['rowsForecast']:,.2f}", f"{eac:,.2f}")
+                if not x['reviewed']:
+                    read('inv_oneeac', S("Budget rows' Forecast add up to the EAC"), abs(x['rowsForecast'] - eac) < 0.5, f"{x['rowsForecast']:,.2f}", f"{eac:,.2f}")
+                else:
+                    # the rows are the lines and the unlined cost, as before the review; the PM's figure is not a row
+                    want = x['lineEac'] + x['unlined'] + x['rebill']
+                    read('inv_oneeac', S("reviewed: Budget rows' Forecast are the lines' own and the cost on no line"), abs(x['rowsForecast'] - want) < 0.5, f"{x['rowsForecast']:,.2f}", f"{want:,.2f}")
+                read('inv_oneeac', S('no balancing row among the Budget rows'), not x['plugRows'], x['plugRows'], 'none')
+                read('inv_oneeac', S('Budget prints the estimate at completion'), x['eacShown'] is not None and abs(x['eacShown'] - round(eac)) <= 1 and (x['reviewLine'] or not x['reviewed']),
+                     f"{x['eacShown']} (its own line: {x['reviewLine']})", money0(eac) + (', on its own line under the Total' if x['reviewed'] else ''))
                 read('inv_oneeac', S("Budget rows' Actual and Committed add up to the job's"), abs(x['rowsActual'] - x['actual']) < 0.05 and abs(x['rowsCommitted'] - x['committed']) < 0.05,
                      f"actual {x['rowsActual']:,.2f}, committed {x['rowsCommitted']:,.2f}", f"{x['actual']:,.2f} and {x['committed']:,.2f}")
                 read('inv_oneeac', S('no Budget row forecasts less than its own actual + committed'), not x['rowBad'], x['rowBad'], 'none')
-                read('inv_oneeac', S('Not on an Estimate Line is the cost the EAC adds'), abs(x['noline'] - x['unlined']) < 0.5 or x['reviewed'], f"{x['noline']:,.2f}", f"{x['unlined']:,.2f}")
-                if not phone:
-                    read('inv_oneeac', S('Budget table, Total row Forecast'), x['totalForecast'] is not None and abs(x['totalForecast'] - round(eac)) <= 1, x['totalForecast'], money0(eac))
+                read('inv_oneeac', S('Not on an Estimate Line is the cost the EAC adds'), abs(x['noline'] - x['unlined']) < 0.5, f"{x['noline']:,.2f}", f"{x['unlined']:,.2f}")
+                read('inv_oneeac', S("Budget, Total row Forecast is the rows' sum"), x['totalForecast'] is not None and abs(x['totalForecast'] - round(x['rowsForecast'])) <= 1, x['totalForecast'], money0(x['rowsForecast']))
             if not phone and x['contract']:
                 read('inv_oneeac', S('Projects, EAC'), x['pjEac'] == money0(eac), x['pjEac'], money0(eac))
             if not phone and not x['contract']:

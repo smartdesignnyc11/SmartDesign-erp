@@ -69461,8 +69461,9 @@ const renderPortfolioBase_p6 = renderPortfolio;
               : "",
         },
         // A job with no contract says so (a PM review, S2-4: 206 Lenox read blank across Contract, Billed, Owed and EAC
-    // while its crew logged hours): the row is never blank where money is concerned.
-    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract warn">No contract yet</span>', text: "No contract yet", sort: 0 } },
+    // while its crew logged hours): the row is never blank where money is concerned. It states it, muted: the banner over
+    // the list (ovFillJobs) is the one flag, with its action (a controller review, F8: the job was flagged twice).
+    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract muted">No contract yet</span>', text: "No contract yet", sort: 0 } },
         { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
         { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
         {
@@ -112994,7 +112995,7 @@ const csEv = (label, text, go, ref) => ({
             over >= 5e3 &&
               out.push({
                 sev: 2,
-                title: `${n} — ${money(over)} invoiced ahead of the work`,
+                title: `${n} — Over-Billed (WIP) ${money(over)}: invoiced beyond what its cost has earned`,
                 why: `Invoiced ${money(f.billed)} against ${money(f.earned)} earned. Either the schedule of values is behind the work, or the billing ran ahead of it.`,
                 ev: [
                   csEv("Invoiced", money(f.billed), { view: "billing" }),
@@ -126047,9 +126048,9 @@ function finWipTable() {
       `<td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c ? w.c.name : "")}${w.contract ? "" : " · no contract — cost only"}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td>`;
   return "margin" === wipTab
     ? tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise each estimate and change-order line at the greater of its budget and actual + open POs. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise each estimate and change-order line at the greater of its budget and actual + open POs, plus all cost on no estimate line. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
     : tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? `<b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div>` : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money"><b>${T.contract ? Math.round(live.reduce((a, { w: w }) => a + w.contract * tpJobPct(w.p), 0) / T.contract) : 0}%</b><div class="small muted">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}% cost basis</div></td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % Complete is measured on site: each schedule-of-values line at the measured % of its tasks, weighted by its value. Cost Basis % = cost to date ÷ estimated total cost; it is the revenue basis, so Earned = contract × cost basis %. Estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? `<b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div>` : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money"><b>${T.contract ? Math.round(live.reduce((a, { w: w }) => a + w.contract * tpJobPct(w.p), 0) / T.contract) : 0}%</b><div class="small muted">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}% cost basis</div></td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % Complete is measured on site: each schedule-of-values line at the measured % of its tasks, weighted by its value. Cost Basis % = cost to date ÷ estimated total cost; it is the revenue basis, so Earned = contract × cost basis %. Estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed, plus all cost on no estimate line; a PM's reviewed cost to complete replaces it with cost to date + that review. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
 }
 if ("function" == typeof repWIP) {
   const repWIPBase_fin = repWIP;
@@ -131493,8 +131494,9 @@ function ovProjectCols() {
           : "",
     },
     // A job with no contract says so (a PM review, S2-4: 206 Lenox read blank across Contract, Billed, Owed and EAC
-    // while its crew logged hours): the row is never blank where money is concerned.
-    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract warn">No contract yet</span>', text: "No contract yet", sort: 0 } },
+    // while its crew logged hours): the row is never blank where money is concerned. It states it, muted: the banner over
+    // the list (ovFillJobs) is the one flag, with its action (a controller review, F8: the job was flagged twice).
+    { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || { html: '<span class="ov-nocontract muted">No contract yet</span>', text: "No contract yet", sort: 0 } },
     { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
     { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
     {
@@ -170768,9 +170770,17 @@ function jobFinEac(J, p) {
     if (!L.length) return null;
     // Cost on no estimate line is still cost: it is in the estimate at completion with the lines (a PM review, S1-1:
     // 121 State's tile and Projects read $388,888 while its Budget table added the unlined cost and read $393,986).
+    // A PM's reviewed cost to complete (p.ctcReviewed) replaces the roll-up as the job's estimate at completion, and
+    // nothing else: the lines and the unlined cost are the same records either way, so Budget, Ask and Reports read one
+    // set of rows whether or not the job was reviewed (a controller review, F3: once reviewed, Budget fell back to the
+    // old subtraction and read $5,099 on no line with a -$38,902 balancing row).
     const U = jobFinUnlined(J, L),
-      lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0) + U.total);
-    return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L, unlined: U };
+      lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0) + U.total),
+      floor = r2(J.actual + J.committed),
+      rollup = r2(Math.max(lines, floor)),
+      reviewed = !!p.ctcReviewed,
+      eac = reviewed ? r2(Math.max(floor, J.actual + +(p.ctc || 0))) : rollup;
+    return { eac: eac, rollup: rollup, reviewed: reviewed, lines: L, unlined: U };
   } finally {
     jobFinEacBusy = !1;
   }
@@ -170786,12 +170796,18 @@ function jobFinEac(J, p) {
 function billedAheadSay(p) {
   const J = jobFin(p),
     A = "function" == typeof billedAhead ? billedAhead(p.id) : { total: 0, n: 0 },
-    pct = Math.round(100 * (+J.pct || 0));
+    pct = Math.round(100 * (+J.pct || 0)),
+    // the share spent on the same basis as the WIP Schedule (rwCtc): cost to date less money paid ahead of the work and
+    // purchases billed back, over the estimate less those purchases. Said with its figures, so the screen's own numbers
+    // give the same % (a controller review, F4: $105,084 of $390,354 is 26.9%, the sentence said 25%)
+    K = "function" == typeof rwCtc ? rwCtc(J) : null,
+    out = K && (K.pre > 0.005 || K.rc > 0.005) ? ` less ${[K.pre > 0.005 ? `${money(K.pre)} paid ahead of the work` : "", K.rc > 0.005 ? `${money(K.rc)} billed back` : ""].filter(Boolean).join(" and ")}` : "",
+    basis = K ? `which is ${money(K.cost)}${out ? ` (cost to date${out})` : ""} of ${money(K.proj)}${K.rc > 0.005 ? " (the estimate at completion less what is billed back)" : ""}` : "";
   return {
     wip: {
       label: "Over-Billed (WIP)",
       amount: r2(+J.over || 0),
-      what: `Everything billed on this job (${money(J.billed)}) less what its cost has earned (${money(J.earned)}: the contract at ${pct}% of the estimated cost spent). The accounting figure; the close posts it.`,
+      what: `Everything billed on this job (${money(J.billed)}) less what its cost has earned (${money(J.earned)}: the contract at ${pct}% of the estimated cost spent${basis ? `, ${basis}` : ""}). The accounting figure; the close posts it.`,
     },
     work: {
       label: "Billed Ahead of the Work",
@@ -170805,7 +170821,7 @@ function billedAheadSay(p) {
 }
 const BILLED_AHEAD_ALL = "Over-Billed (WIP), All Jobs";
 // The job's cost that sits on no estimate or change-order line: what is spent and what is committed on a cost code no
-// line carries (paint bought on a job whose estimate has no paint line). The lines forecast themselves (each at the
+// line carries (121 State: 37.92 crew hours clocked to code 12, Paint & restoration, which no line of its estimate carries). The lines forecast themselves (each at the
 // greater of its budget and actual + committed); this cost has no budget to sit inside, so all of it is forecast.
 // Purchases billed back to the client are their own row (J.rebillCost), never here. The lines, this and the billed-back
 // row add up to the job's cost to date and committed, to the cent (tests/finance_xcheck.py, INV ONE EAC).
@@ -170832,21 +170848,33 @@ if ("function" == typeof jobFin) {
         // A report for a period that runs to today (year to date, a custom range): the estimate at
         // completion is the job's, as of today, whatever the period's first day.
         const L = jobFin(p);
+        // a reviewed job's lines and unlined cost come with it too; its estimate stays the base's (the PM's review)
+        L && !L.eacFromLines && L.eacLines && ((J.eacLines = L.eacLines), (J.eacUnlined = L.eacUnlined), (J.eacRollup = L.eacRollup));
         return (
           L &&
             L.eacFromLines &&
             ((J.eacLines = L.eacLines),
             (J.eacUnlined = L.eacUnlined),
+            (J.eacRollup = L.eacRollup),
             (J.eacFromLines = !0),
             jobFinDerive(J, p, Math.max(L.eac, r2(J.actual + J.committed)))),
           J
         );
       }
       J.range = R;
-      const E = p.ctcReviewed ? null : jobFinEac(J, p);
+      const E = jobFinEac(J, p);
+      if (E && E.reviewed)
+        // reviewed: the PM's figure is the estimate at completion; the lines and the unlined cost are still the job's
+        (J.eacLines = E.lines),
+          (J.eacUnlined = E.unlined),
+          (J.eacRollup = E.rollup),
+          jobFinDerive(J, p, E.eac),
+          (J.defs = String(J.defs || "") + " · estimate at completion = cost to date + the PM's reviewed cost to complete (never under cost to date + committed); each line still forecasts at the greater of its budget and actual + committed, and cost on no estimate line is its own row");
+      else
       E &&
         ((J.eacLines = E.lines),
         (J.eacUnlined = E.unlined),
+        (J.eacRollup = E.rollup),
         (J.eacFromLines = !0),
         jobFinDerive(J, p, E.eac),
         (J.defs = String(J.defs || "").replace(
@@ -173064,7 +173092,13 @@ const AG_FIN = [
         jobs = (DB.projects || []).filter((p) => jobFin(p).over > 0.5);
       return {
         headline: `${money(B.wip)} over-billed (WIP, cost-to-cost; a liability) across ${agN(jobs.length, "job")}.`,
-        work: jobs.map((p) => `${agShort(p)} — ${money(jobFin(p).over)} invoiced ahead of the work`),
+        // each job's two billing-ahead figures, each under the name Budget gives it (billedAheadSay): Over-Billed (WIP) is
+        // billed less earned, Billed Ahead of the Work is the lines billed past the work measured. The row once called the
+        // first "invoiced ahead of the work" beside Budget's Billed Ahead of the Work, one phrase on two numbers.
+        work: jobs.map((p) => {
+          const A = billedAheadSay(p);
+          return `${agShort(p)} — ${A.wip.label} ${money(A.wip.amount)} (billed less earned); ${A.work.label} ${money(A.work.amount)}${A.work.n ? ` on ${agN(A.work.n, "line")}` : ""}`;
+        }),
         go: agGo("wip") || agGo("reports"),
         ran: agRan("projects", ["billed is more than earned"], "", jobs.length),
       };

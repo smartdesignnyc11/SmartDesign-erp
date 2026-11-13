@@ -276,7 +276,7 @@ function rwJobRisk() {
     J.length &&
       out.push({
         title: `Over-Billed (WIP) ${money(over)} on ${J.length} job${1 === J.length ? "" : "s"}`,
-        why: `Billed ahead of the work earned. With ${rwWho("controller")}, who reconciles it with Billed Ahead of the Work before the close.`,
+        why: `Billed beyond what the cost has earned. With ${rwWho("controller")}, who reconciles it with Billed Ahead of the Work before the close.`,
         go: rwMay("gl") ? { kind: "close" } : { kind: "wip" },
       });
   }
