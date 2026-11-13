@@ -131475,9 +131475,11 @@ function ovNoContractCost(r) {
   const J = r.J,
     U = jobLogHoursUnclocked(r.p),
     cost = r2((+J.actual || 0) + (+J.committed || 0)),
-    say = J.committed > 0.005 ? "to date and committed" : "cost to date";
+    say = J.committed > 0.005 ? "to date and committed" : "cost to date",
+    // the short words fit the column; the whole sentence is the cell's title and the phone row's line
+    say2 = U.hours ? `${U.hours} h on daily logs, not clocked${U.cost ? `: about ${money(U.cost)} not in cost` : ""}` : "";
   return {
-    html: `<span class="ov-cost">${money(cost)}</span><span class="ov-costk small muted">${say}</span>${U.hours ? `<span class="ov-unclocked small warn">${U.hours} h on daily logs, not clocked${U.cost ? `: about ${money(U.cost)} not in cost` : ""}</span>` : ""}`,
+    html: `<span class="ov-cost">${money(cost)}</span><span class="ov-costk small muted">${say}</span>${U.hours ? `<span class="ov-unclocked small warn" data-say="${esc(say2)}" title="${esc(say2)}">${U.hours} h not clocked</span>` : ""}`,
     text: money(cost),
     sort: cost,
   };

@@ -1516,8 +1516,8 @@ async def check_onejob(p, R):
                 read('inv_nocontract', f"{who} · {nc['job']} · 4 h clocked to the job is its cost", abs(got - want) < 0.5 and money0(nc['after']['actual']) in (nc['after']['eac'] or ''),
                      f"cost {nc['before']['actual']:,.2f} -> {nc['after']['actual']:,.2f}; Projects reads {nc['after']['eac']}", f"+{want:,.2f}, on the row")
                 if nc['logged'] > 0:
-                    read('inv_nocontract', f"{who} · {nc['job']} · hours on its daily logs that no time entry carries are named", re.search(r'[\d.]+ h on daily logs, not clocked', nc['before']['eac'] or '') is not None,
-                         nc['before']['eac'], f"{nc['logged']:g} h on daily logs, not clocked")
+                    read('inv_nocontract', f"{who} · {nc['job']} · hours on its daily logs that no time entry carries are named", f"{nc['logged']:g} h not clocked" in (nc['before']['eac'] or ''),
+                         nc['before']['eac'], f"{nc['logged']:g} h not clocked")
         for e in errs[:3]: R.flag('inv_oneeac', f'{who}: page', e[:200], 'no page errors')
         await b.close()
 
