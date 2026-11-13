@@ -843,8 +843,11 @@ function p0PoMoneyExtra(po) {
       const on = (DB.bills || []).filter((b) => b.poId === po.id && p0Live(b) && (b.lines || []).some((l) => l.prepayOf === s.key));
       return `${esc(s.label)} ${p0M(s.amount)}${"deposit" === s.kind ? ` (${esc(billState(s.ref).text || s.ref.status)})` : ""}: ${on.length ? `taken off ${on.map((b) => esc(b.number || "a bill")).join(", ")}` : "comes off the next bill"}`;
     });
-  return rows.length || canDep
-    ? `<div class="small p0-pomoney" style="margin-top:6px">${rows.length ? `<b>Paid ahead ${p0M(P.total)}</b>: ${rows.join(" · ")}.` : ""}${canDep ? ` <button type="button" class="btn sm" data-p0dep="${esc(po.id)}">Bill the Deposit ${p0M(r2(R.allowed - R.before))}</button>` : ""}</div>`
+  // once something is in, the same card says how far the money is ahead of the goods (poPaidAhead: one number)
+  const got = (po.lines || []).some((l) => +l.received > 0) || (po.receipts || []).length > 0,
+    ahead = got && "function" == typeof poAheadWords ? poAheadWords(po) : "";
+  return rows.length || canDep || ahead
+    ? `<div class="small p0-pomoney" style="margin-top:6px">${ahead ? `<div class="warn-t p0-ahead" data-nocase><b>${esc(ahead)}.</b></div>` : ""}${rows.length ? `<b>Paid ahead ${p0M(P.total)}</b>: ${rows.join(" · ")}.` : ""}${canDep ? ` <button type="button" class="btn sm" data-p0dep="${esc(po.id)}">Bill the Deposit ${p0M(r2(R.allowed - R.before))}</button>` : ""}</div>`
     : "";
 }
 if ("function" == typeof poMoneyHtml) {

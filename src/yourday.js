@@ -538,7 +538,7 @@ function ydBillExcNow(b) {
 }
 // a Payment Check hold that says again what a reason above already said is not a second reason: its bank hold after
 // the bank change, its "no purchase order" after no PO, its "already paid" after paid before approval
-const YD_PC_SAME = { bank: "bank-changed", paidbank: "paid" };
+const YD_PC_SAME = { bank: "bank-changed", paidbank: "paid", threeway: "over-arrived", ahead: "paid-ahead" };
 // what the Payment Check would hold this bill for, before anyone approves it (its own words, first clause)
 function ydPcHolds(b, said) {
   if ("function" != typeof pcCheck || !b || b.ic || "function" == typeof billTotal && !(billTotal(b) > 0)) return [];

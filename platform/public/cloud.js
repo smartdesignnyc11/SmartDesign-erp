@@ -40,7 +40,7 @@ window.Cloud = (() => {
   // ---- the pending marker: unsynced edits survive a closed tab or a dead battery
   const pkey = () => 'sdp:pending:' + (user() ? user().id : '');
   const vkey = () => 'sdp:versions:' + (user() ? user().id : '');
-  const mark = names => { try { localStorage.setItem(pkey(), JSON.stringify({at: Date.now(), names, ws: ws()})); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
+  const mark = names => { keepAncestors(names); try { localStorage.setItem(pkey(), JSON.stringify({at: Date.now(), names, ws: ws()})); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
   const unmark = () => { try { localStorage.removeItem(pkey()); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
   function hasPending() { try { return !!localStorage.getItem(pkey()); } catch (e) { return false; } }
   function savedVersions() { try { return JSON.parse(localStorage.getItem(vkey()) || '{}'); } catch (e) { return {}; } }
@@ -102,6 +102,7 @@ window.Cloud = (() => {
     try { Object.keys(localStorage).filter(k => k.startsWith('sb-') || k.startsWith('sdp:pending:') || k.startsWith('sdp:versions:')).forEach(k => localStorage.removeItem(k)); } catch (e) {}
     try { sessionStorage.clear(); } catch (e) {}
     let done = false; const go = () => { if (!done) { done = true; then && then(); } };
+    try { indexedDB.deleteDatabase(ANC_DB); } catch (e) {}
     try { const r = indexedDB.deleteDatabase('smartdesigns'); r.onsuccess = go; r.onerror = go; r.onblocked = () => setTimeout(go, 300); } catch (e) { go(); }
     setTimeout(go, 3000);
   }
@@ -155,28 +156,49 @@ window.Cloud = (() => {
     try { localStorage.setItem(wskey(), now); } catch (e) {}
     if (!was || was === now) return false;
     try { localStorage.removeItem(pkey()); localStorage.removeItem(vkey()); } catch (e) {}
+    forgetAncestors();
     return true;
   }
   // The page reloads after either: the next boot sees the profile in the other workspace and starts from its records.
-  const leaving = () => { try { localStorage.setItem(wskey(), ws() || '?'); localStorage.removeItem(pkey()); localStorage.removeItem(vkey()); } catch (e) {} };
+  const leaving = () => { try { localStorage.setItem(wskey(), ws() || '?'); localStorage.removeItem(pkey()); localStorage.removeItem(vkey()); } catch (e) {} forgetAncestors(); };
   async function switchWorkspace(id) { leaving(); const {data, error} = await sb.rpc('switch_workspace', {p_ws: id}); if (error) throw error; wsInfo = data; profile = null; return data; }
   async function openTeamWorkspace(id, name) { leaving(); const {data, error} = await sb.rpc('open_team_workspace', {p_id: id, p_name: name || ''}); if (error) throw error; wsInfo = data; profile = null; return data; }
 
   // ---- merging: base is the common ancestor, local and server the two sides
+  // Fields the app writes on its own, never a person's edit. A device that only re-cached them has not changed the
+  // record: they never decide whether a record changed, never bring back a record the other side deleted, and never
+  // count as a conflict (the server's value stands; the app recomputes them). Live 11-08/09: a server write replaced
+  // the lines of 23 invoices, a phone holding the older copy saved, and the placeholder line it should have dropped
+  // came back beside the new ones, doubling each total. Keyed by the list the record sits in ('*' for every record):
+  //   _base, _touched           docMark's snapshot of a document's editable fields (src/app.js docSnap, rxUntouch)
+  //   amount                    docAmountsSync caches docTotal on invoices and change orders at every save
+  //   num                       ctNumber numbers a document's lines whenever a sheet lists them
+  //   shipping, shipMarkupPct   docMark copies them onto an invoice line from its source line (fromLine)
+  const DERIVED = {'*': ['_base', '_touched'], invoices: ['amount'], changeOrders: ['amount'], lines: ['num']};
+  const DERIVED_FROM_LINE = ['shipping', 'shipMarkupPct'];
+  const derived = (k, f, rec) => DERIVED['*'].includes(f) || (DERIVED[k] || []).includes(f) || (k === 'lines' && !!(rec && rec.fromLine) && DERIVED_FROM_LINE.includes(f));
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+  // A value as a person sees it: derived fields left out, keys in one order (a key a revert re-adds in another place
+  // is not an edit). k is the list or key the value sits under, so a nested record knows its kind.
+  const canon = (v, k) => Array.isArray(v) ? '[' + v.map(x => x === undefined ? 'null' : canon(x, k)).join(',') + ']'
+    : isObj(v) ? '{' + Object.keys(v).filter(f => v[f] !== undefined && typeof v[f] !== 'function' && !derived(k, f, v)).sort().map(f => JSON.stringify(f) + ':' + canon(v[f], f)).join(',') + '}'
+    : v === undefined ? 'u' : JSON.stringify(v);
+  const same = (a, b, k) => canon(a, k) === canon(b, k);
   const byId = a => Array.isArray(a) && a.length > 0 && a.every(x => isObj(x) && x.id != null);
-  function merge3(b, l, s, conf) {
+  // k: the key the value sits under (the shard's name at the top). Applies at every depth: a client's invoices, an
+  // invoice's lines and payments, a job's tasks and logs all merge record by record.
+  function merge3(b, l, s, conf, k) {
     if (eq(l, s)) return s;
-    if (eq(l, b)) return s;                        // only the server changed
-    if (eq(s, b)) return l;                        // only this device changed
+    if (same(l, b, k)) return s;                   // only the server changed (this device at most re-cached)
+    if (same(s, b, k)) return l;                   // only this device changed
     if ((byId(l) || byId(s)) && (Array.isArray(l) || l == null) && (Array.isArray(s) || s == null)) {
       const B = new Map((Array.isArray(b) ? b : []).filter(isObj).map(x => [String(x.id), x]));
       const L = new Map((l || []).map(x => [String(x.id), x]));
       const out = [];
       for (const sx of (s || [])) {
         const id = String(sx.id), lx = L.get(id), bx = B.get(id);
-        if (lx !== undefined) out.push(merge3(bx, lx, sx, conf));
-        else if (bx !== undefined && eq(sx, bx)) continue;          // deleted here, untouched there: stays deleted
+        if (lx !== undefined) out.push(merge3(bx, lx, sx, conf, k));
+        else if (bx !== undefined && same(sx, bx, k)) continue;      // deleted here, untouched there: stays deleted
         else { if (bx !== undefined) conf.n++; out.push(sx); }        // deleted here, changed there: keep theirs
       }
       const S = new Set((s || []).map(x => String(x.id)));
@@ -184,20 +206,65 @@ window.Cloud = (() => {
         const id = String(lx.id); if (S.has(id)) continue;
         const bx = B.get(id);
         if (bx === undefined) out.push(lx);                           // new on this device
-        else if (!eq(lx, bx)) { conf.n++; out.push(lx); }             // deleted there, changed here: keep ours, say so
-      }
+        else if (!same(lx, bx, k)) { conf.n++; out.push(lx); }       // deleted there, changed here: keep ours, say so
+      }                                                               // deleted there, at most re-cached here: stays deleted
       return out;
     }
     if (isObj(l) && isObj(s)) {
       const out = {}, bo = isObj(b) ? b : {};
-      for (const k of new Set([...Object.keys(s), ...Object.keys(l)])) {
-        const v = merge3(bo[k], l[k], s[k], conf);
-        if (v !== undefined) out[k] = v;
+      for (const f of new Set([...Object.keys(s), ...Object.keys(l)])) {
+        const v = (derived(k, f, s) || derived(k, f, l))
+          ? (f in s ? s[f] : (f in bo ? undefined : l[f]))            // derived: the server's, never a conflict
+          : merge3(bo[f], l[f], s[f], conf, f);
+        if (v !== undefined) out[f] = v;
       }
       return out;
     }
     conf.n++; return s;                              // the same value changed on both: the server's stands
   }
+
+  // ---- the common ancestor survives a reload. Unsynced edits go up at the next boot (pushPending); without the
+  // server copy they were based on, every record the server deleted meanwhile looked new on this device and came
+  // back (an invoice's replaced lines, a voided payment, a removed task), whatever this device had done. While a
+  // save is pending, that copy is kept in this browser's IndexedDB (sdp_sync) under the sign-in and the version it
+  // was read at, and used only when that version is the one the pending save names.
+  const ANC_DB = 'sdp_sync';
+  const ancKey = name => (user() ? user().id : '') + '|' + name;
+  const ancStored = {};                               // name -> version already written this session
+  // One short transaction per call, the connection closed after it (an open one would block wipeLocal's delete).
+  function ancTx(mode, op) {
+    return new Promise((res, rej) => {
+      if (typeof indexedDB === 'undefined') return res(undefined);       // no IndexedDB here: nothing kept, the boot falls back
+      const r = indexedDB.open(ANC_DB, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('base');
+      r.onerror = () => rej(r.error);
+      r.onsuccess = () => {
+        const db = r.result; let out;
+        try {
+          const t = db.transaction('base', mode), q = op(t.objectStore('base'));
+          if (q) q.onsuccess = () => { out = q.result; };
+          t.oncomplete = () => { db.close(); res(out); }; t.onerror = t.onabort = () => { db.close(); rej(t.error); };
+        } catch (e) { db.close(); rej(e); }
+      };
+    });
+  }
+  const idbAnc = {
+    get: key => ancTx('readonly', st => st.get(key)),
+    put: (key, val) => ancTx('readwrite', st => { st.put(val, key); }),
+    clear: () => ancTx('readwrite', st => { st.clear(); }),
+  };
+  let anc = idbAnc;
+  function keepAncestors(names) {
+    for (const name of names) {
+      if (base[name] === undefined || versions[name] === undefined || ancStored[name] === versions[name]) continue;
+      const v = versions[name], data = base[name]; ancStored[name] = v;
+      Promise.resolve().then(() => anc.put(ancKey(name), {v, data})).catch(e => { if (ancStored[name] === v) delete ancStored[name]; console.warn('ancestor', e); });
+    }
+  }
+  async function ancestor(name, version) {
+    try { const a = await anc.get(ancKey(name)); return a && version && a.v === version ? a.data : undefined; } catch (e) { return undefined; }
+  }
+  function forgetAncestors() { for (const k of Object.keys(ancStored)) delete ancStored[k]; try { Promise.resolve(anc.clear()).catch(() => {}); } catch (e) {} }
 
   // ---- collections
   // ---- personal records: what came from one person's Google account never goes into a shared row
@@ -318,7 +385,7 @@ window.Cloud = (() => {
     const DB = dbRef(); const local = DB ? shards(DB)[name] : undefined;
     const dirty = local !== undefined && last[name] !== undefined && hash(JSON.stringify(local)) !== last[name];
     const conf = {n: 0};
-    const merged = dirty ? merge3(base[name], local, row.data, conf) : row.data;
+    const merged = dirty ? merge3(base[name], local, row.data, conf, name) : row.data;
     remember(name, row.data, row.version);
     if (conf.n) { state.conflicts += conf.n; state.noteAt = Date.now(); state.note = `Merged with another device's change; ${conf.n} ${conf.n === 1 ? 'edit' : 'edits'} kept the other device's value`; console.warn('sync conflict', name, conf.n); }
     applyLocal(name, merged);
@@ -367,17 +434,21 @@ window.Cloud = (() => {
     for (const name of names) if (mayWrite(name) && s[name] !== undefined) items.push({name, data: s[name], base: vs[name] || 0});
     if (!items.length) { unmark(); return {ok: true, n: 0}; }
     const {data: res, error} = await sb.rpc('save_collections', {p_items: items}); if (error) return {ok: false, msg: error.message};
-    let kept = 0;
+    let kept = 0, conflicts = 0;
     for (const r of (res || [])) {
       if (!r.conflict) continue;
-      // No common ancestor survives a reload: keep the server's records and add the ones only this phone has.
+      // Merged against the server copy this save was based on, kept on the device (keepAncestors): what the server
+      // deleted meanwhile stays deleted unless this phone really changed it. A marker left by a build before the
+      // ancestor was kept has none: then the server's records stand and the ones only this phone has are added.
       const row = await pullOne(r.name); if (!row) continue;
       const mine = s[r.name]; const conf = {n: 0};
-      const merged = merge3(undefined, mine, row.data, conf);
+      const merged = merge3(await ancestor(r.name, vs[r.name]), mine, row.data, conf, r.name);
+      conflicts += conf.n;
       if (!eq(merged, row.data)) { const {data: res2} = await sb.rpc('save_collections', {p_items: [{name: r.name, data: merged, base: row.version}]}); if (res2 && res2[0] && !res2[0].conflict) kept++; }
     }
+    if (conflicts) { state.conflicts += conflicts; state.noteAt = Date.now(); state.note = `Merged with another device's change; ${conflicts} ${conflicts === 1 ? 'edit' : 'edits'} kept the other device's value`; }
     unmark();
-    return {ok: true, n: items.length, kept};
+    return {ok: true, n: items.length, kept, conflicts};
   }
   function keepalive() {
     if (!on() || !user() || !session) return;
@@ -479,5 +550,5 @@ window.Cloud = (() => {
     workspace, workspaceChanged, switchWorkspace, openTeamWorkspace,
     listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, joinThread, seal, verifyServer, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
-    _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d), sb: x => { sb = x; }, versions, subscribe: cb => { onChange = cb; }, remember, pollOnce, drop}};
+    _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d), sb: x => { sb = x; }, versions, subscribe: cb => { onChange = cb; }, remember, pollOnce, drop, anc: x => { anc = x || idbAnc; }}};
 })();
