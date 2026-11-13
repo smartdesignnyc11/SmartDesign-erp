@@ -223,7 +223,7 @@ async def walk_role(pg, errs, uid, phone, jobs, shots):
         how = await pg.evaluate("""() => {
           const vis = e => !!e && e.getClientRects().length > 0;
           const b = (innerWidth < 760 ? document.querySelector('#mtabs button[data-mv="ovjobs"], #tabbar button[data-v="ovjobs"]') : null)
-                 || (() => { const h = document.querySelector('#nav-groups [data-mnhead="jobs"]');   // the 11-03 menu: Projects, then All Projects
+                 || (() => { const h = document.querySelector('#nav-groups [data-mnchev="jobs"]');   // the 11-03 menu: Projects, then All Projects
                       if (h && h.getAttribute('aria-expanded') !== 'true') h.click();
                       return document.querySelector('#nav-groups [data-mngr="jobs"] button[data-v="ovjobs"]'); })()
                  || [...document.querySelectorAll('#nav-groups button[data-grp="jobs"]')].find(vis);
