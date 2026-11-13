@@ -488,14 +488,29 @@ function vbPost(x, f, m, after) {
 
 // ---- 3. client money: recorded only against a bank line ---------------------------------------------------------------
 // The unmatched deposits a client's money could be: money in, to a bank account, not yet linked to an invoice
+// What a deposit still has to give is payLineUse's reading (src/app.js, lane R 11-12). This list read only a written
+// link, so the Aug 29 $72,750 check, behind INV-2026-035's payment by amount and date and never linked, was offered
+// (and pre-selected) for INV-2026-038. A line behind payments in full is not offered; one behind part of its amount
+// is offered for what is left of it.
 function vbDepositCands(cl, amount) {
   const named = (t) => truthVendorHit(t, cl.name) || (cl.contacts || []).some((k) => k && k.name && truthVendorHit(t, String(k.name).split(" ").slice(-1)[0]));
   return (DB.txns || [])
-    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !lnMatched(t) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !(DB.clients || []).some((c) => (c.payments || []).some((py) => py.txnId === t.id)))
-    .map((t) => ({ t: t, named: named(t), same: amount ? Math.abs(+t.amt - +amount) < 0.01 : !1 }))
+    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat))
+    .map((t) => ({ t: t, left: payLineUse(t).left }))
+    .filter((x) => x.left > 0.005)
+    .map((x) => ({ t: x.t, named: named(x.t), same: amount ? Math.abs(x.left - +amount) < 0.01 : !1 }))
     .filter((x) => x.named || x.same)
     .sort((a, b) => b.named + b.same - (a.named + a.same) || String(b.t.date).localeCompare(String(a.t.date)))
     .map((x) => x.t);
+}
+// a check the client's ledger already holds: the bank line's check number is on a payment recorded for this client
+// that is not linked to this line. The same check is never recorded twice; the person matches or reverses the first.
+function vbCheckTaken(cl, t) {
+  const ref = String((payFromBank(t) || {}).ref || "").replace(/\D/g, "");
+  if (!ref || !/check/i.test(payFromBank(t).method || "")) return null;
+  const mine = new Set(payLineUse(t).pays.map((x) => x.p.id));
+  // a payment recorded as a check, by its reference or by a method typed with the number in it ("Check #2214")
+  return (cl.payments || []).find((p) => +p.amount > 0 && !p.reverses && !p.reversalId && !mine.has(p.id) && p.txnId !== t.id && /check/i.test(p.method || "") && (String(p.ref || "").replace(/\D/g, "") === ref || (String(p.method || "").match(/\d{3,}/g) || []).includes(ref))) || null;
 }
 let vbDepFrom = null;
 // "Jessop family says the money is sent: Apply". The claim is linked to the bank line when the line is there (Record
@@ -506,7 +521,8 @@ function vbDepositApply(c, p) {
   if (!cl) return "";
   const amt = r2(+p.amount || 0),
     said = String(c.date || today()).slice(0, 10),
-    cand = vbDepositCands(cl, amt).filter((t) => !amt || Math.abs(+t.amt - amt) < 0.01);
+    // the line the claim is: a whole deposit for the amount the client said, behind no payment yet
+    cand = vbDepositCands(cl, amt).filter((t) => payLineUse(t).used <= 0.005 && (!amt || Math.abs(+t.amt - amt) < 0.01));
   DB.expected = DB.expected || [];
   let e = DB.expected.find((x) => x.commId === c.id);
   e || ((e = { id: uid("ex"), amount: amt, clientId: cl.id, from: (c.from && (c.from.name || c.from.email)) || "", said: said, commId: c.id, by: vbWho(), at: appNowIso(), followUp: iso(addWork(said, 5, !1)) }), DB.expected.push(e));
@@ -567,11 +583,24 @@ function vbDepositApply(c, p) {
 function vbPayBankField(c, presetInvoiceId, from) {
   const m = document.getElementById("mbm");
   if (!m || !m.querySelector("#py-amt")) return;
-  const C = vbDepositCands(c, 0),
-    pre = (from && from.txnId) || (C[0] && C[0].id) || "",
+  // Each candidate with what it has left (payLineUse) and the check the client's ledger already holds, if any.
+  const C = vbDepositCands(c, 0).map((t) => ({ t: t, use: payLineUse(t), taken: vbCheckTaken(c, t) })),
+    open = (clientFin(c).open || []).map((o) => ({ inv: o.x, bal: r2(+o.bal || 0) })),
+    want = presetInvoiceId ? open.filter((o) => o.inv.id === presetInvoiceId) : open,
+    total = r2(want.reduce((a, o) => a + o.bal, 0)),
+    // A line is put forward only when it can be this invoice's money (lane R, 11-12): it stands behind no payment,
+    // its check is on no recorded payment, its amount is what the invoice is owed (within a dollar, a rounded
+    // check), and it is dated on or after the invoice. Two that fit is a choice the person makes. Anything else is
+    // offered in the list and never chosen for them: one press of Record must not put money on the wrong invoice.
+    fits = (x) => x.use.used <= 0.005 && !x.taken && (want.some((o) => Math.abs(o.bal - x.use.left) <= 1 && String(x.t.date) >= String(o.inv.date || "")) || (!presetInvoiceId && want.length > 1 && Math.abs(total - x.use.left) <= 1 && want.every((o) => String(x.t.date) >= String(o.inv.date || "")))),
+    F = C.filter(fits),
+    // the client's own "money is sent" names its line (vbDepositApply): that line, while it is still whole
+    claim = from && from.txnId ? C.find((x) => x.t.id === from.txnId && x.use.used <= 0.005 && !x.taken) : null,
+    pre = claim ? claim.t.id : 1 === F.length ? F[0].t.id : "",
+    words = (x) => (x.use.used > 0.005 ? `${money(x.use.left)} left of ${money(x.use.amt)}` : money(x.use.amt)),
     row = document.createElement("div");
   (row.className = "f2"),
-    (row.innerHTML = `<label class="f"><span>Bank Line</span><select id="py-txn" data-f="txn"><option value="">None: not in the bank yet</option>${C.map((t) => `<option value="${t.id}" ${t.id === pre ? "selected" : ""}>${fmtL(t.date)} · ${esc(t.desc)} · ${money(+t.amt)} · ${esc(truthAcctWords(t))}</option>`).join("")}</select></label><span class="small muted" id="py-txn-note" style="align-self:end"></span>`);
+    (row.innerHTML = `<label class="f" style="min-width:0"><span>Bank Line</span><select id="py-txn" data-f="txn" style="max-width:100%"><option value="">None: not in the bank yet</option>${C.map((x) => `<option value="${x.t.id}" ${x.t.id === pre ? "selected" : ""}>${fmtL(x.t.date)} · ${esc(x.t.desc)} · ${words(x)} · ${esc(truthAcctWords(x.t))}</option>`).join("")}</select></label><span class="small muted" id="py-txn-note" style="align-self:end"></span>`);
   const first = m.querySelector(".mbm-bd .f2");
   first ? first.before(row) : m.querySelector(".mbm-bd").prepend(row);
   const sel = row.querySelector("#py-txn"),
@@ -580,11 +609,18 @@ function vbPayBankField(c, presetInvoiceId, from) {
       const el = m.querySelector(q);
       el && null != v && v !== "" && (el.value = v);
     },
+    lineOf = () => (sel.value ? (DB.txns || []).find((x) => x.id === sel.value) || null : null),
+    takenWords = (p) => {
+      const inv = p.invoiceId && (c.invoices || []).find((i) => i.id === p.invoiceId);
+      return `its check number is already on the ${fmtL(p.date)} payment of ${money(+p.amount || 0)}${inv ? ` on ${inv.number}` : " on account"}. Open that payment and match it to this line, or reverse it, before the check is recorded again`;
+    },
     apply = () => {
-      const t = (DB.txns || []).find((x) => x.id === sel.value);
-      if (!t) return void (note.textContent = "Without a bank line a wire, ACH or Zelle is not recorded; a check waits as money not yet deposited.");
-      const amt = r2(+t.amt),
-        fb = payFromBank(t);
+      const t = lineOf();
+      if (!t) return void (note.textContent = C.length ? "No bank line is chosen. Pick the deposit this payment is; a check in hand may wait as not yet in the bank, and a wire, ACH or Zelle is recorded only from its bank line." : "Without a bank line a wire, ACH or Zelle is not recorded; a check waits as money not yet deposited.");
+      const use = payLineUse(t),
+        amt = use.left,
+        fb = payFromBank(t),
+        taken = vbCheckTaken(c, t);
       put("#py-amt", amt), put("#py-date", t.date), put("#py-method", fb.method), put("#py-ref", fb.ref || t.desc), put("#py-acct", t.acct);
       // the bank's amount goes on the invoice it was sent for (or the oldest first), never the invoice's whole balance
       let left = amt;
@@ -595,22 +631,34 @@ function vbPayBankField(c, presetInvoiceId, from) {
         (i.value = r2(v)), (left = r2(left - v));
       });
       m.querySelectorAll("[data-pyalloc], #py-amt").forEach((i) => i.dispatchEvent(new Event("input", { bubbles: !0 })));
-      note.textContent = `${money(amt)} from the bank line; it is matched when you press Record.`;
+      note.textContent = taken
+        ? `Not this line: ${takenWords(taken)}.`
+        : use.used > 0.005
+          ? `${money(amt)} left of the ${money(use.amt)} deposit: ${payLineHolders(use)} has the rest. It is matched when you press Record.`
+          : `${money(amt)} from the bank line; it is matched when you press Record.`;
     };
   sel.addEventListener("change", apply);
-  pre && apply();
+  apply();
   const ok = m.querySelector("#mbm-ok");
   if (!ok) return;
   let before = null;
   ok.addEventListener(
     "click",
     (ev) => {
-      const t = (DB.txns || []).find((x) => x.id === sel.value),
+      const t = lineOf(),
         method = (m.querySelector("#py-method") || {}).value || "",
-        amt = r2(+(m.querySelector("#py-amt") || {}).value || 0);
+        amt = r2(+(m.querySelector("#py-amt") || {}).value || 0),
+        stop = (words) => (ev.stopImmediatePropagation(), ev.preventDefault(), void toast(words));
       before = null;
-      if (!t && /^(Wire|ACH|Zelle)$/i.test(method)) return ev.stopImmediatePropagation(), ev.preventDefault(), void toast(`A ${method.toLowerCase()} is recorded from its bank line: pick it, or record it when it lands`);
-      if (t && amt > r2(+t.amt) + 0.005) return ev.stopImmediatePropagation(), ev.preventDefault(), void toast(`The bank line holds ${money(+t.amt)}: record that, not ${money(amt)}`);
+      if (sel.value && !t) return stop("That bank line is gone: pick it again");
+      if (!t && /^(Wire|ACH|Zelle)$/i.test(method)) return stop(`A ${method.toLowerCase()} is recorded from its bank line: pick it, or record it when it lands`);
+      if (t) {
+        // read again at the press: the line may have been used since the sheet opened (another tab, another person)
+        const no = payLineWhy(t, amt),
+          taken = vbCheckTaken(c, t);
+        if (no) return stop(no);
+        if (taken) return stop(`The ${fmtL(t.date)} ${t.desc} line is not recorded again: ${takenWords(taken)}`);
+      }
       t && (before = { t: t, ids: new Set((c.payments || []).map((p) => p.id)) });
     },
     !0,
@@ -621,20 +669,28 @@ function vbPayBankField(c, presetInvoiceId, from) {
       made = (c.payments || []).filter((p) => !ids.has(p.id));
     before = null;
     if (!made.length) return;
+    // the root write (paymentAllocate) put the line on each payment and checked its room; this writes the line's side
     made.forEach((p) => ((p.txnId = t.id), (p.acctId = t.acct)));
+    "function" == typeof payBackReset && payBackReset();
     const first = made.find((p) => p.invoiceId) || made[0],
-      r = first.invoiceId ? truthSetMatch(t, { invoiceId: first.invoiceId, paymentId: first.id }, { why: "recorded on Record Payment from its bank line" }) : null;
-    if (!first.invoiceId) {
+      sum = r2(made.reduce((a, p) => a + (+p.amount || 0), 0)),
+      r = first.invoiceId ? truthSetMatch(t, { invoiceId: first.invoiceId, paymentId: first.id }, { why: "recorded on Record Payment from its bank line" }) : null,
+      // a line that already stands behind an earlier payment keeps that match: these are added to it
+      held = !!(t.match || {}).paymentId && !made.some((p) => p.id === t.match.paymentId);
+    if (!first.invoiceId && !held) {
       (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: c.id, paymentId: first.id })), (t.proposal = null);
     }
+    const more = made.filter((p) => p.id !== (t.match || {}).paymentId && !((t.match || {}).more || []).some((x) => x.paymentId === p.id));
+    more.length && (t.match = Object.assign({}, t.match || {}, { more: ((t.match || {}).more || []).concat(more.map((p) => ({ invoiceId: p.invoiceId || "", paymentId: p.id }))) }));
     vbClaimAnswered(c, t, first.id);
     const inv = first.invoiceId && (c.invoices || []).find((i) => i.id === first.invoiceId),
-      bal = inv ? r2(docTotal(inv).total - invoicePaid(c, inv)) : 0;
+      bal = inv ? r2(docTotal(inv).total - invoicePaid(c, inv)) : 0,
+      left = payLineUse(t).left;
     try {
-      audit("payment", first.id, "matched-on-record", "", t.id, `${c.name} ${money(+t.amt)} from ${t.desc}`);
+      audit("payment", first.id, "matched-on-record", "", t.id, `${c.name} ${money(sum)} from ${t.desc}`);
     } catch (e) {}
     save(), render();
-    rcToast(`${money(+t.amt)} recorded from ${c.name}${inv ? ` on ${inv.number}` : " on account"}, matched to the ${fmtL(t.date)} ${truthAcctWords(t)} line (${t.desc})${inv ? (bal > 0.005 ? `; ${money(bal)} still open` : "; paid in full") : ""}${r && !r.ok ? ` · ${r.why}` : ""}`, [{ label: "Open", run: inv ? flowGo.doc(c, "invoice", inv) : flowGo.client(c) }]);
+    rcToast(`${money(sum)} recorded from ${c.name}${inv ? ` on ${inv.number}` : " on account"}, matched to the ${fmtL(t.date)} ${truthAcctWords(t)} line (${t.desc})${inv ? (bal > 0.005 ? `; ${money(bal)} still open` : "; paid in full") : ""}${left > 0.005 ? `; ${money(left)} of the ${money(+t.amt)} deposit is on no invoice yet` : ""}${r && !r.ok ? ` · ${r.why}` : ""}`, [{ label: "Open", run: inv ? flowGo.doc(c, "invoice", inv) : flowGo.client(c) }]);
   });
 }
 // the client's claim ("the money is sent") and its expectation are answered by the bank line that records it, on every

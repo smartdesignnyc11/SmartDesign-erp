@@ -25549,6 +25549,10 @@ function payBacking() {
     if (!p.txnId && !t) return;
     linked.add(p);
     if (!t) return;
+    // a reversed payment still says which line it was, and takes none of it: the money is in the bank and on no
+    // invoice again, so the payment recorded in its place is the one the line stands behind (its reversal reads
+    // the opposite amount, payBankedAmt, so the two still net to nothing)
+    if (p.reversalId) return void map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) });
     const amt = r2(Math.min(+p.amount, room.get(t.id)));
     room.set(t.id, r2(room.get(t.id) - amt)), used.add(t.id), amt > 0.005 && map.set(p, { t: t, amt: amt });
   });
@@ -25577,16 +25581,21 @@ function payBacking() {
     holder = new Map(),
     give = (p, t) => (take.set(p, t), holder.set(t.id, p)),
     free = (p) => (cand.get(p) || []).find((x) => !used.has(x.t.id) && !holder.has(x.t.id));
-  // named lines first, then the rest; the oldest payment chooses first
-  [0, 1].forEach((pass) =>
-    all.forEach((p) => {
-      if (!cand.has(p) || take.has(p)) return;
-      const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
-      x && give(p, x.t);
-    }),
+  // named lines first, then the rest; the oldest payment chooses first. A reversed payment chooses after every live
+  // one: it never keeps a line from the payment recorded in its place.
+  const live = all.filter((p) => !p.reversalId),
+    gone = all.filter((p) => p.reversalId);
+  [live, gone].forEach((P) =>
+    [0, 1].forEach((pass) =>
+      P.forEach((p) => {
+        if (!cand.has(p) || take.has(p)) return;
+        const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
+        x && give(p, x.t);
+      }),
+    ),
   );
   // a payment left over takes a line from a later payment that has another free line
-  all.forEach((p) => {
+  live.forEach((p) => {
     if (!cand.has(p) || take.has(p)) return;
     for (const x of cand.get(p)) {
       const q = holder.get(x.t.id),
@@ -25599,6 +25608,95 @@ function payBacking() {
   });
   take.forEach((t, p) => map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) }));
   return (payBackMemo = { key: key, map: map }), map;
+}
+// ---- One bank line backs client payments only up to its amount (lane R, 11-12, S1). Billing opened Record Payment
+// on INV-2026-038 and the sheet came up on the Aug 29 $72,750 check deposit, the line already behind INV-2026-035's
+// payment: one press "paid" INV-038, invented a $4,485 credit and took INV-035's bank line away. Each matcher had its
+// own idea of whether a deposit was spoken for (the sheet read only a written link; payBacking, Today and Find in Bank
+// each read the amount and the date their own way). payLineUse is the one reading: the payments a deposit stands
+// behind (linked to it, or read as it by payBacking), what they take of it, and what it has left. Every path that
+// offers a deposit (Record Payment, Find in Bank, In the Bank Not Applied, Today's deposit row, Banking's Match) and
+// every path that writes a payment against one (the sheet's Record, truthSetMatch, nyhRecordDeposit) reads it.
+// A reversed payment takes nothing. A deposit matched to a bill, an order or a payroll run is not client money.
+function payLineIndex() {
+  const B = payBacking(),
+    memo = payBackMemo;
+  if (memo.lines) return memo.lines;
+  const L = new Map(),
+    add = (id, x) => (L.has(id) ? L.get(id).push(x) : L.set(id, [x]), !0),
+    loose = [],
+    byPay = new Map();
+  (DB.txns || []).forEach((t) => t.paymentId && +t.amt > 0 && byPay.set(t.paymentId, t.id));
+  (DB.clients || []).forEach((c) =>
+    (c.payments || []).forEach((p) => {
+      if (!(+p.amount > 0) || p.reverses || p.reversalId) return;
+      const id = p.txnId || byPay.get(p.id);
+      if (id) return void add(id, { c: c, p: p, amt: r2(+p.amount), linked: !0 });
+      const b = B.get(p);
+      b ? add(b.t.id, { c: c, p: p, amt: r2(b.amt), linked: !1 }) : loose.push({ c: c, p: p });
+    }),
+  );
+  // a deposit typed by hand is not the bank's record, so payBacking gives it to no payment. It is still spoken for
+  // by the payment typed with it (the same amount within $1, within 10 days), as Today's deposit rows always read it.
+  loose.length &&
+    (DB.txns || []).forEach((t) => {
+      if (!(+t.amt > 0) || L.has(t.id) || txnFromBank(t)) return;
+      const i = loose.findIndex((x) => Math.abs(+x.p.amount - +t.amt) <= 1 && Math.abs(dayDiff(x.p.date, t.date)) <= 10);
+      i >= 0 && add(t.id, { c: loose[i].c, p: loose[i].p, amt: r2(Math.min(+loose[i].p.amount, +t.amt)), linked: !1 }) && loose.splice(i, 1);
+    });
+  return (memo.lines = L);
+}
+// o.except: payment ids to leave out (the payment a path is about to link to this line)
+function payLineUse(t, o) {
+  const amt = r2(Math.max(0, +((t || {}).amt) || 0));
+  if (!t || !(amt > 0) || "void" === t.status) return { amt: 0, used: 0, left: 0, over: 0, pays: [], other: "" };
+  const m = t.match || {},
+    other = m.billId || t.billId ? "a bill" : m.poId || t.poId ? "an order" : m.payrollId || t.payrollId ? "a payroll run" : "",
+    skip = (o && o.except) || [],
+    pays = (payLineIndex().get(t.id) || []).filter((x) => !skip.includes(x.p.id)),
+    used = r2(pays.reduce((a, x) => a + x.amt, 0)),
+    rest = r2(Math.max(0, amt - used));
+  // a line read as a payment typed for a dollar less (a rounded check) is that payment's whole: the cents are not money to record
+  return { amt: amt, used: used, left: other || (rest <= 1 && pays.some((x) => !x.linked)) ? 0 : rest, over: r2(Math.max(0, used - amt)), pays: pays, other: other };
+}
+// who holds a line, in words: "INV-2026-035 ($72,750)", "a credit on account for the Jessop family ($4,485)"
+function payLineHolders(use) {
+  return (use.pays || [])
+    .map((x) => {
+      const inv = x.p.invoiceId && (x.c.invoices || []).find((i) => i.id === x.p.invoiceId);
+      return `${inv ? inv.number : `a payment on account for ${x.c.name}`} (${money(x.amt)})`;
+    })
+    .join(" and ");
+}
+// "" when the line can stand behind this much more; else why not, in the words the person reads
+function payLineWhy(t, amount, o) {
+  if (!t) return "That bank line is gone: pick it again";
+  const use = payLineUse(t, o),
+    line = `The ${fmtL(t.date)} ${t.desc || "bank"} line`;
+  if (use.other) return `${line} is matched to ${use.other}: it is not a client's payment`;
+  if (r2(+amount || 0) <= use.left + 0.005 && use.left > 0.005) return "";
+  if (use.left <= 0.005) return `${line} (${money(use.amt)}) already stands behind ${payLineHolders(use) || "another payment"}: it has nothing left for this one`;
+  return `${line} has ${money(use.left)} left of ${money(use.amt)}${use.pays.length ? ` (${payLineHolders(use)} has the rest)` : ""}: record that, not ${money(+amount || 0)}`;
+}
+// The bank lines that stand behind more client money than they hold: what the hole left behind where someone pressed
+// Record on it before this fix. Two shapes: payments linked to one line for more than its amount, and a line whose
+// linked payments pushed out the typed payment it was read as (INV-2026-035's check payment, left "not in the bank"
+// when the Aug 29 deposit was recorded again on INV-2026-038). Each is a payment to reverse or to match to its own
+// deposit. No screen reads this yet; tests/pay_match_test.py holds it at none on the demo books, and it is the list
+// to read on the hosted books after the release.
+function payLinesOver() {
+  const B = payBacking(),
+    loose = [];
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => +p.amount > 0 && !p.txnId && !p.reverses && !p.reversalId && !p.unapplied && !B.get(p) && loose.push({ c: c, p: p })));
+  return (DB.txns || [])
+    .filter((t) => +t.amt > 0)
+    .map((t) => {
+      const use = payLineUse(t),
+        out = use.pays.some((x) => x.linked) && txnFromBank(t) ? loose.filter((x) => Math.abs(+x.p.amount - +t.amt) <= 1 && Math.abs(dayDiff(x.p.date, t.date)) <= 10) : [];
+      return { t: t, use: use, out: out };
+    })
+    .filter((x) => x.use.over > 0.005 || x.out.length)
+    .map((x) => ({ id: x.t.id, date: x.t.date, desc: x.t.desc, amount: x.use.amt, behind: x.use.used, over: x.use.over, payments: payLineHolders(x.use), pushedOut: payLineHolders({ pays: x.out.map((y) => ({ c: y.c, p: y.p, amt: r2(+y.p.amount) })) }) }));
 }
 // what of a payment the bank has: its backed amount; a reversal takes off what the payment it reverses had
 function payBankedAmt(c, py) {
@@ -37141,17 +37239,28 @@ function paymentAllocate(c, presetInvoiceId) {
             tr = { method: method, ref: ref, acct: ($("#py-acct") || {}).value || "" },
             no = payTraceWhy(tr);
           if (no) return toast(no), !1;
+          // the bank line this payment is recorded from (the Bank Line field): the payment is written with its link,
+          // and never for more than the line still has to give (payLineUse). The check is here, in the write, as
+          // well as on the field: a stale sheet or a second tab cannot put two payments behind one deposit.
+          const lineId = (m.querySelector("#py-txn") || {}).value || "",
+            line = lineId ? (DB.txns || []).find((x) => x.id === lineId) || null : null,
+            lineNo = lineId ? payLineWhy(line, amt) : "",
+            link = line ? { txnId: line.id } : {};
+          if (lineNo) return toast(lineNo), !1;
+          // refused before anything is written (it was checked after the payments were pushed, so a refused press
+          // left them on the client and the next press wrote them again)
+          if (r2([...m.querySelectorAll("[data-pyalloc]")].reduce((a, i) => a + Math.max(0, r2(+i.value || 0)), 0)) > amt + 0.005) return toast("Applied more than received"), !1;
           let applied = 0;
           m.querySelectorAll("[data-pyalloc]").forEach((inp) => {
             const v = r2(+inp.value || 0);
             if (v <= 0) return;
             (applied += v),
-              c.payments.push(payStamp({
+              c.payments.push(payStamp(Object.assign({
                 id: uid("py"),
                 invoiceId: inp.dataset.pyalloc,
                 date: date,
                 amount: v,
-              }, tr));
+              }, link), tr));
             const inv = findDoc(c, "invoice", inp.dataset.pyalloc);
             inv &&
               !["void", "draft"].includes(inv.status) &&
@@ -37161,14 +37270,14 @@ function paymentAllocate(c, presetInvoiceId) {
           const left = r2(amt - applied);
           if (left < -0.005) return toast("Applied more than received"), !1;
           left > 0.005 &&
-            c.payments.push(payStamp({
+            c.payments.push(payStamp(Object.assign({
               id: uid("py"),
               invoiceId: "",
               date: date,
               amount: left,
               unapplied: !0,
               voidedInvoice: "payment on account",
-            }, tr)),
+            }, link), tr)),
             c.activity.push({
               t: nowStamp(),
               by: S.project.userName || "",
@@ -67570,23 +67679,19 @@ function payBankLine(py) {
   return b ? b.t : null;
 }
 function payInBankRows() {
-  const banks = new Set(payBankAccts().map((a) => a.id)),
-    paid = new Set();
-  (DB.clients || []).forEach((c) =>
-    (c.payments || []).forEach((p) => {
-      p.txnId && paid.add(p.txnId);
-      const t = !p.unapplied && payBankLine(p);
-      t && paid.add(t.id);
-    }),
-  );
+  const banks = new Set(payBankAccts().map((a) => a.id));
+  // what each deposit has left to give is payLineUse's reading (lane R, 11-12): a line behind payments in full is not
+  // here; one behind part of its amount is here for the rest (left), so money the bank holds on no invoice is listed
   return (DB.txns || [])
-    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.invoiceId && !paid.has(t.id) && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !(t.match && (t.match.invoiceId || t.match.paymentId)) && !!(t.prov || t.origin || t.source))
-    .map((t) => {
+    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !!(t.prov || t.origin || t.source))
+    .map((t) => ({ t: t, use: payLineUse(t) }))
+    .filter((x) => x.use.left > 0.005)
+    .map((x) => {
       let best = null;
       try {
-        best = truthCandidates(t).filter((x) => "invoice" === x.kind)[0] || null;
+        best = truthCandidates(x.t).filter((y) => "invoice" === y.kind)[0] || null;
       } catch (e) {}
-      return { t: t, best: best };
+      return { t: x.t, best: best, left: x.use.left, part: x.use.used > 0.005 };
     })
     .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
 }
@@ -67597,7 +67702,7 @@ function invFindInBank(c, d) {
     R = payInBankRows(),
     hit =
       R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
-      R.find((x) => Math.abs(+x.t.amt - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
+      R.find((x) => Math.abs(x.left - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
   if (hit && "function" == typeof openVerifyTxn) return void openVerifyTxn(hit.t.id);
   const last = (DB.txns || []).filter((t) => +t.amt > 0 && txnFromBank(t)).map((t) => t.date).sort().pop();
   (ROLE_VIEWS[role()] || []).includes("bank") && setView("bank");
@@ -67606,9 +67711,9 @@ function invFindInBank(c, d) {
 function payInBankHtml() {
   const R = payInBankRows();
   if (!R.length) return "";
-  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + +x.t.amt, 0))} on no invoice</span></div>${R.map(
+  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + x.left, 0))} on no invoice</span></div>${R.map(
     (x, i) =>
-      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
+      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${x.part ? `${money(x.left)} left of ${money(+x.t.amt)}` : money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
   ).join("")}</div>`;
 }
 function payInBankWire(root) {
@@ -67623,7 +67728,7 @@ function payInBankWire(root) {
         const c = (DB.clients || []).find((c) => (c.invoices || []).some((i) => i.id === x.best.m.invoiceId)),
           inv = c && c.invoices.find((i) => i.id === x.best.m.invoiceId);
         save(), render();
-        "function" == typeof rcToast ? rcToast(`${money(+x.t.amt)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(+x.t.amt)} recorded`);
+        "function" == typeof rcToast ? rcToast(`${money(x.left)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(x.left)} recorded`);
       }),
   ),
     root.querySelectorAll("[data-pibopen]").forEach(
@@ -180580,7 +180685,35 @@ function truthMatchWords(m) {
         break;
       }
     }
+  // one deposit, several payments: the others it stands behind, after the first
+  (m.more || []).forEach((x) => {
+    for (const c of DB.clients || []) {
+      const inv = x.invoiceId && (c.invoices || []).find((i) => i.id === x.invoiceId),
+        py = (c.payments || []).find((q) => q.id === x.paymentId);
+      if (inv || py) {
+        parts.push(`${inv ? `invoice ${inv.number}` : "a payment on account"} · ${c.name}${py ? ` (${money(+py.amount || 0)})` : ""}`);
+        break;
+      }
+    }
+  });
   return run && parts.push(`payroll run ${run.period || run.id}`), est && parts.push(`estimate line "${est.line.item || est.line.desc || ""}" (${est.doc.number})`), parts.join(" → ");
+}
+// the money-out twin of payLineUse: what of a bank or card debit already pays bills (the payments recorded from it,
+// and a bill linked to it with no payment of its own), leaving out one bill
+function apLineUse(t, exceptBillId) {
+  const amt = r2(Math.abs(+((t || {}).amt) || 0)),
+    held = [];
+  if (!t || !(+t.amt < 0)) return { amt: 0, used: 0, left: 0, held: held };
+  const live = (b) => b && !["void", "rejected"].includes(b.status) && b.id !== exceptBillId,
+    seen = new Set();
+  (DB.payments || []).forEach((p) => {
+    if (p.void || p.txnId !== t.id || !(+p.amount > 0)) return;
+    const b = (DB.bills || []).find((x) => x.id === p.billId);
+    live(b) && (seen.add(b.id), held.push({ bill: b, amt: r2(+p.amount) }));
+  });
+  (DB.bills || []).forEach((b) => live(b) && !seen.has(b.id) && (b.txnId === t.id || t.billId === b.id) && held.push({ bill: b, amt: r2(Math.min(amt, billTotal(b))) }));
+  const used = r2(held.reduce((a, x) => a + x.amt, 0));
+  return { amt: amt, used: used, left: r2(Math.max(0, amt - used)), held: held };
 }
 // Write one match. Legacy fields (billId, poId, line, invoiceId, payrollId) are kept in step so every older
 // reader (txnMatch, txnViaBill, jobFin, bankUnmatched) agrees with the model.
@@ -180594,6 +180727,13 @@ function truthSetMatch(t, m0, o) {
     cat = t.cat && "uncat" !== t.cat ? t.cat : "",
     proj = t.projectId || "",
     code = t.code || "";
+  // a debit that already pays other bills in full pays no further bill (lane R, 11-12: the $4,250 Nemo Tile ACH,
+  // behind NT-88412, could be matched to a second bill, which then read as paid). Asked before anything is written.
+  if (m.billId) {
+    const b = (DB.bills || []).find((x) => x.id === m.billId),
+      use = b ? apLineUse(t, b.id) : null;
+    if (use && use.held.length && use.left <= 0.005) return { ok: !1, why: `This ${fmtL(t.date)} line (${money(use.amt)}) already pays ${use.held.map((x) => `bill ${x.bill.number || x.bill.id} (${x.bill.vendor})`).join(" and ")} in full: it cannot pay bill ${b.number || b.id} too` };
+  }
   if (m.poId) {
     const po = (DB.pos || []).find((p) => p.id === m.poId);
     if (!po) return { ok: !1, why: "That purchase order is gone" };
@@ -180629,11 +180769,33 @@ function truthSetMatch(t, m0, o) {
     }
     if (!hit) return { ok: !1, why: "That invoice is gone" };
     const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
+    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && !x.reversalId && !x.reverses && Math.abs((+x.amount || 0) - t.amt) < 0.005);
+    // One bank line backs payments only up to its amount (payLineUse). A line with nothing left is refused; a payment
+    // made here is for what the line has left, never its whole amount again; and a line that already stands behind a
+    // payment keeps that match when a second payment takes the rest of it.
+    const use = payLineUse(t, { except: p ? [p.id] : [] });
+    if (use.left <= 0.005 || (p && r2(+p.amount || 0) > use.left + 0.005)) return { ok: !1, why: payLineWhy(t, p ? +p.amount : use.left || +t.amt, { except: p ? [p.id] : [] }) || "This bank line has nothing left for another payment" };
+    // a new payment is never made on an invoice with nothing owed: the deposit is another invoice's money, or a
+    // payment on account, and the person says which
+    if (!p && r2(docTotal(hit.inv).total - ("function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0)) <= 0.005) return { ok: !1, why: `${hit.inv.number} has nothing owed on it: this ${money(use.left)} is not its payment. Match it to the invoice it pays, or record it on account` };
+    const firstId = (t.match || {}).paymentId || "",
+      second = !!firstId && firstId !== (p || {}).id && use.pays.some((x) => x.linked && x.p.id === firstId);
     // a deposit matched to an invoice is income, whatever a rule guessed first ("ONLINE TRANSFER" read as a transfer
     // between our own accounts kept a client's payment out of the P&L)
-    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
-    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
-    p ? (p.txnId = t.id) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt || 0), invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
+    (m.invoiceLineId = il ? il.id : ""), second || (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    p ? ((p.txnId = t.id), p.acctId || (p.acctId = t.acct)) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: use.left, invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
+    "function" == typeof payBackReset && payBackReset();
+    if (second) {
+      const tot = docTotal(hit.inv).total,
+        paid = "function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0;
+      ["sent", "partial", "overdue"].includes(hit.inv.status) && (hit.inv.status = paid >= tot - 0.005 ? "paid" : "partial");
+      const more = ((t.match || {}).more || []).filter((x) => x.paymentId !== p.id);
+      more.push({ invoiceId: hit.inv.id, paymentId: p.id }), (t.match = Object.assign({}, t.match, { more: more })), (t.proposal = null);
+      try {
+        audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"} (a second payment from one deposit: ${money(+p.amount || 0)} on ${hit.inv.number})`);
+      } catch (e) {}
+      return save(), { ok: !0, m: truthMatchOf(t), second: !0, paymentId: p.id };
+    }
     {
       // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
       // whole invoice is matched to every line it pays
@@ -180661,7 +180823,7 @@ function truthSetMatch(t, m0, o) {
   }
   est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
   !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
-  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {})),
+  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {}, m.invoiceId && (t.match || {}).more ? { more: t.match.more.filter((x) => x.paymentId !== m.paymentId) } : {})),
     t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
     t.actor || (t.actor = who),
     (t.matchedBy = who),
@@ -180694,9 +180856,15 @@ function truthCandidates(t) {
     near = (d) => !!d && Math.abs(dayDiff(t.date, d)) <= 7,
     push = (kind, label, m, s, why) => s >= 3 && out.push({ kind: kind, label: label, m: m, score: s, auto: s >= 6, why: why.join(", ") });
   if (+t.amt < 0) {
+    // a debit that already pays other bills in full is not offered a further bill (apLineUse; truthSetMatch refuses it)
+    const paying = apLineUse(t).held.length > 0;
     (DB.bills || []).forEach((b) => {
       if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
       if ((t.rejectedBills || []).includes(b.id)) return;
+      if (paying) {
+        const use = apLineUse(t, b.id);
+        if (use.held.length && use.left <= 0.005) return;
+      }
       const vh = truthVendorHit(t, b.vendor),
         tot = billTotal(b),
         // the payment the controller recorded on the bill (Pay… > Record Payment) is what the bank line clears: its
@@ -180777,16 +180945,30 @@ function truthCandidates(t) {
       1 === L.length && push("line", `Estimate line ${L[0].label} (the line's job and cost code ${t.code})`, { estimateLineId: L[0].key }, 6, ["job agrees", `cost code ${t.code} agrees`, "the only estimate line with that code on the job"]);
     }
   } else if (+t.amt > 0) {
+    // What the deposit has left to give (payLineUse, lane R 11-12: the Aug 29 $72,750 check, already behind
+    // INV-2026-035's payment, was offered INV-2026-038 here and Match put a second $72,750 payment on it). A payment
+    // recorded by hand that this line is read as (no written link yet) is the only invoice the line is offered:
+    // Match writes that link. Past that, a line is offered for what is left of it, and not at all with nothing left.
+    const use = payLineUse(t),
+      soft = use.pays.filter((x) => !x.linked),
+      amt = r2(soft.length ? +t.amt : use.left);
+    if (!soft.length && use.left <= 0.005) return out;
     (DB.clients || []).forEach((c) =>
       (c.invoices || []).forEach((inv) => {
         if (["void", "draft"].includes(inv.status)) return;
+        const mine = soft.find((x) => x.p.invoiceId === inv.id);
+        if (soft.length && !mine) return;
         const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
           why = [];
+        // an invoice with nothing owed is offered only the deposit its own recorded payment is (its amount, or the
+        // payment this line is read as): the payer's name alone never puts a deposit on a paid invoice
+        if (bal <= 0.005 && !mine && !(Math.abs(docTotal(inv).total - amt) < 0.01 && (c.payments || []).some((x) => x.invoiceId === inv.id && !x.txnId && !x.reversalId && !x.reverses && Math.abs((+x.amount || 0) - amt) < 0.005))) return;
         let s = 0;
         (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
-        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
+        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}${use.used > 0.005 && !soft.length ? ` · ${money(use.left)} left of this ${money(use.amt)} deposit` : ""}`, Object.assign({ invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, mine ? { paymentId: mine.p.id } : {}), s, why);
       }),
     );
+    if (soft.length) return out.sort((a, b) => b.score - a.score);
     // A deposit from a client on file that pays part of an open invoice: by the payer's name and the amount it can
     // hold (pilot 9/8: "WIRE IN JESSOP J $12,000" against the Jessops' $24,000 retainer was never proposed, because
     // only an amount equal to a balance counted). The one open invoice that can hold it, or the one the client's
@@ -189905,9 +190087,9 @@ function nyhRowsAll() {
         key: "dep:" + d.t.id,
         route: "billing",
         kind: "deposit",
-        title: d.inv ? `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} against ${d.inv.number}` : `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} as a deposit on account`,
-        why: `${d.t.desc} · in ${("function" == typeof truthAcctWords && truthAcctWords(d.t)) || "the bank"} on ${fmtL(d.t.date)}${d.inv ? "" : " · no open invoice for it: bill against it"}`,
-        amount: +d.t.amt,
+        title: d.inv ? `Record payment: ${d.c.name} ${lnMoney(d.amt)} against ${d.inv.number}` : `Record payment: ${d.c.name} ${lnMoney(d.amt)} as a deposit on account`,
+        why: `${d.t.desc} · in ${("function" == typeof truthAcctWords && truthAcctWords(d.t)) || "the bank"} on ${fmtL(d.t.date)}${d.amt < +d.t.amt - 0.005 ? ` · ${lnMoney(d.amt)} left of the ${lnMoney(d.t.amt)} deposit` : ""}${d.inv ? "" : " · no open invoice for it: bill against it"}`,
+        amount: +d.amt,
         verb: "Record Payment",
         no: "",
         run: () => nyhRecordDeposit(d),
@@ -190187,28 +190369,37 @@ function nyhDeposits() {
       (clientFin(c).open || []).forEach((o) => open.push({ c: c, inv: o.x, bal: +o.bal || 0 }));
     } catch (e) {}
   });
-  const recorded = (t) =>
-    (DB.clients || []).some((c) => (c.payments || []).some((py) => py.txnId === t.id || (!py.txnId && Math.abs((+py.amount || 0) - t.amt) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10)));
+  // what a deposit has left to give is one reading (payLineUse): a line that stands behind payments in full is not
+  // here, and one that stands behind part is here for the rest (d.amt), so the money left on no invoice is seen
   (DB.txns || [])
-    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !lnMatched(t) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !/\b(INTEREST|REFUND|CREDIT MEMO|TRANSFER|XFER)\b/i.test(t.desc || "") && !recorded(t))
-    .forEach((t) => {
-      const D = String(t.desc || "").toUpperCase(),
-        byAmt = open.filter((o) => Math.abs(o.bal - t.amt) <= 0.5),
+    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !/\b(INTEREST|REFUND|CREDIT MEMO|TRANSFER|XFER)\b/i.test(t.desc || ""))
+    .map((t) => ({ t: t, use: payLineUse(t) }))
+    .filter((x) => x.use.left > 0.005)
+    .forEach((x) => {
+      const t = x.t,
+        left = x.use.left,
+        D = String(t.desc || "").toUpperCase(),
+        byAmt = open.filter((o) => Math.abs(o.bal - left) <= 0.5),
         word = (c) =>
           String(c.name || "")
             .toUpperCase()
             .replace(/&/g, " ")
             .split(/[^A-Z0-9]+/)
             .filter((w) => w.length > 3 && !["FAMILY", "SARAH", "DAVID", "STREET"].includes(w)),
-        named = (DB.clients || []).find((c) => word(c).some((w) => D.includes(w))) || (DB.clients || []).find((c) => (DB.projects || []).some((p) => p.clientId === c.id && String(p.project.name || "").split(/\s+/).slice(0, 2).join(" ").toUpperCase().length > 4 && D.includes(String(p.project.name).split(/\s+/).slice(0, 2).join(" ").toUpperCase()))),
+        // the payer the line names; of two it names (one deposit slip, two clients' checks), the one what is left fits
+        namedAll = (DB.clients || []).filter((c) => word(c).some((w) => D.includes(w))),
+        named = namedAll.find((c) => byAmt.some((o) => o.c.id === c.id)) || namedAll[0] || (DB.clients || []).find((c) => (DB.projects || []).some((p) => p.clientId === c.id && String(p.project.name || "").split(/\s+/).slice(0, 2).join(" ").toUpperCase().length > 4 && D.includes(String(p.project.name).split(/\s+/).slice(0, 2).join(" ").toUpperCase()))),
         hit = (named && byAmt.find((o) => o.c.id === named.id)) || (1 === byAmt.length ? byAmt[0] : null) || (named && open.filter((o) => o.c.id === named.id).sort((a, b) => String(a.inv.due || a.inv.date || "").localeCompare(String(b.inv.due || b.inv.date || "")))[0]);
-      if (hit && (!named || hit.c.id === named.id)) out.push({ t: t, c: hit.c, inv: Math.abs(hit.bal - t.amt) <= 0.5 || hit.bal >= t.amt ? hit.inv : null });
-      else named && out.push({ t: t, c: named, inv: null });
+      if (hit && (!named || hit.c.id === named.id)) out.push({ t: t, amt: left, c: hit.c, inv: Math.abs(hit.bal - left) <= 0.5 || hit.bal >= left ? hit.inv : null });
+      else named && out.push({ t: t, amt: left, c: named, inv: null });
     });
   return out;
 }
 function nyhRecordDeposit(d) {
-  const t = d.t;
+  const t = d.t,
+    // what the line has left when the button is pressed, not when the row was drawn (payLineUse)
+    left = payLineUse(t).left;
+  if (left <= 0.005) return void toast(payLineWhy(t, +t.amt));
   if (d.inv) {
     const r = truthSetMatch(t, { invoiceId: d.inv.id }, { why: "deposit recorded from Needs Your Hand" });
     if (!r || !r.ok) return void toast((r && r.why) || "Could not record it");
@@ -190218,18 +190409,22 @@ function nyhRecordDeposit(d) {
       (!o || o.bal <= 0.005) && (d.inv.status = "paid");
     } catch (e) {}
   } else {
-    (d.c.payments = d.c.payments || []).push(Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt), unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)));
-    (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: d.c.id }));
+    const py = Object.assign({ id: uid("py"), date: t.date, amount: left, unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)),
+      first = (t.match || {}).paymentId || (t.match || {}).invoiceId;
+    (d.c.payments = d.c.payments || []).push(py);
+    // a line that already stands behind a payment keeps that match; this one is added to it
+    (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, first ? { more: ((t.match || {}).more || []).concat({ invoiceId: "", paymentId: py.id }) } : { clientId: d.c.id, paymentId: py.id }));
   }
   try {
-    audit("payment", t.id, "recorded", "", +t.amt, `${d.c.name} ${lnMoney(t.amt)} ${d.inv ? "on " + d.inv.number : "on account"} from ${t.desc}`);
+    audit("payment", t.id, "recorded", "", left, `${d.c.name} ${lnMoney(left)} ${d.inv ? "on " + d.inv.number : "on account"} from ${t.desc}`);
   } catch (e) {}
   save(), render();
-  rcToast(`Recorded ${lnMoney(t.amt)} from ${d.c.name}${d.inv ? " on " + d.inv.number : " on account"}`, [{ label: "Open", run: () => ((clientOpen = d.c.id), (view = "clients"), render()) }]);
+  rcToast(`Recorded ${lnMoney(left)} from ${d.c.name}${d.inv ? " on " + d.inv.number : " on account"}`, [{ label: "Open", run: () => ((clientOpen = d.c.id), (view = "clients"), render()) }]);
 }
 // a payment on the books the bank never saw: match it to the deposit, or reverse it with the reason
 function nyhResolveUndeposited(x) {
-  const cand = (DB.txns || []).filter((t) => +t.amt > 0 && Math.abs(+t.amt - +x.py.amount) <= 1 && !lnMatched(t)).slice(0, 4);
+  // only a line that stands behind no other payment (payLineUse): Match never takes a line from the payment it backs
+  const cand = (DB.txns || []).filter((t) => +t.amt > 0 && Math.abs(+t.amt - +x.py.amount) <= 1 && !lnMatched(t) && payLineUse(t, { except: [x.py.id] }).used <= 0.005).slice(0, 4);
   const m = mbModal(
     `Resolve — ${esc(x.c.name)} ${lnMoney(x.py.amount)}`,
     `<p class="small muted" style="margin:0 0 10px">Recorded ${fmtL(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}${x.py.ref ? " · " + esc(x.py.ref) : ""}. No bank line within ten days agrees with it.</p>${
@@ -190247,7 +190442,10 @@ function nyhResolveUndeposited(x) {
     m.querySelectorAll("[data-nyhm]").forEach(
       (b) =>
         (b.onclick = () => {
-          const t = cand[+b.dataset.nyhm];
+          const t = cand[+b.dataset.nyhm],
+            no = payLineWhy(t, +x.py.amount - 1, { except: [x.py.id] });
+          if (no) return void toast(no);
+          "function" == typeof payBackReset && payBackReset(),
           (x.py.txnId = t.id), (t.match = Object.assign({}, t.match || {}, { invoiceId: x.py.invoiceId || "", paymentId: x.py.id })), x.py.invoiceId && (t.invoiceId = x.py.invoiceId), (t.cat && "uncat" !== t.cat) || (t.cat = "income");
           mbCloseModal(), save(), render(), toast(`${x.c.name} ${lnMoney(x.py.amount)} matched to ${t.desc} on ${fmtL(t.date)}`);
         }),
