@@ -25570,6 +25570,10 @@ function payBacking() {
     if (!p.txnId && !t) return;
     linked.add(p);
     if (!t) return;
+    // a reversed payment still says which line it was, and takes none of it: the money is in the bank and on no
+    // invoice again, so the payment recorded in its place is the one the line stands behind (its reversal reads
+    // the opposite amount, payBankedAmt, so the two still net to nothing)
+    if (p.reversalId) return void map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) });
     const amt = r2(Math.min(+p.amount, room.get(t.id)));
     room.set(t.id, r2(room.get(t.id) - amt)), used.add(t.id), amt > 0.005 && map.set(p, { t: t, amt: amt });
   });
@@ -25598,16 +25602,21 @@ function payBacking() {
     holder = new Map(),
     give = (p, t) => (take.set(p, t), holder.set(t.id, p)),
     free = (p) => (cand.get(p) || []).find((x) => !used.has(x.t.id) && !holder.has(x.t.id));
-  // named lines first, then the rest; the oldest payment chooses first
-  [0, 1].forEach((pass) =>
-    all.forEach((p) => {
-      if (!cand.has(p) || take.has(p)) return;
-      const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
-      x && give(p, x.t);
-    }),
+  // named lines first, then the rest; the oldest payment chooses first. A reversed payment chooses after every live
+  // one: it never keeps a line from the payment recorded in its place.
+  const live = all.filter((p) => !p.reversalId),
+    gone = all.filter((p) => p.reversalId);
+  [live, gone].forEach((P) =>
+    [0, 1].forEach((pass) =>
+      P.forEach((p) => {
+        if (!cand.has(p) || take.has(p)) return;
+        const x = (cand.get(p) || []).find((y) => y.named <= pass && !holder.has(y.t.id));
+        x && give(p, x.t);
+      }),
+    ),
   );
   // a payment left over takes a line from a later payment that has another free line
-  all.forEach((p) => {
+  live.forEach((p) => {
     if (!cand.has(p) || take.has(p)) return;
     for (const x of cand.get(p)) {
       const q = holder.get(x.t.id),
@@ -25620,6 +25629,95 @@ function payBacking() {
   });
   take.forEach((t, p) => map.set(p, { t: t, amt: r2(Math.min(+p.amount, +t.amt)) }));
   return (payBackMemo = { key: key, map: map }), map;
+}
+// ---- One bank line backs client payments only up to its amount (lane R, 11-12, S1). Billing opened Record Payment
+// on INV-2026-038 and the sheet came up on the Aug 29 $72,750 check deposit, the line already behind INV-2026-035's
+// payment: one press "paid" INV-038, invented a $4,485 credit and took INV-035's bank line away. Each matcher had its
+// own idea of whether a deposit was spoken for (the sheet read only a written link; payBacking, Today and Find in Bank
+// each read the amount and the date their own way). payLineUse is the one reading: the payments a deposit stands
+// behind (linked to it, or read as it by payBacking), what they take of it, and what it has left. Every path that
+// offers a deposit (Record Payment, Find in Bank, In the Bank Not Applied, Today's deposit row, Banking's Match) and
+// every path that writes a payment against one (the sheet's Record, truthSetMatch, nyhRecordDeposit) reads it.
+// A reversed payment takes nothing. A deposit matched to a bill, an order or a payroll run is not client money.
+function payLineIndex() {
+  const B = payBacking(),
+    memo = payBackMemo;
+  if (memo.lines) return memo.lines;
+  const L = new Map(),
+    add = (id, x) => (L.has(id) ? L.get(id).push(x) : L.set(id, [x]), !0),
+    loose = [],
+    byPay = new Map();
+  (DB.txns || []).forEach((t) => t.paymentId && +t.amt > 0 && byPay.set(t.paymentId, t.id));
+  (DB.clients || []).forEach((c) =>
+    (c.payments || []).forEach((p) => {
+      if (!(+p.amount > 0) || p.reverses || p.reversalId) return;
+      const id = p.txnId || byPay.get(p.id);
+      if (id) return void add(id, { c: c, p: p, amt: r2(+p.amount), linked: !0 });
+      const b = B.get(p);
+      b ? add(b.t.id, { c: c, p: p, amt: r2(b.amt), linked: !1 }) : loose.push({ c: c, p: p });
+    }),
+  );
+  // a deposit typed by hand is not the bank's record, so payBacking gives it to no payment. It is still spoken for
+  // by the payment typed with it (the same amount within $1, within 10 days), as Today's deposit rows always read it.
+  loose.length &&
+    (DB.txns || []).forEach((t) => {
+      if (!(+t.amt > 0) || L.has(t.id) || txnFromBank(t)) return;
+      const i = loose.findIndex((x) => Math.abs(+x.p.amount - +t.amt) <= 1 && Math.abs(dayDiff(x.p.date, t.date)) <= 10);
+      i >= 0 && add(t.id, { c: loose[i].c, p: loose[i].p, amt: r2(Math.min(+loose[i].p.amount, +t.amt)), linked: !1 }) && loose.splice(i, 1);
+    });
+  return (memo.lines = L);
+}
+// o.except: payment ids to leave out (the payment a path is about to link to this line)
+function payLineUse(t, o) {
+  const amt = r2(Math.max(0, +((t || {}).amt) || 0));
+  if (!t || !(amt > 0) || "void" === t.status) return { amt: 0, used: 0, left: 0, over: 0, pays: [], other: "" };
+  const m = t.match || {},
+    other = m.billId || t.billId ? "a bill" : m.poId || t.poId ? "an order" : m.payrollId || t.payrollId ? "a payroll run" : "",
+    skip = (o && o.except) || [],
+    pays = (payLineIndex().get(t.id) || []).filter((x) => !skip.includes(x.p.id)),
+    used = r2(pays.reduce((a, x) => a + x.amt, 0)),
+    rest = r2(Math.max(0, amt - used));
+  // a line read as a payment typed for a dollar less (a rounded check) is that payment's whole: the cents are not money to record
+  return { amt: amt, used: used, left: other || (rest <= 1 && pays.some((x) => !x.linked)) ? 0 : rest, over: r2(Math.max(0, used - amt)), pays: pays, other: other };
+}
+// who holds a line, in words: "INV-2026-035 ($72,750)", "a credit on account for the Jessop family ($4,485)"
+function payLineHolders(use) {
+  return (use.pays || [])
+    .map((x) => {
+      const inv = x.p.invoiceId && (x.c.invoices || []).find((i) => i.id === x.p.invoiceId);
+      return `${inv ? inv.number : `a payment on account for ${x.c.name}`} (${money(x.amt)})`;
+    })
+    .join(" and ");
+}
+// "" when the line can stand behind this much more; else why not, in the words the person reads
+function payLineWhy(t, amount, o) {
+  if (!t) return "That bank line is gone: pick it again";
+  const use = payLineUse(t, o),
+    line = `The ${fmtL(t.date)} ${t.desc || "bank"} line`;
+  if (use.other) return `${line} is matched to ${use.other}: it is not a client's payment`;
+  if (r2(+amount || 0) <= use.left + 0.005 && use.left > 0.005) return "";
+  if (use.left <= 0.005) return `${line} (${money(use.amt)}) already stands behind ${payLineHolders(use) || "another payment"}: it has nothing left for this one`;
+  return `${line} has ${money(use.left)} left of ${money(use.amt)}${use.pays.length ? ` (${payLineHolders(use)} has the rest)` : ""}: record that, not ${money(+amount || 0)}`;
+}
+// The bank lines that stand behind more client money than they hold: what the hole left behind where someone pressed
+// Record on it before this fix. Two shapes: payments linked to one line for more than its amount, and a line whose
+// linked payments pushed out the typed payment it was read as (INV-2026-035's check payment, left "not in the bank"
+// when the Aug 29 deposit was recorded again on INV-2026-038). Each is a payment to reverse or to match to its own
+// deposit. No screen reads this yet; tests/pay_match_test.py holds it at none on the demo books, and it is the list
+// to read on the hosted books after the release.
+function payLinesOver() {
+  const B = payBacking(),
+    loose = [];
+  (DB.clients || []).forEach((c) => (c.payments || []).forEach((p) => +p.amount > 0 && !p.txnId && !p.reverses && !p.reversalId && !p.unapplied && !B.get(p) && loose.push({ c: c, p: p })));
+  return (DB.txns || [])
+    .filter((t) => +t.amt > 0)
+    .map((t) => {
+      const use = payLineUse(t),
+        out = use.pays.some((x) => x.linked) && txnFromBank(t) ? loose.filter((x) => Math.abs(+x.p.amount - +t.amt) <= 1 && Math.abs(dayDiff(x.p.date, t.date)) <= 10) : [];
+      return { t: t, use: use, out: out };
+    })
+    .filter((x) => x.use.over > 0.005 || x.out.length)
+    .map((x) => ({ id: x.t.id, date: x.t.date, desc: x.t.desc, amount: x.use.amt, behind: x.use.used, over: x.use.over, payments: payLineHolders(x.use), pushedOut: payLineHolders({ pays: x.out.map((y) => ({ c: y.c, p: y.p, amt: r2(+y.p.amount) })) }) }));
 }
 // what of a payment the bank has: its backed amount; a reversal takes off what the payment it reverses had
 function payBankedAmt(c, py) {
@@ -37169,17 +37267,28 @@ function paymentAllocate(c, presetInvoiceId) {
             tr = { method: method, ref: ref, acct: ($("#py-acct") || {}).value || "" },
             no = payTraceWhy(tr);
           if (no) return toast(no), !1;
+          // the bank line this payment is recorded from (the Bank Line field): the payment is written with its link,
+          // and never for more than the line still has to give (payLineUse). The check is here, in the write, as
+          // well as on the field: a stale sheet or a second tab cannot put two payments behind one deposit.
+          const lineId = (m.querySelector("#py-txn") || {}).value || "",
+            line = lineId ? (DB.txns || []).find((x) => x.id === lineId) || null : null,
+            lineNo = lineId ? payLineWhy(line, amt) : "",
+            link = line ? { txnId: line.id } : {};
+          if (lineNo) return toast(lineNo), !1;
+          // refused before anything is written (it was checked after the payments were pushed, so a refused press
+          // left them on the client and the next press wrote them again)
+          if (r2([...m.querySelectorAll("[data-pyalloc]")].reduce((a, i) => a + Math.max(0, r2(+i.value || 0)), 0)) > amt + 0.005) return toast("Applied more than received"), !1;
           let applied = 0;
           m.querySelectorAll("[data-pyalloc]").forEach((inp) => {
             const v = r2(+inp.value || 0);
             if (v <= 0) return;
             (applied += v),
-              c.payments.push(payStamp({
+              c.payments.push(payStamp(Object.assign({
                 id: uid("py"),
                 invoiceId: inp.dataset.pyalloc,
                 date: date,
                 amount: v,
-              }, tr));
+              }, link), tr));
             const inv = findDoc(c, "invoice", inp.dataset.pyalloc);
             inv &&
               !["void", "draft"].includes(inv.status) &&
@@ -37189,14 +37298,14 @@ function paymentAllocate(c, presetInvoiceId) {
           const left = r2(amt - applied);
           if (left < -0.005) return toast("Applied more than received"), !1;
           left > 0.005 &&
-            c.payments.push(payStamp({
+            c.payments.push(payStamp(Object.assign({
               id: uid("py"),
               invoiceId: "",
               date: date,
               amount: left,
               unapplied: !0,
               voidedInvoice: "payment on account",
-            }, tr)),
+            }, link), tr)),
             c.activity.push({
               t: nowStamp(),
               by: S.project.userName || "",
@@ -64113,7 +64222,12 @@ function rtFor(o) {
       s.ref &&
       "function" == typeof pay3OverArrived &&
       null != pay3OverArrived(s.ref) &&
-      why.push({ role: "owner", kind: "over-arrived", msg: billTotal(s.ref) > pay3ArrivedLeft(s.ref) + 1 ? `Billed ${money(s.amount)} where what arrived comes to ${money2(pay3ArrivedLeft(s.ref))}: the Owner approves part and disputes the rest` : `A claim with no price is open on its order (${pay3ClaimWords(pay3PO(s.ref).po)}): the Owner approves part and disputes the rest` });
+      why.push({ role: "owner", kind: "over-arrived", msg: pay3Arr(s.ref).over > 1 ? `${pay3ArrWords(s.ref)}: the Owner approves part and disputes the rest` : `A claim with no price is open on its order (${pay3ClaimWords(pay3PO(s.ref).po)}): the Owner approves part and disputes the rest` });
+  } catch (e) {}
+  // paid ahead of delivery: more money is asked for while the vendor already holds more than what arrived
+  try {
+    const aw = "bill" === s.kind && s.ref && "function" == typeof pay3AheadWords ? pay3AheadWords(s.ref) : "";
+    aw && why.push({ role: "owner", kind: "paid-ahead", msg: aw });
   } catch (e) {}
   // Exceptions only (Alan, 10-26; the 11-05 call before Purchasing deploys): a bill against an order already issued,
   // inside what the order holds, is routine whatever its size (the owner approved the commitment when the order went
@@ -64123,7 +64237,7 @@ function rtFor(o) {
     const po = (DB.pos || []).find((p) => p.id === s.poId);
     po &&
       ["issued", "partial", "received", "closed"].includes(po.status) &&
-      !why.some((w) => ["over-po", "over-arrived"].includes(w.kind)) &&
+      !why.some((w) => ["over-po", "over-arrived", "paid-ahead"].includes(w.kind)) &&
       ((byAmount = "pm"), Object.assign(why[0], { role: "pm", msg: `${money(s.amount)} against ${po.number}, issued at ${money(poTotal(po).total)}: routine, the project manager approves it` }));
   }
   c.noLine &&
@@ -67618,23 +67732,19 @@ function payBankLine(py) {
   return b ? b.t : null;
 }
 function payInBankRows() {
-  const banks = new Set(payBankAccts().map((a) => a.id)),
-    paid = new Set();
-  (DB.clients || []).forEach((c) =>
-    (c.payments || []).forEach((p) => {
-      p.txnId && paid.add(p.txnId);
-      const t = !p.unapplied && payBankLine(p);
-      t && paid.add(t.id);
-    }),
-  );
+  const banks = new Set(payBankAccts().map((a) => a.id));
+  // what each deposit has left to give is payLineUse's reading (lane R, 11-12): a line behind payments in full is not
+  // here; one behind part of its amount is here for the rest (left), so money the bank holds on no invoice is listed
   return (DB.txns || [])
-    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.invoiceId && !paid.has(t.id) && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !(t.match && (t.match.invoiceId || t.match.paymentId)) && !!(t.prov || t.origin || t.source))
-    .map((t) => {
+    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !!(t.prov || t.origin || t.source))
+    .map((t) => ({ t: t, use: payLineUse(t) }))
+    .filter((x) => x.use.left > 0.005)
+    .map((x) => {
       let best = null;
       try {
-        best = truthCandidates(t).filter((x) => "invoice" === x.kind)[0] || null;
+        best = truthCandidates(x.t).filter((y) => "invoice" === y.kind)[0] || null;
       } catch (e) {}
-      return { t: t, best: best };
+      return { t: x.t, best: best, left: x.use.left, part: x.use.used > 0.005 };
     })
     .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
 }
@@ -67645,7 +67755,7 @@ function invFindInBank(c, d) {
     R = payInBankRows(),
     hit =
       R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
-      R.find((x) => Math.abs(+x.t.amt - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
+      R.find((x) => Math.abs(x.left - bal) <= 1 && (!x.best || !x.best.m || !x.best.m.invoiceId));
   if (hit && "function" == typeof openVerifyTxn) return void openVerifyTxn(hit.t.id);
   const last = (DB.txns || []).filter((t) => +t.amt > 0 && txnFromBank(t)).map((t) => t.date).sort().pop();
   (ROLE_VIEWS[role()] || []).includes("bank") && setView("bank");
@@ -67654,9 +67764,9 @@ function invFindInBank(c, d) {
 function payInBankHtml() {
   const R = payInBankRows();
   if (!R.length) return "";
-  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + +x.t.amt, 0))} on no invoice</span></div>${R.map(
+  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + x.left, 0))} on no invoice</span></div>${R.map(
     (x, i) =>
-      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
+      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${x.part ? `${money(x.left)} left of ${money(+x.t.amt)}` : money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
   ).join("")}</div>`;
 }
 function payInBankWire(root) {
@@ -67671,7 +67781,7 @@ function payInBankWire(root) {
         const c = (DB.clients || []).find((c) => (c.invoices || []).some((i) => i.id === x.best.m.invoiceId)),
           inv = c && c.invoices.find((i) => i.id === x.best.m.invoiceId);
         save(), render();
-        "function" == typeof rcToast ? rcToast(`${money(+x.t.amt)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(+x.t.amt)} recorded`);
+        "function" == typeof rcToast ? rcToast(`${money(x.left)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(x.left)} recorded`);
       }),
   ),
     root.querySelectorAll("[data-pibopen]").forEach(
@@ -133377,7 +133487,8 @@ if (
   (document.addEventListener(
     "click",
     (e) => {
-      const b = e.target.closest && e.target.closest("#nav-groups button, #tabbar button, #mtabs button");
+      // (a module's name opens its overview, Alan 11-12: it leaves the record on screen as every menu entry does)
+      const b = e.target.closest && e.target.closest("#nav-groups button, #nav-groups a.mn-head, #tabbar button, #mtabs button");
       if (b)
         try {
           if (void 0 !== docOpen && docOpen) {
@@ -141581,21 +141692,21 @@ const pay3Short = (b) => !!(b && b.short && +b.short.held > 0);
 // not. Counting every other bill flagged each of two waiting bills "$340 over" for one $340 overage (two Caught for
 // You rows, the overage twice in the leak sum), and the dispute landed on whichever the owner opened first, the
 // earlier CM-0102, not CM-0109 that took PO-2026-048 over its $76,000 (month walk E216).
-function pay3PO(b) {
-  const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
-  if (!po) return null;
+function pay3Others(b, po) {
   const B = DB.bills || [],
     waiting = (x) => ["submitted", "pm-approved"].includes(x.status) && !("function" == typeof billPaidUnapproved && billPaidUnapproved(x)),
     before = (x) => {
       const a = String(x.date || ""),
         c = String(b.date || "");
       return a < c || (a === c && B.indexOf(x) < B.indexOf(b));
-    },
-    total = poTotal(po).total,
-    other = r2(
-      B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)))
-        .reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0),
-    ),
+    };
+  return B.filter((x) => x.poId === po.id && x.id !== b.id && !["void", "rejected", "draft"].includes(x.status) && (!waiting(x) || before(x)));
+}
+function pay3PO(b) {
+  const po = b && b.poId && (DB.pos || []).find((p) => p.id === b.poId);
+  if (!po) return null;
+  const total = poTotal(po).total,
+    other = r2(pay3Others(b, po).reduce((a, x) => a + billTotal(x) - pay3HeldCost(x), 0)),
     received =
       (po.lines || []).some((l) => +l.received > 0) ||
       ["received", "partial"].includes(po.status) ||
@@ -141605,22 +141716,89 @@ function pay3PO(b) {
 // The three-way match reads the receipt (J7: NEM-5851 and GOW-5482 billed the whole order when 6 boards came short
 // and 31 sf came cracked): what arrived in good order on the bill's PO, at the order's prices and tax, less what the
 // other committed bills already took. Null when nothing is received (no third leg) or the bill is within it.
-function pay3ArrivedLeft(b) {
+//
+// One reading, in the vendor's own money (the accounting review, 11-12: 500 of 900 sf of Tino's flooring received, the
+// whole order billed, $8,000 paid ahead on the card, and the Hold sheet said "$0.00 arrived"). The old sum compared the
+// bill's balance after the prepayment came off it ($721) with what arrived less "what other bills took", and the
+// prepayment taken off this very bill was counted as another bill's take ($4,845 - $8,000 = $0). A prepayment is a
+// payment, never a billing of the goods, so the match is invoice against receipt: what the vendor invoiced (before any
+// prepayment comes off) against what arrived, less what the other committed invoices took. What is paid is its own
+// question, asked next (poPaidAhead).
+// What arrived on an order: received quantity at the order's unit price, less the open claims, with the order's tax
+// and the received share of its freight (all of it once everything is in).
+function poArrivedValue(po) {
+  const L = (po && po.lines) || [],
+    ordered = r2(L.reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)),
+    sub = r2(L.reduce((a, l) => a + Math.min(+l.received || 0, +l.qty || 0) * (+l.price || 0), 0)),
+    less = po ? puClaimsLess(po).amount : 0,
+    good = r2(Math.max(0, sub - less)),
+    all = L.length > 0 && L.every((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001),
+    freight = r2(all ? +po.shipping || 0 : ordered > 0 ? ((+po.shipping || 0) * sub) / ordered : 0);
+  return { ordered: ordered, sub: sub, less: less, good: good, all: all, freight: freight, total: r2(good * (1 + (+((po && po.tax) || 0)) / 100) + freight) };
+}
+// A bill against what arrived on its order. Null when nothing is received (no third leg) or the bill is a deposit
+// (a prepayment the terms allow, not a billing of goods). billed: the vendor's invoice; arrived: what arrived that
+// this invoice may take; over: billed past it; applied: prepayments taken off this bill; payable: what of the
+// balance due (billTotal) the receipt backs once the prepayment is counted.
+function pay3Arr(b) {
   const P = pay3PO(b);
   if (!P || !P.received) return null;
   const po = P.po,
-    sub = r2((po.lines || []).reduce((a, l) => a + Math.min(+l.received || 0, +l.qty || 0) * (+l.price || 0), 0)),
-    less = puClaimsLess(po).amount,
-    all = (po.lines || []).every((l) => (+l.received || 0) >= (+l.qty || 0) - 0.001),
-    val = r2(Math.max(0, sub - less) * (1 + (+po.tax || 0) / 100) + (all ? +po.shipping || 0 : 0)),
-    other = r2(P.total - P.left);
-  return r2(Math.max(0, val - other));
+    goods = "function" != typeof p0Sub || !p0Sub(po),
+    ap = (x) => (goods && "function" == typeof p0AppliedOn ? p0AppliedOn(x) : 0),
+    dep = (x) => goods && "function" == typeof p0IsDeposit && p0IsDeposit(x);
+  if (dep(b)) return null;
+  const V = poArrivedValue(po),
+    other = r2(pay3Others(b, po).filter((x) => !dep(x)).reduce((a, x) => a + billTotal(x) + ap(x) - pay3HeldCost(x), 0)),
+    applied = ap(b),
+    billed = r2(billTotal(b) + applied),
+    arrived = r2(Math.max(0, V.total - other));
+  return { po: po, V: V, billed: billed, applied: applied, due: billTotal(b), arrived: arrived, over: r2(Math.max(0, billed - arrived)), payable: r2(Math.max(0, Math.min(arrived, billed) - applied)) };
+}
+function pay3ArrivedLeft(b) {
+  const A = pay3Arr(b);
+  return A ? A.arrived : null;
 }
 // over what arrived: billed above it, or a claim open on the order whose value the order cannot say (a lump-sum line)
 function pay3OverArrived(b) {
-  const a = pay3ArrivedLeft(b),
-    P = null != a && pay3PO(b);
-  return null != a && (billTotal(b) > a + 1 || (P && puClaimsLess(P.po).unknown.length > 0)) ? a : null;
+  const A = pay3Arr(b);
+  return A && (A.billed > A.arrived + 1 || puClaimsLess(A.po).unknown.length > 0) ? A.arrived : null;
+}
+// whole dollars read as dollars, anything else to the cent
+const pay3M = (x) => (Math.abs(+x - Math.round(+x)) < 0.005 ? money(+x) : money2(+x));
+// the three amounts, in the words every screen shares: "Billed $8,721, arrived $4,844.94 on PO-2026-047 (500 of 900
+// sf ...): $3,876.06 over what arrived"
+function pay3ArrWords(b) {
+  const A = pay3Arr(b);
+  if (!A) return "";
+  const L = (A.po.lines || []).filter((l) => +l.qty > 0 && (+l.received || 0) < +l.qty - 0.001),
+    part = 1 === L.length ? `${+L[0].received || 0} of ${+L[0].qty} ${L[0].unit || ""}`.trim() : L.length ? `${L.length} lines short` : "",
+    cw = pay3ClaimWords(A.po),
+    paren = [part, cw].filter(Boolean).join("; ");
+  return `Billed ${pay3M(A.billed)}, arrived ${pay3M(A.arrived)} on ${A.po.number}${paren ? ` (${paren})` : ""}: ${A.over > 1 ? `${pay3M(A.over)} over what arrived` : puClaimsLess(A.po).unknown.length ? "a claim with no price is open" : "within what arrived"}`;
+}
+// Paid ahead of delivery (the leak the review found: $8,000 paid against $4,845 on site, said nowhere). One number for
+// the order, its bills and the Owner: the order's one "paid" (poPaid: every payment of its bills and every bank or
+// card line it holds, each once) against what arrived. Goods only: a subcontract's is Paying Ahead of Work.
+function poPaidAhead(po) {
+  if (!po || "cancelled" === po.status || ["subcontract", "service"].includes(po.type) || ("function" == typeof p0Sub && p0Sub(po))) return null;
+  const paid = r2("function" == typeof poPaid ? poPaid(po) : 0);
+  if (!(paid > 0.005)) return null;
+  // everything in and nothing claimed: nothing is ahead of delivery (tax or freight the vendor added on the invoice is
+  // the over-the-PO check's question, not this one)
+  const V = poArrivedValue(po);
+  return { paid: paid, arrived: V.total, ahead: V.all && !(V.less > 0.005) ? 0 : r2(Math.max(0, paid - V.total)) };
+}
+function poAheadWords(po) {
+  const H = poPaidAhead(po);
+  return H && H.ahead > 0.5 ? `Paid ahead of delivery: ${pay3M(H.paid)} paid on ${po.number}, ${pay3M(H.arrived)} arrived, ${pay3M(H.ahead)} ahead` : "";
+}
+// on a bill: its order is paid ahead of delivery while this bill (not a deposit) still waits to be approved or paid
+function pay3AheadWords(b) {
+  if (!b || !b.poId || b.short || ["void", "rejected", "paid", "verified"].includes(b.status) || ("function" == typeof p0IsDeposit && p0IsDeposit(b))) return "";
+  const po = (DB.pos || []).find((p) => p.id === b.poId),
+    w = po ? poAheadWords(po) : "";
+  return w ? `${w}${billTotal(b) > 0.005 ? `; this bill asks for ${pay3M(billTotal(b))} more` : ""}` : "";
 }
 // The words on a bill or an order for what its open claims take off what arrived ("less 6 cement boards claimed,
 // $162.60 at Gowanus's quote"), and for a claim whose price the order cannot say
@@ -141781,28 +141959,32 @@ function pay3ApproveAsBilled(b, a, why) {
 // what arrived to the Owner). It approves nothing and pays nothing; the Owner's sheet shows it.
 function pay3ArrivedHold(b) {
   if (!b || !pay3Can(b)) return toast(`${(b && b.number) || "This bill"} is not waiting on an approval`), !1;
-  const tot = billTotal(b),
-    a = pay3ArrivedLeft(b),
+  // in the vendor's invoice money: what they billed (before a prepayment comes off) against what arrived
+  const A = pay3Arr(b),
+    tot = A ? A.billed : billTotal(b),
+    a = A ? A.arrived : null,
     P = pay3PO(b),
+    aw = pay3AheadWords(b),
+    pre = a > 0 && a < tot - 0.005 ? a : 0,
     m = mbModal(
       `Hold at What Arrived — ${esc(b.vendor)} ${esc(b.number || "")}`,
-      `<div class="note">Bill ${esc(b.number || "")} is ${money(tot)}. ${P ? `What arrived in good order on ${esc(P.po.number)} comes to ${money2(a || 0)} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""}).` : ""} Say what to approve and why; the Owner approves that part and disputes the rest with the vendor.</div>
-      <div class="grid2" style="margin-top:10px">${mbF("Amount That Arrived", mbIn("amount", "", a ? String(a) : "", "number"))}${mbF("Held Back", `<input data-pay3held readonly value="" tabindex="-1">`)}</div>
+      `<div class="note" data-nocase>Bill ${esc(b.number || "")} is ${pay3M(tot)}${A && A.applied > 0.005 ? ` (${pay3M(A.applied)} paid ahead comes off it, so ${pay3M(A.due)} is due)` : ""}. ${A ? `${esc(pay3ArrWords(b))}.` : P ? `Nothing is received on ${esc(P.po.number)} yet.` : ""}${aw ? ` ${esc(aw)}.` : ""} Say what arrived and why; the Owner approves that part and disputes the rest with the vendor.</div>
+      <div class="grid2" style="margin-top:10px">${mbF("Amount That Arrived", mbIn("amount", pre ? String(pre) : "", "", "number"))}${mbF("Held Back", `<input data-pay3held readonly value="${pre ? money2(r2(tot - pre)) : ""}" tabindex="-1">`)}</div>
       ${mbF("Reason", mbIn("why", "", "e.g. 6 cement boards backordered; 31 sf of tile cracked, claimed"))}`,
       {
         submit: "Hold at What Arrived",
         onSubmit: (f) => {
           const amt = r2(+f.amount || 0),
             why = String(f.why || "").trim();
-          if (!(amt > 0) || amt >= tot - 0.005) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), `Above $0 and below ${money(tot)}: what arrived`), !1;
+          if (!(amt > 0) || amt >= tot - 0.005) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="amount"]'), `Above $0 and below ${pay3M(tot)}: what arrived`), !1;
           if (!why) return "function" == typeof vfMark && vfMark(m.querySelector('[data-f="why"]'), "Say what did not arrive or came damaged"), !1;
           const by = (currentUser() || {}).name || role();
-          b.arrivedHold = { amount: amt, held: r2(tot - amt), why: why, by: by, role: role(), at: appNowIso() };
+          b.arrivedHold = { amount: amt, held: r2(tot - amt), billed: tot, why: why, by: by, role: role(), at: appNowIso() };
           try {
             audit("bill", b.id, "held-at-arrived", null, { amount: amt, held: r2(tot - amt) }, why);
           } catch (e) {}
           save(), render();
-          rcToast(`${b.number || "The bill"} held at ${money(amt)}, what arrived; ${money(r2(tot - amt))} waits on the Owner to approve part and dispute the rest`, [{ label: "Open", run: flowGo.bill(b) }]);
+          rcToast(`${b.number || "The bill"} held at ${pay3M(amt)}, what arrived; ${pay3M(r2(tot - amt))} waits on the Owner to approve part and dispute the rest`, [{ label: "Open", run: flowGo.bill(b) }]);
         },
       },
     );
@@ -141811,10 +141993,24 @@ function pay3ArrivedHold(b) {
       out = m.querySelector("[data-pay3held]");
     inp.addEventListener("input", () => {
       const v = +inp.value || 0;
-      out.value = v > 0 && v < tot ? money(r2(tot - v)) : "";
+      out.value = v > 0 && v < tot ? money2(r2(tot - v)) : "";
     });
   } catch (e) {}
   return m;
+}
+// What the Owner's sheet starts from, of the balance due: the order's room, and what the receipt backs once the
+// prepayment taken off the bill is counted (the coordinator's hold, when she placed one, is the receipt's amount).
+// zeroOk: a prepayment already covers more than what arrived, so "$0 more" is a real answer.
+function pay3Start(b) {
+  const A = pay3Arr(b),
+    d = pay3Default(b),
+    tot = billTotal(b),
+    over = !!A && (A.over > 1 || null != pay3OverArrived(b)),
+    held = over && b.arrivedHold && +b.arrivedHold.amount > 0 ? Math.min(+b.arrivedHold.amount, A.arrived) : over ? A.arrived : 0,
+    pay = over ? r2(Math.max(0, held - A.applied)) : null,
+    zeroOk = !!A && A.applied > 0.005 && over && pay < 0.005,
+    amt = null != pay && pay < tot - 0.005 && (pay > 0 || zeroOk) ? (d > 0 ? Math.min(d, pay) : pay) : d;
+  return { amt: amt, zeroOk: zeroOk, has: amt > 0 || zeroOk };
 }
 function pay3ShortPay(b, amt, why, opts) {
   if (!pay3Can(b))
@@ -141834,11 +142030,12 @@ function pay3ShortPay(b, amt, why, opts) {
     t = paid ? billPaidTxn(b) : null,
     a = t && (DB.accounts || []).find((x) => x.id === t.acct);
   if (null == amt || !why) {
-    const def = pay3Default(b) || "",
+    const S0 = pay3Start(b),
+      def = S0.has ? S0.amt : "",
       fl = billFlags(b).filter((f) => !/^Paid from /.test(f)),
       m = mbModal(
         `${pay3Label(b)} — ${esc(b.vendor)}`,
-        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `, and what arrived in good order on it comes to ${money2(pay3ArrivedLeft(b))} (the receipt${pay3ClaimWords(P.po) ? ", " + esc(pay3ClaimWords(P.po)) : ""})` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${money(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
+        `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}${null != pay3OverArrived(b) ? `. ${esc(pay3ArrWords(b))}${pay3Arr(b).applied > 0.005 ? `; ${pay3M(pay3Arr(b).applied)} paid ahead came off this bill, so the receipt backs ${pay3M(pay3Arr(b).payable)} of the ${money(tot)} due` : ""}` : ""}${pay3AheadWords(b) ? `. ${esc(pay3AheadWords(b))}` : ""}${b.arrivedHold ? `. ${esc(b.arrivedHold.by)} held it at ${pay3M(b.arrivedHold.amount)}: ${esc(b.arrivedHold.why)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${"" !== def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
         {
           submit: "Approve and Dispute",
           alt: opts && opts.billed ? { label: `Approve as Billed (${money(tot)})` } : null,
@@ -141865,12 +142062,13 @@ function pay3ShortPay(b, amt, why, opts) {
         out = m.querySelector("[data-pay3held]");
       inp.addEventListener("input", () => {
         const v = +inp.value || 0;
-        out.value = v > 0 && v < tot ? money(r2(tot - v)) : "";
+        out.value = (v > 0 || (S0.zeroOk && "" !== inp.value.trim())) && v < tot ? money(r2(tot - v)) : "";
       });
     } catch (e) {}
     return !1;
   }
-  if (!((amt = r2(+amt || 0)) > 0) || amt >= tot - 0.005)
+  // $0 more is an answer only when a prepayment taken off the bill already covers what arrived
+  if ((amt = r2(+amt || 0)) < 0 || (!(amt > 0) && !pay3Start(b).zeroOk) || amt >= tot - 0.005)
     return toast(`Approve an amount above $0 and below ${money(tot)} — the rest is what is disputed`), !1;
   const held = r2(tot - amt);
   if (
@@ -180657,7 +180855,35 @@ function truthMatchWords(m) {
         break;
       }
     }
+  // one deposit, several payments: the others it stands behind, after the first
+  (m.more || []).forEach((x) => {
+    for (const c of DB.clients || []) {
+      const inv = x.invoiceId && (c.invoices || []).find((i) => i.id === x.invoiceId),
+        py = (c.payments || []).find((q) => q.id === x.paymentId);
+      if (inv || py) {
+        parts.push(`${inv ? `invoice ${inv.number}` : "a payment on account"} · ${c.name}${py ? ` (${money(+py.amount || 0)})` : ""}`);
+        break;
+      }
+    }
+  });
   return run && parts.push(`payroll run ${run.period || run.id}`), est && parts.push(`estimate line "${est.line.item || est.line.desc || ""}" (${est.doc.number})`), parts.join(" → ");
+}
+// the money-out twin of payLineUse: what of a bank or card debit already pays bills (the payments recorded from it,
+// and a bill linked to it with no payment of its own), leaving out one bill
+function apLineUse(t, exceptBillId) {
+  const amt = r2(Math.abs(+((t || {}).amt) || 0)),
+    held = [];
+  if (!t || !(+t.amt < 0)) return { amt: 0, used: 0, left: 0, held: held };
+  const live = (b) => b && !["void", "rejected"].includes(b.status) && b.id !== exceptBillId,
+    seen = new Set();
+  (DB.payments || []).forEach((p) => {
+    if (p.void || p.txnId !== t.id || !(+p.amount > 0)) return;
+    const b = (DB.bills || []).find((x) => x.id === p.billId);
+    live(b) && (seen.add(b.id), held.push({ bill: b, amt: r2(+p.amount) }));
+  });
+  (DB.bills || []).forEach((b) => live(b) && !seen.has(b.id) && (b.txnId === t.id || t.billId === b.id) && held.push({ bill: b, amt: r2(Math.min(amt, billTotal(b))) }));
+  const used = r2(held.reduce((a, x) => a + x.amt, 0));
+  return { amt: amt, used: used, left: r2(Math.max(0, amt - used)), held: held };
 }
 // Write one match. Legacy fields (billId, poId, line, invoiceId, payrollId) are kept in step so every older
 // reader (txnMatch, txnViaBill, jobFin, bankUnmatched) agrees with the model.
@@ -180671,6 +180897,13 @@ function truthSetMatch(t, m0, o) {
     cat = t.cat && "uncat" !== t.cat ? t.cat : "",
     proj = t.projectId || "",
     code = t.code || "";
+  // a debit that already pays other bills in full pays no further bill (lane R, 11-12: the $4,250 Nemo Tile ACH,
+  // behind NT-88412, could be matched to a second bill, which then read as paid). Asked before anything is written.
+  if (m.billId) {
+    const b = (DB.bills || []).find((x) => x.id === m.billId),
+      use = b ? apLineUse(t, b.id) : null;
+    if (use && use.held.length && use.left <= 0.005) return { ok: !1, why: `This ${fmtL(t.date)} line (${money(use.amt)}) already pays ${use.held.map((x) => `bill ${x.bill.number || x.bill.id} (${x.bill.vendor})`).join(" and ")} in full: it cannot pay bill ${b.number || b.id} too` };
+  }
   if (m.poId) {
     const po = (DB.pos || []).find((p) => p.id === m.poId);
     if (!po) return { ok: !1, why: "That purchase order is gone" };
@@ -180706,11 +180939,33 @@ function truthSetMatch(t, m0, o) {
     }
     if (!hit) return { ok: !1, why: "That invoice is gone" };
     const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
+    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && !x.reversalId && !x.reverses && Math.abs((+x.amount || 0) - t.amt) < 0.005);
+    // One bank line backs payments only up to its amount (payLineUse). A line with nothing left is refused; a payment
+    // made here is for what the line has left, never its whole amount again; and a line that already stands behind a
+    // payment keeps that match when a second payment takes the rest of it.
+    const use = payLineUse(t, { except: p ? [p.id] : [] });
+    if (use.left <= 0.005 || (p && r2(+p.amount || 0) > use.left + 0.005)) return { ok: !1, why: payLineWhy(t, p ? +p.amount : use.left || +t.amt, { except: p ? [p.id] : [] }) || "This bank line has nothing left for another payment" };
+    // a new payment is never made on an invoice with nothing owed: the deposit is another invoice's money, or a
+    // payment on account, and the person says which
+    if (!p && r2(docTotal(hit.inv).total - ("function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0)) <= 0.005) return { ok: !1, why: `${hit.inv.number} has nothing owed on it: this ${money(use.left)} is not its payment. Match it to the invoice it pays, or record it on account` };
+    const firstId = (t.match || {}).paymentId || "",
+      second = !!firstId && firstId !== (p || {}).id && use.pays.some((x) => x.linked && x.p.id === firstId);
     // a deposit matched to an invoice is income, whatever a rule guessed first ("ONLINE TRANSFER" read as a transfer
     // between our own accounts kept a client's payment out of the P&L)
-    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
-    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
-    p ? (p.txnId = t.id) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt || 0), invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
+    (m.invoiceLineId = il ? il.id : ""), second || (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    p ? ((p.txnId = t.id), p.acctId || (p.acctId = t.acct)) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: use.left, invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
+    "function" == typeof payBackReset && payBackReset();
+    if (second) {
+      const tot = docTotal(hit.inv).total,
+        paid = "function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0;
+      ["sent", "partial", "overdue"].includes(hit.inv.status) && (hit.inv.status = paid >= tot - 0.005 ? "paid" : "partial");
+      const more = ((t.match || {}).more || []).filter((x) => x.paymentId !== p.id);
+      more.push({ invoiceId: hit.inv.id, paymentId: p.id }), (t.match = Object.assign({}, t.match, { more: more })), (t.proposal = null);
+      try {
+        audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"} (a second payment from one deposit: ${money(+p.amount || 0)} on ${hit.inv.number})`);
+      } catch (e) {}
+      return save(), { ok: !0, m: truthMatchOf(t), second: !0, paymentId: p.id };
+    }
     {
       // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
       // whole invoice is matched to every line it pays
@@ -180738,7 +180993,7 @@ function truthSetMatch(t, m0, o) {
   }
   est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
   !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
-  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {})),
+  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {}, m.invoiceId && (t.match || {}).more ? { more: t.match.more.filter((x) => x.paymentId !== m.paymentId) } : {})),
     t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
     t.actor || (t.actor = who),
     (t.matchedBy = who),
@@ -180771,9 +181026,15 @@ function truthCandidates(t) {
     near = (d) => !!d && Math.abs(dayDiff(t.date, d)) <= 7,
     push = (kind, label, m, s, why) => s >= 3 && out.push({ kind: kind, label: label, m: m, score: s, auto: s >= 6, why: why.join(", ") });
   if (+t.amt < 0) {
+    // a debit that already pays other bills in full is not offered a further bill (apLineUse; truthSetMatch refuses it)
+    const paying = apLineUse(t).held.length > 0;
     (DB.bills || []).forEach((b) => {
       if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
       if ((t.rejectedBills || []).includes(b.id)) return;
+      if (paying) {
+        const use = apLineUse(t, b.id);
+        if (use.held.length && use.left <= 0.005) return;
+      }
       const vh = truthVendorHit(t, b.vendor),
         tot = billTotal(b),
         // the payment the controller recorded on the bill (Pay… > Record Payment) is what the bank line clears: its
@@ -180854,16 +181115,30 @@ function truthCandidates(t) {
       1 === L.length && push("line", `Estimate line ${L[0].label} (the line's job and cost code ${t.code})`, { estimateLineId: L[0].key }, 6, ["job agrees", `cost code ${t.code} agrees`, "the only estimate line with that code on the job"]);
     }
   } else if (+t.amt > 0) {
+    // What the deposit has left to give (payLineUse, lane R 11-12: the Aug 29 $72,750 check, already behind
+    // INV-2026-035's payment, was offered INV-2026-038 here and Match put a second $72,750 payment on it). A payment
+    // recorded by hand that this line is read as (no written link yet) is the only invoice the line is offered:
+    // Match writes that link. Past that, a line is offered for what is left of it, and not at all with nothing left.
+    const use = payLineUse(t),
+      soft = use.pays.filter((x) => !x.linked),
+      amt = r2(soft.length ? +t.amt : use.left);
+    if (!soft.length && use.left <= 0.005) return out;
     (DB.clients || []).forEach((c) =>
       (c.invoices || []).forEach((inv) => {
         if (["void", "draft"].includes(inv.status)) return;
+        const mine = soft.find((x) => x.p.invoiceId === inv.id);
+        if (soft.length && !mine) return;
         const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
           why = [];
+        // an invoice with nothing owed is offered only the deposit its own recorded payment is (its amount, or the
+        // payment this line is read as): the payer's name alone never puts a deposit on a paid invoice
+        if (bal <= 0.005 && !mine && !(Math.abs(docTotal(inv).total - amt) < 0.01 && (c.payments || []).some((x) => x.invoiceId === inv.id && !x.txnId && !x.reversalId && !x.reverses && Math.abs((+x.amount || 0) - amt) < 0.005))) return;
         let s = 0;
         (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
-        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
+        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}${use.used > 0.005 && !soft.length ? ` · ${money(use.left)} left of this ${money(use.amt)} deposit` : ""}`, Object.assign({ invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, mine ? { paymentId: mine.p.id } : {}), s, why);
       }),
     );
+    if (soft.length) return out.sort((a, b) => b.score - a.score);
     // A deposit from a client on file that pays part of an open invoice: by the payer's name and the amount it can
     // hold (pilot 9/8: "WIRE IN JESSOP J $12,000" against the Jessops' $24,000 retainer was never proposed, because
     // only an amount equal to a balance counted). The one open invoice that can hold it, or the one the client's
@@ -181884,7 +182159,13 @@ const PO_DROP = { curb: "Curb or Shipped", inside: "Carried Inside" },
   poDropAt = (po) => (po && PO_DROP[po.dropAt] ? po.dropAt : ""),
   // the order's delivery as the papers read it: as said on the order, else guessed from its lines
   poDropOf = (po) => (poDropAt(po) ? { at: po.dropAt, guessed: !1, sure: !0 } : Object.assign({ guessed: !0 }, poDropGuessOf(((po && po.lines) || []).map((l) => `${l.item || ""} ${l.desc || ""}`).join(" ; ")))),
-  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase())));
+  // Ship To is read before anything is guessed from the lines (the coordinator's review, 11-12: an appliance ordered to
+  // the Office was held for a certificate). Only a delivery to the job's own address can be carried inside the client's
+  // home: the office, the shop, the warehouse, will-call, held at the vendor or any other address is not their site,
+  // whatever the items are. The seed and the restock write "Office" and "Warehouse" as words, so the test is "not the
+  // job site", never a list of the places that are not.
+  poShipOff = (po) => !["", "site", "job site"].includes(String((po && po.shipTo) || "site").trim().toLowerCase()),
+  poOnSite = (po) => !!po && (["subcontract", "service"].includes(po.type) || ("inside" === poDropOf(po).at && !poShipOff(po)));
 // a vendor's open orders that bring them on site (the papers' rule, for every reader)
 function vendorOnSitePOs(name, exceptId) {
   const n = String(name || "").toLowerCase();
@@ -182009,7 +182290,7 @@ if ("function" == typeof renderPODoc) {
           // where it is delivered rules the papers (a COI only for who comes inside): the choice sits on the order, set
           // or not, while it can still change
           D = poDropOf(po),
-          dr = ["subcontract", "service"].includes(po.type) || ["shop", "willcall", "vendor"].includes(String(po.shipTo || "site").toLowerCase()) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
+          dr = ["subcontract", "service"].includes(po.type) || poShipOff(po) ? "" : `<div class="row po-drop" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small grow" data-nocase>${D.guessed ? `Delivery guessed: ${PO_DROP[D.at].toLowerCase()}, from the items${D.sure ? "" : " (nothing in them says, so inside, to be safe)"}.` : `Delivery: ${PO_DROP[D.at].toLowerCase()}.`} ${"inside" === D.at ? "They come inside, so a certificate of insurance is needed." : "No one comes inside: a W-9 before the first payment, no certificate needed."}</span><button type="button" class="btn sm" data-podropchg="${esc(po.id)}" aria-label="Change the delivery to ${"inside" === D.at ? PO_DROP.curb : PO_DROP.inside}">Change</button></div>`,
           w =
             dr +
             P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
@@ -182749,6 +183030,12 @@ document.addEventListener("click", (e) => {
 //   stays open on a memo for the cracked tile);
 // - an audit row on every apply.
 // A memo that cannot apply stays unapplied and says why. Returns { ok, msg }.
+// the held part of a short-paid bill was already paid (the bill was paid in full before the dispute, or since): its
+// credit is money coming back, so it is the Owner's to approve (Do Now) and a refund due under Owed Back
+function pay3HeldPaid(b) {
+  const s = b && b.short;
+  return !!s && (!!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005));
+}
 function pay3MemoApply(c, b, amount, memoNo) {
   const by = (currentUser() || {}).name || role(),
     amt = r2(+amount || 0),
@@ -182767,7 +183054,7 @@ function pay3MemoApply(c, b, amount, memoNo) {
   const held = r2(+s.held || 0);
   if (amt < held - 1) return { ok: !1, msg: `${money2(amt)} is less than the ${money2(held)} in dispute on ${b.number}: the Owner decides the rest on the bill` };
   const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
-    paidHeld = !!s.paid || ("function" == typeof payPaid && payPaid(b) >= billTotal(b) - 0.005),
+    paidHeld = pay3HeldPaid(b),
     over = r2(Math.max(0, amt - held));
   // the vendor credit on the returns ledger: what is over the dispute, or all of it on a paid bill (a refund due)
   const owed = (v, why) => {
@@ -189982,9 +190269,9 @@ function nyhRowsAll() {
         key: "dep:" + d.t.id,
         route: "billing",
         kind: "deposit",
-        title: d.inv ? `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} against ${d.inv.number}` : `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} as a deposit on account`,
-        why: `${d.t.desc} · in ${("function" == typeof truthAcctWords && truthAcctWords(d.t)) || "the bank"} on ${fmtL(d.t.date)}${d.inv ? "" : " · no open invoice for it: bill against it"}`,
-        amount: +d.t.amt,
+        title: d.inv ? `Record payment: ${d.c.name} ${lnMoney(d.amt)} against ${d.inv.number}` : `Record payment: ${d.c.name} ${lnMoney(d.amt)} as a deposit on account`,
+        why: `${d.t.desc} · in ${("function" == typeof truthAcctWords && truthAcctWords(d.t)) || "the bank"} on ${fmtL(d.t.date)}${d.amt < +d.t.amt - 0.005 ? ` · ${lnMoney(d.amt)} left of the ${lnMoney(d.t.amt)} deposit` : ""}${d.inv ? "" : " · no open invoice for it: bill against it"}`,
+        amount: +d.amt,
         verb: "Record Payment",
         no: "",
         run: () => nyhRecordDeposit(d),
@@ -190163,6 +190450,8 @@ function nyhApplyMail(c, pr) {
   } catch (e) {
     return void toast("Could not apply: " + (e.message || e));
   }
+  // a credit memo that could not apply (no number, less than the dispute, the wrong seat) stays unapplied and says why
+  if (!did && !pr.applied && pr.waits) return "dispute-credit" !== pr.kind && toast(pr.waits), save(), void render();
   pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
   nyhMarkCopies(c, pr, did);
   save(), render();
@@ -190264,28 +190553,37 @@ function nyhDeposits() {
       (clientFin(c).open || []).forEach((o) => open.push({ c: c, inv: o.x, bal: +o.bal || 0 }));
     } catch (e) {}
   });
-  const recorded = (t) =>
-    (DB.clients || []).some((c) => (c.payments || []).some((py) => py.txnId === t.id || (!py.txnId && Math.abs((+py.amount || 0) - t.amt) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10)));
+  // what a deposit has left to give is one reading (payLineUse): a line that stands behind payments in full is not
+  // here, and one that stands behind part is here for the rest (d.amt), so the money left on no invoice is seen
   (DB.txns || [])
-    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !lnMatched(t) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !/\b(INTEREST|REFUND|CREDIT MEMO|TRANSFER|XFER)\b/i.test(t.desc || "") && !recorded(t))
-    .forEach((t) => {
-      const D = String(t.desc || "").toUpperCase(),
-        byAmt = open.filter((o) => Math.abs(o.bal - t.amt) <= 0.5),
+    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !/\b(INTEREST|REFUND|CREDIT MEMO|TRANSFER|XFER)\b/i.test(t.desc || ""))
+    .map((t) => ({ t: t, use: payLineUse(t) }))
+    .filter((x) => x.use.left > 0.005)
+    .forEach((x) => {
+      const t = x.t,
+        left = x.use.left,
+        D = String(t.desc || "").toUpperCase(),
+        byAmt = open.filter((o) => Math.abs(o.bal - left) <= 0.5),
         word = (c) =>
           String(c.name || "")
             .toUpperCase()
             .replace(/&/g, " ")
             .split(/[^A-Z0-9]+/)
             .filter((w) => w.length > 3 && !["FAMILY", "SARAH", "DAVID", "STREET"].includes(w)),
-        named = (DB.clients || []).find((c) => word(c).some((w) => D.includes(w))) || (DB.clients || []).find((c) => (DB.projects || []).some((p) => p.clientId === c.id && String(p.project.name || "").split(/\s+/).slice(0, 2).join(" ").toUpperCase().length > 4 && D.includes(String(p.project.name).split(/\s+/).slice(0, 2).join(" ").toUpperCase()))),
+        // the payer the line names; of two it names (one deposit slip, two clients' checks), the one what is left fits
+        namedAll = (DB.clients || []).filter((c) => word(c).some((w) => D.includes(w))),
+        named = namedAll.find((c) => byAmt.some((o) => o.c.id === c.id)) || namedAll[0] || (DB.clients || []).find((c) => (DB.projects || []).some((p) => p.clientId === c.id && String(p.project.name || "").split(/\s+/).slice(0, 2).join(" ").toUpperCase().length > 4 && D.includes(String(p.project.name).split(/\s+/).slice(0, 2).join(" ").toUpperCase()))),
         hit = (named && byAmt.find((o) => o.c.id === named.id)) || (1 === byAmt.length ? byAmt[0] : null) || (named && open.filter((o) => o.c.id === named.id).sort((a, b) => String(a.inv.due || a.inv.date || "").localeCompare(String(b.inv.due || b.inv.date || "")))[0]);
-      if (hit && (!named || hit.c.id === named.id)) out.push({ t: t, c: hit.c, inv: Math.abs(hit.bal - t.amt) <= 0.5 || hit.bal >= t.amt ? hit.inv : null });
-      else named && out.push({ t: t, c: named, inv: null });
+      if (hit && (!named || hit.c.id === named.id)) out.push({ t: t, amt: left, c: hit.c, inv: Math.abs(hit.bal - left) <= 0.5 || hit.bal >= left ? hit.inv : null });
+      else named && out.push({ t: t, amt: left, c: named, inv: null });
     });
   return out;
 }
 function nyhRecordDeposit(d) {
-  const t = d.t;
+  const t = d.t,
+    // what the line has left when the button is pressed, not when the row was drawn (payLineUse)
+    left = payLineUse(t).left;
+  if (left <= 0.005) return void toast(payLineWhy(t, +t.amt));
   if (d.inv) {
     const r = truthSetMatch(t, { invoiceId: d.inv.id }, { why: "deposit recorded from Needs Your Hand" });
     if (!r || !r.ok) return void toast((r && r.why) || "Could not record it");
@@ -190295,18 +190593,22 @@ function nyhRecordDeposit(d) {
       (!o || o.bal <= 0.005) && (d.inv.status = "paid");
     } catch (e) {}
   } else {
-    (d.c.payments = d.c.payments || []).push(Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt), unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)));
-    (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: d.c.id }));
+    const py = Object.assign({ id: uid("py"), date: t.date, amount: left, unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)),
+      first = (t.match || {}).paymentId || (t.match || {}).invoiceId;
+    (d.c.payments = d.c.payments || []).push(py);
+    // a line that already stands behind a payment keeps that match; this one is added to it
+    (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, first ? { more: ((t.match || {}).more || []).concat({ invoiceId: "", paymentId: py.id }) } : { clientId: d.c.id, paymentId: py.id }));
   }
   try {
-    audit("payment", t.id, "recorded", "", +t.amt, `${d.c.name} ${lnMoney(t.amt)} ${d.inv ? "on " + d.inv.number : "on account"} from ${t.desc}`);
+    audit("payment", t.id, "recorded", "", left, `${d.c.name} ${lnMoney(left)} ${d.inv ? "on " + d.inv.number : "on account"} from ${t.desc}`);
   } catch (e) {}
   save(), render();
-  rcToast(`Recorded ${lnMoney(t.amt)} from ${d.c.name}${d.inv ? " on " + d.inv.number : " on account"}`, [{ label: "Open", run: () => ((clientOpen = d.c.id), (view = "clients"), render()) }]);
+  rcToast(`Recorded ${lnMoney(left)} from ${d.c.name}${d.inv ? " on " + d.inv.number : " on account"}`, [{ label: "Open", run: () => ((clientOpen = d.c.id), (view = "clients"), render()) }]);
 }
 // a payment on the books the bank never saw: match it to the deposit, or reverse it with the reason
 function nyhResolveUndeposited(x) {
-  const cand = (DB.txns || []).filter((t) => +t.amt > 0 && Math.abs(+t.amt - +x.py.amount) <= 1 && !lnMatched(t)).slice(0, 4);
+  // only a line that stands behind no other payment (payLineUse): Match never takes a line from the payment it backs
+  const cand = (DB.txns || []).filter((t) => +t.amt > 0 && Math.abs(+t.amt - +x.py.amount) <= 1 && !lnMatched(t) && payLineUse(t, { except: [x.py.id] }).used <= 0.005).slice(0, 4);
   const m = mbModal(
     `Resolve — ${esc(x.c.name)} ${lnMoney(x.py.amount)}`,
     `<p class="small muted" style="margin:0 0 10px">Recorded ${fmtL(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}${x.py.ref ? " · " + esc(x.py.ref) : ""}. No bank line within ten days agrees with it.</p>${
@@ -190324,7 +190626,10 @@ function nyhResolveUndeposited(x) {
     m.querySelectorAll("[data-nyhm]").forEach(
       (b) =>
         (b.onclick = () => {
-          const t = cand[+b.dataset.nyhm];
+          const t = cand[+b.dataset.nyhm],
+            no = payLineWhy(t, +x.py.amount - 1, { except: [x.py.id] });
+          if (no) return void toast(no);
+          "function" == typeof payBackReset && payBackReset(),
           (x.py.txnId = t.id), (t.match = Object.assign({}, t.match || {}, { invoiceId: x.py.invoiceId || "", paymentId: x.py.id })), x.py.invoiceId && (t.invoiceId = x.py.invoiceId), (t.cat && "uncat" !== t.cat) || (t.cat = "income");
           mbCloseModal(), save(), render(), toast(`${x.c.name} ${lnMoney(x.py.amount)} matched to ${t.desc} on ${fmtL(t.date)}`);
         }),
@@ -191915,7 +192220,20 @@ function lkDisputeFor(c, low, amt) {
     return base.apply(this, arguments);
   };
 }
-"undefined" != typeof NYH_MAIL && ((NYH_MAIL["dispute-credit"] = () => "coord"), (NYH_VERB["dispute-credit"] = "Apply"));
+// Whose hand: the coordinator who claimed it applies a memo that only lowers what is still to be paid (J7, 11-06). On a
+// bill already paid, the held part included, the credit is money the vendor owes back: that one is the Owner's, on the
+// dispute's own row below with one Approve (leaks2 [8]; the 11-06 route sent every memo to the coordinator, and the
+// dispute's row stood aside for her mail row, so the Owner had no row at all). One owner per memo, never two rows.
+const lkMemoOwners = (pr) => {
+  const b = pr && pr.billId && (DB.bills || []).find((x) => x.id === pr.billId);
+  return !!(b && b.short && "open" === b.short.state && pay3HeldPaid(b));
+};
+if ("undefined" != typeof NYH_MAIL) {
+  const credit = NYH_MAIL.credit;
+  NYH_MAIL["dispute-credit"] = (c, pr) => (lkMemoOwners(pr) ? "" : "coord");
+  NYH_MAIL.credit = (c, pr) => (lkMemoOwners(pr) ? "" : credit(c, pr));
+  NYH_VERB["dispute-credit"] = "Apply";
+}
 // read on the mail as what it is: a credit memo
 "object" == typeof CM_CATS && (CM_CATS["dispute-credit"] = CM_CATS["dispute-credit"] || "Credit memo");
 // a dispute still open near the month's end, or two weeks old: the Owner settles it (accept the difference with
@@ -191940,7 +192258,7 @@ function lkDisputeFor(c, low, amt) {
           // a memo that came before the dispute (read as a credit on the bill) is that same mail row: it now offers to apply
           const mr = memo && "credit" === memo.pr.kind && out.find((x) => "mail" === x.kind && x.commId === memo.c.id && "credit" === x.pkind);
           if (mr) return void (mr.title = `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now`);
-          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind && x.commId === memo.c.id)) return;
           if (memo)
             return void out.push({
               key: key,
@@ -191948,7 +192266,8 @@ function lkDisputeFor(c, low, amt) {
               kind: "dispute",
               pkind: "dispute-credit",
               title: "credit" === memo.pr.kind ? `${b.vendor} credits ${money2(+memo.pr.amount || 0)} against ${b.number}${memo.pr.memo ? ` (credit memo ${memo.pr.memo})` : ""}: the dispute it waited for is open, so it applies now` : memo.pr.summary,
-              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
+              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${pay3HeldPaid(b) ? `closes: ${b.number} was already paid, so it is a refund due from ${b.vendor} under Owed Back` : "closes"}`,
+              moneyNow: !0,
               amount: +b.short.held,
               verb: "Approve",
               no: "",
@@ -192249,8 +192568,9 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
-    ${mbF("Delivery", `<select data-f="dropAt">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
+    ${mbF("Delivery", `<select data-f="dropAt" data-guess="${poDropGuess(r)}">${Object.entries(PO_DROP).map(([k, t]) => `<option value="${k}"${k === poDropGuess(r) ? " selected" : ""}>${t}</option>`).join("")}</select>`)}
     <div class="note bad small fl-paper" role="alert" hidden></div>
+    <div class="fl-dropwhy" hidden>${mbF("Why Curb or Shipped", `<input data-f="dropWhy" placeholder="e.g. they confirmed a curbside drop; our crew carries it in">`)}</div>
     ${ovL ? `<div class="note bad small fl-over" role="alert" data-left="${ovL.left}" data-budget="${ovL.budget}" data-name="${esc(ovL.name)}" hidden><div class="fl-over-t"></div>${mbF("Why Over the Line", `<input data-f="overWhy" placeholder="e.g. the vendor's price rose; a change order follows">`)}</div>` : ""}
     ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
@@ -192265,6 +192585,7 @@ function buyOrderDialog(o) {
         if (!fromQuote && !poVendorReal(f.vendor)) return toast("Choose the supplier — a vendor on file"), !1;
         // a sender not on file has no certificate of insurance: carried inside, it waits for one (Alan, 10-25)
         if (fromQuote && "inside" === f.dropAt) return toast(FL_QUOTE_INSIDE), !1;
+        if (flDropWhyNeeded(f.vendor, f.dropAt, poDropGuess(r)) && !(f.dropWhy && f.dropWhy.trim().length >= 8)) return toast(FL_DROP_WHY), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
@@ -192291,6 +192612,28 @@ function buyOrderDialog(o) {
   );
 }
 const FL_QUOTE_INSIDE = "Not on file yet, so no certificate of insurance: a delivery carried inside needs one before the order. If it drops at the curb or ships, choose Curb or Shipped";
+// The certificate stop on the Order sheet (Alan, 10-25) is never a dead end (the 11-07 month: the radiant mats and the
+// slab sat on "Issue PO" with a toast and no next step). The note under Delivery says the stop and offers the same
+// one tap as the order page's Change: Set Curb or Shipped, with the reason. The reason is asked whenever a delivery
+// guessed as carried inside is set to the curb for a supplier with no current certificate (or not on file yet); it
+// goes on the order and in its audit row, because it is the step that lifts the gate. Goods that truly come inside
+// (a slab the yard installs) still wait for the certificate: the note says so.
+const FL_DROP_WHY = "Say how you know it drops at the curb or ships: a sentence, so the audit trail says why no certificate is needed",
+  flDropWhyNeeded = (vn, dz, guess) => {
+    if ("curb" !== dz || "inside" !== guess) return !1;
+    if ("__quote__" === vn) return !0;
+    const v = vn && poVendorReal(vn);
+    return !!v && (!v.insuranceExp || v.insuranceExp < today());
+  };
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest && e.target.closest("[data-fldropcurb]"),
+    root = b && b.closest("#mbm"),
+    dz = root && root.querySelector('[data-f="dropAt"]');
+  if (!dz) return;
+  e.preventDefault(), (dz.value = "curb"), flSheetChecks(root);
+  const w = root.querySelector('[data-f="dropWhy"]');
+  w && w.focus();
+});
 // The Order sheet says the vendor's papers and the line overage as they are entered, not after Issue PO.
 function flSheetChecks(root) {
   const q = (k) => root.querySelector(`[data-f="${k}"]`),
@@ -192303,8 +192646,14 @@ function flSheetChecks(root) {
   if (paper) {
     const dz = q("dropAt") ? q("dropAt").value : "",
       P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", dropAt: dz, lines: [{ qty: qty, price: price }] }) : "__quote__" === vn && "inside" === dz ? { stop: [FL_QUOTE_INSIDE], warn: [] } : { stop: [], warn: [] },
-      t = P.stop.concat(P.warn);
+      t = P.stop.concat(P.warn),
+      guess = (q("dropAt") && q("dropAt").dataset.guess) || "",
+      // the one tap is offered only when it lifts the stop: carried inside now, and nothing stops the same order at the curb
+      lifts = "inside" === dz && P.stop.length && ("__quote__" === vn || !poPaper({ id: "", vendor: vn, type: "materials", dropAt: "curb", lines: [{ qty: qty, price: price }] }).stop.length),
+      why = root.querySelector(".fl-dropwhy");
     (paper.hidden = !t.length), (paper.className = `note small fl-paper ${P.stop.length ? "bad" : "warn"}`), (paper.textContent = t.join(". ") + (t.length ? "." : ""));
+    lifts && paper.insertAdjacentHTML("beforeend", ` <span class="fl-dropfix">If the vendor installs it or carries it inside, the order waits for their certificate. If it drops at the curb or ships, nobody comes inside: <button type="button" class="btn sm" data-fldropcurb>Set Curb or Shipped</button></span>`);
+    why && (why.hidden = !flDropWhyNeeded(vn, dz, guess));
   }
   if (ov) {
     const over = r2(qty * price - +ov.dataset.left);
@@ -192379,6 +192728,13 @@ function flIssueOrder(r, v, f, tk) {
   try {
     audit("po", po.id, "ordered-from-line", "", `${po.number} ${v.name} ${money(poTotal(po).total)}`, r.name);
   } catch (e) {}
+  // guessed carried inside, ordered as a curb drop from a supplier with no current certificate: who said so, and why
+  if ("curb" === po.dropAt && "inside" === poDropGuess(r) && f.dropWhy && String(f.dropWhy).trim()) {
+    po.dropWhy = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: String(f.dropWhy).trim() };
+    try {
+      audit("po", po.id, "delivery", "inside (guessed)", "curb", `${PO_DROP.curb}, set on the order sheet: ${po.dropWhy.why}`);
+    } catch (e) {}
+  }
   const keep = S;
   S = p;
   try {
@@ -199866,6 +200222,40 @@ function billHoldSheet(b, kind) {
 function billHeld(b) {
   return !!(b && b.onHold && "open" === b.onHold.state);
 }
+// The bill's Controls say the third leg and the money ahead, whatever its lines are tied to (a bill entered with one
+// line and no PO line read "the delivery and this invoice agree"); its status says the Owner is next.
+{
+  const base = billFlags;
+  billFlags = function (b) {
+    const f = base.apply(this, arguments);
+    try {
+      if (b && b.poId && Array.isArray(f) && !b.short && !["void", "rejected", "paid", "verified"].includes(b.status)) {
+        const A = pay3Arr(b);
+        A && A.over > 1 && f.push(pay3ArrWords(b));
+        const aw = pay3AheadWords(b);
+        aw && f.push(aw);
+      }
+    } catch (e) {
+      console.warn("arrived flags", e);
+    }
+    return f;
+  };
+}
+{
+  const base = billState;
+  billState = function (b) {
+    const S = base.apply(this, arguments);
+    try {
+      if (b && b.poId && !b.short && ["submitted", "pm-approved"].includes(b.status) && S && !S.held) {
+        const A = pay3Arr(b),
+          over = A && A.over > 1,
+          ahead = !!pay3AheadWords(b);
+        if (over || ahead) return Object.assign({}, S, { cls: "warn", exc: !0, text: `${"submitted" === b.status ? "Awaiting PM review, then the Owner" : "Awaiting Owner approval"}: ${over ? "billed over what arrived" : "paid ahead of delivery"}` });
+      }
+    } catch (e) {}
+    return S;
+  };
+}
 function billHeldText(b) {
   return `Held by ${b.onHold.by}: ${String(b.onHold.why || "").length > 60 ? String(b.onHold.why).slice(0, 57).replace(/\s+\S*$/, "") + "…" : b.onHold.why}`;
 }
@@ -202081,8 +202471,11 @@ document.addEventListener(
    on the phone (the drawer) and the desktop (the rail):
      Your Day    Today, Tasks, Messages (MN_DAY): one entry each, each with the one number that waits on the person.
      Work        Projects (the person's jobs, then All Projects), Purchasing, Sales and Clients, Accounting, Design,
-                 Reports (MN_WORK): a group opens when its name is tapped (the whole row; no arrow), one at a time,
-                 and lists its pages under it. The group of the page on screen is the open one.
+                 Reports (MN_WORK): a group's name opens the module's overview page and lists its pages under it;
+                 the chevron at its right only shows or hides the pages, one group at a time (Alan, 11-12: "When I
+                 click projects or purchasing it just shows me a drop down. That's not effective." Before, 11-03,
+                 the name only opened the list and there was no arrow). The group of the page on screen is the
+                 open one.
      The foot    Company and Settings (MN_FOOT, a group), then Record a Feedback Session (fbsession.js mounts its
                  button in .mn-fbs).
    The field roles (foreman, crew, driver) keep a short, field-first list under the same headings: their own day
@@ -202352,10 +202745,22 @@ const MN_ALIAS = Object.assign({ sdraw: "plans", hbforecast: "salesnum", hbdash:
     setup:
       '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4.4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
   };
+// A module's name opens the module's overview page (Alan, 11-12: "When I click projects or purchasing it just shows
+// me a drop down. That's not effective. It's better that it takes me to an overview page for the modules."). Each
+// group's overview is the page the code already holds for it: All Projects, the Purchasing and Accounting overviews
+// (retired into the Buy Board and Banking on 11-03, kept as views; a link that names one still forwards), the
+// Pipeline (the Sales overview), Reports' own page and the Company and Settings hub. Design has none of its own (its
+// overview is All Projects' In Design filter): its name opens its first page. A role that may not open the overview
+// gets the group's first page it may open.
+const MN_OVER = { jobs: "ovjobs", buy: "ovbuy", sales: "ovsales", money: "ovmoney", reports: "reports", setup: "cohub" },
+  // the chevron at the right of a module's name: it only shows or hides the module's pages
+  MN_CHEV = '<path d="M6 9l6 6 6-6"/>';
 // mnLastGrp: the menu group the person came through (a page in two places lights the one they used); mnOpenG: the
-// group they opened by its name (null: the group of the page on screen)
+// group they opened by its chevron (null: the group of the page on screen); mnOverV: the overview the person opened
+// by its module's name (the forwards of the retired overviews stand aside for it while it is the page on screen)
 let mnLastGrp = "",
-  mnOpenG = null;
+  mnOpenG = null,
+  mnOverV = "";
 // the labels each page has carried (its old names too), so a heading is renamed only while it names the page
 const MN_KNOWN = {};
 function mnKnow(v, l) {
@@ -202484,7 +202889,15 @@ function mnBuild(r) {
     rk = "design_mgr" === r ? "designer" : r,
     may = (it) => has(it.v) && !(it.unless && has(it.unless)) && !(it.roles && !it.roles.includes(rk)) && !(it.not && it.not.includes(rk)),
     shown = (it) => !it.quiet || it.v === view,
-    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items }, x || {}),
+    // over: the page the group's name opens. The overview when the role may open it: the group's own entry for it
+    // (All Projects, Pipeline, Job Profitability, Company and Settings) or, where the menu lists none, an entry under
+    // the group's name (syn: Purchasing, Accounting); else the first page of the group the role may open.
+    over = (g, items) => {
+      const v = MN_OVER[g.id],
+        own = v && items.find((it) => !it.job && it.v === v && !it.tab);
+      return own || (v && has(v) ? { v: v, l: g.n, tab: "", sec: "", head: !0, syn: !0 } : items.find((it) => !it.job) || items[0]);
+    },
+    G = (g, items, x) => Object.assign({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items, over: over(g, items) }, x || {}),
     footV = new Set(mnGroupItems(MN_FOOT).map((it) => it.v)),
     out = { r: r, field: !!M.field, home: M.home, day: [], work: [], groups: [], more: [], bottom: null };
   const foot = mnGroupItems(MN_FOOT).filter(may).filter(shown);
@@ -202520,7 +202933,8 @@ const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billT
 function mnCur(B) {
   if (!B) return null;
   const groups = B.field ? [{ id: "field", items: B.day.concat(B.work), flat: 1 }].concat(B.bottom ? [B.bottom] : []) : B.groups,
-    all = groups.flatMap((g) => g.items.filter((it) => !it.job).map((it) => ({ g: g, it: it }))),
+    // a module's overview the menu lists under no entry (Purchasing, Accounting) is placed by its group's name
+    all = groups.flatMap((g) => g.items.filter((it) => !it.job).concat(g.over && g.over.syn && g.over.v === mnOverV ? [g.over] : []).map((it) => ({ g: g, it: it }))),
     placed = (v) => all.some((x) => x.it.v === v),
     // Company Settings open on the job's settings page: they are Settings, not the job's
     company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
@@ -202596,19 +203010,31 @@ function mnGo(g, it) {
   } catch (e) {}
   setView(it.v);
 }
-// a group's name: open it, or close it when it is open (one at a time). On the desktop's narrowed rail there is no
-// room to list a group's pages: its name opens its first page.
+const mnGroupOf = (B, gid) => (B && B.groups.concat(B.bottom || []).find((x) => x.id === gid)) || null;
+// a module's name: open its overview page (g.over) and show its pages under it. On the phone the sheet closes on the
+// page, as it does for every entry; the module is the open one when the menu is opened again.
+function mnOpen(gid, keys) {
+  const g = mnGroupOf(mnBuild(role()), gid);
+  if (!g || !g.over) return;
+  mnOverV = g.over.syn ? g.over.v : "";
+  mnGo(g, g.over);
+  mnOpenG = gid;
+  mnRail();
+  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  h && h.focus({ preventScroll: !0 });
+}
+// the chevron beside a module's name: show its pages, or hide them when they show (one module at a time). It never
+// changes the page.
 function mnToggle(gid, keys) {
   const B = mnBuild(role()),
-    g = B && B.groups.concat(B.bottom || []).find((x) => x.id === gid);
+    g = mnGroupOf(B, gid);
   if (!g) return;
-  if (document.body.classList.contains("rail-min") && innerWidth > 760) return void mnGo(g, g.items[0]);
   const cur = mnCur(B),
     open = null === mnOpenG ? (cur && !cur.g.day ? cur.g.id : "") : mnOpenG;
   mnOpenG = open === gid ? "" : gid;
   mnRail();
-  // from the keyboard, the focus stays on the name it was on (the redraw replaced it)
-  const h = keys && document.querySelector(`#nav-groups [data-mnhead="${gid}"]`);
+  // from the keyboard, the focus stays on the chevron it was on (the redraw replaced it)
+  const h = keys && document.querySelector(`#nav-groups [data-mnchev="${gid}"]`);
   h && h.focus({ preventScroll: !0 });
 }
 function mnRail() {
@@ -202618,6 +203044,8 @@ function mnRail() {
     // the foot's Settings button: in the firm's workspace Settings is in the menu's foot
     rs = document.getElementById("rail-settings");
   if (!wrap || !mnOn(r)) return void (rs && (rs.style.display = ""));
+  // an overview opened by its module's name stays the overview only while it is the page on screen
+  mnOverV && view !== mnOverV && (mnOverV = "");
   const B = mnBuild(r),
     cur = mnCur(B);
   cur && (mnLastGrp = cur.g.id);
@@ -202634,7 +203062,13 @@ function mnRail() {
       const o = open === g.id,
         // the group's own page (All Projects, an overview), else its first: where a walk's "go to Accounting" lands
         main = g.items.find((it) => it.head && !it.job) || g.items.find((it) => !it.job);
-      return `<a href="#" role="button" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}" data-mnhead="${esc(g.id)}" aria-expanded="${o}" aria-controls="mn-k-${esc(g.id)}">${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><div class="mn-kids" id="mn-k-${esc(g.id)}" data-mngr="${esc(g.id)}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
+      // the name opens the module's overview (data-mnover: the page it opens) and is lit while that page is on screen;
+      // the chevron beside it only shows or hides the module's pages. The chevron is a link with a button's role, not a
+      // <button>: a press on a menu button leaves the record on screen (the "rail leaves record" listener), and the
+      // chevron changes nothing but the list. The name leaves the record as every entry does (that listener names it).
+      const here = !!cur && !!g.over && cur.g.id === g.id && cur.it === g.over,
+        id = esc(g.id);
+      return `<div class="mn-row"><a href="#" class="mn-head${cur && cur.g.id === g.id ? " cur" : ""}${here ? " here" : ""}" data-mnhead="${id}" data-mnover="${esc((g.over && g.over.v) || "")}" aria-expanded="${o}" aria-controls="mn-k-${id}"${here ? ' aria-current="page"' : ""}>${mnSvg(MN_ICON[g.icon])}<span class="mn-l">${esc(g.n)}</span></a><a href="#" role="button" class="mn-chev" data-mnchev="${id}" aria-expanded="${o}" aria-controls="mn-k-${id}" aria-label="${o ? "Hide" : "Show"} ${esc(g.n)} Pages" title="${o ? "Hide" : "Show"} ${esc(g.n)} Pages">${mnSvg(MN_CHEV)}</a></div><div class="mn-kids" id="mn-k-${id}" data-mngr="${id}"${o ? "" : " hidden"}>${g.items.map((it) => leaf(g, it, "mn-kid", "", it === main)).join("")}</div>`;
     };
   let html = '<div class="mn-cap">Your Day</div>';
   if (B.field) {
@@ -202658,8 +203092,12 @@ function mnRail() {
     b.onclick = () => mnGo(g, it);
   });
   wrap.querySelectorAll("[data-mnhead]").forEach((a) => {
-    a.onclick = (e) => (e.preventDefault(), mnToggle(a.dataset.mnhead));
-    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(a.dataset.mnhead, 1));
+    a.onclick = (e) => (e.preventDefault(), mnOpen(a.dataset.mnhead));
+    a.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnOpen(a.dataset.mnhead, 1));
+  });
+  wrap.querySelectorAll("[data-mnchev]").forEach((b) => {
+    b.onclick = (e) => (e.preventDefault(), mnToggle(b.dataset.mnchev));
+    b.onkeydown = (e) => [" ", "Spacebar", "Enter"].includes(e.key) && (e.preventDefault(), mnToggle(b.dataset.mnchev, 1));
   });
   rs && (rs.style.display = "none");
   // the strip under the header: a job's own pages while a job is open (with the job switcher); a Design page carries
@@ -202787,6 +203225,7 @@ if ("function" == typeof signIn) {
         M = u && MENU[u.role];
       (mnLastGrp = ""),
         (mnOpenG = null),
+        (mnOverV = ""),
         M && M.home && (ROLE_VIEWS[u.role] || []).includes(M.home) && view !== M.home && !document.body.classList.contains("ws-mb") && ((view = M.home), render());
     } catch (e) {}
     return out;
@@ -202855,6 +203294,64 @@ function mnApprLink() {
   q.insertAdjacentHTML("beforebegin", '<a href="#" class="td-more td2-more" data-mnappr>Open the Approvals Page</a>');
   v.querySelector("[data-mnappr]").onclick = (e) => (e.preventDefault(), (window.mApprKind = "all"), setView("mapprove"));
 }
+// The module overviews, as the page a module's name opens (Alan, 11-12; the PM reviewer's checklist of the same day).
+// Two small fills, each read from what the pages already count (no new store, list or number):
+//  - Purchasing: a link into each Purchasing page the person's menu lists, with that page's own Needs You (puCount, the
+//    menu's number), what waits on others, and its first rows by name: the dollars over an order or a line, the
+//    credits owed back, the late deliveries and the requests are one tap from the overview.
+//  - Projects: a job with no contract value (jobFin's contract, the number the table reads) says so above the table,
+//    with the way into its Contract and Billing: work on a job with nothing to bill against is work not billed.
+const OV_PG_ROWS = { proc: () => puNeeds(""), po: () => puOrderRows(""), rfq: () => puQuoteRows(), recv: () => puDelivRows(""), vendors: () => puVendorRows(), inv: () => puStockRows() },
+  OV_GO = '<path d="M9 6l6 6-6 6"/>';
+function ovFillBuy() {
+  const host = document.getElementById("ovbuy-body"),
+    list = document.getElementById("ov-list-ovbuy");
+  if ("ovbuy" !== view || !host || !list || "function" != typeof puCount || "object" != typeof PU_ROWS) return;
+  host.querySelectorAll("[data-ovpages]").forEach((x) => x.remove());
+  const g = mnGroupOf(mnBuild(role()), "buy"),
+    items = g ? g.items.filter((it) => !it.job && !it.tab && OV_PG_ROWS[it.v]) : [];
+  if (!items.length) return;
+  const html = items
+    .map((it, i) => {
+      let all = [],
+        mine = [];
+      try {
+        (all = OV_PG_ROWS[it.v]() || []), (mine = PU_ROWS[it.v]() || []);
+      } catch (e) {
+        console.warn("purchasing overview", it.v, e);
+      }
+      const ids = new Set(mine.map((x) => x.id)),
+        rest = all.filter((x) => !ids.has(x.id)),
+        top = mine.concat(rest).slice(0, 2).map((x) => x.name).filter(Boolean),
+        more = all.length - top.length,
+        say = `${mine.length ? `${mine.length} need${1 === mine.length ? "s" : ""} you` : "Nothing waits on you"}${rest.length ? ` \u00b7 ${rest.length} waiting on others` : ""}`,
+        tone = mine.some((x) => "bad" === x.tone) ? " bad" : mine.length ? " warn" : "";
+      return `<button type="button" class="ov-pg${tone}" data-ovpg="${i}"><span class="ov-pg-b"><b>${esc(it.l)}</b><span class="ov-pg-n" data-nocase>${esc(say)}</span>${top.length ? `<span class="ov-pg-s" data-nocase>${esc(top.join("; "))}${more > 0 ? `, and ${more} more` : ""}</span>` : ""}</span>${mnSvg(OV_GO)}</button>`;
+    })
+    .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-pages" data-ovpages="buy" role="group" aria-label="Purchasing Pages">${html}</div>`);
+  host.querySelectorAll("[data-ovpg]").forEach((b) => (b.onclick = () => mnGo(g, items[+b.dataset.ovpg])));
+}
+function ovFillJobs() {
+  const host = document.getElementById("ovjobs-body"),
+    list = document.getElementById("ov-list-ovjobs");
+  if ("ovjobs" !== view || !host || !list || "object" != typeof OV_BUILD || "function" != typeof OV_BUILD.jobs) return;
+  host.querySelectorAll("[data-ovflags]").forEach((x) => x.remove());
+  let rows = [];
+  try {
+    rows = OV_BUILD.jobs().filter((r) => r && r.p && r.J && !(r.J.contract > 0));
+  } catch (e) {
+    console.warn("projects overview", e);
+  }
+  if (!rows.length) return;
+  const may = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+    to = may("jbill") ? "jbill" : "dash",
+    html = rows
+      .map((r) => `<div class="ov-flag" data-ovflag="${esc(r.p.id)}"><span data-nocase><b>${esc(shortName(r.p))}</b> has no contract value. Work on it has nothing to bill against until an estimate is signed.</span><button type="button" class="btn sm" data-ovflaggo="${esc(r.p.id)}">${"jbill" === to ? "Open Contract and Billing" : "Open the Job"}</button></div>`)
+      .join("");
+  list.insertAdjacentHTML("beforebegin", `<div class="ov-flags" data-ovflags="jobs">${html}</div>`);
+  host.querySelectorAll("[data-ovflaggo]").forEach((b) => (b.onclick = () => ("function" == typeof jpOpenJob ? jpOpenJob(b.dataset.ovflaggo, to) : (setCurrent(b.dataset.ovflaggo), setView(to)))));
+}
 {
   const base = render;
   render = function () {
@@ -202863,6 +203360,11 @@ function mnApprLink() {
       mnAsk(), mnHeading(), mnApprLink();
     } catch (e) {
       console.warn("menu headings", e);
+    }
+    try {
+      ovFillBuy(), ovFillJobs();
+    } catch (e) {
+      console.warn("module overviews", e);
     }
     return r;
   };
