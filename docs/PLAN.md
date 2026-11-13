@@ -1,6 +1,8 @@
 # The plan: everything we said we'd do
 
-This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
+This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Parked by Alan, 11-13:** the designer module and role (Today NO DATE, selections with no estimate line on the designer side, the designer's other findings), unless another seat depends on it. The order-side rule stays live.
+
+**Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
 Last updated 2026-11-13, 00:10 UTC: the 11-12 all-out hour (the section below). Fifteen expert reports are in, eleven fix lanes are building, and nothing from the hour is merged or live. Before that: Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
 
