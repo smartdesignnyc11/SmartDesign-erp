@@ -483,6 +483,20 @@ async def credit(p, phone):
     C.ok(lim['ask'] and lim['made'] == 0 and lim['reg'] and not lim['queue'], f'{who}: a ${lim["total"]:,.2f} credit (over $1,000) is asked for in the register, nothing is credited, and it is not a Billing Queue row ({lim})')
     C.ok(lim['self'], f'{who}: billing cannot approve the credit it asked for')
     await sign_in(pg, 'u_owner')
+    # owner review 11-12: the amount reads the whole way (work credited, tax, net) on the Approvals row, the note and
+    # the confirm sheet; Approve is on the bar, never one tap in the note strip, and the sheet approves nothing by itself
+    cr = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), a = (DB.clientCredits || []).find(x => x.id === window.__ask);
+      const row = mApprovals().find(x => x.kind === 'creditmemo' && x.id === a.id);
+      dvOpen('invoice', a.invoiceId, c.id);
+      const acts = dvActions(dvFind('invoice', a.invoiceId, c.id)).map(x => (x.blue ? '*' : '') + x.id), note = (document.querySelector('#dv [data-dvcredit]') || {}).textContent || '';
+      dvAct('crapprove:' + a.id);
+      const cf = (document.querySelector('#mbm [data-dvconfirm]') || {}).textContent || '', st = a.status;
+      try { mbCloseModal(); } catch (e) {} dvClose();
+      return { row: row ? row.detail : '', note: note, cf: cf, st: st, bar: acts.includes('crapprove:' + a.id), strip: /Approve the Credit/.test(note) }; }""")
+    C.ok(all('$1,200' in cr[k] and 'sales tax' in cr[k] and re.search(r'\$1,306\.50?\b', cr[k]) for k in ('row', 'note', 'cf')),
+         f'the owner on the {dev}: the credit reads $1,200 of work plus its sales tax, $1,306.50 net, on the Approvals row, the note and the confirm sheet ({cr})')
+    C.ok(cr['bar'] and not cr['strip'] and cr['st'] == 'proposed' and 'Klein' in cr['cf'],
+         f'the owner on the {dev}: Approve the Credit is on the action bar (not blue, not in the note strip) and opens a confirm sheet naming the client; nothing is approved until its Approve ({cr["st"]})')
     ow = await pg.evaluate("""() => { const c = DB.clients.find(c => c.id === 'cl121'), inApp = mApprovals().some(x => x.kind === 'creditmemo' && x.id === window.__ask);
       const cm = dvCreditDecide(c, window.__ask, true), a = (DB.clientCredits || []).find(x => x.id === window.__ask);
       return { inApp: inApp, cm: cm ? cm.number : '', prep: cm && cm.preparedBy, issued: cm && cm.issuedBy, st: a.status, by: a.approvedBy }; }""")

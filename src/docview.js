@@ -909,9 +909,11 @@ function dvCreditBreakAsk(inv, a) {
     ret = null != a.ret ? +a.ret : r2((gross * (+(inv && inv.retainagePct) || 0)) / 100);
   return { gross: gross, ret: ret, tax: null != a.tax ? +a.tax : Math.max(0, r2(+a.amount - gross + ret)), net: r2(+a.amount) };
 }
+// to the cent: what a person approves, and a credit read the whole way, is never rounded to the dollar
+const dvM = (v) => ("function" == typeof money2 ? money2(v) : money(v));
 function dvCreditBreakWords(B) {
-  const parts = [B.tax > 0.005 ? `plus ${money(B.tax)} sales tax` : "", B.ret > 0.005 ? `less ${money(B.ret)} retainage reversed` : ""].filter(Boolean);
-  return parts.length ? `${money(B.net)} (${money(B.gross)} of work credited, ${parts.join(", ")})` : money(B.net);
+  const parts = [B.tax > 0.005 ? `plus ${dvM(B.tax)} sales tax` : "", B.ret > 0.005 ? `less ${dvM(B.ret)} retainage reversed` : ""].filter(Boolean);
+  return parts.length ? `${dvM(B.net)} (${dvM(B.gross)} of work credited, ${parts.join(", ")})` : dvM(B.net);
 }
 // Approve, confirmed: the sheet restates what is credited, to whom and on which invoice, then one Approve
 function dvCreditConfirm(c, id) {
@@ -921,8 +923,8 @@ function dvCreditConfirm(c, id) {
   const inv = (c.invoices || []).find((x) => x.id === a.invoiceId),
     B = dvCreditBreakAsk(inv, a);
   mbModal(
-    `Approve the Credit of ${money(B.net)}`,
-    `<p style="margin:0 0 8px" data-dvconfirm>Credit ${esc(money(B.net))} to ${esc(c.name)} on invoice ${esc(a.invoiceNumber || (inv && inv.number) || "")}: ${esc(money(B.gross))} of work credited${B.tax > 0.005 ? `, plus ${esc(money(B.tax))} sales tax` : ""}${B.ret > 0.005 ? `, less ${esc(money(B.ret))} retainage reversed` : ""}.</p><p class="small muted" style="margin:0">Asked by ${esc(a.by)}: ${esc(a.why)}. A credit memo is issued and applied to the invoice; no money moves.</p>`,
+    `Approve the Credit of ${dvM(B.net)}`,
+    `<p style="margin:0 0 8px" data-dvconfirm>Credit ${esc(dvM(B.net))} to ${esc(c.name)} on invoice ${esc(a.invoiceNumber || (inv && inv.number) || "")}: ${esc(dvM(B.gross))} of work credited${B.tax > 0.005 ? `, plus ${esc(dvM(B.tax))} sales tax` : ""}${B.ret > 0.005 ? `, less ${esc(dvM(B.ret))} retainage reversed` : ""}.</p><p class="small muted" style="margin:0">Asked by ${esc(a.by)}: ${esc(a.why)}. A credit memo is issued and applied to the invoice; no money moves.</p>`,
     { submit: "Approve", onSubmit: () => void dvCreditDecide(c, id, !0) },
   );
 }
@@ -1033,10 +1035,10 @@ function dvRefundConfirm(c, id) {
     a = (DB.accounts || []).find((x) => x.id === f.acctId),
     acct = a ? `${a.name}${a.last4 ? " ending " + a.last4 : ""}` : "the account it came into",
     onAcct = dvOnAccount(c),
-    how = onAcct >= f.amount - 0.05 ? `It draws down the ${money(onAcct)} credit on the account; nothing billed changes.` : f.withCredit ? `A credit memo on ${f.invoiceNumber} goes with it, so nothing is owed again; it reduces what was billed.` : `${money(f.amount)} is owed again on ${f.invoiceNumber}.`;
+    how = onAcct >= f.amount - 0.05 ? `It draws down the ${dvM(onAcct)} credit on the account; nothing billed changes.` : f.withCredit ? `A credit memo on ${f.invoiceNumber} goes with it, so nothing is owed again; it reduces what was billed.` : `${dvM(f.amount)} is owed again on ${f.invoiceNumber}.`;
   mbModal(
-    `Approve the Refund of ${money(f.amount)}`,
-    `<p style="margin:0 0 8px" data-dvconfirm>Refund ${esc(money(f.amount))} to ${esc(c.name)}${f.method ? ` by ${esc(f.method)}` : ""}, out of ${esc(acct)}, the account their payment${src ? ` of ${esc(fmtL(src.date))}` : ""} on ${esc(f.invoiceNumber)} came into.</p><p class="small muted" style="margin:0">${esc(how)} Proposed by ${esc(f.by)}: ${esc(f.why)}. It reads "approved, not in the bank" until its bank line is matched.</p>`,
+    `Approve the Refund of ${dvM(f.amount)}`,
+    `<p style="margin:0 0 8px" data-dvconfirm>Refund ${esc(dvM(f.amount))} to ${esc(c.name)}${f.method ? ` by ${esc(f.method)}` : ""}, out of ${esc(acct)}, the account their payment${src ? ` of ${esc(fmtL(src.date))}` : ""} on ${esc(f.invoiceNumber)} came into.</p><p class="small muted" style="margin:0">${esc(how)} Proposed by ${esc(f.by)}: ${esc(f.why)}. It reads "approved, not in the bank" until its bank line is matched.</p>`,
     { submit: "Approve", onSubmit: () => void dvRefundDecide(c, id, !0) },
   );
 }
@@ -1240,7 +1242,8 @@ if ("function" == typeof mApprovals) {
                   sev: "warn",
                   n: money(a.amount),
                   title: `Credit ${money(a.amount)} to ${c.name}`,
-                  detail: `${a.invoiceNumber} · ${a.why} · over the ${money(dvCreditLimit())} limit · asked by ${a.by}`,
+                  // the amount read the whole way (work credited, tax, retainage reversed, net), as the note and the confirm sheet say it
+                  detail: `${a.invoiceNumber} · ${dvCreditBreakWords(dvCreditBreakAsk((c.invoices || []).find((x) => x.id === a.invoiceId), a))} · ${a.why} · over the ${money(dvCreditLimit())} limit · asked by ${a.by}`,
                   yes: "Review the Credit",
                   who: "owner",
                   due: today(),
