@@ -1334,3 +1334,202 @@ Owner: the Your Day, Sales and Company build lanes; the checks go in through the
   - **A close blocked by a failed verify escalates in the Standard's format** (what happened, impact, options, recommendation, decision deadline: books by the 10th), and it reaches the owner. On the hosted copy, sync must never merge the trail as a whole list, which would drop rows and block every close.
   - **The PM's over-budget card on Today shows the day the line goes over** (E232, 121 State general conditions). The month's match should name the job and the line.
   - **The month actor counts a task as seen only on its own person's screens** (doneMine).
+
+## §11 The 11-12 expert round: three waves, fifteen reports (chief of staff, 2026-11-12)
+
+Alan asked for an all-out hour on 11-12. Role experts did the work through the screens, on the desktop (1440x900) and the phone (390x844), on the demo data at app day 2026-09-03.
+- **Wave 1 (d2review):** billing, controller, owner and client on the unreleased documents-first build (334deed). 35 minutes each.
+- **Wave 2:** coordinator, accounting, foreman and PM on the LIVE build (master f99e946). 35 minutes each.
+- **Wave 3:** billing, coordinator, accounting and foreman second passes, crew and driver, designer, and the founder's lens on Ask and the Brain, on the LIVE build. 10 to 12 minutes each. The accounting second pass did not complete and has no findings.
+
+The reports are copied to `review/round_1112/` (untracked, like `review/experts/`), in `d2review/`, `wave2/` and `wave3/`. Each item below names its report. The screenshots stayed in the session's scratchpad and are not kept.
+
+**How far to trust it.** Every report lists what it did not reach, and none covered its whole brief. "Not walked" at the end of this section is as much a part of the result as the findings. Some wave-3 findings are marked unverified by their own reviewer: three of the nine S1s with no lane (a fourth is partly verified) and billing's S2. A finding marked that way needs one look before anyone builds.
+
+**The counts, as the reviewers graded them.**
+| | S1 | S2 | S3 | All |
+|---|---|---|---|---|
+| Wave 1, documents first (unreleased) | 5 | 10 | 22 | 37 |
+| Wave 2, live | 14 | 10 | 24 | 48 |
+| Wave 3, live | 9 | 10 | 20 | 39 |
+| **All** | **28** | **30** | **66** | **124** |
+| A lane has it | 19 | 17 | 4 | 40 |
+| No lane | 9 | 13 | 62 | 84 |
+
+Three findings were reported twice, so 121 are distinct: Record Payment reusing a deposit (billing on the unreleased build, accounting on live); the record id in a credit memo's reason (billing S2, owner S3); Done with no photo (foreman S3, crew S2).
+
+Seat scores against the field leaders, each resting on the part of the brief it reached: PM 7, coordinator 6, foreman 6, crew and driver 6, designer 6, founder 6, accounting 5.
+
+### S1, each with the lane that has it
+Lane letters are the 11-12 lanes in `docs/LANES.md`. "Named" means the lane's commit message names the finding. A lane's fix is the lane's claim until the seat's expert walks it again.
+
+| # | Seat, report | What is wrong | Lane |
+|---|---|---|---|
+| 1 | Accounting, live (`wave2/accounting.md` S1-1); billing, documents first (`d2review/billing.md` S1-1) | Record Payment on INV-2026-038 opens with the Aug 29 $72,750 deposit already chosen. That deposit is check 2214, the money for INV-2026-035. One press of Record puts one deposit behind $145,500 of receipts, takes $68,265 off receivables with no new cash, gives the client a $4,485 credit from nothing, stops the collections chase and leaves INV-2026-035 reading "Not in the bank". It is the lapping pattern, and the screen does it by default | **R** (live, first; uncommitted when checked) |
+| 2 | Accounting, live (S1-2) | Hold at What Arrived says "$0.00 arrived" with both fields blank when 500 of 900 sf were received. The $8,000 card prepayment was netted first and counted as another bill's take | **G** (b5c814e, named) |
+| 3 | Accounting, live (S1-3) | A bill for more than arrived raises no control and goes to the PM as a clean match. The three-way match is on a button, not on the bill. The firm is about $3,155 paid ahead of delivery and no screen says so | **G** (b5c814e, named, with paid ahead of delivery) |
+| 4 | Coordinator, live (`wave2/coordinator.md` S1-1) | Room subtotals count a shared estimate line once per room: the groups add to $507,861 against a header Budget of $331,260 | **T** (b072398, named) |
+| 5 | Coordinator, live (S1-2) | Purchased Price shows the bill's $33,500 beside the order's $3,300 each; 9 x $3,300 is $29,700 | **T** (named) |
+| 6 | Coordinator, live (S1-3) | The Table says "the bill" for six Ferguson items; Ferguson's record has no bills and no price history, so paying more than last time cannot be caught | **T** (named) |
+| 7 | Coordinator, live (S1-4) | Status reads Purchased or Delivered with no order or bill on file; the damaged $8,990 range reads Delivered | **T** (named) |
+| 8 | Coordinator, live (S1-5) | "Under budget $304" on a line billed for one of four pieces, added to the green Under Budget total | **T**, by the same change (a typed figure no longer counts as Purchased or Under Budget). "Billed 1 of 4, three to come" is not named in the commit: check it at review |
+| 9 | Foreman, live (`wave2/foreman.md` 1) | Two switches for automatic clock-in. The old checkbox toasts "on", records no consent and makes no punch, so a day goes unclocked | **C** (e2eb5cc, named) |
+| 10 | Foreman, live (2) | An overlap on the foreman's phone has no Pick One, and Approve goes through with the overlap open | **C** (named) |
+| 11 | Foreman, live (3) | The automatic punch is saved and does not show to the man it belongs to | **C** (named) |
+| 12 | Foreman, live (4) | Arriving on a day already clocked punches in again and the toast does not say it overlaps; This Week counts punches as days ("4 days" for three worked) | **C**: the day count is in its diff. The toast saying the overlap is not named: check it at review |
+| 13 | PM, live (`wave2/pm.md` 1) | The job's margin tile and the Projects EAC leave out $5,099 of cost with no estimate line that the Budget table counts: 21% against 19.8%, $388,888 against $393,986 | **F** (uncommitted when checked) |
+| 14 | PM, live (2) | "Over-billed" has three numbers for one job: +$156K across 3 jobs, $131,058 and $66,470 | **F** (uncommitted) |
+| 15 | Billing, documents first (`d2review/billing.md` S1-2) | A refund defaults to "Credit the invoice" while the client already holds credit on account: a $300 refund cut billed to date by $300 | **D2** (16b9922, named) |
+| 16 | Controller, documents first (`d2review/controller.md` 1) | Revising a paid August invoice for a description change moves $97,000 of revenue from August to September, and the reversal is backdated into August | **D2** (named) |
+| 17 | Controller, documents first (2) | Edit shows on a verified, paid, posted bill | **D2** (named) |
+| 18 | Client, documents first (`d2review/client.md` S1-1) | A paid invoice still shows How to Pay and "Current payment due $72,750": the viewer and the Account list use two different rules for "paid" ($0.16 apart) | **D2** (named) |
+
+Row 1 counts twice in the table of counts (two reports), which makes 19.
+
+### S1 with no lane (nine, all from wave 3, all on the live build)
+None of the nine 11-12 lanes has these. Each needs an owner before the push is called done.
+
+| # | Seat, report | What is wrong | Verified | Where it should go |
+|---|---|---|---|---|
+| 1 | Founder (`wave3/founder.md` 1) | Ask: "where is money leaking" answers "17 items" and lists the inventory. "money leaks" matches nothing. Today says 33 caught, and the Brain holds a duplicate $1,650 charge, two unmatched vendor credits and a $3,800 overrun | Yes | A new Ask lane. The north star's own question has no answer |
+| 2 | Founder (2) | Ask: "what haven't we billed" lists the six invoices that have been billed, $283,365. "unbilled work" gives the right reader ($36,017) | Yes | The Ask lane; add the phrasing to the Ask bank |
+| 3 | Founder (3) | Ask: "what did we promise the Kleins" says none, while "what do we owe the Kleins" lists three things. The promise reader finds an empty store and says "none" instead of falling through to tasks and unanswered mail | Yes | The Ask lane |
+| 4 | Founder (4) | The unbilled-work answer may overstate: 45 Cranberry's design phases read billed 0% while the job shows $21,350 billed and paid | No: needs a finance check | Check first; then the Ask lane or F |
+| 5 | Designer (`wave3/designer.md` 1) | Today shows all eight 121 State decisions as "NO DATE". The Decisions list has their dates, and three are overdue, two of them hers. Today hides that she is late | Yes | A small Today lane (`tdyModel`); "nothing slips" |
+| 6 | Designer (2) | Every open selection reads "No estimate line". Three are already bought that way (about $9,478), and $3,752 of door hardware is with the client for approval with no line behind it. Buying without a line was not tested | Partly | T now asks for the line before an order drafts. Nobody has the class: a selection cannot go to the client or be bought with no line and no bill-back (BACKLOG §9) |
+| 7 | Billing (`wave3/billing2.md` S1-1) | Two Home Depot card purchases coded to 121 State are not offered for bill-back anywhere billing looks. On a fixed-price line that may be right | No | One look first. If it holds, it is the bill-back leak, and it goes to a billing lane |
+| 8 | Billing (S1-2) | A progress line that cost says is 7.67% done and is already billed 51.67% takes another 10% with no reason asked at entry. The gate may sit at Send to Client; the reviewer did not press it | No | One look first |
+| 9 | Crew and driver (`wave3/crew.md` 1) | A normal first clock-in of the day makes a double punch: the day is already closed and sent for approval, ending later than the app's clock (7:12 AM to 4:48 PM at 3:20 PM). Probably the seed, but it is what the person sees | Yes | C (the same files), or the seed |
+
+### S2 and S3 no lane has, by seat
+Each line: severity, report and number, what happens, what should happen. Money and client-facing items come first within a seat.
+
+#### Billing
+Documents first (`d2review/billing.md`), unreleased:
+- **S3-3.** Create Credit pre-fills each line's full billed amount (Demolition: $4,200), so one tick credits the whole line, and the sheet never shows the credit total before Issue. Should be: start at $0 or require the amount, and show the total.
+- **S3-2.** The client's credit memo reads "$0 applied to invoice INV-2026-038" when the invoice was already paid. Should be: "INV-2026-038 is paid in full; this $450 is held as a credit on your account."
+- **S3-4.** A revised retainer invoice is numbered INV-2026-D140-R-R1 on the client's copy: "-R" for retainer and "-R1" for revision.
+- **S3-1.** One action has three labels: Convert to Invoice, "Invoice from 121State-FME1", New Invoice, and "Invoice from This Estimate…" in the editor.
+- **S3-5.** After Start the Revision the editor opens with Made Today above it, so the revision sits below the fold and the original is not one tap away.
+- **S3-6.** Made Today labels the credit memo "Journal Entry CM-2026-001". It is a credit memo.
+
+Live (`wave3/billing2.md`):
+- **S2-1.** No visible way to put a billable expense on the progress invoice: no Billable Expenses or Add Expense on INV-2026-039, desktop or phone. Unverified: More was not opened. If it is there, it is buried (S3).
+- **S3-1.** The deposit applied is not a line in the invoice totals; it appears only inside "Previously 51.67%" and a note.
+- **S3-2.** A stale toast: "$11,386 after retainage" while the page says $11,160.
+- **S3-3.** The Sales Tax row shows a dash with a rate stored and no "no taxable lines" wording.
+
+#### Controller and accounting
+Live (`wave2/accounting.md`):
+- **S3-1. Money.** An open sheet survives a reload and comes back over the page (New Bill, then Record Payment). Back on Billing with Record Payment still armed, one press of Record posts a payment. Should be: no sheet that posts money is restored after a reload. Fix the class: every sheet that writes.
+- **S3-2.** Two blue buttons on one screen: Hold at What Arrived in the sheet and Save Changes in the bill drawer behind it.
+- **S3-4.** The vendor name is typed free on a bill although the order carries it. Picking the order first should fill the vendor, lines and amounts.
+- **S3-3.** The coordinator has no Bills list in the menu; the new bill is reachable only from its toast. Nobody holds the coordinator seat since 11-09, so check this for the PM who buys.
+
+Documents first (`d2review/controller.md`), unreleased:
+- **S3 4.** Report drill-down is inconsistent. The Cash (13-week) row for the $33,500 opens bill b2. The same $33,500 opens nothing from Payables Aging, the Tie-out, the Pack and Cost Intel, and Vendor Prepayments on Financials opens the ledger instead of the bill.
+- **S3 5.** On the phone every action but one sits under More (Download PDF, Send Back, Vendor's Document).
+- **S3 6.** Hold works and is audited. Its "Task For" list shows the M&B acquisitions and analyst seats beside the firm's staff.
+
+Lead, not a finding (`wave3/accounting2.md`): AP aging shows bills $0 while WW-2026-118 sits approved by the PM and AMP-311 is submitted. It may be right. An accounting lead expects entered, unpaid bills in aging, or a line saying why they are not there.
+
+#### Owner (documents first, `d2review/owner.md`, unreleased)
+- **S3 9.** Send to Client from More on a sent change order shows "Drafting..." and nothing else: no sheet, nothing confirms what was sent. Not checked further.
+- **S3 7.** The refund's destination reads backwards: "Refund of $750 to Wire from Chase Business Checking ending 4471" names the firm's deposit account, not the client's account the money returns to.
+- **S3 3.** Today does not list invoices on either device; the only way from Today to an invoice is an approval row.
+- **S3 4.** The Refunds and Credits chips are not where the owner works: Today's Approvals tab has no chips, the refund and credit are rows 6 and 7 of 8, and the rows' own label "Review the Refund" never shows.
+- **S3 10.** The approval toast covers the viewer's action bar on the desktop for several seconds.
+
+#### Client (documents first, `d2review/client.md`, unreleased)
+- **S3.** The deposit invoice reads like billed work: 20% of each of 13 trades, 39 rows on the phone, to reach $97,000. One line, "Deposit: 20% of $485,000", would say it.
+- **S3.** Status words are the firm's: "sent" on an open invoice and change order, "converted" on the estimate. The Account list already says "due Sep 15" and "waiting on you".
+- **S3.** A memo goes to the client word for word: "Awaiting signature." prints as Notes on CO-2026-002 and on the signing sheet.
+- **S3.** The phone title wraps mid-phrase beside Close ("Progress / billing #2").
+- **S3.** Desktop buttons are 40px high and 8px apart: at the limit for a tablet.
+
+#### PM (live, `wave2/pm.md`)
+- **S2 5.** The company budget view is closed to the PM (`view='budget'` bounces to Today). The PM who owns the job's money has no one table of his jobs: budget, committed, actual, forecast, over.
+- **S3 8.** Write Change Order leaves the job: it lands in Clients, the menu switches to Sales and Clients, and the job tabs are gone. Should stay in the job with a way back to the field item.
+- **S3 7.** "Write the Change Order" is offered on a sub no-show and on a material request, and the answered joist item says "Write Change Order". Should be: only on hidden conditions, extras and plan changes, with one label.
+- **S3 9.** The Pending COs tile rounds the money away: $1,850 shows as "$2K", $2,800 as "$3K".
+- **S3 10.** Buy Board: "Needs 1" beside "Needed (26)". Two close words, two numbers. Rename one.
+- **S3 11.** Today mixes other people's work into the PM's 26: bill-back lines for another job and 23 approvals sit above what the foreman is waiting on, and two of the foreman's three items are off the first phone screen.
+
+#### Coordinator and purchasing (live)
+First pass (`wave2/coordinator.md`):
+- **S2-4.** One blocked row blocks the whole pick: a subcontract scope in the pick stops the order for the other row with a toast, and rows waiting on a submittal or a client decision still carry a checkbox. Should be: order what can be ordered, list what was left and why, and lock a held row.
+- **S3. Money.** Returned rows still show the full purchased price and a small "under budget"; the credit owed ($1,880, $413, $126) is on the vendor, not on the row.
+- **S3. Money.** A receipt of 880 of 900 sf saved with no slip and no note, and nothing asked about the 20 sf short. The vendor has no certificate on file, the order is carried inside, and the receive sheet does not say so.
+- **S3.** A draft order adds NY sales tax ($132.68) on a client job by default and says to confirm with the accountant. For the controller to judge.
+- **S3.** The CSV export writes Budget Price for shared lines as text ("in the line (75000)"), so the column will not sum; it has no unit column, no need-by date and no unit price.
+- **S3.** "each" on a per-foot price ("900 sf ... $8.90 each"); tile rows carry Qty "180 ea". T's diff changes this to "per sf": check it at review.
+- **S3.** The Invoice column shows "FM12" with no word saying what it is, above "Not yet invoiced".
+- **S3.** "Order by —" on the two Selecting rows, though the lead time and need-by are known and the date can be worked out.
+- **S3.** The stock hint prints twice in the Status cell on two rows.
+
+Second pass (`wave3/coordinator2.md`):
+- **S1 to check, not counted above.** The Request for Quote sheet's line budget disagrees with the Table: the Table says "$26,800 line" and "$75,000 line"; the sheet says "$22,550 left on the line" and "$0 left on the line", both "No material budget on this line". Seen once, not traced.
+- **S2 1.** Import a Sheet refuses a sheet with plain headers (`FM Number, Item, Qty, Room, Budget, Purchased, Vendor`): 0 items, and the toast says "Nothing to import: paste the sheet first" though the sheet is pasted. With Alan's column names all five rows import. Should be: map Item to Description and FM Number to Invoice, or ask.
+- **S3 2.** Request Quotes refuses only after the click, by toast (rows from two jobs; a subcontract scope with a material). The pick bar should say so while picking.
+- **S3 3.** Three vendors are not reachable without typing: the sheet pre-ticks two of three and both have no email on file.
+- **S3 4.** The pick bar drops the dollars when the picked lines' budgets are "In the line": no amount shown for $101,800 of line budget.
+- **S3 5.** The import preview rounds the line to whole dollars beside an exact unit price ("$1,250.50 each, $1,251").
+
+#### Foreman (live, phone)
+First pass (`wave2/foreman.md`):
+- **S2 7.** Only one job has a site location. 206 Lenox has none, so automatic clock-in cannot work there. C's diff adds the words "This job has no site location yet: clock in by hand here". Still open: every job gets its location, filled from its address.
+- **S3 9.** Done on a schedule line marks it done with no photo unless "Needs a Photo" was ticked first (a 22x24 checkbox). Seen three times: here, crew S2 4 below, and the foreman's second pass.
+- **S3 8.** After the foreman offers a task, his Today row changes from "Crew" to "Angel" and shows nothing about waiting on the crew man. The sheet says "Alan owns it until the other person accepts". Three owners in three places.
+- **S3 11.** Two blue buttons on the foreman's Today: Clock In and the floating Say It, which also covers the row under it.
+- **S3 12.** With location denied the card says "Location permission denied" and "Automatic clock-in is on" together. C's commit says on with no location now reads by hand: check it at review.
+- **S3 10.** Times are written three ways on one page: "3:08 pm", "in 15:08", "07:12–16:48".
+- **S3 13.** The crew's bottom bar shows no badge for an offered task.
+
+Second pass (`wave3/foreman2.md`):
+- **S3 a.** A material request keeps the filler word and is not tied to a stock item: "20 more 2x4s for tomorrow" saves as "more 2x4s", no length, no catalog link, though the check screen offers "2x4x8 KD studs". The office has to call to ask which.
+- **S3 b.** Daily Log: Next on Delays & Safety does nothing until yesterday's delay is answered, and the question appears mid-screen. Three taps, no move.
+
+#### Crew and driver (live, phone, `wave3/crew.md`)
+- **S2 2.** The driver cannot receive a delivery at the curb: no line counts, Short or Damaged; only a slip photo. Receiving exists for the crew only. Same class as the foreman's receiving in lane C.
+- **S2 3.** "I'm at the Store" removes the Suggested Day Plan and the Delivered button on the job-site drop while the run is open.
+- **S2 4.** Done takes one tap and never offers a photo: framing at 90% saved as done with 0 photos.
+- **S3 7.** A store run can start with nothing confirmed to buy ("Waiting for Chen to approve", studs on Hold), and it posts to four project chats for items on one project. The four Made Today cards then push the shopping list down.
+- **S3 6.** The store picker ignores what the app knows: it defaults to Home Depot when the plan's first stop is Lowe's and the studs are cheapest at Brooklyn Lumber.
+- **S3 5.** The driver sees money: "This route saves $3", "saves $16". Field roles do not see job money; a store price for what he is buying is a different thing. Recommended: keep it, and say so in the field-money rule.
+- **S3 8.** Small targets on the shopping list: tick boxes 26x24, "Going back" 78x24.
+
+#### Designer (live, `wave3/designer.md`)
+- **S2 3.** No way to add a selection with room, quantity and price in one step. New offers only Clip From a Web Page and From a Spec Sheet or Photo; the clip form has no quantity, price or job picker. A showroom pick with no web page has no start.
+- **S2 4.** Drawings opens on the current job, not the one with the six sheets to re-issue (45 Cranberry). Reached by setting the view: confirm from the menu.
+- **S3 5.** One label, two numbers: Today's "To Re-Issue 6" and the Drawings badge 3.
+- **S3 6.** Two buttons named New on Selections that do different things.
+- **S3 7.** "FM / Invoice Group" with the placeholder "FM12" is not a designer's word.
+- **S3 8.** A selection's detail has icon buttons with no text (close, delete, cancel, save). Seen in the form dump, not by eye.
+
+#### Founder: Ask and the Brain (live, `wave3/founder.md`)
+- **S2 5. Money.** "what is over budget" reports one line ($3,800) and misses unbudgeted spend: $1,466.05 on a cost code with $0 budget, and the $1,650 dumpster Today lists as not in the budget.
+- **S2 6.** Brain lesson rows do not name the value or standard behind them ("a reminder for the coordinator, from 1 event"). The Standard requires it of every lesson.
+- **S2 7.** "who is waiting on me" is right (6), but its first row is one 900-character sentence. Lead with the decision and the amount.
+- **S3 8.** The Brain shows the same lessons twice on one page: Lessons for the Firm 8 and Suggested From What Happened 11, same titles, header 17. One noun, one list.
+- **S3 9.** Job Checklist Steps proposals are titled only with a job's name, with no statement of the rule.
+- **S3 10.** Today's header says "16 need you today" and the brief opens "Six things need you today".
+
+### S2 and S3 a lane has (for the record)
+- **D2** (documents first): billing S2-1 the record id in the client's credit memo (also owner S3 6), S2-2 a paid invoice whose only visible phone action is Edit, S2-3 Record Payment under More; controller S2 3 Pay not reachable from the bill document in the seeded month; owner S2 1 a draft estimate opens the client document, S2 2 Approve the Refund in the notes strip with one tap and no confirmation, S3 5 the owner's blue button on an open invoice, S3 8 the credit amount net of retainage with no breakdown; client S2-1 the amount due not at the top, S2-2 the estimate not findable in the portal, S2-3 two percent-complete figures, S2-4 text under 12px on the phone.
+  - Commit 16b9922 does not name four of these: the Pay path, the estimate in the portal, the two percents and the small text. They are D2's by its brief. The second review confirms each one or sends it back.
+- **T:** coordinator S2-1 an order from a row cannot issue, S2-3 the Delivery Date sort.
+- **G:** coordinator S2-2 the certificate hold on a retail order shipped to the office.
+- **C:** foreman S2 5 the hand-off to his crew, S2 6 the foreman's receiving.
+- **F:** PM S2 3 purchasing exceptions waiting on a seat nobody holds, S2 4 a job with cost and no contract.
+- **M:** PM S3 6 module headers.
+
+### Not walked (do not read as passing)
+- **Accounting:** the Owner's approve-part and dispute-rest step; a vendor credit memo; a split bill and Cost by Line; the Controller's job page, Contract and Billing and Job Costs (shipped 11-09); quantity and unit price on progress bills (shipped 11-09); AP aging against the ledger; the whole phone pass. The second pass did not run: its script imported a test suite and timed out.
+- **Billing:** a payment recorded by hand on the phone; Find in Bank; sending a revision and the original voiding; a credit with tax; the portal's view of a credit memo; sales tax on a taxable line; the client copy of a progress bill; reminders at 7, 15 and 30 days.
+- **Coordinator:** Request Quotes past the sheet (send, replies, compare, award, the award becoming an order); ordering on the phone; a repeat buy with the last price named; the vendor email's source and "not verified"; a Damaged receipt, claim and credit.
+- **PM:** finishing an order into a PO; approving a field request; the client approving a change order and the contract and schedule moving; pricing a change order on the phone; Ask; the Friday update.
+- **Foreman, crew and driver:** counting a delivery line by line with the slip photo; a daily log with photos, filed and reopened; Done with a photo; a site problem into a change order; a pickup; closing a store run; real GPS on a real phone, offline, glare, large text.
+- **Designer:** saving a selection, marking a decision, saving hours, and finding each again.
+- **Client:** the PDF, the emailed copy, large text, completing an approval.
+- **Founder:** mail-fed promises (the demo workspace was not connected); the phone screenshots were not read.
+- **Owner:** whether the portal lists a credit memo beside its invoice.
