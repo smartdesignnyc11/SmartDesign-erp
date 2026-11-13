@@ -723,6 +723,17 @@ async def s_bar(pg, c, dev):
     r = await pick(ids['ok'])
     c.ok(not r['quote'] and not r['order'] and len(r['blue']) == 1, f'BAR {dev}: a pick that can be bought leaves both on, one blue ({r})')
     await reset(pg)
+    # the Needs board's own bar goes by the same rule (bbPickWhy)
+    await board(pg, table=False)
+    nb = await js(pg, """() => { const vis = [...document.querySelectorAll('#buy-board [data-bbpick]')].filter(e => e.getBoundingClientRect().height > 0).map(e => e.dataset.bbpick), L = buyList('').filter(r => vis.includes(r.id));
+      const s = L.find(r => r.kind === 'sub'), m = L.find(r => r.kind !== 'sub' && r.kind !== 'request' && r.lineKey && s && r.p.id === s.p.id); return [s && s.id, m && m.id]; }""", None, 0)
+    for i in nb:
+        if i:
+            await pg.locator(f'#buy-board [data-bbpick="{i}"]').first.click(); await pg.wait_for_timeout(350)
+    r = await js(pg, """() => ({ quote: !!document.querySelector('#bb-quote') && document.querySelector('#bb-quote').disabled, order: !!document.querySelector('#bb-order') && document.querySelector('#bb-order').disabled,
+      text: ((document.querySelector('#buy-board .pu-bar') || {}).innerText || '').replace(/\\s+/g, ' ') })""", None, 0)
+    c.ok(all(nb) and r['quote'] and r['order'] and re.search(r'subcontract scope', r['text'], re.I), f'BAR {dev}: on Needs, a subcontract scope with a material: both buttons are off and the bar says why ({nb}; {r})')
+    await reset(pg)
 
 
 async def s_open(pg, c, dev):
