@@ -322,9 +322,9 @@ if ("undefined" != typeof PR_SPECS) {
       ov = tkOverlapFor(t),
       st = t.payrollId ? ["paid", "ok"] : "approved" === t.status ? ["approved", "ok"] : "rejected" === t.status ? ["rejected", "bad"] : "void" === t.status ? ["not counted", ""] : "submitted" === t.status ? ["to approve", "info"] : t.out ? ["needs details", "warn"] : ["on the clock", "ok"];
     return {
-      title: t.out ? `${fmt(t.date)} · ${stampTime(t.in)} to ${stampTime(t.out)} · ${hoursOf(t).toFixed(1)} h` : `Clocked in ${auto ? "automatically " : ""}at ${stampTime(t.in)}`,
+      title: t.out ? `${fmt(t.date)} · ${stampTime(t.in)} to ${stampTime(t.out)}` : `Clocked in ${auto ? "automatically " : ""}at ${stampTime(t.in)}`,
       chip: { t: st[0], tone: st[1] },
-      meta: [ov ? "overlaps another punch" : "", t.out && auto ? "automatic" : "", p ? tkgSay(p) : ""].filter(Boolean).join(" · "),
+      meta: [t.out ? `${hoursOf(t).toFixed(1)} h` : "", ov ? "overlaps another punch" : "", t.out && auto ? "automatic" : "", p ? tkgSay(p) : ""].filter(Boolean).join(" · "),
       late: !!ov,
     };
   };

@@ -1225,6 +1225,11 @@ esAdd({
   "Add a Photo": "Agregar una Foto",
   "Photo added to {x}": "Foto agregada a {x}",
   "Not done after all: {x}": "Al final no está hecha: {x}",
+  // shown now that nobody has a seeded day for today: the foreman's "not clocked in", and the day sheet a first
+  // Clock Out opens
+  "not clocked in": "sin marcar entrada",
+  "Hours on {x}": "Horas en {x}",
+  "{n} hours on {x}": "{n} horas en {x}",
   "Location is captured when you clock in or out.":"La ubicación se guarda cuando marcas entrada o salida.",
   "Nobody is clocked in right now.": "Nadie ha marcado entrada ahora mismo.",
   "Sign and Send": "Firmar y Enviar",
