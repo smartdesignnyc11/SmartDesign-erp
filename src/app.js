@@ -202716,7 +202716,8 @@ const MN_JOBS = () => [
         ["files", "Receipts", "camera"],
       ],
       // Stock: the driver picks for the route from it (Purchasing, decision 1, 11-03)
-      rest: [["req", "Requests", "box"], ["inv", "Stock", "box"]],
+      // Deliveries: the driver counts an order in at the vendor's counter and at the curb (the crew's review, 11-12)
+      rest: [["req", "Requests", "box"], ["recv", "Deliveries", "truck"], ["inv", "Stock", "box"]],
     },
   };
 // the design manager (no seat in the pilot) runs the designer's menu; Approvals is a filter of Today

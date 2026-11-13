@@ -1227,6 +1227,12 @@ esAdd({
   "Not done after all: {x}": "Al final no está hecha: {x}",
   // shown now that nobody has a seeded day for today: the foreman's "not clocked in", and the day sheet a first
   // Clock Out opens
+  // the menu's group names and the driver's Stock (the menu lane's words, 11-13)
+  "Your Day": "Tu Día",
+  "Company and Settings": "Empresa y Ajustes",
+  "Show {t} Pages": "Mostrar las Páginas de {t}",
+  "Hide {t} Pages": "Ocultar las Páginas de {t}",
+  Stock: "Inventario",
   "not clocked in": "sin marcar entrada",
   "Hours on {x}": "Horas en {x}",
   "{n} hours on {x}": "{n} horas en {x}",
