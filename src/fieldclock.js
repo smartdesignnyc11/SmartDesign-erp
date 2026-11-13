@@ -20,6 +20,15 @@
    kept hours are paid on the next run; a voided entry is never paid. From the day before the run's cutoff the
    foreman's Today says "Alex's 9/3 hours overlap: pick one before payroll."
 
+   One switch (the foreman's review, 11-12). Automatic clock-in is turned on in one way only: the notice, then I Agree
+   (tkGeoNotice, tkGeoAgree), drawn by tkgSwitchMount where each person clocks in (the Clock page; the foreman's
+   Today). The old device-wide checkbox on the Clock page said "on" with no notice, no consent and no punch; it is gone
+   (src/app.js renderTime), and the one watch on the device (startGeofence) feeds tkGeoTick and nothing else.
+   A punch made here is a time entry like any other: it closes by the same rule as a hand punch (timeCloseOut), the
+   person's own list and the foreman's Hours to Approve read it (timeMineWaiting, fHoursToApprove in src/app.js), and
+   an overlap shows Pick One on the foreman's Crew page from the moment it exists; Approve refuses until he picks
+   (timeApprove), and a run typed by hand holds the pair the same as a run built from time (tkHoldOverlaps).
+
    Design gate (BACKLOG 1.16): no new store. The time entry is the record (DB.time); the acknowledgement rides on the
    person (u.geoAck) and the audit trail; a run's held hours ride on the run (run.held).
 --------------------------------------------------------------------------------------------------------------------- */
@@ -27,6 +36,9 @@ const TKG_AWAY_MIN = 15,
   TKG_NOTICE_V = 1;
 const tkgMe = () => ("function" == typeof currentUser ? currentUser() : null) || {};
 const tkgField = () => ["foreman", "crew", "driver"].includes("function" == typeof role ? role() : "");
+const tkgEmp = () => ("function" == typeof myEmp ? myEmp() : null);
+// where this person clocks in: the foreman's Today, everyone else's Clock page
+const tkgHome = () => ((ROLE_VIEWS[role()] || []).includes("time") ? "time" : "ftoday");
 const tkgAcked = (u) => !!(u && u.geoAck && u.geoAck.at && !u.geoAck.off);
 const tkgJob = (id) => (DB.projects || []).find((p) => p.id === id) || null;
 const tkgMs = (s) => new Date(s).getTime();
@@ -64,7 +76,7 @@ function tkGeoAgree(u) {
     startGeofence();
   } catch (e) {}
   render();
-  toast("Automatic clock-in is on: the app clocks you in at a job site", [{ label: "Open", run: () => setView("time") }]);
+  toast("Automatic clock-in is on: the app clocks you in at a job site", [{ label: "Open", run: () => setView(tkgHome()) }]);
 }
 function tkGeoOff(u) {
   u.geoAck = Object.assign({}, u.geoAck || {}, { off: appNowIso() });
@@ -78,7 +90,7 @@ function tkGeoOff(u) {
 
 // ---- one reading of where the phone is, applied ------------------------------------------------------------------------
 // pos {lat, lng, acc}; at: the moment (the app's clock, appNowIso(), unless a test says otherwise)
-let tkGeo = { outSince: "", outPos: null, last: null, lastAt: "", timer: null, asked: "" };
+let tkGeo = { outSince: "", outPos: null, last: null, lastAt: "", timer: null, asked: "", again: "" };
 function tkgSiteNear(pos) {
   let best = null;
   (DB.projects || []).forEach((p) => {
@@ -120,11 +132,14 @@ function tkgPunchIn(emp, p, pos, at, d, how) {
   return e;
 }
 function tkgPunchOut(e, pos, at) {
+  const was = { status: e.status, breakMin: e.breakMin || 0, work: (e.work || []).length };
   e.out = at;
   e.geoOut = pos ? { lat: pos.lat, lng: pos.lng, acc: Math.round(pos.acc || 0), dist: null } : null;
   e.autoOut = !0;
-  e.auto = Object.assign({}, e.auto || {}, { out: "automatic, by location" });
-  "function" == typeof hoursOf && hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30);
+  e.auto = Object.assign({}, e.auto || {}, { out: "automatic, by location", was: was });
+  // one rule for a punch that closes, by hand or by location (timeCloseOut, src/app.js): work that adds up to the
+  // clock sends the day to the foreman; anything else waits on the person, and the foreman still sees it
+  "function" == typeof timeCloseOut ? timeCloseOut(e) : "function" == typeof hoursOf && hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30);
   try {
     audit("time", e.id, "auto-clock-out", null, { at: at });
   } catch (x) {}
@@ -142,9 +157,11 @@ function tkgUndoIn(id) {
 function tkgUndoOut(id) {
   const e = (DB.time || []).find((t) => t.id === id);
   if (!e) return;
-  const was = e.out;
+  const was = e.out,
+    b = e.auto && e.auto.was;
   (e.out = ""), (e.geoOut = null), delete e.autoOut;
-  e.auto && delete e.auto.out;
+  b && ((e.status = b.status), (e.breakMin = b.breakMin), (e.work = (e.work || []).slice(0, b.work)));
+  e.auto && (delete e.auto.out, delete e.auto.was);
   tkGeo.outSince = "";
   try {
     audit("time", id, "auto-clock-out-undone", { out: was }, null);
@@ -183,6 +200,24 @@ function tkGeoTick(pos, at0) {
       m = new Date(at),
       mins = 60 * m.getHours() + m.getMinutes();
     if (!open && (!sh.days.includes(m.getDay()) || mins < hmToMin(sh.start) - 60 || mins > hmToMin(sh.end) + 120)) return { did: "none", why: "outside the site's hours" };
+    // today is already closed and sent for approval: the app asks, it does not punch a second shift on its own
+    const sent = !open && String(at).slice(0, 10) === today() && "function" == typeof tkTodaySent ? tkTodaySent(emp) : [];
+    if (sent.length && tkGeo.again !== near.p.id + "|" + today()) {
+      const key = "sent|" + near.p.id + "|" + today();
+      if (tkGeo.asked === key) return { did: "none", why: "today already sent; asked" };
+      tkGeo.asked = key;
+      const s = tkTodaySentSay(sent);
+      toast(`You are at ${tkgSay(near.p)}, and your ${fmt(today())} hours (${s.spans}) are already sent for approval.`, [
+        {
+          label: "Start Another Shift",
+          run: () => {
+            tkGeo.again = near.p.id + "|" + today();
+            tkGeoTick(pos, at0 ? at : appNowIso());
+          },
+        },
+      ]);
+      return { did: "asked", why: "today already sent" };
+    }
     if (open) {
       const from = tkgJob(open.projectId);
       tkgPunchOut(open, pos, at);
@@ -198,7 +233,13 @@ function tkGeoTick(pos, at0) {
       "function" == typeof setCurrent && (!S || S.id !== near.p.id) && setCurrent(near.p.id);
     } catch (x) {}
     save(), render();
-    toast(`Clocked in at ${tkgSay(near.p)}, ${stampTime(at)}`, [{ label: "Undo", run: () => tkgUndoIn(e.id) }]);
+    const hit = e.overlapOf && (DB.time || []).find((t) => t.id === e.overlapOf);
+    toast(
+      hit
+        ? `Clocked in at ${tkgSay(near.p)}, ${stampTime(at)}. Your ${fmt(hit.date)} already runs ${stampTime(hit.in)} to ${stampTime(hit.out)}: both punches are marked so the hours are not counted twice, and your foreman picks one.`
+        : `Clocked in at ${tkgSay(near.p)}, ${stampTime(at)}`,
+      [{ label: "Undo", run: () => tkgUndoIn(e.id) }],
+    );
     return { did: "in", id: e.id };
   }
   // outside every site, on the clock: away for 15 minutes clocks out at the time they left
@@ -222,68 +263,71 @@ function tkGeoTick(pos, at0) {
   }
   return { did: "none", why: "not at a site" };
 }
-// the watch itself: the device's position, read while the app is open (and once when it opens at the site)
-if ("function" == typeof startGeofence) {
-  startGeofence = function () {
-    if (null != geoWatch || !navigator.geolocation) return;
-    const onPos = (pos) => {
-      const here = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy || 0) };
-      try {
-        clockState.geo = here;
-        clockState.err = "";
-      } catch (e) {}
-      tkGeoTick(here);
-    };
-    try {
-      navigator.geolocation.getCurrentPosition(onPos, () => {}, { enableHighAccuracy: !0, timeout: 8e3, maximumAge: 6e4 });
-    } catch (e) {}
-    geoWatch = navigator.geolocation.watchPosition(
-      onPos,
-      (e) => {
-        try {
-          clockState.err = geoMessage(e);
-        } catch (x) {}
-      },
-      { enableHighAccuracy: !0, maximumAge: 3e4 },
-    );
-  };
-}
-// on for a field person who accepted the notice, off for anyone else (one person's phone, one person's choice)
+// The watch itself is startGeofence (src/app.js): one watch, every reading to tkGeoTick. It runs for a person with an
+// employee record who accepted the notice, and for nobody else (one person's phone, one person's choice).
 {
   const base = render;
   render = function () {
     const r = base.apply(this, arguments);
     try {
       const u = tkgMe();
-      if (tkgField() && tkgAcked(u)) null == geoWatch && startGeofence();
-      else if (null != geoWatch && !(DB.autoClock && !tkgField())) stopGeofence();
-      tkgClockCard();
-      tkHoldReminderMount();
+      if (tkgEmp() && tkgAcked(u)) null == geoWatch && startGeofence();
+      else null != geoWatch && stopGeofence();
+      tkgSwitchMountAll();
+      tkOverlapMount();
     } catch (e) {
       console.warn("field clock", e);
     }
     return r;
   };
 }
-// the Clock page: the notice's card (or the status with Turn Off) in place of the old device-wide checkbox
-function tkgClockCard() {
-  if ("time" !== view || !tkgField()) return;
-  const v = document.getElementById("v-time"),
-    old = v && v.querySelector("#geo-auto"),
-    host = (old && old.closest("label")) || (v && v.querySelector("#geo-line"));
-  if (!host) return;
-  old && (old.closest("label").hidden = !0);
-  const u = tkgMe(),
-    on = tkgAcked(u);
-  let box = v.querySelector(".tkg-card");
-  box || ((box = document.createElement("div")), (box.className = "tkg-card"), host.insertAdjacentElement("afterend", box));
-  box.innerHTML = on
-    ? `<div class="small"><b>Automatic clock-in is on.</b> The app clocks you in at a job site while it is open. <button type="button" class="btn sm" data-tkgoff>Turn Off</button></div>`
-    : `<button type="button" class="btn tkg-on" data-tkgon>Turn On Automatic Clock-In</button><div class="small muted">Read what it does first. Until you agree, the clock is manual.</div>`;
+// THE switch (11-12): the one control that turns automatic clock-in on or off, wherever it is drawn. Off: one button
+// that opens the notice. On: what it does, and Turn Off. On with no location: it says the clock is still by hand,
+// because "on" must mean a punch really happens on arrival.
+function tkgSwitchHtml(u) {
+  if (!tkgAcked(u)) return `<button type="button" class="btn tkg-on" data-tkgon>Turn On Automatic Clock-In</button><div class="small muted">Read what it does first. Until you agree, the clock is manual.</div>`;
+  const err = "undefined" != typeof clockState && clockState && clockState.err,
+    noSite = "undefined" != typeof S && S && S.project && !S.project.geo;
+  return err
+    ? `<div class="small tkg-say"><b class="bad-t">Automatic clock-in is on, but the app cannot read your location.</b> Clock in by hand until this phone allows location for the app.</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`
+    : `<div class="small tkg-say"><b>Automatic clock-in is on.</b> The app clocks you in at a job site while it is open.${noSite ? ` <span class="bad-t" data-tkgnosite>This job has no site location yet: clock in by hand here.</span>` : ""}</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`;
+}
+function tkgSwitchMount(host, how) {
+  if (!host) return null;
+  const u = tkgMe();
+  let box = host.parentNode && host.parentNode.querySelector(":scope > .tkg-card");
+  "inside" === how && (box = host.querySelector(":scope > .tkg-card"));
+  box || ((box = document.createElement("div")), (box.className = "tkg-card"), "inside" === how ? host.appendChild(box) : host.insertAdjacentElement("afterend", box));
+  box.innerHTML = tkgSwitchHtml(u);
   const b1 = box.querySelector("[data-tkgon]"),
     b2 = box.querySelector("[data-tkgoff]");
   b1 && (b1.onclick = () => tkGeoNotice());
   b2 && (b2.onclick = () => tkGeoOff(u));
+  return box;
+}
+// where it is drawn: the Clock page for anyone with an employee record; the foreman's Today, under his Clock In
+function tkgSwitchMountAll() {
+  if (!tkgMe().id || !tkgEmp() || ("undefined" != typeof clockState && clockState && clockState.blocked)) return;
+  if ("time" === view) tkgSwitchMount(document.querySelector("#v-time #geo-line"));
+  else if ("ftoday" === view && "foreman" === role()) tkgSwitchMount(document.querySelector("#ftoday-body .f-hero"), "inside");
+}
+// the person's own row on the phone's Clock page: when, where, and whether the app made the punch
+if ("undefined" != typeof PR_SPECS) {
+  PR_SPECS.time = (tr) => {
+    const emp = tkgEmp(),
+      t = tkgField() && emp ? (DB.time || []).find((x) => "time:" + x.id === tr.dataset.edit) : null;
+    if (!t || t.empId !== emp.id) return null;
+    const p = tkgJob(t.projectId),
+      auto = "geo" === t.source || !!t.auto,
+      ov = tkOverlapFor(t),
+      st = t.payrollId ? ["paid", "ok"] : "approved" === t.status ? ["approved", "ok"] : "rejected" === t.status ? ["rejected", "bad"] : "void" === t.status ? ["not counted", ""] : "submitted" === t.status ? ["to approve", "info"] : t.out ? ["needs details", "warn"] : ["on the clock", "ok"];
+    return {
+      title: t.out ? `${fmt(t.date)} · ${stampTime(t.in)} to ${stampTime(t.out)}` : `Clocked in ${auto ? "automatically " : ""}at ${stampTime(t.in)}`,
+      chip: { t: st[0], tone: st[1] },
+      meta: [t.out ? `${hoursOf(t).toFixed(1)} h` : "", ov ? "overlaps another punch" : "", t.out && auto ? "automatic" : "", p ? tkgSay(p) : ""].filter(Boolean).join(" · "),
+      late: !!ov,
+    };
+  };
 }
 
 // ---- overlapping punches: held from payroll until the foreman picks ---------------------------------------------------
@@ -309,23 +353,59 @@ function tkTimeOverlaps(empId) {
   });
   return out;
 }
+// the overlaps still to pick (a pair whose two punches are both paid is history): all, one job's, or one entry's
+function tkOverlapsOpen(pid) {
+  return tkTimeOverlaps().filter((o) => !(o.a.payrollId && o.b.payrollId) && (!pid || o.a.projectId === pid || o.b.projectId === pid));
+}
+function tkOverlapFor(t) {
+  if (!t || !t.empId || !tkgLive(t)) return null;
+  return tkTimeOverlaps(t.empId).find((o) => (o.a.id === t.id || o.b.id === t.id) && !(o.a.payrollId && o.b.payrollId)) || null;
+}
+const tkOverlapSpan = (t) => `${stampTime(t.in)} to ${t.out ? stampTime(t.out) : "now"}`;
 function tkHeldOf(run) {
   return (run && run.held) || [];
+}
+// Anything that puts hours on a run does it inside this: the entries in an overlap still to pick read as held for the
+// length of the call, so neither side can be paid. A run built from time, and a run typed by hand that covers their
+// dates (prLinkTime), both go through it.
+function tkHoldOverlaps(fn) {
+  const O = tkTimeOverlaps(),
+    hold = new Map();
+  O.forEach((o) => [o.a, o.b].forEach((t) => !t.payrollId && hold.set(t.id, { t: t, st: t.status })));
+  hold.forEach(({ t }) => (t.status = "held-overlap"));
+  try {
+    return { r: fn(), O: O, hold: hold };
+  } finally {
+    hold.forEach(({ t, st }) => "held-overlap" === t.status && (t.status = st));
+  }
+}
+if ("function" == typeof prLinkTime) {
+  const base = prLinkTime;
+  prLinkTime = function () {
+    const a = arguments,
+      self = this;
+    return tkHoldOverlaps(() => base.apply(self, a)).r;
+  };
+}
+// the run recorded for wages accrued at a close with no run (ctOrphanRecordRun) is built from approved time too
+if ("function" == typeof ctOrphanRecordRun) {
+  const base = ctOrphanRecordRun;
+  ctOrphanRecordRun = function () {
+    const a = arguments,
+      self = this;
+    return tkHoldOverlaps(() => base.apply(self, a)).r;
+  };
 }
 if ("function" == typeof payrollFromTime) {
   const base = payrollFromTime;
   payrollFromTime = function () {
     // the entries in an unresolved overlap stay out of the run; everything else pays
-    const O = tkTimeOverlaps(),
-      hold = new Map();
-    O.forEach((o) => [o.a, o.b].forEach((t) => !t.payrollId && hold.set(t.id, { t: t, st: t.status })));
-    hold.forEach(({ t }) => (t.status = "held-overlap"));
-    let run = null;
-    try {
-      run = base.apply(this, arguments);
-    } finally {
-      hold.forEach(({ t, st }) => (t.status = st));
-    }
+    const a = arguments,
+      self = this,
+      H = tkHoldOverlaps(() => base.apply(self, a)),
+      run = H.r,
+      O = H.O,
+      hold = H.hold;
     try {
       if (run) {
         const per = {};
@@ -368,29 +448,35 @@ function tkPayCutoff(day) {
   const P = payPeriodOf(day || today());
   return addWork(P.payDate, -2);
 }
+// From the moment an overlap exists (11-12: it showed only from the day before the cutoff, and only on Today), the
+// foreman has it with Pick One: on Today, and on Crew beside the person and in Hours to Approve (fRenderCrew).
 function tkHoldDue() {
-  const cut = tkPayCutoff(),
-    from = iso(addDays(parse(cut), -1));
-  return today() >= from ? tkTimeOverlaps().filter((o) => !o.a.payrollId || !o.b.payrollId) : [];
+  return tkOverlapsOpen();
 }
-function tkHoldReminderMount() {
+// one overlap, said the same way wherever the foreman meets it
+function tkOverlapRowHtml(o, i, how) {
+  const head = "crew" === how ? `${esc(tkFirst(o.name))} · ${esc(fmt(o.date))} · two punches overlap` : `${esc(tkFirst(o.name))}'s ${esc(fmt(o.date))} hours overlap: pick one before payroll.`;
+  return `<div class="f-row warn tkg-ov" data-tkgov="${esc(o.a.id)}|${esc(o.b.id)}"><div class="grow"><b>${head}</b><span class="small">${esc(tkOverlapSpan(o.a))} and ${esc(tkOverlapSpan(o.b))} · ${o.h} h held</span></div><button type="button" class="btn sm" data-tkgpick="${i}">Pick One</button></div>`;
+}
+function tkOverlapWire(root, L) {
+  root && root.querySelectorAll("[data-tkgpick]").forEach((b) => (b.onclick = () => tkOverlapPick(L[+b.dataset.tkgpick])));
+}
+function tkOverlapMount() {
   if ("ftoday" !== view || "foreman" !== role()) return;
   const root = document.getElementById("ftoday-body");
   if (!root) return;
   root.querySelectorAll(".tkg-remind").forEach((c) => c.remove());
   const L = tkHoldDue();
   if (!L.length) return;
-  const html = `<div class="card f-card tkg-remind"><div class="hd"><h3>Before Payroll</h3><span class="small muted">${L.length}</span></div>${L.map(
-    (o, i) => `<div class="f-row warn"><div class="grow"><b>${esc(tkFirst(o.name))}'s ${esc(fmt(o.date))} hours overlap: pick one before payroll.</b><span class="small">${esc(stampTime(o.a.in))} to ${esc(o.a.out ? stampTime(o.a.out) : "now")} and ${esc(stampTime(o.b.in))} to ${esc(o.b.out ? stampTime(o.b.out) : "now")} · ${o.h} h held</span></div><button type="button" class="btn sm" data-tkgpick="${i}">Pick One</button></div>`,
-  ).join("")}</div>`;
+  const html = `<div class="card f-card tkg-remind"><div class="hd"><h3>Before Payroll</h3><span class="small muted">${L.length}</span></div>${L.map((o, i) => tkOverlapRowHtml(o, i)).join("")}</div>`;
   const at = root.querySelector(":scope > .tkr-offers") || root.querySelector(":scope > .f-hero");
   at ? at.insertAdjacentHTML("afterend", html) : root.insertAdjacentHTML("afterbegin", html);
-  root.querySelectorAll("[data-tkgpick]").forEach((b) => (b.onclick = () => tkOverlapPick(L[+b.dataset.tkgpick])));
+  tkOverlapWire(root.querySelector(".tkg-remind"), L);
 }
 // the foreman's pick: keep one (the other is voided), or keep both without the overlap
 function tkOverlapPick(o) {
   if (!o) return;
-  const span = (t) => `${stampTime(t.in)} to ${t.out ? stampTime(t.out) : "now"}`,
+  const span = tkOverlapSpan,
     paidA = !!o.a.payrollId,
     paidB = !!o.b.payrollId;
   let pick = "";
@@ -440,13 +526,18 @@ function tkOverlapResolve(o, pick) {
     audit("time", o.a.id, "overlap-picked", { a: o.a.id, b: o.b.id }, { pick: pick }, me);
   } catch (e) {}
   save(), render();
-  toast(`${tkFirst(o.name)}'s ${fmt(o.date)} hours: ${"both" === pick ? "both kept, without the overlap" : "one punch kept, the other voided"}. Paid on the next run.`, [{ label: "Open", run: () => setView("time") }]);
+  toast(`${tkFirst(o.name)}'s ${fmt(o.date)} hours: ${"both" === pick ? "both kept, without the overlap" : "one punch kept, the other voided"}. Paid on the next run.`, [{ label: "Open", run: () => setView((ROLE_VIEWS[role()] || []).includes("fcrew") ? "fcrew" : "time") }]);
 }
 
 (() => {
   const css = `
 .tkg-card{margin-top:8px;display:flex;flex-direction:column;gap:6px}
 .tkg-card .btn{min-height:44px}
+.tkg-card .btn{align-self:flex-start}
+.tkg-card .tkg-say,.tkg-card .tkg-say b{font-size:13px;line-height:1.4;font-weight:400}
+.tkg-card .tkg-say b{font-weight:600}
+.f-hero>.tkg-card{margin-top:10px;text-align:left;flex:1 1 100%}
+.tkg-ov .btn{min-height:44px;white-space:nowrap}
 .tkg-held{margin-bottom:10px}`;
   try {
     const s = document.createElement("style");

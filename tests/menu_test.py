@@ -42,7 +42,7 @@ RAIL = {
     # field roles: their own day page and Messages, then the rest of the bar and the menu in order, then the foot
     'u_angel': ['Today', 'Messages', 'Daily Log', 'Site', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise'] + FOOT,
     'u_alberto': ['Clock', 'Messages', 'Requests', 'Schedule', 'Photos', 'Deliveries', 'Drawings'] + FOOT,
-    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests', 'Stock'] + FOOT,
+    'u_alex': ['Route', 'Messages', 'Clock', 'Receipts', 'Requests', 'Deliveries', 'Stock'] + FOOT,   # Deliveries: the driver receives at the counter and the curb (11-13)
     # the client portal keeps its own menu (out of scope)
     'u_klein': ['Overview', 'Schedule', 'Decisions', 'Account', 'Chat'],
 }
