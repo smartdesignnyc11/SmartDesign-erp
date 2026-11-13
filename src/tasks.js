@@ -592,13 +592,34 @@ function tkNextStep(R) {
   }
   return null;
 }
+// The crew and drivers on a job: whoever clocked hours on it in the last two weeks, or is named on one of its
+// schedule lines. The foreman's Hand Off lists them first.
+function tkCrewOnJob(pid) {
+  const out = new Set();
+  if (!pid) return out;
+  const from = iso(addDays(today(), -14)),
+    emps = new Set((DB.time || []).filter((t) => t.projectId === pid && t.date >= from && !/^(void|rejected)$/.test(String(t.status || ""))).map((t) => t.empId)),
+    p = (DB.projects || []).find((x) => x.id === pid),
+    named = new Set(((p && p.tasks) || []).map((t) => String(t.owner || t.assignee || "").trim().toLowerCase()).filter(Boolean));
+  tdyUsers().forEach((u) => /^(crew|driver)$/.test(u.role) && (emps.has(u.employeeId) || named.has(String(u.name).toLowerCase()) || named.has(String(u.name).split(" ")[0].toLowerCase())) && out.add(u.id));
+  return out;
+}
+// Who a task can be handed to. Crew and drivers take field work: a schedule line from anyone, and anything a field
+// person hands down. The foreman's Hand Off listed the office only unless the task was a schedule line, so he could
+// not give "Morning huddle" to his own crew (the foreman's review, 11-12, S2-4); from the field the crew on that
+// task's job come first, then the rest of the field, then the office. An office person's own task still lists the
+// office only.
 function tkPeopleFor(R) {
   const me = tdyMe(),
     owner = (R.t && R.t.ownerUid) || "",
-    sched = "sched" === R.x.kind;
+    sched = "sched" === R.x.kind,
+    field = /^(foreman|crew|driver)$/.test(me.role || ""),
+    isCrew = (u) => /^(crew|driver)$/.test(u.role),
+    onJob = field ? tkCrewOnJob(R.x.projectId || (R.rec && R.rec.projectId) || (R.t && R.t.projectId) || "") : new Set(),
+    rank = (u) => (field ? (onJob.has(u.id) ? 0 : isCrew(u) ? 1 : 2) : isCrew(u) ? 1 : 0);
   return tdyUsers()
-    .filter((u) => u.id !== me.id && u.id !== owner && (sched || !/^(crew|driver)$/.test(u.role)))
-    .sort((a, b) => (/^(crew|driver)$/.test(a.role) ? 1 : 0) - (/^(crew|driver)$/.test(b.role) ? 1 : 0) || a.name.localeCompare(b.name));
+    .filter((u) => u.id !== me.id && u.id !== owner && (sched || field || !isCrew(u)))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 const TK_ROLE_SAY = { owner: "Owner", pm: "Project Manager", coord: "Coordinator", foreman: "Foreman", crew: "Crew", driver: "Driver", designer: "Designer", design_mgr: "Design", billing: "Billing", controller: "Controller" };
 function tkThreadHtml(R) {

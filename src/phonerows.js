@@ -476,16 +476,20 @@ const PR_PAGE = {
         po = head && head.querySelector(".rc-polink"),
         when = head ? prTxt(head.querySelector(".small.muted")).replace(prTxt(po), "").replace(/^\s*·\s*/, "") : "",
         got = head ? prTxt([...head.querySelectorAll(".small")].pop()) : "",
-        lines = c.querySelectorAll(".recv-line").length;
+        lines = c.querySelectorAll(".recv-line").length,
+        // every job's orders (the driver's list): the order's own Receive is the row's action, and it opens the one
+        // receive sheet; a subcontract there has none
+        all = c.querySelector("[data-recvall]");
       return {
         title: `${prTxt(who)}${po ? " · " + prTxt(po) : ""}`,
-        meta: [`${lines} line${1 === lines ? "" : "s"}`, when, got].filter(Boolean).join(" · "),
+        meta: [lines ? `${lines} line${1 === lines ? "" : "s"}` : "", when, got].filter(Boolean).join(" · "),
+        actEl: all || null,
         actHtml: "",
       };
     });
     body &&
       body.querySelectorAll(".pr-card > .pr-row .pr-act-slot").forEach((s) => {
-        if (s.firstChild) return;
+        if (s.firstChild || s.closest(".pr-card").dataset.recvgo) return;
         const b = document.createElement("button");
         (b.type = "button"), (b.className = "btn"), (b.textContent = "Receive");
         b.onclick = (e) => (e.stopPropagation(), s.closest(".pr-card").classList.add("pr-open"));

@@ -45,17 +45,39 @@ const w1Uid = () => {
     return "";
   }
 };
-function w1Load() {
+// The drafts live in localStorage (they outlast the tab), and a copy rides in sessionStorage with the moment it was
+// written. A reload can come back without the last localStorage write: on the build before this (11-13), Record
+// Payment's typed reference was written 380 ms before the reload, was there at pagehide and at unload, and was gone
+// when the next document started, with no write of ours in between; tests/pay_match_test.py's reload check failed 3
+// runs in 5 on it. The tab's own copy survives the reload, so when it is the newer of the two it is the one read.
+// Another tab's later write is newer in localStorage and wins as before.
+function w1Read(S) {
   try {
-    const all = JSON.parse(localStorage.getItem("sd-drafts") || "{}");
-    return all && "object" == typeof all ? all : {};
+    const all = JSON.parse(S.getItem("sd-drafts") || "{}");
+    return { all: all && "object" == typeof all ? all : {}, at: +S.getItem("sd-drafts-at") || 0 };
   } catch (e) {
-    return {};
+    return { all: {}, at: 0 };
   }
 }
-function w1Store(all) {
+function w1Load() {
+  let L = { all: {}, at: 0 },
+    T = L;
   try {
-    localStorage.setItem("sd-drafts", JSON.stringify(all));
+    L = w1Read(localStorage);
+  } catch (e) {}
+  try {
+    T = w1Read(sessionStorage);
+  } catch (e) {}
+  return T.at > L.at ? T.all : L.all;
+}
+function w1Store(all) {
+  const s = JSON.stringify(all),
+    at = String(Date.now()); // wall clock: which copy on this device is the newer one
+  try {
+    localStorage.setItem("sd-drafts", s), localStorage.setItem("sd-drafts-at", at);
+  } catch (e) {}
+  try {
+    sessionStorage.setItem("sd-drafts", s), sessionStorage.setItem("sd-drafts-at", at);
   } catch (e) {}
 }
 // this person's drafts, oldest gone after 14 days, at most 40

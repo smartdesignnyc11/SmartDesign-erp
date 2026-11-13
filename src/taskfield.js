@@ -346,16 +346,44 @@ function tkClockCovers(emp, at) {
   const ms = new Date(at).getTime();
   return (DB.time || []).find((t) => t.empId === emp.id && t.in && t.out && new Date(t.in).getTime() <= ms && ms < new Date(t.out).getTime()) || null;
 }
+// Clock In looks at today before it punches (the crew's review, 11-12: a first Clock In on a day already closed and sent
+// made a second punch for the foreman to sort out, and said so only afterwards). A day of today's that is closed and
+// sent for approval is said first, with Start Another Shift: the person decides, nothing is punched until they do.
+// A lunch break (a closed punch not yet sent) is not asked about. The automatic clock asks the same way (tkGeoTick).
+function tkTodaySent(emp) {
+  const td = today();
+  return (DB.time || [])
+    .filter((t) => emp && t.empId === emp.id && t.date === td && t.in && t.out && (/^(submitted|approved)$/.test(String(t.status || "")) || t.payrollId))
+    .sort((a, b) => String(a.in).localeCompare(String(b.in)));
+}
+function tkTodaySentSay(sent) {
+  const spans = sent.map((t) => `${stampTime(t.in)} to ${stampTime(t.out)}`).join(" and "),
+    ahead = sent.some((t) => String(t.out) > String(appNowIso()));
+  return { spans: spans, ahead: ahead, fore: tkFirst((tdyRoleUser("foreman") || {}).name || "the foreman") };
+}
+function tkAnotherShiftSheet(sent, go) {
+  const s = tkTodaySentSay(sent),
+    m = mbModal(
+      "Today Is Already Sent",
+      `<p>Your ${esc(fmt(today()))} hours, ${esc(s.spans)}, are already sent for approval.</p><p class="small muted">${s.ahead ? `That day ends after now, so a new punch overlaps it: both are marked, the hours are not counted twice, and ${esc(s.fore)} picks one.` : "Clocking in again starts a second shift for today. The first one stays as it is."}</p>`,
+      { submit: "Start Another Shift", onSubmit: () => (setTimeout(go, 0), !0) },
+    ),
+    c = m && m.querySelector("#mbm-cancel");
+  c && (c.textContent = "Not Now");
+  return m;
+}
 if ("function" == typeof clockEvent) {
   const base = clockEvent;
-  clockEvent = async function (kind) {
+  clockEvent = async function (kind, opts) {
     let emp = null,
       hit = null;
     try {
       emp = "in" === kind && "function" == typeof myEmp ? myEmp() : null;
+      const sent = emp && !(opts && opts.again) && !(DB.time || []).some((t) => t.empId === emp.id && !t.out) ? tkTodaySent(emp) : [];
+      if (sent.length) return void tkAnotherShiftSheet(sent, () => clockEvent("in", { again: !0 }));
       hit = emp && tkClockCovers(emp, appNowIso());
     } catch (e) {}
-    const r = await base.apply(this, arguments);
+    const r = await base.call(this, kind);
     try {
       const e = hit && (DB.time || []).find((t) => t.empId === emp.id && !t.out && t.id !== hit.id);
       if (e && !e.overlapOf) {
@@ -370,6 +398,115 @@ if ("function" == typeof clockEvent) {
         toast(`Clocked in, but your ${fmt(hit.date)} already runs ${stampTime(hit.in)} to ${stampTime(hit.out)}${sent ? " and was sent for approval" : ""}. Both punches are marked so the hours are not counted twice; ${fore} sorts it out.`, [{ label: "Open", run: () => ("function" == typeof openTime ? openTime(hit.id) : setView("time")) }]);
       }
     } catch (x) {}
+    return r;
+  };
+}
+
+// ---- Done offers a photo (the crew's review, 11-12) -------------------------------------------------------------------
+// Done stays one tap. A field person who marks a task done is then offered a photo of the finished work: Add a Photo
+// on the toast opens the camera in one tap, the photo lands on the task (the same place a proof photo does), and
+// ignoring it skips it. A task that needs proof is not asked this way: its Done already stops for the photo
+// (tdyProofSheet). Where Done is pressed: the crew's Clock rows and the foreman's Today rows (their own handlers set
+// the line done), and the task sheet (tkToggle).
+const tkrField = () => ["foreman", "crew", "driver"].includes("function" == typeof role ? role() : "");
+function tkDonePhotoAdd(x) {
+  mReadPhoto((url) => {
+    const p = tdyProj(x),
+      n0 = ((p && p.files) || []).length;
+    tdyAddProofPhotos(x, [url]);
+    const f = p && (p.files || [])[n0];
+    f && ((f.name = `done-${today()}-${f.id}.jpg`), (f.notes = `Finished: ${x.title}`));
+    try {
+      audit("task", x.id, "photo", "", f ? f.name : "", "added when it was marked done");
+    } catch (e) {}
+    save(), render();
+    toast(`Photo added to ${tdWords(x.title, 8)}`, [{ label: "Open", run: () => tkSheet(t2Key(x)) }]);
+  }, "environment");
+}
+function tkDonePhotoOffer(x, undo) {
+  if (!tkrField() || !x || !/^(sched|action|firm)$/.test(x.kind)) return !1;
+  // the proof sheet just took its photos: nothing more to ask (earlier progress photos on the task do not count:
+  // the offer is for the finished work)
+  try {
+    const rec = tdyRec(x);
+    if (rec && rec.proof && rec.proof.ok && "photos" === rec.proof.kind) return !1;
+  } catch (e) {}
+  toast(`${tdWords(x.title, 8)}: marked done. Add a photo of the finished work?`, [{ label: "Add a Photo", run: () => tkDonePhotoAdd(x) }].concat(undo ? [{ label: "Undo", run: undo }] : []), 9e3);
+  return !0;
+}
+const tkIsDone = (kind, id, pid) => {
+  const t = "function" == typeof tkFind ? tkFind(kind, id, pid) : null;
+  return !!t && ("hub" === kind ? !!t.completed : "done" === t.status);
+};
+// the rows' own Done buttons: read the line before the tap, look again after its handler ran
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-fdone], [data-fm-done]") : null;
+    if (!b || b.closest("#mbm") || !tkrField()) return;
+    try {
+      const id = b.dataset.fdone || b.dataset.fmDone,
+        pid = (S && S.id) || "",
+        t = tkFind("sched", id, pid);
+      if (!t || "done" === t.status) return;
+      const was = { status: t.status, actualEnd: t.actualEnd || "", pct: t.pct };
+      setTimeout(() => {
+        if ("done" !== t.status) return;
+        const R = tkResolve(`sched:${id}:${pid}`);
+        R &&
+          tkDonePhotoOffer(R.x, () => {
+            (t.status = was.status), (t.actualEnd = was.actualEnd), void 0 === was.pct ? delete t.pct : (t.pct = was.pct), save(), render(), toast(`Not done after all: ${tdWords(t.name, 8)}`);
+          });
+      }, 80);
+    } catch (err) {
+      console.warn("done photo", err);
+    }
+  },
+  !0,
+);
+// the task sheet's Done, and every other Done that goes through tkToggle
+{
+  const base = tkToggle;
+  tkToggle = function (kind, id, projectId) {
+    const was = tkIsDone(kind, id, projectId),
+      r = base.apply(this, arguments);
+    try {
+      !was &&
+        tkrField() &&
+        setTimeout(() => {
+          if (!tkIsDone(kind, id, projectId)) return;
+          const R = tkResolve(`${kind}:${id}:${projectId || ""}`);
+          R && tkDonePhotoOffer(R.x, () => tkToggle(kind, id, projectId));
+        }, 80);
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- the driver's Route: Receive a Delivery, beside the slip's photo ---------------------------------------------------
+// The driver had the slip's photo and nothing to count against. The button opens Deliveries on every job (he drives
+// for all of them); Receive on an order there is the one receive sheet: a count per line, Good / Short / Damaged /
+// Wrong, the slip's photo.
+function tkDriverReceiveMount() {
+  if ("route" !== view || "driver" !== role() || !(ROLE_VIEWS.driver || []).includes("recv")) return;
+  const card = document.querySelector("#v-route #trk-capture");
+  if (!card || card.querySelector("[data-drvrecv]")) return;
+  const n = (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && !("function" == typeof poIsSub && poIsSub(po))).length;
+  card.insertAdjacentHTML("beforeend", `<button type="button" class="btn trk-big" data-drvrecv style="margin-top:8px">Receive a Delivery</button><div class="small muted" style="margin-top:6px">${n ? `${n} order${1 === n ? "" : "s"} to count in, line by line.` : "Nothing is on order right now."}</div>`);
+  card.querySelector("[data-drvrecv]").onclick = () => {
+    recvAll = !0;
+    setView("recv");
+  };
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tkDriverReceiveMount();
+    } catch (e) {
+      console.warn("driver receive", e);
+    }
     return r;
   };
 }

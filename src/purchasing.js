@@ -854,7 +854,9 @@ const puHomeView = () => ((ROLE_VIEWS[role()] || []).includes("proc") && !["cont
 function puDraw() {
   const v = view;
   Object.keys(PU_PAGES).forEach((x) => x !== v && puDrop(x));
-  if (!PU_PAGES[v] || !puOffice() || puRecordOpen(v)) return void (PU_PAGES[v] && puDrop(v));
+  // the driver's Deliveries is the field's page (every job's orders, each with Receive), not the office's queue of
+  // what waits on whom (the crew's review, 11-12): he receives at the counter and at the curb, he does not chase
+  if (!PU_PAGES[v] || !puOffice() || puRecordOpen(v) || ("recv" === v && "driver" === role())) return void (PU_PAGES[v] && puDrop(v));
   const host = puHost(v);
   if (!host) return;
   puOpenRows = {};
