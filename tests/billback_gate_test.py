@@ -171,11 +171,12 @@ async def s2_gate(p, c, phone=False):
 
     # 4. the portal does not show a draft
     s = await js(pg, INV + """
-      const back = [view, clientOpen, docOpen];
+      // documents first: what is open in the document viewer is state too, and a sign-in clears it
+      const back = [view, clientOpen, docOpen], dvBack = typeof dvCur === 'undefined' ? undefined : dvCur;
       signIn('u_klein'); render(); await sleep(400);
       const isC = DB.projects.some(p => p.id === 'p121' && p.clientId === C.id);
       const txt = document.body.innerText;
-      signIn('u_billing'); [view, clientOpen, docOpen] = back; render(); await sleep(300);
+      signIn('u_billing'); [view, clientOpen, docOpen] = back; if (dvBack !== undefined) dvCur = dvBack; render(); await sleep(300);
       return { isC, shows: txt.includes('INV-2026-039') };
     """)
     c.ok(s['isC'] and not s['shows'], f"[{tag}] the client's portal (u_klein) does not show the draft ({s})")
@@ -183,6 +184,13 @@ async def s2_gate(p, c, phone=False):
     # 5. with a typed reason, Send to Client sends it, and the reason is on the invoice and the audit
     await js(pg, "try { mbCloseModal(); } catch (e) {} await sleep(200);")
     sc = pg.locator('[data-docact="sendclient"]:visible').first
+    if not await sc.count():
+        # documents first (11-13): after Draft Cover Email the invoice stands in the document viewer, where the same
+        # Send to Client is on the viewer's bar (More on the phone). Same docAction, same gate.
+        sc = pg.locator('#dv [data-dvact="send"]:visible').first
+        if not await sc.count() and await pg.locator('#dv [data-dvact="more"]:visible').count():
+            await pg.locator('#dv [data-dvact="more"]:visible').first.click(); await pg.wait_for_timeout(200)
+            sc = pg.locator('#dv [data-dvact="send"]:visible').first
     if not await sc.count():
         c.ok(False, f"[{tag}] the invoice left draft before a reason was given: no Send to Client to press")
         await b.close(); return
