@@ -944,31 +944,47 @@ function pbFurther(c, d) {
     })
     .filter(Boolean);
 }
+// The one gate, at both doors a draft leaves by: docAction (Send, Mark as Sent, Send to Client from the editor) and
+// crSendToClient itself, which the document viewer's Send to Client and the Billing Queue open directly. Before
+// (11-14) the viewer's Send met the gate only from inside the send sheet's own Send button: the reason sheet opened
+// there and was closed with the send sheet, so the draft held and could never go out. The gate now asks before the
+// send sheet opens, and the reason resumes the door the person pressed (cont).
+function pbAheadGate(c, d, cont) {
+  try {
+    if (!d || d.aheadWhy) return !1;
+    const F = pbFurther(c, d);
+    if (!F.length) return !1;
+    billAskWhy(
+      `Billed Ahead of the Work: ${esc(d.number || "")}`,
+      `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}`).join("<br>")}<br>Say why these lines bill further ahead of the work. Nothing is changed in what is billed; the reason goes on the invoice's record.`,
+      "Send With the Reason",
+      "e.g. the contract bills the windows on delivery to the shop",
+      (w) => {
+        (d.aheadWhy = { why: w, by: vbWho(), at: appNowIso(), lines: F.map((x) => x.l.item) }), save();
+        try {
+          audit("invoice", d.id, "billed-ahead", "", F.map((x) => `${x.l.item} ${x.to}%`).join("; "), `${vbWho()}: ${w}`);
+        } catch (e) {}
+        // after this sheet closes, so the send's own sheet is not closed with it
+        setTimeout(cont, 0);
+      },
+    );
+    return !0;
+  } catch (e) {
+    console.warn("billed ahead gate", e);
+    return !1;
+  }
+}
 {
   const base = docAction;
   docAction = async function (c, d, a) {
-    try {
-      if (["send", "sent", "approve", "sendclient"].includes(a) && d && !d.aheadWhy) {
-        const F = pbFurther(c, d);
-        if (F.length)
-          return void billAskWhy(
-            `Billed Ahead of the Work: ${esc(d.number || "")}`,
-            `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}`).join("<br>")}<br>Say why these lines bill further ahead of the work. Nothing is changed in what is billed; the reason goes on the invoice's record.`,
-            "Send With the Reason",
-            "e.g. the contract bills the windows on delivery to the shop",
-            (w) => {
-              (d.aheadWhy = { why: w, by: vbWho(), at: appNowIso(), lines: F.map((x) => x.l.item) }), save();
-              try {
-                audit("invoice", d.id, "billed-ahead", "", F.map((x) => `${x.l.item} ${x.to}%`).join("; "), `${vbWho()}: ${w}`);
-              } catch (e) {}
-              // after this sheet closes, so the send's own sheet is not closed with it
-              setTimeout(() => docAction(c, d, a), 0);
-            },
-          );
-      }
-    } catch (e) {
-      console.warn("billed ahead gate", e);
-    }
+    if (["send", "sent", "approve", "sendclient"].includes(a) && pbAheadGate(c, d, () => docAction(c, d, a))) return;
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof crSendToClient) {
+  const base = crSendToClient;
+  crSendToClient = async function (c, d) {
+    if (pbAheadGate(c, d, () => crSendToClient(c, d))) return;
     return base.apply(this, arguments);
   };
 }

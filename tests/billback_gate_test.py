@@ -16,6 +16,10 @@ findings S1-1 and S1-2, both marked unverified by the billing reviewer). Invente
    Driven as billing: open INV-2026-039, type This Period % as the reviewer did (0 on lines 2 and 5, 10 on lines 1,
    4 and 6), then try every way out: Send to Client (and its Send), More > Mark as Sent, Draft Cover Email, and the
    portal. Each must hold the invoice in draft until a reason is typed; the reason goes on the invoice and the audit.
+3  Hold, then complete, from every door on both devices: the editor's Send to Client, the editor's Mark as Sent and
+   the document viewer's Send to Client (documents first). The reason sheet comes first, an empty reason is refused,
+   and the reason resumes the door pressed, so a Send to Client still mails it and posts it to the portal. (11-14: the
+   viewer's Send opened the send sheet first and the reason sheet died with it; the draft could never go out.)
 """
 import asyncio, sys
 from harness import *
@@ -181,43 +185,86 @@ async def s2_gate(p, c, phone=False):
     """)
     c.ok(s['isC'] and not s['shows'], f"[{tag}] the client's portal (u_klein) does not show the draft ({s})")
 
-    # 5. with a typed reason, Send to Client sends it, and the reason is on the invoice and the audit
-    await js(pg, "try { mbCloseModal(); } catch (e) {} await sleep(200);")
-    sc = pg.locator('[data-docact="sendclient"]:visible').first
-    if not await sc.count():
-        # documents first (11-13): after Draft Cover Email the invoice stands in the document viewer, where the same
-        # Send to Client is on the viewer's bar (More on the phone). Same docAction, same gate.
-        sc = pg.locator('#dv [data-dvact="send"]:visible').first
-        if not await sc.count() and await pg.locator('#dv [data-dvact="more"]:visible').count():
-            await pg.locator('#dv [data-dvact="more"]:visible').first.click(); await pg.wait_for_timeout(200)
-            sc = pg.locator('#dv [data-dvact="send"]:visible').first
-    if not await sc.count():
-        c.ok(False, f"[{tag}] the invoice left draft before a reason was given: no Send to Client to press")
+    c.ok(not errs, f'[{tag}] page errors: {errs[:2]}')
+    await b.close()
+
+
+ROUTES = {
+    # the editor's blue Send to Client, the editor's More > Mark as Sent, and the document viewer's Send to Client
+    # (documents first, 11-13: the screen an invoice opens on). One gate, one continuation, from every door.
+    'editor Send to Client': ('editor', '[data-docact="sendclient"]:visible', True),
+    'editor Mark as Sent': ('editor', '.doc-more-menu [data-docact="send"]', False),
+    'viewer Send to Client': ('viewer', '#dv [data-dvact="send"]:visible', True),
+}
+
+
+async def s2_complete(p, c, route, phone=False):
+    """A fresh draft billed further ahead; the door holds it for a reason, then the reason lets it go out."""
+    tag = f"{'phone' if phone else 'desktop'}, {route}"
+    where, sel, mails = ROUTES[route]
+    b, pg, errs = await open_app(p, phone=phone)
+    await sign_in(pg, 'u_billing')
+    o = await open_039(pg)
+    if not o['open']:
+        c.ok(False, f"[{tag}] no draft to send: {o}"); await b.close(); return
+    await js(pg, "window.__bbInv = arg;", o['open'])
+    await js(pg, INV + "[[1,0],[4,0],[0,10],[3,10],[5,10]].forEach(([i, v]) => D.lines[i].pct = v); save(); render(); await sleep(300);")
+    # stand the invoice where the route starts: the viewer, or the editor (the viewer's Edit)
+    await js(pg, INV + """
+      try { mbCloseModal(); } catch (e) {}
+      const inDv = typeof dvCur !== 'undefined' && dvCur && dvCur.id === D.id;
+      if (arg === 'viewer' && !inDv) { docOpen = null; clientOpen = C.id; dvOpen('invoice', D.id, C.id); render(); await sleep(400); }
+      if (arg === 'editor' && !(docOpen && docOpen.id === D.id)) {
+        const e = document.querySelector('#dv [data-dvact="edit"]');
+        if (e) { e.click(); await sleep(500); }
+        if (!(docOpen && docOpen.id === D.id)) { if (typeof dvClose === 'function' && typeof dvCur !== 'undefined' && dvCur) dvClose(); clientOpen = C.id; docOpen = { kind: 'invoice', id: D.id }; render(); await sleep(400); }
+      }
+    """, where)
+    if where == 'viewer' and not await pg.locator(sel).count() and await pg.locator('#dv [data-dvact="more"]:visible').count():
+        await pg.locator('#dv [data-dvact="more"]:visible').first.click(); await pg.wait_for_timeout(200)
+    if 'Mark as Sent' in route:
+        await js(pg, "const s = document.querySelector('.doc-more summary'); s && s.offsetParent && s.click(); await sleep(150);")
+    btn = pg.locator(sel).first
+    c.ok(await btn.count() == 1, f"[{tag}] the button is there")
+    if not await btn.count():
         await b.close(); return
-    await sc.click()
-    await pg.wait_for_timeout(400)
-    await js(pg, """
-      const m = document.getElementById('mbm'); if (!m || /Billed Ahead of the Work/.test(m.textContent)) return;
-      const to = m.querySelector('[data-f="to"]'); if (to && !to.value) { to.value = 'client@example.com'; to.dispatchEvent(new Event('input', {bubbles: true})); }
-      m.querySelector('#mbm-ok').click(); await sleep(500);
-    """)
-    why = pg.locator('#mbm [data-f="why"]')
-    c.ok(await why.count() == 1, f"[{tag}] Send to Client asks for the reason")
-    if await why.count():
-        await why.fill('the contract bills demolition on mobilization, per the owner')
-        await pg.locator('#mbm #mbm-ok').click()
-        await pg.wait_for_timeout(900)
+    if await btn.is_visible():
+        await btn.click()
+    else:  # More's menu item, pressed as step 2 presses it
+        await btn.dispatch_event('click')
+    await pg.wait_for_timeout(600)
+    # the hold: the reason sheet comes first, and the draft stays a draft; an empty reason is refused
     s = await js(pg, INV + """
       const m = document.getElementById('mbm');
-      if (m) { const to = m.querySelector('[data-f="to"]'); if (to) { if (!to.value) to.value = 'client@example.com'; m.querySelector('#mbm-ok').click(); await sleep(700); } }
-      const A = (DB.audit || DB.auditLog || []).filter(a => a.refId === D.id && a.action === 'billed-ahead');
+      return { st: D.status, sheet: m ? m.querySelector('h3').textContent : 'none', why: !!m && !!m.querySelector('[data-f="why"]') };
+    """)
+    c.ok(s['st'] == 'draft' and s['why'] and 'Billed Ahead of the Work' in s['sheet'], f"[{tag}] holds: the reason sheet first, still a draft ({s})")
+    if not s['why']:
+        await b.close(); return
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(300)
+    s = await js(pg, INV + "return { st: D.status, why: !!D.aheadWhy, up: !!document.querySelector('#mbm [data-f=\"why\"]') };")
+    c.ok(s['st'] == 'draft' and not s['why'] and s['up'], f"[{tag}] an empty reason is refused ({s})")
+    # the completion: the reason, then the door's own sheet (Send to Client's To / Subject / Message), then out
+    await pg.locator('#mbm [data-f="why"]').fill('the contract bills demolition on mobilization, per the owner')
+    await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(700)
+    nxt = await js(pg, "const m = document.getElementById('mbm'); return m ? m.querySelector('h3').textContent : 'none';")
+    if mails:
+        c.ok('Send to Client' in nxt, f"[{tag}] the reason resumes the send: its sheet comes next ({nxt})")
+        to = pg.locator('#mbm [data-f="to"]')
+        if await to.count():
+            if not await to.input_value():
+                await to.fill('client@example.com')
+            await pg.locator('#mbm #mbm-ok').click(); await pg.wait_for_timeout(900)
+    s = await js(pg, INV + """
+      const A = (DB.audit || []).filter(a => a.refId === D.id && a.action === 'billed-ahead');
       return { st: D.status, why: D.aheadWhy && D.aheadWhy.why, by: D.aheadWhy && D.aheadWhy.by,
                audit: A.some(a => /mobilization/.test(a.note || '')), outbox: (DB.outbox || []).some(o => o.about && o.about.docId === D.id) };
     """)
     c.ok(s['st'] == 'sent', f"[{tag}] with the reason it goes out ({s})")
     c.ok(s['why'] and 'mobilization' in s['why'] and s['by'], f"[{tag}] the reason and who gave it are on the invoice ({s})")
     c.ok(s['audit'], f"[{tag}] the reason is in the audit ({s})")
-    c.ok(s['outbox'], f"[{tag}] Send to Client with the reason still sends it to the client (outbox, portal), not only marks it sent ({s})")
+    if mails:
+        c.ok(s['outbox'], f"[{tag}] it is sent to the client (outbox, portal), not only marked sent ({s})")
     c.ok(not errs, f'[{tag}] page errors: {errs[:2]}')
     await b.close()
 
@@ -234,6 +281,11 @@ async def main():
             await s2_gate(p, c)
             print('-- 2. S1-2: the billed-ahead reason gate, phone')
             await s2_gate(p, c, phone=True)
+        if only in ('', '2', '3'):
+            for phone in (False, True):
+                for route in ROUTES:
+                    print(f"-- 3. hold, then complete with a reason: {route}, {'phone' if phone else 'desktop'}")
+                    await s2_complete(p, c, route, phone)
     raise SystemExit(c.done())
 
 asyncio.run(main())
