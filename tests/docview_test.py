@@ -407,12 +407,14 @@ async def revise_ledger(p, phone):
 
     async def revise(iid, why, rate=None):
         await pg.evaluate("""([iid, why, rate]) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid);
+          window.__rvN = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').length;
           const n = dvRevise(c, o, why); if (rate !== null) n.lines[0].rate = rate; window.__rv = n.id; docAction(c, n, 'send'); }""", [iid, why, rate])
         await pg.wait_for_timeout(400)
         await pg.evaluate(GATE, 'revision: ' + why)
         await pg.wait_for_timeout(500)
         return await pg.evaluate("""(iid) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid), n = c.invoices.find(i => i.id === window.__rv);
-          const rv = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').pop(), np = DB.gl.journals.filter(j => j.key === 'inv:' + n.id && j.status === 'posted').pop();
+          // only a reversal this revision wrote (the seeded books already hold an earlier reversal of the same key)
+          const rv = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').slice(window.__rvN || 0).pop(), np = DB.gl.journals.filter(j => j.key === 'inv:' + n.id && j.status === 'posted').pop();
           return { o: o.status, n: n.status, rvDate: rv ? rv.date : '', postDate: np ? np.date : '' }; }""", iid)
 
     # (1) the paid August deposit, INV-2026-031, re-issued with no change of amount
