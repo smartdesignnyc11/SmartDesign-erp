@@ -1174,6 +1174,8 @@ function jpQuestions(p) {
 function jpDayHours(pid) {
   const p = (DB.projects || []).find((x) => x.id === pid),
     h = p && "function" == typeof siteHours ? siteHours(p) : null;
+  // the expected day's length (siteDayHours): a job's own hours, else the firm's 8 h day; never the window
+  if (p && "function" == typeof siteDayHours) return Math.max(1, siteDayHours(p));
   if (h && h.start && h.end) {
     const m = (s) => +s.split(":")[0] * 60 + +(s.split(":")[1] || 0);
     return Math.max(1, (m(h.end) - m(h.start) - (+h.lunch || 0)) / 60);

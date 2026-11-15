@@ -1397,4 +1397,8 @@ esAdd({
   "Minutes Allowed Past the Last Reading": "Minutos Permitidos Después de la Última Lectura",
   "Why (required)": "Por Qué (obligatorio)",
   "Say why before you approve it.": "Di por qué antes de aprobarlo.",
+  // the expected day (8 h), separate from the window
+  "Short day: {n} h of {n} h": "Día corto: {n} h de {n} h",
+  "{n} h over the site day ({n} h)": "{n} h más que el día de obra ({n} h)",
+  "Started {n} h after the latest start for a {n} h day ({d})": "Empezó {n} h después de la hora más tarde para un día de {n} h ({d})",
 });

@@ -484,7 +484,8 @@ function tkgWindowEdit() {
 // (asked with the automatic clock-in agreement) the browser shows it while the app is open or in the background. With
 // the app closed nothing arrives from this: the hosted copy can push (platform/sw.src.js, lib/push.mjs) but no server
 // job sends this question yet, so the 30-minute rule carries the money safety the next time anyone opens the app.
-const TKG_STILL_H = 8.25,
+// the question comes 15 minutes past the expected day (TIME_DAY_H, src/app.js)
+const TKG_STILL_H = ("undefined" != typeof TIME_DAY_H ? TIME_DAY_H : 8) + 0.25,
   TKG_STILL_WAIT = 30,
   TKG_STILL_EVERY = 60;
 const tkgIsoAt = (ms) => appIso(new Date(ms));

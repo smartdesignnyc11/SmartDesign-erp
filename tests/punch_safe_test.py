@@ -40,6 +40,8 @@ The second walk (11-15):
   offsite     A punch 4.2 km off site needs the approver's reason.
   logheld     A held man stays on the Daily Log's crew, held, with his last reading.
   onesetting  The owner's work day is the site hours on the Clock page and in the flags; a job's own hours say so.
+  fullday     A full ordinary day inside the window, by hand and by location, has no flag and approves without an
+              override; a short day and a too-late start flag; a job's own hours keep their own day (chain_test, 11-15).
   fix20       A 20.5-hour Fix is refused; Approve All Shown leaves a time by his word; Move to a Line skips held and
               unapproved times by his word.
 
@@ -700,9 +702,9 @@ async def s_onesetting(pg, c):
     await pg.evaluate("() => { tkgWindowSet({ days: [1, 2, 3, 4, 5], start: '06:30', end: '16:00' }); render(); }")
     await go(pg, 'time')
     t = await text(pg, '.view.on #clock-card')
-    f = await pg.evaluate("() => { const t = { id: 'x', empId: 'em2', date: '2026-09-02', in: '2026-09-02T07:20:00', out: '2026-09-02T15:50:00', breakMin: 0, projectId: 'p121', source: 'manual', code: '05', work: [] }; return timeFlags(t); }")
+    f = await pg.evaluate("() => { const t = { id: 'x', empId: 'em2', date: '2026-09-02', in: '2026-09-02T09:00:00', out: '2026-09-02T15:50:00', breakMin: 0, projectId: 'p121', source: 'manual', code: '05', work: [] }; return timeFlags(t); }")
     c.ok('site hours 06:30–16:00' in t, f'onesetting: the Clock page reads the owner\'s work day ({t[:160]!r})')
-    c.ok(any('after site start (06:30)' in x for x in f), f'onesetting: the late-start flag reads it too ({f})')
+    c.ok(any('latest start for a 8 h day (7:30 AM)' in x for x in f), f'onesetting: the late-start flag reads it too: 6:30 AM to 4:00 PM leaves 7:30 AM as the latest start for an 8 h day ({f})')
     own = await pg.evaluate("() => { const p = DB.projects.find(p => p.id === 'p206'); p.project.hours = { days: [1, 2, 3, 4, 5], start: '08:00', end: '16:00', lunch: 30, own: \"the building's rules\" }; return [tkgWindowSay(p), siteHours(p).start, siteHours(DB.projects.find(p => p.id === 'p121')).start]; }")
     c.ok(own[0].startswith("This job's own hours") and own[1] == '08:00' and own[2] == '06:30', f"onesetting: a job's own hours override it for that job, said as such ({own})")
     await pg.evaluate("() => { delete DB.projects.find(p => p.id === 'p206').project.hours; delete DB.company.autoClock; save(); }")
@@ -735,7 +737,38 @@ async def s_fix20(pg, c):
     c.ok(not r, f'fix20: Move to a Line does not offer a held punch or a time by his word before it is approved ({r})')
 
 
-SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20}
+
+async def s_fullday(pg, c):
+    """the class chain_test caught (11-15): the window is when automatic clock-in watches, not the length of a shift. A
+    full ordinary day inside it, by hand and by location, carries no flag and approves without an override; a short day
+    still flags; a job with its own hours keeps them"""
+    await pin(pg, '07:40')
+    await sign_in(pg, 'u_alan'); await go(pg, 'time')
+    r = await pg.evaluate("""() => { const mk = (id, inn, out, brk, src, emp) => ({ id, empId: emp, date: '2026-08-31', in: '2026-08-31T' + inn + ':00', out: '2026-08-31T' + out + ':00', breakMin: brk, projectId: 'p121', code: '05', notes: '', status: 'submitted', approvedBy: '', source: src, geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, geoOut: { lat: 0, lng: 0, acc: 10, dist: 5 }, work: [{ projectId: 'p121', code: '05', hours: 0, note: 'x' }] });
+      const L = [mk('te_fd1', '07:00', '15:30', 30, 'manual', 'em3'), mk('te_fd2', '07:30', '16:00', 30, 'phone', 'em4'), mk('te_fd3', '08:00', '16:30', 30, 'geo', 'em2'), mk('te_fd4', '07:00', '13:30', 30, 'phone', 'em7'), mk('te_fd5', '09:30', '17:00', 30, 'phone', 'em6')];
+      L.forEach(t => (t.work[0].hours = hoursClock(t))); L[2].auto = { how: 'automatic, by location' };
+      DB.time = DB.time.filter(t => !(t.date === '2026-08-31' && ['em2', 'em3', 'em4', 'em6', 'em7'].includes(t.empId))); DB.time.push(...L); save(); render();
+      return L.map(t => [t.id, hoursClock(t), timeFlags(t)]); }""")
+    full = [x for x in r if x[0] in ('te_fd1', 'te_fd2', 'te_fd3')]
+    c.ok(all(not x[2] for x in full), f'fullday: 7:00-3:30, 7:30-4:00 by hand and 8:00-4:30 by location (8 h each) carry no flag ({full})')
+    short = dict((x[0], x[2]) for x in r)
+    c.ok(any('Short day: 6.0 h of 8 h' in f for f in short['te_fd4']), f"fullday: a 6 h day still flags as short ({short['te_fd4']})")
+    c.ok(any('latest start' in f for f in short['te_fd5']), f"fullday: a 9:30 start, too late for an 8 h day by 5:00 PM, flags ({short['te_fd5']})")
+    # Approve All Shown approves the full days with no override sheet
+    # Approve All Shown: the full days are not among the ones it asks about, and Approve Only the Clean takes them
+    await pg.evaluate("() => { DB.time = DB.time.filter(t => !['te_fd4', 'te_fd5'].includes(t.id)); timeFilter = 'all'; render(); const b = document.getElementById('time-approve-all'); b && b.click(); }")
+    await pg.wait_for_timeout(400)
+    m = await pg.evaluate("() => (document.querySelector('#mbm') || {}).innerText || ''")
+    await pg.evaluate("() => { const b = document.querySelector('#mbm #mbm-alt') || document.querySelector('#mbm #mbm-ok'); b && b.click(); }")
+    await pg.wait_for_timeout(400)
+    st = await pg.evaluate("() => ['te_fd1', 'te_fd2', 'te_fd3'].map(id => DB.time.find(t => t.id === id).status)")
+    c.ok('8/31' not in m and st == ['approved'] * 3, f'fullday: Approve All Shown asks about none of the full days and approves them without an override ({st}, {m[:160]!r})')
+    await pg.evaluate(CLOSE)
+    own = await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); p.project.hours = { days: [1, 2, 3, 4, 5], start: '07:30', end: '16:30', lunch: 30, own: 'Project Settings' }; const t = { id: 'y', empId: 'em3', date: '2026-09-02', in: '2026-09-02T08:15:00', out: '2026-09-02T16:30:00', breakMin: 30, projectId: 'p121', source: 'manual', code: '05', work: [] }; const f = timeFlags(t); const d = siteDayHours(p); delete p.project.hours; return [f, d]; }")
+    c.ok(own[1] == 8.5 and any('after site start (07:30)' in x for x in own[0]), f"fullday: a job with its own hours keeps them: an 8.5 h day, late after 8:00 ({own})")
+
+
+SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20, 'fullday': s_fullday}
 
 
 async def main():
