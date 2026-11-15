@@ -1569,7 +1569,7 @@ function dvPdfSvg(svg, R0) {
 function dvPdfRead(doc, root) {
   const win = doc.defaultView,
     R0 = root.getBoundingClientRect(),
-    out = { text: [], fills: [], marks: [], rot: [], atoms: [], heads: [], width: R0.width, height: R0.height },
+    out = { text: [], fills: [], marks: [], rot: [], atoms: [], heads: [], rows: [], width: R0.width, height: R0.height },
     skip = new Set(),
     vis = (cs) => "none" !== cs.display && "hidden" !== cs.visibility;
   const add = (el, x, y, w, h, color) => w > 0.2 && h > 0.2 && color && out.fills.push({ x: x, y: y, w: w, h: h, color: color, top: y, bottom: y + h });
@@ -1603,6 +1603,7 @@ function dvPdfRead(doc, root) {
     const tag = el.tagName;
     // what may not be cut by a page break: a row; a section band with the row after it; the blocks that read as one
     if ("TR" === tag) {
+      out.rows.push(y);
       const nx = el.classList.contains("cx-sec") && el.nextElementSibling,
         b = nx ? nx.getBoundingClientRect().bottom - R0.top : y + r.height;
       // a row reads as one: it never splits, unless it alone is taller than a third of a page (a scope written out
@@ -1676,7 +1677,8 @@ function dvPdfPages(L) {
   const s = (DV_PDF.W - DV_PDF.ML - DV_PDF.MR) / L.width,
     full = DV_PDF_FULL(L.width),
     atoms = L.atoms.filter((a) => a[1] - a[0] < full * ("soft" === a[2] ? 0.4 : "keep" === a[2] ? 0.55 : 0.95)).sort((a, b) => a[0] - b[0]),
-    content = [...L.text, ...L.fills.filter((f) => f.h > 3), ...L.marks].map((x) => x.top),
+    // where a page may start: a word, a band, a mark, or a row's own top (so a row keeps its top padding)
+    content = [...L.text, ...L.fills.filter((f) => f.h > 3), ...L.marks].map((x) => x.top).concat(L.rows),
     end = Math.max(0, ...L.text.map((t) => t.bottom), ...L.fills.map((f) => f.bottom), ...L.marks.map((m) => m.bottom)),
     pages = [];
   let start = Math.min(0, ...content);
