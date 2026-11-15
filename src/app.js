@@ -30642,6 +30642,15 @@ function jobRebill(p, range) {
       : 0;
   return { cost: cost, billed: billed };
 }
+// The cost code a time entry carries as of a day (the two labour rules of 11-15, src/fieldclock.js labMoveTime). A move
+// to an estimate line is recorded on the entry (moves: from, to, who, when, postOn); one dated in a closed month posts
+// on the open day, so a figure read to a day before it (the closed month as it was reported) keeps the old code.
+function timeCodeAt(e, asOf) {
+  let c = String(e.code || "");
+  const M = e.moves || [];
+  for (let i = M.length - 1; i >= 0; i--) asOf && M[i].postOn && asOf < M[i].postOn && (c = String(M[i].from || ""));
+  return c || "99";
+}
 function jobFin(p, range) {
   const c = DB.clients.find((x) => x.id === p.clientId),
     R = range || ["", today()],
@@ -30726,7 +30735,7 @@ function jobFin(p, range) {
       entityId: emp?.entityId || "ent1",
     }).hours += h),
       (laborByEmp[k].cost += cost);
-    const code = e.code || "99";
+    const code = timeCodeAt(e, R[1]);
     (laborByCode[code] = (laborByCode[code] || 0) + cost), (laborSrc[code] = laborSrc[code] || []).push("time:" + e.id);
   }),
     (laborCost = r2(laborCost)),
@@ -131568,20 +131577,10 @@ const OV_TILES = {
 // reaches job cost through the clock (time entries at the burdened rate), so these hours are not in cost to date:
 // a flag with its dollar size, never a silent cost and never a silent gap.
 function jobLogHoursUnclocked(p) {
-  const out = { hours: 0, cost: 0, days: new Set(), people: new Set() };
-  (((DB.field && DB.field.logs) || []).filter((l) => l.projectId === p.id && "draft" !== l.status) || []).forEach((l) =>
-    (l.crew || []).forEach((cw) => {
-      if (!cw.empId) return;
-      const clocked = (DB.time || [])
-          .filter((e) => e.projectId === p.id && e.empId === cw.empId && e.date === l.date && "rejected" !== e.status)
-          .reduce((a, e) => a + hoursOf(e), 0),
-        gap = r2((+cw.hours || 0) - clocked);
-      if (gap < 0.25) return;
-      const emp = (DB.employees || []).find((x) => x.id === cw.empId);
-      (out.hours += gap), (out.cost += gap * (emp ? laborRate(emp) : 0)), out.days.add(l.date), out.people.add(cw.name || cw.empId);
-    }),
-  );
-  return { hours: r2(out.hours), cost: r2(out.cost), days: out.days.size, people: [...out.people] };
+  // one reading for the flag and every screen that prints it (labUnclocked, src/fieldclock.js: the two labour rules of
+  // 11-15): hourly field time only, and a row decided by the PM (approved as time, or dismissed) is not counted again
+  const U = labUnclockedSum(p.id);
+  return { hours: U.hours, cost: U.cost, days: U.days, people: U.people };
 }
 function ovNoContractCost(r) {
   const J = r.J,
