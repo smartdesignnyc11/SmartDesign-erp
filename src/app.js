@@ -8799,7 +8799,7 @@ function openClientEditor(kind, id) {
       ? c.payments.find((q) => q.id === id)
       : { date: today(), amount: "", method: "", invoiceId: clientFin(c).open[0]?.x.id || "", note: "" };
     ($("#d-title").textContent = id ? "Edit payment" : "Record payment"),
-      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label>${payMethodSel("e-method", x.method)}</div><div class="f"><label>Check or Reference</label><input id="e-ref" value="${esc(x.ref || "")}" placeholder="check #, wire ref"></div><div class="f"><label>Deposited To</label>${payAcctSel("e-pacct", x.acctId || "")}</div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
+      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label>${payMethodSel("e-method", x.method, !id && !(clientCredit(c).available > 0.005))}</div><div class="f"><label>Check or Reference</label><input id="e-ref" value="${esc(x.ref || "")}" placeholder="check #, wire ref"></div><div class="f"><label>Deposited To</label>${payAcctSel("e-pacct", x.acctId || "")}</div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
         .filter((i) => "draft" !== i.status && "void" !== i.status)
         .map(
           (i) =>
@@ -8869,6 +8869,14 @@ function saveClientEditor() {
     // a client payment says how it came, its check number, and where it was deposited
     payNo = "payment" === kind && "function" == typeof payTraceWhy && !id ? payTraceWhy({ method: o.method, ref: o.ref, acct: o.acctId }) : "";
   if (payNo) return void toast(payNo);
+  // a new payment by credit on account is the credit's own write, checked against what the client holds (11-15)
+  if ("payment" === kind && !id && "Credit on account" === o.method) {
+    const inv = (c.invoices || []).find((i) => i.id === o.invoiceId);
+    if (!inv) return void toast("Credit on account is applied to an invoice: pick it");
+    const R = clientCreditApply(c, inv, +o.amount || 0);
+    if (!R.ok) return void toast(R.why);
+    return void (closeEditor(), save(), render(), toast(`${money(R.used)} credit on account applied to ${inv.number}`));
+  }
   const upsert = (arr) => {
       const i = arr.findIndex((x) => x.id === o.id);
       i >= 0 ? (arr[i] = Object.assign(arr[i], o)) : arr.push(o);
@@ -9919,7 +9927,9 @@ async function docAction(c, d, a) {
         taxRate: d.taxRate,
         retainagePct: d.retainagePct,
         discount: { ...d.discount },
-        lines: "sov" === d.mode ? void 0 : d.lines.map((l) => ({ ...l, id: uid("l") })),
+        // a pay application starts from the schedule of values (newDoc's own lines): an undefined lines field wiped
+        // them and Duplicate threw (billing review 11-15, S3-14)
+        ...("sov" === d.mode ? {} : { lines: d.lines.map((l) => ({ ...l, id: uid("l") })) }),
       },
     });
     (docOpen = { kind: k, id: n.id }), toast(`${n.number} created`);
@@ -9969,10 +9979,21 @@ async function docAction(c, d, a) {
   if ("print" !== a) {
     if ("deposit" === a) return save(), void ctDepositInvoice(c, d);
     if ("progress" === a) {
-      const inv = ctProgressInvoice(c, d);
-      (docOpen = { kind: "invoice", id: inv.id }),
-        (finTab = "invoices"),
-        toast(`${inv.number} created — enter % complete per line`);
+      // one open draft application per job (billing review 11-15, S2-6: each change order's Bill It made its own
+      // draft, two open applications on one job): an open draft is opened and said, never a second one made
+      const open = (c.invoices || []).find((i) => "sov" === i.mode && "draft" === i.status && !i.supersededBy && (!d.projectId || !i.projectId || i.projectId === d.projectId));
+      if (open) {
+        (clientOpen = c.id), (docOpen = { kind: "invoice", id: open.id }), (finTab = "invoices");
+        const inLines = new Set((open.lines || []).map((l) => l.sovId)),
+          missing = ("function" == typeof sovLinesFor ? sovLinesFor(c, d) : []).filter((v) => !inLines.has(v.id));
+        const msg = `${open.number} is the open progress application for this job${missing.length ? `; ${d.number}'s ${missing.length} line${1 === missing.length ? "" : "s"} go on the next one, once ${open.number} is sent` : ""}`;
+        "function" == typeof rcToast ? rcToast(msg, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: open.id }), render()) }]) : toast(msg);
+      } else {
+        const inv = ctProgressInvoice(c, d);
+        (docOpen = { kind: "invoice", id: inv.id }),
+          (finTab = "invoices"),
+          toast(`${inv.number} created — enter % complete per line`);
+      }
     }
     return "pos" === a
       ? (save(),
@@ -26138,7 +26159,27 @@ function billRetainage(c) {
     save(),
     render();
 }
+// An estimate that is the signed contract with progress billing against it (billing review 11-15, S1-4): EST-2026-014
+// is on 121 State's schedule of values and billed by three applications, yet the viewer offered a blue Convert to
+// Invoice whose sheet read "Billed before —" and drafted the whole $485,000 again. Its next step is the next progress
+// application; a whole-estimate invoice is refused at the write as well as never offered.
+function estContractBilled(c, d) {
+  if (!c || !d || "estimate" !== d.type) return null;
+  const sv = "function" == typeof sovLinesFor ? sovLinesFor(c, d) : [];
+  if (!sv.length) return null;
+  const ids = new Set(sv.map((v) => v.id)),
+    apps = (c.invoices || []).filter((i) => "sov" === i.mode && "void" !== i.status && (i.lines || []).some((l) => ids.has(l.sovId)));
+  return apps.length ? { sov: sv, apps: apps, draft: apps.find((i) => "draft" === i.status) || null } : null;
+}
 function invoiceFromEstimate(c, d) {
+  const K = estContractBilled(c, d);
+  if (K) {
+    const sent = K.apps.filter((i) => "draft" !== i.status);
+    return void ("function" == typeof rcToast ? rcToast : (m) => toast(m))(
+      `${d.number} is the contract, billed by progress application (${sent.map((i) => i.number).join(", ") || "a draft"}): it is not invoiced again in full. ${K.draft ? `${K.draft.number} is the open application.` : "Its next invoice is the next progress application."}`,
+      [{ label: K.draft ? `Open ${K.draft.number}` : "New Progress Invoice", run: () => (K.draft ? ((clientOpen = c.id), (docOpen = { kind: "invoice", id: K.draft.id }), render()) : docAction(c, d, "progress")) }],
+    );
+  }
   "construction" === d.template && ctNumber(d);
   const already = {};
   c.invoices
@@ -32507,56 +32548,71 @@ newDoc = function (c, kind, opts = {}) {
 };
 const docActionBase3 = docAction,
   lineFinBase = lineFin;
+// ---- A client's credit on account, read one way for every use (billing review 11-15, S1-2 and S1-3). Before, a
+// payment by "Credit on account" wrote a new payment from nothing (Jessop held $0 and INV-2026-D140-R, $24,000, went
+// to paid), and a $900 credit proposed for refund was also applied to INV-2026-039, so an approved refund would have
+// paid the client $1,800. On account is what the client's unapplied payments hold (deposits, overpayments, credit
+// memos, less refunds approved from the account and reversals); a refund proposed against the account reserves its
+// amount until it is decided; available is what is left. Applying credit, a refund, Record Payment's "Credit on
+// account", the Receivables list and Ask all read clientCredit, and clientCreditApply is the one write that uses it.
+function clientCreditReserved(c) {
+  return r2(
+    (DB.clientCredits || [])
+      .filter((f) => "refund" === f.kind && c && f.clientId === c.id && "proposed" === f.status && "overpaid" !== f.basis && ("account" === f.basis || !f.withCredit))
+      .reduce((a, f) => a + (+f.amount || 0), 0),
+  );
+}
+function clientCredit(c) {
+  const onAccount = r2(((c && c.payments) || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0)),
+    reserved = clientCreditReserved(c);
+  return { onAccount: onAccount, reserved: reserved, available: r2(Math.max(0, onAccount - reserved)) };
+}
+// The one write that spends credit on account: an invoice is paid from it for no more than the credit available and
+// no more than the invoice owes. Each unapplied payment it draws on is applied to the invoice with its own bank line
+// (a part is split off with the same line, so the deposit stands behind the same total); the trail says who and when.
+function clientCreditApply(c, inv, amount) {
+  if (!c || !inv) return { ok: !1, why: "Pick the invoice" };
+  if (["void", "draft"].includes(inv.status)) return { ok: !1, why: `${inv.number} is ${inv.status}: credit is applied to a sent invoice` };
+  const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
+    C = clientCredit(c),
+    want = r2(null == amount ? Math.min(bal, C.available) : +amount || 0);
+  if (!(bal > 0.005)) return { ok: !1, why: `Nothing is owed on ${inv.number}` };
+  if (!(C.available > 0.005))
+    return { ok: !1, why: C.onAccount > 0.005 ? `${c.name}'s ${money(C.onAccount)} on account is held for a refund waiting on approval: none of it can be applied` : `${c.name} has no credit on account` };
+  if (!(want > 0.005)) return { ok: !1, why: "Say how much credit to apply" };
+  if (want > C.available + 0.005) return { ok: !1, why: `${c.name} has ${money(C.available)} of credit on account${C.reserved > 0.005 ? ` (${money(C.reserved)} more is held for a refund waiting on approval)` : ""}: apply ${money(C.available)} at most` };
+  if (want > bal + 0.005) return { ok: !1, why: `${inv.number} owes ${money(bal)}: apply ${money(bal)} at most` };
+  let left = want;
+  const by = payWho(),
+    at = appNowIso();
+  c.payments
+    .filter((py) => py.unapplied && +py.amount > 0 && !py.reversalId && !py.reverses)
+    .slice()
+    .forEach((py) => {
+      if (left <= 0.005) return;
+      const amt = r2(+py.amount || 0);
+      if (amt <= left + 0.005) {
+        Object.assign(py, { unapplied: !1, invoiceId: inv.id, appliedFrom: py.voidedInvoice || "account", appliedAt: at, appliedBy: by });
+        left = r2(left - amt);
+      } else {
+        py.amount = r2(amt - left);
+        c.payments.push({ id: uid("py"), invoiceId: inv.id, date: today(), amount: left, method: py.method || "Credit on account", ref: `Credit from ${py.voidedInvoice || "account"}`, acctId: py.acctId || "", txnId: py.txnId || "", appliedFrom: py.voidedInvoice || "account", splitFrom: py.id, recordedBy: by, recordedAt: at, appliedAt: at, appliedBy: by });
+        left = 0;
+      }
+    });
+  const used = r2(want - left);
+  r2(docTotal(inv).total - invoicePaid(c, inv)) <= 0.005 && (inv.status = "paid");
+  (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `${money(used)} credit on account applied to ${inv.number}` });
+  try {
+    audit("invoice", inv.id, "apply-credit", String(C.available), String(used), `${inv.number} credit applied ${money(used)} by ${by}`);
+  } catch (e) {}
+  return { ok: !0, used: used };
+}
 function applyCredits(c, inv) {
-  const bal = clientFin(c).open.find((o) => o.x.id === inv.id)?.bal || 0;
-  if (bal <= 0) return void toast("Nothing outstanding on this invoice");
-  let left = bal,
-    used = 0;
-  if (
-    (c.payments
-      .filter((py) => py.unapplied)
-      .forEach((py) => {
-        if (left <= 0) return;
-        const amt = +py.amount || 0;
-        amt <= left
-          ? ((py.unapplied = !1),
-            (py.invoiceId = inv.id),
-            (py.appliedFrom = py.voidedInvoice || ""),
-            (left -= amt),
-            (used += amt))
-          : ((py.amount = r2(amt - left)),
-            c.payments.push({
-              id: uid("py"),
-              invoiceId: inv.id,
-              date: today(),
-              amount: left,
-              method: py.method || "Credit",
-              ref: `Credit from ${py.voidedInvoice || "account"}`,
-              appliedFrom: py.voidedInvoice || "",
-            }),
-            (used += left),
-            (left = 0));
-      }),
-    used)
-  ) {
-    left <= 0.005 && (inv.status = "paid"),
-      c.activity.push({
-        t: nowStamp(),
-        by: S.project.userName || "",
-        text: `${money(used)} credit on account applied to ${inv.number}`,
-      });
-    try {
-      audit(
-        "invoice",
-        inv.id,
-        "apply-credit",
-        "",
-        String(used),
-        `${inv.number} credit applied ${money(used)}`,
-      );
-    } catch (e) {}
-    save(), render(), toast(`${money(used)} credit applied`);
-  } else toast("No credit on account");
+  const R = clientCreditApply(c, inv);
+  if (!R.ok) return void toast(R.why);
+  save(), render();
+  "function" == typeof rcToast ? rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money(R.used)} credit applied`);
 }
 lineFin = function (key) {
   const f = lineFinBase(key);
@@ -32597,8 +32653,8 @@ const docActionsBase2 = docActions;
 docActions = function (c, d, st) {
   let h = docActionsBase2(c, d, st);
   if ("invoice" === d.type && !["void", "draft", "paid"].includes(d.status)) {
-    const cr = clientFin(c).credits;
-    cr > 0 &&
+    const cr = clientCredit(c).available;
+    cr > 0.005 &&
       (h += `<button class="btn sm primary" data-docact="applycredit">Apply credit on account (${money(cr)})</button>`);
   }
   return h;
@@ -37243,7 +37299,7 @@ function repAR() {
   )
     .map(
       (o) =>
-        `<tr><td><b>${esc(o.c.name)}</b> <span class="small muted">${o.n} invoice${o.n > 1 ? "s" : ""}</span></td><td class="money">${money(o.bal)}</td><td class="money ${o.over ? "bad" : ""}">${o.over ? money(o.over) : "—"}</td><td class="money">${clientFin(o.c).credits ? money(clientFin(o.c).credits) : "—"}</td><td><button class="btn sm" data-arstmt="${o.c.id}">Statement</button></td></tr>`,
+        `<tr><td><b>${esc(o.c.name)}</b> <span class="small muted">${o.n} invoice${o.n > 1 ? "s" : ""}</span></td><td class="money">${money(o.bal)}</td><td class="money ${o.over ? "bad" : ""}">${o.over ? money(o.over) : "—"}</td><td class="money">${((C) => (C.onAccount > 0.005 ? `${money(C.onAccount)}${C.reserved > 0.005 ? `<div class="small muted">${money(C.available)} available; ${money(C.reserved)} held for a refund</div>` : ""}` : "—"))(clientCredit(o.c))}</td><td><button class="btn sm" data-arstmt="${o.c.id}">Statement</button></td></tr>`,
     )
     .join("")}</tbody></table></div>`;
 }
@@ -37254,7 +37310,7 @@ function paymentAllocate(c, presetInvoiceId) {
     total = r2(open.reduce((a, o) => a + o.bal, 0)),
     m = mbModal(
       `Record payment — ${esc(c.name)}`,
-      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span>${payMethodSel("py-method", "")}</label><label class="f"><span>Check or Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div><div class="f2"><label class="f"><span>Deposited To</span>${payAcctSel("py-acct", payBankAccts().length === 1 ? payBankAccts()[0].id : "")}</label><span></span></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
+      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span>${payMethodSel("py-method", "", !(clientCredit(c).available > 0.005))}</label><label class="f"><span>Check or Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div><div class="f2"><label class="f"><span>Deposited To</span>${payAcctSel("py-acct", payBankAccts().length === 1 ? payBankAccts()[0].id : "")}</label><span></span></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
       {
         submit: "Record",
         onSubmit: () => {
@@ -37277,6 +37333,29 @@ function paymentAllocate(c, presetInvoiceId) {
           // refused before anything is written (it was checked after the payments were pushed, so a refused press
           // left them on the client and the next press wrote them again)
           if (r2([...m.querySelectorAll("[data-pyalloc]")].reduce((a, i) => a + Math.max(0, r2(+i.value || 0)), 0)) > amt + 0.005) return toast("Applied more than received"), !1;
+          // a payment by credit on account spends credit the client holds, checked here at the write: it is applied
+          // through the one credit write (clientCreditApply), never written as new money, and nothing of it is left
+          // on account or put behind a bank line
+          if ("Credit on account" === method) {
+            const C = clientCredit(c),
+              A = [...m.querySelectorAll("[data-pyalloc]")].map((i) => ({ id: i.dataset.pyalloc, v: r2(+i.value || 0) })).filter((x) => x.v > 0.005),
+              sum = r2(A.reduce((a, x) => a + x.v, 0));
+            if (line) return toast("Credit on account is not a bank deposit: choose None for the bank line"), !1;
+            if (!(C.available > 0.005)) return toast(C.onAccount > 0.005 ? `${c.name}'s ${money(C.onAccount)} on account is held for a refund waiting on approval: none of it can pay an invoice` : `${c.name} has no credit on account to pay with`), !1;
+            if (!A.length) return toast("Say which invoice the credit pays"), !1;
+            if (Math.max(amt, sum) > C.available + 0.005) return toast(`${c.name} has ${money(C.available)} of credit on account${C.reserved > 0.005 ? ` (${money(C.reserved)} more is held for a refund waiting on approval)` : ""}: record ${money(C.available)} at most`), !1;
+            if (amt > sum + 0.005) return toast("Credit on account is applied to invoices only: apply all of it"), !1;
+            let used = 0;
+            for (const x of A) {
+              const inv = findDoc(c, "invoice", x.id),
+                R = clientCreditApply(c, inv, x.v);
+              if (!R.ok) return toast(R.why), save(), render(), !1;
+              used = r2(used + R.used);
+            }
+            save(), render();
+            toast(`${money(used)} recorded`);
+            return;
+          }
           let applied = 0;
           m.querySelectorAll("[data-pyalloc]").forEach((inp) => {
             const v = r2(+inp.value || 0);
@@ -38247,7 +38326,7 @@ closeChecklist = function (month) {
       view: "reports",
       tab: "ar",
     }),
-    add("Credits on account not applied", DB.clients.filter((c) => clientFin(c).credits > 0).length, {
+    add("Credits on account not applied", DB.clients.filter((c) => clientCredit(c).available > 0.005).length, {
       view: "reports",
       tab: "ar",
     }),
@@ -67663,8 +67742,9 @@ function payAcctName(id) {
   const a = (DB.accounts || []).find((x) => x.id === id);
   return a ? `${a.name}${a.last4 ? " ····" + a.last4 : ""}` : "";
 }
-function payMethodSel(id, v) {
-  return `<select id="${id}" data-f="method"><option value="">Choose…</option>${PAY_METHODS.map((m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}</select>`;
+// noCredit: the client holds no credit on account to pay with, so "Credit on account" is not offered (11-15, S1-2)
+function payMethodSel(id, v, noCredit) {
+  return `<select id="${id}" data-f="method"><option value="">Choose…</option>${PAY_METHODS.filter((m) => !(noCredit && "Credit on account" === m && m !== v)).map((m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}</select>`;
 }
 function payAcctSel(id, v) {
   return `<select id="${id}" data-f="acct"><option value="">Choose…</option>${payBankAccts().map((a) => `<option value="${a.id}" ${a.id === v ? "selected" : ""}>${esc(payAcctName(a.id))}</option>`).join("")}</select>`;
@@ -67772,7 +67852,9 @@ function payInBankRows() {
 // Find in Bank (a sent invoice's blue): the bank's own deposit the matcher reads as this invoice's money opens, to be
 // recorded from the line; with none, Banking opens and says what the bank has not shown yet. Nothing is recorded here.
 function invFindInBank(c, d) {
-  const bal = r2(docTotal(d).total - invoicePaid(c, d)),
+  // a paid invoice whose payment the bank has not shown yet looks for that payment's deposit
+  const owed = r2(docTotal(d).total - invoicePaid(c, d)),
+    bal = owed > 0.005 ? owed : "function" == typeof invoiceUnbanked ? r2(invoiceUnbanked(c, d)) : owed,
     R = payInBankRows(),
     hit =
       R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
@@ -132743,10 +132825,20 @@ function lkRevise(c, d) {
       discount: Object.assign({}, d.discount || { type: "pct", value: 0 }),
       lines: (d.lines || []).map((l) => Object.assign({}, l, { id: uid("l") })),
     };
-  ["retainagePct", "scheduleDays", "validUntil", "due", "billFrom", "depositPct"].forEach((f) => {
-    void 0 !== d[f] && (fields[f] = JSON.parse(JSON.stringify(d[f])));
-  });
+  // A revision keeps the original's accounting (billing review 11-15, S1-5): it copied the words and lines only, so
+  // INV-2026-D140-R-R1 lost retainerOf and its $24,000 posted to design revenue instead of customer deposits (2400).
+  // Its kind and every link go with it: retainer, deposit, milestone, the estimate and its lines, the job, the entity,
+  // tax, retainage. Lines are copied whole above (sovId, fromLine, retainerLine, cost code). The ledger posting reads
+  // these, so it lands on the same accounts unless the person changes one on purpose.
+  const LK_KEEP = ["retainagePct", "scheduleDays", "validUntil", "due", "billFrom", "depositPct", "retainerOf", "retainerApplied", "fromDoc", "milestone", "depositOf", "isDeposit", "retainageRelease", "entityId", "printKind", "estimateId", "clientId", "internal", "internalNotes", "notes", "exhibits", "reimbursable", "billBack"];
+  Object.keys(d)
+    .filter((f) => LK_KEEP.includes(f) || (/^[a-z][A-Za-z]*(Of|Id|Ids)$/.test(f) && !["revisionOf", "supersededBy", "creditOf"].includes(f)) || /^is[A-Z]/.test(f))
+    .forEach((f) => {
+      void 0 !== d[f] && null !== d[f] && !(f in fields) && (fields[f] = JSON.parse(JSON.stringify(d[f])));
+    });
   const n = newDoc(c, k, { mode: d.mode, template: d.template, fields: fields });
+  // newDoc's own defaults must not overwrite what the original carried
+  Object.keys(fields).forEach((f) => "lines" !== f && "discount" !== f && (n[f] = JSON.parse(JSON.stringify(fields[f]))));
   (DB.company.seq = JSON.parse(seq)),
     (n.number = `${root}-R${rev}`),
     (n.rev = rev),
@@ -171946,8 +172038,11 @@ function tpCertifiedText(c, pid) {
 function tpGapText(c, pid) {
   const T = tpCertified(c, pid);
   if (T.gap < 10) return "";
-  const rest = T.gap - Math.min(T.depPct, T.gap);
-  return `Billing is ahead of the work on site by ${T.gap} points: ${T.depPct ? `${Math.min(T.depPct, T.gap)} of them are your deposit, credited against the work as it is done` : ""}${T.depPct && rest >= 5 ? "; " : ""}${rest >= 5 ? `${rest} are progress billed ahead of what is measured, which your project manager reconciles on the next application` : ""}.`;
+  // the client reads the deposit's share of the difference, never the firm's internal billed-ahead measure (billing
+  // review 11-15, S2-9: the Kleins read "18 points ahead" while the viewer said the client's copy does not say it);
+  // what billing and the PM do about progress billed ahead is theirs (pbAhead, the billed-ahead gate)
+  if (!T.depPct) return "";
+  return `${Math.min(T.depPct, T.gap)} points of what is billed are your deposit, credited against the work as it is done.`;
 }
 // The account card's progress tile: complete on site, then what was billed against it (one "Billed to date" on the
 // card, the one beside it), and why they differ when they do.
@@ -195463,7 +195558,9 @@ function bfImpStats(imp) {
   const T = bfImpLines(imp),
     un = new Set(((("function" == typeof bankUnmatched && bankUnmatched()) || {}).rows || []).map((t) => t.id)),
     unmatched = T.filter((t) => un.has(t.id)).length;
-  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched, rows: T, un: un };
+  // the lines are the ones counted as matched and unmatched, so the three add up (11-15, S3-14: "2 lines, 3 matched,
+  // 4 unmatched" read the file's own count beside the account's lines in its period)
+  return { lines: T.length || +imp.lines || 0, inFile: +imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched, rows: T, un: un };
 }
 function bfImportsHtml() {
   const L = (DB.bankImports || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 12);

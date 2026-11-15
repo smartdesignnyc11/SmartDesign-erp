@@ -608,10 +608,15 @@ function td2Facts(T) {
     const names = TD2_LEAK_ROLE[r] || [],
       parts = [];
     let big = null;
+    // one dollar once (billing review 11-15, S2-7): money held on a job billed ahead is a decision waiting, not work
+    // left unbilled, and the stored materials it holds are the same dollars as their "cost not billed" row (121 State's
+    // $10,170 Windows line was counted twice, $42,501 against Billing's, the job's and Ask's $32,331)
+    const E = CATCH.find((x) => x.name === "earnedNotBilled"),
+      heldJobs = new Set(((E && E.rows()) || []).filter((x) => /^held:/.test(x.key || "")).map((x) => String(x.key).split(":")[1]));
     names.forEach((nm) => {
       const C = CATCH.find((x) => x.name === nm);
       if (!C) return;
-      const R = (C.rows() || []).filter((x) => +x.amount > 0);
+      const R = (C.rows() || []).filter((x) => +x.amount > 0 && !/^held:/.test(x.key || "") && !(/^sp:fl:/.test(x.key || "") && heldJobs.has(String(x.key).split(":")[2])));
       if (!R.length) return;
       const sum = R.reduce((a, x) => a + (+x.amount || 0), 0);
       parts.push({ nm: nm, sum: sum });

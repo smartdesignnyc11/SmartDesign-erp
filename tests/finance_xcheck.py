@@ -131,7 +131,7 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
+                    'inv_dep': 'invariants', 'inv_credit': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
@@ -142,7 +142,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_credit': 'INV CREDIT ONCE', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
@@ -723,6 +723,35 @@ INV_ONE_JS = INV_SUM + """
     }
   }));
   return out;"""
+
+# No client's credit is used for more than its amount (billing review 11-15, S1-2/3): for every client, what is on
+# account never goes below zero, what refunds proposed against it reserve never exceeds it, and every invoice payment
+# made by credit on account was drawn from credit the client held (applied through clientCreditApply, appliedFrom set).
+# The fixture: a $1,000 credit on the Kleins' paid INV-2026-035 goes on account; a refund of all of it is proposed; then
+# every way of spending it again is tried (Apply Credit on INV-2026-038, the credit write, a second refund).
+INV_CREDIT_JS = """
+  const bad = [], tried = [];
+  const scan = (when) => (DB.clients || []).forEach(c => {
+    const C = clientCredit(c);
+    if (C.onAccount < -0.005) bad.push(`${when}: ${c.name} on account ${C.onAccount}`);
+    if (C.reserved > C.onAccount + 0.005) bad.push(`${when}: ${c.name} reserves ${C.reserved} of ${C.onAccount}`);
+    (c.payments || []).filter(p => p.method === 'Credit on account' && !p.unapplied && +p.amount > 0 && !p.appliedFrom).forEach(p => bad.push(`${when}: ${c.name} paid ${p.amount} by credit from nothing`));
+  });
+  scan('as seeded');
+  const c = DB.clients.find(x => x.id === 'cl121'), paid = c.invoices.find(i => i.number === 'INV-2026-035'), open = c.invoices.find(i => i.number === 'INV-2026-038'), big = c.invoices.find(i => i.number === 'INV-2026-031');
+  const R = dvCreditCreate(c, paid, [{ lineId: paid.lines[0].id, amount: 1000 }], 'xcheck credit');
+  const held = clientCredit(c).available, x = dvRefundable(c, big).find(y => y.banked);
+  const F = x ? dvRefundPropose(c, big, x.p.id, held, 'xcheck refund', false) : { ok: false };
+  tried.push(R.ok, held, F.ok);
+  const before = invoicePaid(c, open);
+  applyCredits(c, open); clientCreditApply(c, open, held);
+  const F2 = x ? dvRefundPropose(c, big, x.p.id, 1, 'xcheck twice', false) : { ok: false };
+  tried.push(r2(invoicePaid(c, open) - before), F2.ok);
+  if (invoicePaid(c, open) > before + 0.005) bad.push(`the reserved credit was applied to ${open.number}`);
+  if (F2.ok) bad.push('the same credit was proposed for refund twice');
+  scan('after the fixture');
+  return { bad, tried };
+"""
 
 INV_BANK_JS = """
   // a fixture that has fooled the matcher before: two equal payments a day apart and one bank line between them;
@@ -1607,6 +1636,13 @@ async def check_invariants(p, R):
         ok = abs(x['held']) < 0.01 and x['open'] == 0
         read('inv_dep', f"{x['client']} {x['est']} ({', '.join(x['deposits'])}), every line billed", ok, f"2400 {x['held']:+,.2f}, {x['open']} lines open", '2400 nets to $0.00')
     for e in errs[:3]: R.flag('inv_dep', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # no client's credit is used for more than its amount (a fresh page: the fixture spends credit)
+    b, pg, errs = await page()
+    cr = await pg.evaluate(js(INV_CREDIT_JS))
+    read('inv_credit', 'every client, as seeded and after a credit is proposed for refund and spent again', not cr['bad'] and cr['tried'][0] and cr['tried'][2], cr, 'no credit used for more than its amount')
+    for e in errs[:3]: R.flag('inv_credit', 'page', e[:200], 'no page errors')
     await b.close()
 
     # every approval stamp has its person's own action in the audit trail: as seeded, and after each approval path runs

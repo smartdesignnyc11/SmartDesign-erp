@@ -391,11 +391,13 @@ function dvActions(r) {
     }
     // a paid invoice's next step is its PDF (the receipt): Edit, a linked void and re-issue, waits under More
     if (draft) add("send", "Send to Client", { blue: !0 });
-    open && add("findbank", "Find in Bank", { blue: !ownerSeat });
+    // paid by a payment the bank has not shown yet (Rivera, 11-15 S2-12): its next step is still Find in Bank
+    const unbanked = paid && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005;
+    (open || unbanked) && add("findbank", "Find in Bank", { blue: !ownerSeat });
     open && add("pay", "Record Payment");
     !dead && add("edit", "Edit", paid ? { more: !0 } : draft ? { phone: !0 } : {});
     !draft && !dead && add("email", "overdue" === st ? "Send Reminder" : "Send to Client", ownerSeat && "overdue" === st ? { blue: !0 } : {});
-    add("pdf", "Download PDF", (ownerSeat && open && "overdue" !== st) || paid ? { blue: ownerSeat && open && "overdue" !== st, phone: !0 } : {});
+    add("pdf", "Download PDF", (ownerSeat && open && "overdue" !== st) || paid ? { blue: ownerSeat && (open || unbanked) && "overdue" !== st, phone: !0 } : {});
     !draft && !dead && DV_CREDIT_ROLES.includes(me) && add("credit", "Create Credit", { more: !0 });
     !draft && !dead && money_in && DV_CREDIT_ROLES.includes(me) && add("refund", "Refund", { more: !0 });
     add("print", "Print", { more: !0 });
@@ -409,7 +411,12 @@ function dvActions(r) {
     "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 }); // the editor's own: How They Approved, with who and when
     "approved" === d.status && ("construction" === d.template ? add("convert", "Convert to Contract & SOV", { blue: !0 }) : add("invoice", "Convert to Invoice", { blue: !0 }));
     if ("converted" === d.status) {
-      "function" == typeof ctDepositDue && ctDepositDue(c, d)
+      // the signed contract billed by progress application: its next step is the open application or the next one,
+      // never a whole-estimate invoice (11-15, S1-4)
+      const K = "function" == typeof estContractBilled ? estContractBilled(c, d) : null;
+      K
+        ? add("progress", K.draft ? `Open ${K.draft.number}` : "New Progress Invoice", { blue: !0 })
+        : "function" == typeof ctDepositDue && ctDepositDue(c, d)
         ? add("deposit", "Create Deposit Invoice", { blue: !0 })
         : "construction" === d.template
           ? add("progress", "New Progress Invoice", { blue: !0 })
@@ -794,6 +801,31 @@ document.addEventListener("change", (e) => {
     console.warn("docview: revision terms", x);
   }
 });
+// A draft that has never been sent: its due date follows its date and terms (billing review 11-15, S2-11: a new date
+// left the due date where it was). A due date typed by hand stays; a sent invoice and a revision keep theirs (a
+// revision keeps the original's due date, Alan's rule of 11-13, and moves only with new terms, dvRevisionTerms).
+document.addEventListener("change", (e) => {
+  try {
+    const el = e.target,
+      f = el && el.dataset && el.dataset.d;
+    if (!["date", "terms", "due"].includes(f) || "undefined" == typeof docOpen || !docOpen || "invoice" !== docOpen.kind) return;
+    const root = el.closest && el.closest('[id^="doc-"]'),
+      c = (DB.clients || []).find((x) => (x.invoices || []).some((i) => i.id === docOpen.id)),
+      d = c && c.invoices.find((i) => i.id === docOpen.id);
+    if (!d || (root && root.id !== "doc-" + d.id) || "draft" !== d.status || d.sentAt || d.revisionOf || "function" != typeof cxDueFor) return;
+    if ("due" === f) return void (d.dueTyped = !0);
+    if (d.dueTyped || !d.date) return;
+    const to = cxDueFor(d.date, d.terms);
+    if (!to || to === d.due) return;
+    d.due = to;
+    const due = root && root.querySelector('[data-d="due"]');
+    due && (due.value = to);
+    save();
+    toast(`Due ${fmtL(to)}: worked out from ${d.number}'s date and terms`);
+  } catch (x) {
+    console.warn("docview: draft due", x);
+  }
+});
 // A revision asks for a billed-ahead reason only for the lines it bills further than the invoice it replaces: one that
 // changes a description, and no amount, bills nothing further and is not asked (re-review, 11-13).
 if ("function" == typeof pbFurther) {
@@ -1086,7 +1118,7 @@ function dvPayAcct(p) {
 // credit the client holds on the account (an overpayment, a credit memo held for the next invoice): what a refund
 // draws down first
 function dvOnAccount(c) {
-  return r2((c.payments || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0));
+  return clientCredit(c).onAccount;
 }
 // Where a refund goes, in the words the confirm sheet uses, everywhere it is said (the note, the toasts, the trail,
 // Approvals): "<amount> to <client>, to the <account> ending 4471 it was paid from", never "to Wire from Chase"
@@ -1106,7 +1138,9 @@ function dvRefundLimit(c, inv, x, withCredit) {
     asked = (f) => "proposed" === f.status,
     onAcct = dvOnAccount(c),
     over = Math.max(0, r2(invoicePaid(c, inv) - docTotal(inv).total));
-  if (onAcct > 0.005) return { basis: "account", has: onAcct, max: r2(Math.max(0, Math.min(cash, onAcct - dvRefunds(c).filter(asked).reduce((a, f) => a + (+f.amount || 0), 0)))) };
+  // what the account can still give is clientCredit's one reading: on account, less what is applied (already off
+  // it) and less every refund proposed against it (11-15: a $900 credit was both proposed for refund and applied)
+  if (onAcct > 0.005) return { basis: "account", has: onAcct, max: r2(Math.max(0, Math.min(cash, clientCredit(c).available))) };
   if (over > 0.005) return { basis: "overpaid", has: over, max: r2(Math.max(0, Math.min(cash, over - dvRefunds(c).filter((f) => asked(f) && f.invoiceId === inv.id).reduce((a, f) => a + (+f.amount || 0), 0)))) };
   return { basis: "credit", has: 0, max: withCredit ? r2(cash) : 0 };
 }
@@ -1160,6 +1194,7 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
     to: dvPayAcct(x.p),
     why: w,
     withCredit: !!withCredit,
+    basis: L.basis,
     status: "proposed",
     by: dvWho(),
     byRole: role(),
