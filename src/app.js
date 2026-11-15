@@ -9927,7 +9927,9 @@ async function docAction(c, d, a) {
         taxRate: d.taxRate,
         retainagePct: d.retainagePct,
         discount: { ...d.discount },
-        lines: "sov" === d.mode ? void 0 : d.lines.map((l) => ({ ...l, id: uid("l") })),
+        // a pay application starts from the schedule of values (newDoc's own lines): an undefined lines field wiped
+        // them and Duplicate threw (billing review 11-15, S3-14)
+        ...("sov" === d.mode ? {} : { lines: d.lines.map((l) => ({ ...l, id: uid("l") })) }),
       },
     });
     (docOpen = { kind: k, id: n.id }), toast(`${n.number} created`);
@@ -67850,7 +67852,9 @@ function payInBankRows() {
 // Find in Bank (a sent invoice's blue): the bank's own deposit the matcher reads as this invoice's money opens, to be
 // recorded from the line; with none, Banking opens and says what the bank has not shown yet. Nothing is recorded here.
 function invFindInBank(c, d) {
-  const bal = r2(docTotal(d).total - invoicePaid(c, d)),
+  // a paid invoice whose payment the bank has not shown yet looks for that payment's deposit
+  const owed = r2(docTotal(d).total - invoicePaid(c, d)),
+    bal = owed > 0.005 ? owed : "function" == typeof invoiceUnbanked ? r2(invoiceUnbanked(c, d)) : owed,
     R = payInBankRows(),
     hit =
       R.find((x) => x.best && x.best.m && x.best.m.invoiceId === d.id) ||
@@ -172034,8 +172038,11 @@ function tpCertifiedText(c, pid) {
 function tpGapText(c, pid) {
   const T = tpCertified(c, pid);
   if (T.gap < 10) return "";
-  const rest = T.gap - Math.min(T.depPct, T.gap);
-  return `Billing is ahead of the work on site by ${T.gap} points: ${T.depPct ? `${Math.min(T.depPct, T.gap)} of them are your deposit, credited against the work as it is done` : ""}${T.depPct && rest >= 5 ? "; " : ""}${rest >= 5 ? `${rest} are progress billed ahead of what is measured, which your project manager reconciles on the next application` : ""}.`;
+  // the client reads the deposit's share of the difference, never the firm's internal billed-ahead measure (billing
+  // review 11-15, S2-9: the Kleins read "18 points ahead" while the viewer said the client's copy does not say it);
+  // what billing and the PM do about progress billed ahead is theirs (pbAhead, the billed-ahead gate)
+  if (!T.depPct) return "";
+  return `${Math.min(T.depPct, T.gap)} points of what is billed are your deposit, credited against the work as it is done.`;
 }
 // The account card's progress tile: complete on site, then what was billed against it (one "Billed to date" on the
 // card, the one beside it), and why they differ when they do.
@@ -195551,7 +195558,9 @@ function bfImpStats(imp) {
   const T = bfImpLines(imp),
     un = new Set(((("function" == typeof bankUnmatched && bankUnmatched()) || {}).rows || []).map((t) => t.id)),
     unmatched = T.filter((t) => un.has(t.id)).length;
-  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched, rows: T, un: un };
+  // the lines are the ones counted as matched and unmatched, so the three add up (11-15, S3-14: "2 lines, 3 matched,
+  // 4 unmatched" read the file's own count beside the account's lines in its period)
+  return { lines: T.length || +imp.lines || 0, inFile: +imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched, rows: T, un: un };
 }
 function bfImportsHtml() {
   const L = (DB.bankImports || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 12);

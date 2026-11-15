@@ -716,6 +716,9 @@ function jpDocs(p) {
   return out.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.no).localeCompare(String(a.no)));
 }
 function jpOpenDoc(c, kind, id) {
+  // a document opens over the job it was opened from, so Close returns to the job (billing review 11-15, S2-10: it
+  // moved to Billing first and the viewer's Close landed there); an estimate being built still opens its editor
+  if (["estimate", "co", "invoice"].includes(kind) && "function" == typeof dvOpen && "function" == typeof dvOn && dvOn()) return (clientOpen = c.id), void dvOpen(kind, id, c.id);
   (clientOpen = c.id), (docOpen = { kind: kind, id: id });
   try {
     mnLastGrp = "jobs";

@@ -391,11 +391,13 @@ function dvActions(r) {
     }
     // a paid invoice's next step is its PDF (the receipt): Edit, a linked void and re-issue, waits under More
     if (draft) add("send", "Send to Client", { blue: !0 });
-    open && add("findbank", "Find in Bank", { blue: !ownerSeat });
+    // paid by a payment the bank has not shown yet (Rivera, 11-15 S2-12): its next step is still Find in Bank
+    const unbanked = paid && "function" == typeof invoiceUnbanked && invoiceUnbanked(c, d) > 0.005;
+    (open || unbanked) && add("findbank", "Find in Bank", { blue: !ownerSeat });
     open && add("pay", "Record Payment");
     !dead && add("edit", "Edit", paid ? { more: !0 } : draft ? { phone: !0 } : {});
     !draft && !dead && add("email", "overdue" === st ? "Send Reminder" : "Send to Client", ownerSeat && "overdue" === st ? { blue: !0 } : {});
-    add("pdf", "Download PDF", (ownerSeat && open && "overdue" !== st) || paid ? { blue: ownerSeat && open && "overdue" !== st, phone: !0 } : {});
+    add("pdf", "Download PDF", (ownerSeat && open && "overdue" !== st) || paid ? { blue: ownerSeat && (open || unbanked) && "overdue" !== st, phone: !0 } : {});
     !draft && !dead && DV_CREDIT_ROLES.includes(me) && add("credit", "Create Credit", { more: !0 });
     !draft && !dead && money_in && DV_CREDIT_ROLES.includes(me) && add("refund", "Refund", { more: !0 });
     add("print", "Print", { more: !0 });
@@ -797,6 +799,31 @@ document.addEventListener("change", (e) => {
     }
   } catch (x) {
     console.warn("docview: revision terms", x);
+  }
+});
+// A draft that has never been sent: its due date follows its date and terms (billing review 11-15, S2-11: a new date
+// left the due date where it was). A due date typed by hand stays; a sent invoice and a revision keep theirs (a
+// revision keeps the original's due date, Alan's rule of 11-13, and moves only with new terms, dvRevisionTerms).
+document.addEventListener("change", (e) => {
+  try {
+    const el = e.target,
+      f = el && el.dataset && el.dataset.d;
+    if (!["date", "terms", "due"].includes(f) || "undefined" == typeof docOpen || !docOpen || "invoice" !== docOpen.kind) return;
+    const root = el.closest && el.closest('[id^="doc-"]'),
+      c = (DB.clients || []).find((x) => (x.invoices || []).some((i) => i.id === docOpen.id)),
+      d = c && c.invoices.find((i) => i.id === docOpen.id);
+    if (!d || (root && root.id !== "doc-" + d.id) || "draft" !== d.status || d.sentAt || d.revisionOf || "function" != typeof cxDueFor) return;
+    if ("due" === f) return void (d.dueTyped = !0);
+    if (d.dueTyped || !d.date) return;
+    const to = cxDueFor(d.date, d.terms);
+    if (!to || to === d.due) return;
+    d.due = to;
+    const due = root && root.querySelector('[data-d="due"]');
+    due && (due.value = to);
+    save();
+    toast(`Due ${fmtL(to)}: worked out from ${d.number}'s date and terms`);
+  } catch (x) {
+    console.warn("docview: draft due", x);
   }
 });
 // A revision asks for a billed-ahead reason only for the lines it bills further than the invoice it replaces: one that

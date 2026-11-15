@@ -293,6 +293,78 @@ async def t5_revise(p, c, phone):
     await b.close()
 
 
+async def t_s2(p, c, phone):
+    """The S2 and S3 steps a person gets wrong (6 to 12, 14)."""
+    tag = 'phone' if phone else 'desktop'
+    b, pg, errs = await open_app(p, phone=phone)
+    await sign_in(pg, 'u_billing')
+    # 7. one leak figure: Today's headline is Billing's Ready to Bill, the held Windows line counted once
+    r = await js(pg, """
+      view = 'home'; render(); await sleep(300);
+      const t = document.body.innerText, m = t.match(/\$([\d,]+) is leaking/);
+      return { leak: m ? +m[1].replace(/,/g, '') : null, rtb: Math.round(readyToBill().amount) };""")
+    c.ok(r['leak'] is None or abs(r['leak'] - r['rtb']) <= 1, f"[{tag}] 7: Today's leak headline is Billing's ${r['rtb']:,} ({r})")
+    # 6. Bill It on a second change order opens the open draft application, never a second one
+    r = await js(pg, """
+      const c = DB.clients.find(c => c.id === 'cl121'), est = c.estimates.find(e => e.number === 'EST-2026-014');
+      const n0 = c.invoices.filter(i => i.mode === 'sov' && i.status === 'draft').length;
+      await docAction(c, est, 'progress'); await sleep(200);
+      const n1 = c.invoices.filter(i => i.mode === 'sov' && i.status === 'draft').length;
+      const co = c.changeOrders.find(x => x.status === 'approved');
+      if (co) { dvOpen('co', co.id, c.id); await sleep(200); dvAct('billco'); await sleep(300); }
+      const n2 = c.invoices.filter(i => i.mode === 'sov' && i.status === 'draft').length;
+      return { n0, n1, n2, co: co && co.number, open: docOpen && docOpen.id, draft: (c.invoices.find(i => i.mode === 'sov' && i.status === 'draft') || {}).id };""")
+    c.ok(r['n1'] == max(1, r['n0']) and r['n2'] == r['n1'] and r['open'] == r['draft'], f"[{tag}] 6: one open draft application on 121 State; Bill It opens it ({r})")
+    # 8. the banner names the lines the gate stops, cost-measured ones included, with dollars
+    r = await js(pg, """
+      const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.mode === 'sov' && i.status === 'draft');
+      d.lines.forEach(l => l.pct = /^Demolition/.test(l.item) ? 10 : 0); save();
+      dvClose(); clientOpen = c.id; docOpen = { kind: 'invoice', id: d.id }; view = 'billing'; dvEditing = d.id; render(); await sleep(300);
+      const el = document.getElementById('pb-ahead-total');
+      return el ? el.innerText : '';""")
+    c.ok('Demolition' in r and '$2,800 this period' in r, f"[{tag}] 8: the banner names Demolition and its $2,800 ({r[:260]})")
+    # 9. the client's portal never shows the firm's billed-ahead measure
+    r = await js(pg, """
+      signIn('u_klein'); view = 'home'; render(); await sleep(400);
+      const t = document.body.innerText; signIn('u_billing'); render();
+      return { ahead: /ahead of the work|points ahead|billed ahead/i.test(t), t: (t.match(/[^\\n]*ahead[^\\n]*/i) || [''])[0] };""")
+    c.ok(not r['ahead'], f"[{tag}] 9: the Kleins' portal does not say billing is ahead of the work ({r['t'][:160]})")
+    # 10. a document opened from the job's Contract and Billing closes back to the job
+    r = await js(pg, """
+      const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.number === 'INV-2026-038');
+      setCurrent('p121'); view = 'dash'; render(); await sleep(200);
+      const v0 = view; jpOpenDoc(c, 'invoice', d.id); await sleep(300);
+      const open = !!document.getElementById('dv'); dvAct('close'); render(); await sleep(200);
+      return { v0, open, v1: view };""")
+    c.ok(r['open'] and r['v1'] == r['v0'], f"[{tag}] 10: Close returns to the job the invoice was opened from ({r})")
+    # 11. a draft never sent: its due date follows its date and terms
+    r = await js(pg, """
+      const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.mode === 'sov' && i.status === 'draft');
+      clientOpen = c.id; docOpen = { kind: 'invoice', id: d.id }; dvEditing = d.id; view = 'billing'; render(); await sleep(300);
+      const el = document.querySelector('#doc-' + d.id + ' [data-d="date"]') || document.querySelector('[data-d="date"]');
+      if (!el) return { none: true };
+      el.value = '2026-09-10'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); await sleep(200);
+      return { date: d.date, due: d.due, want: cxDueFor('2026-09-10', d.terms) };""")
+    c.ok(r.get('due') == r.get('want') and r.get('date') == '2026-09-10', f"[{tag}] 11: a new date on the draft moves its due date by its terms ({r})")
+    # 12. paid by a payment not yet in the bank: the next step is Find in Bank
+    r = await js(pg, """
+      const c = DB.clients.find(c => /Rivera/.test(c.name)), d = c.invoices.find(i => i.status === 'paid');
+      dvOpen('invoice', d.id, c.id); await sleep(300);
+      const bar = [...document.querySelectorAll('#dv .dv-bar button')].map(b => (b.className.includes('primary') ? '*' : '') + b.textContent.trim());
+      const word = dvStatusWord({ kind: 'invoice', c, d }); dvClose();
+      return { bar, word };""")
+    c.ok(any(x == '*Find in Bank' for x in r['bar']) and 'not yet in the bank' in r['word'], f"[{tag}] 12: Rivera's paid invoice reads not in the bank, with Find in Bank as its step ({r})")
+    # 14. Duplicate on a pay application works
+    r = await js(pg, """
+      const c = DB.clients.find(c => c.id === 'cl121'), d = c.invoices.find(i => i.number === 'INV-2026-038'), n0 = c.invoices.length;
+      let err = ''; try { await docAction(c, d, 'dup'); } catch (e) { err = String(e.message || e); }
+      const n = c.invoices[c.invoices.length - 1];
+      return { err, made: c.invoices.length - n0, lines: n && (n.lines || []).length };""")
+    c.ok(not r['err'] and r['made'] == 1 and r['lines'], f"[{tag}] 14: Duplicate on INV-2026-038 makes a draft with its schedule lines ({r})")
+    c.ok(not errs, f'[{tag}] S2: page errors: {errs[:2]}')
+    await b.close()
+
+
 async def main():
     c = Checks()
     only = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -313,6 +385,9 @@ async def main():
             if only in ('', '5'):
                 print(f"-- 5. a revision keeps the original's accounting, {'phone' if phone else 'desktop'}")
                 await t5_revise(p, c, phone)
+            if only in ('', 's2'):
+                print(f"-- S2 and S3, {'phone' if phone else 'desktop'}")
+                await t_s2(p, c, phone)
         if only in ('', '1'):
             print('-- 1. a reason does not cover another line')
             await t1_new_line(p, c)

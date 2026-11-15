@@ -903,8 +903,9 @@ const pbWords = (A) =>
     let h = base.apply(this, arguments);
     try {
       if (!d || "invoice" !== d.type || "sov" !== d.mode || "void" === d.status || !d.projectId) return h;
-      const A = pbAhead(d.projectId);
-      if (!A.lines.length) return h;
+      const A = pbAhead(d.projectId),
+        F = "draft" === d.status ? pbFurther(c, d) : [];
+      if (!A.lines.length && !F.length) return h;
       A.lines.forEach((l) => {
         const dl = (d.lines || []).find((x) => x.sovId === l.svId);
         if (!dl) return;
@@ -913,7 +914,13 @@ const pbWords = (A) =>
         const b = h.indexOf("</tr>", a);
         b > -1 && (h = h.slice(0, b + 5) + `<tr class="pb-ahead no-doc-print"><td></td><td colspan="9"><span class="small bad-t" data-nocase>Billed ahead: ${esc(l.item)} is ${l.billed}% billed against ${l.pct}% complete${l.depPts ? ` (${l.depPts} points are the deposit)` : ""}, ${money(l.amount)} ahead of the work</span></td></tr>` + h.slice(b + 5));
       });
-      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total"><b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
+      // the lines this draft bills further ahead, by every measure the gate reads (cost included), with the dollars
+      // this period and whether a reason covers them (billing review 11-15, S2-8: the banner never named Demolition)
+      const U = F.length ? new Set(pbUncovered(c, d).map((x) => x.l.id)) : new Set(),
+        fw = F.length
+          ? ` This invoice bills ${F.length} line${1 === F.length ? "" : "s"} further ahead: ${F.map((x) => `${esc(x.l.item)} to ${x.to}% against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period${U.has(x.l.id) ? "" : " (reason given)"}`).join("; ")}.${U.size ? " A reason is asked before it goes out." : ""}`
+          : "";
+      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
     } catch (e) {
       console.warn("billed ahead lines", e);
     }
