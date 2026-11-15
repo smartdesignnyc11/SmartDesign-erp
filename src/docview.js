@@ -271,10 +271,10 @@ if ("function" == typeof cxDocHtml) {
       onInv = r2(ap.filter((p) => !p.unapplied && p.invoiceId === (inv && inv.id)).reduce((a, p) => a + +p.amount, 0)),
       onAcct = r2(ap.filter((p) => p.unapplied).reduce((a, p) => a + +p.amount, 0)),
       left = inv ? dvBal(c, inv) : 0;
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} · ${esc(K.name)}</title><style>body{margin:36px;background:#fff}${CX_CSS}@media print{body{margin:.45in}}</style></head><body><div class="cxd" data-cxkind="credit">${"void" === d.status ? '<div class="cxd-draft">VOID</div>' : ""}
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)} · ${esc(K.name)}</title><style>body{margin:36px;background:#fff}${CX_CSS}@media print{html body{margin:0}}</style></head><body><div class="cxd" data-cxkind="credit">${"void" === d.status ? '<div class="cxd-draft">VOID</div>' : ""}
   ${cxLetterhead(d)}
   <div class="cxd-hd"><div class="cxd-kind">Credit Memo</div><div class="cxd-num sans"><b>${esc(d.number)}</b><br>Date: ${cxDate(d.date)}${inv ? `<br>Credits invoice ${esc(inv.number)}` : ""}</div></div>
-  <div class="cxd-meta"><div><div class="cxd-k sans">Credit to</div><b>${esc(c.name)}</b><br>${esc(cxBillAddr(c, d))}${bt && bt.name ? `<br><span class="sans" style="font-size:11.5px">${esc(bt.name)}${bt.email ? " · " + esc(bt.email) : ""}</span>` : ""}</div><div><div class="cxd-k sans">Project</div><b>${esc(pr.name)}</b>${pr.addr ? `<br>${esc(pr.addr)}` : ""}</div></div>
+  <div class="cxd-meta"><div><div class="cxd-k sans">Credit to</div><b>${esc(c.name)}</b><br>${esc(cxBillAddr(c, d))}${cxContactLine(c, bt)}</div><div><div class="cxd-k sans">Project</div><b>${esc(pr.name)}</b>${pr.addr ? `<br>${esc(pr.addr)}` : ""}</div></div>
   <table><thead><tr><th class="n">#</th><th>Credited</th><th class="r">Credit</th></tr></thead><tbody>${rows}</tbody></table>
   <div class="cxd-tot sans"><div><span>Subtotal credited</span><span>${amt(t.sub - t.disc)}</span></div>${t.tax ? `<div><span>Sales tax reversed (${+d.taxRate}%)</span><span>${amt(t.tax)}</span></div>` : ""}${t.ret ? `<div><span>Less retainage no longer held (${+d.retainagePct}%)</span><span>− ${amt(t.ret)}</span></div>` : ""}<div class="big"><span>Total credit</span><span>${amt(t.total)}</span></div></div>
   ${d.creditWhy ? `<div class="cxd-memo"><b>Reason</b>\n${esc(cxClean(d.creditWhy, c, re))}</div>` : ""}
@@ -1441,130 +1441,412 @@ if ("function" == typeof invoiceStatusShown) {
 }
 
 // ---- Download PDF: a real .pdf of the same document, laid out from the render the viewer shows ---------------------------
-function dvPdfLines(root) {
-  // reading order of the render: each block's text, and each table row as cells (the last ones right-aligned)
-  const out = [],
-    seen = new Set();
-  const walk = (el) => {
-    if (!el || seen.has(el) || /^(STYLE|SCRIPT|SVG)$/i.test(el.tagName)) return;
-    if ("TABLE" === el.tagName) {
-      seen.add(el);
-      const H = [...el.querySelectorAll("thead th")].map((x) => (x.textContent || "").trim());
-      H.length && out.push({ row: H, bold: !0 });
-      el.querySelectorAll("tbody tr").forEach((tr) => out.push({ row: [...tr.children].map((td) => (td.innerText || td.textContent || "").replace(/\s+/g, " ").trim()) }));
-      out.push({ gap: 6 });
-      return;
-    }
-    const kids = [...el.children].filter((k) => !/^(STYLE|SCRIPT)$/.test(k.tagName));
-    const blocky = kids.some((k) => /^(DIV|TABLE|P|H\d|UL)$/.test(k.tagName));
-    if (!blocky) {
-      const txt = (el.innerText || el.textContent || "").trim();
-      if (!txt) return;
-      const big = el.classList && (el.classList.contains("cxd-kind") || el.classList.contains("cxd-word"));
-      const bold = el.classList && (el.classList.contains("big") || /^(B|H\d)$/.test(el.tagName) || el.classList.contains("cxd-k"));
-      txt.split(/\n+/).forEach((t) => t.trim() && out.push({ text: t.trim(), size: big ? 16 : 10, bold: big || bold }));
-      return;
-    }
-    kids.forEach(walk);
-    el.classList && (el.classList.contains("cxd-lh") || el.classList.contains("cxd-hd") || el.classList.contains("cxd-meta")) && out.push({ gap: 6 });
+// One layout (owner, 11-15). The document is rendered in a page-width frame with the same stylesheet the print uses
+// (CX_CSS plus CX_PAGED_CSS), and every word, band, rule and the firm's mark is placed where that render put it: the
+// writer reads the boxes, it does not re-lay the text out. So a section's title sits at the left of its band and its
+// subtotal in the Amount column, an item is its own line above its lighter description, and nothing can land on top
+// of anything else unless it does in the render. Pages break only between rows (a row, a section band with its first
+// row, the acceptance with its signature never split), the column header repeats on each page a table continues onto,
+// and every page carries the document's number and "Page N of M" at the foot.
+// Fonts are the PDF's standard Times (for the document's serif) and Helvetica (for its sans), each line set to the
+// exact width the render gave it, so columns stay true on every device. Nothing is loaded from a network.
+const DV_PDF = { W: 612, H: 792, ML: 50, MR: 50, MT: 54, MB: 50, PX: 640, FOOT: 26 };
+// a page's usable height in px of a render that is px wide (a wide pay application renders wider and prints smaller)
+const DV_PDF_FULL = (px) => (DV_PDF.H - DV_PDF.MT - DV_PDF.MB - DV_PDF.FOOT) / ((DV_PDF.W - DV_PDF.ML - DV_PDF.MR) / (px || DV_PDF.PX));
+// Adobe's widths (1/1000 em) of the standard fonts for WinAnsi codes 32 to 255, two base-36 digits each
+const DV_PDF_AFM = {
+  "Helvetica": "7q7q9vfgfgopij5b9999atg87q997q7qfgfgfgfgfgfgfgfgfgfg7q7qg8g8g8fgs7ijijk2k2ijgzlmk27qdwijfgn5k2lmijlmk2ijgzk2ijq8ijijgz7q7q7qd1fg99fgfgdwfgfg7qfgfg6666dw66n5fgfgfgfg99dw7qfgdwk2dwdwdw9a789ag800000066fg99rsfgfg99rsij99rs00gz0000666699999qfgrs99rsdw99q800dwij7q99fgfgfgfg78fg99khaafgg800kh99b4g8999999fgex7q9999a5fgn6n6n6gzijijijijijijrsk2ijijijij7q7q7q7qk2k2lmlmlmlmlmg8lmk2k2k2k2ijijgzfgfgfgfgfgfgopdwfgfgfgfg7q7q7q7qfgfgfgfgfgfgfgg8gzfgfgfgfgdwfgdw",
+  "Helvetica-Bold": "7q99d6fgfgopk26m9999atg87q997q7qfgfgfgfgfgfgfgfgfgfg9999g8g8g8gzr3k2k2k2k2ijgzlmk27qfgk2gzn5k2lmijlmk2ijgzk2ijq8ijijgz997q99g8fg99fggzfggzfg99gzgz7q7qfg7qopgzgzgzgzatfg99gzfglmfgfgdwat7satg80000007qfgdwrsfgfg99rsij99rs00gz00007q7qdwdw9qfgrs99rsfg99q800dwij7q99fgfgfgfg7sfg99khaafgg800kh99b4g8999999gzfg7q9999a5fgn6n6n6gzk2k2k2k2k2k2rsk2ijijijij7q7q7q7qk2k2lmlmlmlmlmg8lmk2k2k2k2ijijgzfgfgfgfgfgfgopfgfgfgfgfg7q7q7q7qgzgzgzgzgzgzgzg8gzgzgzgzgzfggzfg",
+  "Helvetica-Oblique": "7q7q9vfgfgopij5b9999atg87q997q7qfgfgfgfgfgfgfgfgfgfg7q7qg8g8g8fgs7ijijk2k2ijgzlmk27qdwijfgn5k2lmijlmk2ijgzk2ijq8ijijgz7q7q7qd1fg99fgfgdwfgfg7qfgfg6666dw66n5fgfgfgfg99dw7qfgdwk2dwdwdw9a789ag800000066fg99rsfgfg99rsij99rs00gz0000666699999qfgrs99rsdw99q800dwij7q99fgfgfgfg78fg99khaafgg800kh99b4g8999999fgex7q9999a5fgn6n6n6gzijijijijijijrsk2ijijijij7q7q7q7qk2k2lmlmlmlmlmg8lmk2k2k2k2ijijgzfgfgfgfgfgfgopdwfgfgfgfg7q7q7q7qfgfgfgfgfgfgfgg8gzfgfgfgfgdwfgdw",
+  "Helvetica-BoldOblique": "7q99d6fgfgopk26m9999atg87q997q7qfgfgfgfgfgfgfgfgfgfg9999g8g8g8gzr3k2k2k2k2ijgzlmk27qfgk2gzn5k2lmijlmk2ijgzk2ijq8ijijgz997q99g8fg99fggzfggzfg99gzgz7q7qfg7qopgzgzgzgzatfg99gzfglmfgfgdwat7satg80000007qfgdwrsfgfg99rsij99rs00gz00007q7qdwdw9qfgrs99rsfg99q800dwij7q99fgfgfgfg7sfg99khaafgg800kh99b4g8999999gzfg7q9999a5fgn6n6n6gzk2k2k2k2k2k2rsk2ijijijij7q7q7q7qk2k2lmlmlmlmlmg8lmk2k2k2k2ijijgzfgfgfgfgfgfgopfgfgfgfgfg7q7q7q7qgzgzgzgzgzgzgzg8gzgzgzgzgzfggzfg",
+  "Times-Roman": "6y99bcdwdwn5lm509999dwfo6y996y7qdwdwdwdwdwdwdwdwdwdw7q7qfofofoccplk2ijijk2gzfgk2k299atk2gzopk2k2fgk2ijfggzk2k2q8k2k2gz997q99d1dw99ccdwccdwcc99dwdw7q7qdw7qlmdwdwdwdw99at7qdwdwk2dwdwccdc5kdcf100000099dwccrsdwdw99rsfg99op00gz00009999cccc9qdwrs99r8at99k200cck26y99dwdwdwdw5kdw99l47odwfo00l499b4fo8c8c99dwcl6y998c8mdwkukukucck2k2k2k2k2k2opijgzgzgzgz99999999k2k2k2k2k2k2k2fok2k2k2k2k2k2fgdwccccccccccccijcccccccccc7q7q7q7qdwdwdwdwdwdwdwfodwdwdwdwdwdwdwdw",
+  "Times-Bold": "6y99ffdwdwrsn57q9999dwfu6y996y7qdwdwdwdwdwdwdwdwdwdw9999fufufudwpuk2ijk2k2ijgzlmlmatdwlmijq8k2lmgzlmk2fgijk2k2rsk2k2ij997q99g5dw99dwfgccfgcc99dwfg7q99fg7qn5fgdwfgfgccat99fgdwk2dwdwccay64ayeg00000099dwdwrsdwdw99rsfg99rs00ij00009999dwdw9qdwrs99rsat99k200cck26y99dwdwdwdw64dw99kr8cdwfu00kr99b4fu8c8c99fgf06y998c96dwkukukudwk2k2k2k2k2k2rsk2ijijijijatatatatk2k2lmlmlmlmlmfulmk2k2k2k2k2gzfgdwdwdwdwdwdwk2cccccccccc7q7q7q7qdwfgdwdwdwdwdwfudwfgfgfgfgdwfgdw",
+  "Times-Italic": "6y99bodwdwn5lm5y9999dwir6y996y7qdwdwdwdwdwdwdwdwdwdw9999iririrdwpkgzgzijk2gzgzk2k299ccijfgn5ijk2gzk2gzdwfgk2gzn5gzfgfgat7qatbqdw99dwdwccdwcc7qdwdw7q7qcc7qk2dwdwdwdwatat7qdwccijccccatb47nb4f100000099dwfgopdwdw99rsdw99q800fg00009999fgfg9qdwop99r8at99ij00atfg6yatdwdwdwdw7ndw99l47odwir00l499b4ir8c8c99dwej6y998c8mdwkukukudwgzgzgzgzgzgzopijgzgzgzgz99999999k2ijk2k2k2k2k2irk2k2k2k2k2fggzdwdwdwdwdwdwdwijcccccccccc7q7q7q7qdwdwdwdwdwdwdwirdwdwdwdwdwccdwcc",
+  "Times-BoldItalic": "6yatffdwdwn5lm7q9999dwfu6y996y7qdwdwdwdwdwdwdwdwdwdw9999fufufudwn4ijijijk2ijijk2lmatdwijgzopk2k2gzk2ijfggzk2ijopijgzgz997q99fudw99dwdwccdwcc99dwfg7q7qdw7qlmfgdwdwdwatat7qfgccijdwccat9o649ofu00000099dwdwrsdwdw99rsfg99q800gz00009999dwdw9qdwrs99rsat99k200atgz6yatdwdwdwdw64dw99kr7edwgu00kr99b4fu8c8c99g0dw6y998c8cdwkukukudwijijijijijijq8ijijijijijatatatatk2k2k2k2k2k2k2fuk2k2k2k2k2gzgzdwdwdwdwdwdwdwk2cccccccccc7q7q7q7qdwfgdwdwdwdwdwfudwfgfgfgfgccdwcc",
+};
+const DV_PDF_FONTS = ["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique", "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"];
+const dvPdfW = (() => {
+  const T = {};
+  return (font) => {
+    if (T[font]) return T[font];
+    const s = DV_PDF_AFM[font],
+      a = [];
+    for (let i = 0; i < s.length; i += 2) a.push(parseInt(s.substr(i, 2), 36));
+    return (T[font] = a);
   };
-  walk(root);
+})();
+// unicode to the WinAnsi byte the standard fonts draw; anything else falls back to its plain letter or a space
+const DV_PDF_CP = { 8364: 128, 8218: 130, 402: 131, 8222: 132, 8230: 133, 8224: 134, 8225: 135, 710: 136, 8240: 137, 352: 138, 8249: 139, 338: 140, 381: 142, 8216: 145, 8217: 146, 8220: 147, 8221: 148, 8226: 149, 8211: 150, 8212: 151, 732: 152, 8482: 153, 353: 154, 8250: 155, 339: 156, 382: 158, 376: 159, 8722: 150, 8209: 45, 8239: 32, 8201: 32, 8202: 32, 8200: 32 };
+function dvPdfBytesOf(str) {
+  const out = [];
+  for (const ch of String(str)) {
+    const u = ch.codePointAt(0);
+    if (u >= 32 && u < 127) out.push(u);
+    else if (u >= 160 && u < 256) out.push(u);
+    else if (DV_PDF_CP[u]) out.push(DV_PDF_CP[u]);
+    else {
+      const b = ch.normalize("NFD").charCodeAt(0);
+      out.push(b >= 32 && b < 127 ? b : 32);
+    }
+  }
   return out;
 }
-function dvPdfBytes(items, title) {
-  const W = 612,
-    H = 792,
-    M = 48,
-    pe = (s) =>
-      String(s)
-        .replace(/[—–]/g, "-")
-        .replace(/[’‘]/g, "'")
-        .replace(/[“”]/g, '"')
-        .replace(/−/g, "-")
-        .replace(/[^\x20-\x7e]/g, "")
-        .replace(/[\\()]/g, (m) => "\\" + m),
-    wid = (s, sz) => String(s).length * sz * 0.5,
-    pages = [];
-  let ops = [],
-    y = H - M;
-  const newPage = () => {
-      ops.length && pages.push(ops.join("\n"));
-      (ops = []), (y = H - M);
-    },
-    text = (x, s, sz, bold) => ops.push(`BT /${bold ? "F2" : "F1"} ${sz} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td (${pe(s)}) Tj ET`),
-    wrap = (s, sz, w) => {
-      const words = String(s).split(/\s+/),
-        L = [];
-      let cur = "";
-      words.forEach((wd) => {
-        const t = cur ? cur + " " + wd : wd;
-        wid(t, sz) > w && cur ? (L.push(cur), (cur = wd)) : (cur = t);
-      });
-      return cur && L.push(cur), L;
-    },
-    need = (h) => y - h < M && newPage();
-  items.forEach((it) => {
-    if (it.gap) return void (y -= it.gap);
-    if (it.row) {
-      const n = it.row.length,
-        sz = 9,
-        right = Math.min(3, Math.max(0, n - 2)),
-        colW = 78,
-        leftW = W - 2 * M - right * colW,
-        firstW = n - right > 1 ? 24 : 0,
-        mainW = leftW - firstW,
-        lines = wrap(it.row[n - right - 1] || "", sz, mainW - 6);
-      need(lines.length * 12 + 4);
-      n - right > 1 && text(M, it.row[0], sz, it.bold);
-      lines.forEach((l, i) => (text(M + firstW, l, sz, it.bold), i < lines.length - 1 && (y -= 12)));
-      for (let i = 0; i < right; i++) {
-        const s = it.row[n - right + i] || "";
-        text(M + leftW + (i + 1) * colW - wid(s, sz) - 4, s, sz, it.bold);
+const dvPdfStr = (bytes) => "(" + bytes.map((b) => (40 === b || 41 === b || 92 === b ? "\\" + String.fromCharCode(b) : b < 127 ? String.fromCharCode(b) : "\\" + b.toString(8).padStart(3, "0"))).join("") + ")";
+const dvPdfWidth = (bytes, font, pt) => (bytes.reduce((a, b) => a + (dvPdfW(font)[b - 32] || 0), 0) / 1000) * pt;
+function dvPdfColor(css) {
+  const m = /rgba?\(([^)]+)\)/.exec(css || "");
+  if (!m) return null;
+  const p = m[1].split(/[\s,/]+/).filter(Boolean).map(parseFloat),
+    al = p.length > 3 ? p[3] : 1;
+  if (!(al > 0.01)) return null;
+  // a translucent colour is drawn as it looks on white paper
+  return p.slice(0, 3).map((v) => (1 - al + (al * v) / 255).toFixed(3)).join(" ");
+}
+function dvPdfFont(cs) {
+  const fam = String(cs.fontFamily || "").split(",")[0].replace(/["']/g, "").trim().toLowerCase(),
+    serif = /georgia|times|serif|garamond|palatino|cambria/.test(fam) && !/sans/.test(fam),
+    bold = (parseInt(cs.fontWeight, 10) || 400) >= 600,
+    it = /italic|oblique/.test(cs.fontStyle || "");
+  return (serif ? 4 : 0) + (bold ? 1 : 0) + (it ? 2 : 0);
+}
+// a simple SVG (the firm's mark): rect, line, polyline and path with straight segments, as PDF strokes
+function dvPdfSvg(svg, R0) {
+  const box = svg.getBoundingClientRect(),
+    vb = (svg.getAttribute("viewBox") || `0 0 ${box.width} ${box.height}`).split(/[\s,]+/).map(Number),
+    kx = box.width / (vb[2] || 1),
+    ky = box.height / (vb[3] || 1),
+    P = (x, y) => [box.left - R0.left + (x - vb[0]) * kx, box.top - R0.top + (y - vb[1]) * ky],
+    segs = [];
+  svg.querySelectorAll("rect,line,polyline,polygon,path").forEach((e) => {
+    const cs = getComputedStyle(e),
+      stroke = dvPdfColor(cs.stroke),
+      sw = (parseFloat(cs.strokeWidth) || 1) * kx,
+      pts = [];
+    if (!stroke) return;
+    const T = e.tagName.toLowerCase(),
+      n = (a) => parseFloat(e.getAttribute(a)) || 0;
+    if ("rect" === T) pts.push([["M", ...P(n("x"), n("y"))], ["L", ...P(n("x") + n("width"), n("y"))], ["L", ...P(n("x") + n("width"), n("y") + n("height"))], ["L", ...P(n("x"), n("y") + n("height"))], ["Z"]]);
+    else if ("line" === T) pts.push([["M", ...P(n("x1"), n("y1"))], ["L", ...P(n("x2"), n("y2"))]]);
+    else if ("polyline" === T || "polygon" === T) {
+      const v = (e.getAttribute("points") || "").trim().split(/[\s,]+/).map(Number),
+        s = [];
+      for (let i = 0; i + 1 < v.length; i += 2) s.push([i ? "L" : "M", ...P(v[i], v[i + 1])]);
+      "polygon" === T && s.push(["Z"]);
+      pts.push(s);
+    } else {
+      const tok = (e.getAttribute("d") || "").match(/[MLHVZmlhvz]|-?[\d.]+(?:e-?\d+)?/g) || [],
+        s = [];
+      let cx = 0,
+        cy = 0,
+        sx = 0,
+        sy = 0,
+        cmd = "";
+      for (let i = 0; i < tok.length; ) {
+        if (/[A-Za-z]/.test(tok[i])) cmd = tok[i++];
+        const num = () => parseFloat(tok[i++]);
+        if ("Z" === cmd || "z" === cmd) {
+          s.push(["Z"]), (cx = sx), (cy = sy);
+          continue;
+        }
+        const rel = cmd === cmd.toLowerCase(),
+          C = cmd.toUpperCase();
+        if ("H" === C) cx = (rel ? cx : 0) + num();
+        else if ("V" === C) cy = (rel ? cy : 0) + num();
+        else {
+          const x = num(),
+            y = num();
+          (cx = (rel ? cx : 0) + x), (cy = (rel ? cy : 0) + y);
+        }
+        "M" === C ? ((sx = cx), (sy = cy), s.push(["M", ...P(cx, cy)]), (cmd = rel ? "l" : "L")) : s.push(["L", ...P(cx, cy)]);
       }
-      y -= 14;
-      return;
+      pts.push(s);
     }
-    const sz = it.size || 10,
-      L = wrap(it.text, sz, W - 2 * M);
-    L.forEach((l) => (need(sz + 4), text(M, l, sz, it.bold), (y -= sz + 4)));
+    pts.forEach((s) => segs.push({ stroke: stroke, sw: sw, s: s }));
   });
-  newPage();
-  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", ""],
+  return { kind: "svg", top: box.top - R0.top, bottom: box.bottom - R0.top, segs: segs };
+}
+// the render, read: text lines, filled boxes, rules, marks and images, in CSS px from the document's top left
+function dvPdfRead(doc, root) {
+  const win = doc.defaultView,
+    R0 = root.getBoundingClientRect(),
+    out = { text: [], fills: [], marks: [], rot: [], atoms: [], heads: [], rows: [], width: R0.width, height: R0.height },
+    skip = new Set(),
+    vis = (cs) => "none" !== cs.display && "hidden" !== cs.visibility;
+  const add = (el, x, y, w, h, color) => w > 0.2 && h > 0.2 && color && out.fills.push({ x: x, y: y, w: w, h: h, color: color, top: y, bottom: y + h });
+  [root, ...root.querySelectorAll("*")].forEach((el) => {
+    if ([...skip].some((s) => s.contains(el))) return;
+    const cs = win.getComputedStyle(el);
+    if (!vis(cs)) return void skip.add(el);
+    const r = el.getBoundingClientRect(),
+      x = r.left - R0.left,
+      y = r.top - R0.top;
+    if ("svg" === el.tagName.toLowerCase()) return skip.add(el), void out.marks.push(dvPdfSvg(el, R0));
+    if ("IMG" === el.tagName) return void out.marks.push({ kind: "img", el: el, x: x, y: y, w: r.width, h: r.height, top: y, bottom: y + r.height });
+    if (cs.transform && "none" !== cs.transform) {
+      // the DRAFT / VOID stamp: its words, turned as the render turns them
+      const m = /matrix\(([^)]+)\)/.exec(cs.transform),
+        v = m ? m[1].split(",").map(parseFloat) : [1, 0];
+      skip.add(el);
+      return void out.rot.push({ text: (el.textContent || "").trim(), angle: Math.atan2(v[1], v[0]), cx: x + r.width / 2, cy: y + r.height / 2, px: parseFloat(cs.fontSize) || 12, f: dvPdfFont(cs), color: dvPdfColor(cs.color), ls: parseFloat(cs.letterSpacing) || 0, top: y + r.height / 2, bottom: y + r.height / 2 });
+    }
+    add(el, x, y, r.width, r.height, dvPdfColor(cs.backgroundColor));
+    [
+      ["Top", x, y, r.width, null],
+      ["Bottom", x, null, r.width, null],
+      ["Left", x, y, null, r.height],
+      ["Right", null, y, null, r.height],
+    ].forEach(([side, bx, by, bw, bh]) => {
+      const w = parseFloat(cs[`border${side}Width`]) || 0;
+      if (!w || "none" === cs[`border${side}Style`]) return;
+      add(el, null == bx ? x + r.width - w : bx, null == by ? y + r.height - w : by, null == bw ? w : bw, null == bh ? w : bh, dvPdfColor(cs[`border${side}Color`]));
+    });
+    const tag = el.tagName;
+    // what may not be cut by a page break: a row; a section band with the row after it; the blocks that read as one
+    if ("TR" === tag) {
+      out.rows.push(y);
+      const nx = el.classList.contains("cx-sec") && el.nextElementSibling,
+        b = nx ? nx.getBoundingClientRect().bottom - R0.top : y + r.height;
+      // a row reads as one: it never splits, unless it alone is taller than a third of a page (a scope written out
+      // floor by floor); then it may break between its description lines, and its title keeps two lines under it
+      if (b - y < DV_PDF_FULL(R0.width) / 3) out.atoms.push([y, b]);
+      else {
+        const first = el.querySelector(".ds");
+        out.atoms.push([y, first ? Math.min(b, first.getBoundingClientRect().top - R0.top + 2 * (parseFloat(win.getComputedStyle(first).lineHeight) || 18)) : b]);
+      }
+      el.parentElement && "THEAD" === el.parentElement.tagName && out.heads.push({ top: y, bottom: y + r.height, tTop: el.closest("table").getBoundingClientRect().top - R0.top, tBottom: el.closest("table").getBoundingClientRect().bottom - R0.top });
+    } else if (el.matches(".cx-accept") && r.height > 1) {
+      // the acceptance and signature never stand alone on a page: they keep the block just above them (the totals,
+      // the notes or the scope) when the two fit in half a page
+      let top = y;
+      for (let p = el.previousElementSibling; p; p = p.previousElementSibling) {
+        const pr = p.getBoundingClientRect();
+        if (!pr.height || "none" === win.getComputedStyle(p).display) continue;
+        if (y + r.height - (pr.top - R0.top) > DV_PDF_FULL(R0.width) * 0.5) break;
+        top = pr.top - R0.top;
+        break;
+      }
+      out.atoms.push([top, y + r.height, "keep"]);
+    } else if (el.matches(".cxd-lh,.cxd-hd,.cxd-meta,.cxd-tot>div,.cxd-sig,.cx-accept,.cxd-box,.cxd-foot,.cxd-tot")) out.atoms.push([y, y + r.height, el.matches(".cxd-tot,.cxd-box,.cx-accept") ? "soft" : ""]);
+  });
+  // every line of text: the words of each text node, grouped by the line the render set them on
+  const tw = doc.createTreeWalker(root, win.NodeFilter.SHOW_TEXT),
+    rg = doc.createRange();
+  for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+    const el = n.parentElement;
+    if (!el || [...skip].some((s) => s.contains(el)) || !/\S/.test(n.data)) continue;
+    const cs = win.getComputedStyle(el);
+    if (!vis(cs)) continue;
+    const tt = cs.textTransform,
+      tf = (s) => ("uppercase" === tt ? s.toUpperCase() : "lowercase" === tt ? s.toLowerCase() : "capitalize" === tt ? s.replace(/\b\w/g, (m) => m.toUpperCase()) : s),
+      base = { px: parseFloat(cs.fontSize) || 12, f: dvPdfFont(cs), color: dvPdfColor(cs.color) || "0 0 0", ls: parseFloat(cs.letterSpacing) || 0 },
+      re = /\S+/g;
+    let m,
+      cur = null;
+    const flush = () => cur && out.text.push(Object.assign({}, base, cur, { s: tf(n.data.slice(cur.a, cur.b).replace(/\s+/g, " ")) }));
+    // a word the render broke across two lines (after a hyphen, or anywhere in a long one) is read piece by piece
+    const pieces = (a, b) => {
+      rg.setStart(n, a), rg.setEnd(n, b);
+      const rs = [...rg.getClientRects()].filter((q) => q.width > 0);
+      if (rs.length < 2) return rs.length ? [[a, b, rs[0]]] : [];
+      const P = [];
+      for (let k = a; k < b; k++) {
+        rg.setStart(n, k), rg.setEnd(n, k + 1);
+        const q = rg.getBoundingClientRect(),
+          last = P[P.length - 1];
+        if (!q.width) {
+          last && (last[1] = k + 1);
+          continue;
+        }
+        last && Math.abs(q.top - last[2].top) < 2 ? ((last[1] = k + 1), (last[2] = { top: last[2].top, bottom: last[2].bottom, left: last[2].left, right: q.right })) : P.push([k, k + 1, { top: q.top, bottom: q.bottom, left: q.left, right: q.right }]);
+      }
+      return P;
+    };
+    while ((m = re.exec(n.data)))
+      pieces(m.index, m.index + m[0].length).forEach(([a, b, q]) => {
+        const top = q.top - R0.top;
+        if (cur && Math.abs(top - cur.top) < 2) (cur.b = b), (cur.x1 = q.right - R0.left);
+        else flush(), (cur = { a: a, b: b, top: top, bottom: q.bottom - R0.top, x0: q.left - R0.left, x1: q.right - R0.left });
+      });
+    flush();
+  }
+  out.text.forEach((t) => out.atoms.push([t.top, t.bottom]));
+  return out;
+}
+// page breaks, in px of the render: as much as fits, never through an atom; the header row again on a continuation
+function dvPdfPages(L) {
+  const s = (DV_PDF.W - DV_PDF.ML - DV_PDF.MR) / L.width,
+    full = DV_PDF_FULL(L.width),
+    atoms = L.atoms.filter((a) => a[1] - a[0] < full * ("soft" === a[2] ? 0.4 : "keep" === a[2] ? 0.55 : 0.95)).sort((a, b) => a[0] - b[0]),
+    // where a page may start: a word, a band, a mark, or a row's own top (so a row keeps its top padding)
+    content = [...L.text, ...L.fills.filter((f) => f.h > 3), ...L.marks].map((x) => x.top).concat(L.rows),
+    end = Math.max(0, ...L.text.map((t) => t.bottom), ...L.fills.map((f) => f.bottom), ...L.marks.map((m) => m.bottom)),
+    pages = [];
+  let start = Math.min(0, ...content);
+  for (let guard = 0; start < end - 0.5 && guard < 500; guard++) {
+    const head = L.heads.find((h) => start >= h.bottom - 0.5 && start < h.tBottom - 2),
+      avail = full - (head ? head.bottom - head.top : 0),
+      limit = start + avail;
+    let stop = end;
+    if (limit < end) {
+      stop = limit;
+      // step back past every atom the line would cut
+      for (let moved = !0; moved; ) {
+        moved = !1;
+        for (const a of atoms) if (a[0] < stop - 0.5 && a[1] > stop + 0.5 && a[0] > start + 0.5) (stop = a[0]), (moved = !0);
+      }
+      stop <= start + 1 && (stop = limit);
+    }
+    pages.push({ start: start, stop: stop, head: head });
+    const next = content.filter((y) => y >= stop - 0.5).sort((a, b) => a - b)[0];
+    if (null == next) break;
+    start = Math.max(stop, next);
+  }
+  return { pages: pages, s: s };
+}
+function dvPdfJpeg(img) {
+  try {
+    const w = img.naturalWidth,
+      h = img.naturalHeight;
+    if (!w || !h) return null;
+    const cv = document.createElement("canvas");
+    (cv.width = w), (cv.height = h);
+    const g = cv.getContext("2d");
+    (g.fillStyle = "#fff"), g.fillRect(0, 0, w, h), g.drawImage(img, 0, 0);
+    return { w: w, h: h, data: atob(cv.toDataURL("image/jpeg", 0.92).split(",")[1]) };
+  } catch (e) {
+    return null;
+  }
+}
+function dvPdfBuild(L, title, footLeft) {
+  const { W, H, ML, MT, MB } = DV_PDF,
+    { pages, s } = dvPdfPages(L),
+    imgs = [],
+    streams = [],
+    n = (v) => (Math.round(v * 100) / 100).toString();
+  L.marks.filter((m) => "img" === m.kind).forEach((m) => ((m.jpg = dvPdfJpeg(m.el)), m.jpg && ((m.im = imgs.length + 1), imgs.push(m.jpg))));
+  pages.forEach((pg, pi) => {
+    const ops = [],
+      hh = pg.head ? pg.head.bottom - pg.head.top : 0,
+      Y = (y, src) => H - MT - (src ? y - src.top : y - pg.start + hh) * s,
+      X = (x) => ML + x * s,
+      inWin = (t, a, b) => t >= a - 0.5 && t < b - 0.5,
+      draw = (a, b, src) => {
+        // bands and rules first, then marks, then words
+        L.fills.forEach((f) => {
+          const y0 = Math.max(f.top, a),
+            y1 = Math.min(f.bottom, b);
+          if (y1 - y0 < 0.2) return;
+          ops.push(`${f.color} rg ${n(X(f.x))} ${n(Y(y1, src))} ${n(f.w * s)} ${n((y1 - y0) * s)} re f`);
+        });
+        L.marks.forEach((m) => {
+          if (!inWin(m.top, a, b)) return;
+          if ("svg" === m.kind)
+            m.segs.forEach((g) => ops.push(`${g.stroke} RG ${n(g.sw * s)} w 1 j ${g.s.map((p) => ("Z" === p[0] ? "h" : `${n(X(p[1]))} ${n(Y(p[2], src))} ${"M" === p[0] ? "m" : "l"}`)).join(" ")} S`));
+          else if (m.im) ops.push(`q ${n(m.w * s)} 0 0 ${n(m.h * s)} ${n(X(m.x))} ${n(Y(m.bottom, src))} cm /Im${m.im} Do Q`);
+        });
+        L.text.forEach((t) => {
+          if (!inWin((t.top + t.bottom) / 2, a, b)) return;
+          const font = DV_PDF_FONTS[t.f],
+            pt = t.px * s,
+            by = dvPdfBytesOf(t.s),
+            tc = t.ls * s,
+            nat = dvPdfWidth(by, font, pt) + by.length * tc,
+            want = (t.x1 - t.x0 - Math.max(0, t.ls)) * s,
+            tz = nat > 0 ? Math.min(160, Math.max(60, (100 * want) / nat)) : 100,
+            base = t.bottom - (t.bottom - t.top) * 0.2;
+          ops.push(`BT ${t.color} rg /F${t.f + 1} ${n(pt)} Tf ${n(tz)} Tz ${n(tc)} Tc 1 0 0 1 ${n(X(t.x0))} ${n(Y(base, src))} Tm ${dvPdfStr(by)} Tj ET`);
+        });
+      };
+    // a stamp under the words, on the page its centre falls on
+    L.rot.forEach((r) => {
+      if (!inWin(r.cy, pg.start, pg.stop)) return;
+      const font = DV_PDF_FONTS[r.f],
+        pt = r.px * s,
+        by = dvPdfBytesOf(r.text),
+        w = dvPdfWidth(by, font, pt) + by.length * r.ls * s,
+        a = -r.angle,
+        c = Math.cos(a),
+        sn = Math.sin(a),
+        cx = X(r.cx),
+        cy = Y(r.cy),
+        x0 = cx - (w / 2) * c + pt * 0.35 * sn,
+        y0 = cy - (w / 2) * sn - pt * 0.35 * c;
+      ops.push(`BT ${r.color || "0.9 0.9 0.9"} rg /F${r.f + 1} ${n(pt)} Tf ${n(r.ls * s)} Tc ${n(c)} ${n(sn)} ${n(-sn)} ${n(c)} ${n(x0)} ${n(y0)} Tm ${dvPdfStr(by)} Tj ET`);
+    });
+    pg.head && draw(pg.head.top, pg.head.bottom, pg.head);
+    draw(pg.start, pg.stop, null);
+    // the foot of every page: which document, and which page of how many
+    const fl = dvPdfBytesOf(footLeft),
+      fr = dvPdfBytesOf(`Page ${pi + 1} of ${pages.length}`),
+      fy = MB - 18;
+    ops.push(`0.42 0.455 0.5 rg BT /F1 7.5 Tf 100 Tz 0 Tc 1 0 0 1 ${ML} ${fy} Tm ${dvPdfStr(fl)} Tj ET`);
+    ops.push(`BT /F1 7.5 Tf 100 Tz 0 Tc 1 0 0 1 ${n(W - DV_PDF.MR - dvPdfWidth(fr, "Helvetica", 7.5))} ${fy} Tm ${dvPdfStr(fr)} Tj ET`);
+    streams.push(ops.join("\n"));
+  });
+  // the file: catalog, pages, eight standard fonts, the images, then each page and its content
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", ""];
+  DV_PDF_FONTS.forEach((f) => objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));
+  const imRef = imgs.map((im) => (objs.push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n${im.data}\nendstream`), objs.length)),
+    res = `<< /Font << ${DV_PDF_FONTS.map((f, i) => `/F${i + 1} ${i + 3} 0 R`).join(" ")} >>${imRef.length ? ` /XObject << ${imRef.map((r, i) => `/Im${i + 1} ${r} 0 R`).join(" ")} >>` : ""} >>`,
     kids = [];
-  objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
-  pages.forEach((c) => {
-    const ci = objs.length + 1;
+  streams.forEach((c) => {
     objs.push(`<< /Length ${c.length} >>\nstream\n${c}\nendstream`);
-    kids.push(objs.length + 1);
-    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${ci} 0 R >>`);
+    const ci = objs.length;
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources ${res} /Contents ${ci} 0 R >>`);
+    kids.push(objs.length);
   });
   objs[1] = `<< /Type /Pages /Kids [${kids.map((k) => k + " 0 R").join(" ")}] /Count ${kids.length} >>`;
-  objs.push(`<< /Title (${pe(title)}) /Producer (SmartDesigns Projects) >>`);
-  let out = "%PDF-1.4\n";
+  objs.push(`<< /Title ${dvPdfStr(dvPdfBytesOf(title))} /Producer (SmartDesigns Projects) >>`);
+  let out = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const offs = [];
   objs.forEach((o, i) => (offs.push(out.length), (out += `${i + 1} 0 obj\n${o}\nendobj\n`)));
   const x = out.length;
-  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((n) => String(n).padStart(10, "0") + " 00000 n \n").join("")}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${objs.length} 0 R >>\nstartxref\n${x}\n%%EOF\n`;
-  return out;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((v) => String(v).padStart(10, "0") + " 00000 n \n").join("")}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${objs.length} 0 R >>\nstartxref\n${x}\n%%EOF\n`;
+  return { bytes: out, pages: pages.length };
 }
-function dvPdf(r) {
-  const host = document.createElement("div");
-  host.style.cssText = "position:absolute;left:-10000px;top:0;width:800px";
-  host.innerHTML = `<style>${CX_CSS}</style>${dvDocHtml(r)}`;
-  document.body.appendChild(host);
-  let pdf;
+// the document laid out in a page-width frame of its own (the app's phone styles never reach it), read, and written
+async function dvPdfMake(r) {
+  const fr = document.createElement("iframe");
+  fr.setAttribute("aria-hidden", "true");
+  fr.style.cssText = `position:fixed;left:-20000px;top:0;width:${DV_PDF.PX}px;height:1200px;border:0;opacity:0;pointer-events:none`;
+  document.body.appendChild(fr);
   try {
-    pdf = dvPdfBytes(dvPdfLines(host.querySelector(".cxd") || host), "bill" === r.kind ? `Bill ${r.b.number || ""}` : r.d.number);
+    const doc = fr.contentDocument;
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}${CX_CSS}${"undefined" != typeof CX_PAGED_CSS ? CX_PAGED_CSS : ""}.cxd{max-width:none}</style></head><body>${dvDocHtml(r)}</body></html>`);
+    doc.close();
+    const imgs = [...doc.images];
+    await Promise.race([Promise.all(imgs.map((im) => (im.complete ? 0 : new Promise((ok) => ((im.onload = im.onerror = ok)))))), new Promise((ok) => setTimeout(ok, 2500))]);
+    try {
+      doc.fonts && (await Promise.race([doc.fonts.ready, new Promise((ok) => setTimeout(ok, 1500))]));
+    } catch (e) {}
+    const root = doc.querySelector(".cxd") || doc.body;
+    // a table wider than the page (a pay application's nine columns) widens the render, never runs off the paper
+    const wide = Math.max(root.scrollWidth, ...[...root.querySelectorAll("table")].map((t) => t.scrollWidth));
+    wide > DV_PDF.PX + 1 && (fr.style.width = Math.min(1100, Math.ceil(wide) + 4) + "px");
+    const
+      bill = "bill" === r.kind,
+      num = bill ? r.b.number || "" : r.d.number,
+      label = bill ? "Bill" : ((root.querySelector(".cxd-kind") || {}).textContent || "").trim(),
+      firm = bill ? r.b.vendor || "" : (cxCo(r.d) || {}).name || "",
+      title = [label, num].filter(Boolean).join(" ") + (firm ? ` · ${firm}` : ""),
+      L = dvPdfRead(doc, root),
+      out = dvPdfBuild(L, title, title);
+    return { bytes: out.bytes, pages: out.pages, title: title, name: `${(bill ? `${r.b.vendor || "Bill"} ${r.b.number || ""}` : r.d.number).replace(/[^\w.-]+/g, "_")}.pdf` };
   } finally {
-    host.remove();
+    fr.remove();
   }
-  const name = `${("bill" === r.kind ? `${r.b.vendor || "Bill"} ${r.b.number || ""}` : r.d.number).replace(/[^\w.-]+/g, "_")}.pdf`,
-    blob = new Blob([pdf], { type: "application/pdf" }),
+}
+async function dvPdf(r) {
+  const P = await dvPdfMake(r),
+    u8 = new Uint8Array(P.bytes.length);
+  for (let i = 0; i < P.bytes.length; i++) u8[i] = P.bytes.charCodeAt(i) & 255;
+  const blob = new Blob([u8], { type: "application/pdf" }),
     a = document.createElement("a");
-  (a.href = URL.createObjectURL(blob)), (a.download = name), document.body.appendChild(a), a.click(), a.remove();
+  (a.href = URL.createObjectURL(blob)), (a.download = P.name), document.body.appendChild(a), a.click(), a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
-  toast(`${name} downloaded`);
-  return name;
+  toast(`${P.name} downloaded`);
+  return P.name;
 }
 
 // ---- View History: every change, payment, credit and refund on the record, with who and when -------------------------------

@@ -66,11 +66,12 @@ async def t_desktop(c, p):
                    'Steam boiler replacement', 'S Electrical', 'Panel upgrade', 'Roof condenser pad'], f'[1] each section is followed by its lines: {order}')
     c.ok(abs(r['sub'] - (1200.5 + 1950 + 124500.37 + 8200)) < 0.01, f"[1] the section subtotals add up to the subtotal: {r['sub']}")
     c.ok(r['money']['sub'] in r['totText'], '[1] the document total block shows that subtotal')
-    # [2] ungrouped: the flat table, as it was
+    # [2] ungrouped: the flat table, as it was, except that a lump sum of one leaves Rate blank (owner, 11-15: the
+    # Rate only repeated the Amount)
     want = ('<table><thead><tr><th class="n">#</th><th>Item</th><th class="r">Quantity</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>'
-            '<tr class=""><td class="n">1</td><td>Site protection</td><td class="r">Lump sum</td><td class="r">$1,200</td><td class="r">$1,200</td></tr>'
+            '<tr class=""><td class="n">1</td><td>Site protection</td><td class="r">Lump sum</td><td class="r"></td><td class="r">$1,200</td></tr>'
             '<tr class=""><td class="n">2</td><td>Dumpsters<div class="ds">Twenty yard</div></td><td class="r">QTY</td><td class="r">$650</td><td class="r">$1,950</td></tr></tbody></table>')
-    got = re.sub(r'<td class="r">[^<]*</td>(?=<td class="r">\$650)', '<td class="r">QTY</td>', r['uTable']).replace('<td class="r">1</td><td class="r">$1,200</td>', '<td class="r">Lump sum</td><td class="r">$1,200</td>')
+    got = re.sub(r'<td class="r">[^<]*</td>(?=<td class="r">\$650)', '<td class="r">QTY</td>', r['uTable']).replace('<td class="r">1</td><td class="r"></td>', '<td class="r">Lump sum</td><td class="r"></td>')
     c.ok(not r['uSec'], '[2] an ungrouped estimate prints no section header')
     c.ok(got == want, f'[2] an ungrouped estimate prints the flat table unchanged:\n{got}')
     # [3] [4] Excluded and TBD
