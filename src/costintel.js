@@ -1571,7 +1571,7 @@ function ciRouteCardHtml(emp) {
       : `<div class="small muted" data-cirtstate="proposed">${canApprove ? "Proposed by the route planner. Approve it and the driver gets it on his phone." : `Waiting for ${esc(ciCoordName())} to approve.`}</div>`,
     money2 = !field && P
       ? `<div class="ci-rt-sum" data-cirttotal="${P.total}"><span>Items <b>${ciMoney(P.itemCost)}</b></span><span>Driver ${Math.round(P.routeMin)} min <b>${ciMoney(P.laborCost)}</b></span><span>Fuel <b>${ciMoney(P.fuelCost)}</b></span><span>Total <b>${ciMoney(P.total)}</b></span></div>${near ? `<div class="small" data-cirtsaves="${saves}">${saves > 0.005 ? `${ciMoney(saves)} under buying everything at the nearest store (${ciMoney(near.total)}: ${esc((near.stores || []).join(", ") || "none")}).` : "The nearest store is already the cheapest route."}</div>` : ""}<div class="small muted" data-cirttravel="${esc(travel.source)}">${esc(travel.note || "")}${travel.why ? ` · ${esc(travel.why)}` : ""}</div>`
-      : saves > 0.005
+      : saves > 0.005 && !field
         ? `<div class="small" data-cirtsaves="${saves}">This route saves ${ciMoney(saves)} against buying it all at the nearest store.</div>`
         : "",
     acts = canApprove
@@ -1587,7 +1587,7 @@ function ciRouteCardHtml(emp) {
             return acc + (b && null != b.price && null != a.price && b.store !== a.store ? Math.max(0, (b.price - a.price) * a.qty) : 0);
           }, 0),
         );
-      return mine.length ? `<div class="s" data-cistorewhy="${esc(s.name)}">${sav > 0.005 ? `Cheapest for ${mine.length === 1 ? "this item" : "these items"}: saves ${ciMoney(sav)}` : mine.some((a) => null == a.price) ? "No price on file for these: the store already on the way" : "Cheapest for these items"}</div>` : "";
+      return mine.length ? `<div class="s" data-cistorewhy="${esc(s.name)}">${sav > 0.005 ? `Cheapest for ${mine.length === 1 ? "this item" : "these items"}${ciIsField() ? "" : `: saves ${ciMoney(sav)}`}` : mine.some((a) => null == a.price) ? "No price on file for these: the store already on the way" : "Cheapest for these items"}</div>` : "";
     };
   return `<div class="card ci-rt" style="margin-top:10px" data-cirt="1"><div class="hd"><h3>${head}</h3><span class="small muted">${plan.stops.length} stops · ~${mi} mi · ${plan.items} items</span></div>
     ${status}${money2}${acts}
@@ -1610,6 +1610,7 @@ if ("function" == typeof renderDriverPlan)
       return "";
     }
   };
+// the field's screens show where to buy, never money (the crew expert, 11-15: "saves $16" on the driver's Route)
 // Phase 1 on the store-run list itself: each item says where it is cheapest and what that saves.
 function ciPickHtml(x, atStore, ctx) {
   if (!x || !x.it || x.it.invId || x.it.garbage) return "";
@@ -1618,9 +1619,9 @@ function ciPickHtml(x, atStore, ctx) {
   // one sentence per line, so the field's Spanish pass reads it whole (the store's name is kept as written)
   if (atStore) {
     if (pk.here) return `<div class="s ci-pick ok" data-cipick="${esc(x.key)}">Best price is here</div>`;
-    return pk.save > 0.005 ? `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Cheaper at ${pk.store} · saves ${ciMoney(pk.save)}`)}</div>` : "";
+    return pk.save > 0.005 ? `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Cheaper at ${pk.store}${ciIsField() ? "" : ` · saves ${ciMoney(pk.save)}`}`)}</div>` : "";
   }
-  return `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Buy at ${pk.store}${pk.save > 0.005 ? ` · saves ${ciMoney(pk.save)}` : ""}`)}</div>${pk.skipped ? `<div class="s ci-pick muted" data-ciskip="${esc(x.key)}">${esc(`${pk.skipped} is cheaper, but not worth the extra stop today`)}</div>` : ""}`;
+  return `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Buy at ${pk.store}${pk.save > 0.005 && !ciIsField() ? ` · saves ${ciMoney(pk.save)}` : ""}`)}</div>${pk.skipped ? `<div class="s ci-pick muted" data-ciskip="${esc(x.key)}">${esc(`${pk.skipped} is cheaper, but not worth the extra stop today`)}</div>` : ""}`;
 }
 if ("function" == typeof renderRunCard) {
   const ciRenderRunCardBase = renderRunCard;
