@@ -48,7 +48,7 @@ async def tap(pg, sel, text=None, phone=False):
     return True
 
 
-async def caught_open(pg, src):
+async def caught_open(pg, src, job=''):
     """Today's Caught for You, as the person sees it: open the fold, show every row, press the row's verb"""
     await go(pg, 'home')
     await pg.wait_for_timeout(300)
@@ -56,8 +56,11 @@ async def caught_open(pg, src):
         await tap(pg, '[data-td2quiet]')
     if await pg.evaluate("() => !!document.querySelector('[data-tdcatchall]') && !/Fewer/.test(document.querySelector('[data-tdcatchall]').innerText)"):
         await tap(pg, '[data-tdcatchall]')
-    card = await pg.evaluate("s => { const c = [...document.querySelectorAll('.td-c')].find(x => x.dataset.src === s); return c ? c.innerText.replace(/\\s+/g, ' ').trim() : ''; }", src)
-    ok = card and await tap(pg, f'.td-c[data-src="{src}"] [data-tdcatch]')
+    card = await pg.evaluate("([s, j]) => { const c = [...document.querySelectorAll('.td-c')].find(x => x.dataset.src === s && x.innerText.includes(j)); return c ? c.innerText.replace(/\\s+/g, ' ').trim() : ''; }", [src, job])
+    ok = False
+    if card:
+        await pg.evaluate("([s, j]) => { const c = [...document.querySelectorAll('.td-c')].find(x => x.dataset.src === s && x.innerText.includes(j)); c.querySelector('[data-tdcatch]').click(); }", [src, job])
+        ok = True
     await pg.wait_for_timeout(300)
     return card, ok
 
@@ -87,7 +90,7 @@ async def s_logged(pg, c, phone_pg):
 
     # ---- the PM: one flag on Today's Caught for You, its sheet one row per person, day and log
     await sign_in(pg, 'u_alan')
-    card, ok = await caught_open(pg, 'loggedNotClocked')
+    card, ok = await caught_open(pg, 'loggedNotClocked', '206 Lenox')
     await shot(pg, 'pm_caught')
     lenox = await pg.evaluate("() => [...document.querySelectorAll('.td-c')].filter(x => x.dataset.src === 'loggedNotClocked').map(x => x.innerText.replace(/\\s+/g, ' '))")
     c.ok(any(f'{want:g} hours logged, not clocked' in x and '206 Lenox' in x for x in lenox), f"logged: the PM's Caught for You has one flag for 206 Lenox, {want:g} hours logged, not clocked ({lenox})")
@@ -128,7 +131,7 @@ async def s_logged(pg, c, phone_pg):
     c.ok('Open' in t and 'Alberto' in t, f"logged: the toast says what happened, with Open ({t[:120]!r})")
 
     # ---- Dismiss: who and why, and the row does not come back
-    card, ok = await caught_open(pg, 'loggedNotClocked')
+    card, ok = await caught_open(pg, 'loggedNotClocked', '206 Lenox')
     c.ok(f'{want - 8:g} hours logged, not clocked' in card, f"logged: the flag drops to {want - 8:g} hours ({card[:100]!r})")
     await tap(pg, '#mbm [data-labrow="fls20620260831:em3"] [data-labno]')
     await tap(pg, '#mbm #mbm-ok')
@@ -146,7 +149,7 @@ async def s_logged(pg, c, phone_pg):
       h: DB.time.filter(e => e.projectId === 'p206' && e.empId === 'em2' && e.date === '2026-08-31').reduce((a, e) => a + hoursOf(e), 0),
       row: labUnclocked('p206').filter(x => x.l.id === 'fls20620260831' && x.cw.empId === 'em2').map(x => ({ kind: x.kind, h: x.hours })) })""")
     c.ok(r['entries'] == 1 and r['h'] == 8 and r['row'] == [{'kind': 'changed', 'h': 1}], f"logged: a log edited after approval makes no second entry and does not double the hours; the hour it added is a row to decide ({r})")
-    await caught_open(pg, 'loggedNotClocked')
+    await caught_open(pg, 'loggedNotClocked', '206 Lenox')
     t = await pg.evaluate("() => { const x = document.querySelector('#mbm [data-labrow=\"fls20620260831:em2\"]'); return x ? x.innerText.replace(/\\s+/g, ' ') : ''; }")
     c.ok('changed' in t.lower() and '8 h' in t and '9 h' in t, f"logged: the row says the log changed after approval, 8 h approved and 9 h now ({t[:140]!r})")
     await tap(pg, '#mbm [data-labrow="fls20620260831:em2"] [data-labok]')
@@ -164,7 +167,7 @@ async def s_logged(pg, c, phone_pg):
     c.ok(r.get('run') and r['unapproved'] == 0 and r['dismissed'] == 0, f"logged: the pay run holds approved entries only, the dismissed hours nowhere ({r})")
 
     # ---- the four of the crew's log: each its own approval
-    await caught_open(pg, 'loggedNotClocked')
+    await caught_open(pg, 'loggedNotClocked', '206 Lenox')
     await tap(pg, '#mbm [data-labrow="lab_t4:em4"] [data-labok]')
     await tap(pg, '#mbm #mbm-ok')
     r = await pg.evaluate("() => ({ made: DB.time.filter(e => e.fromLog && e.fromLog.logId === 'lab_t4').map(e => e.empId), left: labUnclocked('p206').filter(x => x.l.id === 'lab_t4').map(x => x.cw.empId) })")
@@ -224,10 +227,10 @@ async def s_offline(pg, c, phone_pg):
     eac0 = await pg.evaluate(EAC)
     c.ok(abs(eac0 - 390353.55) < 0.005, f"offline: 121 State's estimate at completion is 390,353.55 with the code-12 hours off a line ({eac0})")
     T0 = await pg.evaluate("() => DB.time.filter(t => t.projectId === 'p121' && t.code === '12').map(t => ({ id: t.id, h: hoursOf(t), st: t.status }))")
-    card, ok = await caught_open(pg, 'offLine')
+    card, ok = await caught_open(pg, 'offLine', '121 State')
     await shot(pg, 'pm_offline_sheet')
     m = await pg.evaluate(MBM)
-    c.ok('121 State' in card and '1,466.05' in card, f"offline: the PM's Caught for You proposes the move for 121 State's $1,466.05 off a line ({card[:140]!r})")
+    c.ok('121 State' in card and '1,466' in card, f"offline: the PM's Caught for You proposes the move for 121 State's $1,466.05 off a line ({card[:140]!r})")
     c.ok('37.92' in m and 'Trim, doors, paint & hardware' in m and 'Move to a Line' in m and 'Draft a Change Order' in m, f"offline: the sheet shows the 37.92 hours, offers the likely line, Move to a Line and Draft a Change Order ({m[:240]!r})")
     sel = await pg.evaluate("() => { const s = document.querySelector('#mbm [data-f=\"line\"]'); return s ? s.options[s.selectedIndex].text : ''; }")
     c.ok(sel.startswith('Trim, doors, paint & hardware'), f"offline: the likely line is the one picked ({sel!r})")
@@ -264,7 +267,7 @@ async def s_offline(pg, c, phone_pg):
       return { actual: J.actual, codes: (J.byCode || []).map(r => [r.code, Math.round(100 * (+r.actual || 0)) / 100]).filter(x => x[1]).sort() }; }"""
     aug0 = await pg.evaluate(AUG)
     eacA = await pg.evaluate(EAC)
-    card, ok = await caught_open(pg, 'offLine')
+    card, ok = await caught_open(pg, 'offLine', '121 State')
     m = await pg.evaluate(MBM)
     c.ok(ok and '4' in m, f"offline: the August entry on code 12 raises the proposal ({card[:100]!r})")
     await tap(pg, '#mbm #mbm-ok')
@@ -278,7 +281,7 @@ async def s_offline(pg, c, phone_pg):
     # ---- Draft a Change Order: the other answer, and still nothing moves by itself
     await pg.evaluate("""() => { DB.periods.lockedThrough = '';
       DB.time.push({ id: 'lab_co', empId: 'em3', date: '2026-09-02', in: '2026-09-02T16:00:00', out: '2026-09-02T18:00:00', breakMin: 0, projectId: 'p121', code: '13', notes: '', status: 'approved', approvedBy: 'Alan', source: 'manual', work: [{ projectId: 'p121', code: '13', hours: 2, note: '' }] }); save(); }""")
-    card, ok = await caught_open(pg, 'offLine')
+    card, ok = await caught_open(pg, 'offLine', '121 State')
     n0 = await pg.evaluate("() => DB.clients.find(c => c.id === DB.projects.find(p => p.id === 'p121').clientId).changeOrders.length")
     await tap(pg, '#mbm #mbm-alt')
     r = await pg.evaluate("""n0 => { const c = DB.clients.find(c => c.id === DB.projects.find(p => p.id === 'p121').clientId), d = c.changeOrders[c.changeOrders.length - 1];

@@ -999,7 +999,18 @@ function jpBudget() {
       BA.work.amount > 0.005 || BA.wip.amount > 0.005
         ? `<div class="jp-card0 jp-aheads" id="jp-aheads">${[BA.work, BA.wip].map((m) => `<div class="jp-aheadrow" data-ahead="${m === BA.wip ? "wip" : "work"}" data-v="${m.amount}"><b>${esc(m.label)} ${money(m.amount)}</b><span>${esc(m.what)}</span></div>`).join("")}</div>`
         : "",
-    detail = (l) => `<div class="jp-detail">${jpLineDetail(l).map(([k, val]) => `<div><span>${esc(k)}</span><b>${esc(val)}</b></div>`).join("")}</div>`,
+    // the hours clocked off a line are a proposal to the job's lead, here as on Caught for You (the labour rules, 11-15)
+    OL = NL && "function" == typeof labOffLine && labMine(p) ? labOffLine(p.id) : [],
+    detail = (l) =>
+      `<div class="jp-detail">${jpLineDetail(l).map(([k, val]) => `<div><span>${esc(k)}</span><b>${esc(val)}</b></div>`).join("")}${
+        l.noline && OL.length ? `<div class="lab-nlacts">${OL.map((R) => `<button type="button" class="btn sm jp-tap" data-labmove="${esc(R.code)}">Move to a Line: ${esc(R.name)}, ${r2(R.hours)} h</button>`).join("")}</div>` : ""
+      }</div>`,
+    // hours on the job's daily logs that no punch carries: not cost until the PM approves them as time, said here so a $0
+    // cost is never silent (the labour rules, 11-15)
+    LG = "function" == typeof labUnclockedSum ? labUnclockedSum(p.id) : { hours: 0 },
+    lognc = LG.hours
+      ? `<div class="jp-note lab-lognc" id="lab-lognc"><b>${LG.hours} ${1 === LG.hours ? "hour" : "hours"} logged, not clocked</b> · ${esc(LG.people.join(", "))}, ${LG.days} ${1 === LG.days ? "day" : "days"}: about ${money(LG.cost)} not in cost or payroll until ${esc(tkFirst((labLead(p) || {}).name || "the PM"))} approves them as time, or dismisses them.</div>`
+      : "",
     attrs = (l) => `data-jpline="${esc(l.key)}" data-budget="${l.budget}" data-committed="${l.committed}" data-actual="${l.actual}" data-forecast="${l.forecast}"`,
     lines = phone
       ? `<div class="jp-bcards">${L.map((l) => {
@@ -1038,7 +1049,8 @@ function jpBudget() {
     back = U.length
       ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
       : `<div class="jp-billback ok" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>Nothing: everything bought for the client is on an invoice.</span></div>`;
-  host.innerHTML = `${kpis}${ahead}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
+  host.innerHTML = `${kpis}${lognc}${ahead}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
+  host.querySelectorAll("[data-labmove]").forEach((b) => (b.onclick = (ev) => (ev.stopPropagation(), labOffLineSheet(p.id, b.dataset.labmove))));
 }
 
 // ---- Decisions: everything waiting on an answer --------------------------------------------------------------------
