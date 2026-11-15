@@ -420,6 +420,9 @@ async def s_clock(pg, c):
 
 async def s_autoclock(pg, c):
     """Alan, 11-06: clock-in is automatic by location, after the person accepts the notice"""
+    # the app's time of day pinned to 12:30 (an open punch overlaps up to now; before 9:15 a run saw no overlap)
+    import datetime
+    await pg.clock.set_fixed_time(datetime.datetime(2026, 11, 15, 5, 0, 0, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int((45000 - 27000) * 2.4) + 1))
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     base = await pg.evaluate("""() => { const e = myEmp(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === today())); save();
       const g = DB.projects.find(p => p.id === 'p121').project.geo; return { lat: g.lat, lng: g.lng, rad: g.radius || 250, emp: e.id }; }""")

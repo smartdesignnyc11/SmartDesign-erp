@@ -221,6 +221,10 @@ async def s_list(pg, c):
 
 async def s_overlap(pg, c):
     """S1-3: Pick One where the foreman sees the overlap, Approve refuses, payroll holds"""
+    # the app's time of day pinned to 12:30: an open punch overlaps up to now, so a run before noon (the demo maps the
+    # wall clock onto 07:30-17:30) saw no overlap for a punch that starts at 12:00
+    import datetime
+    await pg.clock.set_fixed_time(datetime.datetime(2026, 11, 15, 5, 0, 0, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int((45000 - 27000) * 2.4) + 1))
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     base = await pg.evaluate("""() => { const e = myEmp(), td = today(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === td));
       const d = { id: 'te_day', empId: e.id, date: td, in: td + 'T07:12:00', out: td + 'T16:48:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'submitted', approvedBy: '', geoIn: null, geoOut: null, source: 'manual',
