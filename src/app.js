@@ -2036,8 +2036,20 @@ function trackForTrade(trade, name) {
           ? "procure"
           : "build";
 }
-const siteHours = (p) =>
-    (p || S).project.hours || { days: [1, 2, 3, 4, 5], start: "07:30", end: "16:30", lunch: 30 },
+// One work day (the crew expert, 11-15, round 2: the owner set 6:30 AM to 4:00 PM, automatic clock-in followed, and the
+// Clock page and the late-start flags still read 7:30): the owner's setting (tkgWindow, src/fieldclock.js; Company
+// Settings) is the firm's site hours, and a job's own hours (p.project.hours with own: true, set by a building's rules)
+// override it for that job, said as such. Every reader of site hours, the window and the flags reads this.
+const SITE_HOURS_OLD = { days: [1, 2, 3, 4, 5], start: "07:30", end: "16:30", lunch: 30 },
+  siteHours = (p) => {
+    const h = ((p || S) && (p || S).project && (p || S).project.hours) || null;
+    if (h && h.own && h.start && h.end) return h;
+    let W = null;
+    try {
+      W = tkgWindow();
+    } catch (e) {}
+    return W ? { days: W.days, start: W.start, end: W.end, lunch: (h && h.lunch) || 30 } : { days: [1, 2, 3, 4, 5], start: "07:00", end: "17:00", lunch: 30 };
+  },
   hmToMin = (hm) => {
     const [h, m] = (hm || "0:0").split(":").map(Number);
     return 60 * h + (m || 0);
@@ -2092,10 +2104,9 @@ function normalizeProject(p) {
       },
       p.project || {},
     )),
-    (p.project.hours = Object.assign(
-      { days: [1, 2, 3, 4, 5], start: "07:30", end: "16:30", lunch: 30 },
-      p.project.hours || {},
-    )),
+    // a job's hours are its own only when something set them for it (a building's rules); the copy of the old default
+    // every job carried is dropped, so the firm's one work day applies (siteHours)
+    p.project.hours && !p.project.hours.own && ["start", "end", "lunch"].every((k) => p.project.hours[k] === SITE_HOURS_OLD[k]) && String(p.project.hours.days) === String(SITE_HOURS_OLD.days) && delete p.project.hours,
     p.tasks.forEach((t) => {
       (t.deps = t.deps || []),
         t.origStart || ((t.origStart = t.start), (t.origEnd = t.end)),
@@ -15306,7 +15317,8 @@ function timeHeld(e) {
 function timeHoursOf(list, now) {
   const by = {};
   (list || []).forEach((t) => {
-    if (!t || !t.in) return;
+    // late time is an adjustment in the open period, not hours worked on the day it is dated (forDate is its day)
+    if (!t || !t.in || t.forDate) return;
     let end = t.out;
     if (!end) {
       if (!now || String(now) <= String(t.in)) return;
@@ -15378,8 +15390,9 @@ function timeFlags(e) {
     // the location is read only at the tap: refused or weak is taken, and said (never blocked)
     "phone" !== e.source || (e.geoIn && !(+e.geoIn.acc > rad)) || f.push("Location not confirmed at clock-in"),
     "phone" === e.source && e.out && e.geoIn && (!e.geoOut || +e.geoOut.acc > rad) && f.push("Location not confirmed at clock-out"),
-    e.autoOut && f.push("Auto clocked out on leaving site"),
-    "function" == typeof tkgWatching && e.in && !tkgWatching(null, e.in) && f.push(`Clocked in at ${stampTime(e.in)}, outside the work day (${tkgWindowRowMeta()})`),
+    e.autoOut && !e.hold && f.push("Auto clocked out on leaving site"),
+    e.word && f.push(timeWordSay(e) + (e.word.okBy ? ` Approved by ${e.word.okBy}: ${e.word.okWhy}` : "")),
+    "function" == typeof tkgWatching && e.in && !tkgWatching(p || S, e.in) && f.push(`Clocked in at ${stampTime(e.in)}, outside the work day (${tkgWindowRowMeta()})`),
     h > 0 && h < 2 && e.out && f.push("Very short day"),
     e.out || f.push("Still clocked in"),
     !e.out || (e.work && e.work.length)
@@ -15440,7 +15453,44 @@ function fHoursToApprove(p) {
 // close's orphan run) and every Approve (timeApproveBlock) read (the crew expert, 11-15: a 33-hour automatic punch was
 // approved in one tap and paid ~$1,020 too much). Still open, voided or rejected, held until the person says when
 // they left, or over TIME_MAX_H hours: none of these is approved or paid, by any route.
-function timePayBlock(e) {
+// A time the app did not see (the crew expert, 11-15, round 2: last reading on site 4:28 PM, he typed 11:00 PM and was
+// paid 15.42 h, about $249 over, with nobody told). The punch keeps both: the app's last sight of him (e.word.last) and
+// the time he gave (e.word.at). Later than the last sight by more than the owner's allowance (tkgWindow().allowMin), past
+// the work day's end, or past 8 h 15 on the clock: the entry says so in plain words, and nobody approves or pays it
+// without an approver's typed reason (timePayBlock, timeApproveBlock).
+const timeHm = (min) => `${Math.floor(min / 60)} h ${Math.round(min % 60)} min`;
+function timeWordSay(e) {
+  const w = e && e.word;
+  if (!w) return "";
+  const who = String(empName(e.empId) || "").split(" ")[0],
+    mins = Math.round((new Date(w.at) - new Date(w.last)) / 6e4);
+  return `Left at ${stampTime(w.at)} by ${who}'s word. ${w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ")}.` : ""}`;
+}
+// the reasons a confirmed time needs the approver's word, worked out when he confirms (timeHoldConfirm)
+function timeWordCheck(e, outIso) {
+  const W = "function" == typeof tkgWindow ? tkgWindow() : { end: "17:00", allowMin: 15 },
+    last = (e.hold && e.hold.out) || e.out,
+    allow = +W.allowMin >= 0 ? +W.allowMin : 15,
+    later = (new Date(outIso) - new Date(last)) / 6e4 > allow,
+    also = [];
+  String(outIso) > `${e.date}T${W.end}:00` && also.push(`past the end of the work day (${stampTime(`${e.date}T${W.end}:00`)})`);
+  const dayH = "function" == typeof timeHoursOf ? timeHoursOf((DB.time || []).filter((t) => t.empId === e.empId && t.date === e.date && t.id !== e.id).concat([Object.assign({}, e, { out: outIso, hold: null, autoClosed: !1 })])) : 0;
+  dayH > 8.25 && also.push(`${dayH.toFixed(2)} h on the clock that day, past 8 h 15`);
+  return later || also.length ? { at: outIso, last: last, seen: "geo" === e.source || !!e.auto, also: also, said: appNowIso() } : null;
+}
+// a punch taken far from the site (the radius): Approve needs the approver's reason too
+function timeOffSite(e) {
+  const p = (DB.projects || []).find((x) => x.id === e.projectId),
+    rad = (p && p.project && p.project.geo && p.project.geo.radius) || 250,
+    far = (g) => g && null != g.dist && g.dist > rad,
+    km = (d) => (d >= 1e3 ? (d / 1e3).toFixed(1) + " km" : d + " m");
+  return far(e.geoIn) ? `Clocked in ${km(e.geoIn.dist)} from the site` : far(e.geoOut) ? `Clocked out ${km(e.geoOut.dist)} from the site` : "";
+}
+// what needs the approver's typed reason before Approve ("" when nothing): a time by his word, a punch off site
+function timeNeedsWhy(e) {
+  return [e && e.word && !e.word.okBy ? timeWordSay(e) : "", e && !e.offOk && timeOffSite(e) ? timeOffSite(e) : ""].filter(Boolean).join(" ");
+}
+function timePayBlock(e, reasonGiven) {
   if (!e) return "No time entry";
   const who = String(empName(e.empId) || "").split(" ")[0],
     st = String(e.status || "");
@@ -15450,13 +15500,16 @@ function timePayBlock(e) {
   if (timeHeld(e))
     return `${who}'s ${fmt(e.date)} punch was closed by the app at ${stampTime(e.out)}${e.hold && e.hold.why ? `, ${e.hold.why}` : ""}. It is held until ${who} confirms when they left, or the foreman corrects it with a reason.`;
   if (timeSpanH(e) > TIME_MAX_H) return `${who}'s ${fmt(e.date)} punch runs ${r2(timeSpanH(e))} h, over ${TIME_MAX_H} hours. Correct the times first.`;
+  if (e.word && !e.word.okBy && !reasonGiven) return `${timeWordSay(e)} The approver says why before it is approved or paid.`;
   return "";
 }
 // Why these hours cannot be approved yet ("" when they can): what cannot be paid (timePayBlock); two punches of one
 // person that claim the same time with nobody's pick; the approver's own time (it goes to the PM, the owner when
 // there is none); a day not sent with its work, unless the approver records why (o.why).
 function timeApproveBlock(e, by, o) {
-  const pay = timePayBlock(e);
+  const self = !!by && String(empName(e.empId)).trim().toLowerCase() === String(by).trim().toLowerCase(),
+    why = !self && o && String(o.why || "").trim();
+  const pay = timePayBlock(e, !!why);
   if (pay) return pay;
   if (e.notMine && !e.notMine.doneAt && !(o && String(o.why || "").trim()))
     return `${String(empName(e.empId)).split(" ")[0]} says these ${fmt(e.date)} hours are not his. Check them with him, then fix them and say why.`;
@@ -15464,6 +15517,9 @@ function timeApproveBlock(e, by, o) {
   if (ov) return `${String(ov.name || empName(e.empId)).split(" ")[0]}'s ${fmt(ov.date)} punches overlap (${ov.h} h claimed twice). Pick the right one first: nothing is approved or paid twice.`;
   if (by && String(empName(e.empId)).trim().toLowerCase() === String(by).trim().toLowerCase())
     return "Nobody approves their own time: your hours go to the PM.";
+  if (timeNeedsWhy(e) && !why) return `${timeNeedsWhy(e)} Say why before you approve it.`;
+  if (e.forDate && !["controller", "owner"].includes("function" == typeof role ? role() : ""))
+    return `Late time for ${fmt(e.forDate)}: pay run ${(e.late && e.late.runSay) || ""} was already closed to it. The controller approves it as an adjustment in the open period.`;
   if ("submitted" !== e.status && !(o && String(o.why || "").trim()))
     return `${String(empName(e.empId)).split(" ")[0]}'s ${fmt(e.date)} day is not sent yet. Approve it once it is sent with its work, or fix it and say why.`;
   return "";
@@ -15480,6 +15536,9 @@ function timeApprove(e, by, quiet, o) {
   }
   (e.status = "approved"), (e.approvedBy = by), (e.approvedAt = appNowIso());
   o && o.why && (e.approveWhy = String(o.why).trim());
+  // the approver's word on a time by the man's word, or a punch off site: who, when, why on the entry and in the audit
+  o && o.why && e.word && !e.word.okBy && Object.assign(e.word, { okBy: by, okAt: appNowIso(), okWhy: String(o.why).trim() });
+  o && o.why && !e.offOk && timeOffSite(e) && (e.offOk = { by: by, at: appNowIso(), why: String(o.why).trim() });
   audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e), why: (o && o.why) || "" });
   return "";
 }
@@ -15505,6 +15564,9 @@ function timeHoldConfirm(e, outIso, by, why) {
   e.out = outIso;
   if (timeSpanH(e) > TIME_MAX_H) return (e.out = before), `That makes ${r2(timeSpanH({ in: e.in, out: outIso }))} h, over ${TIME_MAX_H} hours. Check the time.`;
   Object.assign(e.hold, { doneAt: appNowIso(), doneBy: by || "", before: before, after: outIso, why: why || "" });
+  // later than the app last saw him (or past the work day, or past 8 h 15): kept, and said
+  const w = timeWordCheck(Object.assign({}, e, { out: before }), outIso);
+  w ? (e.word = Object.assign(w, { by: by || "" })) : delete e.word;
   e.breakMin = 0;
   timeCloseOut(e);
   try {
@@ -16134,8 +16196,8 @@ function timeAction(e, a) {
       return void toast("Nobody approves their own time: your hours go to the PM.");
     let o = null;
     // a day not sent with its work is approved only with the approver's reason, recorded on the entry
-    if (!timePayBlock(e) && "submitted" !== e.status && !(("function" == typeof tkOverlapFor && tkOverlapFor(e)) || null)) {
-      const w = appPrompt(`${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`, "", { title: "Approve Before It Is Sent", label: "Reason", yes: "Approve" });
+    if (!timePayBlock(e, !0) && ("submitted" !== e.status || timeNeedsWhy(e)) && !(("function" == typeof tkOverlapFor && tkOverlapFor(e)) || null)) {
+      const w = appPrompt(timeNeedsWhy(e) ? `${timeNeedsWhy(e)} Why approve it?` : `${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`, "", { title: timeNeedsWhy(e) ? "Approve With a Reason" : "Approve Before It Is Sent", label: "Reason", yes: "Approve" });
       if (!w) return;
       o = { why: w };
     } else if (timeApproveBlock(e, by)) return void timeApprove(e, by);
@@ -21391,7 +21453,9 @@ function wire() {
         held = (L) => {
           const K = L.filter((e) => "approved" !== e.status),
             k = K.length;
-          return k ? ` · ${k} held: ${timeApproveBlock(K[0], by) || "pick one first"}` : "";
+          // each kind of reason once: an overlap to pick, a reason to give, the rest in the guard's words
+          const say = [...new Set(K.map((e) => timeApproveBlock(e, by) || "").map((w) => (/overlap/.test(w) ? "two punches overlap, pick one first" : /Say why/.test(w) ? "needs your reason (Approve opens it)" : w.split(". ")[0])))].filter(Boolean);
+          return k ? ` · ${k} held: ${say.join("; ") || "pick one first"}` : "";
         },
         run = () => {
           let n = 0;
@@ -50285,6 +50349,9 @@ function fRenderCrew() {
     // Approve N Clean approves exactly the rows it counts: sent, no flag, and nothing the one door refuses (the
     // foreman's own hours go to the PM; nobody approves their own time)
     clean = pend.filter((t) => "submitted" === t.status && !timeFlags(t).length && !timeApproveBlock(t, fWho())),
+    // the honest day made quick (the crew expert, 11-15, round 2): the rows that need only his reason (a time by the
+    // man's word, a punch off site) can take one reason for the crew's day; each row still shows its own words
+    whyRows = pend.filter((t) => "submitted" === t.status && timeNeedsWhy(t) && !timeApproveBlock(t, fWho(), { why: "x" })),
     lastTalk = DB.field.talks
       .filter((t) => t.projectId === S.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0],
@@ -50311,7 +50378,7 @@ function fRenderCrew() {
     })
     .join(
       "",
-    )}</div>\n    <div class="card f-card"><div class="hd"><h3>Hours to approve</h3>${clean.length ? `<button class="btn sm primary" id="fappr-all">Approve ${clean.length} clean</button>` : ""}</div>\n      ${
+    )}</div>\n    <div class="card f-card"><div class="hd"><h3>Hours to approve</h3>${clean.length ? `<button class="btn sm primary" id="fappr-all">Approve ${clean.length} clean</button>` : ""}${whyRows.length > 1 ? `<button class="btn sm" id="fappr-why">Approve ${whyRows.length} With One Reason</button>` : ""}</div>\n      ${
     ovJob.map((o) => ovRow(o, "crew")).join("") +
       pend
         .map((t) => {
@@ -50321,7 +50388,7 @@ function fRenderCrew() {
             auto = t.auto || "geo" === t.source,
             held = timeHeld(t),
             // still open, over 16 hours, voided: the one guard says no, so no Approve is offered (timePayBlock)
-            payNo = !held && !!timePayBlock(t),
+            payNo = !held && !!timePayBlock(t, !0),
             own = String(e?.name || "").toLowerCase() === String(fWho()).toLowerCase();
           return `<div class="f-row ${fl.length || unsent ? "warn" : ""}" data-fhrs="${t.id}"><div class="grow"><b>${esc(e?.name || "")} · ${fmt(t.date)} · ${hoursOf(t).toFixed(1)} h</b><span class="small muted">${t.in.slice(11, 16)}–${t.out ? t.out.slice(11, 16) : "…"}${t.breakMin ? ` · ${t.breakMin} min break` : ""}${auto ? " · automatic, by location" : ""}${(
             t.work || []
@@ -50344,7 +50411,8 @@ function fRenderCrew() {
         const t = DB.time.find((x) => x.id === b.dataset.fappr),
           was = t.status;
         // a day not sent with its work is approved from Fix, with the foreman's reason (timeApproveBlock)
-        if ("submitted" !== t.status && !timePayBlock(t) && !(("function" == typeof tkOverlapFor && tkOverlapFor(t)) || null)) return void fixOpen(t);
+        // a day not sent, a time by his word or a punch off site is approved from Fix, with the foreman's reason
+        if (("submitted" !== t.status || timeNeedsWhy(t)) && !timePayBlock(t, !0) && !(("function" == typeof tkOverlapFor && tkOverlapFor(t)) || null)) return void fixOpen(t);
         if (appr(t)) return;
         save(),
           render(),
@@ -50363,10 +50431,10 @@ function fRenderCrew() {
     if (!t) return;
     const e = DB.employees.find((x) => x.id === t.empId),
       held = timeHeld(t),
-      needWhy = held || "submitted" !== t.status || !!(t.notMine && !t.notMine.doneAt);
+      needWhy = held || "submitted" !== t.status || !!(t.notMine && !t.notMine.doneAt) || !!timeNeedsWhy(t);
     mbModal(
       `Fix ${e?.name} · ${fmt(t.date)}`,
-      `${held ? `<div class="note warn" style="margin-bottom:8px">The app closed this punch at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. Put in when ${esc(String(e?.name || "").split(" ")[0])} really left.</div>` : ""}<div class="grid2"><div class="f"><label>In</label><input type="time" data-f="in" value="${t.in.slice(11, 16)}"></div><div class="f"><label>Out</label><input type="time" data-f="out" value="${t.out ? t.out.slice(11, 16) : ""}"></div></div><div class="f"><label>Break (min)</label><input type="number" data-f="brk" value="${t.breakMin || 0}"></div><div class="f"><label>${needWhy ? "Why (required)" : "Note for the office"}</label><input data-f="note" placeholder="e.g. Took the truck to the yard first — with me"></div>`,
+      `${timeNeedsWhy(t) ? `<div class="note warn" style="margin-bottom:8px" data-fword>${esc(timeNeedsWhy(t))}</div>` : ""}${held ? `<div class="note warn" style="margin-bottom:8px">The app closed this punch at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. Put in when ${esc(String(e?.name || "").split(" ")[0])} really left.</div>` : ""}<div class="grid2"><div class="f"><label>In</label><input type="time" data-f="in" value="${t.in.slice(11, 16)}"></div><div class="f"><label>Out</label><input type="time" data-f="out" value="${t.out ? t.out.slice(11, 16) : ""}"></div></div><div class="f"><label>Break (min)</label><input type="number" data-f="brk" value="${t.breakMin || 0}"></div><div class="f"><label>${needWhy ? "Why (required)" : "Note for the office"}</label><input data-f="note" placeholder="e.g. Took the truck to the yard first — with me"></div>`,
       {
         submit: "Save & Approve",
         onSubmit: (f) => {
@@ -50390,6 +50458,23 @@ function fRenderCrew() {
       },
     );
   }
+  const allWhy = $("#fappr-why");
+  allWhy &&
+    (allWhy.onclick = () =>
+      mbModal(
+        `Approve ${whyRows.length} With One Reason`,
+        `<p class="small muted" style="margin:0 0 8px">Each of these needs your reason. One reason covers them all; each keeps its own words.</p><ul class="small" style="margin:0 0 8px 16px">${whyRows.map((t) => `<li data-fwhyrow="${esc(t.id)}"><b>${esc(empName(t.empId))} · ${esc(fmt(t.date))} · ${hoursOf(t).toFixed(1)} h</b>: ${esc(timeNeedsWhy(t))}</li>`).join("")}</ul><div class="f"><label>Why (required)</label><input data-f="why" placeholder="e.g. All left at 4:30, I was there"></div>`,
+        {
+          submit: "Approve",
+          onSubmit: (f) => {
+            if (!String(f.why || "").trim()) return toast("Say why: these hours were not seen by the app"), !1;
+            let n = 0;
+            whyRows.forEach((t) => timeApprove(t, fWho(), !0, { why: f.why }) || n++);
+            save(), render(), toast(`${n} approved with your reason: ${f.why}`, flowGo.viewOf("time", "fcrew"));
+            return !0;
+          },
+        },
+      ));
   const all = $("#fappr-all");
   all &&
     (all.onclick = () => {
@@ -70515,13 +70600,14 @@ function altExecute(prop) {
       (h.start = R.workHours.start),
         (h.end = R.workHours.end),
         R.workDays && R.workDays.days && (h.days = R.workDays.days),
+        (h.own = "the building's rules"),
         (p.project.hours = h);
     } else if (R.workDays && R.workDays.days) {
       const h = Object.assign(
         { days: [1, 2, 3, 4, 5], start: "07:30", end: "16:30", lunch: 30 },
         p.project.hours || {},
       );
-      (h.days = R.workDays.days), (p.project.hours = h);
+      (h.days = R.workDays.days), (h.own = "the building's rules"), (p.project.hours = h);
     }
     if (R.blackout && (R.blackout.dates || []).length) {
       const yr = today().slice(0, 4),
@@ -70736,7 +70822,7 @@ reminders = function () {
             .map((l) => l.trim().split(/\s+/)[0])
             .filter(Boolean),
         ),
-        days = (p.project.hours && p.project.hours.days) || [1, 2, 3, 4, 5],
+        days = siteHours(p).days || [1, 2, 3, 4, 5],
         bad = DB.pos.filter(
           (po) =>
             po.projectId === p.id &&
@@ -89259,6 +89345,29 @@ function mApprovals() {
         open: { view: "time" },
       });
     });
+  // hours logged, not clocked (the labour rules): a decision for the job's lead, so it is on his Approvals and his
+  // Today, not only in Caught for You (the crew expert, 11-15, round 2: the PM had to find it another way). One item
+  // per job; its count is the sheet's rows.
+  try {
+    "function" == typeof labUnclockedSum &&
+      (DB.projects || [])
+        .filter((p) => !p.archived)
+        .forEach((p) => {
+          const U = labUnclockedSum(p.id);
+          U.rows.length &&
+            out.push({
+              kind: "lognc",
+              id: "lognc:" + p.id,
+              sev: "warn",
+              n: `${r2(U.hours)} h`,
+              title: `Logged, not clocked: ${labJobName(p)}`,
+              detail: `${U.rows.length} ${1 === U.rows.length ? "row" : "rows"} · ${U.people.join(", ")} · about ${money(U.cost)}${U.late ? ` · ${U.late} in a pay period already submitted: late time for the controller` : ""}`,
+              yes: "Review",
+              no: "",
+              open: { run: () => labUnclockedSheet(p.id) },
+            });
+        });
+  } catch (e) {}
   // questions from the site: every open one. The queue it sits in is the person it was sent to (DELEGATION);
   // fForMe keeps feeding the field card to everyone cc'd, which is being told, not being asked.
   try {
@@ -89365,6 +89474,8 @@ function mApprovals() {
 }
 function mGo(go) {
   if (!go) return;
+  // a decision that opens its own sheet (Logged, Not Clocked) carries the sheet
+  if ("function" == typeof go.run) return go.run();
   go.project && "function" == typeof setCurrent && setCurrent(go.project),
     go.billId && void 0 !== iaOpenBillAfter && (iaOpenBillAfter = go.billId);
   // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
@@ -89411,6 +89522,8 @@ const DELEGATION = {
     rule: "crew hours are the PM's (the foreman has no Approvals); a PM's own hours go to the owner",
     who: (it) => {
       const t = (DB.time || []).find((x) => x.id === it.id);
+      // late time (its pay run already submitted without it) is the controller's adjustment
+      if (t && t.forDate) return "controller";
       return t && "pm" === apprRoleOf("function" == typeof empName ? empName(t.empId) : t.empId) ? "owner" : "pm";
     },
   },
@@ -89670,7 +89783,7 @@ function renderMApprove() {
                         "",
                       )}${bl.length > 4 ? `<li class="muted">and ${bl.length - 4} more — open the record</li>` : ""}</ul>`
                   : ""
-              }<div class="m-appr-a">${it.act ? `<button class="btn primary" data-myes>${it.yes}</button><button class="btn quiet" data-mno>${it.no}</button><button class="btn ghost" data-mopen>Open</button>` : "time" === it.kind ? '<button class="btn primary" data-myes>Approve</button><button class="btn quiet" data-mno>Reject</button>' : `<button class="btn primary" data-mopen>${it.yes}</button>`}</div></div>`;
+              }<div class="m-appr-a">${it.act ? `<button class="btn primary" data-myes>${it.yes}</button><button class="btn quiet" data-mno>${it.no}</button><button class="btn ghost" data-mopen>Open</button>` : "time" === it.kind ? `<button class="btn primary" data-myes>${esc(it.yes || "Approve")}</button><button class="btn quiet" data-mno>Reject</button>` : `<button class="btn primary" data-mopen>${it.yes}</button>`}</div></div>`;
             })
             .join("")}</div>`
         : '<div class="empty">Nothing is waiting on you.</div>'
@@ -167229,14 +167342,17 @@ function dlClockFor(p, d) {
     hm = (x) => String(x || "").slice(11, 16);
   (DB.time || [])
     // a voided or rejected punch, one held for the time they left, or one over 16 h is not hours (hoursOf)
-    .filter((t) => t.projectId === p.id && t.date === d && t.in && (!t.out || hoursOf(t) > 0 || !hoursClock(t)) && !/^(void|rejected)$/.test(String(t.status || "")))
+    // a held punch stays on the log, marked held with the app's last sight of him, at 0 h until he confirms
+    .filter((t) => t.projectId === p.id && t.date === d && t.in && !t.forDate && (!t.out || hoursOf(t) > 0 || !hoursClock(t) || timeHeld(t)) && !/^(void|rejected)$/.test(String(t.status || "")))
     .forEach((t) => {
       const e = (DB.employees || []).find((x) => x.id === t.empId);
       if (!e) return;
       const x = (by[e.id] = by[e.id] || { name: e.name, empId: e.id, trade: dlTrade(e), spans: [], open: !1 });
       let end = t.out || (d === today() ? nowIso : t.in);
       String(end) < String(t.in) && (end = t.in), t.out || (x.open = !0);
-      x.spans.push({ a: ms(t.in), b: ms(end), brk: +t.breakMin || 0, txt: `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id });
+      const held = timeHeld(t);
+      held && ((x.held = !0), (x.lastSeen = t.out), (end = t.in));
+      x.spans.push({ a: ms(t.in), b: ms(end), brk: held ? 0 : +t.breakMin || 0, txt: held ? `${hm(t.in)}, held (last seen ${hm(t.out)})` : `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id });
     });
   return Object.values(by).map((x) => {
     const G = [];
@@ -167247,11 +167363,11 @@ function dlClockFor(p, d) {
         g && s.a < g.b ? ((g.b = Math.max(g.b, s.b)), (g.brk = Math.max(g.brk, s.brk)), g.n++) : G.push({ a: s.a, b: s.b, brk: s.brk, n: 1 });
       });
     const h = G.reduce((a, g) => a + Math.max(0, (g.b - g.a) / 36e5 - g.brk / 60), 0);
-    return { name: x.name, empId: x.empId, trade: x.trade, hours: Math.round(4 * h) / 4, open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id) };
+    return { name: x.name, empId: x.empId, trade: x.trade, hours: Math.round(4 * h) / 4, open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id), held: !!x.held, lastSeen: x.lastSeen || "" };
   });
 }
 function dlCrewFor(p, d) {
-  return dlClockFor(p, d).map((c) => ({ name: c.name, empId: c.empId, trade: c.trade, hours: c.hours, clockH: c.hours, open: c.open, overlap: c.overlap, spans: c.spans }));
+  return dlClockFor(p, d).map((c) => ({ name: c.name, empId: c.empId, trade: c.trade, hours: c.hours, clockH: c.hours, open: c.open, overlap: c.overlap, spans: c.spans, held: c.held, lastSeen: c.lastSeen }));
 }
 // A draft's crew and subs follow today's clock and site every time it opens: a line the foreman did not touch
 // takes the clock's hours; a line he changed keeps his number and is held against the clock; anyone on the clock
@@ -167263,12 +167379,12 @@ function dlSyncSite(dr, p) {
     dr.crew.forEach((c) => {
       if (!c.empId) return void (c.clockH = 0);
       const k = clock.find((x) => x.empId === c.empId);
-      (c.clockH = k ? k.hours : 0), (c.open = !!(k && k.open)), (c.overlap = !!(k && k.overlap)), (c.spans = k ? k.spans : []);
+      (c.clockH = k ? k.hours : 0), (c.open = !!(k && k.open)), (c.overlap = !!(k && k.overlap)), (c.spans = k ? k.spans : []), (c.held = !!(k && k.held)), (c.lastSeen = (k && k.lastSeen) || "");
       c.edited || ((c.hours = c.clockH), (c.why = ""));
     });
     clock.forEach((k) => {
       dr.crew.some((c) => c.empId === k.empId) ||
-        dr.crew.push({ name: k.name, empId: k.empId, trade: k.trade, hours: k.hours, clockH: k.hours, open: k.open, overlap: k.overlap, spans: k.spans });
+        dr.crew.push({ name: k.name, empId: k.empId, trade: k.trade, hours: k.hours, clockH: k.hours, open: k.open, overlap: k.overlap, spans: k.spans, held: k.held, lastSeen: k.lastSeen });
     });
     const booked = ((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === dr.date && "noshow" !== s.status);
     (dr.subsOn = dr.subsOn || []),
@@ -167547,7 +167663,7 @@ function dlStepHtml(dr, p) {
       }</div>\n      ${dr.crew
         .map((c, i) => {
           const off = c.empId ? Math.abs((+c.hours || 0) - (+c.clockH || 0)) >= 0.25 : (+c.hours || 0) > 0;
-          return `<div class="dl-row${off ? " dl-off" : ""}" data-dlcrew="${i}"><div class="grow"><b>${esc(c.name)}</b><span class="small muted">${esc(c.trade)}${c.empId ? ` · clock ${+c.clockH || 0} h${(c.spans || []).length ? ` (${esc(c.spans.join(", "))})` : ""}` : " · not on the clock"}${c.open ? " · still clocked in" : ""}${c.overlap ? " · two entries overlap, counted once" : ""}</span>${off ? `<span class="small bad-t">${c.empId ? `The log says ${+c.hours || 0} h, the clock ${+c.clockH || 0} h` : "No clock entry today"}</span><input data-dl="crew.why" data-i="${i}" value="${esc(c.why || "")}" placeholder="${c.empId ? "Why the clock is wrong" : "Why not on the clock"}" aria-label="Reason">${c.empId ? `<button type="button" class="btn sm" data-dlclock="${i}">Use the Clock: ${+c.clockH || 0} h</button>` : ""}` : ""}</div><div class="dl-num">${num("crew.hours", c.hours, i)}<span class="small muted">h</span></div><button type="button" class="btn sm dl-x" data-dldel="crew:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`;
+          return `<div class="dl-row${off ? " dl-off" : ""}" data-dlcrew="${i}"><div class="grow"><b>${esc(c.name)}</b><span class="small muted">${esc(c.trade)}${c.empId ? ` · clock ${+c.clockH || 0} h${(c.spans || []).length ? ` (${esc(c.spans.join(", "))})` : ""}` : " · not on the clock"}${c.open ? " · still clocked in" : ""}${c.overlap ? " · two entries overlap, counted once" : ""}${c.held ? ` · held: the app last saw ${esc(String(c.name || "").split(" ")[0])} on site at ${esc(stampTime(c.lastSeen))}` : ""}</span>${off ? `<span class="small bad-t">${c.empId ? `The log says ${+c.hours || 0} h, the clock ${+c.clockH || 0} h` : "No clock entry today"}</span><input data-dl="crew.why" data-i="${i}" value="${esc(c.why || "")}" placeholder="${c.empId ? "Why the clock is wrong" : "Why not on the clock"}" aria-label="Reason">${c.empId ? `<button type="button" class="btn sm" data-dlclock="${i}">Use the Clock: ${+c.clockH || 0} h</button>` : ""}` : ""}</div><div class="dl-num">${num("crew.hours", c.hours, i)}<span class="small muted">h</span></div><button type="button" class="btn sm dl-x" data-dldel="crew:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`;
         })
         .join("")}\n      <div class="dl-add" data-dladdbox="crew"><input data-dladd="name" placeholder="Name" aria-label="Name"><input data-dladd="trade" placeholder="Trade" aria-label="Trade"><input data-dladd="hours" type="number" inputmode="decimal" placeholder="Hours" aria-label="Hours"><button type="button" class="btn sm" data-dladdgo="crew">Add Someone</button></div>`
     );
@@ -176600,7 +176716,7 @@ const tdPlain = (s) =>
 // One card: line 1 what it is (a link to the record), line 2 why now, and one verb.
 function tdCard(it) {
   const go = () => mGo(it.open),
-    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "Open", run: go };
+    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "lognc" === it.kind ? "Review" : "Open", run: go };
   if ("bill" === it.kind) {
     const b = (DB.bills || []).find((x) => x.id === it.id);
     if (b) {

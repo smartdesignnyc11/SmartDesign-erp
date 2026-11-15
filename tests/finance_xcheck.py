@@ -143,7 +143,7 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
-                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_labour': 'labour'}.get(
+                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_paidonce': 'punch', 'inv_labour': 'labour'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -155,7 +155,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
          'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ',
-         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_labour': 'INV LABOUR'}
+         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_paidonce': 'INV PAID ONCE', 'inv_labour': 'INV LABOUR'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -1248,7 +1248,7 @@ INV_PUNCH_JS = """
     const L = prLinkTime({ id: 'pr_xhand', from: '2026-08-31', to: d, status: 'approved', entityId: 'ent1' }).map(t => t.id);
     say('punch', !bad.some(t => L.includes(t.id)), `a run typed by hand links ${bad.filter(t => L.includes(t.id)).map(t => t.id).join(', ') || 'none of them'}`, 'none of them');
     const lg = dlClockFor(p, '2026-09-02').find(c => c.empId === 'em4');
-    say('punch', !lg, `the 9/2 Daily Log for Satish: ${lg ? lg.hours + ' h' : 'nobody'}`, 'nobody (held and voided are not hours)');
+    say('punch', !lg || (lg.hours === 0 && lg.held), `the 9/2 Daily Log for Satish: ${lg ? lg.hours + ' h' + (lg.held ? ', held' : '') : 'nobody'}`, '0 h (held and voided are not hours; a held man stays on the log, marked held)');
     if (run) { DB.time.forEach(t => t.payrollId === run.id && delete t.payrollId); DB.payroll = DB.payroll.filter(r => r.id !== run.id); }
     DB.time.forEach(t => t.payrollId === 'pr_xhand' && delete t.payrollId);
   } finally { DB.time = DB.time.filter(t => !/^te_x/.test(t.id)); }
@@ -1273,12 +1273,27 @@ INV_PUNCH_JS = """
       const h = Object.values(byDay).reduce((a, L) => a + timeHoursOf(L), 0);
       say('dayhours', Math.abs(h - x.hours) <= 0.02, `${run.period} ${x.name}: the run pays ${x.hours} h, the reader reads ${Math.round(h * 100) / 100} h`, 'the same'); });
   } finally { DB.time = DB.time.filter(t => t.id !== 'te_xov'); }
+  // no one is paid twice for the same day across runs and late-time adjustments (the crew expert's second walk):
+  // late time for a logged day, approved by the controller, and every run that proves it paid that person that day
+  out.paidonce = [];
+  const once = (k, ok, seen, want) => out.paidonce.push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  const key = (typeof labUnclocked === 'function' ? labUnclocked('p121') : []).find(x => x.late && x.cw.name === 'Alberto');
+  if (key) { const keep = role; try { labApprove(key.key, 'xcheck', ''); } catch (e) {} }
+  const lt = DB.time.filter(t => t.forDate && t.status !== 'approved');
+  lt.forEach(t => { t.status = 'approved'; t.approvedBy = 'Controller'; });
+  const pays = {};
+  (DB.time || []).filter(t => t.payrollId || (t.forDate && t.status === 'approved')).forEach(t => { const d = t.forDate || t.date, k = t.empId + '|' + d; (pays[k] = pays[k] || new Set()).add(t.forDate ? 'late:' + t.id : 'run:' + t.payrollId); });
+  (DB.employees || []).forEach(e => Object.keys(pays).filter(k => k.startsWith(e.id + '|')).forEach(k => { const d = k.split('|')[1], P = typeof labPaidBy === 'function' ? labPaidBy(e.id, d) : null;
+    P && P.paid && !P.run.fromTime && pays[k].add('run:' + P.run.id); }));
+  Object.entries(pays).forEach(([k, S0]) => once('paidonce', S0.size <= 1, `${k}: paid by ${[...S0].join(', ')}`, 'one run or one adjustment'));
+  if (!out.paidonce.length) once('paidonce', false, 'no pay read', 'at least one');
+  DB.time = DB.time.filter(t => !(t.forDate && t.approveWhy === 'xcheck'));
   return out;
 """
 
 
 async def check_punch(p, R):
-    if not any(R.want(k) for k in ('inv_punch', 'inv_dayhours')): return
+    if not any(R.want(k) for k in ('inv_punch', 'inv_dayhours', 'inv_paidonce')): return
     b, pg, errs = await open_app(p)
     await sign_in(pg, 'u_controller')
     res = await pg.evaluate("async () => { try { " + INV_PUNCH_JS + " } catch (e) { return { error: String(e && e.stack || e) }; } }")
