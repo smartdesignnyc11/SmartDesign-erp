@@ -1225,9 +1225,9 @@ INV_PUNCH_JS = """
       const byJob = {}; T.forEach(t => (byJob[t.projectId] = 1));
       const logH = Object.keys(byJob).reduce((a, pid) => { const pj = DB.projects.find(x => x.id === pid); const c = pj ? dlClockFor(pj, date).find(x => x.empId === emp) : null; return a + (c ? c.hours : 0); }, 0);
       const sum = Math.round(T.reduce((a, t) => a + hoursOf(t), 0) * 100) / 100;
-      say('dayhours', Math.abs(logH - one) <= 0.125 * Object.keys(byJob).length, `${k}: Daily Log ${logH} h, the hours reader ${one} h`, 'the same (to the log\'s quarter hour)');
+      say('dayhours', Math.abs(logH - one) <= 0.125 * Object.keys(byJob).length, `${k}: Daily Log ${logH} h, the hours reader ${one} h`, 'the same, to the quarter hour the log reads in');
       const ov = T.some(t => t.id === 'te_xov');
-      ov && say('dayhours', Math.abs(sum - one) > 4 && one < sum, `${k}: with the overlap open the reader counts ${one} h, a plain sum would say ${sum} h`, 'the overlap counted once');
+      ov && say('dayhours', Math.abs(one - hoursOf(e2)) < 0.02 && one < sum, `${k}: with the overlap open the reader counts ${one} h, a plain sum would say ${sum} h`, `the overlap counted once: ${hoursOf(e2)} h`);
     });
     // payroll: a person's hours on a run are the reader's hours for the days it holds
     const run = (DB.payroll || []).filter(r => r.fromTime && (r.detail || []).length).pop();

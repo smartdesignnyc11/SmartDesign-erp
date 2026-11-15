@@ -1363,4 +1363,10 @@ esAdd({
   "Is this another shift?": "¿Es otro turno?",
   "Moved to {x} at {d}, out of {x} at {d}": "Cambiaste a {x} a las {d}, saliste de {x} a las {d}",
   "the last reading on site": "la última lectura en la obra",
+  "Your {d} so far: {n} h on the clock in {n} punches. Log each punch's work on it.": "Tu {d} hasta ahora: {n} h marcadas en {n} marcas. Anota el trabajo de cada marca en ella.",
+  "What did you work on {d}?": "¿En qué trabajaste el {d}?",
+  "confirm when you left": "confirma a qué hora saliste",
+  "Cheaper at {x}": "Más barato en {x}",
+  "Buy at {x}": "Comprar en {x}",
+  "{n} flagged": "{n} con aviso",
 });
