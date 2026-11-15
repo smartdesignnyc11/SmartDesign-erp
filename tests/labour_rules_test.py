@@ -19,7 +19,10 @@ live them, through the screens.
            and the closed month reads exactly as before.
 
 Invented demo data only (a crew-of-four log, an office person on a log, an August entry in a closed month).
-Run: python3 labour_rules_test.py [logged|offline]"""
+  paid     The second walk (11-15): a logged day the pay run already paid is not a flag; one in a submitted period it did
+           not pay is flagged as such and Approve as Time makes late time for the controller in the open period (never
+           in the closed month); the PM's Approvals and Today carry the flag, its count its rows.
+Run: python3 labour_rules_test.py [logged|offline|paid]"""
 import asyncio, os, re, sys
 from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
 
@@ -292,7 +295,54 @@ async def s_offline(pg, c, phone_pg):
     await pg.evaluate(CLOSE)
 
 
-SECTIONS = {'logged': s_logged, 'offline': s_offline}
+
+async def s_paid(pg, c, phone_pg):
+    """the crew expert's second walk (11-15): Logged, Not Clocked read 224 h on 121 State, "not in cost or payroll", for
+    days pay run pr1 (8/17 to 8/28, typed by hand, submitted) had paid. A day the run paid is not a flag; a day in a
+    submitted period it did not pay is flagged as such, and Approve as Time makes late time for the controller in the
+    open period; only days in an open period behave as before. And the PM sees it where he looks."""
+    await sign_in(pg, 'u_alan')
+    r = await pg.evaluate("""() => { const U = labUnclocked('p121'); const say = x => `${x.cw.name} ${x.date}`; return {
+      rows: U.map(say), late: U.filter(x => x.late).map(say), hours: labUnclockedSum('p121').hours,
+      paidAngel: labPaidBy('em1', '2026-08-20'), paidAlberto: labPaidBy('em2', '2026-08-20') }; }""")
+    # pr1 is typed by hand with no lines and says 6 employees; ent1 has 7: it does not prove whom it paid
+    c.ok('Angel 2026-08-20' in r['late'] and 'Alberto 2026-08-20' in r['late'] and 'Satish 2026-08-20' in r['late'], f"paid: 8/20 in pr1's submitted period is flagged as such, not as 'not in payroll', for everyone pr1 does not prove it paid ({r['late'][:6]})")
+    w = await pg.evaluate("() => { const L = document.createElement('div'); L.innerHTML = labRowHtml(labUnclocked('p121').find(x => x.late && x.cw.name === 'Alberto' && x.date === '2026-08-20')); return L.innerText; }")
+    c.ok('Logged 9/20' not in w and 'Logged 8/20, not clocked, and pay run 8/17 to 8/28 is already submitted.' in w, f"paid: in those words ({w[-140:]!r})")
+    c.ok(any(x.startswith('Alberto 2026-08-31') for x in r['rows']) and not any(x.startswith('Alberto 2026-08-31') for x in r['late']), f"paid: 8/31, in the open period, behaves as before ({[x for x in r['rows'] if '08-31' in x]})")
+    # the run's own lines name Angel and Alex: their days are paid, so the log and the pay agree and nothing is flagged
+    r = await pg.evaluate("""() => { const pr = DB.payroll.find(x => x.id === 'pr1'); pr.detail = [{ name: 'Angel', hours: 80 }, { name: 'Alex', hours: 80 }]; const U = labUnclocked('p121');
+      const out = { rows: U.map(x => `${x.cw.name} ${x.date}`), hours: labUnclockedSum('p121').hours }; delete pr.detail; return out; }""")
+    c.ok(not any(x.startswith('Angel 2026-08-2') or x.startswith('Alex 2026-08-2') for x in r['rows']) and r['hours'] < 224, f"paid: when the run names Angel and Alex, their paid days are not flagged ({r['hours']} h, was 224)")
+    # the PM's Approvals and Today carry it, its count its rows
+    # the PM's Approvals open on his Today (mapprove forwards there on the desktop): the item, its count its rows
+    n = await pg.evaluate("() => labUnclocked('p121').length")
+    await go(pg, 'mapprove')
+    t = await pg.evaluate("() => (document.querySelector('.view.on') || document.body).innerText")
+    i = t.find('Logged, not clocked: 121')
+    c.ok(f'Logged, not clocked: 121 State Street\n{n} rows' in t, f"paid: the PM's Today carries Logged, Not Clocked for 121 State, its count its rows ({n}; {t[i-40:i+120]!r})")
+    c.ok('Review' in t[i:i + 200], f"paid: the PM's Today shows it where he looks, with Review ({t[i:i + 160]!r})")
+    # Approve as Time on a late day: late time for the controller, in the open period
+    key = await pg.evaluate("() => (labUnclocked('p121').find(x => x.late && x.cw.name === 'Alberto' && x.date === '2026-08-20') || {}).key || ''")
+    before = await pg.evaluate("() => DB.time.filter(t => t.date.slice(0, 7) === '2026-08').length")
+    await pg.evaluate("k => labApprove(k, 'Worked as the log says', '')", key)
+    e = await pg.evaluate("() => { const t = DB.time.filter(x => x.forDate === '2026-08-20' && x.empId === 'em2').pop(); return t ? { date: t.date, st: t.status, late: t.late, h: hoursOf(t) } : null; }")
+    t = await pg.evaluate(TOAST)
+    c.ok(e and e['date'] == '2026-09-03' and e['st'] == 'submitted' and e['late']['run'] == 'pr1', f"paid: Approve as Time makes late time, dated in the open period for 8/20, waiting on the controller ({e})")
+    c.ok('Late time sent to the controller' in t and 'Open' in t, f"paid: and says so ({t[:120]!r})")
+    c.ok(await pg.evaluate("() => DB.time.filter(t => t.date.slice(0, 7) === '2026-08').length") == before, 'paid: nothing new is dated in August: the closed month does not move')
+    r = await pg.evaluate("""() => { const t = DB.time.filter(x => x.forDate === '2026-08-20' && x.empId === 'em2').pop(); const a = timeApprove(t, 'Alan', true);
+      const run = payrollFromTime({ quiet: true }); const inRun = !!run && (run.timeIds || []).includes(t.id); if (run) { DB.time.forEach(x => x.payrollId === run.id && delete x.payrollId); DB.payroll = DB.payroll.filter(x => x.id !== run.id); }
+      return { a, inRun }; }""")
+    c.ok(r['a'] and 'controller' in r['a'] and not r['inRun'], f"paid: the PM cannot approve it and the next run does not take it on its own ({r})")
+    await sign_in(pg, 'u_controller')
+    r = await pg.evaluate("""() => { const t = DB.time.filter(x => x.forDate === '2026-08-20' && x.empId === 'em2').pop(); const a = timeApprove(t, 'Controller', true);
+      const run = payrollFromTime({ quiet: true }); const inRun = !!run && (run.timeIds || []).includes(t.id);
+      return { a, st: t.status, inRun, period: run && run.period, day: hoursOf(t) && timeHoursOf(DB.time.filter(x => x.empId === 'em2' && x.date === today())) }; }""")
+    c.ok(not r['a'] and r['st'] == 'approved' and r['inRun'], f"paid: the controller approves it as an adjustment and it pays on the open run ({r})")
+
+
+SECTIONS = {'logged': s_logged, 'offline': s_offline, 'paid': s_paid}
 
 
 async def main():

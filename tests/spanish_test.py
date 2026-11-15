@@ -214,7 +214,7 @@ async def pieces(pg, c, vocab, R):
     await pg.click('#es-lang [data-eslang="en"]'); await pg.wait_for_timeout(400)
     E = await pg.evaluate("() => ({ bar: [...document.querySelectorAll('[data-tab]')].filter(b => b.getClientRects().length).map(b => b.innerText.trim()), body: document.querySelector('.view.on').innerText, toast: document.getElementById('toast').innerText })")
     c.ok('Clock' in E['bar'] and 'Requests' in E['bar'], f"switch back: the bar is English again ({E['bar']})")
-    c.ok(not re.search(r'\b(Marcar Entrada|Pedidos|Esperando Aprobación)\b', E['body']), 'switch back: no Spanish label left on the screen')
+    c.ok(not re.search(r'\b(Marcar Entrada|Ponchar Entrada|Pedidos|Esperando Aprobación)\b', E['body']), 'switch back: no Spanish label left on the screen')
     c.ok(E['toast'].startswith('Done: the app is in English'), f"switch back: it says so in English ({E['toast']!r})")
     # the owner sets the driver's language from the Team list
     await sign_in(pg, 'u_owner')

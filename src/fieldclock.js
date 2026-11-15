@@ -312,7 +312,7 @@ function tkGeoTick(pos, at0) {
     // the window (tkgWindow, the owner's one setting): nothing punches outside it, and he is told once, with Clock In
     // by hand. On site before it opens, the punch starts when it opens, and says so.
     const day = String(at).slice(0, 10),
-      W = tkgWindow(),
+      W = tkgWindowOf(near.p),
       openIso = `${day}T${W.start}:00`;
     let inAt = at,
       early = "";
@@ -322,7 +322,7 @@ function tkGeoTick(pos, at0) {
       const k = "hours|" + near.p.id + "|" + day + "|" + (before ? "early" : "out");
       tkGeo.asked !== k &&
         ((tkGeo.asked = k),
-        toast(before ? `You are at ${tkgSay(near.p)} before automatic clock-in starts at ${stampTime(openIso)}. Clock in by hand for time before ${tkgHmShort(W.start)}.` : `${tkgWindowSay()} Clock in by hand now.`, [
+        toast(before ? `You are at ${tkgSay(near.p)} before automatic clock-in starts at ${stampTime(openIso)}. Clock in by hand for time before ${tkgHmShort(W.start)}.` : `${tkgWindowSay(near.p)} Clock in by hand now.`, [
           { label: "Clock In", run: () => ("function" == typeof setCurrent && setCurrent(near.p.id), clockEvent("in")) },
         ]));
       return { did: "none", why: before ? "before the window" : "outside the window" };
@@ -412,19 +412,25 @@ const TKG_WIN_DEF = { days: [1, 2, 3, 4, 5], start: "07:00", end: "17:00" },
   TKG_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 function tkgWindow() {
   const w = (DB.company && DB.company.autoClock) || {};
-  return { days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : TKG_WIN_DEF.days, start: /^\d\d:\d\d$/.test(w.start || "") ? w.start : TKG_WIN_DEF.start, end: /^\d\d:\d\d$/.test(w.end || "") ? w.end : TKG_WIN_DEF.end };
+  // allowMin: how much later than his last reading on site a confirmed time may be before the approver must say why
+  return { days: Array.isArray(w.days) && w.days.length ? w.days.map(Number) : TKG_WIN_DEF.days, start: /^\d\d:\d\d$/.test(w.start || "") ? w.start : TKG_WIN_DEF.start, end: /^\d\d:\d\d$/.test(w.end || "") ? w.end : TKG_WIN_DEF.end, allowMin: +w.allowMin >= 0 && "" !== w.allowMin && null != w.allowMin ? +w.allowMin : 15 };
 }
 const tkgHmShort = (hm) => stampTime(`${today()}T${hm}:00`).replace(/:00(?= ?[AP]M)/i, "");
 function tkgDaysSay(D) {
   const d = [...D].sort((a, b) => a - b);
   return d.join() === "1,2,3,4,5" ? "Monday to Friday" : d.join() === "0,1,2,3,4,5,6" ? "every day" : d.map((x) => TKG_DAYS[x]).join(", ");
 }
-function tkgWindowSay() {
-  const W = tkgWindow();
-  return `Automatic clock-in runs ${stampTime(`${today()}T${W.start}:00`)} to ${stampTime(`${today()}T${W.end}:00`)}, ${tkgDaysSay(W.days)}.`;
+// the window of one job: the firm's work day, or the job's own hours where it has them (siteHours, src/app.js)
+function tkgWindowOf(p) {
+  const h = p && "function" == typeof siteHours ? siteHours(p) : null;
+  return h && h.own ? { days: h.days || [1, 2, 3, 4, 5], start: h.start, end: h.end, own: h.own, allowMin: tkgWindow().allowMin } : tkgWindow();
+}
+function tkgWindowSay(p) {
+  const W = p ? tkgWindowOf(p) : tkgWindow();
+  return `${W.own ? "This job's own hours: a" : "A"}utomatic clock-in runs ${stampTime(`${today()}T${W.start}:00`)} to ${stampTime(`${today()}T${W.end}:00`)}, ${tkgDaysSay(W.days)}.`;
 }
 function tkgWatching(p, at) {
-  const W = tkgWindow(),
+  const W = tkgWindowOf(p || ("undefined" != typeof S ? S : null)),
     a = String(at || appNowIso()),
     d = a.slice(0, 10);
   return W.days.includes(new Date(a).getDay()) && a >= `${d}T${W.start}:00` && a <= `${d}T${W.end}:00`;
@@ -432,7 +438,7 @@ function tkgWatching(p, at) {
 // the owner changes the window: who, when and the window before and after are recorded
 function tkgWindowSet(w, why) {
   const before = tkgWindow(),
-    after = { days: (w.days || before.days).map(Number), start: w.start || before.start, end: w.end || before.end };
+    after = { days: (w.days || before.days).map(Number), start: w.start || before.start, end: w.end || before.end, allowMin: null != w.allowMin && "" !== w.allowMin ? Math.max(0, +w.allowMin || 0) : before.allowMin };
   if (!(after.start < after.end) || !after.days.length) return "The window needs at least one day, and the start before the end";
   DB.company = DB.company || {};
   const by = tkgMe().name || "";
@@ -451,12 +457,12 @@ function tkgWindowEdit() {
   const W = tkgWindow(),
     m = mbModal(
       "Automatic Clock-In Hours",
-      `<p class="small muted" style="margin:0 0 8px">No automatic punch starts before the start. At the end, anyone still clocked in is asked if they are still working. Outside these hours the crew clocks in by hand.</p><div class="grid2"><div class="f"><label>Starts</label><input type="time" data-f="start" value="${esc(W.start)}"></div><div class="f"><label>Ends</label><input type="time" data-f="end" value="${esc(W.end)}"></div></div><div class="f"><label>Days</label><div class="tks-chips">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label class="pill neutral"><input type="checkbox" data-f="d${d}" ${W.days.includes(d) ? "checked" : ""}> ${TKG_DAYS[d]}</label>`).join("")}</div></div>`,
+      `<p class="small muted" style="margin:0 0 8px">No automatic punch starts before the start. At the end, anyone still clocked in is asked if they are still working. Outside these hours the crew clocks in by hand.</p><div class="grid2"><div class="f"><label>Starts</label><input type="time" data-f="start" value="${esc(W.start)}"></div><div class="f"><label>Ends</label><input type="time" data-f="end" value="${esc(W.end)}"></div></div><div class="f"><label>Minutes Allowed Past the Last Reading</label><input type="number" min="0" step="5" inputmode="numeric" data-f="allow" value="${esc(String(W.allowMin))}"><span class="hint">A time someone confirms later than this past the app's last reading of them on site needs the approver's reason.</span></div><div class="f"><label>Days</label><div class="tks-chips">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label class="pill neutral"><input type="checkbox" data-f="d${d}" ${W.days.includes(d) ? "checked" : ""}> ${TKG_DAYS[d]}</label>`).join("")}</div></div>`,
       {
         submit: "Save",
         onSubmit: (f) => {
           const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => f["d" + d]),
-            bad = tkgWindowSet({ days: days, start: f.start, end: f.end });
+            bad = tkgWindowSet({ days: days, start: f.start, end: f.end, allowMin: f.allow });
           if (bad) return toast(bad), !1;
           render();
           toast(`${tkgWindowSay()} Saved.`, [{ label: "Open", run: () => setView("cosettings") }]);
@@ -494,7 +500,7 @@ function tkStillCheck(now) {
     .filter((t) => t.in && !t.out && !t.payrollId && String(t.in) <= String(at) && !/^(void|rejected)$/.test(String(t.status || "")))
     .forEach((t) => {
       const s = t.still,
-        W = tkgWindow(),
+        W = tkgWindowOf(tkgJob(t.projectId)),
         endIso = `${t.date}T${W.end}:00`,
         atEnd = tkgAuto(t) && W.days.includes(new Date(`${t.date}T12:00:00`).getDay()) && String(at) >= endIso;
       if (s && s.askedAt) {
@@ -534,7 +540,7 @@ function tkStillCheck(now) {
 }
 function tkStillSay(t) {
   const s = t && t.still;
-  return s && "end" === s.why ? `It is ${stampTime(`${t.date}T${tkgWindow().end}:00`)}, when automatic clock-in stops. Are you still working?` : `You have been clocked in ${tkgHmin(Math.max(TKG_STILL_H, (s && s.h) || TKG_STILL_H))}. Are you still working?`;
+  return s && "end" === s.why ? `It is ${stampTime(`${t.date}T${tkgWindowOf(tkgJob(t.projectId)).end}:00`)}, when automatic clock-in stops. Are you still working?` : `You have been clocked in ${tkgHmin(Math.max(TKG_STILL_H, (s && s.h) || TKG_STILL_H))}. Are you still working?`;
 }
 // the browser's own notification, when the person allowed it: while the app is open or in the background
 function tkStillNotify(t) {
@@ -641,7 +647,7 @@ function tkHoldSheet(e) {
     who = String(empName(e.empId)).split(" ")[0];
   return mbModal(
     "When Did You Leave",
-    `<p class="small" style="margin:0 0 8px">${esc(mine ? tkgHoldSay(e) : `The app closed ${who}'s ${fmt(e.date)} punch at ${stampTime(e.out)}, the last reading on site.`)}</p><div class="f"><label>Left At</label><input type="time" data-f="out" value="${esc(String(e.out).slice(11, 16))}"></div>${mine ? "" : `<div class="f"><label>Why (required)</label><input data-f="why" placeholder="e.g. Called him: he left at 4:30"></div>`}<p class="small muted" style="margin:6px 0 0">Clocked in ${esc(stampTime(e.in))}. Until this is confirmed the hours are not approved or paid.</p>`,
+    `<p class="small" style="margin:0 0 8px">${esc(tkgAuto(e) ? `The app last saw ${mine ? "you" : who} on site at ${stampTime(e.out)}. When did ${mine ? "you" : "he"} leave?` : mine ? tkgHoldSay(e) : `The app closed ${who}'s ${fmt(e.date)} punch at ${stampTime(e.out)}: ${(e.hold && e.hold.why) || "nobody clocked out"}.`)}</p><p class="small muted" style="margin:0 0 8px">A phone with the app closed sends no readings. A time more than ${esc(String(tkgWindow().allowMin))} minutes after that goes to your foreman with both times.</p><div class="f"><label>Left At</label><input type="time" data-f="out" value="${esc(String(e.out).slice(11, 16))}"></div>${mine ? "" : `<div class="f"><label>Why (required)</label><input data-f="why" placeholder="e.g. Called him: he left at 4:30"></div>`}<p class="small muted" style="margin:6px 0 0">Clocked in ${esc(stampTime(e.in))}. Until this is confirmed the hours are not approved or paid.</p>`,
     {
       submit: "Confirm",
       onSubmit: (f) => {
@@ -718,8 +724,8 @@ function tkgSwitchHtml(u) {
   // when it is not watching (outside its window) and when the readings are too weak to act on, it says so
   const more = ` <span data-tkglimit>Automatic clock-in works while this app is open. With the app closed it cannot see you arrive or leave: clock in by hand, and confirm when you left.</span>${tkgWatching(S) ? "" : ` <span class="bad-t" data-tkgwindow>It is not watching now: clock in by hand now.</span>`}${tkGeo.weak ? ` <span class="bad-t" data-tkgweak>Your location is not reliable right now: clock out by hand when you leave.</span>` : ""}`;
   return err
-    ? `<div class="small tkg-say"><b class="bad-t">Automatic clock-in is on, but the app cannot read your location.</b> Clock in by hand until this phone allows location for the app. ${esc(tkgWindowSay(S))}${more}</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`
-    : `<div class="small tkg-say"><b>Automatic clock-in is on.</b> The app clocks you in at a job site while it is open. ${esc(tkgWindowSay(S))}${noSite ? ` <span class="bad-t" data-tkgnosite>This job has no site location yet: clock in by hand here.</span>` : ""}${more}</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`;
+    ? `<div class="small tkg-say"><b class="bad-t">Automatic clock-in is on, but the app cannot read your location.</b> <span>Clock in by hand until this phone allows location for the app.</span> <span data-tkgwin>${esc(tkgWindowSay(S))}</span>${more}</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`
+    : `<div class="small tkg-say"><b>Automatic clock-in is on.</b> <span>The app clocks you in at a job site while it is open.</span> <span data-tkgwin>${esc(tkgWindowSay(S))}</span>${noSite ? ` <span class="bad-t" data-tkgnosite>This job has no site location yet: clock in by hand here.</span>` : ""}${more}</div><button type="button" class="btn sm" data-tkgoff>Turn Off</button>`;
 }
 function tkgSwitchMount(host, how) {
   if (!host) return null;
@@ -760,7 +766,7 @@ if ("undefined" != typeof PR_SPECS) {
 }
 
 // ---- overlapping punches: held from payroll until the foreman picks ---------------------------------------------------
-const tkgLive = (t) => t && !/^(void|rejected)$/.test(String(t.status || ""));
+const tkgLive = (t) => t && !t.forDate && !/^(void|rejected)$/.test(String(t.status || ""));
 function tkTimeOverlaps(empId) {
   const now = appNowIso(),
     by = {};
@@ -1013,6 +1019,43 @@ function labMine(p) {
   if (!me.id || !["pm", "owner"].includes(role())) return !1;
   return L ? L.id === me.id || ("owner" === role() && "owner" === L.role) : "owner" === role();
 }
+// Was this person already paid for this day (the crew expert, 11-15, round 2: Logged, Not Clocked read 224 h, about
+// $10,239 "not in cost or payroll", for days pay run pr1 had paid)? The pay run whose dates cover the day: one built
+// from time paid the punches it holds; one typed by hand paid the people its lines name, or, with no lines, everyone
+// of its entity when its headcount says so (pr1: 6 employees, the six of ent1). { run, paid, open } or null.
+const LAB_RUN_SHUT = /^(submitted|approved|paid|posted|verified)$/;
+// who decides a job's Logged, Not Clocked on Approvals: its lead (nsJobLead), as Caught for You has it
+"object" == typeof DELEGATION &&
+  (DELEGATION.lognc = {
+    role: "pm",
+    rule: "hours on a daily log with no punch behind them are the job lead's: approve as time or dismiss",
+    who: (it) => {
+      const L = labLead(labJob(String(it.id).split(":")[1]));
+      return (L && L.role) || "pm";
+    },
+  });
+function labPaidBy(empId, day) {
+  const emp = labEmp(empId),
+    ent = (emp && emp.entityId) || "ent1";
+  let hit = null;
+  for (const r of DB.payroll || []) {
+    if (/^(rejected|void)$/.test(String(r.status || ""))) continue;
+    const to = r.fromTime ? payPeriodOf(r.from).to : r.to || payPeriodOf(r.from).to;
+    if (!(day >= r.from && day <= to)) continue;
+    const mine = prParts(r).some((x) => (x.entityId || "ent1") === ent);
+    let paid = !1;
+    if (mine) {
+      if (r.fromTime) paid = (DB.time || []).some((t) => t.payrollId === r.id && t.empId === empId && t.date === day);
+      else {
+        const names = (r.detail || []).map((d) => d.name);
+        paid = names.length ? !!emp && names.includes(emp.name) : +r.employees >= (DB.employees || []).filter((e) => (e.entityId || "ent1") === ent && !1 !== e.active).length;
+      }
+    }
+    if (paid) return { run: r, paid: !0 };
+    hit = hit || { run: r, paid: !1 };
+  }
+  return hit && { run: hit.run, paid: !1, shut: LAB_RUN_SHUT.test(String(hit.run.status || "")) };
+}
 // ---- Rule 1: every row still to decide, all jobs or one --------------------------------------------------------------
 function labUnclocked(pid) {
   const out = [];
@@ -1032,9 +1075,17 @@ function labUnclocked(pid) {
           Math.abs(diff) >= 0.25 && out.push({ key: l.id + ":" + cw.empId, kind: "changed", l: l, cw: cw, emp: emp, pid: l.projectId, date: l.date, hours: diff, was: +D.hours || 0, now: logged, timeId: D.timeId, cost: r2(diff * rate) });
           return;
         }
-        const clocked = r2((DB.time || []).filter((e) => e.projectId === l.projectId && e.empId === cw.empId && e.date === l.date && LAB_LIVE(e)).reduce((a, e) => a + hoursOf(e), 0)),
+        // a log with a punch behind it in any state is not "not clocked": a held punch (its hours wait on him) or a
+        // voided one (the foreman picked) is the clock's answer. The gap is read off the clock's own hours.
+        const mine = (DB.time || []).filter((e) => e.projectId === l.projectId && e.empId === cw.empId && e.date === l.date && !e.forDate);
+        if (mine.some((e) => !LAB_LIVE(e) || timeHeld(e))) return;
+        const clocked = r2(mine.reduce((a, e) => a + hoursClock(e), 0)),
           gap = r2(logged - clocked);
-        gap >= 0.25 && out.push({ key: l.id + ":" + cw.empId, kind: "new", l: l, cw: cw, emp: emp, pid: l.projectId, date: l.date, hours: gap, logged: logged, clocked: clocked, cost: r2(gap * rate) });
+        if (!(gap >= 0.25)) return;
+        // already paid for that day by the pay run: the log and the pay agree, nothing is missing
+        const pay = labPaidBy(cw.empId, l.date);
+        if (pay && pay.paid) return;
+        out.push({ key: l.id + ":" + cw.empId, kind: "new", l: l, cw: cw, emp: emp, pid: l.projectId, date: l.date, hours: gap, logged: logged, clocked: clocked, cost: r2(gap * rate), late: pay && pay.shut ? pay.run : null });
       }),
     );
   return out;
@@ -1047,6 +1098,7 @@ function labUnclockedSum(pid) {
     hours: r2(R.reduce((a, r) => a + Math.abs(r.hours), 0)),
     cost: r2(R.reduce((a, r) => a + Math.abs(r.cost), 0)),
     days: new Set(R.map((r) => r.date)).size,
+    late: R.filter((r) => r.late).length,
     people: [...new Set(R.map((r) => r.cw.name || r.emp.name))],
   };
 }
@@ -1057,9 +1109,10 @@ function labRowHtml(r) {
     what =
       "changed" === r.kind
         ? `<b>${esc(nm)} · ${fmt(r.date)} · log changed after approval</b><span class="small">${r.was} h approved, ${r.now} h on the log now (${r.hours > 0 ? "+" : ""}${r.hours} h) · ${esc(labLogSay(r.l))}</span>`
-        : `<b>${esc(nm)} · ${r.hours} h · ${fmt(r.date)}</b><span class="small">${r.clocked ? `${r.logged} h on the log, ${r.clocked} h clocked · ` : ""}${esc(labLogSay(r.l))} · about ${money(r.cost)}</span>`;
+        : `<b>${esc(nm)} · ${r.hours} h · ${fmt(r.date)}</b><span class="small">${r.clocked ? `${r.logged} h on the log, ${r.clocked} h clocked · ` : ""}${esc(labLogSay(r.l))} · about ${money(r.cost)}</span>${r.late ? `<span class="small bad-t" data-lablate>Logged ${esc(fmt(r.date))}, not clocked, and pay run ${esc(labRunSay(r.late))} is already ${esc(r.late.status)}.</span>` : ""}`;
   return `<div class="f-row lab-row" data-labrow="${esc(r.key)}" data-h="${Math.abs(r.hours)}"><div class="grow">${what}</div><div class="lab-acts"><button type="button" class="btn sm" data-labok="${esc(r.key)}">Approve as Time</button><button type="button" class="btn sm" data-labno="${esc(r.key)}">Dismiss</button></div></div>`;
 }
+const labRunSay = (r) => `${fmt(r.from)} to ${fmt(r.fromTime ? payPeriodOf(r.from).to : r.to)}`;
 function labUnclockedSheet(pid) {
   const p = labJob(pid),
     U = labUnclockedSum(pid);
@@ -1090,7 +1143,9 @@ function labApproveSheet(key) {
     `<p class="small muted" style="margin:0 0 8px">${
       "changed" === r.kind
         ? `The ${esc(labLogSay(r.l))} now says ${r.now} h; ${r.was} h were approved. Approving changes that one time entry to ${r.now} h: nothing is counted twice.`
-        : `${r.hours} h on the ${esc(labLogSay(r.l))}, with no punch behind them. Approving makes a time entry: the hours are job cost and go to payroll, at ${esc(nm)}'s rate, with overtime worked out from the entry.`
+        : r.late
+          ? `${r.hours} h on the ${esc(labLogSay(r.l))}, with no punch behind them, and pay run ${esc(labRunSay(r.late))} is already ${esc(r.late.status)} without them. Approving makes late time: it goes to the controller as an adjustment in the open period, never into the closed run or the month it closed, and is paid only when the controller approves it.`
+          : `${r.hours} h on the ${esc(labLogSay(r.l))}, with no punch behind them. Approving makes a time entry: the hours are job cost and go to payroll, at ${esc(nm)}'s rate, with overtime worked out from the entry.`
     }</p>${mbF("Why", `<input data-f="why" value="Worked as the log says; confirmed with ${esc(r.l.signedBy || r.l.by || "the foreman")}">`)}${
       L.length ? mbF("Estimate Line", `<select data-f="line">${L.map((x) => `<option value="${esc(x.key)}" ${best && best.key === x.key ? "selected" : ""}>${esc(x.name)}</option>`).join("")}<option value="">Not on a line yet</option></select>`) : ""
     }`,
@@ -1143,7 +1198,12 @@ function labApprove(key, why, lineKey) {
     audit("time", e.id, "approved-from-log", null, { logId: l.id, empId: r.cw.empId, hours: hoursOf(e), why: why }, me.name || "");
   } catch (x) {}
   save(), render();
-  toast(`Approved as time: ${nm}, ${"changed" === r.kind ? `${r.now} h` : `${r.hours} h`} on ${fmt(r.date)} at ${labJobName(p)}. It is job cost now and goes to payroll.`, [{ label: "Open", run: () => openTime(e.id) }]);
+  toast(
+    e.forDate
+      ? `Late time sent to the controller: ${nm}, ${r.hours} h for ${fmt(r.date)} at ${labJobName(p)}. Pay run ${e.late.runSay} was already closed to it; it is an adjustment in the open period once the controller approves.`
+      : `Approved as time: ${nm}, ${"changed" === r.kind ? `${r.now} h` : `${r.hours} h`} on ${fmt(r.date)} at ${labJobName(p)}. It is job cost now and goes to payroll.`,
+    [{ label: "Open", run: () => openTime(e.id) }],
+  );
   return e;
 }
 function labMakeEntry(r, hours, why, lineKey, adjOf) {
@@ -1177,6 +1237,15 @@ function labMakeEntry(r, hours, why, lineKey, adjOf) {
       work: [{ projectId: r.pid, code: code, hours: r2(hours), note: "" }],
     };
   adjOf && (e.adjOf = adjOf);
+  // late time (its pay run already submitted without it): an adjustment in the open period, for the controller. It is
+  // dated in the open period, so the closed run and the month it closed do not move; forDate keeps the day it was
+  // worked; it waits on the controller's approval (timeApproveBlock) and the day's readers leave it out (timeHoursOf)
+  if (r.late) {
+    const td = today(),
+      mins2 = Math.round(hours * 60);
+    Object.assign(e, { date: td, in: `${td}T00:00:00`, out: `${td}T${labHm(mins2)}:00`, forDate: day, late: { run: r.late.id, runSay: labRunSay(r.late), pmBy: me.name || "", at: appNowIso(), why: why }, status: "submitted", approvedBy: "", approvedAt: "" });
+    e.notes = `Late time for ${fmt(day)} from the ${labLogSay(r.l)}: pay run ${labRunSay(r.late)} was already ${r.late.status} without it. An adjustment in the open period, for the controller.`;
+  }
   DB.time.push(e);
   return e;
 }
@@ -1206,7 +1275,7 @@ CATCH.push({
       .map(({ p, U }) => ({
         key: "lognc:" + p.id,
         what: `${labHrs(U.hours)} logged, not clocked: ${labJobName(p)}`,
-        sub: `${U.people.join(", ")} · ${U.days} ${1 === U.days ? "day" : "days"} · about ${money(U.cost)} not in cost or payroll until you approve as time, or dismiss`,
+        sub: `${U.people.join(", ")} · ${U.days} ${1 === U.days ? "day" : "days"} · about ${money(U.cost)} ${U.late ? `(${U.late} ${1 === U.late ? "row" : "rows"} in a pay period already submitted, for the controller) ` : ""}not in cost or payroll until you approve as time, or dismiss`,
         amount: U.cost,
         verb: "Review",
         run: () => labUnclockedSheet(p.id),
@@ -1345,7 +1414,7 @@ function labOffLine(pid) {
           .map((s) => (DB.time || []).find((t) => "time:" + t.id === s))
           // a punch held for the time he left is not moved to a line until it is confirmed (timeHeld): its hours are
           // not known yet, and they count 0 meanwhile
-          .filter((t) => LAB_LIVE(t) && !timeHeld(t));
+          .filter((t) => LAB_LIVE(t) && !timeHeld(t) && !(t.word && !t.word.okBy));
         if (!T.length) return;
         const cost = r2(T.reduce((a, t) => a + hoursOf(t) * laborRate(labEmp(t.empId)) * (tu ? +tu(t, labEmp(t.empId)) || 1 : 1), 0)),
           co = T.map((t) => t.offLineCo).find(Boolean),
