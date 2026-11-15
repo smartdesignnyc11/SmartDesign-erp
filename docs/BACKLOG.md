@@ -1527,3 +1527,12 @@ Second pass (`wave3/foreman2.md`):
 - **Client:** the PDF, the emailed copy, large text, completing an approval.
 - **Founder:** mail-fed promises (the demo workspace was not connected); the phone screenshots were not read.
 - **Owner:** whether the portal lists a credit memo beside its invoice.
+
+## 12. Labour rules decided 11-15 (Alan: "Yes to both"), to build before real crews clock in
+
+Registry entries these extend (design gate): the time entry (`DB.time`), the PM's Today and its caught list, the clock-in sheet (`src/fieldclock.js`), the job's Budget ("Not on an Estimate Line"). No new store, list or queue.
+
+1. **Hours logged, not clocked.** Only clocked, approved time is job cost and payroll. Hours on a daily log or a task with no punch behind them raise one flag to the job's PM, the owner when there is none: "N hours logged, not clocked: Approve as Time, or Dismiss", with the person, day and log. Approving makes a time entry carrying who approved and why. Checks: the job's cost does not move until approval; the flag's count equals its rows; payroll never includes an unapproved one; the demo's 206 Lenox (46.5 hours, $0 cost) is the failing case.
+2. **Hours on a cost code with no estimate line.** Clock-in offers the lines on the job's estimate and approved change orders; Other asks for a note. Cost still off a line raises a proposal to the PM: Move to a Line, or Draft a Change Order. Never automatic; the move is recorded on the entry and a closed month's figures do not change (the move posts in the open period). Checks: phone, one hand, in Spanish; the demo's 121 State Street (37.92 hours on code 12, $1,466.05) is the failing case, and moving it puts EAC back to 388,887.50.
+
+Think past it: a log edited after approval must not double the hours; a foreman logging for a crew of four is four people's time, each to approve; the flag must not fire for salaried office staff; overtime follows the approved entry, not the log.

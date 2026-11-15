@@ -2,6 +2,8 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Released 11-14 (b3f94f8):** job money on one number (F, F2), the billed-ahead reason at both doors (B2), clock-in's August figures (C), Ask's four wrong answers (A2). Of the 23 live S1s of 11-12: 20 fixed and live, 1 found false (bill-back on a fixed-price line), 2 parked (designer). Leftovers: DECISIONS, 11-14.
 
+**Decided 11-15, queued (BACKLOG §12):** hours logged but not clocked are flagged to the PM and cost nothing until approved; clock-in offers the job's estimate lines, and cost off a line is a proposal to the PM. Build before real crews clock in.
+
 **Parked by Alan, 11-13:** the designer module and role (Today NO DATE, selections with no estimate line on the designer side, the designer's other findings), unless another seat depends on it. The order-side rule stays live.
 
 **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
