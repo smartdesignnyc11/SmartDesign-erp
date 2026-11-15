@@ -90,7 +90,7 @@ function dvDueLine(c, d) {
 function dvRefundable(c, d) {
   const ids = new Set(dvChain(c, d).map((x) => x.id));
   return (c.payments || [])
-    .filter((p) => ids.has(p.invoiceId) && +p.amount > 0 && !p.xferOf && !p.cmApply && !p.reverses && !p.reversalId && !p.refundOf)
+    .filter((p) => ids.has(p.invoiceId) && +p.amount > 0 && !p.xferOf && !p.cmApply && !p.creditApply && !p.reverses && !p.reversalId && !p.refundOf)
     .map((p) => {
       const out = r2(
         dvRefunds(c).filter((f) => f.paymentId === p.id && !["declined", "void"].includes(f.status)).reduce((a, f) => a + (+f.amount || 0), 0),
@@ -411,16 +411,18 @@ function dvActions(r) {
     "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 }); // the editor's own: How They Approved, with who and when
     "approved" === d.status && ("construction" === d.template ? add("convert", "Convert to Contract & SOV", { blue: !0 }) : add("invoice", "Convert to Invoice", { blue: !0 }));
     if ("converted" === d.status) {
-      // the signed contract billed by progress application: its next step is the open application or the next one,
-      // never a whole-estimate invoice (11-15, S1-4)
-      const K = "function" == typeof estContractBilled ? estContractBilled(c, d) : null;
-      K
-        ? add("progress", K.draft ? `Open ${K.draft.number}` : "New Progress Invoice", { blue: !0 })
-        : "function" == typeof ctDepositDue && ctDepositDue(c, d)
-        ? add("deposit", "Create Deposit Invoice", { blue: !0 })
-        : "construction" === d.template
-          ? add("progress", "New Progress Invoice", { blue: !0 })
-          : add("invoice", "Convert to Invoice", { blue: !0 });
+      // a signed estimate's blue is what the Billing Queue says is next for it (jobReadyToBill, through estBillable):
+      // the open application, a milestone, design hours, a deposit, the line-by-line application, received materials.
+      // With nothing earned and not billed there is no blue invoice step (11-15 round 2, S1-A: the blue Convert to
+      // Invoice drafted EST-2026-D140's whole fee and EST-2026-D45's signing 50% again).
+      const K = "function" == typeof estContractBilled ? estContractBilled(c, d) : null,
+        B = "function" == typeof estBillable ? estBillable(c, d) : { cap: 0 },
+        W = { dmilestone: "Bill the Milestone", dhours: "Bill Design Hours", deposit: "Create Deposit Invoice", application: "Draft the Application", progress: "New Progress Invoice", retainer: "Retainer Invoice" };
+      K && K.draft
+        ? add("progress", `Open ${K.draft.number}`, { blue: !0 })
+        : B.row
+          ? add("rtb:" + blRtbKey(B.row), W[B.row.kind] || "Bill It", { blue: !0 })
+          : B.cap > 0.5 && add("invoice", "Bill Received Materials", { blue: !0 });
     }
     // a signed estimate is part of the contract: a change goes on a New Change Order, never an edit
     draft ? add("edit", "Edit", { phone: !0 }) : ["approved", "converted"].includes(d.status) ? add("newco", "New Change Order") : "sent" === d.status && add("edit", "Edit");
@@ -573,6 +575,8 @@ function dvAct(a) {
   dvMore = !1;
   if (!r) return dvClose();
   const [verb, arg] = String(a).split(":");
+  // a Billing Queue step offered on the document (an estimate's next billing): the queue's own action
+  if ("rtb" === verb) return dvClose(), void rtbAct(String(a).slice(4));
   if ("rfapprove" === verb) return dvRefundConfirm(r.c, arg);
   if ("crapprove" === verb) return dvCreditConfirm(r.c, arg);
   if ("rfdecline" === verb) return dvRefundDecide(r.c, arg, !1);
@@ -605,14 +609,17 @@ function dvAct(a) {
   if ("void" === a) return dvVoidSheet(c, d);
   if ("send" === a) {
     // a draft goes out through the one Send (the client gate, the mail, the portal); its sheet opens over the editor
-    dvEdit(r);
-    return void setTimeout(() => ("function" == typeof crSendToClient ? crSendToClient(c, d) : docAction(c, d, "email")), 30);
+    // the billed-ahead reason is asked over the document first: cancelling it leaves the person in the viewer
+    // (round 2, S3-G); with the reason given, the send opens over the editor as before
+    const go = () => (dvEdit(r), setTimeout(() => ("function" == typeof crSendToClient ? crSendToClient(c, d) : docAction(c, d, "email")), 30));
+    if ("function" == typeof pbAheadGate && pbAheadGate(c, d, go, "sendclient")) return;
+    return void go();
   }
   if ("billco" === a) {
     const sv = (c.sov || []).find((v) => v.coId === d.id);
     if (sv) {
-      const est = (c.estimates || []).find((x) => "converted" === x.status && (!d.projectId || x.projectId === d.projectId));
-      return dvClose(), est ? void docAction(c, est, "progress") : void toast(`${d.number} is on the schedule of values: it bills on the next progress invoice`);
+      // the change order's own lines go on the job's open application, or a new one (round 2, S1-C)
+      return dvClose(), void docAction(c, d, "progress");
     }
     return dvClose(), void docAction(c, d, "invoice");
   }
@@ -714,6 +721,20 @@ if ("function" == typeof lkSupersede) {
     const r = base.apply(this, arguments);
     try {
       if (o && n && "invoice" === o.type && "void" === o.status && "void" !== was) {
+        // A revision that changes no amount changes nothing in the ledger (billing review 11-15 round 2, S1-B:
+        // INV-2026-031, $97,000 revised for wording, moved from August revenue to September and was dated after its
+        // own due date). It posts as the original posted: its accounting date is the original's (revisedOn keeps the
+        // day it was made, for print and the trail), and the ledger keeps the original's posting live, with no
+        // reversal and no re-post (glDerive, glSameRevision). One that changes an amount is dated the day it goes out:
+        // the original is reversed on that day in the open period and the revision posts, which nets to the
+        // difference there, and a closed month is never written into (dvRevisionReversalDate).
+        if ("function" == typeof glSameRevision && glSameRevision(c, n) === o && o.date) {
+          n.date !== o.date && ((n.revisedOn = n.revisedOn || n.date), (n.date = o.date));
+          null != n.dateRec && (n.dateRec = o.dateRec || o.date);
+          n.postsAs = o.id;
+          Array.isArray(o.glLines) && (n.glLines = o.glLines.map((l) => Object.assign({}, l)));
+          docAudit(c, n, "revised-same-amount", `${n.number} changes no amount: it keeps ${o.number}'s date (${fmtL(o.date)}) and posting; nothing in the ledger moves`);
+        } else null == n.postsAs && (n.postsAs = "");
         dvTransferSettled(c, o, n);
         "sent" === n.status && invoicePaid(c, n) >= docTotal(n).total - 0.005 && (n.status = "paid");
       }
@@ -733,7 +754,13 @@ function dvRevisionReversalDate(j, sub) {
     const c = (DB.clients || []).find((x) => x.id === j.clientId) || (DB.clients || []).find((x) => (x.invoices || []).some((i) => i.id === j.sourceId));
     const o = c && (c.invoices || []).find((i) => i.id === j.sourceId);
     if (!o || "void" !== o.status || !o.supersededBy) return "";
-    const n = (c.invoices || []).find((i) => i.number === o.supersededBy && i.id !== o.id);
+    // the revision that stands now: a revision of a revision replaces the one before it (round 2, S1-B: the second
+    // revision of INV-2026-035 reversed its posting back in August, because the first revision was void by then)
+    let n = (c.invoices || []).find((i) => i.number === o.supersededBy && i.id !== o.id);
+    for (let k = 0; n && "void" === n.status && n.supersededBy && k < 20; k++) {
+      const m = n;
+      n = (c.invoices || []).find((i) => i.number === m.supersededBy && i.id !== m.id);
+    }
     if (!n || ["draft", "void"].includes(n.status)) return "";
     const live = ((DB.gl || {}).journals || []).find((x) => x.key === "inv:" + n.id && "posted" === x.status && "reversal" !== x.kind),
       d = (live && live.date) || n.date || today();
@@ -1411,12 +1438,29 @@ if ("function" == typeof payBankedAmt) {
       return o && +o.amount ? r2(payBankedAmt(c, o) * ((+py.amount || 0) / +o.amount)) : 0;
     }
     if (py && py.refundId) return py.txnId ? r2(+py.amount || 0) : 0;
+    // an application of credit on account (and its draw) stands as the payment it draws on stood, in proportion
+    if (py && py.creditApply) {
+      const o = ((c && c.payments) || []).find((x) => x.id === py.creditApply);
+      return o && +o.amount ? r2(payBankedAmt(c, o) * ((+py.amount || 0) / +o.amount)) : 0;
+    }
     return base.apply(this, arguments);
   };
 }
 if ("function" == typeof glPaymentLines) {
   const base = glPaymentLines;
   glPaymentLines = function (c, p) {
+    if (p && p.creditApply) {
+      // the application's own journal: the client's credit on account (a credit in receivables, where an unapplied
+      // payment posts) moves onto the invoice it pays, in receivables; the draw posts nothing of its own
+      if (p.unapplied || !+p.amount) return [];
+      const inv = (c.invoices || []).find((i) => i.id === p.invoiceId),
+        src = (c.payments || []).find((x) => x.id === p.creditApply),
+        on = { projectId: "", partyType: "client", partyId: c.id, memo: `credit on account (payment ${src ? fmtL(src.date) + " " + money(+src.amount || 0) : p.creditApply})` },
+        to = { projectId: inv ? inv.projectId : "", partyType: "client", partyId: c.id, memo: `applied to ${inv ? inv.number : "the invoice"}` };
+      // a reversal of an application (negative) posts the same lines the other way round
+      const x = Math.abs(+p.amount);
+      return +p.amount > 0 ? [glL("1100", x, 0, on), glL("1100", 0, x, to)] : [glL("1100", 0, x, on), glL("1100", x, 0, to)];
+    }
     return p && (p.cmApply || p.xferOf) ? [] : base.apply(this, arguments);
   };
 }

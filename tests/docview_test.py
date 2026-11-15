@@ -338,7 +338,9 @@ async def revise(p, phone):
                    rev: (DB.gl.journals || []).filter(j => j.kind === 'reversal' && j.key === 'inv:in3').length > window.__dvPre.revs, posted: glLive().some(j => j.key === 'inv:' + nid) };
         }""", n['id'])
         C.ok(out['o'] == 'void' and out['by'] == n['number'] and out['n'] == 'sent', f'billing on the {dev}: sent, {n["number"]} replaces INV-2026-038, which is voided and names it ({out})')
-        C.ok(out['had'] and not out['live'] and out['rev'] and out['posted'], f'billing on the {dev}: the ledger reverses INV-2026-038\'s posting and posts the revision; nothing is edited in place ({out})')
+        # the billing expert's ruling (11-15 round 2, S1-B): a revision that changes no amount changes nothing in the
+        # ledger: INV-2026-038's posting stands, nothing is reversed and the revision posts nothing of its own
+        C.ok(out['had'] and out['live'] and not out['rev'] and not out['posted'], f'billing on the {dev}: unchanged in amount, INV-2026-038\'s posting stands: nothing is reversed or re-posted, nothing edited in place ({out})')
         C.ok(await pg.evaluate(snap) == before, f'billing on the {dev}: the voided INV-2026-038 still reads as it was sent')
     C.ok(not errs, f'revise on the {dev}: no page errors ({errs[:2]})')
     await b.close()
@@ -405,20 +407,23 @@ async def revise_ledger(p, phone):
 
     async def revise(iid, why, rate=None):
         await pg.evaluate("""([iid, why, rate]) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid);
+          window.__rvN = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').length;
           const n = dvRevise(c, o, why); if (rate !== null) n.lines[0].rate = rate; window.__rv = n.id; docAction(c, n, 'send'); }""", [iid, why, rate])
         await pg.wait_for_timeout(400)
         await pg.evaluate(GATE, 'revision: ' + why)
         await pg.wait_for_timeout(500)
         return await pg.evaluate("""(iid) => { const c = DB.clients.find(c => c.id === 'cl121'), o = c.invoices.find(i => i.id === iid), n = c.invoices.find(i => i.id === window.__rv);
-          const rv = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').pop(), np = DB.gl.journals.filter(j => j.key === 'inv:' + n.id && j.status === 'posted').pop();
+          // only a reversal this revision wrote (the seeded books already hold an earlier reversal of the same key)
+          const rv = DB.gl.journals.filter(j => j.key === 'inv:' + iid && j.kind === 'reversal').slice(window.__rvN || 0).pop(), np = DB.gl.journals.filter(j => j.key === 'inv:' + n.id && j.status === 'posted').pop();
           return { o: o.status, n: n.status, rvDate: rv ? rv.date : '', postDate: np ? np.date : '' }; }""", iid)
 
     # (1) the paid August deposit, INV-2026-031, re-issued with no change of amount
     a = await pg.evaluate(LEDGER)
     r = await revise('in1', 'deposit line description corrected')
     z = await pg.evaluate(LEDGER)
-    C.ok(r['o'] == 'void' and r['rvDate'] and r['rvDate'] == r['postDate'] and r['rvDate'].startswith('2026-09'),
-         f'{who}: INV-2026-031\'s reversal posts on its revision\'s own date in September, never back on 8/01 ({r})')
+    # round 2 (11-15, S1-B): with no amount changed, nothing is reversed and nothing re-posted; the 8/01 posting stands
+    C.ok(r['o'] == 'void' and not r['rvDate'] and not r['postDate'],
+         f'{who}: INV-2026-031 revised with no amount changed: its 8/01 posting stands, nothing reversed or re-posted ({r})')
     C.ok(abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and abs(z['ar'] - a['ar']) < 0.01 and z['inAug'] == a['inAug'],
          f'{who}: with the amount unchanged, August revenue is untouched, September nets to zero and AR does not move (Aug {a["aug"]} to {z["aug"]}, Sep {a["sep"]} to {z["sep"]}, AR {a["ar"]} to {z["ar"]})')
     # (2) an August invoice re-issued $100 higher: only the $100 lands, in September
@@ -436,7 +441,7 @@ async def revise_ledger(p, phone):
     r = await revise(fid, 'tile quantity re-measured')
     z = await pg.evaluate(LEDGER)
     mine = [f for f in z['flags'] if fid in f]
-    C.ok(z['inAug'] == a['inAug'] and abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and not mine and r['rvDate'].startswith('2026-09'),
+    C.ok(z['inAug'] == a['inAug'] and abs(z['aug'] - a['aug']) < 0.01 and abs(z['sep'] - a['sep']) < 0.01 and not mine and not r['rvDate'],
          f'{who}: with August closed, nothing is written into August, no flag or error, and September nets to zero ({r}, flags {mine}, Aug rows {a["inAug"]} to {z["inAug"]})')
     C.ok(not errs, f'revise ledger on the {dev}: no page errors ({errs[:2]})')
     await b.close()
@@ -475,7 +480,9 @@ async def revise_aging(p, phone):
         z = await pg.evaluate(AGE, nid)
         o = await pg.evaluate(AGE, iid)
         C.ok(o['raw'] == 'void' and o['age'] is None and o['coll'] is None, f'{who}: the original is voided and off the open list once its revision goes out ({o})')
-        C.ok(z['date'] > a['date'] and z['due'] == a['due'] and z['st'] == 'overdue', f'{who}: revised with {label}, the revision is dated today, keeps the due date and still reads overdue ({z})')
+        # round 2 (11-15, S1-B): a description-only revision keeps the original's date as its accounting date; one that
+        # changes an amount is dated the day it goes out. Both keep the due date and still read overdue.
+        C.ok((z['date'] == a['date'] if 'desc' == change else z['date'] > a['date']) and z['due'] == a['due'] and z['st'] == 'overdue', f'{who}: revised with {label}, the revision is dated {"as the original" if "desc" == change else "today"}, keeps the due date and still reads overdue ({z})')
         C.ok(z['age'] == 20 and z['bucket'] == a['bucket'] and z['coll'] == 20 and z['next'] == a['next'] and abs(z['bal'] - bal) < 0.01,
              f'{who}: revised with {label}, it is still 20 days overdue in AR aging and on the collections list, on the same reminder step, for ${bal:,} ({z})')
     # (3) the terms changed on the revision, in the editor's Terms field: due is worked out from the revision's date

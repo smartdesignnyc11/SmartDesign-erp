@@ -248,7 +248,7 @@ async def t4_contract(p, c, phone):
       const toast = (document.getElementById('toast') || {}).textContent || '';
       return { vis, all, made: c.invoices.length - n0, sheet, toast };""")
     c.ok(not any('Convert to Invoice' in x for x in r['all']), f"[{tag}] 4: EST-2026-014, the billed contract, offers no Convert to Invoice ({r['all']})")
-    c.ok(any(x.startswith('*') and ('Progress Invoice' in x or 'Open INV' in x) for x in r['vis']), f"[{tag}] 4: its blue is the next progress application ({r['vis']})")
+    c.ok(any(x.startswith('*') and ('Progress Invoice' in x or 'Open INV' in x or 'Application' in x) for x in r['vis']), f"[{tag}] 4: its blue is the next progress application ({r['vis']})")
     c.ok(r['made'] == 0 and not r['sheet'] and 'progress application' in r['toast'], f"[{tag}] 4: the write refuses a whole-contract invoice and says why ({r})")
     # the class still works: an approved estimate that is not yet a contract converts
     c.ok(not errs, f'[{tag}] 4: page errors: {errs[:2]}')
@@ -365,6 +365,217 @@ async def t_s2(p, c, phone):
     await b.close()
 
 
+REVISE_JS = """  const aug = () => { const B = glBalances({ from: '2026-08-01', to: '2026-08-31' }), o = {}; Object.keys(B).sort().forEach(k => Math.abs(B[k].bal) > 0.005 && (o[k] = B[k].bal));
+    const inv = r2(DB.clients.flatMap(c => c.invoices).filter(i => !['void', 'draft'].includes(i.status) && !i.retainageRelease && i.date >= '2026-08-01' && i.date <= '2026-08-31').reduce((a, i) => a + docNet(i), 0));
+    return JSON.stringify({ gl: o, inv }); };
+  const out = [], before = aug();
+  for (const c of DB.clients) for (const d of (c.invoices || []).slice()) {
+    if (['void', 'draft'].includes(d.status) || d.creditMemo || d.revisedBy || d.revisionOf) continue;
+    const n = dvRevise(c, d, 'wording only'); if (!n) { out.push({ num: d.number, err: 'no revision' }); continue; }
+    n.memo = (n.memo || '') + ' Revised wording.';
+    const jn0 = ((DB.gl || {}).journals || []).length;
+    await docAction(c, n, 'send'); await sleep(150); try { mbCloseModal(); } catch (e) {}
+    try { glSync(); } catch (e) {}
+    const J = ((DB.gl || {}).journals || []).slice(jn0).filter(j => j.sourceId === d.id || j.sourceId === n.id).map(j => j.kind + ' ' + j.date);
+    out.push({ num: d.number, rev: n.number, st: n.status, orig: d.status, date: n.date, odate: d.date, due: n.due, journals: J, aug: aug() === before });
+  }
+  return { out, before, after: aug() };
+"""
+
+
+async def r2_estimates(p, c, phone):
+    """Round 2, A: no invoice drafted from any estimate bills more than is earned and not billed; the blue is the
+    queue's next step for it (EST-2026-D45: the 40% filing milestone, $17,080; EST-2026-D140: 13 design hours, $2,600)."""
+    tag = 'phone' if phone else 'desktop'
+    b, pg, errs = await open_app(p, phone=phone)
+    await sign_in(pg, 'u_billing')
+    r = await js(pg, """
+      const out = {};
+      for (const [who, num] of [['Rivera', 'EST-2026-D45'], ['Jessop', 'EST-2026-D140'], ['Klein', 'EST-2026-014']]) {
+        const c = DB.clients.find(x => new RegExp(who).test(x.name)), e = c.estimates.find(x => x.number === num);
+        dvOpen('estimate', e.id, c.id); await sleep(300);
+        const m = document.querySelector('#dv [data-dvact="more"]'); m && m.click(); await sleep(150);
+        const all = [...document.querySelectorAll('#dv button')].map(b => (b.className.includes('primary') ? '*' : '') + b.textContent.trim());
+        dvClose();
+        const n0 = c.invoices.length;
+        await docAction(c, e, 'invoice'); await sleep(300);
+        const sheet = !!document.querySelector('#mbm [data-ife]'); try { mbCloseModal(); } catch (x) {}
+        out[num] = { all, made: c.invoices.length - n0, sheet, toast: (document.getElementById('toast') || {}).textContent || '', rtb: jobReadyToBill(e.projectId).rows.filter(r => !r.d || r.d.id === e.id).map(r => [r.kind, r.amount]) };
+      }
+      // the blue on D45 bills the milestone, and no more than it
+      const c = DB.clients.find(x => /Rivera/.test(x.name)), e = c.estimates.find(x => x.number === 'EST-2026-D45'), n0 = c.invoices.length;
+      dvOpen('estimate', e.id, c.id); await sleep(300);
+      const blue = document.querySelector('#dv .dv-bar button.primary'); blue && blue.click(); await sleep(500);
+      const ok = document.querySelector('#mbm #mbm-ok'); ok && ok.click(); await sleep(500); try { mbCloseModal(); } catch (x) {}
+      const n = c.invoices.slice(n0)[0];
+      out.milestone = n ? { num: n.number, lines: r2((n.lines || []).filter(l => !l.retainerLine).reduce((a, l) => a + lineAmount(l, n), 0)) } : null;
+      return out;""")
+    for num, want in (('EST-2026-D45', 'Bill the Milestone'), ('EST-2026-D140', 'Bill Design Hours'), ('EST-2026-014', 'Application')):
+        x = r[num]
+        c.ok(not any('Convert to Invoice' in y for y in x['all']), f"[{tag}] A: {num} offers no Convert to Invoice ({x['all']})")
+        c.ok(any(y.startswith('*') and want in y for y in x['all']), f"[{tag}] A: {num}'s blue is the queue's next step, {want} ({x['all']}, {x['rtb']})")
+        c.ok(x['made'] == 0 and not x['sheet'], f"[{tag}] A: the write refuses a whole-estimate invoice from {num} and says why ({x['toast'][:140]})")
+    m = r['milestone']
+    c.ok(m and abs(m['lines'] - 17080) < 1, f"[{tag}] A: the blue on EST-2026-D45 bills the $17,080 filing milestone, no more ({m})")
+    c.ok(not errs, f'[{tag}] A: page errors: {errs[:2]}')
+    await b.close()
+
+
+async def r2_revise(p, c):
+    """Round 2, B: a revision that changes no amount changes nothing in the ledger; August is identical after revising
+    each kind of sent invoice, and an amount change posts the difference in the open month."""
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_billing')
+    r = await js(pg, REVISE_JS)
+    for x in r['out']:
+        c.ok(x.get('st') in ('sent', 'paid') and x['orig'] == 'void', f"B: {x['num']} revised and sent ({x})")
+        c.ok(x['date'] == x['odate'] and x['date'] <= x['due'], f"B: {x['rev']} keeps {x['num']}'s accounting date, not after its due date ({x['date']}, {x['odate']}, due {x['due']})")
+        c.ok(not x['journals'], f"B: {x['rev']} posts and reverses nothing ({x['journals']})")
+        c.ok(x['aug'], f"B: August is unchanged after revising {x['num']}")
+    c.ok(r['before'] == r['after'], f"B: August after all revisions is August before ({r['before'][:200]} | {r['after'][:200]})")
+    # an amount change: posted in the open month as the difference; August unchanged
+    r = await js(pg, """
+      const aug = () => JSON.stringify(glBalances({ from: '2026-08-01', to: '2026-08-31' }));
+      const c = DB.clients.find(x => x.id === 'cl121'), live = c.invoices.find(i => /^INV-2026-035/.test(i.number) && !['void', 'draft'].includes(i.status));
+      const a0 = aug(), s0 = glBalances({ from: '2026-09-01', to: '2026-09-30' })['4100'];
+      const n = dvRevise(c, live, 'one line billed 1% more'); const l = n.lines.find(x => +x.pct > 0); l.pct = r2(+l.pct + 1);
+      await docAction(c, n, 'send'); await sleep(300);
+      const w = document.querySelector('#mbm [data-f="why"]');
+      if (w) { w.value = 'agreed with the client'; w.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#mbm #mbm-ok').click(); await sleep(400); }
+      try { mbCloseModal(); } catch (e) {} try { glSync(); } catch (e) {}
+      const s1 = glBalances({ from: '2026-09-01', to: '2026-09-30' })['4100'];
+      return { aug: aug() === a0, st: n.status, date: n.date, sep: r2((s1 ? s1.bal : 0) - (s0 ? s0.bal : 0)), diff: r2(l.scheduled * 0.01), why: n.status === 'draft' ? (document.getElementById('toast') || {}).textContent : '' };""")
+    c.ok(r['aug'] and r['st'] == 'sent', f"B: a revision that changes an amount leaves August as it was ({r})")
+    c.ok(abs(r['sep'] - r['diff']) < 1, f"B: September takes only the difference, in revenue ({r['sep']} against {r['diff']})")
+    c.ok(not errs, f'B: page errors: {errs[:2]}')
+    await b.close()
+
+
+async def r2_co(p, c, phone):
+    """Round 2, C: Bill It on a change order puts its lines on the open application, visible, and an approved change
+    order with nothing billed stays in Ready to Bill until it is."""
+    tag = 'phone' if phone else 'desktop'
+    b, pg, errs = await open_app(p, phone=phone)
+    await sign_in(pg, 'u_billing')
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121'), co2 = c.changeOrders.find(x => x.number === 'CO-2026-002'), co1 = c.changeOrders.find(x => x.number === 'CO-2026-001');
+      await docAction(c, co2, 'approve'); await sleep(300); try { mbCloseModal(); } catch (e) {}
+      const held0 = readyToBill().held.filter(h => h.sv && h.sv.coId === co2.id).map(h => h.amount);
+      const lines = () => (c.invoices.find(i => i.mode === 'sov' && i.status === 'draft') || { lines: [] }).lines.filter(l => /^CO-/.test(l.item)).map(l => l.item.slice(0, 11) + ':' + l.pct);
+      dvOpen('co', co1.id, c.id); await sleep(200); dvAct('billco'); await sleep(400);
+      const a = lines();
+      dvOpen('co', co2.id, c.id); await sleep(200); dvAct('billco'); await sleep(400);
+      const t = (document.getElementById('toast') || {}).textContent || '', bb = lines();
+      const drafts = c.invoices.filter(i => i.mode === 'sov' && i.status === 'draft').length;
+      clientOpen = c.id; docOpen = { kind: 'invoice', id: c.invoices.find(i => i.mode === 'sov' && i.status === 'draft').id }; dvEditing = docOpen.id; view = 'billing'; render(); await sleep(300);
+      const shown = [...document.querySelectorAll('[data-line]')].map(x => x.textContent + ' ' + [...x.querySelectorAll('input')].map(i => i.value).join(' ')).filter(x => /CO-2026-00/.test(x)).length;
+      const after = lines();
+      const held1 = readyToBill().held.filter(h => h.sv && h.sv.coId === co2.id).map(h => h.amount);
+      return { held0, a, b: bb, t, drafts, shown, held1, after };""")
+    c.ok(r['held0'] == [1850], f"[{tag}] C: CO-2026-002 approved with nothing billed is in Ready to Bill, held with its $1,850 ({r['held0']})")
+    c.ok(r['drafts'] == 1 and any(x.startswith('CO-2026-001') for x in r['b']) and any(x.startswith('CO-2026-002') for x in r['b']), f"[{tag}] C: both change orders' lines are on the one open application when Bill It is pressed ({r['b']})")
+    c.ok('added to' in r['t'] and 'Open' in r['t'], f"[{tag}] C: the toast says the lines were added, with Open ({r['t'][:140]})")
+    c.ok(r['shown'] >= 2, f"[{tag}] C: the lines show on the draft ({r['shown']})")
+    c.ok(r['held1'] == [1850] or any(x.startswith('CO-2026-002') and not x.endswith(':0') for x in r['after']), f"[{tag}] C: until it is billed it stays in Ready to Bill ({r['held1']}, {r['after']})")
+    c.ok(not errs, f'[{tag}] C: page errors: {errs[:2]}')
+    await b.close()
+
+
+async def r2_credit(p, c):
+    """The controller's ruling: applying credit never edits the payment; a linked application pair with its own
+    posting and an audit row naming the payment; undone by a reversal; the bank tie and the audit chain hold."""
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_billing')
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121'), paid = c.invoices.find(i => i.number === 'INV-2026-035'), open = c.invoices.find(i => i.number === 'INV-2026-038');
+      dvCreditCreate(c, paid, [{ lineId: paid.lines[0].id, amount: 1000 }], 'tile allowance credited');
+      const src = c.payments.filter(p => p.unapplied && +p.amount > 0).slice(-1)[0], snap = JSON.stringify(src);
+      const lines0 = JSON.stringify((DB.txns || []).map(t => payLineUse(t).used)), v0 = auditVerify().ok, onacct0 = clientCredit(c).onAccount;
+      const R = clientCreditApply(c, open, 500); save(); try { glSync(); } catch (e) {}
+      const made = c.payments.filter(p => p.creditApply === src.id);
+      const app = made.find(p => !p.unapplied), j = ((DB.gl || {}).journals || []).find(x => x.key === 'pay:' + (app && app.id));
+      const a = (DB.audit || []).filter(x => x.refId === src.id && x.action === 'credit-applied');
+      await sleep(50);
+      const mid = { same: JSON.stringify(src) === snap, made: made.map(p => [p.amount, !!p.unapplied, p.date]), j: j ? j.lines.map(l => l.acct + ':' + l.dr + '/' + l.cr) : null, audit: a.length, C: clientCredit(c), paid: invoicePaid(c, open),
+        lines: JSON.stringify((DB.txns || []).map(t => payLineUse(t).used)) === lines0, v: auditVerify().ok, v0 };
+      const U = payReverse(c, app, 'applied to the wrong invoice'); save(); await sleep(50);
+      return { onacct0, R, mid, undo: { ok: U.ok, C: clientCredit(c), paid: invoicePaid(c, open), same: JSON.stringify(Object.assign({}, src)) === snap, v: auditVerify().ok } };""")
+    m = r['mid']
+    c.ok(r['R']['ok'] and m['same'], f"ruling: the ${r['onacct0']:,.0f} payment on account is never edited ({m['same']})")
+    c.ok(sorted(m['made']) == sorted([[-500, True, '2026-09-03'], [500, False, '2026-09-03']]), f"ruling: a linked draw and application dated the day it is applied ({m['made']})")
+    c.ok(m['j'] and len(m['j']) == 2, f"ruling: the application has its own journal ({m['j']})")
+    c.ok(m['audit'] == 1 and m['v'] and m['v0'], f"ruling: the hash-chained trail has a row naming the payment, and verifies before and after ({m['audit']}, {m['v0']}, {m['v']})")
+    c.ok(abs(m['C']['onAccount'] - (r['onacct0'] - 500)) < 0.01 and m['lines'], f"ruling: on account is {r['onacct0']:,.0f} less 500; every bank line backs what it backed ({m['C']}, {m['lines']})")
+    u = r['undo']
+    c.ok(u['ok'] and abs(u['C']['onAccount'] - r['onacct0']) < 0.01 and u['same'] and u['v'], f"ruling: undone by a reversal, the credit is on account again and nothing was edited ({u})")
+    c.ok(not errs, f'ruling: page errors: {errs[:2]}')
+    await b.close()
+
+
+async def r2_small(p, c, phone):
+    """Round 2, D to G."""
+    tag = 'phone' if phone else 'desktop'
+    b, pg, errs = await open_app(p, phone=phone)
+    await sign_in(pg, 'u_billing')
+    # E. credit on account on the client's page and in Receivables' By Client
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121'), paid = c.invoices.find(i => i.number === 'INV-2026-035');
+      dvCreditCreate(c, paid, [{ lineId: paid.lines[0].id, amount: 1000 }], 'tile allowance credited'); save();
+      const C = clientCredit(c);
+      const ar = repAR(), row = (ar.split('By client')[1] || '').includes(c.name);
+      const j = DB.clients.find(x => /Jessop/.test(x.name)); j.payments.push({ id: 'pyx1', date: '2026-09-02', amount: 900, unapplied: true, method: 'Check', ref: '1101', acctId: 'ac1' }); save();
+      const ar2 = repAR(), jrow = (ar2.split('By client')[1] || '').includes(j.name);
+      setView('clients'); clientOpen = j.id; render(); await sleep(400);
+      const tile = (document.querySelector('[data-ydtile="owe"]') || {}).innerText || '';
+      return { C, row, jrow, tile };""")
+    c.ok(r['jrow'], f"[{tag}] E: a client with $900 on account and nothing open has a row in Receivables' By Client ({r['jrow']})")
+    c.ok('$900 credit on account' in r['tile'] or not r['tile'], f"[{tag}] E: the client's They Owe tile says the credit on account ({r['tile'][:100]!r})")
+    # F. typing the amount re-spreads what is applied
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121'), d = c.invoices.find(i => i.number === 'INV-2026-038');
+      paymentAllocate(c, d.id); await sleep(300);
+      const a = document.querySelector('#mbm #py-amt'); a.value = '1000'; a.dispatchEvent(new Event('input', { bubbles: true })); await sleep(100);
+      const applied = [...document.querySelectorAll('#mbm [data-pyalloc]')].reduce((s, i) => s + (+i.value || 0), 0), on = (document.querySelector('#mbm [data-pyalloc="' + d.id + '"]') || {}).value;
+      try { mbCloseModal(); } catch (e) {}
+      return { applied, on };""")
+    c.ok(abs(r['applied'] - 1000) < 0.01 and abs(float(r['on'] or 0) - 1000) < 0.01, f"[{tag}] F: typing $1,000 applies $1,000, to the invoice it was opened for ({r})")
+    # G. Ready to Bill says the figure is before retainage
+    r = await js(pg, "return (readyToBill().rows.find(r => r.kind === 'application') || {}).title || '';")
+    c.ok('before 10% retainage' in r, f"[{tag}] G: Ready to Bill's application row says it is before retainage ({r[:120]})")
+    # G. cancelling the reason sheet from the viewer stays in the viewer
+    o = await open_039(pg)
+    r = await js(pg, """
+      const c = DB.clients.find(x => (x.invoices || []).some(i => i.id === arg)), d = c.invoices.find(i => i.id === arg);
+      d.lines.forEach(l => l.pct = /^Demolition/.test(l.item) ? 10 : 0); save();
+      docOpen = null; dvEditing = null; render(); dvOpen('invoice', d.id, c.id); await sleep(300);
+      dvAct('send'); await sleep(300);
+      const sheet = !!document.querySelector('#mbm [data-f="why"]'); try { mbCloseModal(); } catch (e) {} await sleep(200);
+      return { sheet, dv: !!document.getElementById('dv'), editor: !!(docOpen && docOpen.id === d.id) };""", o)
+    c.ok(r['sheet'] and r['dv'] and not r['editor'], f"[{tag}] G: cancelling the reason sheet from the viewer stays in the viewer ({r})")
+    c.ok(not errs, f'[{tag}] D-G: page errors: {errs[:2]}')
+    await b.close()
+
+
+async def r2_revision_reason(p, c):
+    """Round 2, D: a revision that bills no further than its original's reason covers carries that reason."""
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_billing')
+    o = await open_039(pg)
+    r = await js(pg, """
+      const c = DB.clients.find(x => (x.invoices || []).some(i => i.id === arg)), d = c.invoices.find(i => i.id === arg);
+      d.lines.forEach(l => l.pct = /^Demolition/.test(l.item) ? 10 : 0); save();
+      const F = pbFurther(c, d); d.aheadWhy = { why: 'disposal on mobilisation', by: 'Billing', at: appNowIso(), covers: F.map(x => ({ sovId: x.l.sovId, item: x.l.item, to: x.to, amount: x.amount })) };
+      await docAction(c, d, 'send'); await sleep(300); try { mbCloseModal(); } catch (e) {}
+      const n = dvRevise(c, d, 'wording'); n.memo = 'reworded';
+      await docAction(c, n, 'send'); await sleep(300);
+      const sheet = !!document.querySelector('#mbm [data-f="why"]'); try { mbCloseModal(); } catch (e) {}
+      return { st: n.status, sheet, why: n.aheadWhy && n.aheadWhy.why, from: n.aheadWhy && n.aheadWhy.carriedFrom, num: d.number };""", o)
+    c.ok(r['st'] == 'sent' and not r['sheet'], f"D: the revision billing no further goes out without a new ask ({r})")
+    c.ok(r['why'] == 'disposal on mobilisation' and r['from'] == r['num'], f"D: it carries the original's reason on its own record, linked ({r})")
+    c.ok(not errs, f'D: page errors: {errs[:2]}')
+    await b.close()
+
+
 async def main():
     c = Checks()
     only = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -388,9 +599,19 @@ async def main():
             if only in ('', 's2'):
                 print(f"-- S2 and S3, {'phone' if phone else 'desktop'}")
                 await t_s2(p, c, phone)
+            if only in ('', 'r2'):
+                print(f"-- round 2: A estimates, C change orders, D to G, {'phone' if phone else 'desktop'}")
+                await r2_estimates(p, c, phone)
+                await r2_co(p, c, phone)
+                await r2_small(p, c, phone)
         if only in ('', '1'):
             print('-- 1. a reason does not cover another line')
             await t1_new_line(p, c)
+        if only in ('', 'r2'):
+            print('-- round 2: B revisions, the credit ruling, D the revision reason')
+            await r2_revise(p, c)
+            await r2_credit(p, c)
+            await r2_revision_reason(p, c)
     raise SystemExit(c.done())
 
 asyncio.run(main())

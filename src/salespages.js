@@ -560,7 +560,8 @@ function slClientRender() {
   ].concat(
     mayMoney
       ? [
-          ["owe", "They Owe", ydMoney0(F.outstanding), F.overdue ? `${ydMoney0(F.overdue)} past due` : "none past due", F.overdue],
+          // credit the client holds on the account is said beside what they owe (round 2, S2-E), from the one reader
+          ["owe", "They Owe", ydMoney0(F.outstanding), [F.overdue ? `${ydMoney0(F.overdue)} past due` : "none past due"].concat(((C) => (C.onAccount > 0.005 ? [`${ydMoney0(C.onAccount)} credit on account${C.reserved > 0.005 ? `, ${ydMoney0(C.reserved)} of it held for a refund` : ""}`] : []))(clientCredit(c))).join(" · "), F.overdue],
           ["left", "Left to Bill", ydMoney0(left), "the contract less billed, gross", 0],
         ]
       : [],
