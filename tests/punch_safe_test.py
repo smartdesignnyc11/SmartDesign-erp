@@ -125,6 +125,10 @@ async def s_home(pg, c):
     await pg.evaluate(CLEAR)
     r = await tick(pg, SITE, '2026-09-03T07:02:00')
     pid = r.get('id')
+    # the automatic punch asks for its estimate line on the Clock page, without blocking the punch (the labour lane's picker)
+    await go(pg, 'time')
+    pk = await text(pg, '.view.on .lab-pick')
+    c.ok(r.get('did') == 'in' and 'What Are You Working On?' in pk, f'home: the automatic punch is made, and the Clock page asks for its line ({pk[:80]!r})')
     await tick(pg, SITE, '2026-09-03T16:30:00')
     r = await tick(pg, FAR, '2026-09-03T19:05:00')
     e = await pg.evaluate(E, pid)
@@ -436,6 +440,19 @@ async def s_routes(pg, c):
     await sign_in(pg, 'u_alan'); await go(pg, 'time')
     r = await pg.evaluate("ids => ids.map(id => { const t = DB.time.find(x => x.id === id); try { timeAction(t, 'approve'); } catch (e) {} try { mbCloseModal(); } catch (e) {} return [id, t.status]; })", BAD)
     c.ok(all(x[1] != 'approved' for x in r), f"routes: the PM's drawer Approve refuses them ({r})")
+    # the Approvals page and the PM's Today: every Approve on a card that names Satish (em4), and Approve All Hours
+    for v in ('mapprove', 'today'):
+        await go(pg, v)
+        # each card for one of them (its own words carry the date), whatever its button says, and Approve All Hours
+        n = await pg.evaluate("""() => { const card = b => { let x = b; for (let i = 0; i < 6 && x; i++, x = x.parentElement) if (/hours for/.test(x.innerText || '')) return x; return null; };
+          const B = [...document.querySelectorAll('.view.on button, .view.on a.btn')].filter(b => b.getClientRects().length && (b.id === 'mappr-allhours' || (/^(Approve|Open)/.test((b.innerText || '').trim()) && card(b) && /Satish/.test(card(b).innerText) && /8\\/30|9\\/2|9\\/3/.test(card(b).innerText) && card(b).innerText.length < 400)));
+          const say = B.map(b => (b.innerText || '').trim());
+          B.forEach(b => { try { b.click(); } catch (e) {} try { closeEditor(); } catch (e) {} }); try { mbCloseModal(); } catch (e) {} return say; }""")
+        await pg.wait_for_timeout(400)
+        await pg.evaluate(CLOSE)
+        r = await pg.evaluate("ids => ids.map(id => [id, DB.time.find(x => x.id === id).status])", BAD)
+        c.ok(all(x[1] != 'approved' for x in r), f"routes: the {v} page's buttons on their cards ({n}) leave them unapproved ({r})")
+        c.ok(len(n) >= 2 and 'Open' in n, f'routes: the {v} page shows their cards, and a held or over-16-hour one offers Open, not Approve ({n})')
     await pg.evaluate("() => { timeFilter = 'all'; render(); }")
     await pg.evaluate("() => { const b = document.getElementById('time-approve-all'); b && b.click(); }")
     await pg.wait_for_timeout(300)

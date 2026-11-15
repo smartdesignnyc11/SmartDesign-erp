@@ -1370,3 +1370,18 @@ esAdd({
   "Buy at {x}": "Comprar en {x}",
   "{n} flagged": "{n} con aviso",
 });
+// the line picker at clock-in (the labour rules, Alan 11-15); not yet reviewed by Jeanette
+esAdd({
+  "What Are You Working On?": "¿En Qué Estás Trabajando?",
+  "Pick the line of the estimate. Your hours go to its budget.": "Escoge la línea del presupuesto. Tus horas van a ese presupuesto.",
+  "More Lines": "Más Líneas",
+  "Working on": "Trabajando en",
+  Change: "Cambiar",
+  "Other Work": "Otro Trabajo",
+  "Say in a few words what you are doing. The PM puts the hours on the right line.": "Di en pocas palabras qué estás haciendo. El PM pone las horas en la línea correcta.",
+  "What Are You Doing?": "¿Qué Estás Haciendo?",
+  "e.g. moving the dumpster": "p. ej. mover el contenedor",
+  "Say what you are doing": "Di qué estás haciendo",
+  "Your hours go to {x}": "Tus horas van a {x}",
+  "Noted. The PM puts these hours on a line.": "Anotado. El PM pone estas horas en una línea.",
+});

@@ -43,6 +43,12 @@ SCREEN = {
       return { how: 'Ready to Bill (readyToBill, the Billing tile)', n: R.rows.length, total: Math.round(R.amount * 100) / 100,
                held: R.held.length, heldTotal: H.sum(R.held, h => h.amount), items: R.rows.map(r => H.short(r.p)) };
     }""",
+    # Billing's Collections: the open invoices, client by client (billing review 11-15: "who owes us money" was answered
+    # with vendor returns)
+    'owed': r"""async () => {
+      const C = acCollections(), names = [...new Set(C.rows.map(r => r.c.name))];
+      return { how: 'Collections (acCollections, Billing)', n: names.length, invoices: C.rows.length, total: C.open, items: names };
+    }""",
     # Tasks, filter Owed to the Client, for the Kleins (the list the answer's Open lands on)
     'promises': r"""async () => {
       const c = H.C('Klein');
@@ -59,6 +65,9 @@ FAMILIES = [
         "what haven't we billed", 'what have we not billed', "what's not billed", 'what is not invoiced',
         "what haven't we invoiced yet", 'work done not billed', 'unbilled work', 'what is unbilled',
         'what work is done but not billed', "what hasn't been billed", 'what should we invoice today', 'what is ready to bill']),
+    dict(id='owed', roles=['u_owner', 'u_billing', 'u_controller'], nums=['n', 'invoices', 'total'], says='total', qs=[
+        'who owes us money', 'who owes us', 'Who owes us money?', 'which clients owe us money', 'who has not paid us',
+        'who still owes us', 'who do we need to collect from']),
     dict(id='promises', roles=['u_owner', 'u_alan'], nums=['tasks'], says='n', qs=[
         'what did we promise the Kleins', 'what have we promised the Kleins', 'what do we owe the Kleins',
         'what have we committed to the Kleins', 'what do I owe the Kleins', 'what are we still owing the Kleins',
@@ -70,6 +79,8 @@ NEIGHBOURS = [
     ('u_owner', 'is there a leak in the roof at 121 State', None),
     ('u_owner', 'what do the Kleins owe us', None),
     ('u_owner', 'what do we owe vendors', None),
+    ('u_owner', 'what does Nemo Tile owe us', None),
+    ('u_billing', 'which vendors owe us credits', None),
     ('u_alan', 'what did we tell Angel', None),
     ('u_billing', 'which change orders are approved but not billed', None),
     ('u_owner', "what have we bought for clients that we haven't billed", None),

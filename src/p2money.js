@@ -639,6 +639,12 @@ function vbPayBankField(c, presetInvoiceId, from) {
     };
   sel.addEventListener("change", apply);
   apply();
+  // credit on account is not a deposit: choosing it lets go of the bank line the sheet put forward
+  const meth = m.querySelector("#py-method");
+  meth &&
+    meth.addEventListener("change", () => {
+      "Credit on account" === meth.value && sel.value && ((sel.value = ""), (note.textContent = "Credit on account pays from what the client holds on the account; no bank line goes with it."));
+    });
   const ok = m.querySelector("#mbm-ok");
   if (!ok) return;
   let before = null;
@@ -897,8 +903,9 @@ const pbWords = (A) =>
     let h = base.apply(this, arguments);
     try {
       if (!d || "invoice" !== d.type || "sov" !== d.mode || "void" === d.status || !d.projectId) return h;
-      const A = pbAhead(d.projectId);
-      if (!A.lines.length) return h;
+      const A = pbAhead(d.projectId),
+        F = "draft" === d.status ? pbFurther(c, d) : [];
+      if (!A.lines.length && !F.length) return h;
       A.lines.forEach((l) => {
         const dl = (d.lines || []).find((x) => x.sovId === l.svId);
         if (!dl) return;
@@ -907,7 +914,13 @@ const pbWords = (A) =>
         const b = h.indexOf("</tr>", a);
         b > -1 && (h = h.slice(0, b + 5) + `<tr class="pb-ahead no-doc-print"><td></td><td colspan="9"><span class="small bad-t" data-nocase>Billed ahead: ${esc(l.item)} is ${l.billed}% billed against ${l.pct}% complete${l.depPts ? ` (${l.depPts} points are the deposit)` : ""}, ${money(l.amount)} ahead of the work</span></td></tr>` + h.slice(b + 5));
       });
-      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total"><b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
+      // the lines this draft bills further ahead, by every measure the gate reads (cost included), with the dollars
+      // this period and whether a reason covers them (billing review 11-15, S2-8: the banner never named Demolition)
+      const U = F.length ? new Set(pbUncovered(c, d).map((x) => x.l.id)) : new Set(),
+        fw = F.length
+          ? ` This invoice bills ${F.length} line${1 === F.length ? "" : "s"} further ahead: ${F.map((x) => `${esc(x.l.item)} to ${x.to}% against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period${U.has(x.l.id) ? "" : " (reason given)"}`).join("; ")}.${U.size ? " A reason is asked before it goes out." : ""}`
+          : "";
+      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
     } catch (e) {
       console.warn("billed ahead lines", e);
     }
@@ -949,20 +962,44 @@ function pbFurther(c, d) {
 // (11-14) the viewer's Send met the gate only from inside the send sheet's own Send button: the reason sheet opened
 // there and was closed with the send sheet, so the draft held and could never go out. The gate now asks before the
 // send sheet opens, and the reason resumes the door the person pressed (cont).
-function pbAheadGate(c, d, cont) {
+// A reason covers what it was given for (billing review 11-15, S1-1): the reason was asked once per invoice, so a
+// reason given for Demolition at 10% this period also let it go out at 40% ($8,400 more ahead than the reason was
+// given for). The reason now records each line it covered, how far that line was billed to date and its dollars this
+// period; the gate asks again when any line is billed further than a reason covers, or a new line goes ahead. Every
+// earlier reason stays on the invoice (aheadWhyLog) and in the audit.
+function pbCovered(d, x) {
+  const log = (d.aheadWhyLog || []).concat(d.aheadWhy ? [d.aheadWhy] : []);
+  return log.some((w) => (w.covers || []).some((v) => (v.sovId ? v.sovId === x.l.sovId : v.item === x.l.item) && r2(x.to) <= r2(+v.to || 0) + 0.005));
+}
+function pbUncovered(c, d) {
+  return pbFurther(c, d).filter((x) => !pbCovered(d, x));
+}
+function pbAheadGate(c, d, cont, act) {
   try {
-    if (!d || d.aheadWhy) return !1;
-    const F = pbFurther(c, d);
+    if (!d) return !1;
+    const F = pbUncovered(c, d);
     if (!F.length) return !1;
+    const all = pbFurther(c, d),
+      tot = r2(all.reduce((a, x) => a + x.amount, 0)),
+      sub = { send: "Mark as Sent with the Reason", sent: "Mark as Sent with the Reason", approve: "Approve with the Reason" }[act] || "Send with the Reason";
     billAskWhy(
       `Billed Ahead of the Work: ${esc(d.number || "")}`,
-      `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}`).join("<br>")}<br>Say why these lines bill further ahead of the work. Nothing is changed in what is billed; the reason goes on the invoice's record.`,
-      "Send With the Reason",
+      `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period`).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}Say why these lines bill further ahead of the work (${money(tot)} this period on the lines billed ahead). Nothing is changed in what is billed; the reason goes on the invoice's record.`,
+      sub,
       "e.g. the contract bills the windows on delivery to the shop",
       (w) => {
-        (d.aheadWhy = { why: w, by: vbWho(), at: appNowIso(), lines: F.map((x) => x.l.item) }), save();
+        d.aheadWhy && (d.aheadWhyLog = (d.aheadWhyLog || []).concat([d.aheadWhy]));
+        d.aheadWhy = {
+          why: w,
+          by: vbWho(),
+          at: appNowIso(),
+          lines: all.map((x) => x.l.item),
+          covers: all.map((x) => ({ sovId: x.l.sovId || "", item: x.l.item, to: x.to, pct: x.pct, amount: x.amount })),
+          amount: tot,
+        };
+        save();
         try {
-          audit("invoice", d.id, "billed-ahead", "", F.map((x) => `${x.l.item} ${x.to}%`).join("; "), `${vbWho()}: ${w}`);
+          audit("invoice", d.id, "billed-ahead", "", all.map((x) => `${x.l.item} ${x.to}% (${money(x.amount)})`).join("; "), `${vbWho()}: ${w}`);
         } catch (e) {}
         // after this sheet closes, so the send's own sheet is not closed with it
         setTimeout(cont, 0);
@@ -977,14 +1014,14 @@ function pbAheadGate(c, d, cont) {
 {
   const base = docAction;
   docAction = async function (c, d, a) {
-    if (["send", "sent", "approve", "sendclient"].includes(a) && pbAheadGate(c, d, () => docAction(c, d, a))) return;
+    if (["send", "sent", "approve", "sendclient"].includes(a) && pbAheadGate(c, d, () => docAction(c, d, a), a)) return;
     return base.apply(this, arguments);
   };
 }
 if ("function" == typeof crSendToClient) {
   const base = crSendToClient;
   crSendToClient = async function (c, d) {
-    if (pbAheadGate(c, d, () => crSendToClient(c, d))) return;
+    if (pbAheadGate(c, d, () => crSendToClient(c, d), "sendclient")) return;
     return base.apply(this, arguments);
   };
 }

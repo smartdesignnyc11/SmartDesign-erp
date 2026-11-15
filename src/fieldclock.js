@@ -701,6 +701,7 @@ function tkHoldMount() {
       tkgSwitchMountAll();
       tkOverlapMount();
       tkHoldMount();
+      labPickMount();
     } catch (e) {
       console.warn("field clock", e);
     }
@@ -962,6 +963,500 @@ function tkOverlapResolve(o, pick) {
   save(), render();
   toast(`${tkFirst(o.name)}'s ${fmt(o.date)} hours: ${"both" === pick ? "both kept, without the overlap" : "one punch kept, the other voided"}. Paid on the next run.`, [{ label: "Open", run: () => setView((ROLE_VIEWS[role()] || []).includes("fcrew") ? "fcrew" : "time") }]);
 }
+
+/* ==== two labour rules (Alan, 11-15: "Yes to both"; BACKLOG section 12) ============================================
+   Rule 1. Hours logged, not clocked. Only clocked, approved time is job cost and payroll (jobFin and payrollFromTime
+   read DB.time, never a daily log). Hours a daily log gives an hourly field person (the crew rows of a signed log)
+   with no punch behind them for that person, day and job are rows of ONE flag per job on the job lead's Caught for
+   You (nsJobLead: the job's PM, else the firm's PM, else the owner): "N hours logged, not clocked", Review, and the
+   sheet has one row per person, day and log with Approve as Time and Dismiss. Nothing is cost or pay until a person
+   decides. Approve as Time makes one time entry (source "log", fromLog) carrying who, when (the app's clock) and why;
+   Dismiss records who and why on the log (l.timeDecisions[empId]) and the row does not come back for that log. A log
+   edited after approval makes no second entry: the difference is a row of its own ("changed after approval"), and
+   approving it changes the one entry (or, once that entry is paid, adds a separate entry for the added hours).
+   Hourly or salaried: the employee record says neither (DB.employees carry rate and burden only), so the rule reads
+   emp.payType when a record has one, and otherwise the department (empDept): construction is hourly field time;
+   office and design staff never raise it.
+   Rule 2. Hours on a cost code with no estimate line. Once a field person is on the clock, their Clock page (the
+   foreman's Today) asks which line: the job's estimate and approved change-order lines (jobFinEacLines), most likely
+   first (today's tasks they are on), four at a time, with Other, which asks for a note. Clocked cost that still sits on
+   a code no line carries (jobFin's eacUnlined, the Budget's "Not on an Estimate Line" row) is a proposal on the job
+   lead's Caught for You, and the same buttons on that Budget row: Move to a Line (the likely line picked) or Draft a
+   Change Order. Nothing moves by itself. A move is recorded on each entry (moves: who, when, from, to, why) and keeps
+   its hours; an entry dated in a closed month moves as of the open day (postOn), so the closed month's job cost by
+   code reads as it was reported (timeCodeAt in src/app.js, read by jobFin) and the job's estimate today takes it.
+   Design gate (BACKLOG 1.16): no new store, list, queue or menu item. The flag and the proposal are CATCH entries
+   (Caught for You); the decisions ride on the daily log and the time entry; the line picker is part of the clock.
+--------------------------------------------------------------------------------------------------------------------- */
+const LAB_LIVE = (t) => !!t && !/^(void|rejected)$/.test(String(t.status || ""));
+const labEmp = (id) => (DB.employees || []).find((x) => x.id === id) || null;
+const labJob = (id) => (DB.projects || []).find((p) => p.id === id) || null;
+const labMe = () => ("function" == typeof currentUser ? currentUser() : null) || {};
+const labJobName = (p) => (p ? ("function" == typeof shortName ? shortName(p) : p.project.name) : "the job");
+function labHourly(emp) {
+  if (!emp || !1 === emp.active) return !1;
+  if (emp.payType) return "hourly" === String(emp.payType).toLowerCase();
+  if (emp.salaried) return !1;
+  return "construction" === empDept(emp);
+}
+// Who decides for a job: its lead (the PM named on it, else the firm's PM, else the owner)
+function labLead(p) {
+  let u = null;
+  try {
+    u = tdyUserOf(nsJobLead(p));
+  } catch (e) {}
+  return u || (DB.users || []).find((x) => "owner" === x.role) || null;
+}
+function labMine(p) {
+  const me = labMe(),
+    L = labLead(p);
+  if (!me.id || !["pm", "owner"].includes(role())) return !1;
+  return L ? L.id === me.id || ("owner" === role() && "owner" === L.role) : "owner" === role();
+}
+// ---- Rule 1: every row still to decide, all jobs or one --------------------------------------------------------------
+function labUnclocked(pid) {
+  const out = [];
+  ((DB.field && DB.field.logs) || [])
+    .filter((l) => (!pid || l.projectId === pid) && !/^(draft|void)$/.test(String(l.status || "")))
+    .forEach((l) =>
+      (l.crew || []).forEach((cw) => {
+        if (!cw.empId) return;
+        const emp = labEmp(cw.empId);
+        if (!labHourly(emp)) return;
+        const logged = r2(+cw.hours || 0),
+          D = (l.timeDecisions || {})[cw.empId],
+          rate = laborRate(emp);
+        if (D && "dismissed" === D.kind) return;
+        if (D && "approved" === D.kind) {
+          const diff = r2(logged - (+D.hours || 0));
+          Math.abs(diff) >= 0.25 && out.push({ key: l.id + ":" + cw.empId, kind: "changed", l: l, cw: cw, emp: emp, pid: l.projectId, date: l.date, hours: diff, was: +D.hours || 0, now: logged, timeId: D.timeId, cost: r2(diff * rate) });
+          return;
+        }
+        const clocked = r2((DB.time || []).filter((e) => e.projectId === l.projectId && e.empId === cw.empId && e.date === l.date && LAB_LIVE(e)).reduce((a, e) => a + hoursOf(e), 0)),
+          gap = r2(logged - clocked);
+        gap >= 0.25 && out.push({ key: l.id + ":" + cw.empId, kind: "new", l: l, cw: cw, emp: emp, pid: l.projectId, date: l.date, hours: gap, logged: logged, clocked: clocked, cost: r2(gap * rate) });
+      }),
+    );
+  return out;
+}
+// one job's flag: the hours (each row's, a change after approval by its size), the cost they would carry, who and when
+function labUnclockedSum(pid) {
+  const R = labUnclocked(pid);
+  return {
+    rows: R,
+    hours: r2(R.reduce((a, r) => a + Math.abs(r.hours), 0)),
+    cost: r2(R.reduce((a, r) => a + Math.abs(r.cost), 0)),
+    days: new Set(R.map((r) => r.date)).size,
+    people: [...new Set(R.map((r) => r.cw.name || r.emp.name))],
+  };
+}
+const labHrs = (h) => `${r2(h)} ${1 === r2(h) ? "hour" : "hours"}`;
+const labLogSay = (l) => `daily log of ${fmt(l.date)}${l.signedBy || l.by ? `, by ${l.signedBy || l.by}` : ""}`;
+function labRowHtml(r) {
+  const nm = r.cw.name || r.emp.name,
+    what =
+      "changed" === r.kind
+        ? `<b>${esc(nm)} · ${fmt(r.date)} · log changed after approval</b><span class="small">${r.was} h approved, ${r.now} h on the log now (${r.hours > 0 ? "+" : ""}${r.hours} h) · ${esc(labLogSay(r.l))}</span>`
+        : `<b>${esc(nm)} · ${r.hours} h · ${fmt(r.date)}</b><span class="small">${r.clocked ? `${r.logged} h on the log, ${r.clocked} h clocked · ` : ""}${esc(labLogSay(r.l))} · about ${money(r.cost)}</span>`;
+  return `<div class="f-row lab-row" data-labrow="${esc(r.key)}" data-h="${Math.abs(r.hours)}"><div class="grow">${what}</div><div class="lab-acts"><button type="button" class="btn sm" data-labok="${esc(r.key)}">Approve as Time</button><button type="button" class="btn sm" data-labno="${esc(r.key)}">Dismiss</button></div></div>`;
+}
+function labUnclockedSheet(pid) {
+  const p = labJob(pid),
+    U = labUnclockedSum(pid);
+  if (!U.rows.length) return toast(`Nothing logged and not clocked on ${labJobName(p)}`), null;
+  const m = mbModal(
+    `Logged, Not Clocked: ${esc(labJobName(p))}`,
+    `<p class="small muted" style="margin:0 0 8px">${labHrs(U.hours)} logged, not clocked. Only clocked, approved time is job cost and payroll: these hours are on daily logs with no punch behind them, and nothing is costed or paid until you decide. Approve as Time makes the time entry; Dismiss keeps them out.</p><div class="lab-rows">${U.rows.map(labRowHtml).join("")}</div>`,
+    { submit: null },
+  );
+  m && (m.querySelectorAll("[data-labok]").forEach((b) => (b.onclick = () => labApproveSheet(b.dataset.labok))), m.querySelectorAll("[data-labno]").forEach((b) => (b.onclick = () => labDismissSheet(b.dataset.labno))));
+  const c = m && m.querySelector("#mbm-cancel");
+  c && (c.textContent = "Close");
+  return m;
+}
+function labRowOf(key) {
+  const l = ((DB.field && DB.field.logs) || []).find((x) => x.id === String(key).split(":")[0]);
+  return (l && labUnclocked(l.projectId).find((r) => r.key === key)) || null;
+}
+function labApproveSheet(key) {
+  const r = labRowOf(key);
+  if (!r) return toast("That row is already decided"), null;
+  const p = labJob(r.pid),
+    L = r.kind === "new" ? labLines(p) : [],
+    best = L.length ? labLikely(p, `${r.cw.trade || ""} ${r.emp.role || ""}`, L) : null,
+    nm = r.cw.name || r.emp.name;
+  return mbModal(
+    `Approve as Time: ${esc(nm)}, ${esc(fmt(r.date))}`,
+    `<p class="small muted" style="margin:0 0 8px">${
+      "changed" === r.kind
+        ? `The ${esc(labLogSay(r.l))} now says ${r.now} h; ${r.was} h were approved. Approving changes that one time entry to ${r.now} h: nothing is counted twice.`
+        : `${r.hours} h on the ${esc(labLogSay(r.l))}, with no punch behind them. Approving makes a time entry: the hours are job cost and go to payroll, at ${esc(nm)}'s rate, with overtime worked out from the entry.`
+    }</p>${mbF("Why", `<input data-f="why" value="Worked as the log says; confirmed with ${esc(r.l.signedBy || r.l.by || "the foreman")}">`)}${
+      L.length ? mbF("Estimate Line", `<select data-f="line">${L.map((x) => `<option value="${esc(x.key)}" ${best && best.key === x.key ? "selected" : ""}>${esc(x.name)}</option>`).join("")}<option value="">Not on a line yet</option></select>`) : ""
+    }`,
+    { submit: "Approve as Time", onSubmit: (f) => (f.why ? (labApprove(key, f.why, f.line), !0) : (toast("Say why the hours are right"), !1)) },
+  );
+}
+function labDismissSheet(key) {
+  const r = labRowOf(key);
+  if (!r) return toast("That row is already decided"), null;
+  const nm = r.cw.name || r.emp.name;
+  return mbModal(
+    `Dismiss: ${esc(nm)}, ${esc(fmt(r.date))}`,
+    `<p class="small muted" style="margin:0 0 8px">The ${Math.abs(r.hours)} h stay out of job cost and payroll, and this row does not come back for this log. Your name and reason are kept on the log.</p>${mbF("Why", '<input data-f="why" placeholder="e.g. was at the yard, not on site">')}`,
+    { submit: "Dismiss", onSubmit: (f) => (f.why ? (labDismiss(key, f.why), !0) : (toast("Say why the hours are not right"), !1)) },
+  );
+}
+const labHm = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(Math.round(min % 60)).padStart(2, "0")}`;
+function labApprove(key, why, lineKey) {
+  const r = labRowOf(key);
+  if (!r) return null;
+  const me = labMe(),
+    at = appNowIso(),
+    p = labJob(r.pid),
+    l = r.l,
+    D0 = (l.timeDecisions = l.timeDecisions || {})[r.cw.empId],
+    nm = r.cw.name || r.emp.name;
+  let e = null;
+  if ("changed" === r.kind) {
+    const te = (DB.time || []).find((t) => t.id === (D0 && D0.timeId));
+    if (te && !te.payrollId) {
+      const h0 = hoursOf(te),
+        h1 = r2(h0 + r.hours);
+      if (h1 <= 0) return toast("The log now has no hours for this person: reject the entry instead"), null;
+      te.out = `${te.date}T${labHm(hmToMin(String(te.in).slice(11, 16)) + Math.round(h1 * 60))}:00`;
+      (te.work || []).forEach((w) => (w.hours = r2((+w.hours || 0) * (h1 / (h0 || h1)))));
+      (te.changes = te.changes || []).push({ from: h0, to: h1, by: me.name || "", at: at, why: why });
+      te.fromLog.hours = r.now;
+      e = te;
+    } else if (r.hours > 0) e = labMakeEntry(r, r.hours, why, te ? te.line : lineKey, te ? te.id : "");
+    else return toast("Those hours are already paid: correct them on the next pay run"), null;
+  } else e = labMakeEntry(r, r.hours, why, lineKey, "");
+  // a time entry made from the log passes the one pay guard like any other (timePayBlock: over 16 hours, say)
+  const pay = e && "function" == typeof timePayBlock ? timePayBlock(e) : "";
+  if (pay) {
+    e.id && !e.adjOf && "changed" !== r.kind && (DB.time = (DB.time || []).filter((t) => t !== e));
+    return toast(pay), null;
+  }
+  l.timeDecisions[r.cw.empId] = { kind: "approved", by: me.name || "", at: at, why: why, timeId: e.adjOf ? D0.timeId : e.id, hours: r.kind === "new" ? r2((+r.clocked || 0) + r.hours) : r.now };
+  try {
+    audit("time", e.id, "approved-from-log", null, { logId: l.id, empId: r.cw.empId, hours: hoursOf(e), why: why }, me.name || "");
+  } catch (x) {}
+  save(), render();
+  toast(`Approved as time: ${nm}, ${"changed" === r.kind ? `${r.now} h` : `${r.hours} h`} on ${fmt(r.date)} at ${labJobName(p)}. It is job cost now and goes to payroll.`, [{ label: "Open", run: () => openTime(e.id) }]);
+  return e;
+}
+function labMakeEntry(r, hours, why, lineKey, adjOf) {
+  const me = labMe(),
+    p = labJob(r.pid),
+    day = r.date,
+    // after the person's last punch that day, else at the site's start: never over a punch already there
+    last = (DB.time || []).filter((t) => t.empId === r.cw.empId && t.date === day && t.out && LAB_LIVE(t)).sort((a, b) => String(b.out).localeCompare(String(a.out)))[0],
+    start0 = last ? hmToMin(String(last.out).slice(11, 16)) : hmToMin(siteHours(p).start),
+    mins = Math.round(hours * 60),
+    start = Math.max(0, Math.min(start0, 24 * 60 - 1 - mins)),
+    x = lineKey ? labLines(p).find((k) => k.key === lineKey) : null,
+    code = x ? x.code : "",
+    e = {
+      id: uid("te"),
+      empId: r.cw.empId,
+      date: day,
+      in: `${day}T${labHm(start)}:00`,
+      out: `${day}T${labHm(start + mins)}:00`,
+      breakMin: 0,
+      projectId: r.pid,
+      code: code,
+      line: x ? x.key : "",
+      notes: `From the ${labLogSay(r.l)}: ${hours} h logged, not clocked`,
+      status: "approved",
+      approvedBy: me.name || "",
+      approvedAt: appNowIso(),
+      approveWhy: why,
+      source: "log",
+      fromLog: { logId: r.l.id, empId: r.cw.empId, hours: r.kind === "new" ? r.logged : r.now },
+      work: [{ projectId: r.pid, code: code, hours: r2(hours), note: "" }],
+    };
+  adjOf && (e.adjOf = adjOf);
+  DB.time.push(e);
+  return e;
+}
+function labDismiss(key, why) {
+  const r = labRowOf(key);
+  if (!r) return;
+  const me = labMe(),
+    l = r.l,
+    nm = r.cw.name || r.emp.name,
+    D0 = (l.timeDecisions = l.timeDecisions || {})[r.cw.empId];
+  l.timeDecisions[r.cw.empId] = Object.assign({}, D0 && "approved" === D0.kind ? { timeId: D0.timeId } : {}, { kind: "dismissed", by: me.name || "", at: appNowIso(), why: why, hours: Math.abs(r.hours) });
+  try {
+    audit("dailylog", l.id, "logged-hours-dismissed", null, { empId: r.cw.empId, hours: Math.abs(r.hours), why: why }, me.name || "");
+  } catch (x) {}
+  save(), render();
+  toast(`Dismissed: ${nm}'s ${Math.abs(r.hours)} h on the ${fmt(r.date)} log stay out of cost and payroll`, [{ label: "Open", run: () => ("function" == typeof dlOpen ? dlOpen(l.id) : setView("field")) }]);
+}
+CATCH.push({
+  name: "loggedNotClocked",
+  label: "Logged, Not Clocked",
+  rows() {
+    if (!["pm", "owner"].includes(role())) return [];
+    return (DB.projects || [])
+      .filter((p) => !p.archived && labMine(p))
+      .map((p) => ({ p: p, U: labUnclockedSum(p.id) }))
+      .filter((x) => x.U.rows.length)
+      .map(({ p, U }) => ({
+        key: "lognc:" + p.id,
+        what: `${labHrs(U.hours)} logged, not clocked: ${labJobName(p)}`,
+        sub: `${U.people.join(", ")} · ${U.days} ${1 === U.days ? "day" : "days"} · about ${money(U.cost)} not in cost or payroll until you approve as time, or dismiss`,
+        amount: U.cost,
+        verb: "Review",
+        run: () => labUnclockedSheet(p.id),
+      }));
+  },
+});
+
+// ---- Rule 2: the job's lines, the likely one, the picker at clock-in --------------------------------------------------
+function labLines(p) {
+  if (!p) return [];
+  try {
+    return (jobFinEacLines(jobFin(p), p) || []).map((x) => ({ key: x.key, code: String(x.code || ""), name: x.name, budget: +x.budget || 0, room: r2((+x.budget || 0) - (+x.actual || 0) - (+x.committed || 0)), doc: x.doc }));
+  } catch (e) {
+    return [];
+  }
+}
+const LAB_STOP = new Set(["and", "the", "with", "for", "work", "crew", "hours", "rough", "finish"]);
+const labWords = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 2 && !LAB_STOP.has(w))
+    .map((w) => w.replace(/(ing|s)$/, ""));
+// the line a piece of work most likely belongs to: the most words in common, then the most budget left
+function labLikely(p, text, L0) {
+  const L = L0 || labLines(p),
+    w = labWords(text);
+  if (!L.length) return null;
+  const score = (x) => labWords(x.name).filter((a) => w.includes(a)).length;
+  return L.slice().sort((a, b) => score(b) - score(a) || b.room - a.room)[0];
+}
+// the picker's order: the lines of today's tasks this person is on, then the rest as the estimate lists them
+function labPickOrder(e, p) {
+  const L = labLines(p),
+    first = [];
+  try {
+    withProject(p, () =>
+      (fActive(e.date || today()) || [])
+        .filter((t) => "function" != typeof f3WorkedOn || f3WorkedOn(t, e, p))
+        .forEach((t) => {
+          const x = tpTaskLine(p, t),
+            k = x && L.find((l) => l.key === x.key);
+          k && !first.includes(k) && first.push(k);
+        }),
+    );
+  } catch (x) {}
+  return first.concat(L.filter((l) => !first.includes(l)));
+}
+let labPickAll = !1;
+function labPickHtml(e, p) {
+  const L = labPickOrder(e, p);
+  if (!L.length) return "";
+  if (e.line || e.lineOther) {
+    const x = L.find((l) => l.key === e.line);
+    return `<div class="lab-pick lab-on"><div class="small"><span>Working on</span> <b data-verbatim>${esc(x ? x.name : e.lineOther)}</b></div><button type="button" class="btn sm" data-labchange>Change</button></div>`;
+  }
+  const show = labPickAll ? L : L.slice(0, 4);
+  return `<div class="lab-pick"><b class="lab-q">What Are You Working On?</b><div class="small muted">Pick the line of the estimate. Your hours go to its budget.</div><div class="lab-chips">${show
+    .map((l) => `<button type="button" class="btn lab-chip" data-labline="${esc(l.key)}"><span data-verbatim>${esc(l.name)}</span></button>`)
+    .join("")}${L.length > show.length ? '<button type="button" class="btn lab-chip" data-labmore>More Lines</button>' : ""}<button type="button" class="btn lab-chip" data-labother>Other</button></div></div>`;
+}
+function labPickSet(e, key, note) {
+  const p = labJob(e.projectId),
+    x = key ? labLines(p).find((l) => l.key === key) : null,
+    me = labMe();
+  if (x) (e.line = x.key), (e.code = x.code), delete e.lineOther;
+  else (e.lineOther = note), (e.line = ""), (e.code = "");
+  e.linePick = { at: appNowIso(), by: me.name || "", how: "clock-in" };
+  try {
+    audit("time", e.id, "line-picked", null, x ? { line: x.key, code: x.code } : { other: note });
+  } catch (y) {}
+  labPickAll = !1;
+  save(), render();
+  toast(x ? `Your hours go to ${x.name}` : "Noted. The PM puts these hours on a line.", [{ label: "Open", run: () => openTime(e.id) }]);
+}
+function labOtherSheet(e) {
+  return mbModal("Other Work", `<p class="small muted" style="margin:0 0 8px">Say in a few words what you are doing. The PM puts the hours on the right line.</p>${mbF("What Are You Doing?", '<input data-f="note" placeholder="e.g. moving the dumpster">')}`, {
+    submit: "Save",
+    onSubmit: (f) => (f.note ? (labPickSet(e, "", f.note), !0) : (toast("Say what you are doing"), !1)),
+  });
+}
+// drawn where the person clocks in: the Clock page, the foreman's Today
+function labPickMount() {
+  if (!tkgField()) return;
+  const emp = tkgEmp(),
+    e = emp && (DB.time || []).find((t) => t.empId === emp.id && !t.out && t.projectId);
+  document.querySelectorAll(".view.on .lab-pick").forEach((x) => x.remove());
+  if (!e) return;
+  const p = labJob(e.projectId),
+    html = labPickHtml(e, p);
+  if (!html) return;
+  let host = null;
+  if ("time" === view) {
+    const b = document.querySelector("#v-time #clock-out");
+    host = b && (b.closest(".row") || b.parentNode);
+    host && host.insertAdjacentHTML("afterend", html);
+  } else if ("ftoday" === view) {
+    host = document.querySelector("#ftoday-body .f-hero");
+    host && host.insertAdjacentHTML("beforeend", html);
+  }
+  const box = host && document.querySelector(".view.on .lab-pick");
+  if (!box) return;
+  box.querySelectorAll("[data-labline]").forEach((b) => (b.onclick = () => labPickSet(e, b.dataset.labline)));
+  const more = box.querySelector("[data-labmore]"),
+    other = box.querySelector("[data-labother]"),
+    ch = box.querySelector("[data-labchange]");
+  more && (more.onclick = () => ((labPickAll = !0), render()));
+  other && (other.onclick = () => labOtherSheet(e));
+  ch &&
+    (ch.onclick = () => {
+      delete e.lineOther;
+      e.line = "";
+      render();
+    });
+  try {
+    "function" == typeof esPass && esPass(box);
+  } catch (x) {}
+}
+
+// ---- Rule 2: cost still off a line is a proposal to the job's lead ----------------------------------------------------
+// what is clocked to each code no line carries: the time entries behind jobFin's unlined rows, at jobFin's own rate
+function labOffLine(pid) {
+  const out = [];
+  (DB.projects || [])
+    .filter((p) => !p.archived && (!pid || p.id === pid))
+    .forEach((p) => {
+      let U = null;
+      try {
+        U = jobFin(p).eacUnlined;
+      } catch (e) {}
+      if (!U || !U.rows || !U.rows.length) return;
+      const tu = "function" == typeof payrollTrueUp ? payrollTrueUp() : null;
+      U.rows.forEach((r) => {
+        const T = r.src
+          .filter((s) => /^time:/.test(s))
+          .map((s) => (DB.time || []).find((t) => "time:" + t.id === s))
+          // a punch held for the time he left is not moved to a line until it is confirmed (timeHeld): its hours are
+          // not known yet, and they count 0 meanwhile
+          .filter((t) => LAB_LIVE(t) && !timeHeld(t));
+        if (!T.length) return;
+        const cost = r2(T.reduce((a, t) => a + hoursOf(t) * laborRate(labEmp(t.empId)) * (tu ? +tu(t, labEmp(t.empId)) || 1 : 1), 0)),
+          co = T.map((t) => t.offLineCo).find(Boolean),
+          c = (DB.clients || []).find((x) => x.id === p.clientId),
+          doc = co && c && (c.changeOrders || []).find((d) => d.id === co && "void" !== d.status);
+        out.push({ p: p, code: String(r.code), name: r.name, T: T, hours: r2(T.reduce((a, t) => a + hoursOf(t), 0)), cost: cost, co: doc || null });
+      });
+    });
+  return out;
+}
+function labOffLineSheet(pid, code) {
+  const R = labOffLine(pid).find((x) => x.code === String(code));
+  if (!R) return toast("Nothing clocked off a line there now"), null;
+  const p = R.p,
+    L = labLines(p),
+    best = labLikely(p, `${R.name} ${R.T.map((t) => t.notes || t.lineOther || "").join(" ")}`, L);
+  if (!L.length) return toast(`${labJobName(p)} has no estimate lines yet`), null;
+  const m = mbModal(
+    `Off a Line: ${esc(labJobName(p))}, ${esc(R.name)}`,
+    `<p class="small muted" style="margin:0 0 8px">${r2(R.hours)} crew hours, ${money(R.cost)}, are clocked to cost code ${esc(R.code)} (${esc(R.name)}), which no line of the estimate or an approved change order carries: they cannot be held to a budget or billed. Move them to the line the work belongs to, or draft a change order for the client. Nothing moves until you say.${R.co ? ` ${esc(R.co.number)} is drafted for them: once the client approves it, they are on its line.` : ""}</p><div class="lab-rows">${R.T.map(
+      (t) => `<div class="f-row"><div class="grow"><b>${esc(empName(t.empId))} · ${hoursOf(t)} h · ${esc(fmt(t.date))}</b><span class="small">${esc(t.status)}${isLocked(t.date) ? " · in a closed month: the move posts today" : ""}</span></div></div>`,
+    ).join("")}</div>${mbF("Move to", `<select data-f="line">${L.map((x) => `<option value="${esc(x.key)}" ${best && best.key === x.key ? "selected" : ""}>${esc(x.name)}${best && best.key === x.key ? " (likely)" : ""}</option>`).join("")}</select>`)}${mbF("Why", `<input data-f="why" value="The work is ${esc(R.name.toLowerCase())}, part of this line">`)}`,
+    {
+      submit: "Move to a Line",
+      alt: { label: R.co ? `Open ${esc(R.co.number)}` : "Draft a Change Order", run: () => (R.co ? labOpenCo(R.p, R.co) : labDraftCo(R)) },
+      onSubmit: (f) => (f.line ? (labMoveTime(R, f.line, f.why), !0) : (toast("Pick the line"), !1)),
+    },
+  );
+  return m;
+}
+function labMoveTime(R, key, why) {
+  const p = R.p,
+    x = labLines(p).find((l) => l.key === key);
+  if (!x) return;
+  const me = labMe(),
+    at = appNowIso(),
+    eac0 = jobFin(p).eac;
+  R.T.forEach((t) => {
+    const from = String(t.code || "99"),
+      locked = "function" == typeof isLocked && isLocked(t.date);
+    (t.moves = t.moves || []).push({ from: from, to: x.code, fromLine: t.line || "", toLine: x.key, by: me.name || "", at: at, postOn: locked ? today() : t.date, why: why || "" });
+    t.code = x.code;
+    t.line = x.key;
+    (t.work || []).forEach((w) => (!w.projectId || w.projectId === t.projectId) && String(w.code || "") === from && (w.code = x.code));
+    try {
+      audit("time", t.id, "moved-to-line", { code: from }, { code: x.code, line: x.key, postOn: t.moves[t.moves.length - 1].postOn }, me.name || "");
+    } catch (y) {}
+  });
+  save(), render();
+  const eac1 = jobFin(p).eac;
+  toast(`Moved ${r2(R.hours)} h (${money(R.cost)}) to ${x.name}: ${labJobName(p)}'s estimate at completion is ${money(eac1)}${Math.abs(eac1 - eac0) > 0.005 ? `, was ${money(eac0)}` : ""}`, [
+    { label: "Open", run: () => (setCurrent(p.id), (view = "costs"), render()) },
+  ]);
+}
+function labOpenCo(p, d) {
+  try {
+    (docOpen = { kind: "co", id: d.id }), (view = (ROLE_VIEWS[role()] || []).includes("billing") ? "billing" : "clients"), (billTab = "co"), (clientOpen = p.clientId), render();
+  } catch (e) {}
+}
+function labDraftCo(R) {
+  const p = R.p,
+    c = (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!c) return toast("No client on this job"), null;
+  const per = R.hours ? r2(R.cost / R.hours) : 0,
+    item = `${R.name}: crew hours`,
+    d = newDoc(c, "co", { fields: { title: item, projectId: p.id, lines: [{ id: uid("l"), item: item, desc: `${r2(R.hours)} crew hours clocked to cost code ${R.code} (${R.name}), on no estimate line; at cost, before markup`, qty: r2(R.hours), unit: "hr", rate: per, cost: per, code: R.code, taxable: !1 }] } });
+  d.fromTime = R.T.map((t) => t.id);
+  R.T.forEach((t) => (t.offLineCo = d.id));
+  try {
+    audit("co", d.id, "co-from-hours-off-line", "", d.number, `${r2(R.hours)} h on code ${R.code}`);
+  } catch (e) {}
+  save();
+  labOpenCo(p, d);
+  toast(`${d.number} drafted for ${r2(R.hours)} crew hours on ${R.name}, ${money(R.cost)} at cost. Add the markup, then Send to Client; the hours stay where they are until it is approved.`, [{ label: "Open", run: () => labOpenCo(p, d) }]);
+  return d;
+}
+CATCH.push({
+  name: "offLine",
+  label: "Hours Off a Line",
+  rows() {
+    if (!["pm", "owner"].includes(role())) return [];
+    return labOffLine()
+      .filter((R) => labMine(R.p))
+      .map((R) => ({
+        key: `offline:${R.p.id}:${R.code}`,
+        what: `Cost off a line: ${labJobName(R.p)} · ${R.name}`,
+        sub: `${money(R.cost)} · ${r2(R.hours)} crew hours on code ${R.code}, no estimate line · ${R.co ? `${R.co.number} drafted` : "move to a line, or draft a change order"}`,
+        amount: R.cost,
+        verb: "Review",
+        run: () => labOffLineSheet(R.p.id, R.code),
+      }));
+  },
+});
+
+(() => {
+  const css = `
+.lab-pick{margin-top:10px;display:flex;flex-direction:column;gap:6px;text-align:left;flex:1 1 100%}
+.lab-pick.lab-on{flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap}
+.lab-pick .lab-q{font-size:15px}
+.lab-chips{display:flex;flex-direction:column;gap:8px}
+.lab-chip{min-height:48px;width:100%;justify-content:flex-start;text-align:left;white-space:normal}
+.lab-pick .btn.sm{min-height:44px}
+.lab-row{align-items:center;gap:8px;flex-wrap:wrap}
+.lab-acts{display:flex;gap:8px;flex-wrap:wrap}
+.lab-acts .btn{min-height:40px}
+.lab-nlacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}`;
+  try {
+    const s = document.createElement("style");
+    (s.id = "lab-css"), (s.textContent = css), document.head.appendChild(s);
+  } catch (e) {}
+})();
 
 (() => {
   const css = `

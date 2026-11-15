@@ -77,6 +77,14 @@ table, 21% on its tile and $388,888 on Projects). As the PM and the owner, for e
   INV NO CONTRACT JOB     a job with no contract says "No contract yet" on Projects and shows its cost, never blanks; an
                           hour clocked to it is cost on its row; crew hours on its daily logs that no time entry
                           carries are named with their size
+
+The two labour rules (Alan, 11-15; --figure labour):
+  INV LABOUR              no hour is in job cost without a time entry (a daily log's hours never are) and none is in a
+                          pay run without an approved one; an entry made from a log carries who approved it, when and
+                          why, and moves the job's cost by its own hours only; an entry moved to an estimate line keeps
+                          its hours and amount and the job's cost to date; a closed month's figures (the job's cost by
+                          code, the company's P&L for the month) are identical before and after a move of an entry
+                          dated in it
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -131,23 +139,23 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
+                    'inv_dep': 'invariants', 'inv_credit': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
-                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch'}.get(
+                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_labour': 'labour'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_credit': 'INV CREDIT ONCE', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
          'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ',
-         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER'}
+         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_labour': 'INV LABOUR'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -723,6 +731,35 @@ INV_ONE_JS = INV_SUM + """
     }
   }));
   return out;"""
+
+# No client's credit is used for more than its amount (billing review 11-15, S1-2/3): for every client, what is on
+# account never goes below zero, what refunds proposed against it reserve never exceeds it, and every invoice payment
+# made by credit on account was drawn from credit the client held (applied through clientCreditApply, appliedFrom set).
+# The fixture: a $1,000 credit on the Kleins' paid INV-2026-035 goes on account; a refund of all of it is proposed; then
+# every way of spending it again is tried (Apply Credit on INV-2026-038, the credit write, a second refund).
+INV_CREDIT_JS = """
+  const bad = [], tried = [];
+  const scan = (when) => (DB.clients || []).forEach(c => {
+    const C = clientCredit(c);
+    if (C.onAccount < -0.005) bad.push(`${when}: ${c.name} on account ${C.onAccount}`);
+    if (C.reserved > C.onAccount + 0.005) bad.push(`${when}: ${c.name} reserves ${C.reserved} of ${C.onAccount}`);
+    (c.payments || []).filter(p => p.method === 'Credit on account' && !p.unapplied && +p.amount > 0 && !p.appliedFrom).forEach(p => bad.push(`${when}: ${c.name} paid ${p.amount} by credit from nothing`));
+  });
+  scan('as seeded');
+  const c = DB.clients.find(x => x.id === 'cl121'), paid = c.invoices.find(i => i.number === 'INV-2026-035'), open = c.invoices.find(i => i.number === 'INV-2026-038'), big = c.invoices.find(i => i.number === 'INV-2026-031');
+  const R = dvCreditCreate(c, paid, [{ lineId: paid.lines[0].id, amount: 1000 }], 'xcheck credit');
+  const held = clientCredit(c).available, x = dvRefundable(c, big).find(y => y.banked);
+  const F = x ? dvRefundPropose(c, big, x.p.id, held, 'xcheck refund', false) : { ok: false };
+  tried.push(R.ok, held, F.ok);
+  const before = invoicePaid(c, open);
+  applyCredits(c, open); clientCreditApply(c, open, held);
+  const F2 = x ? dvRefundPropose(c, big, x.p.id, 1, 'xcheck twice', false) : { ok: false };
+  tried.push(r2(invoicePaid(c, open) - before), F2.ok);
+  if (invoicePaid(c, open) > before + 0.005) bad.push(`the reserved credit was applied to ${open.number}`);
+  if (F2.ok) bad.push('the same credit was proposed for refund twice');
+  scan('after the fixture');
+  return { bad, tried };
+"""
 
 INV_BANK_JS = """
   // a fixture that has fooled the matcher before: two equal payments a day apart and one bank line between them;
@@ -1635,6 +1672,71 @@ async def check_onejob(p, R):
         for e in errs[:3]: R.flag('inv_oneeac', f'{who}: page', e[:200], 'no page errors')
         await b.close()
 
+# ---- INV LABOUR (the two labour rules, 11-15). On the seeded books, then after a log row is approved and another
+# dismissed, and after a move to a line (121 State's code-12 hours, and an invented entry in a closed August).
+INV_LABOUR_JS = r"""
+  const live = t => !/^(void|rejected)$/.test(String(t.status || '')), r2x = v => Math.round(100 * v) / 100;
+  const hrsIn = pid => r2x(DB.time.filter(t => t.projectId === pid && live(t)).reduce((a, t) => a + hoursOf(t), 0));
+  const costOnly = () => DB.projects.map(p => { const J = jobFin(p); return { job: p.project.name, hours: r2x(J.hours || 0), clocked: hrsIn(p.id) }; }).filter(x => Math.abs(x.hours - x.clocked) > 0.01);
+  const paidBad = () => DB.time.filter(t => t.payrollId && !/^(approved|paid|locked)$/.test(String(t.status || ''))).map(t => t.id);
+  const logBad = () => DB.time.filter(t => t.source === 'log' && !(t.status === 'approved' && t.approvedBy && t.approvedAt && t.approveWhy)).map(t => t.id);
+  const out = { seeded: { cost: costOnly(), paid: paidBad(), log: logBad() } };
+  // a PM decides two rows on 206 Lenox
+  signIn('u_alan');
+  const p206 = DB.projects.find(p => p.id === 'p206'), c0 = jobFin(p206).actual, R = labUnclocked('p206');
+  const a = R[0], d = R[1];
+  const e = a ? labApprove(a.key, 'xcheck: worked as logged') : null;
+  d && labDismiss(d.key, 'xcheck: not on site');
+  const c1 = jobFin(p206).actual;
+  const run = payrollFromTime({ quiet: true });
+  out.decided = { approved: e ? { h: hoursOf(e), rate: laborRate(DB.employees.find(x => x.id === e.empId)) } : null, cost: [c0, c1],
+    dismissedIn: d ? DB.time.filter(t => t.fromLog && t.fromLog.logId === d.l.id && t.empId === d.cw.empId).length : -1,
+    cost2: costOnly(), paid: paidBad(), log: logBad(), run: !!run };
+  // the move: each entry keeps its hours and amount; the job's cost to date is unchanged
+  const p = DB.projects.find(x => x.id === 'p121'), amt = t => r2x(hoursOf(t) * laborRate(DB.employees.find(x => x.id === t.empId)));
+  const M = labOffLine('p121').find(x => x.code === '12');
+  const before = M ? M.T.map(t => [t.id, hoursOf(t), amt(t)]) : [], act0 = jobFin(p).actual;
+  M && labMoveTime(M, 'estimate:es1:l10', 'xcheck');
+  out.move = { found: !!M, before, after: M ? M.T.map(t => [t.id, hoursOf(t), amt(t)]) : [], act: [act0, jobFin(p).actual], codes: M ? [...new Set(M.T.map(t => t.code))] : [] };
+  // a closed month: an invented August entry, moved after August is closed
+  DB.periods.lockedThrough = '2026-08';
+  DB.time.push({ id: 'te_xcheck_lab', empId: 'em2', date: '2026-08-20', in: '2026-08-20T07:30:00', out: '2026-08-20T11:30:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'approved', approvedBy: 'Alan', source: 'test', work: [{ projectId: 'p121', code: '12', hours: 4, note: '' }] });
+  const AUG = ['2026-08-01', '2026-08-31'], readAug = () => { const J = jobFin(p, AUG), P = companyPL(AUG);
+    return JSON.stringify({ actual: r2x(J.actual), codes: (J.byCode || []).map(r => [r.code, r2x(+r.actual || 0)]).filter(x => x[1]).sort(), income: r2x(P.income || 0), cogs: r2x(P.cogsT || 0), net: r2x(P.net || 0) }); };
+  const aug0 = readAug(), M2 = labOffLine('p121').find(x => x.code === '12');
+  M2 && labMoveTime(M2, 'estimate:es1:l10', 'xcheck');
+  const t2 = DB.time.find(t => t.id === 'te_xcheck_lab');
+  out.closed = { found: !!M2, aug: [aug0, readAug()], code: t2.code, postOn: ((t2.moves || [])[0] || {}).postOn || '' };
+  return out;
+"""
+async def check_labour(p, R):
+    if not R.want('inv_labour'): return
+    def read(surface, ok, seen, expected):
+        R.readings.append({'figure': 'inv_labour', 'surface': surface, 'raw': str(seen)[:300], 'value': None, 'expected': expected, 'ok': ok})
+        if not ok: R.flag('inv_labour', surface, str(seen)[:600], expected)
+        elif R.verbose: print('  ok', label('inv_labour'), '|', surface)
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_owner')
+    x = await pg.evaluate("async () => { try { " + INV_LABOUR_JS + " } catch (e) { return { error: String(e && e.stack || e) }; } }")
+    if x.get('error'):
+        read('the run', False, x['error'], 'runs')
+    else:
+        s = x['seeded']
+        read('as seeded: every job\'s hours in cost are its time entries, never a log', not s['cost'], s['cost'], 'job cost hours = clocked hours, job by job')
+        read('as seeded: no unapproved entry is in a pay run; every entry made from a log names who, when and why', not s['paid'] and not s['log'], [s['paid'], s['log']], 'none')
+        d = x['decided']; a = d['approved']
+        read('a log row approved as time moves the job\'s cost by its own hours only; a dismissed one by nothing',
+             bool(a) and abs((d['cost'][1] - d['cost'][0]) - a['h'] * a['rate']) < 0.02 and d['dismissedIn'] == 0, d, 'cost + hours x burdened rate; no entry for the dismissed row')
+        read('after the decisions and a pay run: hours in cost are time entries; the run holds approved entries only', not d['cost2'] and not d['paid'] and not d['log'] and d['run'], [d['cost2'], d['paid'], d['log'], d['run']], 'none, and a run was built')
+        m = x['move']
+        read("121 State's code-12 hours moved to a line keep each entry's hours and amount and the job's cost to date",
+             m['found'] and m['before'] == m['after'] and abs(m['act'][0] - m['act'][1]) < 0.005 and m['codes'] == ['11'], m, 'identical entries and cost; code 11')
+        cl = x['closed']
+        read('a move of an entry in closed August: August\'s job cost by code and the P&L for August are identical; the move posts on the open day',
+             cl['found'] and cl['aug'][0] == cl['aug'][1] and cl['code'] == '11' and cl['postOn'] == '2026-09-03', cl, 'identical; postOn 2026-09-03')
+    for e in errs[:3]: R.flag('inv_labour', 'page', e[:200], 'no page errors')
+    await b.close()
+
 async def check_invariants(p, R):
     if not R.want('inv_dep'): return
     def read(key, surface, ok, seen, expected):
@@ -1676,6 +1778,13 @@ async def check_invariants(p, R):
         ok = abs(x['held']) < 0.01 and x['open'] == 0
         read('inv_dep', f"{x['client']} {x['est']} ({', '.join(x['deposits'])}), every line billed", ok, f"2400 {x['held']:+,.2f}, {x['open']} lines open", '2400 nets to $0.00')
     for e in errs[:3]: R.flag('inv_dep', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # no client's credit is used for more than its amount (a fresh page: the fixture spends credit)
+    b, pg, errs = await page()
+    cr = await pg.evaluate(js(INV_CREDIT_JS))
+    read('inv_credit', 'every client, as seeded and after a credit is proposed for refund and spent again', not cr['bad'] and cr['tried'][0] and cr['tried'][2], cr, 'no credit used for more than its amount')
+    for e in errs[:3]: R.flag('inv_credit', 'page', e[:200], 'no page errors')
     await b.close()
 
     # every approval stamp has its person's own action in the audit trail: as seeded, and after each approval path runs
@@ -1720,7 +1829,7 @@ async def check_invariants(p, R):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, punch')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, punch, labour')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -1740,6 +1849,7 @@ async def main():
         await check_punch(p, R)
         await check_reports(p, R)
         await check_onejob(p, R)
+        await check_labour(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

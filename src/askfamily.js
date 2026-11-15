@@ -241,6 +241,33 @@ function afPromises(P, subj) {
   };
 }
 
+// ---- owed: who owes us money, the client balances on Collections ------------------------------------------------------
+// "who owes us money" was answered with vendor returns (billing review 11-15, S2-13): the question is the receivables,
+// client by client, in the same rows and number as Billing's Collections (acCollections). What a vendor owes us back is
+// asked by name ("what does Nemo Tile owe us") or as returns and credits.
+function afOwed(P) {
+  const C = "function" == typeof acCollections ? acCollections() : { rows: [], open: 0 },
+    rows = (C.rows || []).filter((r) => !P.clients.length || P.clients.some((c) => r.c && r.c.id === c.id)),
+    by = new Map();
+  rows.forEach((r) => {
+    const x = by.get(r.c.id) || { c: r.c, bal: 0, n: 0, over: 0 };
+    (x.bal = r2(x.bal + r.bal)), x.n++, r.age > 0 && (x.over = r2(x.over + r.bal)), by.set(r.c.id, x);
+  });
+  const L = [...by.values()].sort((a, b) => b.bal - a.bal),
+    tot = afSum(rows, (r) => r.bal);
+  return {
+    headline: L.length
+      ? `${money(tot)} is owed to us by ${agN(L.length, "client")} on ${agN(rows.length, "open invoice")}: ${agList(L.map((x) => `${x.c.name} ${money(x.bal)}${x.over > 0.005 ? ` (${money(x.over)} past due)` : ""}`), 5)}.`
+      : "No client owes us anything on an open invoice.",
+    note: "The same rows as Collections on Billing: each open invoice, its balance and the next reminder (due, 7, 15 and 30 days). What a vendor owes us back is its own question: ask what a vendor owes us.",
+    work: rows.map((r) => `${r.i.number} · ${r.who}: ${money(r.bal)} open · ${r.next}`),
+    go: agGo("billing"),
+    ran: agRan("Collections (acCollections)", P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : [], "client", rows.length),
+    family: "owed",
+    fam: { n: L.length, invoices: rows.length, total: tot },
+  };
+}
+
 // ---- the families, at the head of the first readers --------------------------------------------------------------------
 // re and not are tested on the question as agParse reads it: lowercased, typos read, "haven't" spelt "have not".
 const ASK_FAMILIES = [
@@ -261,6 +288,15 @@ const ASK_FAMILIES = [
     not: /\b(bought|buy|buying|purchas\w*|receipts?|cards?|change orders?|cos?|pos?|purchase orders?|held|hold|holding|design hours|banked|billed us|retainage|deposits?|backlog|hours|vendors?|bills?)\b|\bco-\d|\b(left|remaining|still) to bill\b/,
     ok: (P) => !P.vendors.length && !(P.people || []).filter((e) => e !== P.meEmp).length,
     answer: afUnbilled,
+  },
+  {
+    id: "owed",
+    kind: "money",
+    roles: AF_MONEY,
+    re: /\bwho (owes|owe|still owes) (us|the firm|the company|me)\b|\b(which|what) (clients?|customers?) (owes?|still owes?) (us|the firm|money)\b|\bwho (has not|have not) paid( us)?\b|\bwho is (late|behind) (on paying|paying|on payments?)\b|\bwho do we (need to )?collect from\b/,
+    not: /\b(vendors?|suppliers?|subs?|subcontractors?|returns?|refunds?|credits?)\b/,
+    ok: (P) => !P.vendors.length && !(P.people || []).filter((e) => e !== P.meEmp).length,
+    answer: afOwed,
   },
 ];
 "undefined" != typeof AG_ASST &&
