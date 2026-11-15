@@ -920,7 +920,7 @@ const pbWords = (A) =>
         fw = F.length
           ? ` This invoice bills ${F.length} line${1 === F.length ? "" : "s"} further ahead: ${F.map((x) => `${esc(x.l.item)} to ${x.to}% against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period${U.has(x.l.id) ? "" : " (reason given)"}`).join("; ")}.${U.size ? " A reason is asked before it goes out." : ""}`
           : "";
-      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
+      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}${d.aheadWhy.carriedFrom ? ` (the reason given on ${esc(d.aheadWhy.carriedFrom)}, carried to this revision)` : ""}: ${esc(d.aheadWhy.why)}` : !U.size && F.length && d.revisionOf && pbOrigReason(c, d) ? ` Covered by the reason given on ${esc(pbOrigReason(c, d).number)}: ${esc(pbOrigReason(c, d).aheadWhy.why)}; it goes on this revision's record when it is sent.` : ""}</div>` + h;
     } catch (e) {
       console.warn("billed ahead lines", e);
     }
@@ -967,18 +967,49 @@ function pbFurther(c, d) {
 // given for). The reason now records each line it covered, how far that line was billed to date and its dollars this
 // period; the gate asks again when any line is billed further than a reason covers, or a new line goes ahead. Every
 // earlier reason stays on the invoice (aheadWhyLog) and in the audit.
-function pbCovered(d, x) {
-  const log = (d.aheadWhyLog || []).concat(d.aheadWhy ? [d.aheadWhy] : []);
+// the reasons that stand for an invoice: its own, and those of the invoices it revises (round 2, S2-D: a revision that
+// bills no further than its original's reason covers is covered by it, and carries it on its own record)
+function pbReasons(c, d) {
+  let out = [],
+    o = d;
+  for (let i = 0; o && i < 20; i++) {
+    out = out.concat(o.aheadWhyLog || [], o.aheadWhy ? [o.aheadWhy] : []);
+    const prev = o.revisionOf && c ? (c.invoices || []).find((x) => x.number === o.revisionOf && x.id !== o.id) : null;
+    o = prev;
+  }
+  return out;
+}
+function pbOrigReason(c, d) {
+  let o = d;
+  for (let i = 0; o && o.revisionOf && i < 20; i++) {
+    o = (c.invoices || []).find((x) => x.number === o.revisionOf && x.id !== o.id);
+    if (o && o.aheadWhy) return o;
+  }
+  return null;
+}
+function pbCovered(d, x, c) {
+  const log = c ? pbReasons(c, d) : (d.aheadWhyLog || []).concat(d.aheadWhy ? [d.aheadWhy] : []);
   return log.some((w) => (w.covers || []).some((v) => (v.sovId ? v.sovId === x.l.sovId : v.item === x.l.item) && r2(x.to) <= r2(+v.to || 0) + 0.005));
 }
 function pbUncovered(c, d) {
-  return pbFurther(c, d).filter((x) => !pbCovered(d, x));
+  return pbFurther(c, d).filter((x) => !pbCovered(d, x, c));
 }
 function pbAheadGate(c, d, cont, act) {
   try {
     if (!d) return !1;
     const F = pbUncovered(c, d);
-    if (!F.length) return !1;
+    if (!F.length) {
+      // a revision billing no further than its original's reason covers goes out with that reason on its own record
+      const o = !d.aheadWhy && d.revisionOf ? pbOrigReason(c, d) : null;
+      if (o) {
+        d.aheadWhy = Object.assign({}, o.aheadWhy, { carriedFrom: o.number, carriedAt: appNowIso() });
+        try {
+          audit("invoice", d.id, "billed-ahead", "", o.number, `${d.number} carries ${o.number}'s reason (${o.aheadWhy.by}: ${o.aheadWhy.why}); it bills no further than that reason covers`);
+        } catch (e) {}
+        save();
+      }
+      return !1;
+    }
     const all = pbFurther(c, d),
       tot = r2(all.reduce((a, x) => a + x.amount, 0)),
       sub = { send: "Mark as Sent with the Reason", sent: "Mark as Sent with the Reason", approve: "Approve with the Reason" }[act] || "Send with the Reason";

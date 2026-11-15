@@ -591,7 +591,8 @@ function cxDocHtml(c, d, o) {
       "estimate" === kind && d.validUntil ? `Valid until: ${cxDate(d.validUntil)}` : "",
       d.revisionOf ? `Revises ${esc(d.revisionOf)}` : "",
       // a revision is dated the day it is made; the date of the invoice it replaces stays in print
-      d.revisionOf && d.originalDate && d.originalDate !== d.date ? `Revised ${cxDate(d.date)}, original ${cxDate(d.originalDate)}` : "",
+      // one that changed no amount keeps the original's date as its accounting date (revisedOn is the day it was made)
+      d.revisionOf && d.revisedOn && d.revisedOn !== d.date ? `Revised ${cxDate(d.revisedOn)}, original ${cxDate(d.originalDate || d.date)}` : d.revisionOf && d.originalDate && d.originalDate !== d.date ? `Revised ${cxDate(d.date)}, original ${cxDate(d.originalDate)}` : "",
     ].filter(Boolean);
   let body = "";
   if ("progress" === kind) body = cxPayAppHtml(c, d, re);

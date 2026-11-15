@@ -9990,9 +9990,25 @@ async function docAction(c, d, a) {
       const open = (c.invoices || []).find((i) => "sov" === i.mode && "draft" === i.status && !i.supersededBy && (!d.projectId || !i.projectId || i.projectId === d.projectId));
       if (open) {
         (clientOpen = c.id), (docOpen = { kind: "invoice", id: open.id }), (finTab = "invoices");
+        // the document's own lines go onto the open draft now, visible and editable, at the percent its work is
+        // complete (round 2, S1-C: a change order's lines were added at 0% only as the draft was sent, and the change
+        // order still read approved with nothing billed). The percent is read as a fresh application reads it
+        // (progressPrefill: the line's measured %, else the job's).
         const inLines = new Set((open.lines || []).map((l) => l.sovId)),
-          missing = ("function" == typeof sovLinesFor ? sovLinesFor(c, d) : []).filter((v) => !inLines.has(v.id));
-        const msg = `${open.number} is the open progress application for this job${missing.length ? `; ${d.number}'s ${missing.length} line${1 === missing.length ? "" : "s"} go on the next one, once ${open.number} is sent` : ""}`;
+          missing = ("function" == typeof sovLinesFor ? sovLinesFor(c, d) : []).filter((v) => !inLines.has(v.id)),
+          p = (DB.projects || []).find((x) => x.id === (d.projectId || open.projectId)),
+          jp = p ? +jobFin(p).pct || 0 : 0;
+        const added = missing.map((v) => {
+          const prev = r2(sovBilled(c, v.id)),
+            done = "function" == typeof lineCompletePct ? lineCompletePct(c, v) : null,
+            target = null != done ? done : Math.round(100 * jp),
+            l = { id: uid("l"), sovId: v.id, item: "Contract" === v.source ? v.desc : `${v.source} ${v.desc}`, desc: "", scheduled: +v.scheduled || 0, prevPct: prev, pct: Math.max(0, r2(target - prev)), taxable: !!v.taxable, suggested: !0 };
+          return open.lines.push(l), l;
+        });
+        added.length && (save(), docAudit(c, open, "lines-added", `${d.number}: ${added.map((l) => `${l.item} at ${l.pct}%`).join("; ")}`));
+        const msg = added.length
+          ? `${d.number}'s ${added.length} line${1 === added.length ? "" : "s"} added to ${open.number}, the open application (${added.map((l) => `${l.item} at ${l.pct}% this period`).join("; ")}); check the percent, then Send to Client`
+          : `${open.number} is the open progress application for this job: ${d.number} is on it`;
         "function" == typeof rcToast ? rcToast(msg, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: open.id }), render()) }]) : toast(msg);
       } else {
         const inv = ctProgressInvoice(c, d);
@@ -26295,6 +26311,42 @@ function estContractBilled(c, d) {
     apps = (c.invoices || []).filter((i) => "sov" === i.mode && "void" !== i.status && (i.lines || []).some((l) => ids.has(l.sovId)));
   return apps.length ? { sov: sv, apps: apps, draft: apps.find((i) => "draft" === i.status) || null } : null;
 }
+// What an invoice drafted from an estimate or a change order may bill: what is earned and not yet billed (billing
+// review 11-15, round 2, S1-A). Before, the blue Convert to Invoice drafted EST-2026-D140's whole $191,800 with its
+// $24,000 retainer out, and EST-2026-D45's "at signing" 50% again ($21,350) when the 40% filing milestone ($17,080)
+// is what was earned. The reading is the Billing Queue's (readyToBill, through jobReadyToBill): a signed (converted)
+// estimate bills what its row says, by the row's own step (a design milestone, design hours, a deposit, an
+// application); only a received-materials row bills through this sheet, up to its amount. An approved estimate not yet
+// billed (its first invoice at signing) and an approved change order bill their total less what is already invoiced
+// from them. A retainer or deposit is the client's money held (2400) and applied later: it is not revenue billed, so it
+// never makes more billable; it comes off what is due when the work is invoiced (retainerApplied, applyDepositTo).
+// Returns { cap, row, why }: cap is the most this sheet may bill, row the queue's next step when it is not this sheet.
+function estBillable(c, d) {
+  if (!c || !d) return { cap: 0, why: "Pick the estimate" };
+  const pid = d.projectId,
+    R = pid && "function" == typeof jobReadyToBill ? jobReadyToBill(pid).rows : [],
+    mine = R.filter((r) => r.d && r.d.id === d.id),
+    // in line amounts before discount and tax, as the sheet adds its picks
+    lsum = (x) => (x.lines || []).filter((l) => !l.retainerLine).reduce((a, l) => a + (+lineAmount(l, x) || 0), 0),
+    billedFrom = r2((c.invoices || []).filter((i) => "void" !== i.status && !i.supersededBy && !i.retainerOf && !i.creditMemo && i.fromDoc === d.id).reduce((a, i) => a + lsum(i), 0)),
+    total = r2(lsum(d));
+  if ("estimate" === d.type && ["converted", "billed"].includes(d.status)) {
+    const inv = mine.find((r) => "invoice" === r.act);
+    if (inv) return { cap: r2(inv.amount), row: null, why: `${money(inv.amount)} of received materials is earned and not billed on ${d.number}` };
+    const next = mine[0] || R.find((r) => "application" === r.kind) || null;
+    return next
+      ? { cap: 0, row: next, why: `${d.number} is signed: what is earned and not billed is ${money(next.amount)}, billed by its own step (${next.title || next.kind})` }
+      : { cap: 0, row: null, why: `Nothing on ${d.number} is earned and not billed yet (billed ${money(billedFrom)} of ${money(total)})` };
+  }
+  const left = r2(Math.max(0, total - billedFrom));
+  return left > 0.5 ? { cap: left, row: null, why: `${money(left)} of ${d.number} is not billed yet` } : { cap: 0, row: null, why: `${d.number} is billed in full (${money(billedFrom)})` };
+}
+function estBillableGo(c, d, B) {
+  if (!B.row) return void toast(B.why);
+  const key = blRtbKey(B.row),
+    say = `${B.why}`;
+  "function" == typeof rcToast ? rcToast(say, [{ label: "Bill It", run: () => rtbAct(key) }]) : toast(say);
+}
 function invoiceFromEstimate(c, d) {
   const K = estContractBilled(c, d);
   if (K) {
@@ -26304,6 +26356,9 @@ function invoiceFromEstimate(c, d) {
       [{ label: K.draft ? `Open ${K.draft.number}` : "New Progress Invoice", run: () => (K.draft ? ((clientOpen = c.id), (docOpen = { kind: "invoice", id: K.draft.id }), render()) : docAction(c, d, "progress")) }],
     );
   }
+  // the write itself refuses more than is earned and not billed, whichever button or row opened it
+  const B = estBillable(c, d);
+  if (!(B.cap > 0.5)) return void estBillableGo(c, d, B);
   "construction" === d.template && ctNumber(d);
   const already = {};
   c.invoices
@@ -26327,6 +26382,9 @@ function invoiceFromEstimate(c, d) {
           const pct = Math.max(1, Math.min(100, +$("#ife-pct").value || 100)),
             picks = [...m.querySelectorAll("[data-ife]:checked")].map((cb) => rows[+cb.dataset.ife]);
           if (!picks.length) return toast("Select at least one line"), !1;
+          const want = r2(picks.reduce((a, r) => a + (lineAmount(r.l, d) * pct) / 100, 0)),
+            B2 = estBillable(c, d);
+          if (want > B2.cap + 0.5) return toast(`${money(want)} is more than can be billed: ${B2.why}. Bill ${money(B2.cap)} at most`), !1;
           const inv = newDoc(c, "invoice", { mode: "items" });
           (inv.template = d.template),
             (inv.title =
@@ -32715,23 +32773,31 @@ function clientCreditApply(c, inv, amount) {
   if (!(want > 0.005)) return { ok: !1, why: "Say how much credit to apply" };
   if (want > C.available + 0.005) return { ok: !1, why: `${c.name} has ${money(C.available)} of credit on account${C.reserved > 0.005 ? ` (${money(C.reserved)} more is held for a refund waiting on approval)` : ""}: apply ${money(C.available)} at most` };
   if (want > bal + 0.005) return { ok: !1, why: `${inv.number} owes ${money(bal)}: apply ${money(bal)} at most` };
+  // The controller's ruling (round 2): a payment record is never edited. Each application is a new pair linked to the
+  // unapplied payment it draws on (creditApply), dated the day it is applied: a draw on the account (negative, on
+  // account) and the application on the invoice (positive). The pair nets to zero in every sum; the application
+  // carries the bank standing of the payment it draws on (payBankedAmt) and its own journal (glPaymentLines); its
+  // audit row names the payment. Undoing it is payReverse on the application, which reverses its draw with it.
+  // Records split in place before this (an amount cut and a piece split off, splitFrom) are read as they stand.
   let left = want;
   const by = payWho(),
-    at = appNowIso();
+    at = appNowIso(),
+    room = (py) =>
+      r2((+py.amount || 0) + (c.payments || []).filter((x) => x.creditApply === py.id && x.unapplied && !x.reversalId).reduce((a2, x) => a2 + (+x.amount || 0), 0));
   c.payments
-    .filter((py) => py.unapplied && +py.amount > 0 && !py.reversalId && !py.reverses)
+    .filter((py) => py.unapplied && +py.amount > 0 && !py.reversalId && !py.reverses && !py.creditApply)
     .slice()
     .forEach((py) => {
       if (left <= 0.005) return;
-      const amt = r2(+py.amount || 0);
-      if (amt <= left + 0.005) {
-        Object.assign(py, { unapplied: !1, invoiceId: inv.id, appliedFrom: py.voidedInvoice || "account", appliedAt: at, appliedBy: by });
-        left = r2(left - amt);
-      } else {
-        py.amount = r2(amt - left);
-        c.payments.push({ id: uid("py"), invoiceId: inv.id, date: today(), amount: left, method: py.method || "Credit on account", ref: `Credit from ${py.voidedInvoice || "account"}`, acctId: py.acctId || "", txnId: py.txnId || "", appliedFrom: py.voidedInvoice || "account", splitFrom: py.id, recordedBy: by, recordedAt: at, appliedAt: at, appliedBy: by });
-        left = 0;
-      }
+      const x = r2(Math.min(left, room(py)));
+      if (!(x > 0.005)) return;
+      const app = { id: uid("py"), invoiceId: inv.id, date: today(), amount: x, method: "Credit on account", ref: `Credit from ${py.voidedInvoice || "account"}`, acctId: py.acctId || "", txnId: "credit:" + py.id, creditApply: py.id, appliedFrom: py.voidedInvoice || "account", recordedBy: by, recordedAt: at, note: `${money(x)} of the ${fmtL(py.date)} payment of ${money(+py.amount || 0)} on account, applied to ${inv.number}` },
+        draw = { id: uid("py"), invoiceId: "", unapplied: !0, date: today(), amount: -x, method: "Credit on account", ref: `Applied to ${inv.number}`, acctId: py.acctId || "", txnId: "credit:" + py.id, creditApply: py.id, appId: app.id, recordedBy: by, recordedAt: at, note: `${money(x)} drawn from the account for ${inv.number}` };
+      c.payments.push(draw, app);
+      try {
+        audit("payment", py.id, "credit-applied", String(room(py) + x), String(room(py)), `${money(x)} of ${c.name}'s ${fmtL(py.date)} payment of ${money(+py.amount || 0)} applied to ${inv.number} by ${by} (application ${app.id})`);
+      } catch (e) {}
+      left = r2(left - x);
     });
   const used = r2(want - left);
   r2(docTotal(inv).total - invoicePaid(c, inv)) <= 0.005 && (inv.status = "paid");
@@ -37428,11 +37494,12 @@ function repAR() {
   const promised = r2(rows.filter((r) => r.promise).reduce((a, r) => a + r.bal, 0)),
     credits = r2(DB.clients.reduce((a, c) => a + clientFin(c).credits, 0));
   return `<div class="rep-head"><div><h2 style="margin:0">Receivables</h2><div class="small muted">Every open invoice, who promised what, and what to do next</div></div></div>\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(tot)}</b><span>open · ${rows.length} invoice${1 === rows.length ? "" : "s"}</span></div><div class="kpi"><b>${money(B.current)}</b><span>current</span></div><div class="kpi ${B["1–30"] ? "warn" : ""}"><b>${money(B["1–30"])}</b><span>1–30 days</span></div><div class="kpi ${B["31–60"] ? "warn" : ""}"><b>${money(B["31–60"])}</b><span>31–60 days</span></div><div class="kpi ${B["60+"] ? "bad" : ""}"><b>${money(B["60+"])}</b><span>over 60 days</span></div><div class="kpi"><b>${money(promised)}</b><span>promised · ${money(credits)} credits on account</span></div></div>\n    <div class="tw"><table class="t rep-t ar-t"><thead><tr><th>Client · invoice</th><th>Job</th><th>Due</th><th class="money">Balance</th><th>Age</th><th>Promise</th><th>Last contact</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr class="${r.age > 60 ? "bad" : ""}"><td><b>${esc(r.c.name)}</b><div class="small muted">${esc(r.i.number)} · ${esc(r.i.title || "")}</div></td><td class="small">${esc(r.p?.project.name || "")}</td><td class="small">${r.i.due ? fmt(r.i.due) : "—"}</td><td class="money"><b>${money(r.bal)}</b></td><td><span class="pill ${r.age > 60 ? "bad" : r.age > 0 ? "warn" : "ok"}">${r.age > 0 ? r.age + " d" : "current"}</span></td><td class="small">${r.promise ? `${fmt(r.promise.date)}${r.promise.note ? " · " + esc(r.promise.note) : ""}` : "—"}</td><td class="small">${r.contact ? `${fmt(r.contact.date)} · ${esc(r.contact.note || "")}` : "—"}</td><td class="ar-acts"><button class="btn sm" data-arnote="${r.c.id}:${r.i.id}">Note</button><button class="btn sm" data-arpromise="${r.c.id}:${r.i.id}">Promise</button><button class="btn sm primary" data-arpay="${r.c.id}">Record payment</button></td></tr>`).join("") || '<tr><td colspan="8" class="muted">Nothing open.</td></tr>'}</tbody></table></div>\n    <h3 class="rep-h">By client</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Client</th><th class="money">Open</th><th class="money">Overdue</th><th class="money">Credits</th><th></th></tr></thead><tbody>${Object.values(
-    byClient,
+    // a client with credit on account and nothing open is a row too, so the header's credits are the rows' (S2-E)
+    (DB.clients.forEach((c) => !byClient[c.id] && clientCredit(c).onAccount > 0.005 && (byClient[c.id] = { c: c, n: 0, bal: 0, over: 0 })), byClient),
   )
     .map(
       (o) =>
-        `<tr><td><b>${esc(o.c.name)}</b> <span class="small muted">${o.n} invoice${o.n > 1 ? "s" : ""}</span></td><td class="money">${money(o.bal)}</td><td class="money ${o.over ? "bad" : ""}">${o.over ? money(o.over) : "—"}</td><td class="money">${((C) => (C.onAccount > 0.005 ? `${money(C.onAccount)}${C.reserved > 0.005 ? `<div class="small muted">${money(C.available)} available; ${money(C.reserved)} held for a refund</div>` : ""}` : "—"))(clientCredit(o.c))}</td><td><button class="btn sm" data-arstmt="${o.c.id}">Statement</button></td></tr>`,
+        `<tr><td><b>${esc(o.c.name)}</b> <span class="small muted">${o.n ? `${o.n} invoice${o.n > 1 ? "s" : ""}` : "nothing open"}</span></td><td class="money">${money(o.bal)}</td><td class="money ${o.over ? "bad" : ""}">${o.over ? money(o.over) : "—"}</td><td class="money">${((C) => (C.onAccount > 0.005 ? `${money(C.onAccount)}${C.reserved > 0.005 ? `<div class="small muted">${money(C.available)} available; ${money(C.reserved)} held for a refund</div>` : ""}` : "—"))(clientCredit(o.c))}</td><td><button class="btn sm" data-arstmt="${o.c.id}">Statement</button></td></tr>`,
     )
     .join("")}</tbody></table></div>`;
 }
@@ -37486,7 +37553,9 @@ function paymentAllocate(c, presetInvoiceId) {
               used = r2(used + R.used);
             }
             save(), render();
-            toast(`${money(used)} recorded`);
+            // credit spent is not cash received: said as applied, never "recorded from" (round 2, S3-G)
+            const inv0 = findDoc(c, "invoice", A[0].id);
+            "function" == typeof rcToast ? rcToast(`${money(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
             return;
           }
           let applied = 0;
@@ -37539,14 +37608,18 @@ function paymentAllocate(c, presetInvoiceId) {
     },
     auto = () => {
       let left = r2(+$("#py-amt").value || 0);
-      m.querySelectorAll("[data-pyalloc]").forEach((i) => {
+      // the invoice the sheet was opened for first, then oldest first (round 2, S2-F)
+      [...m.querySelectorAll("[data-pyalloc]")].sort((a, b) => (b.dataset.pyalloc === presetInvoiceId) - (a.dataset.pyalloc === presetInvoiceId)).forEach((i) => {
         const cap = +i.max || 0,
           v = Math.min(cap, Math.max(0, left));
         (i.value = r2(v)), (left = r2(left - v));
       }),
         recalc();
     };
-  m.querySelectorAll("[data-pyalloc], #py-amt").forEach((i) => i.addEventListener("input", recalc)),
+  // typing the amount received re-spreads what is applied, capped at the amount; each line can still be changed by
+  // hand after (round 2, S2-F: $1,000 typed left $11,386 applied and Record refused "Applied more than received")
+  m.querySelectorAll("[data-pyalloc]").forEach((i) => i.addEventListener("input", recalc)),
+    $("#py-amt").addEventListener("input", auto),
     ($("#py-auto").onclick = auto),
     presetInvoiceId
       ? (m.querySelectorAll("[data-pyalloc]").forEach((i) => {
@@ -67927,6 +68000,16 @@ function payReverse(c, py, why) {
   const by = payWho(),
     rv = { id: uid("py"), date: today(), amount: -r2(+py.amount || 0), method: py.method || "", ref: py.ref || "", acctId: py.acctId || "", invoiceId: py.invoiceId || "", unapplied: !!py.unapplied, reverses: py.id, why: w, recordedBy: by, recordedAt: appNowIso(), note: `reverses the ${fmtL(py.date)} payment of ${money(+py.amount || 0)}: ${w}` };
   (c.payments = c.payments || []).push(rv), (py.reversalId = rv.id), (py.reversedAt = rv.recordedAt), (py.reversedBy = by);
+  // undoing an application of credit on account: its draw is reversed with it, so the credit is on the account again
+  if (py.creditApply) {
+    rv.creditApply = py.creditApply;
+    rv.txnId = py.txnId;
+    const dr = (c.payments || []).find((x) => x.appId === py.id && !x.reversalId);
+    if (dr) {
+      const rd = { id: uid("py"), date: today(), amount: -r2(+dr.amount || 0), method: dr.method, ref: dr.ref, acctId: dr.acctId, invoiceId: "", unapplied: !0, reverses: dr.id, creditApply: dr.creditApply, txnId: dr.txnId, why: w, recordedBy: by, recordedAt: appNowIso(), note: `reverses the draw for ${money(-(+dr.amount || 0))}: ${w}` };
+      c.payments.push(rd), (dr.reversalId = rd.id);
+    }
+  }
   const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId);
   if (inv && !["void", "draft"].includes(inv.status)) {
     const paid = invoicePaid(c, inv),
@@ -73206,6 +73289,42 @@ function glPayrollLines(r) {
     drGross = r2(L.filter((l) => "5000" === l.acct || "7000" === l.acct).reduce((a, l) => a + l.dr, 0));
   return L.push(glL("2200", 0, drGross)), r2(dr - drGross) && L.push(glL("2210", 0, r2(dr - drGross))), L;
 }
+// The original a sent revision posts as, when it changes no amount: the same accounts for the same sums as the
+// original's posting (billing review 11-15 round 2, S1-B). Read, never stored, so the order a send runs in (the
+// revision sent, then the original voided) never posts and reverses the revision in between.
+function glSameRevision(c, n) {
+  if (!c || !n || !n.revisionOf || ["draft", "void"].includes(n.status)) return null;
+  const o = (c.invoices || []).find((x) => x.number === n.revisionOf && x.id !== n.id);
+  if (!o || !Array.isArray(o.glLines) || !["void", "sent", "paid", "partial", "overdue"].includes(o.status)) return null;
+  // decided once, when the original was replaced (lkSupersede, src/docview.js): a later reading never flips it
+  if (null != n.postsAs) return n.postsAs === o.id ? o : null;
+  const sum = (L) => {
+    const a = {};
+    (L || []).forEach((l) => (a[l.acct] = r2((a[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))));
+    return JSON.stringify(Object.keys(a).sort().filter((k) => Math.abs(a[k]) > 0.005).map((k) => [k, a[k]]));
+  };
+  return sum(o.glLines) === sum(glInvoiceLinesLive(c, n)) ? o : null;
+}
+// the revision standing now for a replaced invoice (a revision of a revision replaces the one before it)
+function glLiveRevision(c, d) {
+  let n = d;
+  for (let k = 0; n && n.supersededBy && k < 20; k++) {
+    const m = n;
+    n = (c.invoices || []).find((i) => i.number === m.supersededBy && i.id !== m.id);
+  }
+  return n && n !== d && !["draft", "void"].includes(n.status) ? n : null;
+}
+// the original whose posting a chain of same-amount revisions stands on: the first one that changed an amount, or
+// the first invoice (INV-2026-035 revised twice for wording keeps INV-2026-035's one posting)
+function glPostsRoot(c, x) {
+  let o = glSameRevision(c, x);
+  for (let k = 0; o && o.postsAs && k < 20; k++) {
+    const q = (c.invoices || []).find((i) => i.id === o.postsAs);
+    if (!q) break;
+    o = q;
+  }
+  return o || null;
+}
 function glDerive() {
   const out = [],
     bills = DB.bills || [],
@@ -73230,6 +73349,11 @@ function glDerive() {
   return (
     (DB.clients || []).forEach((c) => {
       (c.invoices || []).forEach((d) => {
+        // a revision that changed no amount posts as its original (src/docview.js, postsAs): the original's journal
+        // stays live under its own key and date, and the revision posts nothing of its own
+        const rv = "void" === d.status && d.supersededBy ? glLiveRevision(c, d) : null;
+        if (rv && glPostsRoot(c, rv) === d) return void push("inv:" + d.id, "inv", d.id, c.entityId || glProjectEntity(d.projectId), d.date, `${d.number || "Invoice"} · ${c.name} (revised as ${rv.number})`, d.glLines.map((l) => Object.assign({}, l)), { clientId: c.id });
+        if (glSameRevision(c, d)) return;
         "draft" !== d.status &&
           "void" !== d.status &&
           push(
@@ -144989,6 +145113,14 @@ function readyToBill() {
             why &&
               held.push({ p: p, c: c, sv: r.sv, line: r.sv.desc, amount: r2(pgPeriodAmt(r)), why: `${r.sv.desc}: ${why}` });
           });
+          // an approved change order with nothing of it billed waits here until it is (round 2, S1-C): no work measured
+          // on it yet is not "earned", so it is held with that reason and its amount, never dropped off the queue
+          R.forEach((r) => {
+            const co = r.sv && r.sv.coId && (c.changeOrders || []).find((x) => x.id === r.sv.coId);
+            if (!co || "approved" !== co.status || sovBilled(c, r.sv.id) > 0.005 || (r.pr && r.pr.period > 0) || held.some((h) => h.sv && h.sv.id === r.sv.id)) return;
+            const onDraft = (c.invoices || []).some((i) => "sov" === i.mode && "draft" === i.status && (i.lines || []).some((l) => l.sovId === r.sv.id && +l.pct > 0));
+            onDraft || held.push({ p: p, c: c, sv: r.sv, line: r.sv.desc, amount: r2(+r.sv.scheduled || 0), why: `${co.number} is approved and nothing of it is billed: no work on it is measured yet; Bill It puts it on the open application` });
+          });
           if (!(T.propose > 0)) return;
           const co = R.filter((r) => pgIsCO(r.sv) && r.pr.period > 0);
           rows.push({
@@ -144996,7 +145128,8 @@ function readyToBill() {
             c: c,
             p: p,
             amount: r2(T.propose),
-            title: `${p.project.name}: line-by-line application ready (${money(T.propose)})${co.length ? ` · with ${co.map((r) => r.sv.source).join(", ")}` : ""}`,
+            // the figure is before retainage; the draft reads after it, so the row says which (round 2, S3-G)
+            title: `${p.project.name}: line-by-line application ready (${money(T.propose)}${+DB.company.ret ? ` before ${+DB.company.ret}% retainage` : ""})${co.length ? ` · with ${co.map((r) => r.sv.source).join(", ")}` : ""}`,
             act: "application",
           });
         }),

@@ -139,7 +139,7 @@ PINNED = {
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
                     'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip',
-                    'inv_dep': 'invariants', 'inv_credit': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
+                    'inv_dep': 'invariants', 'inv_credit': 'invariants', 'inv_revise': 'invariants', 'inv_bank': 'invariants', 'inv_edit': 'invariants', 'inv_one': 'invariants', 'inv_stamp': 'invariants', 'inv_chain': 'invariants',
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
@@ -150,7 +150,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200',
-         'inv_dep': 'INV DEPOSIT HELD', 'inv_credit': 'INV CREDIT ONCE', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
+         'inv_dep': 'INV DEPOSIT HELD', 'inv_credit': 'INV CREDIT ONCE', 'inv_revise': 'INV CLOSED MONTH', 'inv_bank': 'INV BANK BACKS', 'inv_edit': 'INV SENT FROZEN', 'inv_one': 'INV ONE ANSWER', 'inv_stamp': 'INV STAMP BACKED', 'inv_chain': 'INV AUDIT CHAIN',
          'inv_safe': 'INV SAFE TO SPEND', 'inv_jobcost': 'INV ONE JOB COST', 'inv_ahead': 'INV ONE BILLED AHEAD', 'inv_tobill': 'INV ONE TO BILL',
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
@@ -737,6 +737,26 @@ INV_ONE_JS = INV_SUM + """
 # made by credit on account was drawn from credit the client held (applied through clientCreditApply, appliedFrom set).
 # The fixture: a $1,000 credit on the Kleins' paid INV-2026-035 goes on account; a refund of all of it is proposed; then
 # every way of spending it again is tried (Apply Credit on INV-2026-038, the credit write, a second refund).
+# A closed month's figures do not move (billing review 11-15 round 2, S1-B): each kind of sent invoice revised for
+# wording only and sent; August's ledger balances and its invoice-dated revenue are identical before and after, and no
+# revision posts or reverses anything.
+INV_REVISE_JS = """  const aug = () => { const B = glBalances({ from: '2026-08-01', to: '2026-08-31' }), o = {}; Object.keys(B).sort().forEach(k => Math.abs(B[k].bal) > 0.005 && (o[k] = B[k].bal));
+    const inv = r2(DB.clients.flatMap(c => c.invoices).filter(i => !['void', 'draft'].includes(i.status) && !i.retainageRelease && i.date >= '2026-08-01' && i.date <= '2026-08-31').reduce((a, i) => a + docNet(i), 0));
+    return JSON.stringify({ gl: o, inv }); };
+  const out = [], before = aug();
+  for (const c of DB.clients) for (const d of (c.invoices || []).slice()) {
+    if (['void', 'draft'].includes(d.status) || d.creditMemo || d.revisedBy || d.revisionOf) continue;
+    const n = dvRevise(c, d, 'wording only'); if (!n) { out.push({ num: d.number, err: 'no revision' }); continue; }
+    n.memo = (n.memo || '') + ' Revised wording.';
+    const jn0 = ((DB.gl || {}).journals || []).length;
+    await docAction(c, n, 'send'); await sleep(150); try { mbCloseModal(); } catch (e) {}
+    try { glSync(); } catch (e) {}
+    const J = ((DB.gl || {}).journals || []).slice(jn0).filter(j => j.sourceId === d.id || j.sourceId === n.id).map(j => j.kind + ' ' + j.date);
+    out.push({ num: d.number, rev: n.number, st: n.status, orig: d.status, date: n.date, odate: d.date, due: n.due, journals: J, aug: aug() === before });
+  }
+  return { out, before, after: aug() };
+"""
+
 INV_CREDIT_JS = """
   const bad = [], tried = [];
   const scan = (when) => (DB.clients || []).forEach(c => {
@@ -1778,6 +1798,13 @@ async def check_invariants(p, R):
         ok = abs(x['held']) < 0.01 and x['open'] == 0
         read('inv_dep', f"{x['client']} {x['est']} ({', '.join(x['deposits'])}), every line billed", ok, f"2400 {x['held']:+,.2f}, {x['open']} lines open", '2400 nets to $0.00')
     for e in errs[:3]: R.flag('inv_dep', 'page', e[:200], 'no page errors')
+    await b.close()
+
+    # a closed month does not move when its invoices are revised (a fresh page: the fixture revises every kind)
+    b, pg, errs = await page()
+    rv = await pg.evaluate(js(INV_REVISE_JS))
+    read('inv_revise', f"August before and after revising {len(rv['out'])} sent invoices for wording", len(rv['out']) >= 5 and rv['before'] == rv['after'] and all(x.get('aug') and not x.get('journals') for x in rv['out']), rv['out'], 'August identical; nothing posted or reversed')
+    for e in errs[:3]: R.flag('inv_revise', 'page', e[:200], 'no page errors')
     await b.close()
 
     # no client's credit is used for more than its amount (a fresh page: the fixture spends credit)
