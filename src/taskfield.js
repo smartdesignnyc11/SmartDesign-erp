@@ -349,7 +349,7 @@ function tkClockCovers(emp, at) {
 // Clock In looks at today before it punches (the crew's review, 11-12: a first Clock In on a day already closed and sent
 // made a second punch for the foreman to sort out, and said so only afterwards). A day of today's that is closed and
 // sent for approval is said first, with Start Another Shift: the person decides, nothing is punched until they do.
-// A lunch break (a closed punch not yet sent) is not asked about. The automatic clock asks the same way (tkGeoTick).
+// A lunch break (a closed punch not yet sent) is not asked about.
 function tkTodaySent(emp) {
   const td = today();
   return (DB.time || [])
@@ -366,7 +366,12 @@ function tkAnotherShiftSheet(sent, go) {
     m = mbModal(
       "Today Is Already Sent",
       `<p>Your ${esc(fmt(today()))} hours, ${esc(s.spans)}, are already sent for approval.</p><p class="small muted">${s.ahead ? `That day ends after now, so a new punch overlaps it: both are marked, the hours are not counted twice, and ${esc(s.fore)} picks one.` : "Clocking in again starts a second shift for today. The first one stays as it is."}</p>`,
-      { submit: "Start Another Shift", onSubmit: () => (setTimeout(go, 0), !0) },
+      {
+        submit: "Start Another Shift",
+        onSubmit: () => (setTimeout(go, 0), !0),
+        // the third answer (the crew expert, 11-15): the earlier hours are flagged to the foreman, and he clocks in
+        alt: { label: "Those Hours Aren't Mine", run: () => ("function" == typeof tkNotMine && tkNotMine(sent.map((t) => t.id)), setTimeout(go, 0)) },
+      },
     ),
     c = m && m.querySelector("#mbm-cancel");
   c && (c.textContent = "Not Now");

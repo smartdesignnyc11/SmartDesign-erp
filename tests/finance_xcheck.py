@@ -143,7 +143,7 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
-                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_labour': 'labour'}.get(
+                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_labour': 'labour'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -155,7 +155,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
          'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ',
-         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_labour': 'INV LABOUR'}
+         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_labour': 'INV LABOUR'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -1227,6 +1227,75 @@ async def check_money(p, R):
         for e in errs[:3]: R.flag('inv_safe', 'page', e[:200], 'no page errors')
         await b.close()
 
+# ---- punches (the crew expert, 11-15): no punch over 16 hours, open, held or voided is in job cost or payroll; a
+# person's hours for a day are one number in the Daily Log, This Week, the work card and payroll --------------------
+INV_PUNCH_JS = """
+  const out = { punch: [], dayhours: [] };
+  const say = (k, ok, seen, want) => out[k].push([!!ok, String(seen).slice(0, 400), String(want).slice(0, 200)]);
+  const p = DB.projects.find(x => x.id === 'p121'), d = today();
+  const cost0 = projectLabor(p).cost;
+  const mk = (id, inn, out, st, extra) => Object.assign({ id, empId: 'em4', date: inn.slice(0, 10), in: inn, out, breakMin: 0, projectId: 'p121', code: '05', notes: '', status: st, approvedBy: 'x', geoIn: null, geoOut: null, source: 'phone', work: out ? [{ projectId: 'p121', code: '05', hours: 9, note: 'x' }] : [] }, extra || {});
+  const bad = [mk('te_x33', '2026-08-31T07:02:00', '2026-09-01T16:01:00', 'approved'), mk('te_xopen', d + 'T06:40:00', '', 'approved'),
+    mk('te_xheld', '2026-09-02T07:00:00', '2026-09-02T15:15:00', 'approved', { hold: { at: d + 'T08:00:00', out: '2026-09-02T15:15:00', why: 'nobody clocked out' } }),
+    mk('te_xvoid', '2026-09-02T16:00:00', '2026-09-02T23:00:00', 'void')];
+  DB.time.push(...bad);
+  try {
+    const cost1 = projectLabor(p).cost;
+    say('punch', Math.abs(cost1 - cost0) < 0.005, `job cost of 121 State with a 33 h, an open, a held and a voided punch added: ${cost1} (was ${cost0})`, 'unchanged');
+    bad.forEach(t => say('punch', hoursOf(t) === 0 && !!timePayBlock(t), `${t.id}: hoursOf ${hoursOf(t)}, pay block ${!!timePayBlock(t)}`, '0 h and blocked'));
+    const run = payrollFromTime({ quiet: true }), ids = run ? (run.timeIds || []) : [];
+    say('punch', !bad.some(t => ids.includes(t.id)), `the pay run built from time holds ${bad.filter(t => ids.includes(t.id)).map(t => t.id).join(', ') || 'none of them'}`, 'none of them');
+    const L = prLinkTime({ id: 'pr_xhand', from: '2026-08-31', to: d, status: 'approved', entityId: 'ent1' }).map(t => t.id);
+    say('punch', !bad.some(t => L.includes(t.id)), `a run typed by hand links ${bad.filter(t => L.includes(t.id)).map(t => t.id).join(', ') || 'none of them'}`, 'none of them');
+    const lg = dlClockFor(p, '2026-09-02').find(c => c.empId === 'em4');
+    say('punch', !lg, `the 9/2 Daily Log for Satish: ${lg ? lg.hours + ' h' : 'nobody'}`, 'nobody (held and voided are not hours)');
+    if (run) { DB.time.forEach(t => t.payrollId === run.id && delete t.payrollId); DB.payroll = DB.payroll.filter(r => r.id !== run.id); }
+    DB.time.forEach(t => t.payrollId === 'pr_xhand' && delete t.payrollId);
+  } finally { DB.time = DB.time.filter(t => !/^te_x/.test(t.id)); }
+  // one day, one number: an overlap open, then every person-day of the seed
+  const e2 = DB.time.find(t => t.id === 'te8');
+  DB.time.push(Object.assign({}, e2, { id: 'te_xov', in: e2.date + 'T07:40:00', out: e2.date + 'T12:00:00', status: 'open', work: [], overlapOf: e2.id }));
+  try {
+    const days = {}; DB.time.filter(t => t.in && t.out).forEach(t => (days[t.empId + '|' + t.date] = days[t.empId + '|' + t.date] || []).push(t));
+    Object.entries(days).forEach(([k, T]) => {
+      const [emp, date] = k.split('|'), one = timeHoursOf(T);
+      const byJob = {}; T.forEach(t => (byJob[t.projectId] = 1));
+      const logH = Object.keys(byJob).reduce((a, pid) => { const pj = DB.projects.find(x => x.id === pid); const c = pj ? dlClockFor(pj, date).find(x => x.empId === emp) : null; return a + (c ? c.hours : 0); }, 0);
+      const sum = Math.round(T.reduce((a, t) => a + hoursOf(t), 0) * 100) / 100;
+      say('dayhours', Math.abs(logH - one) <= 0.125 * Object.keys(byJob).length, `${k}: Daily Log ${logH} h, the hours reader ${one} h`, 'the same, to the quarter hour the log reads in');
+      const ov = T.some(t => t.id === 'te_xov');
+      ov && say('dayhours', Math.abs(one - hoursOf(e2)) < 0.02 && one < sum, `${k}: with the overlap open the reader counts ${one} h, a plain sum would say ${sum} h`, `the overlap counted once: ${hoursOf(e2)} h`);
+    });
+    // payroll: a person's hours on a run are the reader's hours for the days it holds
+    const run = (DB.payroll || []).filter(r => r.fromTime && (r.detail || []).length).pop();
+    if (run) (run.detail || []).forEach(x => { const emp = DB.employees.find(e => e.name === x.name); if (!emp) return;
+      const T = DB.time.filter(t => t.payrollId === run.id && t.empId === emp.id); const byDay = {}; T.forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
+      const h = Object.values(byDay).reduce((a, L) => a + timeHoursOf(L), 0);
+      say('dayhours', Math.abs(h - x.hours) <= 0.02, `${run.period} ${x.name}: the run pays ${x.hours} h, the reader reads ${Math.round(h * 100) / 100} h`, 'the same'); });
+  } finally { DB.time = DB.time.filter(t => t.id !== 'te_xov'); }
+  return out;
+"""
+
+
+async def check_punch(p, R):
+    if not any(R.want(k) for k in ('inv_punch', 'inv_dayhours')): return
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_controller')
+    res = await pg.evaluate("async () => { try { " + INV_PUNCH_JS + " } catch (e) { return { error: String(e && e.stack || e) }; } }")
+    if 'error' in res:
+        R.flag('inv_punch', 'the punch invariants could not run', res['error'][:300], 'they run')
+    else:
+        for k, rows in res.items():
+            key = 'inv_' + k
+            if not R.want(key): continue
+            if not rows: R.flag(key, 'nothing read', 'no rows', 'at least one reading'); continue
+            for ok, seen, want in rows:
+                R.readings.append({'figure': key, 'surface': seen[:120], 'raw': seen, 'value': None, 'expected': want, 'ok': ok})
+                if not ok: R.flag(key, 'records', seen, want)
+                elif R.verbose: print('  ok', label(key), '|', seen[:140])
+    for e in errs[:3]: R.flag('inv_punch', 'page', e[:200], 'no page errors')
+    await b.close()
+
 # ---- the Reports pages (the Reports lane, 11-04): every figure read off the page equals its twin --------------------
 INV_REPORTS_JS = """
   const out = { rptwin: [], rptie: [], rpwip: [], rpread: [] };
@@ -1760,7 +1829,7 @@ async def check_invariants(p, R):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, labour')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, punch, labour')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -1777,6 +1846,7 @@ async def main():
         await check_stock(p, R)
         await check_invariants(p, R)
         await check_money(p, R)
+        await check_punch(p, R)
         await check_reports(p, R)
         await check_onejob(p, R)
         await check_labour(p, R)

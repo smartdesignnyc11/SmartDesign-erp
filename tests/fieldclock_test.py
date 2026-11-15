@@ -131,6 +131,9 @@ async def s_watch(p, c):
     from harness import URL
     await pg.goto(URL)
     await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+    # inside the automatic clock-in window (7:00 AM to 5:00 PM, the owner's setting): the app's time of day pinned to 10:00
+    import datetime
+    await pg.clock.set_fixed_time(datetime.datetime(2026, 11, 15, 5, 0, 0, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int((36000 - 27000) * 2.4) + 1))
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     g = await pg.evaluate("() => { const g = DB.projects.find(p => p.id === 'p121').project.geo; return [g.lat, g.lng]; }")
     await ctx.set_geolocation({'latitude': g[0], 'longitude': g[1], 'accuracy': 12})
@@ -171,6 +174,8 @@ async def s_list(pg, c):
     c.ok(len(mine) == 1 and 'Clocked in automatically at 7:02 AM' in mine[0][1] and '121 State' in mine[0][1], f"list: the punch the app made is on Alberto's own list, with when and where ({mine or rows})")
     # he logs his work while on the clock; leaving the site clocks him out and sends the day
     await pg.evaluate("id => { const e = DB.time.find(t => t.id === id); e.work = [{ projectId: 'p121', code: '05', hours: 5.5, note: 'Rough plumbing' }]; save(); }", res.get('id'))
+    # a reading on site before he leaves: an automatic punch ends at the last reading on site (the crew expert, 11-15)
+    await pg.evaluate(f"() => tkGeoTick({SITE}, today() + 'T12:20:00')")
     await pg.evaluate(f"() => tkGeoTick({FAR}, today() + 'T12:32:00')")
     out = await pg.evaluate(f"() => tkGeoTick({FAR}, today() + 'T12:48:00')")
     e = await pg.evaluate("id => { const e = DB.time.find(t => t.id === id); return { out: e.out, st: e.status, n: DB.time.filter(t => t.empId === e.empId && t.date === e.date).length }; }", res.get('id'))
@@ -192,7 +197,8 @@ async def s_list(pg, c):
     c.ok('time:te_auto2' in own, f"list: a punch the app closed with nothing logged is on his list too ({own})")
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
     r = await pg.evaluate("""id => { const card = [...document.querySelectorAll('#fcrew-body .card')].find(c => /Hours to Approve/i.test((c.querySelector('h3') || {}).innerText || ''));
-      const rows = card ? [...card.querySelectorAll('[data-fappr]')].map(b => [b.dataset.fappr, b.closest('.f-row').innerText.replace(/\\s+/g, ' ')]) : [];
+      // every row of Hours to Approve (the foreman's own row has no Approve: his hours go to the PM, 11-15)
+      const rows = card ? [...card.querySelectorAll('[data-fhrs]')].map(b => [b.dataset.fhrs, b.innerText.replace(/\\s+/g, ' ')]) : [];
       return { rows, sent: rows.find(x => x[0] === id) || null, auto: rows.find(x => x[0] === 'te_auto2') || null, hand: rows.find(x => x[0] === 'te_hand2') || null,
                today: (() => { const n = (document.querySelector('.dl-appr') || {}).innerText || ''; return n; })(), want: fHoursToApprove ? fHoursToApprove(S).entries.length : -1 }; }""", res.get('id'))
     await shot(pg, 'list_foreman_hours')
@@ -205,13 +211,20 @@ async def s_list(pg, c):
     c.ok(n == r['want'], f"list: Today's \"waiting on your approval\" counts the same rows ({n} vs {r['want']})")
     # he approves the automatic day from the row
     await go(pg, 'fcrew')
+    # a day not sent is approved only with his reason (the crew expert, 11-15): Approve opens Fix and asks why
     await tap(pg, '#fcrew-body [data-fappr="te_auto2"]')
-    st = await pg.evaluate("() => { const e = DB.time.find(t => t.id === 'te_auto2'); return [e.status, e.approvedBy]; }")
-    c.ok(st[0] == 'approved' and 'Angel' in st[1], f'list: the foreman approves it from the row ({st})')
+    await pg.evaluate("() => { const i = document.querySelector('#mbm [data-f=note]'); i && (i.value = 'Framing, he told me'); }")
+    await tap(pg, '#mbm #mbm-ok')
+    st = await pg.evaluate("() => { const e = DB.time.find(t => t.id === 'te_auto2'); return [e.status, e.approvedBy, e.approveWhy || '']; }")
+    c.ok(st[0] == 'approved' and 'Angel' in st[1] and 'Framing' in st[2], f'list: the foreman approves it from the row, with his reason kept ({st})')
 
 
 async def s_overlap(pg, c):
     """S1-3: Pick One where the foreman sees the overlap, Approve refuses, payroll holds"""
+    # the app's time of day pinned to 12:30: an open punch overlaps up to now, so a run before noon (the demo maps the
+    # wall clock onto 07:30-17:30) saw no overlap for a punch that starts at 12:00
+    import datetime
+    await pg.clock.set_fixed_time(datetime.datetime(2026, 11, 15, 5, 0, 0, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=int((45000 - 27000) * 2.4) + 1))
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     base = await pg.evaluate("""() => { const e = myEmp(), td = today(); DB.time = DB.time.filter(t => !(t.empId === e.id && t.date === td));
       const d = { id: 'te_day', empId: e.id, date: td, in: td + 'T07:12:00', out: td + 'T16:48:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'submitted', approvedBy: '', geoIn: null, geoOut: null, source: 'manual',
@@ -248,6 +261,7 @@ async def s_overlap(pg, c):
     c.ok('overlap' in t and 'Pick One' in t, f"overlap: Today says it the same day, not only before the cutoff ({t[:80]!r})")
     # he leaves; the pair is closed
     await sign_in(pg, 'u_alberto')
+    await pg.evaluate(f"() => tkGeoTick({SITE}, today() + 'T12:55:00')")
     await pg.evaluate(f"() => tkGeoTick({FAR}, today() + 'T13:00:00')")
     await pg.evaluate(f"() => tkGeoTick({FAR}, today() + 'T13:20:00')")
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
