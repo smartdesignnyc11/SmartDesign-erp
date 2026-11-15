@@ -56,6 +56,11 @@ WALK = {
         ('req', '', None), ('sched', '', None), ('chat', '', None), ('time', C('.f-row:has([data-fdone]) .grow > b'), 'task_sheet'),
         ('files', '', 'crew_photos'), ('plans', '', None), ('recv', '', 'deliveries'), ('recv', C('[data-rissue]'), None),
         ('conn', '', None), ('standard', '', None), ('pa', '', None), ('time', C('#menu-btn'), None),
+        # the clock's question and hold (the crew expert, 11-15): a punch held for the time he left, the still-working
+        # question on an open punch
+        ('time', "const e = myEmp(); DB.time = DB.time.filter(x => x.id !== 'te_es_held'); DB.time.push({ id: 'te_es_held', empId: e.id, date: '2026-09-02', in: '2026-09-02T07:00:00', out: '2026-09-02T15:15:00', breakMin: 0, projectId: 'p121', code: '', notes: '', status: 'open', approvedBy: '', source: 'phone', geoIn: null, geoOut: null, hold: { at: '2026-09-03T07:00:00', out: '2026-09-02T15:15:00', why: 'nobody clocked out' }, work: [] }); save(); render();", 'clock_held'),
+        ('time', C('[data-tkhok]'), None),
+        ('time', "const t = DB.time.find(x => x.empId === myEmp().id && !x.out); if (t) { t.in = today() + 'T06:00:00'; delete t.still; } render();", 'clock_still'),
     ],
     'u_alex': [
         ('route', '', 'route'), ('route', C('#fm-rclock'), None), ('route', C('#run-start'), None), ('route', C('[data-stkcount]'), None),

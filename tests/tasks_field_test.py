@@ -454,6 +454,8 @@ async def s_autoclock(pg, c):
     c.ok(await pg.evaluate(count) == 0, 'autoclock: Undo takes the punch back')
     r = await pg.evaluate(f"() => tkGeoTick({site}, {at('07:02')})")
     # leaving: 10 minutes away is nothing, 15 clocks out at the time they left
+    # readings on site while he works: an automatic punch ends at the last one (the crew expert, 11-15)
+    await pg.evaluate(f"() => tkGeoTick({site}, {at('11:25')})")
     r1 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:30')})")
     r2 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:40')})")
     r3 = await pg.evaluate(f"() => tkGeoTick({far}, {at('11:46')})")
@@ -464,6 +466,7 @@ async def s_autoclock(pg, c):
     c.ok(out == '', f'autoclock: Undo puts them back on the clock ({out!r})')
     # moving to another site switches the job
     other = await pg.evaluate("() => { const p = DB.projects.find(p => p.id !== 'p121' && p.project.geo) || DB.projects.find(p => p.id !== 'p121'); p.project.geo = p.project.geo || { lat: 40.70, lng: -73.95, radius: 250 }; save(); return { id: p.id, lat: p.project.geo.lat, lng: p.project.geo.lng }; }")
+    await pg.evaluate(f"() => tkGeoTick({site}, {at('12:05')})")
     r4 = await pg.evaluate("([o, at]) => tkGeoTick({ lat: o.lat, lng: o.lng, acc: 10 }, at)", [other, await pg.evaluate(at('12:10'))])
     sw = await pg.evaluate("() => { const L = DB.time.filter(t => t.empId === myEmp().id && t.date === today()); return { open: L.filter(t => !t.out).map(t => t.projectId), n: L.length }; }")
     c.ok(r4['did'] == 'switch' and sw['open'] == [other['id']], f'autoclock: another site moves them to that job ({r4}, {sw})')
