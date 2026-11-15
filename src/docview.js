@@ -409,7 +409,12 @@ function dvActions(r) {
     "sent" === d.status && add("lkapprove", "Record Client Approval", { blue: !0 }); // the editor's own: How They Approved, with who and when
     "approved" === d.status && ("construction" === d.template ? add("convert", "Convert to Contract & SOV", { blue: !0 }) : add("invoice", "Convert to Invoice", { blue: !0 }));
     if ("converted" === d.status) {
-      "function" == typeof ctDepositDue && ctDepositDue(c, d)
+      // the signed contract billed by progress application: its next step is the open application or the next one,
+      // never a whole-estimate invoice (11-15, S1-4)
+      const K = "function" == typeof estContractBilled ? estContractBilled(c, d) : null;
+      K
+        ? add("progress", K.draft ? `Open ${K.draft.number}` : "New Progress Invoice", { blue: !0 })
+        : "function" == typeof ctDepositDue && ctDepositDue(c, d)
         ? add("deposit", "Create Deposit Invoice", { blue: !0 })
         : "construction" === d.template
           ? add("progress", "New Progress Invoice", { blue: !0 })
@@ -1086,7 +1091,7 @@ function dvPayAcct(p) {
 // credit the client holds on the account (an overpayment, a credit memo held for the next invoice): what a refund
 // draws down first
 function dvOnAccount(c) {
-  return r2((c.payments || []).filter((p) => p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0));
+  return clientCredit(c).onAccount;
 }
 // Where a refund goes, in the words the confirm sheet uses, everywhere it is said (the note, the toasts, the trail,
 // Approvals): "<amount> to <client>, to the <account> ending 4471 it was paid from", never "to Wire from Chase"
@@ -1106,7 +1111,9 @@ function dvRefundLimit(c, inv, x, withCredit) {
     asked = (f) => "proposed" === f.status,
     onAcct = dvOnAccount(c),
     over = Math.max(0, r2(invoicePaid(c, inv) - docTotal(inv).total));
-  if (onAcct > 0.005) return { basis: "account", has: onAcct, max: r2(Math.max(0, Math.min(cash, onAcct - dvRefunds(c).filter(asked).reduce((a, f) => a + (+f.amount || 0), 0)))) };
+  // what the account can still give is clientCredit's one reading: on account, less what is applied (already off
+  // it) and less every refund proposed against it (11-15: a $900 credit was both proposed for refund and applied)
+  if (onAcct > 0.005) return { basis: "account", has: onAcct, max: r2(Math.max(0, Math.min(cash, clientCredit(c).available))) };
   if (over > 0.005) return { basis: "overpaid", has: over, max: r2(Math.max(0, Math.min(cash, over - dvRefunds(c).filter((f) => asked(f) && f.invoiceId === inv.id).reduce((a, f) => a + (+f.amount || 0), 0)))) };
   return { basis: "credit", has: 0, max: withCredit ? r2(cash) : 0 };
 }
@@ -1160,6 +1167,7 @@ function dvRefundPropose(c, inv, paymentId, amount, why, withCredit) {
     to: dvPayAcct(x.p),
     why: w,
     withCredit: !!withCredit,
+    basis: L.basis,
     status: "proposed",
     by: dvWho(),
     byRole: role(),
