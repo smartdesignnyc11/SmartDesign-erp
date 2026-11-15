@@ -2054,10 +2054,21 @@ const SITE_HOURS_OLD = { days: [1, 2, 3, 4, 5], start: "07:30", end: "16:30", lu
     const [h, m] = (hm || "0:0").split(":").map(Number);
     return 60 * h + (m || 0);
   },
+  // the expected paid day: a job with its own hours, their length; otherwise the firm's day, TIME_DAY_H (8 h, the same
+  // figure behind the 8 h 15 question). The window (siteHours) is when automatic clock-in may watch, never a shift.
   siteDayHours = (p) => {
     const h = siteHours(p);
-    return r2((hmToMin(h.end) - hmToMin(h.start) - (h.lunch || 0)) / 60);
+    return h && h.own ? r2((hmToMin(h.end) - hmToMin(h.start) - (h.lunch || 0)) / 60) : TIME_DAY_H;
   };
+// Project Settings' hours: the job's own only when they differ from the firm's window (else the firm's apply)
+function siteHoursOwn(h) {
+  let W = null;
+  try {
+    W = tkgWindow();
+  } catch (e) {}
+  if (W && h.start === W.start && h.end === W.end && String([...(h.days || [])].sort()) === String([...W.days].sort())) return null;
+  return Object.assign(h, { own: "Project Settings" });
+}
 function normalizeProject(p) {
   return (
     [
@@ -15297,6 +15308,7 @@ function seedCrew() {
 // (timeHeld), and a punch over TIME_MAX_H hours count 0: the hours are not known, so they are not cost and not pay.
 // hoursClock is what the clock itself reads (in to out, less the break), for the punch's own row and its flags.
 const TIME_MAX_H = 16,
+  TIME_DAY_H = 8,
   hoursClock = (e) =>
     e && e.in && e.out ? Math.max(0, r2((new Date(e.out) - new Date(e.in)) / 36e5 - (e.breakMin || 0) / 60)) : 0,
   hoursOf = (e) =>
@@ -15364,16 +15376,25 @@ function timeFlags(e) {
     rad = p?.project.geo?.radius || 250,
     sh = siteHours(p || S),
     dayH = siteDayHours(p || S);
+  // late, short and long are measured against the expected day (siteDayHours), not the window: a start is late only
+  // when it leaves too little of the window for a full day (latest start = window end less the day and lunch, with
+  // 30 minutes' grace); a day is short only when it is more than an hour short of the expected day
+  const latest = hmToMin(sh.end) - Math.round(dayH * 60) - (+sh.lunch || 0),
+    hmS = (min) => stampTime(`${e.date || today()}T${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`);
   e.in &&
-    hmToMin(e.in.slice(11, 16)) > hmToMin(sh.start) + 30 &&
+    hmToMin(e.in.slice(11, 16)) > latest + 30 &&
     f.push(
-      `Started ${Math.round(((hmToMin(e.in.slice(11, 16)) - hmToMin(sh.start)) / 60) * 10) / 10} h after site start (${sh.start})`,
+      sh.own
+        ? `Started ${Math.round(((hmToMin(e.in.slice(11, 16)) - latest) / 60) * 10) / 10} h after site start (${sh.start})`
+        : `Started ${Math.round(((hmToMin(e.in.slice(11, 16)) - latest) / 60) * 10) / 10} h after the latest start for a ${dayH} h day (${hmS(latest)})`,
     ),
     e.out &&
-      hmToMin(e.out.slice(11, 16)) < hmToMin(sh.end) - 60 &&
+      h > 0 &&
       h < dayH - 1 &&
       f.push(
-        `Left ${Math.round(((hmToMin(sh.end) - hmToMin(e.out.slice(11, 16))) / 60) * 10) / 10} h before site close (${sh.end})`,
+        sh.own && hmToMin(e.out.slice(11, 16)) < hmToMin(sh.end) - 60
+          ? `Left ${Math.round(((hmToMin(sh.end) - hmToMin(e.out.slice(11, 16))) / 60) * 10) / 10} h before site close (${sh.end})`
+          : `Short day: ${h.toFixed(1)} h of ${dayH} h`,
       ),
     h > dayH + 1 && f.push(`${r2(h - dayH)} h over the site day (${dayH} h)`),
     e.date && !sh.days.includes(parse(e.date).getDay()) && f.push("Not a scheduled site day"),
@@ -21768,12 +21789,13 @@ function wire() {
         (DB.me = p.userName || DB.me),
         (p.auto = $("#p-auto").value),
         (p.permitBuf = +$("#p-permitbuf").value || 30),
-        (p.hours = {
+        (p.hours = siteHoursOwn({
           days: [...document.querySelectorAll("#p-days button.on")].map((b) => +b.dataset.d),
           start: $("#p-hstart").value || "07:30",
           end: $("#p-hend").value || "16:30",
           lunch: +$("#p-lunch").value || 0,
-        }),
+        })),
+        p.hours || delete p.hours,
         (S.clientId = $("#p-client").value || ""),
         (S.entityId = $("#p-entity").value || S.entityId),
         (p.tag = $("#p-tag").value.trim().toUpperCase()),
