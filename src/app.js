@@ -21453,7 +21453,9 @@ function wire() {
         held = (L) => {
           const K = L.filter((e) => "approved" !== e.status),
             k = K.length;
-          return k ? ` · ${k} held: ${timeApproveBlock(K[0], by) || "pick one first"}` : "";
+          // each kind of reason once: an overlap to pick, a reason to give, the rest in the guard's words
+          const say = [...new Set(K.map((e) => timeApproveBlock(e, by) || "").map((w) => (/overlap/.test(w) ? "two punches overlap, pick one first" : /Say why/.test(w) ? "needs your reason (Approve opens it)" : w.split(". ")[0])))].filter(Boolean);
+          return k ? ` · ${k} held: ${say.join("; ") || "pick one first"}` : "";
         },
         run = () => {
           let n = 0;

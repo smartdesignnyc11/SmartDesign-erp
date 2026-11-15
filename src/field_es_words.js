@@ -1395,4 +1395,6 @@ esAdd({
   "Automatic clock-in is on.": "La entrada automática está activada.",
   "The app clocks you in at a job site while it is open.": "La app te poncha la entrada en la obra mientras está abierta.",
   "Minutes Allowed Past the Last Reading": "Minutos Permitidos Después de la Última Lectura",
+  "Why (required)": "Por Qué (obligatorio)",
+  "Say why before you approve it.": "Di por qué antes de aprobarlo.",
 });
