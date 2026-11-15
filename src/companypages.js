@@ -518,11 +518,13 @@ function ydSettingsRender() {
   ].filter(Boolean);
   const clock = owner
     ? [
+        // the hours automatic clock-in runs (src/fieldclock.js tkgWindow): one setting, the owner's
+        "function" == typeof tkgWindowEdit ? row("workday", "Automatic Clock-In Hours", tkgWindowRowMeta(), () => tkgWindowEdit(), "Change") : null,
         row("asof", "As Of", DB.company && DB.company.asOf ? `pinned to ${fmtL(DB.company.asOf)}: every screen reads this date` : "today: every screen reads the real date", () => ydAsOf(), "Change"),
         row("wipe", "Clear Everything", "everything but the settings goes; it cannot be undone from inside the app", () => ydConfirm("Clear Everything", "CLEAR", "Everything except your settings goes: jobs, clients, vendors, people, bills, the ledger.", () => rdWipe("all")), "Clear"),
       ]
     : [];
-  const sec = (t, R) => (R.length ? ydSectionHtml(t, null, "", R) : "");
+  const sec = (t, R) => ((R = R.filter(Boolean)).length ? ydSectionHtml(t, null, "", R) : "");
   s.innerHTML = `<div class="yd-host"><div class="yd-ph"><button type="button" class="yd-back" data-ydgo="cohub">${ydSvg("back")}Company and Settings</button></div><div class="yd-ph"><div class="grow"><h2>Company Settings</h2><div class="yd-sub">How the firm is set up</div></div></div>${sec("The Firm", firm)}${sec("Money and Buying", money_)}${sec("Sales", sales)}${sec("Your Data", data)}${owner ? sec("The Clock and the Demo", clock).replace('data-ydact="wipe"', 'data-ydact="wipe" data-ydwipe') : ""}${owner && "function" == typeof ljDemoCard ? ljDemoCard() : ""}</div>`;
 }
 function ydAsOf() {
