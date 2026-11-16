@@ -4,6 +4,8 @@ This is the one list. The chief of staff keeps it current on every ask, lane rep
 
 **Released 11-15, second walks' fixes (integ30):** billing (no invoice for more than earned and unbilled; revisions keep their month; change-order lines on the one open application; credit applied by linked records) and clock-in (a later leaving time needs an approver's reason; late time for a paid run goes to the controller; the expected day is 8 h, separate from the 7 to 5 window). **Next:** third expert walks of billing and clock-in on this build, on Alan's go and the Fable reading. **Waiting on Alan:** first invoice at signing (deposit or first milestone only, recommended); where unapplied credit sits (1100 or 2400); the foreman's reason every day or only past 8 h 15.
 
+**Asked 11-16, queued behind Alan's go:** a procurement agent that beats Blocks' Ron (raise and track each order through RFQ, PO, Confirmed, In Transit, Delivered; chase suppliers; flag a slip days ahead against the schedule). First a coordinator-expert walk of those five jobs, then one lane inside Procurement P2 to P6. Needs his call on sending mail from the app and on what goes out without a tap (DECISIONS 11-16).
+
 **Released 11-14 (b3f94f8):** job money on one number (F, F2), the billed-ahead reason at both doors (B2), clock-in's August figures (C), Ask's four wrong answers (A2). Of the 23 live S1s of 11-12: 20 fixed and live, 1 found false (bill-back on a fixed-price line), 2 parked (designer). Leftovers: DECISIONS, 11-14.
 
 **Decided 11-15, queued (BACKLOG §12):** hours logged but not clocked are flagged to the PM and cost nothing until approved; clock-in offers the job's estimate lines, and cost off a line is a proposal to the PM. Build before real crews clock in.
