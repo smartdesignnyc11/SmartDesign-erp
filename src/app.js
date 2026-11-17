@@ -75247,7 +75247,8 @@ function cmVendorFor(email, name) {
   return (
     (DB.vendors || []).find((v) => {
       const vk = (v.name || "").toLowerCase().replace(/[^a-z]/g, "");
-      return (v.email || "").toLowerCase() === e || (!pub && dom.length > 3 && vk.includes(dom)) || (nm.length > 5 && vk.length > 5 && (nm === vk || nm.includes(vk)));
+      // a domain that is only a word of the trade (lumber.example) names nobody (PU-Safe)
+      return (v.email || "").toLowerCase() === e || (!pub && dom.length > 3 && !VENDOR_COMMON_WORDS.test(dom) && vk.includes(dom)) || (nm.length > 5 && vk.length > 5 && (nm === vk || nm.includes(vk)));
     }) || null
   );
 }
@@ -99443,7 +99444,14 @@ function bnContactFor(p, name) {
   if (!n) return null;
   const c = parseContacts(p.project.contacts).find((x) => x.name.toLowerCase().split(" ")[0] === n);
   if (c) return { name: c.name, email: c.email };
-  const v = (DB.vendors || []).find((x) => x.name.toLowerCase().includes(n));
+  // a vendor by its name, or by a first word only it carries; a common word (Lumber, Supply) names nobody (PU-Safe)
+  const v =
+    vendorByName(name) ||
+    (() => {
+      if (VENDOR_COMMON_WORDS.test(n)) return null;
+      const M = (DB.vendors || []).filter((x) => vendorNameWords(x.name).includes(n));
+      return 1 === M.length ? M[0] : null;
+    })();
   if (v) return { name: v.name, email: v.email || "" };
   const cl = DB.clients.find((x) => x.id === p.clientId),
     ct = cl && (cl.contacts || []).find((x) => x.name.toLowerCase().split(" ")[0] === n);
@@ -99557,6 +99565,8 @@ function bnTake(name) {
 }
 async function bnSend(o) {
   const cfg = window.SDP_CONFIG;
+  // a message about an order or a request for quote takes the address the vendor card has now (added after the draft)
+  oxAddressFill(o);
   if (!o.to || !o.to.email)
     return (
       toast(
@@ -100653,8 +100663,8 @@ if ("function" == typeof mApprovals) {
             out.push({
               kind: "draft",
               id: o.id,
-              title: `Send: ${o.subject}`,
-              sub: `to ${o.to.name || o.to.email || "—"}`,
+              title: o.needsAddress ? `Needs Address: ${o.subject}` : `Send: ${o.subject}`,
+              sub: o.needsAddress ? o.addressStep || `to ${o.to.name || "—"}: no email on file` : `to ${o.to.name || o.to.email || "—"}`,
               open: { view: "brain", bnTab: "hands" },
             }),
           );
@@ -121022,7 +121032,7 @@ const paEmailFor = (who) => {
           n.includes(String(k.name || "").toLowerCase()))
       )
         return k.email;
-  const v = (DB.vendors || []).find((x) => String(x.name).toLowerCase().includes(n));
+  const v = vendorByName(who);
   if (v && v.email) return v.email;
   const m = (DB.comms || []).find((c) =>
     String((c.from || {}).name || "")
@@ -150567,6 +150577,80 @@ const TRK_KINDS = {
   TRK_ICON_CAM = ICON_SVG('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', 13),
   TRK_ICON_OK = ICON_SVG('<path d="M5 12l5 5L20 7"/>', 13),
   TRK_ICON_FLAG = ICON_SVG('<path d="M5 21V4h11l-2 4 2 4H5"/>', 13);
+// ---- vendor names, matched strictly (lane PU-Safe, 11-17) ----------------------------------------------------------
+// What was wrong: two names were "the same vendor" when they shared any word of three letters, so "Garden State Lumber"
+// was "Kent Avenue Lumber" and PO-2026-049's confirmation request went to Kent Avenue's Dana; an empty name matched
+// every vendor. Now names agree only when they are the same once a legal suffix is set aside, or when every
+// distinctive word of one is in the other. A common word of the trade (Lumber, Supply, Plumbing, Tile, Inc...) is never
+// distinctive, so it never matches by itself; an empty name matches nothing. A message about an order goes to the
+// order's own vendor record (vendorOfPO: its vendorId first); a name only finds a vendor when exactly one answers to it,
+// and what it links is shown to a person, who can change it.
+const VENDOR_LEGAL = /\b(inc|incorporated|llc|llp|lp|co|corp|corporation|company|ltd|limited|the)\b/g,
+  VENDOR_COMMON_WORDS = /^(and|of|lumber|lumberyard|supply|supplies|supplier|plumbing|electric|electrical|building|buildings|builders|builder|materials|material|hardware|stone|tile|tiles|group|services|service|sales|nyc|ny|usa|direct|wholesale|distributors|distribution|trading|enterprises|industries|contracting|contractors|construction|depot|center|centre|yard|mill|millwork|works|windows|window|doors|door|flooring|floors|lighting|appliances|appliance|glass|timber|wood|home|pro|brothers|bros|sons|international|associates|mfg|manufacturing)$/;
+function vendorNameNorm(s) {
+  return String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").replace(VENDOR_LEGAL, " ").replace(/\s+/g, " ").trim();
+}
+// the words that tell one vendor from another
+function vendorNameWords(s) {
+  return vendorNameNorm(s).split(" ").filter((t) => t.length > 1 && !VENDOR_COMMON_WORDS.test(t));
+}
+function vendorNameSame(a, b) {
+  const x = vendorNameNorm(a),
+    y = vendorNameNorm(b);
+  if (!x || !y) return !1;
+  if (x === y || x.replace(/\s/g, "") === y.replace(/\s/g, "")) return !0;
+  const A = vendorNameWords(a),
+    B = vendorNameWords(b);
+  if (!A.length || !B.length) return !1;
+  const [S, L] = A.length <= B.length ? [A, B] : [B, A],
+    has = (t) => L.some((u) => u === t || (t.length >= 4 && u.length >= 4 && (u.startsWith(t) || t.startsWith(u))));
+  return S.every(has);
+}
+// The one vendor a name names: the same name first, else the only vendor whose distinctive words agree. Two that
+// agree is no answer: a person chooses.
+function vendorByName(name) {
+  if (!vendorNameNorm(name)) return null;
+  const V = (DB.vendors || []).filter((v) => v && v.name),
+    n = vendorNameNorm(name),
+    same = V.filter((v) => vendorNameNorm(v.name) === n);
+  if (same.length) return same.length === 1 ? same[0] : same.find((v) => !v.archived) || same[0];
+  const M = V.filter((v) => vendorNameSame(v.name, name));
+  return 1 === M.length ? M[0] : null;
+}
+// The order's own vendor record: its vendorId, else the vendor of exactly its name. Never a word-alike.
+function vendorOfPO(po) {
+  if (!po) return null;
+  const V = DB.vendors || [];
+  return (po.vendorId && V.find((v) => v.id === po.vendorId)) || V.find((v) => v.name && vendorNameNorm(v.name) && vendorNameNorm(v.name) === vendorNameNorm(po.vendor)) || null;
+}
+// ---- a message with no address is never sent (PU-Safe, 11-17) ------------------------------------------------------
+// Every path that marks a vendor message sent on its own (order follow-ups, RFQ chases, an RFQ or a negotiation round)
+// asks oxHasAddress first. With none, the message stays a draft marked Needs Address, says the step (add the email on
+// the vendor card), and nothing downstream (the PO's follow-ups, the Buy Board, Today, Ask) reads it as sent. When the
+// address is added later, Send takes it from the vendor card (oxAddressFill).
+const oxHasAddress = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e || "").trim());
+function oxMarkNeedsAddress(o, who) {
+  if (!o) return o;
+  delete o.sentAt, delete o.approvedBy;
+  return Object.assign(o, { status: "draft", needsAddress: !0, addressStep: `${who || (o.to || {}).name || "The vendor"} has no email on file: add it on the vendor card, then send` });
+}
+function oxVendorOf(o) {
+  const A = (o && o.about) || {},
+    V = DB.vendors || [];
+  let v = (A.vendorId && V.find((x) => x.id === A.vendorId)) || null;
+  if (!v && A.poId) v = vendorOfPO((DB.pos || []).find((p) => p.id === A.poId));
+  if (!v && A.rfqId) {
+    const m = String(o.aboutKey || "").match(/^rfq\|[^|]+\|([^|]+)\|/);
+    v = (m && V.find((x) => x.id === m[1])) || null;
+  }
+  return v;
+}
+function oxAddressFill(o) {
+  if (!o || oxHasAddress((o.to || {}).email)) return o;
+  const v = oxVendorOf(o);
+  v && oxHasAddress(v.email) && ((o.to = Object.assign({}, o.to || {}, { email: v.email })), delete o.needsAddress, delete o.addressStep);
+  return o;
+}
 function trkCfg() {
   const c = (DB.company = DB.company || {});
   return (c.track = Object.assign({ useTaxRate: 8.875, tol: 1, confMin: 0.85, mailbox: { connected: !1, read: [] } }, c.track || {}));
@@ -150578,17 +150662,11 @@ const trkUsd = (v) => (+v || 0).toLocaleString("en-US", { style: "currency", cur
     const v = parseFloat(String(s == null ? "" : s).replace(/[,$\s]/g, "").replace(/\?/g, "0"));
     return isFinite(v) ? v : 0;
   },
-  trkNorm = (s) => String(s || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9 ]+/g, " ").replace(/\b(inc|llc|co|corp|the|company)\b/g, "").replace(/\s+/g, " ").trim(),
-  trkSameVendor = (a, b) => {
-    const x = trkNorm(a), y = trkNorm(b);
-    if (!x || !y) return !0;
-    const w = (s) => s.split(" ").filter((t) => t.length > 2);
-    if (x.length < 3 || y.length < 3) return x === y;
-    return x === y || x.includes(y) || y.includes(x) || w(x).some((t) => w(y).includes(t));
-  },
+  trkNorm = (s) => vendorNameNorm(s),
+  trkSameVendor = (a, b) => vendorNameSame(a, b),
   trkPO = (id) => (DB.pos || []).find((x) => x.id === id) || null,
   trkBill = (id) => (DB.bills || []).find((x) => x.id === id) || null,
-  trkVendor = (name) => (trkNorm(name) ? (DB.vendors || []).find((v) => trkNorm(v.name) && trkSameVendor(v.name, name)) || null : null),
+  trkVendor = (name) => vendorByName(name),
   trkJob = (pid) => {
     const p = (DB.projects || []).find((x) => x.id === pid);
     return p ? String(p.project.name).replace(/ —.*$/, "") : "";
@@ -150918,7 +150996,8 @@ function trkCheck(d) {
     P = L.poId ? trkPO(L.poId) : null,
     B = L.billId ? trkBill(L.billId) : null,
     T = L.txnId ? (DB.txns || []).find((x) => x.id === L.txnId) : null,
-    V = trkVendor(F.vendor || (P && P.vendor) || (B && B.vendor) || ""),
+    // the record's own vendor (the PO's vendorId, the bill's vendor), else the one vendor the document names
+    V = (P && vendorOfPO(P)) || (B && vendorOfPO(B)) || trkVendor(F.vendor || ""),
     low = new Set(trkUnconfirmed(d)),
     checked = [],
     cases = [],
@@ -151081,8 +151160,8 @@ function trkCaseAct(docId, key, act, why) {
 }
 // A draft to the vendor about money is always a draft the coordinator approves (it discusses money).
 function trkVendorDraft(d, c) {
-  const V = trkVendor(d.fields.vendor || ""),
-    P = d.links.poId && trkPO(d.links.poId),
+  const P = d.links.poId && trkPO(d.links.poId),
+    V = (P && vendorOfPO(P)) || trkVendor(d.fields.vendor || ""),
     coord = trkUserOf("coord"),
     first = String((V && (V.contact || V.name)) || d.fields.vendor || "there").split(" ")[0],
     subj = `${TRK_KINDS[d.kind]} ${d.fields.number || ""}${P ? " — " + P.number : ""}: please send a corrected copy`,
@@ -151231,7 +151310,9 @@ function trkPromises() {
 }
 function trkPromiseAdd(o) {
   const L = trkPromises(),
-    V = trkVendor(o.vendor || ""),
+    P0 = o.poId ? trkPO(o.poId) : null,
+    // a promise about an order is the order's vendor's, never a vendor whose name shares a word with it
+    V = (P0 && vendorOfPO(P0)) || trkVendor(o.vendor || ""),
     key = `${(V && V.id) || trkNorm(o.vendor)}|${o.poId || ""}|${o.kind}|${o.due}`;
   if (!o.due || L.some((p) => p.key === key)) return L.find((p) => p.key === key) || null;
   const p = { id: uid("pm"), key: key, vendor: (V && V.name) || o.vendor || "", vendorId: (V && V.id) || "", poId: o.poId || "", projectId: o.projectId || ((o.poId && (trkPO(o.poId) || {}).projectId) || ""), kind: o.kind || "other", what: o.what || "", due: o.due, value: o.value || "", who: o.who || "", loggedBy: o.loggedBy || "assistant", at: o.at || appNowIso(), source: o.source || { kind: "mail" }, status: "open" };
@@ -151405,17 +151486,22 @@ function trkFollow(po, type, x, dedupe) {
   if (po.followups.some((f) => f.key === dedupe)) return null;
   const coord = trkUserOf("coord"),
     who = (po.createdByUid && (DB.users || []).find((u) => u.id === po.createdByUid)) || coord,
-    V = trkVendor(po.vendor) || { name: po.vendor },
+    // the order's own vendor record and its contact, never a vendor whose name shares a word (PO-2026-049 went to Kent Avenue)
+    V = vendorOfPO(po) || { name: po.vendor },
     ctx = Object.assign({ first: String(V.contact || V.name || "there").split(" ")[0], sign: (who && who.name) || "Chen", items: (po.lines || []).map((l) => l.item || l.desc).filter(Boolean).slice(0, 2).join(", ") || "the order", job: trkJob(po.projectId) || "the job", date: po.expected }, x || {}),
     msg = TRK_TEMPLATES[type](po, ctx),
     G = trkSendGuard(type, msg, who && who.id);
   if (!G.ok) return po.followups.push({ key: dedupe, type: type, at: appNowIso(), status: "refused", why: G.why, subject: msg.subject }), null;
   DB.outbox = DB.outbox || [];
-  const sent = "send" === G.mode,
-    o = { id: uid("ox"), kind: "order-followup", to: { name: V.contact || V.name || po.vendor, email: V.email || "" }, subject: msg.subject, body: msg.body, about: { label: `${po.number} · ${TRK_FOLLOW[type]}`, poId: po.id }, aboutKey: `tk|${po.id}|${dedupe}`, forName: (who && who.name) || "", status: sent ? "sent" : "draft", at: today(), by: "assistant", why: trkWhy(sent ? "send" : "send") };
+  // with no address on the vendor card the follow-up is never "sent": it waits as Needs Address (PU-Safe, 11-17: Tino
+  // and Carlos, with no email on file, were marked sent and the PO's history, the Buy Board and Ask believed it)
+  const noAddr = !oxHasAddress(V.email),
+    sent = "send" === G.mode && !noAddr,
+    o = { id: uid("ox"), kind: "order-followup", to: { name: V.contact || V.name || po.vendor, email: V.email || "" }, subject: msg.subject, body: msg.body, about: { label: `${po.number} · ${TRK_FOLLOW[type]}`, poId: po.id, vendorId: V.id || "" }, aboutKey: `tk|${po.id}|${dedupe}`, forName: (who && who.name) || "", status: sent ? "sent" : "draft", at: today(), by: "assistant", why: trkWhy(sent ? "send" : "send") };
   sent && Object.assign(o, { sentAt: appNowIso(), approvedBy: "delegated: order follow-ups" });
+  noAddr && oxMarkNeedsAddress(o, V.name || po.vendor);
   DB.outbox.push(o);
-  const f = { key: dedupe, type: type, at: appNowIso(), day: today(), status: sent ? "sent" : "drafted", outboxId: o.id, subject: msg.subject, to: o.to.name, reply: null };
+  const f = { key: dedupe, type: type, at: appNowIso(), day: today(), status: sent ? "sent" : noAddr ? "needs-address" : "drafted", outboxId: o.id, subject: msg.subject, to: o.to.name, reply: null };
   return po.followups.push(f), f;
 }
 // The cadence, run each day and on demand. Returns the follow-ups made.
@@ -151580,9 +151666,9 @@ function trkFileMail(box) {
 }
 function trkPromisesIn(m) {
   const t = String(m.text || ""),
-    V = trkVendor(m.fromName || (String(m.from || "").match(/^([^<]+)</) || [])[1] || ""),
     poNo = (t.match(/\bPO-\d{4}-\d{3}\b/) || (m.subject || "").match(/\bPO-\d{4}-\d{3}\b/) || [])[0],
     P = poNo ? (DB.pos || []).find((p) => p.number === poNo) : null,
+    V = (P && vendorOfPO(P)) || trkVendor(m.fromName || (String(m.from || "").match(/^([^<]+)</) || [])[1] || ""),
     vendor = (V && V.name) || (P && P.vendor) || "",
     src = { kind: "mail", mailId: m.id, text: "" };
   if (!vendor) return 0;
@@ -151696,7 +151782,7 @@ function trkDocsCard(ctx) {
       <button class="btn sm" data-trkact="pick">${TRK_ICON_CLIP} Add Document</button><button class="btn sm" data-trkact="cam">${TRK_ICON_CAM} Take Photo</button><span class="small muted trk-dz">or drop files here</span></div>
     ${sh.length ? `<div class="small" style="margin-top:8px"><b>Shipments</b> ${sh.map((s) => `${esc(s.carrier)} ${esc(s.number)} · ${esc(s.status)}${s.eta ? " · ETA " + fmtL(s.eta) : ""}${s.risk ? ` · <span class="bad">after the need-by ${fmtL(trkNeedBy(po))}</span>` : ""}`).join(" · ")}</div>` : ""}
     ${pr.length ? `<div class="small" style="margin-top:6px"><b>Promises</b> ${pr.map((p) => `${esc(p.what)} · due ${fmtL(p.due)} · ${esc(p.status)}`).join(" · ")}</div>` : ""}
-    ${fu.length ? `<div class="small" style="margin-top:6px"><b>Follow-Ups</b> ${fu.map((f) => `${esc(TRK_FOLLOW[f.type] || f.type)}: ${esc(f.status)} ${fmtL(String(f.at).slice(0, 10))}${f.reply ? ` · reply: ${esc(f.reply.summary)}` : ""}`).join(" · ")}</div>` : ""}
+    ${fu.length ? `<div class="small" style="margin-top:6px"><b>Follow-Ups</b> ${fu.map((f) => `${esc(TRK_FOLLOW[f.type] || f.type)}: ${"needs-address" === f.status && !trkSent(f) ? `<b class="warn">Needs Address</b>, not sent: ${esc(((vendorOfPO(po) || {}).name) || po.vendor)} has no email on file` : esc(f.status)} ${fmtL(String(f.at).slice(0, 10))}${f.reply ? ` · reply: ${esc(f.reply.summary)}` : ""}`).join(" · ")}${fu.some((f) => "needs-address" === f.status && !trkSent(f)) && vendorOfPO(po) ? ` <button class="btn sm" data-trkact="vendor">Add the Email</button>` : ""}</div>` : ""}
     ${po ? `<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-trkact="promise">Log a Promise</button></div>` : ""}
   </div>`;
 }
@@ -151736,6 +151822,11 @@ function trkWireCard(host, ctx) {
     if ("pick" === a) return fileIn.click();
     if ("cam" === a) return camIn.click();
     if ("promise" === a) return trkLogPromiseDialog({ poId: ctx.poId, vendor: (trkPO(ctx.poId) || {}).vendor });
+    if ("vendor" === a) {
+      const v = vendorOfPO(trkPO(ctx.poId));
+      return v ? vendorPage(v.id) : void 0;
+    }
+    if ("ackreview" === a) return trkAckSheet(d);
     if ("confirm" === a) {
       const inp = card.querySelector(`[data-trkconf="${CSS.escape(k)}"][data-doc="${id}"]`),
         v = inp ? (/^(lines\.\d+\.(qty|price|ext)|total|subtotal|tax|freight|tip)$/.test(k) ? trkNum(inp.value) : inp.value) : null;
@@ -181755,10 +181846,18 @@ const truthNorm = (s) =>
     .replace(/[^a-z0-9 ]+/g, " ")
     .split(/\s+/)
     .filter((w) => w.length >= 3 && !/^(inc|llc|the|and|corp|ltd|ach|debit|credit|card|payment|check|wire|sq|pos)$/.test(w));
+// A bank line names a vendor by a word only that vendor carries: a common word of the trade (Lumber, Supply, Tile) is
+// in many vendors' names and never matches by itself (PU-Safe, 11-17); a name made only of such words ("Home Depot")
+// matches as the whole name.
 const truthVendorHit = (t, vendor) => {
-  const V = truthNorm(vendor),
-    T = new Set(truthNorm(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`));
-  return !!V.length && V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
+  const V = truthNorm(vendor).filter((w) => !VENDOR_COMMON_WORDS.test(w)),
+    hay = `${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`,
+    T = new Set(truthNorm(hay));
+  if (!V.length) {
+    const whole = truthNorm(vendor).join(" ");
+    return !!whole && ` ${truthNorm(hay).join(" ")} `.includes(` ${whole} `);
+  }
+  return V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
 };
 // Candidates for one line, scored: amount agrees (3), vendor agrees (2), within 7 days (1). 6 is automatic
 // (amount, vendor and date all agree) and becomes a proposal; a person confirms.
@@ -185122,8 +185221,12 @@ function rfqDeliver(r, v, subject, body, kind, att) {
         .catch((e) => console.warn("rfq draft", e));
     } catch (e) {}
   } else {
-    rec.via = "outbox";
-    (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "rfq" === kind ? "rfq" : "rfq-" + kind, to: { name: v.contact || v.name, email: v.email || "" }, subject: subject, body: body, attachments: att ? [att] : [], about: { label: `${r.number} · ${v.name}`, rfqId: r.id }, aboutKey: `rfq|${r.id}|${v.id}|${kind}|${(r.sent || []).length}`, forName: rfqMe(), status: "sent", sentAt: appNowIso(), approvedBy: rfqMe(), at: today(), by: rfqMe() });
+    // no address: never "sent" (PU-Safe); the request waits as Needs Address for the person to add one and send
+    const noAddr = !oxHasAddress(v.email),
+      o = { id: uid("ox"), kind: "rfq" === kind ? "rfq" : "rfq-" + kind, to: { name: v.contact || v.name, email: v.email || "" }, subject: subject, body: body, attachments: att ? [att] : [], about: { label: `${r.number} · ${v.name}`, rfqId: r.id, vendorId: v.id }, aboutKey: `rfq|${r.id}|${v.id}|${kind}|${(r.sent || []).length}`, forName: rfqMe(), status: "sent", sentAt: appNowIso(), approvedBy: rfqMe(), at: today(), by: rfqMe() };
+    noAddr && oxMarkNeedsAddress(o, v.name);
+    rec.via = noAddr ? "needs-address" : "outbox";
+    (DB.outbox = DB.outbox || []).push(o);
   }
   return (r.sent = r.sent || []).push(rec), rec;
 }
@@ -185310,7 +185413,11 @@ function rfqChaseSweep(r) {
       u = r.sentByUid || (rfqUserOf("coord") || {}).id;
     (r.chased = r.chased || []).push(iv.id);
     const may = standardAllows({ action: "send", type: "rfqChases", uid: u });
-    if (u && "alone" === may.mode) {
+    if (!oxHasAddress(v.email)) {
+      // no address on the vendor card: a chase is never "sent" (PU-Safe); it waits as Needs Address
+      (DB.outbox = DB.outbox || []).push(oxMarkNeedsAddress({ id: uid("ox"), kind: "rfq-chase", to: { name: v.contact || v.name, email: "" }, subject: subj, body: body, about: { label: `${r.number} · ${v.name}`, rfqId: r.id, vendorId: v.id }, aboutKey: `rfq|${r.id}|${v.id}|chase`, forName: r.sentBy || ((rfqUserOf("coord") || {}).name || ""), status: "draft", at: td, by: "assistant" }, v.name));
+      rfqHist(r, "chase needs an address", `${v.name} has not quoted and has no email on file`);
+    } else if (u && "alone" === may.mode) {
       standardLog("sent", `${r.number}: chase to ${v.name} (delegated: RFQ chases)`, may.line);
       (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "rfq-chase", to: { name: v.contact || v.name, email: v.email || "" }, subject: subj, body: body, about: { label: `${r.number} · ${v.name}`, rfqId: r.id }, aboutKey: `rfq|${r.id}|${v.id}|chase`, forName: r.sentBy || "", status: "sent", sentAt: appNowIso(), approvedBy: "delegated: RFQ chases", at: td, by: "assistant" });
       rfqHist(r, "chased", `${v.name}: sent (RFQ chases are delegated)`);
@@ -187392,7 +187499,7 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Out to Vendors</h3>${(r.vendors || []).map((iv) => {
       const q = rfqQuoteOf(r, iv.id, 1),
         s = (r.sent || []).find((x) => x.vendorId === iv.id && "rfq" === x.kind);
-      return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
+      return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : "needs-address" === s.via ? '<b class="warn">Needs Address</b>' : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
     }).join("")}${r.fewerQuotes ? `<p class="small muted" data-nocase>Fewer than three: ${esc(r.fewerQuotes.reason)} (${esc(r.fewerQuotes.by)}, ${fmt(r.fewerQuotes.on)}).</p>` : ""}${"open" === r.fmBeside ? `<p class="small muted">${esc(r.foreman)} checks the quantities beside it, on his phone.</p>` : r.fmChanges && !r.fmTold ? `<div class="rfq-row small warn" data-nocase><span class="grow">${esc(((r.foremanOk || {}).by) || r.foreman)} changed the quantities after it went out: ${esc(r.fmChanges.join("; "))}.</span><button type="button" class="btn sm primary" id="rfq-tell">Tell the Vendors</button></div>` : r.fmTold ? `<p class="small muted" data-nocase>The change went to ${r.fmTold.n} vendor${1 === r.fmTold.n ? "" : "s"}, sent by ${esc(r.fmTold.by)} (${fmt(r.fmTold.on)}).</p>` : ""}${rfqAddVendorHtml(r)}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? `<button class="btn ${unread.length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-level">Level Now</button>` : ""}</div>${unread.length && (r.quotes || []).some((q) => !q.unreadable) ? `<p class="small muted">Level Now leaves out the ${unread.length === 1 ? "bid" : "bids"} with no price; a bid is leveled only on a price someone read.</p>` : ""}</div>`;
   if (unread.length && RFQ_OPEN.includes(stage)) act += `<div class="card rfq-sec"><h3>Price Needed</h3>${unread.map((q, i) => `<div class="rfq-row small" data-nocase><span class="grow">${esc(q.vendor)}: ${esc(q.flags[0] || "")}</span><button class="btn sm ${0 === i && ["sent", "quoting"].includes(stage) ? "primary" : ""}" data-rfqenter="${esc(q.id)}">Enter Prices</button></div>`).join("")}</div>`;
   if (L && ["quoting", "leveled", "negotiating", "awarded"].includes(stage)) act += `<div class="rfq-sec"><h3>Leveling${"negotiating" === stage || "awarded" === stage ? " — Latest Round" : ""}</h3>${rfqLevelHtml(r, L)}</div>`;
@@ -202268,7 +202375,7 @@ function tdyDraftShape(o) {
     id: o.id,
     projectId: "",
     project: (o.about && o.about.label) || "",
-    title: `Send: ${o.subject || kindWord}`,
+    title: o.needsAddress ? `Needs Address: ${o.subject || kindWord}` : `Send: ${o.subject || kindWord}`,
     owner: U ? U.name : "",
     ownerUid: U ? U.id : "",
     ownerHow: "named",

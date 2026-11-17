@@ -455,6 +455,8 @@ function bbReconfirm(r) {
   const f = (po.followups || []).filter((x) => "reconfirm" === x.type);
   const sent = f.filter((x) => "function" == typeof trkSent && trkSent(x)).pop();
   if (sent) return `Reconfirmed ${fmt(String(sent.sentAt || sent.at || sent.date || "").slice(0, 10)) || ""}`.trim();
+  // a reconfirmation with no address on file was never sent (PU-Safe)
+  if (f.some((x) => "needs-address" === x.status)) return "Reconfirmation needs an address";
   if (f.length) return "Reconfirmation drafted";
   return ["today", "next2"].includes(r.arr) ? "Not reconfirmed" : "";
 }
