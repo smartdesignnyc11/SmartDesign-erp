@@ -1218,6 +1218,12 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
     const v = +n || 0;
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
+  // A unit price on a vendor's paper (a PO, its mail, its PDF): to the cent, and to the places the price has beyond it
+  // ($0.875 per lf), never rounded (PU-Safe, 11-17: PO-2026-049 printed $5 for $4.50).
+  vendorPriceMoney = (n) => {
+    const v = +n || 0;
+    return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
 // A line the firm does not price (lane P, 11-12): Excluded (out of the scope, printed so the client sees it is not
 // in the price) or TBD (to be priced). It prints its item with the word where the amount was and counts $0 in the
@@ -12100,7 +12106,7 @@ function wirePODoc(po) {
                 po.lines.push({
                   id: uid("pl"),
                   item: m.name,
-                  desc: m.notes || "",
+                  desc: m.spec || "",
                   qty: qm ? +qm[1] : 1,
                   unit: qm && qm[2] ? qm[2] : "ls",
                   price:
@@ -12366,7 +12372,7 @@ function newPODialog() {
               po.lines.push({
                 id: uid("pl"),
                 item: m.name,
-                desc: m.notes || "",
+                desc: m.spec || "",
                 qty: qm ? +qm[1] : 1,
                 unit: qm && qm[2] ? qm[2] : "ls",
                 price:
@@ -12450,7 +12456,7 @@ function newPODialog() {
 }
 function printPO(po) {
   const t = poTotal(po),
-    html = `<!doctype html><html><head><title>${esc(po.number)}</title><style>body{font:13px/1.45 -apple-system,"Segoe UI",Helvetica,Arial;color:#1D2430;margin:40px;max-width:820px}h1{font-size:24px;margin:0}.top{display:flex;justify-content:space-between;border-bottom:2px solid #1D2430;padding-bottom:14px;margin-bottom:18px}.s{color:#6b7480;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px}table{width:100%;border-collapse:collapse}th{font-size:11.5px;text-align:left;border-bottom:2px solid #D9DDE3;padding:6px 8px;color:#4A5462}td{padding:7px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top}.r{text-align:right;white-space:nowrap}.tot{margin-left:auto;width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:10px}.big{font-size:17px;font-weight:700;border-top:2px solid #1D2430;padding-top:6px}.tc{margin-top:26px;font-size:11.5px;color:#4A5462;border-top:1px solid #D9DDE3;padding-top:10px}@media print{body{margin:.4in}}</style></head><body><div class="top"><div><b style="font-size:16px">${esc(DB.company.name || "")}</b><div class="s">${esc(DB.company.addr || "")}${DB.company.phone ? "<br>" + esc(DB.company.phone) : ""}${DB.company.email ? " · " + esc(DB.company.email) : ""}</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1><div class="s">${esc(po.number)}<br>Date ${fmtL(po.date)}${po.expected ? "<br>Deliver by " + fmtL(po.expected) : ""}</div></div></div><div class="meta"><div><div class="s">Vendor</div><b>${esc(po.vendor)}</b></div><div><div class="s">Ship to</div><b>${esc(po.shipTo || "Site")}</b><br>${esc(S.project.addr || "")}</div><div><div class="s">Project</div><b>${esc(S.project.name)}</b><br>Reference this PO number on all invoices and packing slips.</div></div><table><thead><tr><th>Item</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>${po.lines.map((l) => `<tr><td>${esc(l.item)}</td><td>${esc(l.desc || "")}</td><td class="r">${l.qty} ${esc(l.unit)}</td><td class="r">${money(l.price)}</td><td class="r">${money((+l.qty || 0) * (+l.price || 0))}</td></tr>`).join("")}</tbody></table><div class="tot"><span>Subtotal</span><span class="r">${money(t.sub)}</span>${t.tax ? `<span>Tax</span><span class="r">${money(t.tax)}</span>` : ""}${t.shipping ? `<span>Shipping</span><span class="r">${money(t.shipping)}</span>` : ""}<span class="big">Total</span><span class="r big">${money(t.total)}</span></div>${po.notes ? `<div style="margin-top:14px"><b>Notes</b><div style="white-space:pre-wrap">${esc(po.notes)}</div></div>` : ""}<div class="tc">Invoices must reference the PO number and match quantities and unit prices above. Variances require written approval before shipment.</div><script>window.onload=()=>window.print()<\/script></body></html>`,
+    html = `<!doctype html><html><head><title>${esc(po.number)}</title><style>body{font:13px/1.45 -apple-system,"Segoe UI",Helvetica,Arial;color:#1D2430;margin:40px;max-width:820px}h1{font-size:24px;margin:0}.top{display:flex;justify-content:space-between;border-bottom:2px solid #1D2430;padding-bottom:14px;margin-bottom:18px}.s{color:#6b7480;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px}table{width:100%;border-collapse:collapse}th{font-size:11.5px;text-align:left;border-bottom:2px solid #D9DDE3;padding:6px 8px;color:#4A5462}td{padding:7px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top}.r{text-align:right;white-space:nowrap}.tot{margin-left:auto;width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:10px}.big{font-size:17px;font-weight:700;border-top:2px solid #1D2430;padding-top:6px}.tc{margin-top:26px;font-size:11.5px;color:#4A5462;border-top:1px solid #D9DDE3;padding-top:10px}@media print{body{margin:.4in}}</style></head><body><div class="top"><div><b style="font-size:16px">${esc(DB.company.name || "")}</b><div class="s">${esc(DB.company.addr || "")}${DB.company.phone ? "<br>" + esc(DB.company.phone) : ""}${DB.company.email ? " · " + esc(DB.company.email) : ""}</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1><div class="s">${esc(po.number)}<br>Date ${fmtL(po.date)}${po.expected ? "<br>Deliver by " + fmtL(po.expected) : ""}</div></div></div><div class="meta"><div><div class="s">Vendor</div><b>${esc(po.vendor)}</b></div><div><div class="s">Ship to</div><b>${esc(po.shipTo || "Site")}</b><br>${esc(S.project.addr || "")}</div><div><div class="s">Project</div><b>${esc(S.project.name)}</b><br>Reference this PO number on all invoices and packing slips.</div></div><table><thead><tr><th>Item</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>${po.lines.map((l) => `<tr><td>${esc(l.item)}</td><td>${esc(vendorSpecOf(l))}</td><td class="r">${l.qty} ${esc(l.unit)}</td><td class="r">${vendorPriceMoney(l.price)}</td><td class="r">${money((+l.qty || 0) * (+l.price || 0))}</td></tr>`).join("")}</tbody></table><div class="tot"><span>Subtotal</span><span class="r">${money(t.sub)}</span>${t.tax ? `<span>Tax</span><span class="r">${money(t.tax)}</span>` : ""}${t.shipping ? `<span>Shipping</span><span class="r">${money(t.shipping)}</span>` : ""}<span class="big">Total</span><span class="r big">${money(t.total)}</span></div>${po.notes ? `<div style="margin-top:14px"><b>Notes</b><div style="white-space:pre-wrap">${esc(po.notes)}</div></div>` : ""}<div class="tc">Invoices must reference the PO number and match quantities and unit prices above. Variances require written approval before shipment.</div><script>window.onload=()=>window.print()<\/script></body></html>`,
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
@@ -12542,7 +12548,7 @@ function poEmailTemplate(po) {
     first = ((v && v.contact) || po.vendor || "").split(/[\s,]+/)[0],
     me = (currentUser() || {}).name || (S.project && S.project.userName) || DB.company.name || "",
     dr = poDrawings(p),
-    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${l.desc ? ` (${l.desc})` : ""} @ ${money(l.price)}`).join("\n");
+    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${vendorSpecOf(l) ? ` (${vendorSpecOf(l)})` : ""} @ ${vendorPriceMoney(l.price)}`).join("\n");
   return {
     subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
     body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
@@ -150443,7 +150449,7 @@ function rcPORead(po) {
       (po.lines || [])
         .map(
           (l) =>
-            `<tr><td><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted">${esc(l.desc)}</div>` : ""}</td><td class="num">${r2(+l.qty || 0)}</td><td>${esc(l.unit || "")}</td><td class="money">${money(+l.price || 0)}</td><td class="money">${money(r2((+l.qty || 0) * (+l.price || 0)))}</td><td class="small">${esc(
+            `<tr><td><b>${esc(l.item || "")}</b>${vendorSpecOf(l) ? `<div class="small muted">${esc(vendorSpecOf(l))}</div>` : ""}</td><td class="num">${r2(+l.qty || 0)}</td><td>${esc(l.unit || "")}</td><td class="money">${vendorPriceMoney(+l.price || 0)}</td><td class="money">${money(r2((+l.qty || 0) * (+l.price || 0)))}</td><td class="small">${esc(
               ((l) => {
                 const c = (void 0 !== COST_CODES ? COST_CODES : []).find((x) => x[0] === l.code);
                 return c ? `${c[0]} ${c[1]}` : l.code || "";
@@ -151043,6 +151049,12 @@ function trkCheck(d) {
     "slip" === d.kind && q > pq + 1e-9 && add("slipQty", `lines.${i}.qty`, `Delivered more than ordered, ${pl.item}`, `${pq}`, `${q}`, (q - pq) * pp, "confirm", trkWhy("delivery"));
   });
   lines.length && "receipt" !== d.kind && checked.push(`${lines.length} line${1 === lines.length ? "" : "s"}: quantity, price, extension`);
+  // the date a confirmation gives (delivery, else ship) against the order's expected date (PU-Safe, 11-17: ships 9/21
+  // against an order expected 9/7 was nobody's to decide)
+  if ("ack" === d.kind && P) {
+    const cd = trkAckDate(d);
+    cd && P.expected && cd > P.expected ? add("date", F.eta ? "eta" : "shipDate", `${F.eta ? "Delivery" : "Ship"} date later than ${P.number}`, fmtL(P.expected), fmtL(cd), 0, "confirm", trkWhy("lead")) : cd && checked.push("date");
+  }
   // subtotal, tax at the right rate or use tax due, freight, total
   const sub = null != F.subtotal ? +F.subtotal : r2(sumExt),
     tax = +F.tax || 0,
@@ -151260,6 +151272,7 @@ function trkAfterFile(d) {
     P = d.links.poId && trkPO(d.links.poId);
   if ((F.tracking || "tracking" === d.kind) && F.tracking) trkShipmentFrom(d);
   if (P && "ack" === d.kind) {
+    trkAckEscalate(d);
     F.shipDate && trkPromiseAdd({ vendor: P.vendor, poId: P.id, kind: "ship", due: F.shipDate, what: `Ship ${P.number} by ${fmtL(F.shipDate)} (acknowledgment ${F.number || ""})`, source: { kind: "ack", docId: d.id } });
     F.eta && trkPromiseAdd({ vendor: P.vendor, poId: P.id, kind: "deliver", due: F.eta, what: `Deliver ${P.number} by ${fmtL(F.eta)} (acknowledgment ${F.number || ""})`, source: { kind: "ack", docId: d.id } });
   }
@@ -151452,6 +151465,156 @@ function trkSlipSweep() {
     n++;
   });
   return n;
+}
+// ---- a confirmation that differs from its order (PU-Safe, 11-17) ---------------------------------------------------
+// What was wrong: an acknowledgment 5 short, 8% higher and shipping 9/21 against a 9/8 need-by was flagged only in the
+// PO's Documents panel; the PO still read expected 9/7 and nobody was asked to decide. Now it is one Needs You row for
+// the coordinator (on Orders, and on Today through Needs Your Hand), with Reply to the Vendor or Accept as the next
+// step; nothing is accepted by the system. Accepting takes the confirmed date onto the order (po.confirmed, po.expected
+// with the old date kept and an audit row). A confirmed date past the need-by escalates to the coordinator and the
+// job's PM in the Standard's format, the way a tracking slip does.
+const TRK_ACK_CODES = ["qty", "qtyShort", "price", "date"];
+const trkAckDate = (d) => (d && d.fields && (d.fields.eta || d.fields.shipDate)) || "";
+function trkAckDiffs(d) {
+  return ((d && d.check) || {}).cases ? d.check.cases.filter((c) => TRK_ACK_CODES.includes(c.code) && trkCaseOpen(c)) : [];
+}
+function trkAckDiffWords(c) {
+  if ("date" === c.code) return `${/^Delivery/.test(c.label) ? "delivers" : "ships"} ${c.theirs}, the order expected ${c.ours}`;
+  const item = String(c.label).replace(/^[^,]*,\s*/, "");
+  if ("qtyShort" === c.code) return `${item}: ${c.theirs} confirmed of ${c.ours} ordered`;
+  if ("qty" === c.code) return `${item}: ${c.theirs} confirmed, ${c.ours} ordered`;
+  const a = trkNum(c.ours),
+    b = trkNum(c.theirs),
+    pct = a ? Math.round(((b - a) / a) * 100) : 0;
+  return `${item}: ${c.theirs} a unit against ${c.ours} on the order${pct ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""}`;
+}
+// every filed acknowledgment that differs and waits on a person (the latest per order)
+function trkAckOpen(pid) {
+  const out = [];
+  (DB.pos || [])
+    .filter((P) => ["issued", "partial", "pending"].includes(P.status) && (!pid || P.projectId === pid))
+    .forEach((P) => {
+      const d = trkDocs().filter((x) => trkLive(x) && "ack" === x.kind && x.links.poId === P.id && "filed" === x.status).pop();
+      if (!d || (d.ackDecision && ["accepted", "replied"].includes(d.ackDecision.status))) return;
+      d.check || trkCheck(d);
+      const diffs = trkAckDiffs(d);
+      diffs.length && out.push({ d: d, P: P, diffs: diffs });
+    });
+  return out;
+}
+// the confirmed date past the need-by: the escalation, in the Standard's format, kept on the document
+function trkAckEscalate(d) {
+  const P = d && trkPO(d.links.poId),
+    cd = trkAckDate(d),
+    need = P && trkNeedBy(P);
+  if (!P || !cd || !need || cd <= need) return null;
+  const key = `${cd}|${need}`;
+  if (d.esc && d.esc.key === key) return d.esc;
+  const days = Math.max(1, Math.round((parse(cd) - parse(need)) / 864e5)),
+    task = trkTaskFor(P),
+    deadline = addWork(today(), 1),
+    verb = d.fields.eta ? "delivers" : "ships";
+  d.esc = {
+    key: key,
+    at: appNowIso(),
+    day: today(),
+    to: ["coord", "pm"],
+    ack: {},
+    what: `${P.number} from ${P.vendor} (${(P.lines[0] || {}).item || "the order"}): confirmation ${d.fields.number || ""} ${verb} ${fmtL(cd)}; ${trkJob(P.projectId)} needs it on site by ${fmtL(need)}.`.replace(/\s+/g, " "),
+    impact: `Schedule: ${days} day${1 === days ? "" : "s"} past the need-by${task ? `, holding "${task.name}" (starts ${fmtL(task.start)})` : ""}. Cost: crew time if the trade is booked and idle. Quality: none if the spec holds.`,
+    options: [`Ask ${P.vendor} to beat ${fmtL(need)} or ship part now`, `Re-sequence the look-ahead${task ? ` around "${task.name}"` : ""}`, "Source it elsewhere at the same spec (PM and designer approve any substitute)"],
+    rec: `Reply to ${P.vendor} today asking for ${fmtL(need)}; if they cannot, the PM re-sequences the look-ahead by ${fmtL(deadline)}.`,
+    deadline: deadline,
+    why: trkWhy("slip"),
+  };
+  try {
+    audit("po", P.id, "ack-escalated", need, cd, d.esc.what);
+  } catch (e) {}
+  return d.esc;
+}
+// the escalation stands while the order is open and the date still misses the need-by
+const trkAckEscLive = (d) => {
+  const P = trkPO(d.links.poId);
+  return !!P && ["issued", "partial", "pending"].includes(P.status) && trkAckDate(d) > (trkNeedBy(P) || "9999");
+};
+// Review: what differs, then Reply to the Vendor (the safe step: a draft the person sends) or Accept (with a reason)
+function trkAckSheet(d) {
+  const P = d && trkPO(d.links.poId);
+  if (!P) return;
+  d.check || trkCheck(d);
+  const D = trkAckDiffs(d),
+    need = trkNeedBy(P),
+    mon = D.some((c) => ["qty", "qtyShort", "price"].includes(c.code));
+  mbModal(
+    `Confirmation Differs — <span data-nocase>${esc(P.number)}</span>`,
+    `<p class="small" data-nocase>${esc(P.vendor)}'s confirmation ${esc(d.fields.number || "")} does not match the order${need ? `; ${esc(trkJob(P.projectId))} needs it on site ${esc(fmtL(need))}` : ""}.</p><ul class="small" data-nocase>${D.map((c) => `<li>${esc(trkAckDiffWords(c))}</li>`).join("") || "<li>Nothing differs now.</li>"}</ul><p class="small muted">Reply asks ${esc(P.vendor)} to confirm the order as sent; nothing goes until you send it. Accept keeps the order's lines and prices as they are and takes the confirmed date onto the order.${mon ? " A price or quantity change is accepted only with your reason." : ""}</p>${mbF("Why You Accept It (Needed to Accept)", '<input data-f="why" placeholder="e.g. 20 is enough for this floor; the rest comes with the next order">')}`,
+    {
+      submit: "Reply to the Vendor",
+      onSubmit: () => {
+        const o = trkAckReply(d);
+        o && toast(`Reply to ${P.vendor} about ${d.fields.number || "the confirmation"} is in your outbox to send`, [{ label: "Open", run: () => mGo({ view: "brain", bnTab: "hands" }) }]);
+        render();
+      },
+      alt: {
+        label: "Accept the Confirmation",
+        keep: !0,
+        run: () => {
+          const why = String((document.querySelector('#mbm [data-f="why"]') || {}).value || "").trim();
+          if (mon && why.length < 8) return toast("Say why you accept a different price or quantity (a sentence)");
+          trkAckAccept(d, why || "the later date is acceptable") && (mbCloseModal(), render());
+        },
+      },
+    },
+  );
+}
+function trkAckReply(d) {
+  const P = trkPO(d.links.poId),
+    V = (P && vendorOfPO(P)) || { name: (P && P.vendor) || "" },
+    D = trkAckDiffs(d),
+    need = trkNeedBy(P),
+    me = trkUserOf("coord"),
+    first = String(V.contact || V.name || "there").split(" ")[0],
+    o = {
+      id: uid("ox"),
+      kind: "ack-reply",
+      to: { name: V.contact || V.name || "", email: V.email || "" },
+      subject: `${P.number} — your confirmation ${d.fields.number || ""}`.replace(/\s+/g, " ").trim(),
+      body: `Hi ${first},\n\nThank you for confirming ${P.number}. It does not match our order:\n${D.map((c) => `- ${trkAckDiffWords(c)}`).join("\n")}\n\nCould you confirm the order as we sent it${need ? `, on site by ${fmtL(need)}` : ""}? If you cannot, tell us what you can do and we will decide.\n\nThank you,\n${(currentUser() || me || {}).name || "Chen"}\nSmartDesign`,
+      about: { label: `${P.number} · confirmation differs`, poId: P.id, docId: d.id, vendorId: V.id || "" },
+      aboutKey: `tk|${d.id}|ackreply`,
+      forName: trkWho(),
+      status: "draft",
+      at: today(),
+      by: trkWho(),
+      why: trkWhy("send"),
+    };
+  oxHasAddress(o.to.email) || oxMarkNeedsAddress(o, V.name);
+  (DB.outbox = DB.outbox || []).push(o);
+  d.ackDecision = { status: "replied", by: trkWho(), at: appNowIso(), outboxId: o.id };
+  try {
+    audit("doc", d.id, "ack-replied", "", o.subject, D.map(trkAckDiffWords).join("; "));
+  } catch (e) {}
+  save();
+  return o;
+}
+function trkAckAccept(d, why) {
+  const P = trkPO(d.links.poId);
+  if (!P) return null;
+  const by = trkWho(),
+    at = appNowIso(),
+    D = trkAckDiffs(d),
+    cd = trkAckDate(d);
+  D.forEach((c) => Object.assign(c, { state: "accepted", by: by, at: at, reason: why }));
+  const was = P.expected || "";
+  P.confirmed = { date: cd || was, docId: d.id, number: d.fields.number || "", by: by, at: at, was: was };
+  cd && cd !== was && (P.expected = cd);
+  d.ackDecision = { status: "accepted", by: by, at: at, reason: why };
+  try {
+    audit("po", P.id, "confirmed", was, cd || was, `${d.fields.number || "acknowledgment"} accepted by ${by}: ${why}`);
+  } catch (e) {}
+  trkCheck(d), save();
+  rcToast(`${P.number} confirmed by ${d.fields.number || "the vendor"}${cd ? `: ${d.fields.eta ? "delivers" : "ships"} ${fmtL(cd)}` : ""}, accepted by ${by}`, [{ label: "Open", run: () => flowGo.po(P)() }]);
+  return P.confirmed;
 }
 function trkTaskFor(po) {
   const p = (DB.projects || []).find((x) => x.id === po.projectId);
@@ -151778,6 +151941,7 @@ function trkDocsCard(ctx) {
   return `<div class="card trk-card" id="trk-docs"><div class="hd"><h3>Documents</h3><span class="small muted">${D.length ? `${D.length} on file` : "none on file yet"}</span></div>
     ${H ? `<div class="note warn small">On hold: ${esc(trkHoldWords(H))}. It cannot be approved for payment until each is resolved or accepted. ${esc(trkWhy("threeWay"))}</div>` : ""}
     ${D.map(trkDocLine).join("")}
+    ${po ? trkAckOpen(po.projectId).filter((x) => x.P.id === po.id).map((x) => `<div class="note warn small" data-nocase>Confirmation ${esc(x.d.fields.number || "")} differs from the order: ${esc(x.diffs.map(trkAckDiffWords).join("; "))}. <button class="btn sm" data-trkact="ackreview" data-doc="${esc(x.d.id)}">Review</button></div>`).join("") : ""}
     <div class="trk-drop" data-trkdrop="1"><input type="file" id="trk-file" accept="image/*,application/pdf,text/plain,.txt,.pdf,.svg" multiple hidden><input type="file" id="trk-cam" accept="image/*" capture="environment" hidden>
       <button class="btn sm" data-trkact="pick">${TRK_ICON_CLIP} Add Document</button><button class="btn sm" data-trkact="cam">${TRK_ICON_CAM} Take Photo</button><span class="small muted trk-dz">or drop files here</span></div>
     ${sh.length ? `<div class="small" style="margin-top:8px"><b>Shipments</b> ${sh.map((s) => `${esc(s.carrier)} ${esc(s.number)} · ${esc(s.status)}${s.eta ? " · ETA " + fmtL(s.eta) : ""}${s.risk ? ` · <span class="bad">after the need-by ${fmtL(trkNeedBy(po))}</span>` : ""}`).join(" · ")}</div>` : ""}
@@ -152107,6 +152271,20 @@ function trkRegister() {
       try {
         const have = new Set(out.map((r) => r.key));
         trkRows("docsToConfirm").forEach((r) => have.has("tk:" + r.key) || out.push({ key: "tk:" + r.key, route: "coord", kind: "doc", title: r.what, why: `${r.sub} · ${trkWhy("guess")}`, verb: "Review", no: "", run: r.go, open: r.go }));
+        trkAckOpen().forEach(({ d, P, diffs }) => {
+          const key = `tk:ackdiff:${d.id}`;
+          have.has(key) || out.push({ key: key, route: "coord", kind: "ackdiff", poId: P.id, title: `${P.number} · ${P.vendor}: confirmation ${d.fields.number || ""} differs from the order`.replace(/\s+/g, " "), why: `${diffs.map(trkAckDiffWords).join("; ")}. Accept it or reply to ${P.vendor}: a price or quantity change is a person's to accept. ${trkWhy("lead")}`, verb: "Review", no: "", run: () => trkAckSheet(d), open: () => trkAckSheet(d) });
+        });
+        trkDocs()
+          .filter((d) => trkLive(d) && "ack" === d.kind && d.esc && trkAckEscLive(d))
+          .forEach((d) =>
+            d.esc.to.forEach((rt) => {
+              const key = `tk:ackslip:${d.id}:${rt}`;
+              have.has(key) ||
+                (d.esc.ack || {})[rt] ||
+                out.push({ key: key, route: rt, kind: "slip", poId: d.links.poId, title: `At risk: ${d.esc.what}`, why: `${d.esc.impact} Options: ${d.esc.options.join("; ")}. Recommendation: ${d.esc.rec} Decide by ${fmtL(d.esc.deadline)}. ${d.esc.why}`, verb: "Acknowledge", no: "", run: () => ((d.esc.ack[rt] = { by: trkWho(), at: appNowIso() }), save(), render()), open: () => flowGo.po(trkPO(d.links.poId))() });
+            }),
+          );
         (DB.shipments || [])
           .filter((s) => s.esc && "late" === s.risk)
           .forEach((s) =>
@@ -185192,15 +185370,30 @@ function rfqBasketGuess(r) {
 }
 
 // ---- 4. out to vendors: one email per vendor, the line sheet in the body and as a CSV
+// What a vendor reads about a line (PU-Safe, 11-17): the line's description and its client-facing spec, never the firm's
+// own notes. A spec or description that is a material's internal notes (an older record copied them: "Chris quoted
+// $38/board install+tape+prime: decide crew vs sub" went out in RFQ-2026-001 and printed on PO-2026-049) is left off
+// every RFQ, its sheet, a PO's print, PDF and mail. One reader for every document that goes to a vendor.
+function vendorSpecOf(l) {
+  if (!l) return "";
+  const t = String(l.spec != null && l.spec !== "" ? l.spec : l.desc || "").trim();
+  if (!t) return "";
+  const n = (x) => String(x || "").trim().toLowerCase();
+  const internal = (DB.projects || []).some((p) => (p.materials || []).some((m) => m.notes && n(m.notes) === n(t) && (!l.materialId || m.id === l.materialId)));
+  return internal ? "" : t;
+}
+// A lump-sum line (no count: ls, lot, lump) asks for one price for the whole line, said in words a vendor reads.
+const rfqLump = (l) => !!l && /^(ls|lot|lump|lump sum|l\.s\.)$/i.test(String(l.unit || "").trim()) && (+l.qty || 1) <= 1,
+  rfqUnitWord = (l) => (rfqLump(l) ? "lump sum" : (l && l.unit) || "");
 function rfqCsv(r) {
   const q = (s) => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-  return ["Line,Item,Spec,Qty,Unit,Need By,Your Unit Price,Your Lead Time (days),Notes"].concat(r.lines.map((l) => [l.id, l.item, l.spec, l.qty, l.unit, l.needBy || r.needBy, "", "", ""].map(q).join(","))).join("\n");
+  return ["Line,Item,Spec,Qty,Unit,Need By,Your Unit Price,Your Lead Time (days),Notes"].concat(r.lines.map((l) => [l.id, l.item, vendorSpecOf(l), rfqLump(l) ? 1 : l.qty, rfqUnitWord(l), l.needBy || r.needBy, rfqLump(l) ? "one price for the whole line" : "", "", ""].map(q).join(","))).join("\n");
 }
 function rfqMailBody(r, v) {
   const first = String(v.contact || v.name).split(" ")[0],
     p = rfqJob(r),
     me = (typeof agSign == "function" && agSign()) || rfqMe();
-  return `Hi ${first},\n\nPlease quote the items below for ${p ? shortName(p) : "our job"} in Brooklyn${r.needBy ? `, delivered by ${fmtL(r.needBy)}` : ""}. We need your price by ${fmtL(r.dueDate)}.\n\nLine | Item | Spec | Qty | Unit\n${r.lines.map((l) => `${l.id} | ${l.item} | ${l.spec || "-"} | ${l.qty} | ${l.unit}`).join("\n")}\n\nFor each line, please give the unit price, and tell us the freight to site, your lead time, how long the price holds, and any minimum order. Same spec only: if you offer an alternate, list it as an alternate on its own line. The same sheet is attached as ${r.number}.csv.\n\nThank you,\n${me}\nSmartDesign`;
+  return `Hi ${first},\n\nPlease quote the items below for ${p ? shortName(p) : "our job"} in Brooklyn${r.needBy ? `, delivered by ${fmtL(r.needBy)}` : ""}. We need your price by ${fmtL(r.dueDate)}.\n\nLine | Item | Spec | Qty | Unit\n${r.lines.map((l) => `${l.id} | ${l.item} | ${vendorSpecOf(l) || "-"} | ${rfqLump(l) ? 1 : l.qty} | ${rfqUnitWord(l)}`).join("\n")}\n\nFor each line, please give the unit price${r.lines.some(rfqLump) ? " (for a lump-sum line, one price for the whole line)" : ""}, and tell us the freight to site, your lead time, how long the price holds, and any minimum order. Same spec only: if you offer an alternate, list it as an alternate on its own line. The same sheet is attached as ${r.number}.csv.\n\nThank you,\n${me}\nSmartDesign`;
 }
 // The coordinator's Send: one message per vendor. Without Google the message goes to the outbox as sent (the
 // press of Send RFQ is the approval); with Google it becomes a draft in their mailbox for them to send.
@@ -185280,7 +185473,7 @@ function rfqAwardThree(r, reason) {
   const n = rfqPricedCount(r);
   if (!rfqNeedsThree(r) || n >= 3) return { ok: !0, priced: n };
   const why = String(reason || "").trim();
-  return rfqReasonOk(why) ? { ok: !0, priced: n, reason: why } : { ok: !1, priced: n, msg: `${r.number}: ${n} priced quote${1 === n ? "" : "s"} on ${r.sub ? "a subcontract" : "a buy over $2,500"}. ${rfqWhy("quotes3")}. Write why you are awarding on fewer than three${why ? " as a sentence (15 characters or more)" : ""}, or wait for more quotes.` };
+  return rfqReasonOk(why) ? { ok: !0, priced: n, reason: why } : { ok: !1, priced: n, msg: `${r.number}: ${n} priced quote${1 === n ? "" : "s"}${rfqNoBids(r) ? ` (${rfqNoBids(r)} declined, no bid)` : ""} on ${r.sub ? "a subcontract" : "a buy over $2,500"}. ${rfqWhy("quotes3")}. Write why you are awarding on fewer than three${why ? " as a sentence (15 characters or more)" : ""}, or wait for more quotes.` };
 }
 function rfqSend(r, vendorIds, due, opts) {
   if ("purchasing" !== r.status) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status} — it was sent already`), !1;
@@ -185672,12 +185865,18 @@ const rfqQuoteOf = (r, vid, round) => (r.quotes || []).filter((q) => q.vendorId 
 function rfqLevelCheck(r) {
   if (!r || "quoting" !== r.status) return !1;
   const Q1 = (r.vendors || []).map((iv) => rfqQuoteOf(r, iv.id, 1)).filter(Boolean),
-    priced = Q1.filter((q) => !q.unreadable).length;
-  if (Q1.length > priced) return r.priceNeededAt || ((r.priceNeededAt = today()), rfqHist(r, "price needed", `${Q1.length - priced} of ${Q1.length} replies carry no price I could read`)), !1;
+    priced = Q1.filter((q) => !q.unreadable).length,
+    // a vendor who declined (no bid) has answered: only a reply with a price nobody read holds the leveling
+    pending = Q1.filter((q) => q.unreadable && !q.noBid).length;
+  if (pending) return r.priceNeededAt || ((r.priceNeededAt = today()), rfqHist(r, "price needed", `${pending} of ${Q1.length} replies carry no price I could read`)), !1;
   if (!priced || !(Q1.length >= (r.vendors || []).length || (r.dueDate && today() > r.dueDate))) return !1;
   return (r.status = "leveled"), delete r.priceNeededAt, rfqHist(r, "leveled", `${priced} of ${(r.vendors || []).length} vendors priced`), !0;
 }
-const rfqPriceNeeded = (r) => (r.quotes || []).filter((q) => q.unreadable && RFQ_OPEN.includes(r.status));
+const rfqPriceNeeded = (r) => (r.quotes || []).filter((q) => q.unreadable && !q.noBid && RFQ_OPEN.includes(r.status));
+// "We do not carry it": a reply that declines is a no bid on that vendor's row (PU-Safe, 11-17: it read Price Needed and
+// held the leveling). It counts as an answer and never as a priced quote; the three-quote count says so.
+const RFQ_NO_BID = /\b(?:we\s+)?(?:do\s+not|don'?t|dont|cannot|can'?t|can\s+not|are\s+unable\s+to|unable\s+to|won'?t\s+be\s+able\s+to|will\s+not\s+be\s+able\s+to|are\s+not\s+able\s+to)\s+(?:carry|stock|supply|sell|quote|bid|offer|provide|source|handle)\b|\bno[\s-]+bid\b|\bpass(?:ing)?\s+on\s+(?:this|the)\b|\bdeclin(?:e|ing)\s+to\s+(?:quote|bid)\b|\bnot\s+(?:a\s+)?(?:product|item|line)\s+we\s+(?:carry|stock|sell)\b/i,
+  rfqNoBids = (r) => new Set((r.quotes || []).filter((q) => 1 === q.round && q.noBid).map((q) => q.vendorId)).size;
 function rfqIngest(opts) {
   const o = opts || {};
   let n = 0;
@@ -185709,6 +185908,10 @@ function rfqIngest(opts) {
         });
         (q.freight = null != P.freight ? P.freight : prev.freight), (q.lead = null != P.lead ? P.lead : prev.lead), (q.min = null != P.min ? P.min : prev.min), (q.validUntil = prev.validUntil);
         q.flags.push(read ? `${read} line${1 === read ? "" : "s"} revised; the rest as quoted in round one` : "no change: prices firm as quoted");
+      } else if (!read && null == P.lot && RFQ_NO_BID.test(text)) {
+        // the vendor declined: a no bid, never a price to enter
+        const said = (String(text).match(/[^.\n]*?(?:\b(?:do\s+not|don'?t|dont|cannot|can'?t|unable|no[\s-]+bid|pass(?:ing)?\s+on|declin)[^.\n]*)/i) || [""])[0].trim();
+        (q.unreadable = !0), (q.noBid = !0), (q.priceNeeded = !1), q.flags.push(`No bid: ${v.name} declined${said ? ` ("${said.slice(0, 120)}")` : ""}. It counts as an answer, not as a quote.`);
       } else if (!read) {
         // no price read: the bid is Price Needed, and the request is never leveled on it
         (q.unreadable = !0), (q.priceNeeded = !0), q.flags.push(null != P.lot ? `Price needed: ${v.name} quoted ${money(P.lot)} for all ${r.lines.length} lines together (${P.prose}), not line by line. Enter the line prices from the reply, or ask ${v.name} to split them.` : `Price needed: I could not read a price from this reply${pdf && !String(pdf.text || "").trim() ? ` — ${pdf.filename} is a scan with no text` : ""}. Open it and enter the prices, or ask ${v.name} for the figure.`);
@@ -185927,7 +186130,9 @@ function rfqSheetCands(pid, items) {
     const s = S0.find((x) => x.key === (o.key || m.line)) || null,
       qm = String(m.qty || "").match(/^\s*(\d+(?:\.\d+)?)\s*([a-z][a-z. ]*)?/i),
       B = rfqSheetBudget(s, isSub(m.name, ""));
-    out.push({ ck: "m:" + m.id, key: s ? s.key : "", materialId: m.id, item: m.name, spec: m.notes || "", qty: qm ? +qm[1] : 1, unit: qm && qm[2] ? qm[2].trim() : "ea", doc: s ? `${s.docNo || "Selection"} · ${s.item}` : "No estimate line: link one", budget: B.budget, word: B.word, left: B.left, code: s ? s.code : "", src: s, coarse: !1, framing: !1 });
+    // the material's notes are the firm's own ("decide crew vs sub"): never the vendor's spec (PU-Safe); a material with
+    // no quantity on file is asked for as a lump sum, not "1 ea"
+    out.push({ ck: "m:" + m.id, key: s ? s.key : "", materialId: m.id, item: m.name, spec: m.spec || "", qty: qm ? +qm[1] : 1, unit: qm ? (qm[2] ? qm[2].trim() : "ea") : "ls", doc: s ? `${s.docNo || "Selection"} · ${s.item}` : "No estimate line: link one", budget: B.budget, word: B.word, left: B.left, code: s ? s.code : "", src: s, coarse: !1, framing: !1 });
   });
   S0.forEach((s) => {
     const B = rfqSheetBudget(s, isSub(s.item, s.spec));
@@ -186190,7 +186395,7 @@ function rfqStateOf(r) {
   const s = r.status,
     asked = (r.vendors || []).length,
     Q1 = (r.vendors || []).map((iv) => rfqQuoteOf(r, iv.id, 1)).filter(Boolean),
-    need = Q1.filter((q) => q.unreadable).length,
+    need = Q1.filter((q) => q.unreadable && !q.noBid).length,
     got = Q1.length - need,
     co = (rfqUserOf("coord") || {}).name || "the coordinator";
   if (["draft", "purchasing"].includes(s)) return { stage: "draft", label: "Draft", actor: "coord", who: co, why: "draft" === s ? "Not sent yet: add the lines." : "Not sent yet: pick the vendors and send it.", act: "Send It" };
@@ -186536,7 +186741,9 @@ function rfqAward(r, assign, opts) {
         rfqId: r.id,
         rfqNumber: r.number,
         sourcing: { rfqId: r.id, rfqNumber: r.number, choice: choice, why: why, region: v.region || "", round: q.round },
-        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed || subNoTax ? (subPO && !subNoTax ? ` A repair job: the sub's labour is taxed (${JOB_TAX_NOTE})` : "") : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
+        // the vendor's paper carries only its own reference; the firm's reasoning (tax, how to pay, sourcing) is internal
+        notes: `Per your quote on ${r.number}.`,
+        internalNotes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed || subNoTax ? (subPO && !subNoTax ? ` A repair job: the sub's labour is taxed (${JOB_TAX_NOTE})` : "") : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
         useTax: taxed || subNoTax ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
         landed: r2(goods + (+q.freight || 0) + shortfall + (subNoTax ? 0 : tax) + handling),
         lines: lines.map((l) => {
@@ -186956,7 +187163,7 @@ function rfqQueueItems() {
     const base = { kind: "rfq", rfqId: r.id, open: { view: "rfq", rfq: r.id }, act: "rfq", n: "" },
       job = rfqJobName(r);
     if ("purchasing" === r.status) out.push(Object.assign({}, base, { id: `rfq:${r.id}:send`, stage: "purchasing", title: `Pick vendors and send ${r.number}`, detail: `${r.lines.length} lines for ${job} · approved by ${(r.foremanOk || {}).by || r.foreman} · on site by ${fmt(r.needBy)}`, yes: "Pick Vendors" }));
-    (r.quotes || []).filter((q) => q.unreadable).forEach((q) => RFQ_OPEN.includes(r.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:read:${q.vendorId}`, stage: "read", sev: "warn", title: `Read ${q.vendor}'s reply to ${r.number} by hand`, detail: q.flags[0] || "the reply could not be read", yes: "Enter Prices" })));
+    (r.quotes || []).filter((q) => q.unreadable && !q.noBid).forEach((q) => RFQ_OPEN.includes(r.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:read:${q.vendorId}`, stage: "read", sev: "warn", title: `Read ${q.vendor}'s reply to ${r.number} by hand`, detail: q.flags[0] || "the reply could not be read", yes: "Enter Prices" })));
     const unc = RFQ_OPEN.includes(r.status) ? (r.quotes || []).filter((q) => !q.unreadable && !q.confirmed) : [];
     unc.length && ["leveled", "negotiating"].includes(r.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:confirm`, stage: "confirm", sev: "warn", title: `Confirm ${unc.length} quote${1 === unc.length ? "" : "s"} on ${r.number}`, detail: `read by AI, not confirmed: ${unc.map((q) => q.vendor).join(", ")}`, yes: "Confirm" }));
     "leveled" === r.status && !(r.neg || []).some((n) => "sent" === n.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:neg`, stage: "negotiate", title: (r.neg || []).some((n) => "draft" === n.status) ? `Approve the negotiation emails on ${r.number}` : `Negotiate ${r.number}`, detail: `${(r.quotes || []).filter((q) => !q.unreadable).length} quotes leveled · ${rfqWhy("firstPrice")}`, yes: (r.neg || []).some((n) => "draft" === n.status) ? "Review Emails" : "Draft Negotiation" }));
@@ -187475,14 +187682,14 @@ function rfqLevelHtml(r, L) {
       : `<div class="rfq-tw"><table class="t rfq-grid"><thead><tr><th>Line</th><th>Item</th><th class="money">Qty</th><th class="money">Budget</th>${V.map((v) => `<th class="money" data-nocase>${esc(v.vendor)}</th>`).join("")}<th>Best</th></tr></thead><tbody>${L.perLine.map((pl) => `<tr><td>${esc(pl.lineId)}</td><td data-nocase>${esc(pl.item)}</td><td class="money">${pl.qty} ${esc(pl.unit)}</td><td class="money">${null != pl.budget ? money(pl.budget) : "—"}</td>${V.map((v) => `<td class="money">${lineCell(pl, v)}</td>`).join("")}<td data-nocase>${pl.best ? esc(pl.best.vendor) : "—"}</td></tr>`).join("")}</tbody></table></div>`,
     rec = `<dl class="rfq-rec small"><dt>What Happened</dt><dd data-nocase>${esc(R.what)}</dd><dt>Impact on Cost, Schedule and Quality</dt><dd data-nocase>${esc(R.impact)}</dd><dt>Options</dt><dd data-nocase>${esc(R.options.join("; "))}</dd><dt>Recommendation</dt><dd data-nocase><b>${esc(R.rec)}</b></dd><dt>Decide By</dt><dd>${fmtL(R.by)} (the order-by date)</dd></dl><p class="small muted">${esc(rfqWhy("landed"))}. ${esc(rfqWhy("escalate"))}.</p>`;
   const pn = rfqPricedCount(r);
-  return `<p class="small" data-rfqpriced="${pn}">Priced quotes in: ${pn} of ${(r.vendors || []).length} asked${rfqNeedsThree(r) && pn < 3 ? ": under the three the Standard asks for, so the award asks why" : ""}.</p>${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>${L.taxFree ? "Line Budget" : "Material Budget by Line"}</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
+  return `<p class="small" data-rfqpriced="${pn}">Priced quotes in: ${pn} of ${(r.vendors || []).length} asked${rfqNoBids(r) ? `, ${rfqNoBids(r)} declined (no bid)` : ""}${rfqNeedsThree(r) && pn < 3 ? ": under the three the Standard asks for, so the award asks why" : ""}.</p>${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>${L.taxFree ? "Line Budget" : "Material Budget by Line"}</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
 }
 function rfqDetailHtml(r) {
   const p = rfqJob(r),
     stage = r.status,
     vprop = "purchasing" === stage ? (rfqDemoReady(), rfqProposeVendors(r)) : null,
     L = (r.quotes || []).length ? rfqLevel(r) : null,
-    unread = (r.quotes || []).filter((q) => q.unreadable),
+    unread = (r.quotes || []).filter((q) => q.unreadable && !q.noBid),
     canBuy = ["coord", "owner", "pm"].includes(role());
   let act = "";
   if ("draft" === stage)
@@ -187499,7 +187706,7 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Out to Vendors</h3>${(r.vendors || []).map((iv) => {
       const q = rfqQuoteOf(r, iv.id, 1),
         s = (r.sent || []).find((x) => x.vendorId === iv.id && "rfq" === x.kind);
-      return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : "needs-address" === s.via ? '<b class="warn">Needs Address</b>' : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
+      return `<div class="small rfq-vrow" data-nocase><span><b>${esc(iv.name)}</b> · ${esc(rfqRegionWord(iv.region) || "region not on file")} · ${s ? ("outbox" === s.via ? `sent ${fmt(s.on)}` : "needs-address" === s.via ? '<b class="warn">Needs Address</b>' : `drafted in your mailbox ${fmt(s.on)}`) : ""} · ${q ? (q.noBid ? "<b>No Bid</b>" : q.unreadable ? '<b class="warn">Price Needed</b>' : "quoted") : (r.chased || []).includes(iv.id) ? "chased" : "no reply yet"}</span></div>`;
     }).join("")}${r.fewerQuotes ? `<p class="small muted" data-nocase>Fewer than three: ${esc(r.fewerQuotes.reason)} (${esc(r.fewerQuotes.by)}, ${fmt(r.fewerQuotes.on)}).</p>` : ""}${"open" === r.fmBeside ? `<p class="small muted">${esc(r.foreman)} checks the quantities beside it, on his phone.</p>` : r.fmChanges && !r.fmTold ? `<div class="rfq-row small warn" data-nocase><span class="grow">${esc(((r.foremanOk || {}).by) || r.foreman)} changed the quantities after it went out: ${esc(r.fmChanges.join("; "))}.</span><button type="button" class="btn sm primary" id="rfq-tell">Tell the Vendors</button></div>` : r.fmTold ? `<p class="small muted" data-nocase>The change went to ${r.fmTold.n} vendor${1 === r.fmTold.n ? "" : "s"}, sent by ${esc(r.fmTold.by)} (${fmt(r.fmTold.on)}).</p>` : ""}${rfqAddVendorHtml(r)}<div class="rfq-row" style="margin-top:10px"><button class="btn ${(r.quotes || []).length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-check">Check Replies</button>${(r.quotes || []).filter((q) => !q.unreadable).length ? `<button class="btn ${unread.length || (r.fmChanges && !r.fmTold) ? "" : "primary"}" id="rfq-level">Level Now</button>` : ""}</div>${unread.length && (r.quotes || []).some((q) => !q.unreadable) ? `<p class="small muted">Level Now leaves out the ${unread.length === 1 ? "bid" : "bids"} with no price; a bid is leveled only on a price someone read.</p>` : ""}</div>`;
   if (unread.length && RFQ_OPEN.includes(stage)) act += `<div class="card rfq-sec"><h3>Price Needed</h3>${unread.map((q, i) => `<div class="rfq-row small" data-nocase><span class="grow">${esc(q.vendor)}: ${esc(q.flags[0] || "")}</span><button class="btn sm ${0 === i && ["sent", "quoting"].includes(stage) ? "primary" : ""}" data-rfqenter="${esc(q.id)}">Enter Prices</button></div>`).join("")}</div>`;
   if (L && ["quoting", "leveled", "negotiating", "awarded"].includes(stage)) act += `<div class="rfq-sec"><h3>Leveling${"negotiating" === stage || "awarded" === stage ? " — Latest Round" : ""}</h3>${rfqLevelHtml(r, L)}</div>`;

@@ -403,7 +403,8 @@ function psItem(r) {
     marked: marked,
     cond: psCondOf(it, pls),
     deliv: deliv,
-    delivKind: deliv ? (arrived ? "arrived" : "promised") : "",
+    // a date the vendor's confirmation gave and a person accepted reads "confirmed" (PU-Safe, 11-17)
+    delivKind: deliv ? (arrived ? "arrived" : pls[0] && pls[0].po.confirmed && pls[0].po.confirmed.date === String(promised).slice(0, 10) ? "confirmed" : "promised") : "",
     // the one date the row shows and sorts by: delivered or promised, else the day it is needed
     dateShown: deliv || needBy || "",
     needBy: needBy,
@@ -750,7 +751,7 @@ function psCellHtml(x, k, card) {
   }
   if ("deliv" === k)
     return x.deliv
-      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "promised", x.late ? "bad" : "")}`
+      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "confirmed" === x.delivKind ? "confirmed" : "promised", x.late ? "bad" : "")}`
       : x.needBy
         ? `<span class="ps-sub" title="Needed on site ${fmt(x.needBy)}" data-nocase>need ${fmt(x.needBy)}</span>`
         : "";
