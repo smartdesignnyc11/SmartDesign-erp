@@ -751,7 +751,7 @@ function psCellHtml(x, k, card) {
   }
   if ("deliv" === k)
     return x.deliv
-      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "confirmed" === x.delivKind ? "confirmed" : "promised", x.late ? "bad" : "")}`
+      ? `<span class="ps-main${x.late ? " bad" : ""}" data-nocase>${fmt(x.deliv)}</span>${sub(x.late ? `${"confirmed" === x.delivKind ? "confirmed, " : ""}need ${fmt(x.needBy)}` : "arrived" === x.delivKind ? "arrived" : "confirmed" === x.delivKind ? "confirmed" : "promised", x.late ? "bad" : "")}`
       : x.needBy
         ? `<span class="ps-sub" title="Needed on site ${fmt(x.needBy)}" data-nocase>need ${fmt(x.needBy)}</span>`
         : "";
