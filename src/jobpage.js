@@ -711,7 +711,7 @@ function jpDocs(p) {
     .forEach((py) => {
       const i = inv.find((x) => x.id === py.invoiceId),
         banked = "function" == typeof payBanked ? payBanked(c, py) : !!py.txnId;
-      out.push({ kind: "Payments", k: "payment", x: py, inv: i, no: py.method || "Payment", what: `Applied to ${i ? i.number : "an invoice"}`, amt: +py.amount || 0, date: py.date || "", st: banked ? ["In the bank", "ok"] : ["No bank line yet", "warn"] });
+      out.push({ kind: "Payments", k: "payment", x: py, inv: i, no: py.method || "Payment", what: `Applied to ${i ? i.number : "an invoice"}`, amt: +py.amount || 0, date: py.date || "", st: "function" == typeof payNotCashWord && payNotCashWord(py) ? [payNotCashWord(py), "ok"] : banked ? ["In the bank", "ok"] : ["No bank line yet", "warn"] });
     });
   return out.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.no).localeCompare(String(a.no)));
 }

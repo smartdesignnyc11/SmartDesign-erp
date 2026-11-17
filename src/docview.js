@@ -422,7 +422,7 @@ function dvActions(r) {
         ? add("progress", `Open ${K.draft.number}`, { blue: !0 })
         : B.row
           ? add("rtb:" + blRtbKey(B.row), W[B.row.kind] || "Bill It", { blue: !0 })
-          : B.cap > 0.5 && add("invoice", "Bill Received Materials", { blue: !0 });
+          : B.cap > 0.5 && add("invoice", "materials" === d.template ? "Bill Received Materials" : "Bill the Rest", { blue: !0 });
     }
     // a signed estimate is part of the contract: a change goes on a New Change Order, never an edit
     draft ? add("edit", "Edit", { phone: !0 }) : ["approved", "converted"].includes(d.status) ? add("newco", "New Change Order") : "sent" === d.status && add("edit", "Edit");
@@ -474,6 +474,17 @@ function dvNotes(r) {
   d.supersededBy && out.push(`${esc(d.number)} was replaced by ${esc(d.supersededBy)}; it is kept as it was sent.`);
   d.revisedBy && !d.supersededBy && out.push(`${esc(d.revisedBy)} revises this ${"invoice" === d.type ? "invoice" : "document"}; ${esc(d.number)} stands as sent until ${esc(d.revisedBy)} goes out.`);
   d.revisionOf && out.push(`This revises ${esc(d.revisionOf)}${d.reviseReason ? `: ${esc(d.reviseReason)}` : ""}.`);
+  // what was received past what the revision bills is the client's credit on account: refund it or apply it
+  try {
+    const rc = "invoice" === d.type ? dvRevisionCredit(c, d) : 0;
+    if (rc > 0.005) {
+      const C = clientCredit(c),
+        open = (c.invoices || []).filter((i) => !["void", "draft"].includes(i.status) && docTotal(i).total - invoicePaid(c, i) > 0.005);
+      out.push(
+        `${money(rc)} received on ${esc(d.revisionOf || "the original")} is more than ${esc(d.number)} bills: it is ${esc(c.name)}'s credit on account (${money(C.available)} available now). Refund it, or apply it to an open invoice.${DV_CREDIT_ROLES.includes(role()) && C.available > 0.005 ? ` <button type="button" class="btn sm" data-dvact="refund">Refund</button>${open.length ? ` <button type="button" class="btn sm" data-dvact="applycredit">Apply to an Open Invoice</button>` : ""}` : ""}`,
+      );
+    }
+  } catch (e) {}
   // the office's own warning the editor shows over a progress invoice: the job billed ahead of its work (never on the
   // client's copy)
   try {
@@ -481,6 +492,18 @@ function dvNotes(r) {
       const A = pbAhead(d.projectId);
       A && A.total > 0.5 && out.push(`The job is billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}. For the office; the client's copy does not say it.`);
     }
+  } catch (e) {}
+  // credit on account applied to it, with Reverse where billing sees it (billing review 11-17, S2-9: the reversal
+  // lived only on the Payments grid, which billing does not open); the reversal puts the credit back on the account
+  try {
+    "invoice" === d.type &&
+      (c.payments || [])
+        .filter((py) => py.invoiceId === d.id && py.creditApply && +py.amount > 0 && !py.reversalId && !py.reverses)
+        .forEach((py) =>
+          out.push(
+            `${money(+py.amount || 0)} of ${esc(c.name)}'s credit on account is applied to it (${esc(fmtL(py.date))}${py.appliedFrom && "account" !== py.appliedFrom ? `, from ${esc(py.appliedFrom)}` : ""}).${"function" == typeof payCanReverse && payCanReverse() ? ` <button type="button" class="btn sm" data-dvact="payrev:${esc(py.id)}">Reverse</button>` : ""}`,
+          ),
+        );
   } catch (e) {}
   if ("invoice" === d.type && !d.creditMemo) {
     dvCreditsOn(c, d).forEach((x) => out.push(`Credit memo ${esc(x.number)} of ${esc(dvCreditBreakWords(dvCreditBreakOf(x)))} is applied to it${x.creditWhy ? ` (${esc(x.creditWhy)})` : ""}.`));
@@ -582,6 +605,10 @@ function dvAct(a) {
   if ("rfdecline" === verb) return dvRefundDecide(r.c, arg, !1);
   if ("rfmatch" === verb) return dvRefundMatchSheet(r.c, arg);
   if ("crdecline" === verb) return dvCreditDecide(r.c, arg, !1);
+  if ("payrev" === verb) {
+    const py = (r.c.payments || []).find((x) => x.id === arg);
+    return py && "function" == typeof paySheet ? void paySheet(r.c, py, !0) : toast("That application is not on file");
+  }
   if ("pdf" === a) return dvPdf(r);
   if ("history" === a) return dvHistory(r);
   if ("bill" === r.kind) return dvBillAct(r, a);
@@ -606,6 +633,7 @@ function dvAct(a) {
   if ("newco" === a) return dvNewCO(r);
   if ("credit" === a) return dvCreditSheet(c, d);
   if ("refund" === a) return dvRefundSheet(c, d);
+  if ("applycredit" === a) return dvApplyCreditSheet(c);
   if ("void" === a) return dvVoidSheet(c, d);
   if ("send" === a) {
     // a draft goes out through the one Send (the client gate, the mail, the portal); its sheet opens over the editor
@@ -671,7 +699,7 @@ function dvReviseSheet(r) {
   }
   mbModal(
     `Edit ${esc(d.number)}`,
-    `<p class="small" style="margin:0 0 10px">${esc(d.number)} is ${esc(dvStatusWord(r))}, so it is not changed. Edit starts ${esc(d.revisionRoot || d.number)}-R${1 + (docColl(c, d.type) || []).filter((x) => x.revisionRoot === (d.revisionRoot || d.number)).reduce((a, x) => Math.max(a, +x.rev || 0), 0)}, a draft copy you change. ${inv ? `When it is sent, ${esc(d.number)} is voided (its posting is reversed) and the revision replaces it${paid ? `; the ${money(invoicePaid(c, d))} received moves to the revision` : ""}.` : `When it is sent, it replaces ${esc(d.number)}.`} Both stay on file, linked.</p>${mbF("Why It Changes", mbIn("why", "", "e.g. wrong quantity on the tile line"))}`,
+    `<p class="small" style="margin:0 0 10px">${esc(d.number)} is ${esc(dvStatusWord(r))}, so it is not changed. Edit starts ${esc(d.revisionRoot || d.number)}-R${1 + (docColl(c, d.type) || []).filter((x) => x.revisionRoot === (d.revisionRoot || d.number)).reduce((a, x) => Math.max(a, +x.rev || 0), 0)}, a draft copy you change. ${inv ? `When it is sent, ${esc(d.number)} is voided (its posting is reversed) and the revision replaces it${paid ? `; the ${money(invoicePaid(c, d))} received moves to the revision, and what it no longer bills goes to the client's credit on account` : ""}.` : `When it is sent, it replaces ${esc(d.number)}.`} Both stay on file, linked.</p>${mbF("Why It Changes", mbIn("why", "", "e.g. wrong quantity on the tile line"))}`,
     {
       submit: "Start the Revision",
       onSubmit: (f) => {
@@ -701,18 +729,91 @@ function dvRevise(c, d, why) {
 // original, and a linked pair of transfer records moves its amount (out of the original, into the revision), netting
 // to zero, as a credit memo's application does. A transfer is never cash: it carries the bank standing of the record it
 // moves (payBankedAmt) and posts nothing to the ledger (glPaymentLines). Each pair writes one audit row.
+// A revision that bills less than was received settles only what it bills: the rest is the client's money, credit on
+// account (billing review 11-17, S1-3). INV-2026-031, $97,000 paid, revised down $560: all $97,000 moved to the
+// $96,440 revision, which read paid, the ledger held $560 owed to the client and the client showed $0 credit. The
+// excess moves out of the original onto the account (unapplied, clientCredit's one reading), as a transfer pair that
+// posts nothing (the payment's own posting already holds it in receivables) and keeps the payment's bank standing.
 function dvTransferSettled(c, o, n) {
   const by = dvWho(),
-    done = new Set((c.payments || []).filter((p) => p.xferOf && p.invoiceId === n.id).map((p) => p.xferOf));
+    done = new Set((c.payments || []).filter((p) => p.xferOf && (p.invoiceId === n.id || p.xferFor === n.id)).map((p) => p.xferOf));
+  let room = r2(docTotal(n).total - invoicePaid(c, n));
   (c.payments || [])
     .filter((p) => p.invoiceId === o.id && !p.unapplied && !p.xferOf && Math.abs(+p.amount || 0) > 0.005 && !done.has(p.id))
     .forEach((p) => {
       const amt = r2(+p.amount || 0),
+        // a positive receipt settles the revision up to what it bills; a negative record (a refund) moves whole
+        to = amt > 0 ? r2(Math.max(0, Math.min(amt, room))) : amt,
+        rest = r2(amt - to),
         stamp = { date: today(), method: "Transfer", ref: `${o.number} to ${n.number}`, xferOf: p.id, txnId: "xfer:" + p.id, recordedBy: by, recordedAt: appNowIso() };
-      c.payments.push(Object.assign({ id: uid("py"), invoiceId: o.id, amount: -amt, note: `${money(amt)} moved to ${n.number}, which replaces ${o.number}` }, stamp));
-      c.payments.push(Object.assign({ id: uid("py"), invoiceId: n.id, amount: amt, note: `${money(amt)} from ${o.number} (${p.cmApply ? "credit " + (p.ref || "") : (p.method || "payment") + " of " + fmtL(p.date)})` }, stamp));
-      audit("payment", p.id, "transferred-to-revision", { invoice: o.number }, { invoice: n.number }, `${money(amt)} of ${fmtL(p.date)} settles ${n.number}, which replaces ${o.number}; the record itself is unchanged`);
+      room = r2(room - to);
+      c.payments.push(Object.assign({ id: uid("py"), invoiceId: o.id, amount: -amt, note: `${money(amt)} moved to ${n.number}, which replaces ${o.number}${rest > 0.005 ? ` (${money(rest)} of it to ${c.name}'s account)` : ""}` }, stamp));
+      Math.abs(to) > 0.005 && c.payments.push(Object.assign({ id: uid("py"), invoiceId: n.id, amount: to, note: `${money(to)} from ${o.number} (${p.cmApply ? "credit " + (p.ref || "") : (p.method || "payment") + " of " + fmtL(p.date)})` }, stamp));
+      rest > 0.005 &&
+        c.payments.push(
+          Object.assign(
+            { id: uid("py"), invoiceId: "", unapplied: !0, amount: rest, xferFor: n.id, voidedInvoice: o.number, note: `${money(rest)} of the ${fmtL(p.date)} payment on ${o.number} is more than ${n.number} bills: credit on account` },
+            stamp,
+            { method: "Credit on account", ref: `${o.number} revised to ${n.number}` },
+          ),
+        );
+      audit("payment", p.id, "transferred-to-revision", { invoice: o.number }, { invoice: n.number, onAccount: rest > 0.005 ? rest : 0 }, `${money(to)} of ${fmtL(p.date)} settles ${n.number}, which replaces ${o.number}${rest > 0.005 ? `; ${money(rest)} is more than ${n.number} bills and goes to ${c.name}'s credit on account` : ""}; the record itself is unchanged`);
     });
+}
+// The date a draft revision will carry, said beside its Date field (billing review 11-17, S2-8: the editor showed
+// 9/3 and the revision went out dated 8/24). A revision that changes no amount keeps the original's date and posting
+// (lkSupersede); one that changes an amount goes out dated as the field says.
+function dvRevisionDateWord(c, n) {
+  try {
+    if (!c || !n || "invoice" !== n.type || "draft" !== n.status || !n.revisionOf) return "";
+    const o = (c.invoices || []).find((x) => x.number === n.revisionOf && x.id !== n.id);
+    if (!o || !o.date || !Array.isArray(o.glLines) || "function" != typeof glInvoiceLinesLive) return "";
+    const sum = (L) => {
+      const a = {};
+      (L || []).forEach((l) => (a[l.acct] = r2((a[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))));
+      return JSON.stringify(Object.keys(a).sort().filter((k) => Math.abs(a[k]) > 0.005).map((k) => [k, a[k]]));
+    };
+    if (sum(o.glLines) !== sum(glInvoiceLinesLive(c, n)) || o.date === n.date) return "";
+    return `Goes out dated ${fmtL(o.date)}, the date of ${esc(o.number)}: it changes no amount, so it keeps the original's date and posting. Change an amount and it goes out dated ${fmtL(n.date)}.`;
+  } catch (e) {
+    return "";
+  }
+}
+// A settlement that is not cash, in the words every payment list uses (billing review 11-17, S2-7: an application of
+// credit on account read "In the bank 9/3" with no bank line behind it). It carries the bank standing of the money it
+// draws on, so it never reads unbanked, but it is not a deposit: it reads as what it is. "" for a payment of money.
+function payNotCashWord(py) {
+  if (!py) return "";
+  if (py.creditApply) return `Applied credit ${fmt(py.date)}`;
+  if (py.cmApply) return `Credit memo applied ${fmt(py.date)}`;
+  if (py.xferOf) return `Moved from the invoice it revises ${fmt(py.date)}`;
+  return "";
+}
+// apply the client's credit on account to an open invoice the person picks (clientCreditApply, the one write)
+function dvApplyCreditSheet(c) {
+  const C = clientCredit(c),
+    open = (c.invoices || []).filter((i) => !["void", "draft"].includes(i.status) && docTotal(i).total - invoicePaid(c, i) > 0.005);
+  if (!(C.available > 0.005)) return toast(`${c.name} has no credit on account available`);
+  if (!open.length) return toast(`${c.name} has no open invoice to apply it to: refund it instead`);
+  mbModal(
+    "Apply Credit on Account",
+    `<p class="small muted" style="margin:0 0 8px">${esc(c.name)} has ${money(C.available)} of credit on account. It pays the invoice you pick, up to what it owes.</p>${mbF("Invoice", `<select data-f="inv">${open.map((i) => `<option value="${esc(i.id)}">${esc(i.number)} · ${money(r2(docTotal(i).total - invoicePaid(c, i)))} owed</option>`).join("")}</select>`)}`,
+    {
+      submit: "Apply the Credit",
+      onSubmit: (f) => {
+        const inv = open.find((i) => i.id === f.inv);
+        if (!inv) return toast("Pick the invoice"), !1;
+        const R = clientCreditApply(c, inv);
+        if (!R.ok) return toast(R.why), !1;
+        save(), render();
+        rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]);
+      },
+    },
+  );
+}
+// the credit on account a revision left (what was received past what it bills), for the viewer's note
+function dvRevisionCredit(c, d) {
+  return r2(((c && c.payments) || []).filter((p) => p.xferFor === d.id && p.unapplied).reduce((a, p) => a + (+p.amount || 0), 0));
 }
 if ("function" == typeof lkSupersede) {
   const base = lkSupersede;
@@ -784,7 +885,12 @@ if ("function" == typeof lkRevise) {
         // ladder (due / 7 / 15 / 30). The due date moves only when the person changes the terms on the revision
         // (dvRevisionTerms) or types a due date, as on any invoice.
         n.originalDate = d.originalDate || d.date || "";
-        "invoice" === n.type && d.due && (n.due = d.due);
+        // ...except a revision of an invoice paid in full (billing review 11-17, S2-6): the client owed nothing on the
+        // original, so what the revision asks for is new and is due on its own terms from the day it is made; a
+        // revision of a paid invoice is never overdue the day it goes. Unpaid and part-paid originals keep their due date.
+        const paidUp = "invoice" === n.type && invoicePaid(c, d) >= docTotal(d).total - 0.005 && docTotal(d).total > 0.005;
+        "invoice" === n.type && d.due && (n.due = paidUp && "function" == typeof cxDueFor ? cxDueFor(n.date, n.terms) || d.due : d.due);
+        paidUp && (n.dueFromPaid = !0);
         "function" == typeof docMark && docMark(n);
         save();
       }

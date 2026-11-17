@@ -217,7 +217,7 @@ function acDocs(pid, kind) {
       .forEach((py) => {
         const i = (c.invoices || []).find((x) => x.id === py.invoiceId),
           inBank = banked(py) >= (+py.amount || 0) - 0.005;
-        out.push({ kind: "payment", c: c, d: i || null, py: py, pid: (i && i.projectId) || "", no: `${py.method || "Payment"}${py.ref ? " " + py.ref : ""} ${fmt(py.date)}`.trim(), what: i ? `Applied to ${i.number}` : "Not applied", amt: +py.amount || 0, date: py.date || "", status: inBank ? `In the bank ${fmt(py.date)}` : "Not in the bank", tone: inBank ? "ok" : "bad" });
+        out.push({ kind: "payment", c: c, d: i || null, py: py, pid: (i && i.projectId) || "", no: `${py.method || "Payment"}${py.ref ? " " + py.ref : ""} ${fmt(py.date)}`.trim(), what: i ? `Applied to ${i.number}` : "Not applied", amt: +py.amount || 0, date: py.date || "", status: "function" == typeof payNotCashWord && payNotCashWord(py) ? payNotCashWord(py) : inBank ? `In the bank ${fmt(py.date)}` : "Not in the bank", tone: inBank || ("function" == typeof payNotCashWord && payNotCashWord(py)) ? "ok" : "bad" });
       });
   });
   return out

@@ -902,6 +902,14 @@ const pbWords = (A) =>
   renderDocEditor = function (c, d) {
     let h = base.apply(this, arguments);
     try {
+      // an invoice by line items says, before Send, what it bills over what is earned and not billed (pbEarnedOver)
+      if (d && "invoice" === d.type && "sov" !== d.mode && "draft" === d.status) {
+        const F = pbFurther(c, d);
+        if (!F.length) return h;
+        const U = new Set(pbUncovered(c, d).map((x) => x.l.id)),
+          tot = r2(F.reduce((a, x) => a + x.amount, 0));
+        return `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total"><b>More than is earned and not billed: ${money(tot)}</b>. ${F.map((x) => `${x.say}${U.has(x.l.id) ? "" : " (reason given)"}`).join("; ")}.${U.size ? " Lower it, or give a reason to bill ahead when it goes out." : d.aheadWhy ? ` Billed ahead by ${esc(d.aheadWhy.by)}: ${esc(d.aheadWhy.why)}` : ""}</div>` + h;
+      }
       if (!d || "invoice" !== d.type || "sov" !== d.mode || "void" === d.status || !d.projectId) return h;
       const A = pbAhead(d.projectId),
         F = "draft" === d.status ? pbFurther(c, d) : [];
@@ -933,7 +941,128 @@ const pbWords = (A) =>
 // 7.67% by cost, 51.67% billed) took another 10% and went out with no reason asked. Cost is weak evidence of
 // progress, which is why pbAhead does not call such a line billed ahead on its own; but billing past every measure
 // the app has is exactly what needs a person's reason. A line with no measure at all (basis none) is not read.
+// What an invoice bills past what is earned and not billed on the estimate, milestone or change order it bills from
+// (billing review 11-17, S1-1). The cap was read only where the sheet drafted the invoice (estBillable), so a person
+// who raised one line of the $17,080 "At filing" draft sent $42,280 ($63,630 billed on a $42,700 fee), a Duplicate of
+// the paid INV-2026-D45-1 sent the $16,350 signing bill again, and the 10% sign-off went out before it was reached.
+// It is read here, by the one gate every send, Mark as Sent and the viewer's Send pass through (pbAheadGate), so no
+// route leaves it out. Each line is read by the record it carries (fromLine), so a copy is read as what it bills:
+//   a design fee billed by milestone: the milestone the invoice bills (inv.milestone, or the share of each phase),
+//     earned only once reached and only once (what other invoices that went out bill on it is not earned again);
+//   design hours: the approved hours on the line at the bill rate, not already on another invoice;
+//   any other estimate or change order line: what is signed (approved), less what went out on other invoices.
+// A draft is read against what has gone out (sent, partial, paid; never void or replaced, never the invoice this one
+// revises), so two drafts never block each other and the second one sent is the one asked. A retainer or deposit is
+// the client's money held, not billing, and is not read. Each row is the dollars over: the gate asks to lower it or
+// to bill ahead with a reason, recorded with what it covers.
+function pbEarnedOver(c, d) {
+  if (!c || !d || "invoice" !== d.type || "sov" === d.mode || "draft" !== d.status || d.creditMemo || d.retainerOf || d.depositOf || d.isDeposit) return [];
+  const others = (c.invoices || []).filter(
+      (i) => i.id !== d.id && "sov" !== i.mode && !["void", "draft"].includes(i.status) && !i.supersededBy && !(d.revisionOf && i.number === d.revisionOf) && !i.retainerOf && !i.depositOf && !i.isDeposit,
+    ),
+    amt = (l, i) => (l.retainerLine ? 0 : +lineAmount(l, i) || 0),
+    srcOf = (l) => {
+      const m = /^(estimate|co):([^:]+):(.+)$/.exec(String(l.fromLine || ""));
+      if (!m) return null;
+      const doc = (("co" === m[1] ? c.changeOrders : c.estimates) || []).find((x) => x.id === m[2]);
+      return doc ? { kind: m[1], doc: doc, line: (doc.lines || []).find((x) => x.id === m[3]) || null } : null;
+    },
+    billedOn = (pred) =>
+      others.reduce((a, i) => a + (i.lines || []).filter((l) => !l.retainerLine && pred(l, i)).reduce((b, l) => b + amt(l, i), 0), 0),
+    nums = (pred) => others.filter((i) => (i.lines || []).some((l) => !l.retainerLine && pred(l, i))).map((i) => i.number),
+    out = [],
+    row = (key, item, to, left, over, say) =>
+      over > 0.5 && out.push({ l: { id: key, item: item, sovId: key }, to: r2(to), pct: r2(left), basis: "earned", amount: r2(over), say: say });
+  const mine = (d.lines || []).filter((l) => !l.retainerLine && l.fromLine && srcOf(l));
+  if (!mine.length) return [];
+  const byDoc = {};
+  mine.forEach((l) => {
+    const S2 = srcOf(l),
+      k = `${S2.kind}:${S2.doc.id}`;
+    (byDoc[k] = byDoc[k] || { S: S2, lines: [] }).lines.push(l);
+  });
+  Object.values(byDoc).forEach(({ S: S2, lines }) => {
+    const E = S2.doc,
+      signed = "co" === S2.kind ? ["approved", "billed"].includes(E.status) : ["approved", "converted", "billed"].includes(E.status),
+      onE = (l) => String(l.fromLine || "").startsWith(`${S2.kind}:${E.id}:`),
+      gross = r2(lines.reduce((a, l) => a + amt(l, d), 0));
+    // design hours: the hours the line carries, at the bill rate, that no other invoice that went out holds
+    if (d.hoursBilled || ("estimate" === S2.kind && "design" === E.template && "hours" === E.billing)) {
+      lines.forEach((l) => {
+        if (!(l.timeIds || []).length) return;
+        const earned = r2(
+          (l.timeIds || []).reduce((a, id) => {
+            const e = (DB.time || []).find((x) => x.id === id);
+            if (!e || "rejected" === e.status) return a;
+            const on = e.invoiceId && e.invoiceId !== d.id ? others.find((i) => i.id === e.invoiceId) : null;
+            return on ? a : a + hoursOf(e) * laborBillRate((DB.employees || []).find((x) => x.id === e.empId));
+          }, 0),
+        );
+        row(`earn:${l.id}`, l.item || "Design hours", amt(l, d), earned, amt(l, d) - earned, `${esc(l.item || "Design hours")}: ${money(earned)} of these hours is approved and on no other invoice; this invoice bills ${money(amt(l, d))}, ${money(amt(l, d) - earned)} over`);
+      });
+      return;
+    }
+    // a design fee billed by milestone
+    if ("estimate" === S2.kind && "design" === E.template && "function" == typeof dmsOf) {
+      const ms = E.milestones || DESIGN_MILESTONES,
+        total = r2((E.lines || []).reduce((a, l) => a + (+lineAmount(l, E) || 0), 0)),
+        reached = dmsReached(E),
+        i = dmsOf(d, E);
+      if (null != i && ms[i]) {
+        const x = ms[i],
+          due = r2((total * x.pct) / 100),
+          on = (l, o) => onE(l) && dmsOf(o, E) === i,
+          billed = r2(billedOn(on)),
+          left = reached[i] ? Math.max(0, r2(due - billed)) : 0,
+          label = `${E.number} ${x.label} (${x.pct}%)`;
+        return row(
+          `earn:${E.id}:ms${i}`,
+          label,
+          billed + gross,
+          left,
+          gross - left,
+          `${esc(label)}: ${!reached[i] ? "not reached yet, so nothing of it is earned" : billed > 0.5 ? `billed on ${esc(nums(on).join(", "))} (${money(billed)}), ${money(left)} of it left to bill` : `reached, ${money(left)} earned and not billed`}; this invoice bills ${money(gross)}, ${money(gross - left)} over`,
+        );
+      }
+      const earned = r2(ms.reduce((a, x, k) => a + (reached[k] ? (total * x.pct) / 100 : 0), 0)),
+        billed = r2(billedOn(onE)),
+        left = Math.max(0, r2(earned - billed));
+      return row(`earn:${E.id}`, E.number, billed + gross, left, gross - left, `${esc(E.number)}: ${money(earned)} of the ${money(total)} fee is earned by the milestones reached and ${money(billed)} of it is billed${billed > 0.5 ? ` (${esc(nums(onE).join(", "))})` : ""}; this invoice bills ${money(gross)}, ${money(gross - left)} over`);
+    }
+    // a replacement contract: the whole of it, less what went out on it and on the contract it replaces
+    if ("estimate" === S2.kind && E.contractAs && "replace" === E.contractAs.as) {
+      const R0 = (c.estimates || []).find((x) => x.id === E.contractAs.ofId),
+        onR = (l, i) => !!R0 && (i.fromDoc === R0.id || String(l.fromLine || "").startsWith(`estimate:${R0.id}:`)),
+        total = r2((E.lines || []).reduce((a, l) => a + (+lineAmount(l, E) || 0), 0)),
+        billed = r2(billedOn((l, i) => onE(l) || onR(l, i))),
+        left = Math.max(0, r2(total - billed));
+      if (gross - left > 0.5)
+        return row(`earn:${E.id}`, E.number, billed + gross, left, gross - left, `${esc(E.number)} replaces ${esc(R0 ? R0.number : "the contract")}: ${money(total)} signed, ${money(billed)} billed on the two, ${money(left)} left; this invoice bills ${money(gross)}, ${money(gross - left)} over`);
+    }
+    // any other estimate or change order: each line up to what is signed, less what went out on it
+    lines.forEach((l) => {
+      const src = srcOf(l),
+        sl = src.line,
+        contract = signed && sl ? r2(+lineAmount(sl, E) || 0) : 0,
+        same = (x) => x.fromLine === l.fromLine,
+        billed = r2(billedOn(same)),
+        left = Math.max(0, r2(contract - billed)),
+        mineL = r2(lines.filter(same).reduce((a, y) => a + amt(y, d), 0));
+      if (lines.find(same) !== l) return;
+      row(
+        `earn:${l.fromLine}`,
+        `${E.number} ${sl ? sl.item || sl.desc || "line" : "line"}`,
+        billed + mineL,
+        left,
+        mineL - left,
+        `${esc(E.number)} ${esc((sl && (sl.item || sl.desc)) || "line")}: ${!signed ? `${esc(E.number)} is not signed, so nothing of it is billable yet` : `${money(contract)} signed, ${money(billed)} billed${billed > 0.5 ? ` (${esc(nums(same).join(", "))})` : ""}, ${money(left)} left`}; this invoice bills ${money(mineL)}, ${money(mineL - left)} over`,
+      );
+    });
+  });
+  return out;
+}
 function pbFurther(c, d) {
+  if (d && "invoice" === d.type && "sov" !== d.mode) return pbEarnedOver(c, d);
   if (!d || "invoice" !== d.type || "sov" !== d.mode || !d.projectId) return [];
   const A = pbAhead(d.projectId),
     rows = (() => {
@@ -1012,30 +1141,64 @@ function pbAheadGate(c, d, cont, act) {
     }
     const all = pbFurther(c, d),
       tot = r2(all.reduce((a, x) => a + x.amount, 0)),
-      sub = { send: "Mark as Sent with the Reason", sent: "Mark as Sent with the Reason", approve: "Approve with the Reason" }[act] || "Send with the Reason";
-    billAskWhy(
-      `Billed Ahead of the Work: ${esc(d.number || "")}`,
-      `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period`).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}Say why these lines bill further ahead of the work (${money(tot)} this period on the lines billed ahead). Nothing is changed in what is billed; the reason goes on the invoice's record.`,
-      sub,
-      "e.g. the contract bills the windows on delivery to the shop",
-      (w) => {
-        d.aheadWhy && (d.aheadWhyLog = (d.aheadWhyLog || []).concat([d.aheadWhy]));
-        d.aheadWhy = {
-          why: w,
-          by: vbWho(),
-          at: appNowIso(),
-          lines: all.map((x) => x.l.item),
-          covers: all.map((x) => ({ sovId: x.l.sovId || "", item: x.l.item, to: x.to, pct: x.pct, amount: x.amount })),
-          amount: tot,
-        };
-        save();
-        try {
-          audit("invoice", d.id, "billed-ahead", "", all.map((x) => `${x.l.item} ${x.to}% (${money(x.amount)})`).join("; "), `${vbWho()}: ${w}`);
-        } catch (e) {}
-        // after this sheet closes, so the send's own sheet is not closed with it
-        setTimeout(cont, 0);
+      earned = all.some((x) => "earned" === x.basis),
+      sub = { send: "Mark as Sent with the Reason", sent: "Mark as Sent with the Reason", approve: "Approve with the Reason" }[act] || (earned ? "Bill Ahead with the Reason" : "Send with the Reason");
+    const give = (w) => {
+      d.aheadWhy && (d.aheadWhyLog = (d.aheadWhyLog || []).concat([d.aheadWhy]));
+      d.aheadWhy = {
+        why: w,
+        by: vbWho(),
+        at: appNowIso(),
+        lines: all.map((x) => x.l.item),
+        covers: all.map((x) => ({ sovId: x.l.sovId || "", item: x.l.item, to: x.to, pct: x.pct, amount: x.amount })),
+        amount: tot,
+        ...(earned ? { over: "earned" } : {}),
+      };
+      save();
+      try {
+        audit("invoice", d.id, "billed-ahead", "", all.map((x) => (earned ? `${x.l.item} ${money(x.amount)} over what is earned` : `${x.l.item} ${x.to}% (${money(x.amount)})`)).join("; "), `${vbWho()}: ${w}`);
+      } catch (e) {}
+      // after this sheet closes, so the send's own sheet is not closed with it
+      setTimeout(cont, 0);
+    };
+    if (!earned) {
+      billAskWhy(
+        `Billed Ahead of the Work: ${esc(d.number || "")}`,
+        `${F.map((x) => `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period`).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}Say why these lines bill further ahead of the work (${money(tot)} this period on the lines billed ahead). Nothing is changed in what is billed; the reason goes on the invoice's record.`,
+        sub,
+        "e.g. the contract bills the windows on delivery to the shop",
+        give,
+      );
+      return !0;
+    }
+    // over what is earned: the safe step (blue) is to lower it, in the editor, with the figure to bring it to; billing
+    // ahead of what is earned is the other choice, and needs the reason
+    const lower = () => {
+        const say = `Lower ${d.number} by ${money(tot)} (${F.map((x) => `${x.l.item} to ${money(x.pct)}`).join("; ")}), then Send to Client`;
+        "function" == typeof dvEdit ? dvEdit({ c: c, d: d, kind: "invoice" }) : ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }), render());
+        setTimeout(() => ("function" == typeof rcToast ? rcToast(say, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }), render()) }]) : toast(say)), 60);
       },
-    );
+      open = () =>
+        mbModal(
+          `More Than Is Earned: ${esc(d.number || "")}`,
+          `<div class="note warn">${F.map((x) => x.say).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}${esc(d.number || "")} bills ${money(tot)} more than is earned and not billed. Lower it, or bill ahead of what is earned with a reason: the reason goes on the invoice's record with what it covers.</div><div class="f" style="margin-top:10px"><label>Reason to Bill Ahead</label><input data-f="why" placeholder="e.g. the client asked to be billed the sign-off now" enterkeyhint="done"></div>`,
+          {
+            submit: "Lower It",
+            alt: {
+              label: { send: "Mark as Sent with the Reason", sent: "Mark as Sent with the Reason" }[act] || "Bill Ahead with the Reason",
+              keep: !0,
+              run: () => {
+                const el = document.querySelector('#mbm [data-f="why"]'),
+                  w = el ? el.value.trim() : "";
+                if (!w) return void toast("Say why it bills ahead of what is earned, or lower it");
+                mbCloseModal(), give(w);
+              },
+            },
+            onSubmit: () => (setTimeout(lower, 0), !0),
+          },
+        );
+    // opened after the sheet that called the send has closed (Mark as Sent's own sheet closes when its submit returns)
+    setTimeout(open, 0);
     return !0;
   } catch (e) {
     console.warn("billed ahead gate", e);
