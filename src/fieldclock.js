@@ -142,6 +142,8 @@ function tkgPunchIn(emp, p, pos, at, d, how) {
 function tkgPunchOut(e, pos, at) {
   const was = { status: e.status, breakMin: e.breakMin || 0, work: (e.work || []).length };
   e.out = at;
+  // the app's own sight of the end (timeSeenEnd, src/app.js): a later end given afterwards needs the approver's reason
+  e.seenOut = at;
   e.geoOut = pos ? { lat: pos.lat, lng: pos.lng, acc: Math.round(pos.acc || 0), dist: null } : null;
   e.autoOut = !0;
   e.auto = Object.assign({}, e.auto || {}, { out: "automatic, by location", was: was });
@@ -167,7 +169,7 @@ function tkgUndoOut(id) {
   if (!e) return;
   const was = e.out,
     b = e.auto && e.auto.was;
-  (e.out = ""), (e.geoOut = null), delete e.autoOut;
+  (e.out = ""), (e.geoOut = null), delete e.autoOut, delete e.seenOut;
   b && ((e.status = b.status), (e.breakMin = b.breakMin), (e.work = (e.work || []).slice(0, b.work)));
   e.auto && (delete e.auto.out, delete e.auto.was);
   tkGeo.outSince = "";

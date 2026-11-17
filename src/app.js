@@ -15427,8 +15427,8 @@ function timeFlags(e) {
     // the location is read only at the tap: refused or weak is taken, and said (never blocked)
     "phone" !== e.source || (e.geoIn && !(+e.geoIn.acc > rad)) || f.push("Location not confirmed at clock-in"),
     "phone" === e.source && e.out && e.geoIn && (!e.geoOut || +e.geoOut.acc > rad) && f.push("Location not confirmed at clock-out"),
-    e.autoOut && !e.hold && f.push("Auto clocked out on leaving site"),
-    e.word && f.push(timeWordSay(e) + (e.word.okBy ? ` Approved by ${e.word.okBy}: ${e.word.okWhy}` : "")),
+    e.autoOut && !e.hold && !timeWordOf(e) && f.push("Auto clocked out on leaving site"),
+    timeWordOf(e) && f.push(timeWordSay(e) + (timeWordOf(e).okBy ? ` Approved by ${timeWordOf(e).okBy}: ${timeWordOf(e).okWhy}` : "")),
     "function" == typeof tkgWatching && e.in && !tkgWatching(p || S, e.in) && f.push(`Clocked in at ${stampTime(e.in)}, outside the work day (${tkgWindowRowMeta()})`),
     h > 0 && h < 2 && e.out && f.push("Very short day"),
     e.out || f.push("Still clocked in"),
@@ -15496,12 +15496,44 @@ function fHoursToApprove(p) {
 // the work day's end, or past 8 h 15 on the clock: the entry says so in plain words, and nobody approves or pays it
 // without an approver's typed reason (timePayBlock, timeApproveBlock).
 const timeHm = (min) => `${Math.floor(min / 60)} h ${Math.round(min % 60)} min`;
+// The rule, by every route (the crew expert's third walk, 11-17: the foreman's Fix moved a clean punch the app saw end at
+// 3:35 PM to 11:00 PM with no reason and Save & Approve paid 15.5 h, +$281.96; "Approve 2 with One Reason" took "ok" for a
+// 15.42 h day and another man's off-site day together, and the PM saw nothing after): a punch that ends later than the
+// app's own last sight of it, by more than the owner's allowance, needs the approver's reason in words for that man's
+// day, whoever moved it (the man, the foreman, the PM; Fix, Save & Approve, the drawer, a bulk approve), and the PM (the
+// owner when the PM approved it) is shown it after (Approvals, "timeword"). The guard reads the punch, not the button:
+// timeWordOf works it out from the times on the record, so no route that writes a later end can skip it.
+// The app's last sight of a punch's end: what it recorded when it closed it (a tap, an automatic clock-out, a hold) and,
+// for an automatic punch, its last reading on site; "" when the app saw nothing (a day typed by hand).
+function timeSeenEnd(e) {
+  if (!e) return "";
+  const L = [e.seenOut, e.hold && e.hold.out, e.word && e.word.last, ("geo" === e.source || e.auto) && e.lastOnSite].filter(Boolean).sort();
+  return L.length ? L[L.length - 1] : "";
+}
+// the punch's later-than-seen end, as a word to approve: the one on the record when it is for this end, else one worked
+// out from the times (null when the end is not later than the app saw, within the allowance)
+function timeWordOf(e) {
+  if (!e || !e.out) return null;
+  if (e.word && e.word.at === e.out) return e.word;
+  const seen = timeSeenEnd(e);
+  if (!seen) return null;
+  const W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
+    allow = +W.allowMin >= 0 ? +W.allowMin : 15;
+  if ((new Date(e.out) - new Date(seen)) / 6e4 <= allow) return null;
+  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), also: [], derived: !0 };
+}
+// A reason is words: at least two words and eight letters. "ok", "fine", "yes", "x" are not reasons (11-17).
+function timeWhyOk(s) {
+  const t = String(s || "").trim();
+  return t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 2 && (t.match(/\p{L}/gu) || []).length >= 8;
+}
+const TIME_WHY_SAY = "Say why in words (two words or more): \"ok\" is not a reason.";
 function timeWordSay(e) {
-  const w = e && e.word;
+  const w = timeWordOf(e);
   if (!w) return "";
   const who = String(empName(e.empId) || "").split(" ")[0],
     mins = Math.round((new Date(w.at) - new Date(w.last)) / 6e4);
-  return `Left at ${stampTime(w.at)} by ${who}'s word. ${w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ")}.` : ""}`;
+  return `${w.derived ? `Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ")}.` : ""}`;
 }
 // the reasons a confirmed time needs the approver's word, worked out when he confirms (timeHoldConfirm)
 function timeWordCheck(e, outIso) {
@@ -15525,8 +15557,11 @@ function timeOffSite(e) {
 }
 // what needs the approver's typed reason before Approve ("" when nothing): a time by his word, a punch off site
 function timeNeedsWhy(e) {
-  return [e && e.word && !e.word.okBy ? timeWordSay(e) : "", e && !e.offOk && timeOffSite(e) ? timeOffSite(e) : ""].filter(Boolean).join(" ");
+  const w = timeWordOf(e);
+  return [w && !(w.okBy && timeWhyOk(w.okWhy)) ? timeWordSay(e) : "", e && !e.offOk && timeOffSite(e) ? timeOffSite(e) : ""].filter(Boolean).join(" ");
 }
+// what kind of reason a punch needs, for one reason over several (timeApproveBlock): a later end is that man's day alone
+const timeWhyKind = (e) => (timeWordOf(e) && !(timeWordOf(e).okBy && timeWhyOk(timeWordOf(e).okWhy)) ? "later:" + e.id : e && !e.offOk && timeOffSite(e) ? "off" : "");
 function timePayBlock(e, reasonGiven) {
   if (!e) return "No time entry";
   const who = String(empName(e.empId) || "").split(" ")[0],
@@ -15537,7 +15572,8 @@ function timePayBlock(e, reasonGiven) {
   if (timeHeld(e))
     return `${who}'s ${fmt(e.date)} punch was closed by the app at ${stampTime(e.out)}${e.hold && e.hold.why ? `, ${e.hold.why}` : ""}. It is held until ${who} confirms when they left, or the foreman corrects it with a reason.`;
   if (timeSpanH(e) > TIME_MAX_H) return `${who}'s ${fmt(e.date)} punch runs ${r2(timeSpanH(e))} h, over ${TIME_MAX_H} hours. Correct the times first.`;
-  if (e.word && !e.word.okBy && !reasonGiven) return `${timeWordSay(e)} The approver says why before it is approved or paid.`;
+  const w = timeWordOf(e);
+  if (w && !(w.okBy && timeWhyOk(w.okWhy)) && !reasonGiven) return `${timeWordSay(e)} The approver says why before it is approved or paid.`;
   return "";
 }
 // Why these hours cannot be approved yet ("" when they can): what cannot be paid (timePayBlock); two punches of one
@@ -15555,6 +15591,15 @@ function timeApproveBlock(e, by, o) {
   if (by && String(empName(e.empId)).trim().toLowerCase() === String(by).trim().toLowerCase())
     return "Nobody approves their own time: your hours go to the PM.";
   if (timeNeedsWhy(e) && !why) return `${timeNeedsWhy(e)} Say why before you approve it.`;
+  if (timeNeedsWhy(e) && !timeWhyOk(why)) return `${timeNeedsWhy(e)} ${TIME_WHY_SAY}`;
+  // one reason over several (o.group): one man and one kind of problem, never a later end on more than his one day
+  const G = (o && o.group) || [];
+  if (G.length > 1 && timeNeedsWhy(e)) {
+    const men = new Set(G.map((x) => x.empId)),
+      kinds = new Set(G.map((x) => x.whyKind || timeWhyKind(x)));
+    if (men.size > 1 || kinds.size > 1 || [...kinds].some((k) => /^later:/.test(k)))
+      return `One reason covers one man's days with the same problem. ${String(empName(e.empId)).split(" ")[0]}'s ${fmt(e.date)} needs its own: ${timeNeedsWhy(e)}`;
+  }
   if (e.forDate && !["controller", "owner"].includes("function" == typeof role ? role() : ""))
     return `Late time for ${fmt(e.forDate)}: pay run ${(e.late && e.late.runSay) || ""} was already closed to it. The controller approves it as an adjustment in the open period.`;
   if ("submitted" !== e.status && !(o && String(o.why || "").trim()))
@@ -15573,11 +15618,40 @@ function timeApprove(e, by, quiet, o) {
   }
   (e.status = "approved"), (e.approvedBy = by), (e.approvedAt = appNowIso());
   o && o.why && (e.approveWhy = String(o.why).trim());
-  // the approver's word on a time by the man's word, or a punch off site: who, when, why on the entry and in the audit
-  o && o.why && e.word && !e.word.okBy && Object.assign(e.word, { okBy: by, okAt: appNowIso(), okWhy: String(o.why).trim() });
+  // the approver's word on a later end (by the man's word, or moved by anyone), or a punch off site: who, when, why on the
+  // entry and in the audit; the PM (the owner when the PM approved it) is shown it after (Approvals, "timeword")
+  const w0 = timeWordOf(e);
+  if (o && o.why && w0 && !(w0.okBy && timeWhyOk(w0.okWhy))) {
+    w0.derived && e.word && e.word !== w0 && (w0.before = e.word);
+    e.word = Object.assign(w0, { okBy: by, okAt: appNowIso(), okWhy: String(o.why).trim(), shown: "" });
+  }
   o && o.why && !e.offOk && timeOffSite(e) && (e.offOk = { by: by, at: appNowIso(), why: String(o.why).trim() });
   audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e), why: (o && o.why) || "" });
   return "";
+}
+// The PM's look at a later end someone approved (Approvals, "timeword"): both times, who approved it and why; Seen records
+// who looked and when. Nothing about the hours changes here: a wrong one is corrected in the entry, with a reason.
+function timeWordShownSheet(t) {
+  const w = t && t.word;
+  if (!w || !w.okBy) return null;
+  const who = String(empName(t.empId)).split(" ")[0];
+  return mbModal(
+    `${empName(t.empId)} · ${fmt(t.date)}: Later Than the App Saw`,
+    `<p class="small" style="margin:0 0 8px">${esc(timeWordSay(t))}</p><p class="small" style="margin:0 0 8px">${esc(stampTime(t.in))} to ${esc(stampTime(t.out))}: ${hoursOf(t).toFixed(2)} h paid. Approved by ${esc(w.okBy)}${w.okAt ? ` ${esc(stampText(w.okAt))}` : ""}: <b>${esc(w.okWhy)}</b></p><p class="small muted" style="margin:0">If ${esc(who)} did not work to ${esc(stampTime(t.out))}, open the entry and correct it with a reason.</p>`,
+    {
+      submit: "Seen",
+      onSubmit: () => {
+        const me = ("function" == typeof currentUser && (currentUser() || {}).name) || role();
+        (w.shown = appNowIso()), (w.shownBy = me);
+        try {
+          audit("time", t.id, "later-end-seen", null, { by: me, okBy: w.okBy, okWhy: w.okWhy });
+        } catch (x) {}
+        save(), render();
+        toast(`Seen: ${empName(t.empId)}'s ${fmt(t.date)}, ${hoursOf(t).toFixed(2)} h, approved by ${w.okBy}`, [{ label: "Open", run: () => openTime(t.id) }]);
+        return !0;
+      },
+    },
+  );
 }
 // A punch whose end the app had to guess is closed there and held (timeHeld): the automatic clock-out at the last
 // reading on site (src/fieldclock.js), and the hand punch nobody clocked out of. Who and when are recorded.
@@ -16120,7 +16194,9 @@ async function clockEvent(kind) {
   } else {
     const e = DB.time.find((t) => t.empId === emp.id && !t.out);
     if (!e) return void toast("Not clocked in");
+    // the app's own sight of the end (timeSeenEnd): a later end given afterwards needs the approver's reason
     (e.out = ts),
+      (e.seenOut = ts),
       (e.geoOut = geo),
       timeCloseOut(e),
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
@@ -16233,10 +16309,24 @@ function timeAction(e, a) {
       return void toast("Nobody approves their own time: your hours go to the PM.");
     let o = null;
     // a day not sent with its work is approved only with the approver's reason, recorded on the entry
+    // The reason sheet approves itself through the one door (it used to replay the tap that opened it, and the drawer had
+    // redrawn by then, so the PM's reason approved nothing: the third walk, 11-17).
     if (!timePayBlock(e, !0) && ("submitted" !== e.status || timeNeedsWhy(e)) && !(("function" == typeof tkOverlapFor && tkOverlapFor(e)) || null)) {
-      const w = appPrompt(timeNeedsWhy(e) ? `${timeNeedsWhy(e)} Why approve it?` : `${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`, "", { title: timeNeedsWhy(e) ? "Approve With a Reason" : "Approve Before It Is Sent", label: "Reason", yes: "Approve" });
-      if (!w) return;
-      o = { why: w };
+      const need = timeNeedsWhy(e);
+      mbModal(
+        need ? "Approve With a Reason" : "Approve Before It Is Sent",
+        `${askText(need ? `${need} Why approve it?` : `${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`)}<div class="f" style="margin-top:10px"><label>Reason</label><input data-f="v" value="" enterkeyhint="done"></div>`,
+        {
+          submit: "Approve",
+          onSubmit: (v) => {
+            if (!v.v) return toast("Fill this in first"), !1;
+            if (timeApprove(e, by, !1, { why: v.v })) return !1;
+            closeEditor(), save(), render();
+            toast(`${empName(e.empId)} · ${fmt(e.date)} — ${hoursOf(e).toFixed(2)} h approved with your reason`, [{ label: "Open", run: () => openTime(e.id) }]);
+          },
+        },
+      );
+      return;
     } else if (timeApproveBlock(e, by)) return void timeApprove(e, by);
     else if (!timeWorkOk(e) && !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?")) return;
     timeApprove(e, by, !1, o);
@@ -50493,7 +50583,9 @@ function fRenderCrew() {
     clean = pend.filter((t) => "submitted" === t.status && !timeFlags(t).length && !timeApproveBlock(t, fWho())),
     // the honest day made quick (the crew expert, 11-15, round 2): the rows that need only his reason (a time by the
     // man's word, a punch off site) can take one reason for the crew's day; each row still shows its own words
-    whyRows = pend.filter((t) => "submitted" === t.status && timeNeedsWhy(t) && !timeApproveBlock(t, fWho(), { why: "x" })),
+    whyRows0 = pend.filter((t) => "submitted" === t.status && timeNeedsWhy(t) && !timeApproveBlock(t, fWho(), { why: "a reason in words" })),
+    // one reason covers one man's days with the same problem, never a later end (that is his day alone) (timeApproveBlock)
+    whyRows = whyRows0.length > 1 && new Set(whyRows0.map((t) => t.empId)).size === 1 && new Set(whyRows0.map(timeWhyKind)).size === 1 && !whyRows0.some((t) => /^later:/.test(timeWhyKind(t))) ? whyRows0 : [],
     lastTalk = DB.field.talks
       .filter((t) => t.projectId === S.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0],
@@ -50584,7 +50676,12 @@ function fRenderCrew() {
       {
         submit: "Save & Approve",
         onSubmit: (f) => {
-          if (needWhy && !String(f.note || "").trim()) return toast(held ? "Say why: the app guessed this time, so the correction needs a reason" : "Say why you approve a day that was not sent"), !1;
+          // the times as typed: a later end than the app saw needs his reason in words, whichever punch it is (timeWordOf)
+          const outNew = held ? `${t.date}T${f.out || String(t.out).slice(11, 16)}:00` : f.out ? `${t.date}T${f.out}:00` : t.out,
+            later = !!timeNeedsWhy(Object.assign({}, t, { out: outNew, hold: held ? Object.assign({}, t.hold || { out: t.out }, { doneAt: "x" }) : t.hold, autoClosed: !1 })),
+            must = needWhy || later;
+          if (must && !String(f.note || "").trim()) return toast(later && !held ? `Say why: ${timeWordSay(Object.assign({}, t, { out: outNew }))}` : held ? "Say why: the app guessed this time, so the correction needs a reason" : "Say why you approve a day that was not sent"), !1;
+          if (later && !timeWhyOk(f.note)) return toast(TIME_WHY_SAY), !1;
           const before = JSON.parse(JSON.stringify(t));
           if (held) {
             const bad = timeHoldConfirm(t, `${t.date}T${f.out || String(t.out).slice(11, 16)}:00`, fWho(), f.note);
@@ -50596,7 +50693,7 @@ function fRenderCrew() {
             (t.foremanFixed = !0),
             t.notMine && !t.notMine.doneAt && Object.assign(t.notMine, { doneAt: appNowIso(), doneBy: fWho(), why: f.note }),
             audit("time", t.id, "edited", before, t);
-          const no = appr(t, !1, needWhy ? { why: f.note } : null);
+          const no = appr(t, !1, must ? { why: f.note } : null);
           save(), render();
           no || toast(`${empName(t.empId)} · ${fmt(t.date)}: ${hoursOf(t).toFixed(1)} h approved`, flowGo.viewOf("time", "fcrew"));
           // the edit is kept either way; when the hours cannot be approved yet, the door said why
@@ -50614,8 +50711,11 @@ function fRenderCrew() {
           submit: "Approve",
           onSubmit: (f) => {
             if (!String(f.why || "").trim()) return toast("Say why: these hours were not seen by the app"), !1;
+            if (!timeWhyOk(f.why)) return toast(TIME_WHY_SAY), !1;
             let n = 0;
-            whyRows.forEach((t) => timeApprove(t, fWho(), !0, { why: f.why }) || n++);
+            // the group as it stands before any is approved: one man, one kind of problem (timeApproveBlock)
+            const G = whyRows.map((t) => ({ empId: t.empId, whyKind: timeWhyKind(t) }));
+            whyRows.forEach((t) => timeApprove(t, fWho(), !0, { why: f.why, group: G }) || n++);
             save(), render(), toast(`${n} approved with your reason: ${f.why}`, flowGo.viewOf("time", "fcrew"));
             return !0;
           },
@@ -89542,6 +89642,25 @@ function mApprovals() {
         open: { view: "time" },
       });
     });
+  // a later end approved with a reason: shown to the PM after (the owner when the PM approved it), until he has seen it
+  // (the crew expert's third walk, 11-17: "the PM saw nothing after"). One row per day, from the entry itself.
+  (DB.time || [])
+    .filter((t) => t.word && t.word.okBy && "" === t.word.shown && "approved" === t.status)
+    .forEach((t) => {
+      const nm = "function" == typeof empName ? empName(t.empId) : t.empId,
+        p = DB.projects.find((x) => x.id === t.projectId);
+      out.push({
+        kind: "timeword",
+        id: t.id,
+        sev: "warn",
+        n: `${hoursOf(t).toFixed(2)} h`,
+        title: `${nm} · ${fmt(t.date)}: ends later than the app saw`,
+        detail: [p ? p.project.name : "", `${timeWordSay(t)} Approved by ${t.word.okBy}: ${t.word.okWhy}`].filter(Boolean).join(" · "),
+        yes: "Review",
+        no: "",
+        open: { run: () => timeWordShownSheet(t) },
+      });
+    });
   // hours logged, not clocked (the labour rules): a decision for the job's lead, so it is on his Approvals and his
   // Today, not only in Caught for You (the crew expert, 11-15, round 2: the PM had to find it another way). One item
   // per job; its count is the sheet's rows.
@@ -89722,6 +89841,15 @@ const DELEGATION = {
       // late time (its pay run already submitted without it) is the controller's adjustment
       if (t && t.forDate) return "controller";
       return t && "pm" === apprRoleOf("function" == typeof empName ? empName(t.empId) : t.empId) ? "owner" : "pm";
+    },
+  },
+  timeword: {
+    role: "pm",
+    rule: "a day approved with an end later than the app saw is shown to the PM after; the owner sees the ones the PM approved",
+    who: (it) => {
+      const t = (DB.time || []).find((x) => x.id === it.id),
+        by = (t && t.word && t.word.okBy) || "";
+      return by && "pm" === apprRoleOf(by) ? "owner" : "pm";
     },
   },
   raise: {
@@ -91000,6 +91128,7 @@ function fmCrewClock() {
               const t = DB.time.find((x) => x.empId === e.id && !x.out);
               if (!t) return;
               (t.out = ts),
+                (t.seenOut = ts),
                 (t.geoOut = geo),
                 (t.status = "submitted"),
                 (t.notes = (t.notes ? t.notes + " · " : "") + `clocked out by ${fmMe()}`),
@@ -176930,7 +177059,7 @@ const tdPlain = (s) =>
 // One card: line 1 what it is (a link to the record), line 2 why now, and one verb.
 function tdCard(it) {
   const go = () => mGo(it.open),
-    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "lognc" === it.kind ? "Review" : "Open", run: go };
+    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "lognc" === it.kind || "timeword" === it.kind ? "Review" : "Open", run: go };
   if ("bill" === it.kind) {
     const b = (DB.bills || []).find((x) => x.id === it.id);
     if (b) {

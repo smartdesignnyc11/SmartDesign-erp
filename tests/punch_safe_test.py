@@ -36,7 +36,12 @@ The second walk (11-15):
   word        Last reading on site 4:28 PM, confirmed 11:00 PM: both times kept and said in those words; no route,
               the man himself or the pay run passes it without the approver's typed reason; 12 minutes is inside the
               owner's 15-minute allowance.
-  crewday     One reason covers the crew's day; each row keeps its own words.
+  crewday     One reason never covers two men or a later end over two days (third walk, 11-17); one man's off-site
+              days can share one reason, in words; each row keeps its own words.
+The third walk (11-17):
+  later       A clean punch the app saw end at 3:35 PM, moved to 11:00 PM by the foreman's Fix, the PM's drawer or the
+              man himself, needs that approver's reason in words (not "ok") before it is approved or paid; the PM (the
+              owner when the PM approved it) is shown it on Approvals, with Seen.
   offsite     A punch 4.2 km off site needs the approver's reason.
   logheld     A held man stays on the Daily Log's crew, held, with his last reading.
   onesetting  The owner's work day is the site hours on the Clock page and in the flags; a job's own hours say so.
@@ -510,7 +515,7 @@ async def s_void(pg, c):
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
     wk = await pg.evaluate("() => { const r = document.querySelector('#fcrew-body [data-fwk=em2]'); return r ? r.innerText.replace(/\\s+/g, ' ') : ''; }")
     want = await pg.evaluate("() => { const td = today(), mon = iso(addDays(td, -(parse(td).getDay() + 6) % 7)); const L = DB.time.filter(t => t.empId === 'em2' && t.date >= mon && t.date <= td && !/void|rejected/.test(t.status)); return { merged: timeHoursOf(L), summed: Math.round(L.reduce((a, t) => a + hoursClock(t), 0) * 100) / 100 }; }")
-    c.ok(f"{want['merged']:.1f} h" in wk and want['summed'] - want['merged'] > 4, f"void: while the overlap is open, This Week counts the overlapping time once ({wk!r}, {want})")
+    c.ok(f"{want['merged']:.2f} h" in wk and want['summed'] - want['merged'] > 4, f"void: while the overlap is open, This Week counts the overlapping time once ({wk!r}, {want})")
     await pg.evaluate("() => { const o = tkOverlapsOpen().find(o => o.a.id === 'te8' || o.b.id === 'te8'); tkOverlapPick(o); }")
     m = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-tkgwhich]')].map(p => p.innerText)")
     c.ok(len(m) == 2 and any('sent for approval' in x for x in m) and any('not sent yet' in x for x in m), f'void: the Pick One sheet says how each punch was made and where it stands ({m})')
@@ -524,7 +529,7 @@ async def s_void(pg, c):
     await go(pg, 'fcrew')
     wk = await pg.evaluate("() => { const r = document.querySelector('#fcrew-body [data-fwk=em2]'); return r ? r.innerText.replace(/\\s+/g, ' ') : ''; }")
     want2 = await pg.evaluate("() => { const td = today(), mon = iso(addDays(td, -(parse(td).getDay() + 6) % 7)); return timeHoursOf(DB.time.filter(t => t.empId === 'em2' && t.date >= mon && t.date <= td)); }")
-    c.ok(f"{want2:.1f} h" in wk, f'void: This Week after the pick reads the same reader ({wk!r}, {want2})')
+    c.ok(f"{want2:.2f} h" in wk, f'void: This Week after the pick reads the same reader ({wk!r}, {want2})')
 
 
 async def s_own(pg, c):
@@ -646,8 +651,110 @@ async def s_word(pg, c):
     c.ok(w and any('past 8 h 15' in x for x in w), f'word: a confirmed time that takes the day past 8 h 15 is the same flag ({w})')
 
 
+async def s_later(pg, c):
+    """the third walk (11-17), finding 2: a later end with no reason, by two routes. (a) The foreman's Fix on a clean
+    punch the app saw end at 3:35 PM took 11:00 PM with no reason and Save & Approve paid 15.5 h (+7.42 h, +$281.96).
+    (b) "Approve 2 with One Reason" took "ok" for a 15.42 h day and another man's off-site day together. The PM saw
+    nothing after. Now: any later end than the app saw, by any route, needs that approver's reason in words for that
+    man's day, and the PM (the owner when the PM approved it) is shown it after."""
+    await pin(pg, '07:40')
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    await pg.evaluate(CLEAR)
+    r = await tick(pg, SITE, '2026-09-03T07:00:00')
+    pid = r.get('id')
+    for hm in ('09:00', '11:00', '13:00', '15:30'): await tick(pg, SITE, f'2026-09-03T{hm}:00')
+    await tick(pg, FAR, '2026-09-03T15:35:00')
+    r = await tick(pg, FAR, '2026-09-03T15:51:00')
+    c.ok(r.get('did') == 'out' and r.get('at') == '2026-09-03T15:35:00', f'later: a clean automatic day, out at 3:35 PM when he was seen leaving ({r})')
+    await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); t.work = [{ projectId: 'p121', code: '12', hours: hoursClock(t), note: 'framing' }]; t.status = 'submitted'; save(); }", pid)
+    e = await pg.evaluate(E, pid)
+    c.ok(e['st'] == 'submitted' and not e['pay'], f'later: sent, nothing held ({e["st"]}, {e["pay"]!r})')
+    # (a) the foreman's Fix: Out 11:00 PM with no reason, then "ok", then words
+    await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
+    await tap(pg, f'#fcrew-body [data-ffix={pid}]')
+    await pg.evaluate("() => { document.querySelector('#mbm [data-f=out]').value = '23:00'; }")
+    await tap(pg, '#mbm #mbm-ok')
+    # the message is the toast, or marked on the empty reason field itself (the form check, vfMark)
+    e = await pg.evaluate(E, pid); t = await pg.evaluate(TOAST) + ' | ' + await pg.evaluate("() => (document.querySelector('#mbm') || {}).innerText || ''")
+    await shot(pg, 'later_fix_noreason')
+    c.ok(e['st'] != 'approved' and e['out'] == '2026-09-03T15:35:00' and 'Say why' in t and '3:35 PM' in t, f'later: Fix with a later Out and no reason changes nothing and says why ({e["st"]}, {e["out"]}, {t[:160]!r})')
+    await pg.evaluate("() => { document.querySelector('#mbm [data-f=note]').value = 'ok'; }")
+    await tap(pg, '#mbm #mbm-ok')
+    e = await pg.evaluate(E, pid); t = await pg.evaluate(TOAST)
+    c.ok(e['st'] != 'approved' and e['out'] == '2026-09-03T15:35:00' and 'not a reason' in t, f'later: "ok" is not a reason ({e["st"]}, {t[:120]!r})')
+    await pg.evaluate("() => { document.querySelector('#mbm [data-f=note]').value = 'He stayed to finish the riser, I was there'; }")
+    await tap(pg, '#mbm #mbm-ok')
+    r = await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); return { st: t.status, h: hoursOf(t), w: t.word || null, flags: timeFlags(t) }; }", pid)
+    c.ok(r['st'] == 'approved' and r['h'] == 15.5 and r['w'] and r['w'].get('okBy') == 'Angel' and 'riser' in r['w'].get('okWhy', '') and r['w'].get('last') == '2026-09-03T15:35:00' and r['w'].get('shown') == '',
+         f"later: with his reason in words it is approved, both times and the reason on the entry ({r})")
+    c.ok(not any('Auto clocked out on leaving site' in f for f in r['flags']) and any('3:35 PM' in f for f in r['flags']), f"later: the row no longer says it was clocked out on leaving; it says the app saw 3:35 PM ({r['flags']})")
+    # the PM is shown it after, on Approvals and Today, until he has seen it
+    await sign_in(pg, 'u_alan')
+    r = await pg.evaluate("id => mApprovals().filter(x => x.kind === 'timeword' && x.id === id).map(x => [x.who, x.title, x.detail])", pid)
+    c.ok(len(r) == 1 and r[0][0] == 'pm' and 'riser' in r[0][2] and '3:35 PM' in r[0][2], f"later: the PM's Approvals shows the day, both times, who and why ({r})")
+    await go(pg, 'mapprove')
+    hit = await pg.evaluate("""() => { const card = b => { let x = b; for (let i = 0; i < 4 && x; i++, x = x.parentElement) if (/later than the app/i.test(x.innerText || '') && (x.innerText || '').length < 400) return x; return null; };
+      const b = [...document.querySelectorAll('.view.on button')].find(b => b.getClientRects().length && b.innerText.trim() === 'Review' && card(b)); if (b) b.click(); return !!b; }""")
+    await pg.wait_for_timeout(300)
+    m = await pg.evaluate("() => (document.querySelector('#mbm') || {}).innerText || ''")
+    await shot(pg, 'later_pm_review')
+    c.ok(hit and 'riser' in m and '15.50 h' in m, f'later: Review opens the day with the reason ({hit}, {m[:200]!r})')
+    await tap(pg, '#mbm #mbm-ok')
+    r = await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); return { shown: t.word.shown, by: t.word.shownBy, left: mApprovals().filter(x => x.kind === 'timeword').length, toast: (document.getElementById('toast') || {}).innerText || '' }; }", pid)
+    c.ok(r['shown'] and r['by'] and r['left'] == 0 and 'Seen' in r['toast'], f'later: Seen records who and when, and the row leaves Approvals ({r})')
+    # the PM's own drawer: an approved clean day moved later is back to approval, and "ok" does not approve it; the
+    # owner is shown the ones the PM approved
+    await pg.evaluate("""() => { DB.time = DB.time.filter(t => t.id !== 'te_lat2' && !(t.empId === 'em3' && t.date === '2026-09-02')); DB.time.push({ id: 'te_lat2', empId: 'em3', date: '2026-09-02', in: '2026-09-02T07:00:00', out: '2026-09-02T15:30:00', seenOut: '2026-09-02T15:30:00', breakMin: 30, projectId: 'p121', code: '12', notes: '', status: 'approved', approvedBy: 'Angel', source: 'phone', geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, geoOut: { lat: 0, lng: 0, acc: 10, dist: 5 }, work: [{ projectId: 'p121', code: '12', hours: 8, note: 'x' }] }); save(); render(); }""")
+    await go(pg, 'time')
+    await pg.evaluate("() => { openTime('te_lat2'); document.getElementById('e-out').value = '19:00'; saveTime(); }")
+    e = await pg.evaluate(E, 'te_lat2')
+    c.ok(e['st'] == 'submitted' and e['pay'] and '3:30 PM' in e['pay'], f'later: an approved day moved later in the drawer goes back to approval, and the guard names what the app saw ({e["st"]}, {e["pay"][:140]!r})')
+    run = await pg.evaluate("() => { const t = DB.time.find(x => x.id === 'te_lat2'); const k = t.status; t.status = 'approved'; const r = payrollFromTime({ quiet: true }); const inRun = !!r && (r.timeIds || []).includes('te_lat2'); t.status = k; if (r) { DB.time.forEach(x => x.payrollId === r.id && delete x.payrollId); DB.payroll = DB.payroll.filter(x => x.id !== r.id); } return inRun; }")
+    c.ok(not run, f'later: the pay run leaves it out even with the status forced to approved ({run})')
+    for why, ok in (('ok', False), ('Alex stayed to unload the boiler delivery', True)):
+        # the PM's own tap: the drawer's Approve (the reason sheet replays that tap with his answer)
+        await pg.evaluate("() => { try { closeEditor(); } catch (e) {} openTime('te_lat2'); }")
+        await pg.wait_for_timeout(200)
+        await tap(pg, '#d-body [data-tact=approve]')
+        await pg.evaluate("w => { const i = document.querySelector('#mbm [data-f=v]'); i && (i.value = w); }", why)
+        await tap(pg, '#mbm #mbm-ok')
+        await pg.wait_for_timeout(1700)  # a sheet's answer is replayed once, then forgotten (askReplay: 1.5 s)
+        await pg.evaluate(CLOSE)
+        e = await pg.evaluate(E, 'te_lat2')
+        c.ok((e['st'] == 'approved') == ok, f'later: the drawer Approve with the reason {why!r}: {"approved" if ok else "refused"} ({e["st"]})')
+    r = await pg.evaluate("() => { const pm = mApprovals().filter(x => x.kind === 'timeword' && x.id === 'te_lat2').map(x => x.who); signIn('u_owner'); const o = mApprovals().filter(x => x.kind === 'timeword' && x.id === 'te_lat2').map(x => x.who); return { pm, o }; }")
+    c.ok(r['o'] == ['owner'], f'later: a later end the PM approved is shown to the owner ({r})')
+    # (b) one reason over several: never two men, never two kinds, never a later end on more than its own day
+    await sign_in(pg, 'u_angel')
+    r = await pg.evaluate("""() => { const mk = (id, emp, day, extra) => Object.assign({ id, empId: emp, date: day, in: day + 'T07:05:00', out: day + 'T16:30:00', breakMin: 30, projectId: 'p121', code: '12', notes: '', status: 'submitted', approvedBy: '', source: 'phone', geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, geoOut: null, work: [{ projectId: 'p121', code: '12', hours: 8.92, note: 'x' }] }, extra || {});
+      DB.time = DB.time.filter(t => !/^te_g/.test(t.id));
+      const later = mk('te_g1', 'em3', '2026-09-01', { seenOut: '2026-09-01T15:30:00' }), off = mk('te_g2', 'em4', '2026-09-01', { geoIn: { lat: 0, lng: 0, acc: 10, dist: 4200 } }),
+        off2 = mk('te_g3', 'em4', '2026-08-31', { geoIn: { lat: 0, lng: 0, acc: 10, dist: 4200 } }), later2 = mk('te_g4', 'em3', '2026-08-31', { seenOut: '2026-08-31T15:30:00' });
+      DB.time.push(later, off, off2, later2); save();
+      const why = 'All of them were with me at the yard';
+      const two = [later, off].map(t => timeApproveBlock(t, 'Angel', { why, group: [later, off] }));
+      const days = [later, later2].map(t => timeApproveBlock(t, 'Angel', { why, group: [later, later2] }));
+      const offs = [off, off2].map(t => timeApproveBlock(t, 'Angel', { why, group: [off, off2] }));
+      return { two, days, offs }; }""")
+    c.ok(all(r['two']) and all(r['days']) and not any(r['offs']), f"later: one reason refuses two men or a later end over two days; one man's two off-site days pass ({r})")
+    await go(pg, 'fcrew')
+    b = await pg.evaluate("() => (document.getElementById('fappr-why') || {}).innerText || ''")
+    c.ok(not b, f'later: with two men waiting, Hours to Approve offers no one-reason button ({b!r})')
+    await pg.evaluate("() => { DB.time = DB.time.filter(t => !/^te_g|^te_lat/.test(t.id)); save(); }")
+    # the man himself, by Still Working's Clock Out: a time later than his last reading on site is said, and needs the
+    # approver's reason
+    await sign_in(pg, 'u_alberto'); await pg.evaluate(CLEAR)
+    r = await tick(pg, SITE, '2026-09-03T08:00:00'); pid3 = r.get('id')
+    await tick(pg, SITE, '2026-09-03T12:00:00')
+    await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); t.out = '2026-09-03T13:30:00'; timeCloseOut(t); t.work = [{ projectId: 'p121', code: '12', hours: hoursClock(t), note: 'x' }]; t.status = 'submitted'; save(); }", pid3)
+    e = await pg.evaluate(E, pid3)
+    c.ok(e['pay'] and '12:00 PM' in e['pay'], f'later: an end he gives 90 minutes after his last reading on site needs the reason too ({e["pay"][:140]!r})')
+
+
 async def s_crewday(pg, c):
-    """the honest case made quick: two of the crew confirmed later than the app saw them; one reason covers the day"""
+    """one reason over several (the third walk, 11-17: "Approve 2 with One Reason" took "ok" for a 15.42 h day and another
+    man's off-site day together): two of the crew confirmed later than the app saw them need a reason each, for each
+    man's day; one man's off-site days can share one reason, in words"""
     await pin(pg, '07:40')
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
     await pg.evaluate("""() => { DB.time = DB.time.filter(t => !/^te_cd/.test(t.id));
@@ -656,14 +763,27 @@ async def s_crewday(pg, c):
       DB.time = DB.time.filter(t => !((t.empId === 'em3' || t.empId === 'em4') && t.date === '2026-09-02'));
       DB.time.push(mk('te_cd1', 'em3'), mk('te_cd2', 'em4')); save(); render(); }""")
     b = await pg.evaluate("() => (document.getElementById('fappr-why') || {}).innerText || ''")
-    c.ok('with one reason' in b.lower(), f"crewday: Hours to Approve offers one reason for the crew's day ({b!r})")
+    c.ok(not b, f"crewday: two men's later ends are not offered one reason ({b!r})")
+    r = await pg.evaluate("() => ['te_cd1', 'te_cd2'].map(id => !!document.querySelector(`#fcrew-body [data-ffix=${id}]`))")
+    c.ok(all(r), f'crewday: each has its own Fix, where his reason goes ({r})')
+    # one man, two days off site: one reason in words covers both; "ok" does not
+    await pg.evaluate("""() => { DB.time = DB.time.filter(t => !/^te_cd/.test(t.id));
+      const mk = (id, day) => ({ id, empId: 'em4', date: day, in: day + 'T07:05:00', out: day + 'T15:35:00', breakMin: 30, projectId: 'p121', code: '12', notes: '', status: 'submitted', approvedBy: '', source: 'phone', geoIn: { lat: 0, lng: 0, acc: 10, dist: 4200 }, geoOut: null, work: [{ projectId: 'p121', code: '12', hours: 8, note: 'x' }] });
+      DB.time = DB.time.filter(t => !(t.empId === 'em4' && (t.date === '2026-09-01' || t.date === '2026-09-02')));
+      DB.time.push(mk('te_cd3', '2026-09-01'), mk('te_cd4', '2026-09-02')); save(); render(); }""")
+    b = await pg.evaluate("() => (document.getElementById('fappr-why') || {}).innerText || ''")
+    c.ok('with one reason' in b.lower(), f"crewday: one man's two off-site days are offered one reason ({b!r})")
     await tap(pg, '#fcrew-body #fappr-why')
     m = await pg.evaluate("() => (document.querySelector('#mbm') || {}).innerText || ''")
-    c.ok(m.count('by ') >= 2 and 'Last reading on site 12:00 PM' in m, f'crewday: the sheet still shows each row in its own words ({m[:200]!r})')
-    await pg.evaluate("() => { document.querySelector('#mbm [data-f=why]').value = 'All left at 4:30, I was there'; }")
+    c.ok(m.count('4.2 km') >= 2, f'crewday: the sheet still shows each row in its own words ({m[:200]!r})')
+    await pg.evaluate("() => { document.querySelector('#mbm [data-f=why]').value = 'ok'; }")
     await tap(pg, '#mbm #mbm-ok')
-    r = await pg.evaluate("() => ['te_cd1', 'te_cd2'].map(id => { const t = DB.time.find(x => x.id === id); return [t.status, (t.word || {}).okWhy || '']; })")
-    c.ok(all(x[0] == 'approved' and 'All left at 4:30' in x[1] for x in r), f'crewday: one reason approves both, recorded on each ({r})')
+    r = await pg.evaluate("() => ['te_cd3', 'te_cd4'].map(id => DB.time.find(x => x.id === id).status)")
+    c.ok(all(x != 'approved' for x in r), f'crewday: "ok" approves neither ({r})')
+    await pg.evaluate("() => { document.querySelector('#mbm [data-f=why]').value = 'Picked up the panels at the supply house both days'; }")
+    await tap(pg, '#mbm #mbm-ok')
+    r = await pg.evaluate("() => ['te_cd3', 'te_cd4'].map(id => { const t = DB.time.find(x => x.id === id); return [t.status, (t.offOk || {}).why || '']; })")
+    c.ok(all(x[0] == 'approved' and 'supply house' in x[1] for x in r), f'crewday: one reason in words approves both, recorded on each ({r})')
     await pg.evaluate("() => { DB.time = DB.time.filter(t => !/^te_cd/.test(t.id)); save(); }")
 
 
@@ -768,7 +888,7 @@ async def s_fullday(pg, c):
     c.ok(own[1] == 8.5 and any('after site start (07:30)' in x for x in own[0]), f"fullday: a job with its own hours keeps them: an 8.5 h day, late after 8:00 ({own})")
 
 
-SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20, 'fullday': s_fullday}
+SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20, 'fullday': s_fullday, 'later': s_later}
 
 
 async def main():
