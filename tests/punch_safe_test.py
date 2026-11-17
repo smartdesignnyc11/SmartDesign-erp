@@ -42,6 +42,8 @@ The third walk (11-17):
   later       A clean punch the app saw end at 3:35 PM, moved to 11:00 PM by the foreman's Fix, the PM's drawer or the
               man himself, needs that approver's reason in words (not "ok") before it is approved or paid; the PM (the
               owner when the PM approved it) is shown it on Approvals, with Seen.
+  walk3       Paid hours (lunch out) for 8 h 15; a held man is not punched in again and the truth overlaps nothing; the
+              owner's 6:30 to 4:00 day by location approves like by hand; his week to the hundredth; late time as such.
   offsite     A punch 4.2 km off site needs the approver's reason.
   logheld     A held man stays on the Daily Log's crew, held, with his last reading.
   onesetting  The owner's work day is the site hours on the Clock page and in the flags; a job's own hours say so.
@@ -260,10 +262,10 @@ async def s_autoend(pg, c):
     r = await tick(pg, SITE, '2026-09-03T07:00:00')
     pid = r.get('id')
     await tick(pg, SITE, '2026-09-03T14:50:00')
-    await pin(pg, '15:16')
+    await pin(pg, '15:46')
     e = await pg.evaluate(E, pid)
-    c.ok((e['still'] or {}).get('askedAt'), f'autoend: at 8 h 15 the automatic punch is asked ({e["still"]})')
-    await pg.evaluate("() => tkStillCheck('2026-09-03T15:47:00')")
+    c.ok((e['still'] or {}).get('askedAt'), f'autoend: at 8 h 15 paid (3:45 PM, lunch out) the automatic punch is asked ({e["still"]})')
+    await pg.evaluate("() => tkStillCheck('2026-09-03T16:17:00')")
     e = await pg.evaluate(E, pid)
     c.ok(e['held'] and e['out'] == '2026-09-03T14:50:00', f'autoend: silence closes it at his last reading on site (2:50 PM), held ({e["out"]})')
 
@@ -333,38 +335,40 @@ async def s_still(pg, c):
     await pin(pg, '08:00')
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     await pg.evaluate(PUNCH, ['te_still', '2026-09-03T07:00:00', ''])
-    await pin(pg, '15:10')
+    # paid time, lunch out (the third walk, 11-17: it was asked at 3:20 PM with lunch counted): from 7:00 with the firm's
+    # 30-minute lunch, 8 h 15 paid is 3:45 PM
+    await pin(pg, '15:40')
     e = await pg.evaluate(E, 'te_still')
-    c.ok(not (e['still'] or {}).get('askedAt'), f'still: at 8 h 10 min nothing is asked ({e["still"]})')
-    await pin(pg, '15:16')
+    c.ok(not (e['still'] or {}).get('askedAt'), f'still: at 8 h 10 min paid (3:40 PM, lunch out) nothing is asked ({e["still"]})')
+    await pin(pg, '15:46')
     await go(pg, 'time')
     card = await text(pg, '.view.on [data-tkstill]')
     await shot(pg, 'still_question')
     e = await pg.evaluate(E, 'te_still')
-    c.ok('Are you still working?' in card and 'You have been clocked in 8 h' in card and (e['still'] or {}).get('n') == 1, f'still: at 8 h 15 the Clock page asks, once ({card[:100]!r}, {e["still"]})')
+    c.ok('Are you still working?' in card and 'You have worked 8 h 1' in card and 'today, lunch out' in card and (e['still'] or {}).get('n') == 1, f'still: at 8 h 15 paid the Clock page asks, once ({card[:100]!r}, {e["still"]})')
     blue = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tksa=yes]'); return b ? [b.classList.contains('primary'), Math.round(b.getBoundingClientRect().height)] : null; }")
     c.ok(blue and blue[0] and blue[1] >= 44, f'still: Still Working is the blue 44px button ({blue})')
-    await pin(pg, '15:20')
+    await pin(pg, '15:50')
     e = await pg.evaluate(E, 'te_still')
     c.ok((e['still'] or {}).get('n') == 1, f'still: asked once, not again four minutes later ({e["still"]})')
     await go(pg, 'time')
     await tap(pg, '.view.on [data-tksa=yes]')
     e = await pg.evaluate(E, 'te_still')
     a = (e['still'] or {}).get('answers') or []
-    c.ok(a and a[-1]['by'] == 'Alberto' and a[-1]['at'].startswith('2026-09-03T15:2') and not e['still']['askedAt'], f'still: Still Working is recorded with who and when ({e["still"]})')
+    c.ok(a and a[-1]['by'] == 'Alberto' and a[-1]['at'].startswith('2026-09-03T15:5') and not e['still']['askedAt'], f'still: Still Working is recorded with who and when ({e["still"]})')
     t = await pg.evaluate(TOAST)
     c.ok('Still working, recorded at' in t and 'Open' in t, f'still: it toasts what was recorded ({t[:90]!r})')
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
     t = await text(pg, '#fcrew-body [data-fstill]')
     c.ok('still working' in t, f"still: the foreman's crew list shows who is past 8 h 15 and what they said ({t!r})")
     await sign_in(pg, 'u_alberto')
-    await pin(pg, '16:00')
+    await pin(pg, '16:30')
     e = await pg.evaluate(E, 'te_still')
     c.ok(not e['still']['askedAt'], 'still: not asked again inside the hour')
-    await pin(pg, '16:22')
+    await pin(pg, '16:52')
     e = await pg.evaluate(E, 'te_still')
     c.ok(e['still']['askedAt'] and e['still']['n'] == 2, f'still: asked again an hour after Still Working ({e["still"]})')
-    await pin(pg, '16:55')
+    await pin(pg, '17:25')
     e = await pg.evaluate(E, 'te_still')
     last = a[-1]['at'] if a else ''
     c.ok(e['held'] and e['out'] == last and e['h'] == 0 and e['pay'], f'still: 30 minutes of silence closes it at his last Still Working ({last}) and holds it: 0 h, not payable ({e})')
@@ -374,10 +378,10 @@ async def s_still(pg, c):
     # the 8 h 15 mark, when he never answered
     await pin(pg, '08:00')
     await pg.evaluate(PUNCH, ['te_still2', '2026-09-03T07:00:00', ''])
-    await pg.evaluate("() => tkStillCheck('2026-09-03T15:20:00')")
-    await pg.evaluate("() => tkStillCheck('2026-09-03T15:51:00')")
+    await pg.evaluate("() => tkStillCheck('2026-09-03T15:50:00')")
+    await pg.evaluate("() => tkStillCheck('2026-09-03T16:21:00')")
     e = await pg.evaluate(E, 'te_still2')
-    c.ok(e['held'] and e['out'] == '2026-09-03T15:15:00', f'still: never answered, it closes at the 8 h 15 mark (3:15 PM), held ({e["out"]}, {e["held"]})')
+    c.ok(e['held'] and e['out'] == '2026-09-03T15:45:00', f'still: never answered, it closes at the 8 h 15 paid mark (3:45 PM, lunch out), held ({e["out"]}, {e["held"]})')
     await go(pg, 'time')
     t = await text(pg, '.view.on [data-tkhold]')
     c.ok('Say when you left' in t and 'not approved or paid' in t, f'still: his Clock page asks when he left ({t[:120]!r})')
@@ -416,7 +420,7 @@ async def s_nextday(pg, c):
     await pg.evaluate("() => { DB.time = DB.time.filter(t => t.id !== 'te_nd'); DB.time.push({ id: 'te_nd', empId: 'em4', date: '2026-09-02', in: '2026-09-02T07:10:00', out: '', breakMin: 0, projectId: 'p121', code: '', notes: '', status: 'open', approvedBy: '', geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, geoOut: null, source: 'phone', work: [] }); save(); }")
     await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
     e = await pg.evaluate(E, 'te_nd')
-    c.ok(e['held'] and e['out'] == '2026-09-02T15:25:00' and e['h'] == 0, f'nextday: a hand punch open since yesterday is closed at its 8 h 15 mark and held when the foreman looks ({e["out"]}, {e["held"]})')
+    c.ok(e['held'] and e['out'] == '2026-09-02T15:55:00' and e['h'] == 0, f'nextday: a hand punch open since yesterday is closed at its 8 h 15 paid mark (7:10 AM + 8 h 15 + 30 min lunch) and held when the foreman looks ({e["out"]}, {e["held"]})')
     row = await pg.evaluate("() => { const r = document.querySelector('#fcrew-body [data-fhrs=te_nd]'); return r ? { text: r.innerText.replace(/\\s+/g, ' '), appr: !!r.querySelector('[data-fappr]'), fix: (r.querySelector('[data-ffix]') || {}).innerText || '' } : null; }")
     await shot(pg, 'nextday_foreman_held')
     c.ok(row and 'Held' in row['text'] and not row['appr'] and row['fix'] == 'Correct Time', f"nextday: the foreman's row says Held, has no Approve, offers Correct Time ({row})")
@@ -430,7 +434,7 @@ async def s_nextday(pg, c):
     await tap(pg, '#mbm #mbm-ok')
     e = await pg.evaluate(E, 'te_nd')
     hd = e['hold'] or {}
-    c.ok(not e['held'] and e['out'] == '2026-09-02T15:40:00' and hd.get('doneBy') == 'Satish' and hd.get('before') == '2026-09-02T15:25:00' and hd.get('after') == '2026-09-02T15:40:00' and hd.get('doneAt'),
+    c.ok(not e['held'] and e['out'] == '2026-09-02T15:40:00' and hd.get('doneBy') == 'Satish' and hd.get('before') == '2026-09-02T15:55:00' and hd.get('after') == '2026-09-02T15:40:00' and hd.get('doneAt'),
          f'nextday: he says 3:40 PM; who, when, the time before and after are recorded ({e["out"]}, {hd})')
     t = await pg.evaluate(TOAST)
     c.ok('7:10 AM to 3:40 PM' in t and 'Open' in t, f'nextday: it toasts the day, with Open ({t[:100]!r})')
@@ -578,15 +582,15 @@ async def s_notmine(pg, c):
 
 
 async def s_spanish(pg, c):
-    await pin(pg, '15:20')
+    await pin(pg, '15:50')
     await pg.evaluate("() => { DB.users.find(u => u.id === 'u_alberto').lang = 'es'; save(); }")
     await sign_in(pg, 'u_alberto')
     await pg.evaluate(PUNCH, ['te_es', '2026-09-03T07:00:00', ''])
     await go(pg, 'time')
     t = await text(pg, '.view.on [data-tkstill]')
     await shot(pg, 'spanish_still')
-    c.ok('¿Sigues trabajando?' in t and 'Sigo Trabajando' in t and 'Ponchar Salida' in t, f'spanish: the question and its buttons read in Spanish ({t[:160]!r})')
-    await pg.evaluate("() => { tkStillCheck('2026-09-03T15:51:00'); render(); }")
+    c.ok('¿Sigues trabajando?' in t and 'sin contar el almuerzo' in t and 'Sigo Trabajando' in t and 'Ponchar Salida' in t, f'spanish: the question and its buttons read in Spanish ({t[:160]!r})')
+    await pg.evaluate("() => { tkStillCheck('2026-09-03T16:21:00'); render(); }")
     await go(pg, 'time')
     t = await text(pg, '.view.on [data-tkhold]')
     c.ok('Di a qué hora saliste' in t and 'no se aprueban ni se pagan' in t, f'spanish: the hold card reads in Spanish ({t[:160]!r})')
@@ -751,6 +755,86 @@ async def s_later(pg, c):
     c.ok(e['pay'] and '12:00 PM' in e['pay'], f'later: an end he gives 90 minutes after his last reading on site needs the reason too ({e["pay"][:140]!r})')
 
 
+async def s_walk3(pg, c):
+    """the third walk (11-17), S2: the normal day with the phone asleep, the 10-hour day, the owner's 6:30 to 4:00 day,
+    his own week total to the hundredth, and late time shown as what it is"""
+    # K1: 7:00 to 3:30, phone asleep after 12:00, held; he confirms 3:30. Paid hours are 8.00 (lunch out), never "8.50 h
+    # on the clock, past 8 h 15"; the 3.5 h after his last reading still needs the approver's reason (rule 2)
+    await pin(pg, '07:40')
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    await pg.evaluate(CLEAR)
+    r = await tick(pg, SITE, '2026-09-03T07:00:00'); k1 = r.get('id')
+    await tick(pg, SITE, '2026-09-03T12:00:00')
+    await pin(pg, '15:50')
+    await tick(pg, FAR, '2026-09-03T15:50:00')
+    await pg.evaluate("id => timeHoldConfirm(DB.time.find(t => t.id === id), '2026-09-03T15:30:00', 'Alberto', 'confirmed by Alberto')", k1)
+    w = await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); return { h: hoursOf(t), say: timeWordSay(t), also: (t.word || {}).also || [] }; }", k1)
+    c.ok(w['h'] == 8 and not w['also'] and '8 h 15' not in w['say'] and '12:00 PM' in w['say'], f'walk3: a 7:00 to 3:30 day confirmed after the phone slept reads 8.00 h, lunch out, not past 8 h 15 ({w})')
+    # the 10-hour day: no answer to Still Working, held; still on site, no second automatic punch; the truth makes no overlap
+    await pin(pg, '07:40')
+    await pg.evaluate(CLEAR)
+    r = await tick(pg, SITE, '2026-09-03T07:00:00'); k3 = r.get('id')
+    for hm in ('10:00', '13:00', '15:40'): await tick(pg, SITE, f'2026-09-03T{hm}:00')
+    await pin(pg, '15:44')
+    e = await pg.evaluate(E, k3)
+    c.ok(not (e['still'] or {}).get('askedAt'), f'walk3: at 3:44 PM (8 h 14 paid, lunch out) Still Working is not asked yet ({e["still"]})')
+    await pin(pg, '15:46')
+    await tick(pg, SITE, '2026-09-03T15:46:00')
+    e = await pg.evaluate(E, k3)
+    c.ok((e['still'] or {}).get('askedAt'), f'walk3: at 3:46 PM it is asked ({e["still"]})')
+    await pin(pg, '16:20')
+    await tick(pg, SITE, '2026-09-03T16:20:00')
+    e = await pg.evaluate(E, k3)
+    c.ok(e['held'], f'walk3: no answer in 30 minutes holds it ({e["out"]}, {e["held"]})')
+    await pin(pg, '16:40')
+    r = await tick(pg, SITE, '2026-09-03T16:40:00')
+    await pin(pg, '17:20')
+    r2 = await tick(pg, SITE, '2026-09-03T17:20:00')
+    n = await pg.evaluate("() => DB.time.filter(t => t.empId === 'em2' && t.date === '2026-09-03' && !/void|rejected/.test(t.status)).length")
+    c.ok(r.get('did') == 'none' and 'held' in r.get('why', '') and n == 1, f'walk3: still on site while held, the app does not punch him in again ({r}, {n} punch)')
+    await pg.evaluate("id => timeHoldConfirm(DB.time.find(t => t.id === id), '2026-09-03T17:30:00', 'Alberto', 'confirmed by Alberto')", k3)
+    r = await pg.evaluate("id => { const t = DB.time.find(x => x.id === id); return { h: hoursOf(t), word: t.word || null, ov: !!tkOverlapFor(t), n: DB.time.filter(x => x.empId === 'em2' && x.date === '2026-09-03' && !/void|rejected/.test(x.status)).length }; }", k3)
+    c.ok(r['h'] == 10 and not r['word'] and not r['ov'] and r['n'] == 1, f'walk3: he confirms 5:30, ten minutes after the app last saw him on site: 10.00 h, no overlap, no override needed ({r})')
+    # an automatic punch made before the fix, inside the confirmed time, is voided by the truth, never overlapped
+    await pg.evaluate("""() => { DB.time = DB.time.filter(t => !(t.empId === 'em2' && t.date === '2026-09-03'));
+      DB.time.push({ id: 'te_w3a', empId: 'em2', date: '2026-09-03', in: '2026-09-03T07:00:00', out: '2026-09-03T15:50:00', breakMin: 0, projectId: 'p121', code: '', notes: '', status: 'open', approvedBy: '', source: 'geo', auto: {}, lastOnSite: '2026-09-03T15:50:00', hold: { at: '2026-09-03T16:20:00', out: '2026-09-03T15:50:00', why: 'no answer to Still Working' }, work: [] },
+        { id: 'te_w3b', empId: 'em2', date: '2026-09-03', in: '2026-09-03T16:00:00', out: '2026-09-03T17:35:00', breakMin: 0, projectId: 'p121', code: '', notes: '', status: 'open', approvedBy: '', source: 'geo', auto: {}, lastOnSite: '2026-09-03T17:30:00', work: [] }); save(); }""")
+    await pg.evaluate("() => timeHoldConfirm(DB.time.find(t => t.id === 'te_w3a'), '2026-09-03T17:30:00', 'Alberto', 'confirmed by Alberto')")
+    r = await pg.evaluate("() => ({ b: DB.time.find(t => t.id === 'te_w3b').status, ov: !!tkOverlapFor(DB.time.find(t => t.id === 'te_w3a')) })")
+    c.ok(r['b'] == 'void' and not r['ov'], f'walk3: confirming the truth voids the automatic punch inside it: no overlap ({r})')
+    # the owner's day 6:30 to 4:00: an automatic 8:00 to 4:30 day confirmed at its last reading approves like the same
+    # hours by hand
+    await pg.evaluate("() => { DB.company.autoClock = { days: [1, 2, 3, 4, 5], start: '06:30', end: '16:00', allowMin: 15 }; DB.time = DB.time.filter(t => !/^te_w3/.test(t.id) && !(t.empId === 'em2' && t.date === '2026-09-03')); save(); }")
+    mk = """([id, src]) => { const t = { id, empId: 'em2', date: '2026-09-03', in: '2026-09-03T08:00:00', out: '2026-09-03T16:30:00', breakMin: 30, projectId: 'p121', code: '12', notes: '', status: 'submitted', approvedBy: '', source: src, geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, geoOut: { lat: 0, lng: 0, acc: 10, dist: 5 }, work: [{ projectId: 'p121', code: '12', hours: 8, note: 'x' }] };
+      if (src === 'geo') Object.assign(t, { auto: {}, out: '2026-09-03T16:30:00', lastOnSite: '2026-09-03T16:30:00', hold: { at: '2026-09-03T17:00:00', out: '2026-09-03T16:30:00', why: 'no answer to Still Working' } });
+      DB.time.push(t); if (src === 'geo') { t.out = t.hold.out; timeHoldConfirm(t, '2026-09-03T16:30:00', 'Alberto', 'confirmed'); t.status = 'submitted'; t.work = [{ projectId: 'p121', code: '12', hours: 8, note: 'x' }]; }
+      return { block: timeApproveBlock(t, 'Angel'), h: hoursOf(t) }; }"""
+    a = await pg.evaluate(mk, ['te_w3c', 'geo'])
+    await pg.evaluate("() => { DB.time = DB.time.filter(t => t.id !== 'te_w3c'); }")
+    h = await pg.evaluate(mk, ['te_w3d', 'phone'])
+    c.ok(a['block'] == '' and h['block'] == '' and a['h'] == h['h'] == 8, f'walk3: 8:00 to 4:30 by location and by hand: one rule, both approve in one tap ({a}, {h})')
+    await pg.evaluate("() => { delete DB.company.autoClock; DB.time = DB.time.filter(t => !/^te_w3/.test(t.id)); save(); }")
+    # his own week, Monday to Sunday, to the hundredth; late time shown as late time, never a punch from midnight
+    await pin(pg, '12:10')
+    await pg.evaluate("""() => { DB.time = DB.time.filter(t => !(t.empId === 'em2' && t.date === '2026-09-03') && t.id !== 'te_w3late');
+      DB.time.push({ id: 'te_w3e', empId: 'em2', date: '2026-09-03', in: '2026-09-03T07:40:00', out: '2026-09-03T12:05:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'submitted', approvedBy: '', source: 'phone', geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, work: [{ projectId: 'p121', code: '12', hours: 4.42, note: 'x' }] },
+        { id: 'te_w3late', empId: 'em2', date: '2026-09-03', in: '2026-09-03T00:00:00', out: '2026-09-03T08:30:00', forDate: '2026-08-31', breakMin: 0, projectId: 'p121', code: '12', notes: 'Late time', status: 'submitted', approvedBy: '', source: 'log', late: { run: 'x', runSay: '8/17 to 8/28' }, work: [{ projectId: 'p121', code: '12', hours: 8.5, note: '' }] }); save(); }""")
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    await pg.evaluate("() => { timeFilter = 'all'; render(); }")
+    r = await pg.evaluate("""() => { const w = document.querySelector('.view.on [data-weektotal]'); const want = timeWeekOf('em2', today());
+      const rows = [...document.querySelectorAll('#time-table tr[data-edit]')].filter(r => r.getClientRects().length).map(r => [r.dataset.edit, r.innerText.replace(/\\s+/g, ' ')]);
+      return { line: w ? w.innerText : '', want, late: (rows.find(r => r[0] === 'time:te_w3late') || [])[1] || '', e: (rows.find(r => r[0] === 'time:te_w3e') || [])[1] || '' }; }""")
+    await shot(pg, 'walk3_week')
+    c.ok(r['line'] and f"{r['want']['hours']:.2f} h" in r['line'] and 'Monday to Sunday' in r['line'], f'walk3: his Clock page has the week, Monday to Sunday, to the hundredth ({r["line"]!r}, {r["want"]})')
+    c.ok('Late time for 8/31' in r['late'] and '12:00' not in r['late'] and '4.42 h' in r['e'], f'walk3: late time reads as late time, a punch to the hundredth ({r["late"]!r}, {r["e"]!r})')
+    x = await pg.evaluate("() => { const c = dlClockFor(DB.projects.find(p => p.id === 'p121'), '2026-09-03').find(c => c.empId === 'em2'); return c ? c.hours : null; }")
+    c.ok(x == 4.42, f'walk3: the Daily Log carries 4.42 h, not 4.5 ({x})')
+    await sign_in(pg, 'u_angel'); await go(pg, 'fcrew')
+    r = await pg.evaluate("() => { const row = document.querySelector('#fcrew-body [data-fhrs=te_w3late]'); const wk = document.querySelector('#fcrew-body [data-fwk=em2]'); return { row: row ? row.innerText.replace(/\\s+/g, ' ') : '', wk: wk ? wk.innerText.replace(/\\s+/g, ' ') : '', want: timeWeekOf('em2', today()).hours, flags: timeFlags(DB.time.find(t => t.id === 'te_w3e')) }; }")
+    c.ok('Overlap' not in r['row'] and '00:00' not in r['row'] and not any('Overlaps' in f for f in r['flags']) and f"{r['want']:.2f} h" in r['wk'], f"walk3: on the foreman's list late time is an adjustment, overlapping nothing; his week is the same number ({r})")
+    await pg.evaluate("() => { DB.time = DB.time.filter(t => !/^te_w3/.test(t.id)); save(); }")
+
+
 async def s_crewday(pg, c):
     """one reason over several (the third walk, 11-17: "Approve 2 with One Reason" took "ok" for a 15.42 h day and another
     man's off-site day together): two of the crew confirmed later than the app saw them need a reason each, for each
@@ -888,7 +972,7 @@ async def s_fullday(pg, c):
     c.ok(own[1] == 8.5 and any('after site start (07:30)' in x for x in own[0]), f"fullday: a job with its own hours keeps them: an 8.5 h day, late after 8:00 ({own})")
 
 
-SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20, 'fullday': s_fullday, 'later': s_later}
+SECTIONS = {'limit': s_limit, 'home': s_home, 'day33': s_day33, 'weak': s_weak, 'window': s_window, 'autoend': s_autoend, 'autoswitch': s_autoswitch, 'autosent': s_autosent, 'hand': s_hand, 'still': s_still, 'workday': s_workday, 'nextday': s_nextday, 'routes': s_routes, 'void': s_void, 'own': s_own, 'unsent': s_unsent, 'notmine': s_notmine, 'spanish': s_spanish, 'word': s_word, 'crewday': s_crewday, 'offsite': s_offsite, 'logheld': s_logheld, 'onesetting': s_onesetting, 'fix20': s_fix20, 'fullday': s_fullday, 'later': s_later, 'walk3': s_walk3}
 
 
 async def main():
