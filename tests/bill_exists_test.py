@@ -474,7 +474,9 @@ async def r2_co(p, c, phone):
       return { held0, a, b: bb, t, drafts, shown, held1, after };""")
     c.ok(r['held0'] == [1850], f"[{tag}] C: CO-2026-002 approved with nothing billed is in Ready to Bill, held with its $1,850 ({r['held0']})")
     c.ok(r['drafts'] == 1 and any(x.startswith('CO-2026-001') for x in r['b']) and any(x.startswith('CO-2026-002') for x in r['b']), f"[{tag}] C: both change orders' lines are on the one open application when Bill It is pressed ({r['b']})")
-    c.ok('added to' in r['t'] and 'Open' in r['t'], f"[{tag}] C: the toast says the lines were added, with Open ({r['t'][:140]})")
+    # since 11-17 (lane bill3, S1-5) the first Bill It drafts the job's whole application, every approved change order
+    # on it (pgDraft), so CO-2026-002 is already there when its own Bill It is pressed: the toast says it is on it
+    c.ok(('added to' in r['t'] or ('CO-2026-002 is on it' in r['t'])) and 'Open' in r['t'], f"[{tag}] C: the toast says the lines are on the application, with Open ({r['t'][:140]})")
     c.ok(r['shown'] >= 2, f"[{tag}] C: the lines show on the draft ({r['shown']})")
     c.ok(r['held1'] == [1850] or any(x.startswith('CO-2026-002') and not x.endswith(':0') for x in r['after']), f"[{tag}] C: until it is billed it stays in Ready to Bill ({r['held1']}, {r['after']})")
     c.ok(not errs, f'[{tag}] C: page errors: {errs[:2]}')
