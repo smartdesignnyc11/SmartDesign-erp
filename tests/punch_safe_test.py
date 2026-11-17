@@ -29,7 +29,7 @@ Each check is the person's own steps at 390x844 with touch, on invented data.
   routes      No route approves or pays a held, open, voided or over-16-hour punch (the one door for every role, the PM's
               drawer, Approve All Shown, the foreman's row, Approve N Clean, Fix's Save & Approve, the pay run built from
               time and a run typed by hand, even with the status forced to approved).
-  void        This Week counts overlaps once; the voided 9.1 h punch is out of the Daily Log (4.25 h) and every total;
+  void        This Week counts overlaps once; the voided 9.1 h punch is out of the Daily Log (4.33 h, to the hundredth) and every total;
               Pick One says how each punch was made and where it stands.
   own, unsent, notmine, spanish   items 4, 5, 6 and the Spanish of the question and the hold.
 The second walk (11-15):
@@ -527,7 +527,9 @@ async def s_void(pg, c):
     await pg.evaluate("() => { const o = tkOverlapsOpen().find(o => o.a.id === 'te8' || o.b.id === 'te8'); tkOverlapResolve(o, o.a.id === 'te_ov' ? 'a' : 'b'); }")
     st = await pg.evaluate("() => DB.time.find(t => t.id === 'te8').status")
     log = await pg.evaluate("() => { const x = dlClockFor(DB.projects.find(p => p.id === 'p121'), '2026-09-03').find(c => c.empId === 'em2'); return x ? x.hours : null; }")
-    c.ok(st == 'void' and log == 4.25, f'void: after the 9.1 h punch is voided the Daily Log carries 4.25 h for Alberto, not 9 ({st}, {log})')
+    # 7:40 AM to 12:00 PM is 4 h 20 min = 4.33 h, to the hundredth as payroll pays it (the log rounded it to the quarter,
+    # 4.25, before the third walk, 11-17)
+    c.ok(st == 'void' and log == 4.33, f'void: after the 9.1 h punch is voided the Daily Log carries 4.33 h for Alberto, not 9 ({st}, {log})')
     h = await pg.evaluate("() => hoursOf(DB.time.find(t => t.id === 'te8'))")
     c.ok(h == 0, f'void: the voided punch counts 0 h wherever hours are read (job cost, payroll, Ask) ({h})')
     await go(pg, 'fcrew')
