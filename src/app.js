@@ -15396,6 +15396,22 @@ function timeHoursOf(list, now) {
   });
   return r2(h);
 }
+// A person's paid hours for a day: the clock (timeHoursOf, breaks out, overlaps once) less lunch by the firm's lunch
+// setting (siteHours().lunch) when the day is long enough to carry one (6 h, as timeCloseOut gives a closed punch its
+// break) and the lunch was not already off the clock (a break on a punch, or time between punches). The 8 h 15 question
+// and every day-length check read this (the third walk, 11-17: a 7:00 to 3:30 day read "8.50 h on the clock, past
+// 8 h 15" with lunch counted, and Still Working was asked at 3:20 PM).
+function timePaidDayH(list, now, p) {
+  const h = timeHoursOf(list, now);
+  if (h < 6) return h;
+  const L = (list || []).filter((t) => t && t.in && !t.forDate && !/^(void|rejected)$/.test(String(t.status || "")) && (t.out ? hoursOf(t) > 0 : !!now && String(now) > String(t.in)));
+  if (!L.length) return h;
+  const a = Math.min(...L.map((t) => new Date(t.in).getTime())),
+    b = Math.max(...L.map((t) => new Date(t.out || now).getTime())),
+    off = Math.max(0, (b - a) / 36e5 - h),
+    lunch = (+siteHours(p || (L[0] && DB.projects.find((x) => x.id === L[0].projectId))).lunch || 0) / 60;
+  return r2(h - Math.max(0, lunch - off));
+}
 function distM(a, b) {
   if (!a || !b) return null;
   const toR = (x) => (x * Math.PI) / 180,
@@ -15458,8 +15474,8 @@ function timeFlags(e) {
     // the location is read only at the tap: refused or weak is taken, and said (never blocked)
     "phone" !== e.source || (e.geoIn && !(+e.geoIn.acc > rad)) || f.push("Location not confirmed at clock-in"),
     "phone" === e.source && e.out && e.geoIn && (!e.geoOut || +e.geoOut.acc > rad) && f.push("Location not confirmed at clock-out"),
-    e.autoOut && !e.hold && f.push("Auto clocked out on leaving site"),
-    e.word && f.push(timeWordSay(e) + (e.word.okBy ? ` Approved by ${e.word.okBy}: ${e.word.okWhy}` : "")),
+    e.autoOut && !e.hold && !timeWordOf(e) && f.push("Auto clocked out on leaving site"),
+    timeWordOf(e) && f.push(timeWordSay(e) + (timeWordOf(e).okBy ? ` Approved by ${timeWordOf(e).okBy}: ${timeWordOf(e).okWhy}` : "")),
     "function" == typeof tkgWatching && e.in && !tkgWatching(p || S, e.in) && f.push(`Clocked in at ${stampTime(e.in)}, outside the work day (${tkgWindowRowMeta()})`),
     h > 0 && h < 2 && e.out && f.push("Very short day"),
     e.out || f.push("Still clocked in"),
@@ -15475,9 +15491,12 @@ function timeFlags(e) {
     e.clockFix && f.push("Clock-out read before the clock-in — confirm when they left"),
     e.projectId || timeOfficeEmp(e) || f.push("No job");
   return (
+    // late time is an adjustment in the open period, not a punch on the day it is dated: it overlaps nothing
+    !e.forDate &&
     DB.time.find(
       (x) =>
         x.id !== e.id &&
+        !x.forDate &&
         x.empId === e.empId &&
         x.date === e.date &&
         !/^(void|rejected)$/.test(String(x.status || "")) &&
@@ -15527,24 +15546,66 @@ function fHoursToApprove(p) {
 // the work day's end, or past 8 h 15 on the clock: the entry says so in plain words, and nobody approves or pays it
 // without an approver's typed reason (timePayBlock, timeApproveBlock).
 const timeHm = (min) => `${Math.floor(min / 60)} h ${Math.round(min % 60)} min`;
+// The rule, by every route (the crew expert's third walk, 11-17: the foreman's Fix moved a clean punch the app saw end at
+// 3:35 PM to 11:00 PM with no reason and Save & Approve paid 15.5 h, +$281.96; "Approve 2 with One Reason" took "ok" for a
+// 15.42 h day and another man's off-site day together, and the PM saw nothing after): a punch that ends later than the
+// app's own last sight of it, by more than the owner's allowance, needs the approver's reason in words for that man's
+// day, whoever moved it (the man, the foreman, the PM; Fix, Save & Approve, the drawer, a bulk approve), and the PM (the
+// owner when the PM approved it) is shown it after (Approvals, "timeword"). The guard reads the punch, not the button:
+// timeWordOf works it out from the times on the record, so no route that writes a later end can skip it.
+// The app's last sight of a punch's end: what it recorded when it closed it (a tap, an automatic clock-out, a hold) and,
+// for an automatic punch, its last reading on site; "" when the app saw nothing (a day typed by hand).
+function timeSeenEnd(e) {
+  if (!e) return "";
+  const L = [e.seenOut, e.hold && e.hold.out, e.word && e.word.last, e.lastOnSite].filter(Boolean).sort();
+  return L.length ? L[L.length - 1] : "";
+}
+// the punch's later-than-seen end, as a word to approve: the one on the record when it is for this end, else one worked
+// out from the times (null when the end is not later than the app saw, within the allowance)
+function timeWordOf(e) {
+  if (!e || !e.out) return null;
+  if (e.word && e.word.at === e.out) return e.word;
+  const seen = timeSeenEnd(e);
+  if (!seen) return null;
+  const W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
+    allow = +W.allowMin >= 0 ? +W.allowMin : 15;
+  if ((new Date(e.out) - new Date(seen)) / 6e4 <= allow) return null;
+  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), also: [], derived: !0 };
+}
+// A reason is words: at least two words and eight letters. "ok", "fine", "yes", "x" are not reasons (11-17).
+function timeWhyOk(s) {
+  const t = String(s || "").trim();
+  return t.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 2 && (t.match(/\p{L}/gu) || []).length >= 8;
+}
+const TIME_WHY_SAY = "Say why in words (two words or more): \"ok\" is not a reason.";
+// several sentences, one span each, so the field's Spanish reads them one at a time (esT); the English reads the same
+const timeSaySpans = (s) =>
+  String(s || "")
+    .split(/(?<=\.)\s+/)
+    .map((x) => `<span>${esc(x)}</span>`)
+    .join(" ");
 function timeWordSay(e) {
-  const w = e && e.word;
+  const w = timeWordOf(e);
   if (!w) return "";
   const who = String(empName(e.empId) || "").split(" ")[0],
     mins = Math.round((new Date(w.at) - new Date(w.last)) / 6e4);
-  return `Left at ${stampTime(w.at)} by ${who}'s word. ${w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ")}.` : ""}`;
+  return `${w.derived ? `Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ").replace(/^./, (x) => x.toUpperCase())}.` : ""}`;
 }
 // the reasons a confirmed time needs the approver's word, worked out when he confirms (timeHoldConfirm)
 function timeWordCheck(e, outIso) {
   const W = "function" == typeof tkgWindow ? tkgWindow() : { end: "17:00", allowMin: 15 },
-    last = (e.hold && e.hold.out) || e.out,
+    last = timeSeenEnd(e) || (e.hold && e.hold.out) || e.out,
     allow = +W.allowMin >= 0 ? +W.allowMin : 15,
     later = (new Date(outIso) - new Date(last)) / 6e4 > allow,
     also = [];
   String(outIso) > `${e.date}T${W.end}:00` && also.push(`past the end of the work day (${stampTime(`${e.date}T${W.end}:00`)})`);
-  const dayH = "function" == typeof timeHoursOf ? timeHoursOf((DB.time || []).filter((t) => t.empId === e.empId && t.date === e.date && t.id !== e.id).concat([Object.assign({}, e, { out: outIso, hold: null, autoClosed: !1 })])) : 0;
-  dayH > 8.25 && also.push(`${dayH.toFixed(2)} h on the clock that day, past 8 h 15`);
-  return later || also.length ? { at: outIso, last: last, seen: "geo" === e.source || !!e.auto, also: also, said: appNowIso() } : null;
+  // paid hours, lunch out (timePaidDayH): the 8 h 15 question's own measure
+  const dayH = timePaidDayH((DB.time || []).filter((t) => t.empId === e.empId && t.date === e.date && t.id !== e.id).concat([Object.assign({}, e, { out: outIso, hold: null, autoClosed: !1, breakMin: 0 })]));
+  dayH > 8.25 && also.push(`${dayH.toFixed(2)} h paid that day, lunch out, past 8 h 15`);
+  // one rule for an automatic punch and a hand punch (the third walk, 11-17: an automatic 8:00 to 4:30 day confirmed at
+  // its last reading needed an override for "past the end of the work day" while the same hours by hand did not): only
+  // a time later than the app saw needs the approver's word; the end of the day and 8 h 15 are said with it
+  return later ? { at: outIso, last: last, seen: "geo" === e.source || !!e.auto, also: also, said: appNowIso() } : null;
 }
 // a punch taken far from the site (the radius): Approve needs the approver's reason too
 function timeOffSite(e) {
@@ -15556,8 +15617,11 @@ function timeOffSite(e) {
 }
 // what needs the approver's typed reason before Approve ("" when nothing): a time by his word, a punch off site
 function timeNeedsWhy(e) {
-  return [e && e.word && !e.word.okBy ? timeWordSay(e) : "", e && !e.offOk && timeOffSite(e) ? timeOffSite(e) : ""].filter(Boolean).join(" ");
+  const w = timeWordOf(e);
+  return [w && !(w.okBy && timeWhyOk(w.okWhy)) ? timeWordSay(e) : "", e && !e.offOk && timeOffSite(e) ? timeOffSite(e) : ""].filter(Boolean).join(" ");
 }
+// what kind of reason a punch needs, for one reason over several (timeApproveBlock): a later end is that man's day alone
+const timeWhyKind = (e) => (timeWordOf(e) && !(timeWordOf(e).okBy && timeWhyOk(timeWordOf(e).okWhy)) ? "later:" + e.id : e && !e.offOk && timeOffSite(e) ? "off" : "");
 function timePayBlock(e, reasonGiven) {
   if (!e) return "No time entry";
   const who = String(empName(e.empId) || "").split(" ")[0],
@@ -15568,7 +15632,8 @@ function timePayBlock(e, reasonGiven) {
   if (timeHeld(e))
     return `${who}'s ${fmt(e.date)} punch was closed by the app at ${stampTime(e.out)}${e.hold && e.hold.why ? `, ${e.hold.why}` : ""}. It is held until ${who} confirms when they left, or the foreman corrects it with a reason.`;
   if (timeSpanH(e) > TIME_MAX_H) return `${who}'s ${fmt(e.date)} punch runs ${r2(timeSpanH(e))} h, over ${TIME_MAX_H} hours. Correct the times first.`;
-  if (e.word && !e.word.okBy && !reasonGiven) return `${timeWordSay(e)} The approver says why before it is approved or paid.`;
+  const w = timeWordOf(e);
+  if (w && !(w.okBy && timeWhyOk(w.okWhy)) && !reasonGiven) return `${timeWordSay(e)} The approver says why before it is approved or paid.`;
   return "";
 }
 // Why these hours cannot be approved yet ("" when they can): what cannot be paid (timePayBlock); two punches of one
@@ -15586,6 +15651,15 @@ function timeApproveBlock(e, by, o) {
   if (by && String(empName(e.empId)).trim().toLowerCase() === String(by).trim().toLowerCase())
     return "Nobody approves their own time: your hours go to the PM.";
   if (timeNeedsWhy(e) && !why) return `${timeNeedsWhy(e)} Say why before you approve it.`;
+  if (timeNeedsWhy(e) && !timeWhyOk(why)) return `${timeNeedsWhy(e)} ${TIME_WHY_SAY}`;
+  // one reason over several (o.group): one man and one kind of problem, never a later end on more than his one day
+  const G = (o && o.group) || [];
+  if (G.length > 1 && timeNeedsWhy(e)) {
+    const men = new Set(G.map((x) => x.empId)),
+      kinds = new Set(G.map((x) => x.whyKind || timeWhyKind(x)));
+    if (men.size > 1 || kinds.size > 1 || [...kinds].some((k) => /^later:/.test(k)))
+      return `One reason covers one man's days with the same problem. ${String(empName(e.empId)).split(" ")[0]}'s ${fmt(e.date)} needs its own: ${timeNeedsWhy(e)}`;
+  }
   if (e.forDate && !["controller", "owner"].includes("function" == typeof role ? role() : ""))
     return `Late time for ${fmt(e.forDate)}: pay run ${(e.late && e.late.runSay) || ""} was already closed to it. The controller approves it as an adjustment in the open period.`;
   if ("submitted" !== e.status && !(o && String(o.why || "").trim()))
@@ -15604,11 +15678,40 @@ function timeApprove(e, by, quiet, o) {
   }
   (e.status = "approved"), (e.approvedBy = by), (e.approvedAt = appNowIso());
   o && o.why && (e.approveWhy = String(o.why).trim());
-  // the approver's word on a time by the man's word, or a punch off site: who, when, why on the entry and in the audit
-  o && o.why && e.word && !e.word.okBy && Object.assign(e.word, { okBy: by, okAt: appNowIso(), okWhy: String(o.why).trim() });
+  // the approver's word on a later end (by the man's word, or moved by anyone), or a punch off site: who, when, why on the
+  // entry and in the audit; the PM (the owner when the PM approved it) is shown it after (Approvals, "timeword")
+  const w0 = timeWordOf(e);
+  if (o && o.why && w0 && !(w0.okBy && timeWhyOk(w0.okWhy))) {
+    w0.derived && e.word && e.word !== w0 && (w0.before = e.word);
+    e.word = Object.assign(w0, { okBy: by, okAt: appNowIso(), okWhy: String(o.why).trim(), shown: "" });
+  }
   o && o.why && !e.offOk && timeOffSite(e) && (e.offOk = { by: by, at: appNowIso(), why: String(o.why).trim() });
   audit("time", e.id, "approved", null, { by: by, flags: timeFlags(e), why: (o && o.why) || "" });
   return "";
+}
+// The PM's look at a later end someone approved (Approvals, "timeword"): both times, who approved it and why; Seen records
+// who looked and when. Nothing about the hours changes here: a wrong one is corrected in the entry, with a reason.
+function timeWordShownSheet(t) {
+  const w = t && t.word;
+  if (!w || !w.okBy) return null;
+  const who = String(empName(t.empId)).split(" ")[0];
+  return mbModal(
+    `${empName(t.empId)} · ${fmt(t.date)}: Later Than the App Saw`,
+    `<p class="small" style="margin:0 0 8px">${esc(timeWordSay(t))}</p><p class="small" style="margin:0 0 8px">${esc(stampTime(t.in))} to ${esc(stampTime(t.out))}: ${hoursOf(t).toFixed(2)} h paid. Approved by ${esc(w.okBy)}${w.okAt ? ` ${esc(stampText(w.okAt))}` : ""}: <b>${esc(w.okWhy)}</b></p><p class="small muted" style="margin:0">If ${esc(who)} did not work to ${esc(stampTime(t.out))}, open the entry and correct it with a reason.</p>`,
+    {
+      submit: "Seen",
+      onSubmit: () => {
+        const me = ("function" == typeof currentUser && (currentUser() || {}).name) || role();
+        (w.shown = appNowIso()), (w.shownBy = me);
+        try {
+          audit("time", t.id, "later-end-seen", null, { by: me, okBy: w.okBy, okWhy: w.okWhy });
+        } catch (x) {}
+        save(), render();
+        toast(`Seen: ${empName(t.empId)}'s ${fmt(t.date)}, ${hoursOf(t).toFixed(2)} h, approved by ${w.okBy}`, [{ label: "Open", run: () => openTime(t.id) }]);
+        return !0;
+      },
+    },
+  );
 }
 // A punch whose end the app had to guess is closed there and held (timeHeld): the automatic clock-out at the last
 // reading on site (src/fieldclock.js), and the hand punch nobody clocked out of. Who and when are recorded.
@@ -15632,6 +15735,20 @@ function timeHoldConfirm(e, outIso, by, why) {
   e.out = outIso;
   if (timeSpanH(e) > TIME_MAX_H) return (e.out = before), `That makes ${r2(timeSpanH({ in: e.in, out: outIso }))} h, over ${TIME_MAX_H} hours. Check the time.`;
   Object.assign(e.hold, { doneAt: appNowIso(), doneBy: by || "", before: before, after: outIso, why: why || "" });
+  // an automatic punch the app started after the hold, inside the time now confirmed: never two punches for one stretch
+  // (the third walk, 11-17: held at 3:50, punched in again at 4:00, and confirming 5:30 made an overlap). One inside the
+  // confirmed time, or ending within the allowance after it, is voided; one running on past it starts where this ends.
+  const allow = ("function" == typeof tkgWindow ? +tkgWindow().allowMin : 15) || 15;
+  (DB.time || [])
+    .filter((t) => t !== e && t.empId === e.empId && t.date === e.date && ("geo" === t.source || t.auto) && !t.payrollId && "approved" !== t.status && !/^(void|rejected)$/.test(String(t.status || "")) && String(t.in) >= String(e.in) && String(t.in) < String(outIso))
+    .forEach((t) => {
+      const was = { in: t.in, status: t.status };
+      if (t.out && (new Date(t.out) - new Date(outIso)) / 6e4 <= allow) (t.status = "void"), (t.voidWhy = `inside ${empName(e.empId)}'s confirmed ${stampTime(e.in)} to ${stampTime(outIso)}`);
+      else (t.in = outIso), t.overlapOf === e.id && delete t.overlapOf;
+      try {
+        audit("time", t.id, "void" === t.status ? "voided-by-confirm" : "start-moved-by-confirm", was, { in: t.in, status: t.status, by: by || "" });
+      } catch (x) {}
+    });
   // later than the app last saw him (or past the work day, or past 8 h 15): kept, and said
   const w = timeWordCheck(Object.assign({}, e, { out: before }), outIso);
   w ? (e.word = Object.assign(w, { by: by || "" })) : delete e.word;
@@ -15759,7 +15876,7 @@ function renderDaySheet(emp) {
       )
       .join("");
   // the day's total, when lunch split it into punches: the same number This Week and the Daily Log read (timeHoursOf)
-  const dayL = DB.time.filter((t) => t.empId === emp.id && t.date === e.date),
+  const dayL = DB.time.filter((t) => t.empId === emp.id && t.date === e.date && !t.forDate && !/^(void|rejected)$/.test(String(t.status || ""))),
     dayH = timeHoursOf(dayL, appNowIso()),
     dayNote = dayL.length > 1 ? `<div class="small muted" data-daytotal="${dayH}" style="margin:0 0 6px">Your ${e.date === td ? "day" : fmt(e.date)} so far: ${dayH.toFixed(2)} h on the clock in ${dayL.length} punches. Log each punch's work on it.</div>` : "";
   card.innerHTML = dayNote + `<div class="hd"><h3>What did you work on ${e.date === td ? "today" : fmt(e.date)}?</h3><span class="grow"></span><span class="small muted">${clocked.toFixed(2)} h clocked · ${logged.toFixed(2)} h logged${Math.abs(diff) > 0.26 ? ` · <b style="color:var(--bad)">${diff > 0 ? diff.toFixed(2) + " h not accounted for" : Math.abs(diff).toFixed(2) + " h over"}</b>` : !logged && clocked > 0 ? ` · <b style="color:var(--bad)">nothing logged yet</b>` : " · " + ICON_CHECK + " balanced"}</span></div>\n    <div class="daybar ${logged > clocked + 0.26 ? "over" : Math.abs(diff) <= 0.26 && logged ? "done" : ""}"><i style="width:${Math.min(100, clocked ? (logged / clocked) * 100 : 0)}%"></i></div>\n    <p class="small muted" style="margin:0 0 8px">One line per job and task. Two jobs in one day? Two lines. Hours must add up to the clocked time before the day goes to your supervisor.</p>\n    ${rows || '<div class="muted small" style="margin-bottom:6px">No work logged yet.</div>'}\n    ${locked ? "" : renderMaterialAsk(e, emp)}\n    ${locked ? "" : `<div class="row"><button class="btn sm" id="work-add">+ Add a line</button>${diff > 0.26 && e.work.length ? `<button class="btn sm" id="work-fill">Put the remaining ${diff.toFixed(2)} h on the last line</button>` : ""}<span class="grow"></span>${e.out && Math.abs(diff) <= 0.26 && logged ? ("open" === e.status ? (e.materialsAsked ? '<button class="btn sm primary" id="work-submit">Send day for approval</button>' : '<span class="small muted">Answer the material question above to send the day.</span>') : `<span class="pill ${"submitted" === e.status ? "info" : "ok"}">${"submitted" === e.status ? "sent for approval" : e.status}</span>`) : ""}</div>`}`;
@@ -15896,7 +16013,7 @@ function renderTime() {
           )
         : [];
   ($("#time-kpis").innerHTML = crewOnly
-    ? `<div class="kpi"><b>${myWk.toFixed(1)}</b><span>your hours this week</span></div><div class="kpi"><b>${emp ? DB.time.filter((t) => t.empId === emp.id && timeMineWaiting(t)).length : 0}</b><span>of your entries awaiting approval</span></div>`
+    ? `<div class="kpi"><b>${(emp ? timeWeekOf(emp.id, td).hours : 0).toFixed(2)}</b><span>your hours this week</span></div><div class="kpi"><b>${emp ? DB.time.filter((t) => t.empId === emp.id && timeMineWaiting(t)).length : 0}</b><span>of your entries awaiting approval</span></div>`
     : `<div class="kpi ${pending.length ? "warn" : ""}"><b>${pending.length}</b><span>entries awaiting approval · ${pending.reduce((a, t) => a + hoursOf(t), 0).toFixed(1)} h</span></div><div class="kpi"><b>${wkH.toFixed(1)}</b><span>hours this week on ${esc(S.project.name)}</span></div><div class="kpi blue"><b>${apprH.toFixed(1)}</b><span>approved hours not yet in a payroll run (all projects)</span></div><div class="kpi ${notIn.length && 60 * appNow().getHours() + appNow().getMinutes() >= hmToMin(shN.start) + 30 ? "warn" : ""}"><b>${notIn.length}</b><span>not clocked in today${notIn.length ? `: ${esc(notIn.map((x) => x.name.split(" ")[0]).join(", "))}` : ""}</span></div>`),
     ($("#n-time").textContent = pending.length || "");
   const cols = [
@@ -15919,16 +16036,17 @@ function renderTime() {
       key: "in",
       label: "In",
       w: "70px",
-      get: (t) => (t.in ? new Date(t.in).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""),
+      // late time is an adjustment, said as such, never as a punch from midnight (the third walk, 11-17)
+      get: (t) => (t.forDate ? "Late time" : t.in ? new Date(t.in).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""),
     },
     {
       key: "out",
       label: "Out",
       w: "70px",
       get: (t) =>
-        t.out ? new Date(t.out).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—",
+        t.forDate ? `for ${fmt(t.forDate)}` : t.out ? new Date(t.out).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—",
     },
-    { key: "hrs", label: "Hours", type: "num", w: "64px", get: (t) => hoursOf(t).toFixed(1) },
+    { key: "hrs", label: "Hours", type: "num", w: "64px", get: (t) => hoursOf(t).toFixed(2) },
     {
       key: "proj",
       label: "Work",
@@ -15994,7 +16112,10 @@ function renderTime() {
     },
     { key: "flags", label: "Flags", cls: "dim", get: (t) => timeFlags(t).join(" · ") },
   ];
-  ($("#time-table").innerHTML = grid({
+  // his week, Monday to Sunday, to the hundredth: the number payroll pays (timeWeekOf)
+  const myW = crewOnly && emp ? timeWeekOf(emp.id, td) : null,
+    weekLine = myW ? `<div class="small" data-weektotal="${myW.hours}" style="margin:0 0 8px"><b><span>This week, Monday to Sunday:</span> ${myW.hours.toFixed(2)} h</b>${myW.ot > 0 ? ` <span class="bad-t">${myW.ot.toFixed(2)} h overtime</span>` : ""}</div>` : "";
+  ($("#time-table").innerHTML = weekLine + grid({
     id: "time",
     cols: cols,
     rows: rows.map((t) => ({
@@ -16151,7 +16272,9 @@ async function clockEvent(kind) {
   } else {
     const e = DB.time.find((t) => t.empId === emp.id && !t.out);
     if (!e) return void toast("Not clocked in");
+    // the app's own sight of the end (timeSeenEnd): a later end given afterwards needs the approver's reason
     (e.out = ts),
+      (e.seenOut = ts),
       (e.geoOut = geo),
       timeCloseOut(e),
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
@@ -16264,10 +16387,24 @@ function timeAction(e, a) {
       return void toast("Nobody approves their own time: your hours go to the PM.");
     let o = null;
     // a day not sent with its work is approved only with the approver's reason, recorded on the entry
+    // The reason sheet approves itself through the one door (it used to replay the tap that opened it, and the drawer had
+    // redrawn by then, so the PM's reason approved nothing: the third walk, 11-17).
     if (!timePayBlock(e, !0) && ("submitted" !== e.status || timeNeedsWhy(e)) && !(("function" == typeof tkOverlapFor && tkOverlapFor(e)) || null)) {
-      const w = appPrompt(timeNeedsWhy(e) ? `${timeNeedsWhy(e)} Why approve it?` : `${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`, "", { title: timeNeedsWhy(e) ? "Approve With a Reason" : "Approve Before It Is Sent", label: "Reason", yes: "Approve" });
-      if (!w) return;
-      o = { why: w };
+      const need = timeNeedsWhy(e);
+      mbModal(
+        need ? "Approve With a Reason" : "Approve Before It Is Sent",
+        `${askText(need ? `${need} Why approve it?` : `${empName(e.empId)}'s ${fmt(e.date)} day is not sent yet. Why approve it now?`)}<div class="f" style="margin-top:10px"><label>Reason</label><input data-f="v" value="" enterkeyhint="done"></div>`,
+        {
+          submit: "Approve",
+          onSubmit: (v) => {
+            if (!v.v) return toast("Fill this in first"), !1;
+            if (timeApprove(e, by, !1, { why: v.v })) return !1;
+            closeEditor(), save(), render();
+            toast(`${empName(e.empId)} · ${fmt(e.date)} — ${hoursOf(e).toFixed(2)} h approved with your reason`, [{ label: "Open", run: () => openTime(e.id) }]);
+          },
+        },
+      );
+      return;
     } else if (timeApproveBlock(e, by)) return void timeApprove(e, by);
     else if (!timeWorkOk(e) && !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?")) return;
     timeApprove(e, by, !1, o);
@@ -16296,6 +16433,65 @@ function prLinkTime(r) {
 function prParts(r) {
   return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
 }
+// ---- overtime: one reading (the crew expert's third walk, 11-17; the owner, 11-17: the firm's workweek is Monday to Sunday)
+// The law (FLSA, New York) pays overtime per workweek, not per pay period: the hours over 40 in each Monday-to-Sunday week,
+// counted on the day each hour was worked (late time on its forDate, not the day it was approved), at 1.5x. The run used to
+// take the 14-day period as one: Alberto, 66.94 h with no week over 40, was paid 26.94 h of overtime (+$511.86). A week a
+// run holds only part of counts once: hours of that week already in another live run count toward its 40 first, so the
+// excess is paid once, by the run that takes the week past 40. Everyone is paid by the hour today (the employee record
+// has no salaried flag yet). Every reader takes this: the pay run (payrollFromTime) and the close's run for accrued days
+// (ctOrphanRecordRun), Today's and Approvals' Overtime tile (TL_SETS.time), the foreman's week, the Labor anomaly; job
+// cost reads the paid run (payrollTrueUp), and finance_xcheck checks every run against it.
+const OT_WEEK_H = 40,
+  OT_RATE = 1.5,
+  timeWorkDay = (t) => (t && (t.forDate || t.date)) || "";
+// one person's hours in `list`, week by week: { hours, reg, ot, weeks: [{ from, to, prior, hours, ot }] }. o.runId: the run
+// being built (its own hours are not "already paid"); o.prior false: count only the list.
+function timeOtWeeks(empId, list, o) {
+  o = o || {};
+  const mine = (list || []).filter((t) => t && t.empId === empId),
+    ids = new Set(mine.map((t) => t.id)),
+    W = {},
+    wk = (t) => {
+      const d = timeWorkDay(t);
+      if (!d) return null;
+      const from = weekRange(d)[0];
+      return (W[from] = W[from] || { from: from, to: iso(addDays(from, 6)), prior: 0, hours: 0, ot: 0 });
+    };
+  mine.forEach((t) => {
+    const h = hoursOf(t),
+      w = h && wk(t);
+    w && (w.hours += h);
+  });
+  if (!1 !== o.prior) {
+    const live = new Set((DB.payroll || []).filter((r) => r.id !== o.runId && !/^(void|rejected)$/.test(String(r.status || ""))).map((r) => r.id));
+    (DB.time || []).forEach((t) => {
+      if (t.empId !== empId || ids.has(t.id) || !t.payrollId || !live.has(t.payrollId)) return;
+      const w = W[weekRange(timeWorkDay(t) || today())[0]];
+      w && (w.prior += hoursOf(t));
+    });
+  }
+  let hours = 0,
+    ot = 0;
+  const weeks = Object.values(W).sort((a, b) => a.from.localeCompare(b.from));
+  weeks.forEach((w) => {
+    (w.hours = r2(w.hours)), (w.prior = r2(w.prior));
+    w.ot = r2(Math.max(0, w.prior + w.hours - OT_WEEK_H) - Math.max(0, w.prior - OT_WEEK_H));
+    (hours += w.hours), (ot += w.ot);
+  });
+  return { hours: r2(hours), ot: r2(ot), reg: r2(hours - ot), weeks: weeks };
+}
+// One person's week, Monday to Sunday, by the day worked: his punches counted once where two overlap (timeHoursOf), late
+// time for a day of this week added, voided and held time out. His Clock page, the foreman's week and payroll's week
+// (timeOtWeeks, when nothing overlaps) are one number. { from, to, hours, ot }
+function timeWeekOf(empId, day) {
+  const [a, b] = weekRange(day || today()),
+    L = (DB.time || []).filter((t) => t.empId === empId && timeWorkDay(t) >= a && timeWorkDay(t) <= b && !/^(void|rejected)$/.test(String(t.status || ""))),
+    hours = r2(timeHoursOf(L.filter((t) => !t.forDate)) + L.filter((t) => t.forDate).reduce((s, t) => s + hoursOf(t), 0));
+  return { from: a, to: b, hours: hours, ot: r2(Math.max(0, hours - OT_WEEK_H)) };
+}
+// the gross of one person's hours at their rate, overtime by the week (timeOtWeeks)
+const timeOtGross = (x, rate) => r2(x.reg * (+rate || 0) + x.ot * (+rate || 0) * OT_RATE);
 function payPeriodOf(day) {
   const anchor = (DB.company && DB.company.payAnchor) || "2026-08-17",
     k = Math.floor(dayDiff(anchor, day) / 14),
@@ -16344,16 +16540,16 @@ function payrollFromTime(opts) {
   const projAmt = {},
     detail = [];
   Object.values(perEmp).forEach((p) => {
-    const reg = Math.min(p.hours, 40),
-      ot = Math.max(0, p.hours - 40),
-      g = r2(reg * p.rate + ot * p.rate * 1.5),
+    // overtime by the workweek, the day each hour was worked (timeOtWeeks)
+    const X = (p.ot = timeOtWeeks(p.id, entries, { runId: open && open.id })),
+      g = timeOtGross(X, p.rate),
       tx = r2((g * p.burden) / 100),
       E = (byEnt[p.entityId] = byEnt[p.entityId] || { entityId: p.entityId, employees: 0, hours: 0, gross: 0, taxes: 0, total: 0 });
     (gross += g), (taxes += tx), E.employees++, (E.hours = r2(E.hours + p.hours)), (E.gross = r2(E.gross + g)), (E.taxes = r2(E.taxes + tx)), (E.total = r2(E.gross + E.taxes));
     Object.entries(p.byProj).forEach(([pid, h]) => {
       projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / (p.hours || 1));
     });
-    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId });
+    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId, reg: X.reg, ot: X.ot, weeks: X.weeks.map((w) => ({ from: w.from, hours: w.hours, prior: w.prior, ot: w.ot })) });
   });
   const total = r2(gross + taxes),
     ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
@@ -16372,7 +16568,10 @@ function payrollFromTime(opts) {
       alloc: alloc,
       notes: `From ${entries.length} approved time entries: ${Object.values(perEmp)
         .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
-        .join(", ")}. Overtime over 40 h at 1.5×.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
+        .join(", ")}. Overtime: hours over 40 in each Monday-to-Sunday workweek, on the day worked, at 1.5×${(() => {
+        const O = Object.values(perEmp).filter((p) => p.ot && p.ot.ot > 0);
+        return O.length ? ` (${O.map((p) => `${p.name} ${p.ot.ot.toFixed(2)} h`).join(", ")})` : "; nobody worked over 40 in a week";
+      })()}.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
       fromTime: !0,
       detail: detail,
       late: late.length,
@@ -27681,18 +27880,10 @@ function analystFindings() {
             ),
           );
     });
-  const byEmpWeek = {};
   DB.time.forEach((e) => {
     const h = hoursOf(e);
     if (!h) return;
-    const wk = (() => {
-        const d = parse(e.date),
-          s = new Date(d);
-        return s.setDate(d.getDate() - d.getDay()), iso(s);
-      })(),
-      k = e.empId + "|" + wk;
-    (byEmpWeek[k] = (byEmpWeek[k] || 0) + h),
-      e.projectId ||
+    e.projectId ||
         add(
           "low",
           "Labor",
@@ -27711,19 +27902,21 @@ function analystFindings() {
           { view: "time" },
         );
   }),
-    Object.entries(byEmpWeek).forEach(([k, h]) => {
-      if (h > 45) {
-        const [id, wk] = k.split("|");
-        add(
-          "med",
-          "Labor",
-          "Overtime",
-          `${DB.employees.find((x) => x.id === id)?.name || id} · ${r2(h)} h week of ${fmt(wk)}`,
-          0,
-          { view: "time" },
-        );
-      }
-    }),
+    // overtime as payroll pays it: each Monday-to-Sunday week, by the day worked (timeOtWeeks)
+    [...new Set(DB.time.map((e) => e.empId))].forEach((id) =>
+      timeOtWeeks(id, DB.time, { prior: !1 })
+        .weeks.filter((w) => w.ot > 0)
+        .forEach((w) =>
+          add(
+            "med",
+            "Labor",
+            "Overtime",
+            `${DB.employees.find((x) => x.id === id)?.name || id} · ${r2(w.hours)} h week of ${fmt(w.from)}, ${w.ot.toFixed(2)} h over 40`,
+            0,
+            { view: "time" },
+          ),
+        ),
+    ),
     DB.payroll.forEach((p) => {
       const ohPct = (p.alloc || []).filter((a) => !a.projectId).reduce((a, x) => a + (+x.pct || 0), 0);
       ohPct > 35 &&
@@ -50658,7 +50851,9 @@ function fRenderCrew() {
     clean = pend.filter((t) => "submitted" === t.status && !timeFlags(t).length && !timeApproveBlock(t, fWho())),
     // the honest day made quick (the crew expert, 11-15, round 2): the rows that need only his reason (a time by the
     // man's word, a punch off site) can take one reason for the crew's day; each row still shows its own words
-    whyRows = pend.filter((t) => "submitted" === t.status && timeNeedsWhy(t) && !timeApproveBlock(t, fWho(), { why: "x" })),
+    whyRows0 = pend.filter((t) => "submitted" === t.status && timeNeedsWhy(t) && !timeApproveBlock(t, fWho(), { why: "a reason in words" })),
+    // one reason covers one man's days with the same problem, never a later end (that is his day alone) (timeApproveBlock)
+    whyRows = whyRows0.length > 1 && new Set(whyRows0.map((t) => t.empId)).size === 1 && new Set(whyRows0.map(timeWhyKind)).size === 1 && !whyRows0.some((t) => /^later:/.test(timeWhyKind(t))) ? whyRows0 : [],
     lastTalk = DB.field.talks
       .filter((t) => t.projectId === S.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0],
@@ -50673,15 +50868,20 @@ function fRenderCrew() {
   (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span>${"function" == typeof tkStillCrewSay && tkStillCrewSay(t) ? `<span class="small bad-t" data-fstill>${esc(tkStillCrewSay(t))}</span>` : ""}</div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
     .map((e) => {
       // a day is a date, not a punch (two punches on 9/3 read "4 days" for three worked), and a voided punch is no time
-      const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td && live(t)),
+      const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td && live(t) && !t.forDate),
         days = new Set(wk.map((t) => t.date)).size,
-        // one reading of a person's hours: voided and held punches out, overlapping time once (timeHoursOf)
-        h = timeHoursOf(wk),
+        // one reading of a person's hours, Monday to Sunday: voided and held punches out, overlapping time once, late
+        // time on the week it was worked (timeWeekOf, the number on his own Clock)
+        h = timeWeekOf(e.id, td).hours,
         tdE = wk.filter((t) => t.date === td),
         cur = tdE.find((t) => !t.out),
         u = DB.users.find((x) => x.employeeId === e.id),
         ov = OV.filter((o) => o.empId === e.id);
-      return `<div class="f-row${ov.length ? " col warn" : ""}" data-fwk="${e.id}"><div class="row" style="gap:6px;width:100%"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${days} day${1 === days ? "" : "s"} · ${h.toFixed(1)} h${h > 40 ? ' <span class="bad-t">OT</span>' : ""}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>${ov.map((o) => ovRow(o, "crew")).join("")}</div>`;
+      return `<div class="f-row${ov.length ? " col warn" : ""}" data-fwk="${e.id}"><div class="row" style="gap:6px;width:100%"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${days} day${1 === days ? "" : "s"} · ${h.toFixed(2)} h${(() => {
+        // overtime on the same week's hours (timeWeekOf)
+        const ot = timeWeekOf(e.id, td).ot;
+        return ot > 0 ? ` <span class="bad-t">${ot.toFixed(2)} h overtime</span>` : "";
+      })()}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>${ov.map((o) => ovRow(o, "crew")).join("")}</div>`;
     })
     .join(
       "",
@@ -50697,14 +50897,14 @@ function fRenderCrew() {
             // still open, over 16 hours, voided: the one guard says no, so no Approve is offered (timePayBlock)
             payNo = !held && !!timePayBlock(t, !0),
             own = String(e?.name || "").toLowerCase() === String(fWho()).toLowerCase();
-          return `<div class="f-row ${fl.length || unsent ? "warn" : ""}" data-fhrs="${t.id}"><div class="grow"><b>${esc(e?.name || "")} · ${fmt(t.date)} · ${hoursOf(t).toFixed(1)} h</b><span class="small muted">${t.in.slice(11, 16)}–${t.out ? t.out.slice(11, 16) : "…"}${t.breakMin ? ` · ${t.breakMin} min break` : ""}${auto ? " · automatic, by location" : ""}${(
+          return `<div class="f-row ${fl.length || unsent ? "warn" : ""}" data-fhrs="${t.id}"><div class="grow"><b>${esc(e?.name || "")} · ${fmt(t.forDate || t.date)} · ${hoursOf(t).toFixed(2)} h</b><span class="small muted">${t.forDate ? `Late time for ${esc(fmt(t.forDate))}: an adjustment in the open period, for the controller` : `${t.in.slice(11, 16)}–${t.out ? t.out.slice(11, 16) : "…"}`}${t.breakMin ? ` · ${t.breakMin} min break` : ""}${auto ? " · automatic, by location" : ""}${(
             t.work || []
           )
             .filter((w) => w.note)
             .map((w) => ` · ${esc(w.note)}`)
             .join(
               "",
-            )}</span>${held ? `<span class="small bad-t">Held: the app closed it at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. ${esc(String(e?.name || "").split(" ")[0])} confirms when he left, or you correct it with a reason.</span>` : unsent ? `<span class="small bad-t">Not sent yet: ${esc(String(e?.name || "").split(" ")[0])} has not logged the work</span>` : ""}${own ? '<span class="small muted">Your own hours go to the PM.</span>' : ""}${fl.length ? `<span class="small bad-t">${esc(fl.join(" · "))}</span>` : ""}</div><div class="row" style="gap:4px">${held || own || payNo ? "" : `<button class="btn sm ${fl.length || unsent ? "" : "primary"}" data-fappr="${t.id}">Approve</button>`}${(fl.length || unsent || held) && !own && t.out ? `<button class="btn sm" data-ffix="${t.id}">${held ? "Correct Time" : "Fix"}</button>` : ""}</div></div>`;
+            )}</span>${held ? `<span class="small bad-t">Held: the app closed it at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. ${esc(String(e?.name || "").split(" ")[0])} confirms when he left, or you correct it with a reason.</span>` : unsent ? `<span class="small bad-t">Not sent yet: ${esc(String(e?.name || "").split(" ")[0])} has not logged the work</span>` : ""}${own ? '<span class="small muted">Your own hours go to the PM.</span>' : ""}${fl.length ? `<span class="small bad-t">${fl.map(timeSaySpans).join(" · ")}</span>` : ""}</div><div class="row" style="gap:4px">${held || own || payNo ? "" : `<button class="btn sm ${fl.length || unsent ? "" : "primary"}" data-fappr="${t.id}">Approve</button>`}${(fl.length || unsent || held) && !own && t.out ? `<button class="btn sm" data-ffix="${t.id}">${held ? "Correct Time" : "Fix"}</button>` : ""}</div></div>`;
         })
         .join("") || '<div class="small muted">Nothing waiting.</div>'
   }\n      <div class="small muted" style="margin-top:6px">You approve hours; the office runs payroll. Anything flagged (late start, far from site, no work logged) needs a look before it goes through.</div></div>\n    <div class="card f-card ${talkDue ? "warn" : ""}"><div class="hd"><h3>Safety</h3><span class="small muted">${lastTalk ? `last toolbox talk ${fmt(lastTalk.date)} — ${esc(lastTalk.topic)}` : "no toolbox talk logged"}</span></div>\n      <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm ${talkDue ? "primary" : ""}" id="ftalk">Log toolbox talk</button><button class="btn sm danger" data-fraise="incident">Report an incident</button>${fCall(people.pm)}</div>\n      ${talkDue ? '<div class="small bad-t" style="margin-top:6px">A week since the last talk — five minutes at the start of the day.</div>' : ""}</div>`),
@@ -50741,11 +50941,16 @@ function fRenderCrew() {
       needWhy = held || "submitted" !== t.status || !!(t.notMine && !t.notMine.doneAt) || !!timeNeedsWhy(t);
     mbModal(
       `Fix ${e?.name} · ${fmt(t.date)}`,
-      `${timeNeedsWhy(t) ? `<div class="note warn" style="margin-bottom:8px" data-fword>${esc(timeNeedsWhy(t))}</div>` : ""}${held ? `<div class="note warn" style="margin-bottom:8px">The app closed this punch at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. Put in when ${esc(String(e?.name || "").split(" ")[0])} really left.</div>` : ""}<div class="grid2"><div class="f"><label>In</label><input type="time" data-f="in" value="${t.in.slice(11, 16)}"></div><div class="f"><label>Out</label><input type="time" data-f="out" value="${t.out ? t.out.slice(11, 16) : ""}"></div></div><div class="f"><label>Break (min)</label><input type="number" data-f="brk" value="${t.breakMin || 0}"></div><div class="f"><label>${needWhy ? "Why (required)" : "Note for the office"}</label><input data-f="note" placeholder="e.g. Took the truck to the yard first — with me"></div>`,
+      `${timeNeedsWhy(t) ? `<div class="note warn" style="margin-bottom:8px" data-fword>${timeSaySpans(timeNeedsWhy(t))}</div>` : ""}${held ? `<div class="note warn" style="margin-bottom:8px">The app closed this punch at ${esc(stampTime(t.out))}, ${esc((t.hold && t.hold.why) || "the last reading on site")}. Put in when ${esc(String(e?.name || "").split(" ")[0])} really left.</div>` : ""}<div class="grid2"><div class="f"><label>In</label><input type="time" data-f="in" value="${t.in.slice(11, 16)}"></div><div class="f"><label>Out</label><input type="time" data-f="out" value="${t.out ? t.out.slice(11, 16) : ""}"></div></div><div class="f"><label>Break (min)</label><input type="number" data-f="brk" value="${t.breakMin || 0}"></div><div class="f"><label>${needWhy ? "Why (required)" : "Note for the office"}</label><input data-f="note" placeholder="e.g. Took the truck to the yard first — with me"></div>`,
       {
         submit: "Save & Approve",
         onSubmit: (f) => {
-          if (needWhy && !String(f.note || "").trim()) return toast(held ? "Say why: the app guessed this time, so the correction needs a reason" : "Say why you approve a day that was not sent"), !1;
+          // the times as typed: a later end than the app saw needs his reason in words, whichever punch it is (timeWordOf)
+          const outNew = held ? `${t.date}T${f.out || String(t.out).slice(11, 16)}:00` : f.out ? `${t.date}T${f.out}:00` : t.out,
+            later = !!timeNeedsWhy(Object.assign({}, t, { out: outNew, hold: held ? Object.assign({}, t.hold || { out: t.out }, { doneAt: "x" }) : t.hold, autoClosed: !1 })),
+            must = needWhy || later;
+          if (must && !String(f.note || "").trim()) return toast(later && !held ? `Say why: ${timeWordSay(Object.assign({}, t, { out: outNew }))}` : held ? "Say why: the app guessed this time, so the correction needs a reason" : "Say why you approve a day that was not sent"), !1;
+          if (later && !timeWhyOk(f.note)) return toast(TIME_WHY_SAY), !1;
           const before = JSON.parse(JSON.stringify(t));
           if (held) {
             const bad = timeHoldConfirm(t, `${t.date}T${f.out || String(t.out).slice(11, 16)}:00`, fWho(), f.note);
@@ -50757,7 +50962,7 @@ function fRenderCrew() {
             (t.foremanFixed = !0),
             t.notMine && !t.notMine.doneAt && Object.assign(t.notMine, { doneAt: appNowIso(), doneBy: fWho(), why: f.note }),
             audit("time", t.id, "edited", before, t);
-          const no = appr(t, !1, needWhy ? { why: f.note } : null);
+          const no = appr(t, !1, must ? { why: f.note } : null);
           save(), render();
           no || toast(`${empName(t.empId)} · ${fmt(t.date)}: ${hoursOf(t).toFixed(1)} h approved`, flowGo.viewOf("time", "fcrew"));
           // the edit is kept either way; when the hours cannot be approved yet, the door said why
@@ -50775,8 +50980,11 @@ function fRenderCrew() {
           submit: "Approve",
           onSubmit: (f) => {
             if (!String(f.why || "").trim()) return toast("Say why: these hours were not seen by the app"), !1;
+            if (!timeWhyOk(f.why)) return toast(TIME_WHY_SAY), !1;
             let n = 0;
-            whyRows.forEach((t) => timeApprove(t, fWho(), !0, { why: f.why }) || n++);
+            // the group as it stands before any is approved: one man, one kind of problem (timeApproveBlock)
+            const G = whyRows.map((t) => ({ empId: t.empId, whyKind: timeWhyKind(t) }));
+            whyRows.forEach((t) => timeApprove(t, fWho(), !0, { why: f.why, group: G }) || n++);
             save(), render(), toast(`${n} approved with your reason: ${f.why}`, flowGo.viewOf("time", "fcrew"));
             return !0;
           },
@@ -89709,6 +89917,25 @@ function mApprovals() {
         open: { view: "time" },
       });
     });
+  // a later end approved with a reason: shown to the PM after (the owner when the PM approved it), until he has seen it
+  // (the crew expert's third walk, 11-17: "the PM saw nothing after"). One row per day, from the entry itself.
+  (DB.time || [])
+    .filter((t) => t.word && t.word.okBy && "" === t.word.shown && "approved" === t.status)
+    .forEach((t) => {
+      const nm = "function" == typeof empName ? empName(t.empId) : t.empId,
+        p = DB.projects.find((x) => x.id === t.projectId);
+      out.push({
+        kind: "timeword",
+        id: t.id,
+        sev: "warn",
+        n: `${hoursOf(t).toFixed(2)} h`,
+        title: `${nm} · ${fmt(t.date)}: ends later than the app saw`,
+        detail: [p ? p.project.name : "", `${timeWordSay(t)} Approved by ${t.word.okBy}: ${t.word.okWhy}`].filter(Boolean).join(" · "),
+        yes: "Review",
+        no: "",
+        open: { run: () => timeWordShownSheet(t) },
+      });
+    });
   // hours logged, not clocked (the labour rules): a decision for the job's lead, so it is on his Approvals and his
   // Today, not only in Caught for You (the crew expert, 11-15, round 2: the PM had to find it another way). One item
   // per job; its count is the sheet's rows.
@@ -89889,6 +90116,15 @@ const DELEGATION = {
       // late time (its pay run already submitted without it) is the controller's adjustment
       if (t && t.forDate) return "controller";
       return t && "pm" === apprRoleOf("function" == typeof empName ? empName(t.empId) : t.empId) ? "owner" : "pm";
+    },
+  },
+  timeword: {
+    role: "pm",
+    rule: "a day approved with an end later than the app saw is shown to the PM after; the owner sees the ones the PM approved",
+    who: (it) => {
+      const t = (DB.time || []).find((x) => x.id === it.id),
+        by = (t && t.word && t.word.okBy) || "";
+      return by && "pm" === apprRoleOf(by) ? "owner" : "pm";
     },
   },
   raise: {
@@ -91167,6 +91403,7 @@ function fmCrewClock() {
               const t = DB.time.find((x) => x.empId === e.id && !x.out);
               if (!t) return;
               (t.out = ts),
+                (t.seenOut = ts),
                 (t.geoOut = geo),
                 (t.status = "submitted"),
                 (t.notes = (t.notes ? t.notes + " · " : "") + `clocked out by ${fmMe()}`),
@@ -92511,12 +92748,15 @@ const TL_SETS = {},
       sub = T.filter((t) => "submitted" === t.status),
       open = T.filter((t) => !t.out),
       missing = PRED.missingTime.rows(),
-      byEmp = {};
-    T.filter((t) => t.date >= wS && t.date <= wE).forEach((t) => {
-      byEmp[t.empId] = (byEmp[t.empId] || 0) + hoursOf(t);
+      byEmp = {},
+      // this week's hours by the day worked, overtime as payroll pays it (timeOtWeeks)
+      wk = T.filter((t) => timeWorkDay(t) >= wS && timeWorkDay(t) <= wE);
+    [...new Set(wk.map((t) => t.empId))].forEach((id) => {
+      const X = timeOtWeeks(id, wk);
+      X.ot > 0 && (byEmp[id] = X.ot);
     });
-    const ot = Object.entries(byEmp).filter(([, h]) => h > 40),
-      otH = ot.reduce((a, [, h]) => a + h - 40, 0),
+    const ot = Object.entries(byEmp),
+      otH = ot.reduce((a, [, h]) => a + h, 0),
       flagged = sub.filter((t) => timeFlags(t).length);
     return [
       {
@@ -92586,7 +92826,7 @@ const TL_SETS = {},
           ? `${tlN(ot.length, "person", "people")} over 40 this week`
           : "nobody over 40 hours this week",
         grid: "time",
-        pred: (t) => t.date >= wS && t.date <= wE && byEmp[t.empId] > 40,
+        pred: (t) => timeWorkDay(t) >= wS && timeWorkDay(t) <= wE && byEmp[t.empId] > 0,
         set: () => {
           timeFilter = "week";
         },
@@ -168000,7 +168240,8 @@ function dlClockFor(p, d) {
         g && s.a < g.b ? ((g.b = Math.max(g.b, s.b)), (g.brk = Math.max(g.brk, s.brk)), g.n++) : G.push({ a: s.a, b: s.b, brk: s.brk, n: 1 });
       });
     const h = G.reduce((a, g) => a + Math.max(0, (g.b - g.a) / 36e5 - g.brk / 60), 0);
-    return { name: x.name, empId: x.empId, trade: x.trade, hours: Math.round(4 * h) / 4, open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id), held: !!x.held, lastSeen: x.lastSeen || "" };
+    // to the hundredth, the number payroll pays and his Clock shows (it rounded 4.42 to 4.5: the third walk, 11-17)
+    return { name: x.name, empId: x.empId, trade: x.trade, hours: r2(h), open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id), held: !!x.held, lastSeen: x.lastSeen || "" };
   });
 }
 function dlCrewFor(p, d) {
@@ -171249,6 +171490,7 @@ function ctOrphanRecordRun(jid) {
         burden: +emp.burden || 0,
         hours: 0,
         byProj: {},
+        empId: e.empId,
       }),
       h = hoursOf(e);
     (x.hours += h), (x.byProj[e.projectId || ""] = (x.byProj[e.projectId || ""] || 0) + h);
@@ -171257,7 +171499,9 @@ function ctOrphanRecordRun(jid) {
     taxes = 0;
   const amt = {};
   Object.values(per).forEach((x) => {
-    const g = r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5);
+    // overtime by the workweek (timeOtWeeks), never over the run's dates as one
+    x.ot = timeOtWeeks(x.empId, list);
+    const g = (x.gross = timeOtGross(x.ot, x.rate));
     (gross += g),
       (taxes += r2((g * x.burden) / 100)),
       Object.entries(x.byProj).forEach(([pid, h]) => {
@@ -171287,7 +171531,9 @@ function ctOrphanRecordRun(jid) {
         name: x.name,
         hours: r2(x.hours),
         rate: x.rate,
-        gross: r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5),
+        gross: x.gross,
+        reg: x.ot.reg,
+        ot: x.ot.ot,
       })),
       orphanOf: jid,
     };
@@ -177353,7 +177599,7 @@ const tdPlain = (s) =>
 // One card: line 1 what it is (a link to the record), line 2 why now, and one verb.
 function tdCard(it) {
   const go = () => mGo(it.open),
-    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "lognc" === it.kind ? "Review" : "Open", run: go };
+    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "lognc" === it.kind || "timeword" === it.kind ? "Review" : "Open", run: go };
   if ("bill" === it.kind) {
     const b = (DB.bills || []).find((x) => x.id === it.id);
     if (b) {

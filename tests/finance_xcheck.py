@@ -85,6 +85,10 @@ The two labour rules (Alan, 11-15; --figure labour):
                           its hours and amount and the job's cost to date; a closed month's figures (the job's cost by
                           code, the company's P&L for the month) are identical before and after a move of an entry
                           dated in it
+  INV OVERTIME BY THE WEEK (--figure labour; the crew expert's third walk, 11-17) no one is paid overtime for a Monday-
+                          to-Sunday week of 40 h or less; every week over 40 pays exactly the excess at 1.5x, once,
+                          across the runs that hold it, by the day each hour was worked; regular plus overtime is the
+                          gross on each run's line. As seeded, today's run, and a run then late time into its weeks
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -143,7 +147,7 @@ FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'a
                     'inv_safe': 'money', 'inv_jobcost': 'money', 'inv_ahead': 'money', 'inv_tobill': 'money', 'inv_bankdate': 'money', 'inv_close': 'money',
                     'inv_readonly': 'money', 'inv_closeinc': 'money', 'inv_oldword': 'money',
                     'inv_rptwin': 'reports', 'inv_rptie': 'reports', 'inv_rpwip': 'reports', 'inv_rpread': 'reports',
-                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_paidonce': 'punch', 'inv_labour': 'labour'}.get(
+                    'inv_oneeac': 'onejob', 'inv_nocontract': 'onejob', 'inv_punch': 'punch', 'inv_dayhours': 'punch', 'inv_paidonce': 'punch', 'inv_labour': 'labour', 'inv_ot': 'labour'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
          'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
@@ -155,7 +159,7 @@ LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatc
          'inv_bankdate': 'INV ONE DATE', 'inv_close': 'INV CLOSE POSTS THE SCHEDULE',
          'inv_readonly': 'INV READING NEVER WRITES', 'inv_closeinc': 'INV CLOSE KEEPS INCOME', 'inv_oldword': 'INV NO OLD FIGURE',
          'inv_rptwin': 'INV REPORTS TWIN', 'inv_rptie': 'INV REPORTS TIE', 'inv_rpwip': 'INV REPORTS WIP', 'inv_rpread': 'INV REPORTS READ',
-         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_paidonce': 'INV PAID ONCE', 'inv_labour': 'INV LABOUR'}
+         'inv_oneeac': 'INV ONE EAC', 'inv_nocontract': 'INV NO CONTRACT JOB', 'inv_punch': 'INV NO UNSAFE PUNCH PAID', 'inv_dayhours': 'INV ONE DAY ONE NUMBER', 'inv_paidonce': 'INV PAID ONCE', 'inv_labour': 'INV LABOUR', 'inv_ot': 'INV OVERTIME BY THE WEEK'}
 def label(k): return LABEL.get(k) or ('WIP OVER ' + k.split(':', 1)[1] if k.startswith('wip_job:') else k.upper())
 
 MONEY = r'([−\-–]?\(?\$\s?[\d,]+(?:\.\d+)?[kKmM]?\)?)'
@@ -1772,6 +1776,87 @@ async def check_labour(p, R):
     for e in errs[:3]: R.flag('inv_labour', 'page', e[:200], 'no page errors')
     await b.close()
 
+# ---- INV OVERTIME BY THE WEEK (the crew expert's third walk, 11-17; the owner: the workweek is Monday to Sunday). The
+# law pays overtime per workweek: the hours over 40 in each Monday-to-Sunday week, on the day each hour was worked (late
+# time on its forDate), at 1.5x. Before, the run took its 14 days as one: 66.94 h with no week over 40 paid 26.94 h of
+# overtime. Recomputed here from the time entries, independently of the app's own function: no one is paid overtime for
+# a week of 40 h or less; every week over 40 pays exactly the excess at 1.5x, once, across the runs that hold it (a week
+# split between two runs counts once); each run's gross per person is regular plus overtime at the person's rate.
+# Fixture (invented): Alberto's hours replaced by a 45 h week (8/17) and a 32 h week (8/24) paid in a run built for
+# 8/17 - 8/30; then late time in the open period (3 h for Sat 8/22, 6 h each for 8/25 and 8/26) and a 38 h week (8/31).
+INV_OT_JS = r"""
+  const r2x = v => Math.round(100 * v) / 100, emp = DB.employees.find(e => e.id === 'em2');
+  const mk = (id, day, h, o) => Object.assign({ id, empId: 'em2', date: day, in: day + 'T07:00:00', out: day + 'T' + String(7 + Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0') + ':00',
+    breakMin: 0, projectId: 'p121', code: '12', notes: 'xcheck overtime', status: 'approved', approvedBy: 'Alan', approvedAt: '2026-09-03T09:00:00', source: 'manual', work: [{ projectId: 'p121', code: '12', hours: h, note: '' }] }, o || {});
+  const lateOf = (id, day, h) => mk(id, '2026-09-03', h, { forDate: day, in: '2026-09-03T00:00:00', out: '2026-09-03T' + String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0') + ':00', late: { run: '', runSay: '8/17 to 8/28' }, approvedBy: 'Controller' });
+  // the check, from the records: every live run's per-person weeks against the hours its entries were worked
+  const check = () => {
+    const live = (DB.payroll || []).filter(r => !/^(void|rejected)$/.test(String(r.status || ''))), byId = Object.fromEntries(live.map(r => [r.id, r]));
+    const monday = d => { const x = new Date(d + 'T12:00:00'), k = (x.getDay() + 6) % 7; x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+    const W = {}, bad = [], runs = [];
+    (DB.time || []).filter(t => t.payrollId && byId[t.payrollId]).forEach(t => {
+      const k = t.empId + '|' + monday(t.forDate || t.date), w = (W[k] = W[k] || { hours: 0, hand: false, paidOt: 0 });
+      w.hours += hoursOf(t); byId[t.payrollId].fromTime || (w.hand = true);
+    });
+    live.filter(r => r.fromTime).forEach(r => (r.detail || []).forEach(d => {
+      const e = DB.employees.find(x => x.name === d.name) || {}, n = r2x((+d.reg || 0) + (+d.ot || 0));
+      runs.push({ run: r.id, name: d.name, hours: d.hours, reg: d.reg, ot: d.ot, gross: d.gross });
+      if (!d.weeks) return bad.push(`${r.id} ${d.name}: no weeks on the run's line`);
+      if (Math.abs(n - d.hours) > 0.011) bad.push(`${r.id} ${d.name}: regular ${d.reg} + overtime ${d.ot} is not the ${d.hours} h paid`);
+      const g = r2x(d.reg * d.rate + d.ot * d.rate * 1.5);
+      if (Math.abs(g - d.gross) > 0.011) bad.push(`${r.id} ${d.name}: gross ${d.gross}, regular plus 1.5x overtime is ${g}`);
+      d.weeks.forEach(x => { const w = W[e.id + '|' + x.from]; w ? (w.paidOt += +x.ot || 0) : (+x.ot > 0 && bad.push(`${r.id} ${d.name}: ${x.ot} h overtime for the week of ${x.from}, which holds none of its hours`)); });
+    }));
+    Object.entries(W).forEach(([k, w]) => {
+      if (w.hand) return;
+      const want = r2x(Math.max(0, w.hours - 40));
+      if (w.hours <= 40 + 1e-9 && w.paidOt > 0.005) bad.push(`${k}: ${r2x(w.hours)} h in the week, ${r2x(w.paidOt)} h paid as overtime`);
+      else if (Math.abs(r2x(w.paidOt) - want) > 0.011) bad.push(`${k}: ${r2x(w.hours)} h in the week, ${r2x(w.paidOt)} h paid as overtime, the excess is ${want}`);
+    });
+    return { bad, weeks: Object.fromEntries(Object.entries(W).filter(([k]) => k.startsWith('em2|')).map(([k, w]) => [k.slice(4), [r2x(w.hours), r2x(w.paidOt)]])), runs: runs.filter(x => x.name === emp.name) };
+  };
+  const out = { seeded: check() };
+  // the run as it builds today, as seeded
+  const r0 = payrollFromTime({ quiet: true });
+  out.today = check();
+  r0 && (DB.time.forEach(t => t.payrollId === r0.id && delete t.payrollId), DB.payroll = DB.payroll.filter(x => x.id !== r0.id));
+  // the fixture
+  DB.time = DB.time.filter(t => t.empId !== 'em2');
+  ['2026-08-17', '2026-08-18', '2026-08-19', '2026-08-20', '2026-08-21'].forEach((d, i) => DB.time.push(mk('te_ot_a' + i, d, 9)));
+  ['2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27'].forEach((d, i) => DB.time.push(mk('te_ot_b' + i, d, 8)));
+  const A = payrollFromTimeFor(null, payPeriodOf('2026-08-17'));
+  out.first = check();
+  DB.time.push(lateOf('te_ot_l1', '2026-08-22', 3), lateOf('te_ot_l2', '2026-08-25', 6), lateOf('te_ot_l3', '2026-08-26', 6));
+  ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03'].forEach((d, i) => DB.time.push(mk('te_ot_c' + i, d, 9.5)));
+  const B = payrollFromTime({ quiet: true });
+  out.second = check();
+  out.A = A && (A.detail || []).find(d => d.name === emp.name);
+  out.B = B && (B.detail || []).find(d => d.name === emp.name);
+  return out;
+"""
+async def check_overtime(p, R):
+    if not R.want('inv_ot'): return
+    def read(surface, ok, seen, expected):
+        R.readings.append({'figure': 'inv_ot', 'surface': surface, 'raw': str(seen)[:300], 'value': None, 'expected': expected, 'ok': ok})
+        if not ok: R.flag('inv_ot', surface, str(seen)[:700], expected)
+        elif R.verbose: print('  ok', label('inv_ot'), '|', surface)
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_controller')
+    x = await pg.evaluate("async () => { try { " + INV_OT_JS + " } catch (e) { return { error: String(e && e.stack || e) }; } }")
+    if x.get('error'):
+        read('the run', False, x['error'], 'runs')
+    else:
+        for k, what in (('seeded', 'as seeded'), ('today', "today's run as it builds from the seeded hours"), ('first', 'a run for 8/17 - 8/30 (a 45 h week and a 32 h week)'), ('second', 'then the open run, with late time into both of those weeks and a 38 h week')):
+            read(what + ': no week of 40 h or less pays overtime; every week over 40 pays exactly the excess at 1.5x, once', not x[k]['bad'], x[k]['bad'] or x[k]['weeks'], 'none')
+        a, bb = x.get('A') or {}, x.get('B') or {}
+        # the first run: 45 h (8/17) + 32 h (8/24) = 77 h, 5 h over: 72 x $38 + 5 x $57 = $2,736 + $285 = $3,021
+        read('the first run pays Alberto 5 h of overtime for the 45 h week: 72 x $38 + 5 x $57 = $3,021.00', a.get('ot') == 5 and a.get('gross') == 3021, a, 'ot 5, gross 3021')
+        # the open run: late 3 h into a week already at 45 (all overtime), 12 h into a week already at 32 (4 h over), 38 h
+        # in the week of 8/31 (none): 53 h, 7 h over: 46 x $38 + 7 x $57 = $1,748 + $399 = $2,147 (the 14 days as one: $2,261)
+        read('the open run pays the split weeks once: 3 h (already past 40) + 4 h (32 + 12) = 7 h; 46 x $38 + 7 x $57 = $2,147.00', bb.get('ot') == 7 and bb.get('gross') == 2147, bb, 'ot 7, gross 2147')
+    for e in errs[:3]: R.flag('inv_ot', 'page', e[:200], 'no page errors')
+    await b.close()
+
 async def check_invariants(p, R):
     if not R.want('inv_dep'): return
     def read(key, surface, ok, seen, expected):
@@ -1871,7 +1956,7 @@ async def check_invariants(p, R):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, punch, labour')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock, invariants, money, reports, onejob, punch, labour (with the overtime invariant)')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -1892,6 +1977,7 @@ async def main():
         await check_reports(p, R)
         await check_onejob(p, R)
         await check_labour(p, R)
+        await check_overtime(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

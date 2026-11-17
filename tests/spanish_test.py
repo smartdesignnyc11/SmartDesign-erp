@@ -35,7 +35,10 @@ WALK = {
         ('ftoday', C('.f-row:has([data-fdone]) .grow > b'), 'today_task_sheet'),
         ('ftoday', C('#froom-btn'), None), ('ftoday', C('[data-fraise="blocker"]'), 'today_plan'),
         ('fsite', '', 'site'), ('fsite', C('#fsub-add'), None), ('fsite', C('#fpunch-add'), None), ('fsite', C('[data-fraise="delivery"]'), None),
-        ('fcrew', '', 'crew'), ('fcrew', C('[data-ffix]'), None), ('fcrew', C('#ftalk'), None), ('fcrew', C('[data-fraise="incident"]'), None),
+        ('fcrew', '', 'crew'), ('fcrew', C('[data-ffix]'), None),
+        # the third walk (11-17): Fix on a day that ends later than the app saw, both times in his words
+        ('fcrew', "DB.time = DB.time.filter(x => x.id !== 'te_es_word'); DB.time.push({ id: 'te_es_word', empId: 'em2', date: '2026-08-31', in: '2026-08-31T07:00:00', out: '2026-08-31T17:30:00', breakMin: 30, projectId: 'p121', code: '12', notes: '', status: 'submitted', approvedBy: '', source: 'geo', auto: {}, geoIn: { lat: 0, lng: 0, acc: 10, dist: 5 }, hold: { at: '2026-08-31T18:00:00', out: '2026-08-31T15:30:00', why: 'the last reading on site', doneAt: '2026-08-31T18:05:00', doneBy: 'Alberto' }, word: { at: '2026-08-31T17:30:00', last: '2026-08-31T15:30:00', seen: true, also: ['past the end of the work day (5:00 PM)', '9.50 h paid that day, lunch out, past 8 h 15'] }, work: [{ projectId: 'p121', code: '12', hours: 10, note: 'x' }] }); save(); render(); " + C('[data-ffix=te_es_word]'), 'crew_fix_word'),
+        ('fcrew', "DB.time = DB.time.filter(x => x.id !== 'te_es_word'); save(); render();", None), ('fcrew', C('#ftalk'), None), ('fcrew', C('[data-fraise="incident"]'), None),
         ('flog', '', 'log')] + [('flog', C(f'[data-dlgo="{k}"]'), 'log_step%d' % k if k in (1, 3, 6) else None) for k in range(7)] + [
         ('flog', C('[data-dlopen]'), None),
         ('req', '', 'requests'), ('req', C('#cp-morekits'), None),
@@ -61,6 +64,11 @@ WALK = {
         ('time', "const e = myEmp(); DB.time = DB.time.filter(x => x.id !== 'te_es_held'); DB.time.push({ id: 'te_es_held', empId: e.id, date: '2026-09-02', in: '2026-09-02T07:00:00', out: '2026-09-02T15:15:00', breakMin: 0, projectId: 'p121', code: '', notes: '', status: 'open', approvedBy: '', source: 'phone', geoIn: null, geoOut: null, hold: { at: '2026-09-03T07:00:00', out: '2026-09-02T15:15:00', why: 'nobody clocked out' }, work: [] }); save(); render();", 'clock_held'),
         ('time', C('[data-tkhok]'), None),
         ('time', "const t = DB.time.find(x => x.empId === myEmp().id && !x.out); if (t) { t.in = today() + 'T06:00:00'; delete t.still; } render();", 'clock_still'),
+        # the third walk (11-17): the Clock page with nothing on (not clocked in, nothing waiting), then a day sent. The
+        # window is set around the app's time so the not-clocked-in card shows whatever the hour; all is put back after.
+        ('time', "const e = myEmp(); window.__esKeep = { t: DB.time.filter(x => x.empId === e.id && (x.date === today() || x.status === 'submitted' || x.status === 'open')), w: DB.company.autoClock }; DB.time = DB.time.filter(x => !window.__esKeep.t.includes(x)); const n = appNow(), m = Math.max(0, n.getHours() * 60 + n.getMinutes() - 60); DB.company.autoClock = { days: [0, 1, 2, 3, 4, 5, 6], start: String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'), end: '23:30', allowMin: 15 }; timeFilter = 'pending'; render();", 'clock_none'),
+        ('time', "const e = myEmp(); DB.company.autoClock = window.__esKeep.w; DB.company.autoClock || delete DB.company.autoClock; const d = today(); DB.time.push({ id: 'te_es_send', empId: e.id, date: d, in: d + 'T07:00:00', out: d + 'T11:00:00', breakMin: 0, projectId: 'p121', code: '12', notes: '', status: 'open', approvedBy: '', source: 'phone', geoIn: null, geoOut: null, materialsAsked: true, work: [{ projectId: 'p121', code: '12', hours: 4, note: 'framing' }] }); render(); const b = document.getElementById('work-submit'); b && b.click();", None),
+        ('time', "DB.time = DB.time.filter(x => x.id !== 'te_es_send').concat((window.__esKeep || {}).t || []); render();", None),
     ],
     'u_alex': [
         ('route', '', 'route'), ('route', C('#fm-rclock'), None), ('route', C('#run-start'), None), ('route', C('[data-stkcount]'), None),

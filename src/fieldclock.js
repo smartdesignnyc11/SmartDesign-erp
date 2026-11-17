@@ -142,6 +142,8 @@ function tkgPunchIn(emp, p, pos, at, d, how) {
 function tkgPunchOut(e, pos, at) {
   const was = { status: e.status, breakMin: e.breakMin || 0, work: (e.work || []).length };
   e.out = at;
+  // the app's own sight of the end (timeSeenEnd, src/app.js): a later end given afterwards needs the approver's reason
+  e.seenOut = at;
   e.geoOut = pos ? { lat: pos.lat, lng: pos.lng, acc: Math.round(pos.acc || 0), dist: null } : null;
   e.autoOut = !0;
   e.auto = Object.assign({}, e.auto || {}, { out: "automatic, by location", was: was });
@@ -167,7 +169,7 @@ function tkgUndoOut(id) {
   if (!e) return;
   const was = e.out,
     b = e.auto && e.auto.was;
-  (e.out = ""), (e.geoOut = null), delete e.autoOut;
+  (e.out = ""), (e.geoOut = null), delete e.autoOut, delete e.seenOut;
   b && ((e.status = b.status), (e.breakMin = b.breakMin), (e.work = (e.work || []).slice(0, b.work)));
   e.auto && (delete e.auto.out, delete e.auto.was);
   tkGeo.outSince = "";
@@ -240,7 +242,8 @@ function tkPunchSweep(now) {
   (DB.time || [])
     .filter((t) => !tkgAuto(t) && t.in && !t.out && !t.payrollId && String(t.date) < String(at).slice(0, 10) && !/^(void|rejected)$/.test(String(t.status || "")))
     .forEach((t) => {
-      const mark = tkgIsoAt(tkgMs(t.in) + TKG_STILL_H * 36e5);
+      // its 8 h 15 of paid time: lunch is on top (siteHours().lunch)
+      const mark = tkgIsoAt(tkgMs(t.in) + (TKG_STILL_H + (+siteHours(tkgJob(t.projectId)).lunch || 0) / 60) * 36e5);
       let out = [mark, `${t.date}T${W.end}:00`].sort()[0];
       String(out) <= String(t.in) && (out = mark);
       timeHold(t, out, "nobody clocked out");
@@ -309,6 +312,21 @@ function tkGeoTick(pos, at0) {
     tkGeo.outSince = "";
     tkGeo.outPos = null;
     if (open && open.projectId === near.p.id) return save(), { did: "none", why: "on the clock here" };
+    // a punch of his held today and not yet answered: no second automatic punch until he says when he left (the third
+    // walk, 11-17: held at 3:50 while still working, punched in again at 4:00, and the truth then overlapped it)
+    const heldToday = !open && (DB.time || []).find((t) => t.empId === emp.id && t.date === String(at).slice(0, 10) && timeHeld(t) && !t.payrollId);
+    if (heldToday) {
+      // he is still seen on this job: the app's sight of him runs on (timeSeenEnd), so the truth he gives later needs no
+      // one's override when the app saw it
+      heldToday.projectId === near.p.id && String(at) > String(heldToday.lastOnSite || "") && (heldToday.lastOnSite = at);
+      const key = "held|" + heldToday.id;
+      if (tkGeo.asked !== key) {
+        tkGeo.asked = key;
+        render();
+        toast(`You are at ${tkgSay(near.p)}. Your ${fmt(heldToday.date)} punch is held at ${stampTime(heldToday.out)}: say when you left before the app clocks you in again.`, [{ label: "Confirm", run: () => tkHoldSheet(heldToday) }]);
+      }
+      return { did: "none", why: "held today: he answers first" };
+    }
     // the window (tkgWindow, the owner's one setting): nothing punches outside it, and he is told once, with Clock In
     // by hand. On site before it opens, the punch starts when it opens, and says so.
     const day = String(at).slice(0, 10),
@@ -491,8 +509,9 @@ const TKG_STILL_H = ("undefined" != typeof TIME_DAY_H ? TIME_DAY_H : 8) + 0.25,
 const tkgIsoAt = (ms) => appIso(new Date(ms));
 const tkgHmin = (h) => `${Math.floor(h + 1e-6)} h ${Math.round((h - Math.floor(h + 1e-6)) * 60)} min`;
 // the day's time on the clock up to `at` (a punch whose recorded end is later counts only to `at`)
+// paid time (timePaidDayH, src/app.js): lunch out by the firm's lunch setting, so a 7:00 start is asked at 3:45 PM, not 3:15
 function tkStillDayH(t, at) {
-  return timeHoursOf((DB.time || []).filter((x) => x.empId === t.empId && x.date === t.date && String(x.in) <= String(at)).map((x) => (x.out && String(x.out) > String(at) ? Object.assign({}, x, { out: at }) : x)), at);
+  return timePaidDayH((DB.time || []).filter((x) => x.empId === t.empId && x.date === t.date && String(x.in) <= String(at)).map((x) => (x.out && String(x.out) > String(at) ? Object.assign({}, x, { out: at }) : x)), at, tkgJob(t.projectId));
 }
 function tkStillCheck(now) {
   const at = now || appNowIso();
@@ -541,7 +560,7 @@ function tkStillCheck(now) {
 }
 function tkStillSay(t) {
   const s = t && t.still;
-  return s && "end" === s.why ? `It is ${stampTime(`${t.date}T${tkgWindowOf(tkgJob(t.projectId)).end}:00`)}, when automatic clock-in stops. Are you still working?` : `You have been clocked in ${tkgHmin(Math.max(TKG_STILL_H, (s && s.h) || TKG_STILL_H))}. Are you still working?`;
+  return s && "end" === s.why ? `It is ${stampTime(`${t.date}T${tkgWindowOf(tkgJob(t.projectId)).end}:00`)}, when automatic clock-in stops. Are you still working?` : `You have worked ${tkgHmin(Math.max(TKG_STILL_H, (s && s.h) || TKG_STILL_H))} today, lunch out. Are you still working?`;
 }
 // the browser's own notification, when the person allowed it: while the app is open or in the background
 function tkStillNotify(t) {
@@ -648,7 +667,7 @@ function tkHoldSheet(e) {
     who = String(empName(e.empId)).split(" ")[0];
   return mbModal(
     "When Did You Leave",
-    `<p class="small" style="margin:0 0 8px">${esc(tkgAuto(e) ? `The app last saw ${mine ? "you" : who} on site at ${stampTime(e.out)}. When did ${mine ? "you" : "he"} leave?` : mine ? tkgHoldSay(e) : `The app closed ${who}'s ${fmt(e.date)} punch at ${stampTime(e.out)}: ${(e.hold && e.hold.why) || "nobody clocked out"}.`)}</p><p class="small muted" style="margin:0 0 8px">A phone with the app closed sends no readings. A time more than ${esc(String(tkgWindow().allowMin))} minutes after that goes to your foreman with both times.</p><div class="f"><label>Left At</label><input type="time" data-f="out" value="${esc(String(e.out).slice(11, 16))}"></div>${mine ? "" : `<div class="f"><label>Why (required)</label><input data-f="why" placeholder="e.g. Called him: he left at 4:30"></div>`}<p class="small muted" style="margin:6px 0 0">Clocked in ${esc(stampTime(e.in))}. Until this is confirmed the hours are not approved or paid.</p>`,
+    `<p class="small" style="margin:0 0 8px">${esc(tkgAuto(e) ? `The app last saw ${mine ? "you" : who} on site at ${stampTime(timeSeenEnd(e) || e.out)}. When did ${mine ? "you" : "he"} leave?` : mine ? tkgHoldSay(e) : `The app closed ${who}'s ${fmt(e.date)} punch at ${stampTime(e.out)}: ${(e.hold && e.hold.why) || "nobody clocked out"}.`)}</p><p class="small muted" style="margin:0 0 8px">A phone with the app closed sends no readings. A time more than ${esc(String(tkgWindow().allowMin))} minutes after that goes to your foreman with both times.</p><div class="f"><label>Left At</label><input type="time" data-f="out" value="${esc(String(timeSeenEnd(e) || e.out).slice(11, 16))}"></div>${mine ? "" : `<div class="f"><label>Why (required)</label><input data-f="why" placeholder="e.g. Called him: he left at 4:30"></div>`}<p class="small muted" style="margin:6px 0 0">Clocked in ${esc(stampTime(e.in))}. Until this is confirmed the hours are not approved or paid.</p>`,
     {
       submit: "Confirm",
       onSubmit: (f) => {
@@ -758,9 +777,11 @@ if ("undefined" != typeof PR_SPECS) {
       ov = tkOverlapFor(t),
       st = t.payrollId ? ["paid", "ok"] : timeHeld(t) ? ["confirm when you left", "warn"] : "approved" === t.status ? ["approved", "ok"] : "rejected" === t.status ? ["rejected", "bad"] : "void" === t.status ? ["not counted", ""] : "submitted" === t.status ? ["to approve", "info"] : t.out ? ["needs details", "warn"] : ["on the clock", "ok"];
     return {
-      title: t.out ? `${fmt(t.date)} · ${stampTime(t.in)} to ${stampTime(t.out)}` : `Clocked in ${auto ? "automatically " : ""}at ${stampTime(t.in)}`,
+      // late time is an adjustment in the open period, said as one, never a punch from midnight (the third walk, 11-17)
+      title: t.forDate ? `Late time for ${fmt(t.forDate)}` : t.out ? `${fmt(t.date)} · ${stampTime(t.in)} to ${stampTime(t.out)}` : `Clocked in ${auto ? "automatically " : ""}at ${stampTime(t.in)}`,
       chip: { t: st[0], tone: st[1] },
-      meta: [t.out ? `${hoursClock(t).toFixed(1)} h` : "", ov ? "overlaps another punch" : "", t.out && auto ? "automatic" : "", p ? tkgSay(p) : ""].filter(Boolean).join(" · "),
+      // hours to the hundredth: what payroll pays and his week total read
+      meta: [t.out ? `${hoursClock(t).toFixed(2)} h` : "", t.forDate ? `added on ${fmt(t.date)}` : "", ov ? "overlaps another punch" : "", t.out && auto ? "automatic" : "", p ? tkgSay(p) : ""].filter(Boolean).join(" · "),
       late: !!ov,
     };
   };
