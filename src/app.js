@@ -16265,6 +16265,56 @@ function prLinkTime(r) {
 function prParts(r) {
   return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
 }
+// ---- overtime: one reading (the crew expert's third walk, 11-17; the owner, 11-17: the firm's workweek is Monday to Sunday)
+// The law (FLSA, New York) pays overtime per workweek, not per pay period: the hours over 40 in each Monday-to-Sunday week,
+// counted on the day each hour was worked (late time on its forDate, not the day it was approved), at 1.5x. The run used to
+// take the 14-day period as one: Alberto, 66.94 h with no week over 40, was paid 26.94 h of overtime (+$511.86). A week a
+// run holds only part of counts once: hours of that week already in another live run count toward its 40 first, so the
+// excess is paid once, by the run that takes the week past 40. Everyone is paid by the hour today (the employee record
+// has no salaried flag yet). Every reader takes this: the pay run (payrollFromTime) and the close's run for accrued days
+// (ctOrphanRecordRun), Today's and Approvals' Overtime tile (TL_SETS.time), the foreman's week, the Labor anomaly; job
+// cost reads the paid run (payrollTrueUp), and finance_xcheck checks every run against it.
+const OT_WEEK_H = 40,
+  OT_RATE = 1.5,
+  timeWorkDay = (t) => (t && (t.forDate || t.date)) || "";
+// one person's hours in `list`, week by week: { hours, reg, ot, weeks: [{ from, to, prior, hours, ot }] }. o.runId: the run
+// being built (its own hours are not "already paid"); o.prior false: count only the list.
+function timeOtWeeks(empId, list, o) {
+  o = o || {};
+  const mine = (list || []).filter((t) => t && t.empId === empId),
+    ids = new Set(mine.map((t) => t.id)),
+    W = {},
+    wk = (t) => {
+      const d = timeWorkDay(t);
+      if (!d) return null;
+      const from = weekRange(d)[0];
+      return (W[from] = W[from] || { from: from, to: iso(addDays(from, 6)), prior: 0, hours: 0, ot: 0 });
+    };
+  mine.forEach((t) => {
+    const h = hoursOf(t),
+      w = h && wk(t);
+    w && (w.hours += h);
+  });
+  if (!1 !== o.prior) {
+    const live = new Set((DB.payroll || []).filter((r) => r.id !== o.runId && !/^(void|rejected)$/.test(String(r.status || ""))).map((r) => r.id));
+    (DB.time || []).forEach((t) => {
+      if (t.empId !== empId || ids.has(t.id) || !t.payrollId || !live.has(t.payrollId)) return;
+      const w = W[weekRange(timeWorkDay(t) || today())[0]];
+      w && (w.prior += hoursOf(t));
+    });
+  }
+  let hours = 0,
+    ot = 0;
+  const weeks = Object.values(W).sort((a, b) => a.from.localeCompare(b.from));
+  weeks.forEach((w) => {
+    (w.hours = r2(w.hours)), (w.prior = r2(w.prior));
+    w.ot = r2(Math.max(0, w.prior + w.hours - OT_WEEK_H) - Math.max(0, w.prior - OT_WEEK_H));
+    (hours += w.hours), (ot += w.ot);
+  });
+  return { hours: r2(hours), ot: r2(ot), reg: r2(hours - ot), weeks: weeks };
+}
+// the gross of one person's hours at their rate, overtime by the week (timeOtWeeks)
+const timeOtGross = (x, rate) => r2(x.reg * (+rate || 0) + x.ot * (+rate || 0) * OT_RATE);
 function payPeriodOf(day) {
   const anchor = (DB.company && DB.company.payAnchor) || "2026-08-17",
     k = Math.floor(dayDiff(anchor, day) / 14),
@@ -16313,16 +16363,16 @@ function payrollFromTime(opts) {
   const projAmt = {},
     detail = [];
   Object.values(perEmp).forEach((p) => {
-    const reg = Math.min(p.hours, 40),
-      ot = Math.max(0, p.hours - 40),
-      g = r2(reg * p.rate + ot * p.rate * 1.5),
+    // overtime by the workweek, the day each hour was worked (timeOtWeeks)
+    const X = (p.ot = timeOtWeeks(p.id, entries, { runId: open && open.id })),
+      g = timeOtGross(X, p.rate),
       tx = r2((g * p.burden) / 100),
       E = (byEnt[p.entityId] = byEnt[p.entityId] || { entityId: p.entityId, employees: 0, hours: 0, gross: 0, taxes: 0, total: 0 });
     (gross += g), (taxes += tx), E.employees++, (E.hours = r2(E.hours + p.hours)), (E.gross = r2(E.gross + g)), (E.taxes = r2(E.taxes + tx)), (E.total = r2(E.gross + E.taxes));
     Object.entries(p.byProj).forEach(([pid, h]) => {
       projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / (p.hours || 1));
     });
-    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId });
+    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId, reg: X.reg, ot: X.ot, weeks: X.weeks.map((w) => ({ from: w.from, hours: w.hours, prior: w.prior, ot: w.ot })) });
   });
   const total = r2(gross + taxes),
     ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
@@ -16341,7 +16391,10 @@ function payrollFromTime(opts) {
       alloc: alloc,
       notes: `From ${entries.length} approved time entries: ${Object.values(perEmp)
         .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
-        .join(", ")}. Overtime over 40 h at 1.5×.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
+        .join(", ")}. Overtime: hours over 40 in each Monday-to-Sunday workweek, on the day worked, at 1.5×${(() => {
+        const O = Object.values(perEmp).filter((p) => p.ot && p.ot.ot > 0);
+        return O.length ? ` (${O.map((p) => `${p.name} ${p.ot.ot.toFixed(2)} h`).join(", ")})` : "; nobody worked over 40 in a week";
+      })()}.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
       fromTime: !0,
       detail: detail,
       late: late.length,
@@ -27638,18 +27691,10 @@ function analystFindings() {
             ),
           );
     });
-  const byEmpWeek = {};
   DB.time.forEach((e) => {
     const h = hoursOf(e);
     if (!h) return;
-    const wk = (() => {
-        const d = parse(e.date),
-          s = new Date(d);
-        return s.setDate(d.getDate() - d.getDay()), iso(s);
-      })(),
-      k = e.empId + "|" + wk;
-    (byEmpWeek[k] = (byEmpWeek[k] || 0) + h),
-      e.projectId ||
+    e.projectId ||
         add(
           "low",
           "Labor",
@@ -27668,19 +27713,21 @@ function analystFindings() {
           { view: "time" },
         );
   }),
-    Object.entries(byEmpWeek).forEach(([k, h]) => {
-      if (h > 45) {
-        const [id, wk] = k.split("|");
-        add(
-          "med",
-          "Labor",
-          "Overtime",
-          `${DB.employees.find((x) => x.id === id)?.name || id} · ${r2(h)} h week of ${fmt(wk)}`,
-          0,
-          { view: "time" },
-        );
-      }
-    }),
+    // overtime as payroll pays it: each Monday-to-Sunday week, by the day worked (timeOtWeeks)
+    [...new Set(DB.time.map((e) => e.empId))].forEach((id) =>
+      timeOtWeeks(id, DB.time, { prior: !1 })
+        .weeks.filter((w) => w.ot > 0)
+        .forEach((w) =>
+          add(
+            "med",
+            "Labor",
+            "Overtime",
+            `${DB.employees.find((x) => x.id === id)?.name || id} · ${r2(w.hours)} h week of ${fmt(w.from)}, ${w.ot.toFixed(2)} h over 40`,
+            0,
+            { view: "time" },
+          ),
+        ),
+    ),
     DB.payroll.forEach((p) => {
       const ohPct = (p.alloc || []).filter((a) => !a.projectId).reduce((a, x) => a + (+x.pct || 0), 0);
       ohPct > 35 &&
@@ -50469,7 +50516,11 @@ function fRenderCrew() {
         cur = tdE.find((t) => !t.out),
         u = DB.users.find((x) => x.employeeId === e.id),
         ov = OV.filter((o) => o.empId === e.id);
-      return `<div class="f-row${ov.length ? " col warn" : ""}" data-fwk="${e.id}"><div class="row" style="gap:6px;width:100%"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${days} day${1 === days ? "" : "s"} · ${h.toFixed(1)} h${h > 40 ? ' <span class="bad-t">OT</span>' : ""}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>${ov.map((o) => ovRow(o, "crew")).join("")}</div>`;
+      return `<div class="f-row${ov.length ? " col warn" : ""}" data-fwk="${e.id}"><div class="row" style="gap:6px;width:100%"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${days} day${1 === days ? "" : "s"} · ${h.toFixed(2)} h${(() => {
+        // overtime as payroll pays it: his Monday-to-Sunday week, by the day worked (timeOtWeeks)
+        const X = timeOtWeeks(e.id, DB.time.filter((t) => t.empId === e.id && timeWorkDay(t) >= mon && timeWorkDay(t) <= iso(addDays(mon, 6))));
+        return X.ot > 0 ? ` <span class="bad-t">${X.ot.toFixed(2)} h overtime</span>` : "";
+      })()}</span></div><div class="row" style="gap:4px">${tdE.length ? `<span class="pill ${cur ? "ok" : "neutral"}">${cur ? `in ${cur.in.slice(11, 16)}` : "out"}</span>` : '<span class="pill warn">not in today</span>'}${u?.phone ? `<a class="btn sm" href="tel:${u.phone.replace(/[^\d+]/g, "")}">Call</a>` : ""}</div></div>${ov.map((o) => ovRow(o, "crew")).join("")}</div>`;
     })
     .join(
       "",
@@ -92293,12 +92344,15 @@ const TL_SETS = {},
       sub = T.filter((t) => "submitted" === t.status),
       open = T.filter((t) => !t.out),
       missing = PRED.missingTime.rows(),
-      byEmp = {};
-    T.filter((t) => t.date >= wS && t.date <= wE).forEach((t) => {
-      byEmp[t.empId] = (byEmp[t.empId] || 0) + hoursOf(t);
+      byEmp = {},
+      // this week's hours by the day worked, overtime as payroll pays it (timeOtWeeks)
+      wk = T.filter((t) => timeWorkDay(t) >= wS && timeWorkDay(t) <= wE);
+    [...new Set(wk.map((t) => t.empId))].forEach((id) => {
+      const X = timeOtWeeks(id, wk);
+      X.ot > 0 && (byEmp[id] = X.ot);
     });
-    const ot = Object.entries(byEmp).filter(([, h]) => h > 40),
-      otH = ot.reduce((a, [, h]) => a + h - 40, 0),
+    const ot = Object.entries(byEmp),
+      otH = ot.reduce((a, [, h]) => a + h, 0),
       flagged = sub.filter((t) => timeFlags(t).length);
     return [
       {
@@ -92368,7 +92422,7 @@ const TL_SETS = {},
           ? `${tlN(ot.length, "person", "people")} over 40 this week`
           : "nobody over 40 hours this week",
         grid: "time",
-        pred: (t) => t.date >= wS && t.date <= wE && byEmp[t.empId] > 40,
+        pred: (t) => timeWorkDay(t) >= wS && timeWorkDay(t) <= wE && byEmp[t.empId] > 0,
         set: () => {
           timeFilter = "week";
         },
@@ -170767,6 +170821,7 @@ function ctOrphanRecordRun(jid) {
         burden: +emp.burden || 0,
         hours: 0,
         byProj: {},
+        empId: e.empId,
       }),
       h = hoursOf(e);
     (x.hours += h), (x.byProj[e.projectId || ""] = (x.byProj[e.projectId || ""] || 0) + h);
@@ -170775,7 +170830,9 @@ function ctOrphanRecordRun(jid) {
     taxes = 0;
   const amt = {};
   Object.values(per).forEach((x) => {
-    const g = r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5);
+    // overtime by the workweek (timeOtWeeks), never over the run's dates as one
+    x.ot = timeOtWeeks(x.empId, list);
+    const g = (x.gross = timeOtGross(x.ot, x.rate));
     (gross += g),
       (taxes += r2((g * x.burden) / 100)),
       Object.entries(x.byProj).forEach(([pid, h]) => {
@@ -170805,7 +170862,9 @@ function ctOrphanRecordRun(jid) {
         name: x.name,
         hours: r2(x.hours),
         rate: x.rate,
-        gross: r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5),
+        gross: x.gross,
+        reg: x.ot.reg,
+        ot: x.ot.ot,
       })),
       orphanOf: jid,
     };
