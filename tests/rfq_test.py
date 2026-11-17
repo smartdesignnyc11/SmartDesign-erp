@@ -383,13 +383,14 @@ async def main():
         await pg.locator('#rfq-award').click(); await pg.wait_for_timeout(800)
         R9 = await pg.evaluate(RFQ, rid)
         A = R9.get('award') or {}
-        pos = await pg.evaluate("ids => DB.pos.filter(p => ids.includes(p.id)).map(p => ({ n: p.number, v: p.vendor, vid: p.vendorId, st: p.status, o: p.origin, rfq: p.rfqId, src: p.sourcing, tot: poTotal(p).total, landed: p.landed, tax: p.tax, use: p.useTax, notes: p.notes, goods: p.lines.reduce((a, l) => a + Math.round(l.qty * l.price * 100) / 100, 0), ln: p.lines.map(l => [l.line, l.estimateLineId, l.rfqId, l.rfqLineId]) }))", A.get('pos', []))
+        pos = await pg.evaluate("ids => DB.pos.filter(p => ids.includes(p.id)).map(p => ({ n: p.number, v: p.vendor, vid: p.vendorId, st: p.status, o: p.origin, rfq: p.rfqId, src: p.sourcing, tot: poTotal(p).total, landed: p.landed, tax: p.tax, use: p.useTax, notes: p.notes, inotes: p.internalNotes || '', goods: p.lines.reduce((a, l) => a + Math.round(l.qty * l.price * 100) / 100, 0), ln: p.lines.map(l => [l.line, l.estimateLineId, l.rfqId, l.rfqLineId]) }))", A.get('pos', []))
         C.ok(R9['status'] == 'awarded' and pos and all(p['o'] == 'rfq' and p['rfq'] == rid and p['src']['rfqNumber'] == R9['number'] and p['src']['choice'] in ('direct', 'middleman') for p in pos), f'POs from the award carry the RFQ and the sourcing choice ({[(p["n"], p["st"]) for p in pos]})')
         C.ok(all(all(l[0] == 'estimate:es1:l2' and l[1] == 'l2' and l[2] == rid and l[3] for l in p['ln']) for p in pos), 'every PO line keeps the estimate line link and its RFQ line')
         C.ok(all(p['st'] in ('issued', 'pending') for p in pos), 'the POs went through poAction (issued, or pending the owner over the threshold)')
         final = r2(sum(p['landed'] for p in pos))
         C.ok(all((p['use'] is None and p['tax'] == RATE) or (p['use'] and p['tax'] == 0 and 'confirm with the accountant' in p['use']['note']) for p in pos), f'a vendor that charges no NY tax gets use tax to accrue on the PO ({[(p["v"], p["tax"], p["use"]) for p in pos]})')
-        C.ok(all('never by prepaid wire' in p['notes'] for p in pos), 'a first order says card or terms, never a prepaid wire')
+        # PU-Safe 11-17: the reasoning is the firm's own (Internal Notes); the vendor's paper carries only its quote's reference
+        C.ok(all('never by prepaid wire' in p['inotes'] and 'prepaid wire' not in (p['notes'] or '') for p in pos), 'a first order says card or terms, never a prepaid wire, in the internal notes, not on the vendor\'s paper')
         P1 = level_py(dict(R8, quotes=[q for q in R8['quotes'] if q['round'] == 1]), VV, RATE)
         C.ok(abs(A['landed'] - final) < 0.005 and abs(A['landed'] - P2['split']) < 0.005, f'landed equals the POs and the recommended split ({A["landed"]}, {final}, {P2["split"]})')
         # the saving compares pre-tax totals (purchasing lane P4, 11-05: an award reported the sales tax as its saving):

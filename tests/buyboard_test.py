@@ -150,7 +150,7 @@ async def desktop(c, p):
           q.status = 'leveled'; q.vendors = [v.id];
           q.quotes = [{ vendorId: v.id, vendor: v.name, round: 1, lines: q.lines.map(l => ({ lineId: l.id, unit: 9000, ext: 9000 })), freight: 0, lead: 5, confirmed: { by: 'test', at: appNowIso(), how: 'test' } }];
           const po = (rfqAward(q, Object.fromEntries(q.lines.map(l => [l.id, v.id])), { reason: 'one sub priced it: the test stages a single bid' }) || [])[0];
-          return { sub: !!q.sub, cat: q.category, st0: q.status, type: po && po.type, tax: po && po.tax, use: po && po.useTax, note: po && /use tax/.test(po.notes) }; }""")
+          return { sub: !!q.sub, cat: q.category, st0: q.status, type: po && po.type, tax: po && po.tax, use: po && po.useTax, note: po && /use tax/.test(`${po.notes || ''} ${po.internalNotes || ''}`) }; }""")
         c.ok(sl and sl.get('sub') and sl['type'] == 'subcontract' and not sl['tax'] and not sl['use'] and not sl['note'], f"sub: a demolition line's RFQ is a sub package from the line itself; its award is a subcontract with no purchase or use tax {sl}")
         # ---- ONE PATH: order a request and it leaves the route; a run buy cancels the draft
         op = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121');

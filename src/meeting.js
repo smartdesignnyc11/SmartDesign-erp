@@ -140,7 +140,7 @@ function tkContactRef(name) {
   const first = n.split(/\s+/)[0],
     hit = (s) => {
       const v = String(s || "").toLowerCase();
-      return !!v && (v === n || v.startsWith(n) || (first.length > 2 && v.split(/\s+/)[0] === first));
+      return !!v && (v === n || v.startsWith(n) || (first.length > 2 && !("undefined" != typeof VENDOR_COMMON_WORDS && VENDOR_COMMON_WORDS.test(first)) && v.split(/\s+/)[0] === first));
     };
   const v = (DB.vendors || []).find((x) => hit(x.name) || (x.contact && hit(x.contact)));
   if (v) return { kind: "vendor", id: v.id };

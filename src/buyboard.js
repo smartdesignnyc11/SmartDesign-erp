@@ -453,8 +453,12 @@ function bbReconfirm(r) {
   const po = r.po;
   if (!po) return "";
   const f = (po.followups || []).filter((x) => "reconfirm" === x.type);
+  // the vendor's confirmation, accepted by a person: its date is the order's (PU-Safe, 11-17)
+  if (po.confirmed && po.confirmed.number && po.confirmed.date === po.expected && !f.some((x) => "function" == typeof trkSent && trkSent(x))) return `Confirmed ${po.confirmed.number}`;
   const sent = f.filter((x) => "function" == typeof trkSent && trkSent(x)).pop();
   if (sent) return `Reconfirmed ${fmt(String(sent.sentAt || sent.at || sent.date || "").slice(0, 10)) || ""}`.trim();
+  // a reconfirmation with no address on file was never sent (PU-Safe)
+  if (f.some((x) => "needs-address" === x.status)) return "Reconfirmation needs an address";
   if (f.length) return "Reconfirmation drafted";
   return ["today", "next2"].includes(r.arr) ? "Not reconfirmed" : "";
 }

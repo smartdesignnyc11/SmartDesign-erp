@@ -291,6 +291,14 @@ function puOrderRows(pid) {
           put({ id: `claim:${po.id}:${k}`, name: `${po.vendor}: ${i.type} on ${po.number}`, pid: po.projectId, job: puJob(DB.projects.find((p) => p.id === po.projectId)), line: `${i.qty || ""} ${(po.lines.find((l) => l.id === i.lineId) || {}).item || ""}`.trim(), why: "Claim the replacement or the credit before the bill is paid.", act: "Close the Claim", actRun: () => puCloseClaimSheet(po, i), run: () => flowGo.po(po)(), tone: "bad" }),
         );
     });
+  // a vendor's confirmation that differs from the order in quantity, price or date: one row, the coordinator decides
+  // (PU-Safe, 11-17; the record is the acknowledgment on the order, src/app.js trkAckOpen)
+  try {
+    "function" == typeof trkAckOpen &&
+      trkAckOpen(pid).forEach(({ d, P, diffs }) =>
+        put({ id: "ack:" + d.id, name: `${P.vendor}: confirmation ${d.fields.number || ""} differs from ${P.number}`.replace(/\s+/g, " "), pid: P.projectId, job: puJob(DB.projects.find((p) => p.id === P.projectId)), line: diffs.map(trkAckDiffWords).join("; "), why: "Accept it or reply to the vendor. A price or quantity change is yours to accept, never the system's.", act: "Review", actRun: () => trkAckSheet(d), run: () => flowGo.po(P)(), tone: "warn" }),
+      );
+  } catch (e) {}
   try {
     selClaims()
       .filter((c) => "undefined" != typeof CLAIM_OPEN && CLAIM_OPEN.includes(c.status) && (!pid || c.projectId === pid))
