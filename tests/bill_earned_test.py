@@ -113,6 +113,10 @@ async def t1_cap(p, c, phone):
     s = await inv_state(pg, n)
     ed = await js(pg, FIND + "const [c, i] = cur(); return !!(i && document.getElementById('doc-' + i.id));")
     c.ok(s['st'] == 'draft' and ed, f"[{tag}] 1: Lower It leaves it a draft, open in the editor ({s}, {ed})")
+    # Lower It lowers (billing re-walk 4, S2-2: it only opened the editor): the raised line back to its share, $17,080
+    c.ok(abs(s['total'] - 17080) < 0.01, f"[{tag}] 1: Lower It brings the draft back to $17,080 ({s})")
+    # raised again for the other doors
+    await js(pg, FIND + "const [c, i] = cur(); i.lines[0].rate = 28000; save(); render(); await sleep(300);")
     # the editor's More > Mark as Sent meets the same gate
     more = pg.locator('details.doc-more > summary:visible').last
     if await more.count():

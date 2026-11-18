@@ -38088,7 +38088,7 @@ async function estDocAction6(c, d, a) {
             });
       if (CA && "replace" === CA.as) {
         const old = (c.estimates || []).find((x) => x.id === CA.ofId);
-        old && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
+        old && !old.replacedBy && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
       }
       const T = contractTotals(c);
       (c.contract = T.base), (c.contractNet = T.net);
