@@ -88,7 +88,10 @@ The two labour rules (Alan, 11-15; --figure labour):
   INV OVERTIME BY THE WEEK (--figure labour; the crew expert's third walk, 11-17) no one is paid overtime for a Monday-
                           to-Sunday week of 40 h or less; every week over 40 pays exactly the excess at 1.5x, once,
                           across the runs that hold it, by the day each hour was worked; regular plus overtime is the
-                          gross on each run's line. As seeded, today's run, and a run then late time into its weeks
+                          gross on each run's line. As seeded, today's run, and a run then late time into its weeks;
+                          then the earlier run, still open, rebuilt after the later one (the fourth walk, 11-18: paid
+                          the split week's overtime twice). No hour is on a run built from time and a live run typed
+                          by hand that covers it (no man paid twice).
 """
 import asyncio, sys, re, json, time, argparse
 from harness import *
@@ -1807,6 +1810,10 @@ INV_OT_JS = r"""
       if (Math.abs(g - d.gross) > 0.011) bad.push(`${r.id} ${d.name}: gross ${d.gross}, regular plus 1.5x overtime is ${g}`);
       d.weeks.forEach(x => { const w = W[e.id + '|' + x.from]; w ? (w.paidOt += +x.ot || 0) : (+x.ot > 0 && bad.push(`${r.id} ${d.name}: ${x.ot} h overtime for the week of ${x.from}, which holds none of its hours`)); });
     }));
+    // no man is paid twice (the fourth walk, 11-18): no hour on a run built from time that a live run typed by hand covers
+    const hand = live.filter(r => !r.fromTime && r.from && r.to);
+    (DB.time || []).filter(t => t.payrollId && byId[t.payrollId] && byId[t.payrollId].fromTime && hand.some(h => prInRun(h, t)))
+      .forEach(t => bad.push(`${t.empId} ${t.date}: on run ${t.payrollId} built from time and covered by a run typed by hand (${hand.filter(h => prInRun(h, t)).map(h => h.id).join(', ')})`));
     Object.entries(W).forEach(([k, w]) => {
       if (w.hand) return;
       const want = r2x(Math.max(0, w.hours - 40));
@@ -1830,8 +1837,13 @@ INV_OT_JS = r"""
   ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03'].forEach((d, i) => DB.time.push(mk('te_ot_c' + i, d, 9.5)));
   const B = payrollFromTime({ quiet: true });
   out.second = check();
-  out.A = A && (A.detail || []).find(d => d.name === emp.name);
-  out.B = B && (B.detail || []).find(d => d.name === emp.name);
+  out.A = A && JSON.parse(JSON.stringify((A.detail || []).find(d => d.name === emp.name) || null));
+  out.B = B && JSON.parse(JSON.stringify((B.detail || []).find(d => d.name === emp.name) || null));
+  // the walker's split (11-18): the earlier run, still open, rebuilt after the later run took hours of its weeks: an hour
+  // approved for 8/28 goes to A; the week of 8/24 is then 33 h on A and 12 h of late time on B, 5 h over, paid once
+  DB.time.push(mk('te_ot_d0', '2026-08-28', 1));
+  payrollFromTimeFor(A, payPeriodOf('2026-08-17'));
+  out.third = check();
   return out;
 """
 async def check_overtime(p, R):
@@ -1846,7 +1858,7 @@ async def check_overtime(p, R):
     if x.get('error'):
         read('the run', False, x['error'], 'runs')
     else:
-        for k, what in (('seeded', 'as seeded'), ('today', "today's run as it builds from the seeded hours"), ('first', 'a run for 8/17 - 8/30 (a 45 h week and a 32 h week)'), ('second', 'then the open run, with late time into both of those weeks and a 38 h week')):
+        for k, what in (('seeded', 'as seeded'), ('today', "today's run as it builds from the seeded hours"), ('first', 'a run for 8/17 - 8/30 (a 45 h week and a 32 h week)'), ('second', 'then the open run, with late time into both of those weeks and a 38 h week'), ('third', 'then the first run, still open, rebuilt with an hour more in a week the later run also holds')):
             read(what + ': no week of 40 h or less pays overtime; every week over 40 pays exactly the excess at 1.5x, once', not x[k]['bad'], x[k]['bad'] or x[k]['weeks'], 'none')
         a, bb = x.get('A') or {}, x.get('B') or {}
         # the first run: 45 h (8/17) + 32 h (8/24) = 77 h, 5 h over: 72 x $38 + 5 x $57 = $2,736 + $285 = $3,021

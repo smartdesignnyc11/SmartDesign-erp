@@ -279,19 +279,21 @@ function acAccounts() {
 function acApNeeds() {
   const out = [],
     td = today();
-  // payroll runs past or near pay day that are not on jobs yet: split them first, then Alan approves
+  // payroll runs past or near pay day that are not on jobs yet: split them first, then the approver (prApprover) approves
   (DB.payroll || [])
     .filter((r) => r.total && ["draft", "submitted", "pm-approved"].includes(r.status))
     .forEach((r) => {
       const un = r2((r.alloc || []).filter((x) => x.unallocated && !x.projectId).reduce((a, x) => a + (+x.pct || 0), 0)),
         late = r.payDate && r.payDate < td ? dayDiff(r.payDate, td) : 0,
-        jobs = (r.alloc || []).filter((x) => x.projectId).map((x) => `${acJobName(x.projectId)} ${x.pct}%`);
+        jobs = (r.alloc || []).filter((x) => x.projectId).map((x) => `${acJobName(x.projectId)} ${x.pct}%`),
+        // who approves it, by name, from the one source the run's toast reads (prApprover, src/app.js)
+        who = "function" == typeof prApprover ? prApprover(r) : "the Owner";
       out.push({
         id: "pay:" + r.id,
         kind: "payroll",
         approve: !0,
         title: `Payroll ${r.period || ""} · ${money(r.total)}${late ? ` · ${late} day${1 === late ? "" : "s"} past pay day` : r.payDate ? ` · pay day ${fmt(r.payDate)}` : ""}`,
-        why: `${r.employees ? r.employees + " employees. " : ""}${un ? `${Math.round(un)}% sits on Unallocated Labor${jobs.length ? `, ${jobs.join(", ")}` : ""}. Split it by job; then it goes to Alan to approve.` : "On its jobs; it goes to Alan to approve."}`,
+        why: `${r.employees ? r.employees + " employees. " : ""}${un ? `${Math.round(un)}% sits on Unallocated Labor${jobs.length ? `, ${jobs.join(", ")}` : ""}. Split it by job; then it goes to ${who} to approve.` : `On its jobs; it goes to ${who} to approve.`}`,
         open: () => openPayroll(r.id),
         verb: un ? "Split the Payroll by Job" : "Open the Payroll",
         split: !!un,
