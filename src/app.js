@@ -2404,13 +2404,14 @@ async function load(opts = {}) {
         // says when they left: it is never approved or paid as it stands (the crew expert, 11-15)
         if ("geo" === t.source || t.auto) timeHold(t, t.lastOnSite || t.in, "the last reading on site");
         else {
-          const d = new Date(new Date(t.in).getTime() + 36e6);
-          (t.out = appIso(d)),
-            (t.autoClosed = !0),
-            (t.status = "open"),
-            (t.notes =
-              (t.notes ? t.notes + " " : "") +
-              "Auto-closed at 10 h — forgot to clock out; confirm the real time.");
+          // closed where the app stopped seeing him work, as the sweep does (tkHandSeenCap: his 8 h 15 mark, the end of
+          // the work day, or his last Still Working), and held: that end is the app's sight of it (timeHold)
+          let cap = "";
+          try {
+            cap = "function" == typeof tkHandSeenCap ? tkHandSeenCap(t) : "";
+          } catch (x) {}
+          timeHold(t, cap || appIso(new Date(new Date(t.in).getTime() + 36e6)), "nobody clocked out");
+          t.notes = (t.notes ? t.notes + " " : "") + "Closed by the app: nobody clocked out. Confirm when you left.";
         }
       }
       t.work = t.work || [];
@@ -15560,17 +15561,56 @@ function timeSeenEnd(e) {
   const L = [e.seenOut, e.hold && e.hold.out, e.word && e.word.last, e.lastOnSite].filter(Boolean).sort();
   return L.length ? L[L.length - 1] : "";
 }
+// One rule for hours the app did not see (the crew expert's fourth walk, 11-18). Every route that closes a punch records
+// the app's own sight of its end here, so a later end given by anyone afterwards is caught by timeWordOf. The Still
+// Working sheet's Clock Out recorded none, and the foreman's Fix to 11:00 PM with "ok" paid 15.5 h. how: "tap" (his own
+// Clock Out), "foreman" (the foreman's Clock Out on Crew), "location" (the automatic clock-out), "asked" (Still Working's
+// Clock Out), "long" (a shift past 16 hours, ended at the time he gives); a held punch's end is its hold (timeHold).
+// tests/pay_seen_test.py lists every route in the source that writes a punch's end, so a new one without this fails.
+function timeSeen(e, at, how) {
+  if (!e || !at) return e;
+  e.seenOut = at;
+  e.seenHow = how || "tap";
+  return e;
+}
+// A punch closed at a time the person gives (Still Working's Clock Out; a shift past 16 hours): the app's sight of the end
+// is that time, or `cap` when cap is earlier (an automatic punch's last reading on site; a hand punch's 8 h 15 mark).
+// A time given later than that is kept and said, and needs the approver's reason, as a held punch's answer does.
+function timeCloseGiven(e, out, how, by, cap) {
+  if (!e || !out) return e;
+  e.out = out;
+  const seen = cap && String(cap) < String(out) ? cap : out;
+  timeSeen(e, seen, how);
+  const w = seen !== out ? timeWordCheck(Object.assign({}, e, { out: seen }), out) : null;
+  w ? (e.word = Object.assign(w, { by: by || "" })) : delete e.word;
+  timeCloseOut(e);
+  return e;
+}
+// Hours added by hand to a day the app clocked (Enter Missing Hours, the office's Add Time Entry, hours approved from a
+// daily log): the app saw none of them (the fourth walk, 11-18: 3:35 to 11:00 PM added with "abc" to a day the app
+// clocked to 3:35 PM, approved with one tap, no reason, the PM not shown). Returns the day's end as the app saw it, or "".
+const TIME_BY_HAND = /^(late|manual|log)$/;
+function timeAddedTo(e) {
+  if (!e || !e.in || !e.out || e.forDate || !TIME_BY_HAND.test(String(e.source || "")) || timeSeenEnd(e)) return "";
+  const L = (DB.time || []).filter((t) => t !== e && t.id !== e.id && t.empId === e.empId && t.date === e.date && !t.forDate && !/^(void|rejected)$/.test(String(t.status || ""))).map(timeSeenEnd).filter(Boolean).sort();
+  return L.length ? L[L.length - 1] : "";
+}
 // the punch's later-than-seen end, as a word to approve: the one on the record when it is for this end, else one worked
-// out from the times (null when the end is not later than the app saw, within the allowance)
+// out from the times (null when the end is not later than the app saw, within the allowance). Hours added by hand to a
+// day the app clocked are all unseen (timeAddedTo): the same word, the same reason, the same PM's look after.
 function timeWordOf(e) {
   if (!e || !e.out) return null;
   if (e.word && e.word.at === e.out) return e.word;
-  const seen = timeSeenEnd(e);
-  if (!seen) return null;
-  const W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
+  const seen = timeSeenEnd(e),
+    W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
     allow = +W.allowMin >= 0 ? +W.allowMin : 15;
+  if (!seen) {
+    const day = timeAddedTo(e);
+    if (!day || (new Date(e.out) - new Date(e.in)) / 6e4 <= allow) return null;
+    return { at: e.out, from: e.in, last: day, added: !0, seen: !1, tap: !1, also: [], derived: !0 };
+  }
   if ((new Date(e.out) - new Date(seen)) / 6e4 <= allow) return null;
-  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), also: [], derived: !0 };
+  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), how: e.seenOut === seen ? e.seenHow || "" : "", also: [], derived: !0 };
 }
 // A reason is words: at least two words and eight letters. "ok", "fine", "yes", "x" are not reasons (11-17).
 function timeWhyOk(s) {
@@ -15589,7 +15629,10 @@ function timeWordSay(e) {
   if (!w) return "";
   const who = String(empName(e.empId) || "").split(" ")[0],
     mins = Math.round((new Date(w.at) - new Date(w.last)) / 6e4);
-  return `${w.derived ? `Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ").replace(/^./, (x) => x.toUpperCase())}.` : ""}`;
+  if (w.added) return `${stampTime(w.from || e.in)} to ${stampTime(w.at)} added by hand to a day the app clocked ${who} to ${stampTime(w.last)}: the app saw none of these hours.`;
+  if (w.how === "foreman") return `Out changed to ${stampTime(w.at)} after the app saw the end. Clocked out by the foreman at ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.`;
+  if (w.how === "asked") return `Out changed to ${stampTime(w.at)} after ${who} said when he left. He said ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}, answering Still Working.`;
+  return `${w.derived ?`Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ").replace(/^./, (x) => x.toUpperCase())}.` : ""}`;
 }
 // the reasons a confirmed time needs the approver's word, worked out when he confirms (timeHoldConfirm)
 function timeWordCheck(e, outIso) {
@@ -16272,9 +16315,9 @@ async function clockEvent(kind) {
   } else {
     const e = DB.time.find((t) => t.empId === emp.id && !t.out);
     if (!e) return void toast("Not clocked in");
-    // the app's own sight of the end (timeSeenEnd): a later end given afterwards needs the approver's reason
+    // the app's own sight of the end (timeSeen): a later end given afterwards needs the approver's reason
     (e.out = ts),
-      (e.seenOut = ts),
+      timeSeen(e, ts, "tap"),
       (e.geoOut = geo),
       timeCloseOut(e),
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
@@ -67945,10 +67988,11 @@ if ("function" == typeof clockEvent) {
     if (hrs >= 0 && hrs <= 16) return clockLongBase_f3(kind);
     const when = await f3AskWhenLeft(e, hrs);
     if (!when) return;
-    (e.out = when),
+    // the time he gives, with the app's sight of the end capped where the app stopped seeing him work (the 8 h 15 mark
+    // or his last Still Working, tkHandSeenCap): a later time is said and needs the approver's reason (timeCloseGiven)
+    timeCloseGiven(e, when, "long", (currentUser() || {}).name || "", "function" == typeof tkHandSeenCap ? tkHandSeenCap(e) : ""),
       (e.autoOut = !1),
       (e.longShift = !0),
-      "function" == typeof hoursOf && hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30),
       audit("time", e.id, "clock-out-corrected", null, { claimed: r2(hrs), kept: r2(hoursOf(e)) }),
       save();
     const fresh = (DB.time || []).find((t) => t.id === e.id);
@@ -68017,7 +68061,8 @@ function tmLateSheet(emp, date) {
         if (!f.d || f.d >= td) return toast("Pick a day before today; today's hours come from the clock"), !1;
         if (!f.a || !f.b || f.b <= f.a) return toast("The finish time comes after the start"), !1;
         const why = String(f.why || "").trim();
-        if (why.length < 3) return toast("Say why the hours are late; it goes on the record"), !1;
+        // his reason is words, the bar every reason for unseen hours meets (timeWhyOk): "abc" is not one (11-18)
+        if (!timeWhyOk(why)) return toast(`Say why the hours are late, in words (two words or more): it goes on the record.`), !1;
         const ins = `${f.d}T${f.a}:00`,
           outs = `${f.d}T${f.b}:00`,
           clash = (DB.time || []).find((t) => t.empId === emp.id && t.date === f.d && t.in && String(t.in) < outs && ins < String(t.out || t.in));
@@ -68046,10 +68091,11 @@ function tmLateSheet(emp, date) {
           audit("time", e.id, "logged-late", null, { date: f.d, hours: hoursOf(e), reason: why, by: by });
         } catch (x) {}
         save(), render();
-        const go = () => ("function" == typeof openTime ? openTime(e.id) : null);
-        "function" == typeof rcToast
-          ? rcToast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, [{ label: "Open", run: go }])
-          : toast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, go);
+        const go = () => ("function" == typeof openTime ? openTime(e.id) : null),
+          // hours added to a day the app clocked: the approver says why before they are paid, and the PM sees it (timeWordOf)
+          added = timeAddedTo(e),
+          say = `${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval${added ? `. The app clocked you to ${stampTime(added)} that day, so your foreman says why before these hours are paid` : ""}`;
+        "function" == typeof rcToast ? rcToast(say, [{ label: "Open", run: go }]) : toast(say, go);
       },
     },
   );
@@ -91403,7 +91449,8 @@ function fmCrewClock() {
               const t = DB.time.find((x) => x.empId === e.id && !x.out);
               if (!t) return;
               (t.out = ts),
-                (t.seenOut = ts),
+                // the app's own sight of the end (timeSeen): the foreman's tap
+                timeSeen(t, ts, "foreman"),
                 (t.geoOut = geo),
                 (t.status = "submitted"),
                 (t.notes = (t.notes ? t.notes + " · " : "") + `clocked out by ${fmMe()}`),

@@ -142,8 +142,8 @@ function tkgPunchIn(emp, p, pos, at, d, how) {
 function tkgPunchOut(e, pos, at) {
   const was = { status: e.status, breakMin: e.breakMin || 0, work: (e.work || []).length };
   e.out = at;
-  // the app's own sight of the end (timeSeenEnd, src/app.js): a later end given afterwards needs the approver's reason
-  e.seenOut = at;
+  // the app's own sight of the end (timeSeen, src/app.js): a later end given afterwards needs the approver's reason
+  timeSeen(e, at, "location");
   e.geoOut = pos ? { lat: pos.lat, lng: pos.lng, acc: Math.round(pos.acc || 0), dist: null } : null;
   e.autoOut = !0;
   e.auto = Object.assign({}, e.auto || {}, { out: "automatic, by location", was: was });
@@ -169,7 +169,7 @@ function tkgUndoOut(id) {
   if (!e) return;
   const was = e.out,
     b = e.auto && e.auto.was;
-  (e.out = ""), (e.geoOut = null), delete e.autoOut, delete e.seenOut;
+  (e.out = ""), (e.geoOut = null), delete e.autoOut, delete e.seenOut, delete e.seenHow;
   b && ((e.status = b.status), (e.breakMin = b.breakMin), (e.work = (e.work || []).slice(0, b.work)));
   e.auto && (delete e.auto.out, delete e.auto.was);
   tkGeo.outSince = "";
@@ -238,19 +238,27 @@ function tkPunchSweep(now) {
   });
   // a hand punch still open on a later day: closed at its 8 h 15 mark or the end of its work day, whichever is earlier,
   // and held; the hours count 0 until he says when he left
-  const W = tkgWindow();
   (DB.time || [])
     .filter((t) => !tkgAuto(t) && t.in && !t.out && !t.payrollId && String(t.date) < String(at).slice(0, 10) && !/^(void|rejected)$/.test(String(t.status || "")))
     .forEach((t) => {
-      // its 8 h 15 of paid time: lunch is on top (siteHours().lunch)
-      const mark = tkgIsoAt(tkgMs(t.in) + (TKG_STILL_H + (+siteHours(tkgJob(t.projectId)).lunch || 0) / 60) * 36e5);
-      let out = [mark, `${t.date}T${W.end}:00`].sort()[0];
-      String(out) <= String(t.in) && (out = mark);
-      timeHold(t, out, "nobody clocked out");
+      timeHold(t, tkHandSeenCap(t), "nobody clocked out");
       n++;
     });
   n && save();
   return n;
+}
+// Where the app stops seeing a hand punch work, when nobody clocked out of it: its 8 h 15 of paid time (lunch is on
+// top, siteHours().lunch) or the end of the work day, whichever is earlier, or his last Still Working when that is later.
+// The sweep, the boot's close and a shift past 16 hours (timeCloseGiven) all read this one mark.
+function tkHandSeenCap(t) {
+  const W = tkgWindow(),
+    mark = tkgIsoAt(tkgMs(t.in) + (TKG_STILL_H + (+siteHours(tkgJob(t.projectId)).lunch || 0) / 60) * 36e5);
+  let out = [mark, `${t.date}T${W.end}:00`].sort()[0];
+  String(out) <= String(t.in) && (out = mark);
+  const s = t.still,
+    last = s && s.answers && s.answers.length ? s.answers[s.answers.length - 1].at : "";
+  last && String(last) > String(out) && (out = last);
+  return out;
 }
 // notifications: asked once, at a Clock In tap or with the automatic clock-in agreement (a browser asks only on a tap)
 function tkNotifyAsk() {
@@ -601,8 +609,9 @@ function tkStillAnswer(t, how) {
       onSubmit: (f) => {
         const out = `${t.date}T${f.out || String(def).slice(11, 16)}:00`;
         if (out <= t.in || out > appNowIso()) return toast("The time you left has to be after you clocked in, and not later than now"), !1;
-        t.out = out;
-        timeCloseOut(t);
+        // the app's own sight of the end is the time he gives here (timeCloseGiven): a later end from anyone afterwards
+        // needs the approver's reason. For a punch made by location it is never later than his last reading on site.
+        timeCloseGiven(t, out, "asked", by, tkgAuto(t) ? t.lastOnSite || "" : "");
         Object.assign(s, { askedAt: "", clockedOut: { at: appNowIso(), by: by, out: out } });
         try {
           audit("time", t.id, "clock-out-asked", null, { out: out, by: by });
@@ -1171,7 +1180,7 @@ function labApproveSheet(key) {
     }</p>${mbF("Why", `<input data-f="why" value="Worked as the log says; confirmed with ${esc(r.l.signedBy || r.l.by || "the foreman")}">`)}${
       L.length ? mbF("Estimate Line", `<select data-f="line">${L.map((x) => `<option value="${esc(x.key)}" ${best && best.key === x.key ? "selected" : ""}>${esc(x.name)}</option>`).join("")}<option value="">Not on a line yet</option></select>`) : ""
     }`,
-    { submit: "Approve as Time", onSubmit: (f) => (f.why ? (labApprove(key, f.why, f.line), !0) : (toast("Say why the hours are right"), !1)) },
+    { submit: "Approve as Time", onSubmit: (f) => (timeWhyOk(f.why) ? (labApprove(key, f.why, f.line), !0) : (toast(f.why ? TIME_WHY_SAY : "Say why the hours are right"), !1)) },
   );
 }
 function labDismissSheet(key) {
@@ -1209,6 +1218,13 @@ function labApprove(key, why, lineKey) {
     } else if (r.hours > 0) e = labMakeEntry(r, r.hours, why, te ? te.line : lineKey, te ? te.id : "");
     else return toast("Those hours are already paid: correct them on the next pay run"), null;
   } else e = labMakeEntry(r, r.hours, why, lineKey, "");
+  // hours from the log on a day the app clocked are hours it did not see (timeWordOf): the PM's reason is the approver's
+  // word on them, kept on the entry, and the owner is shown it after (Approvals, "timeword"), as on every other route
+  const w = e && "function" == typeof timeWordOf ? timeWordOf(e) : null;
+  if (w && !(w.okBy && timeWhyOk(w.okWhy)) && timeWhyOk(why)) {
+    w.derived && e.word && e.word !== w && (w.before = e.word);
+    e.word = Object.assign(w, { okBy: me.name || "", okAt: at, okWhy: String(why).trim(), shown: "" });
+  }
   // a time entry made from the log passes the one pay guard like any other (timePayBlock: over 16 hours, say)
   const pay = e && "function" == typeof timePayBlock ? timePayBlock(e) : "";
   if (pay) {
