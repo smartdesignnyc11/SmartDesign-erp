@@ -69,7 +69,8 @@ async def main():
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         # procurement P0 (2026-10-25): the firm pays NY sales tax on materials; Tino charges it, so PO-2026-047 is
         # $8,010 + 8.875% = $8,720.89 (it was "Exempt — capital improvement", which never exempts our purchases)
-        c.ok('Tino' in r['po'] and '8,721' in r['po'], f"PO lookup: {r['po']}")
+        # PU-Safe 2 (11-18) changed this pin: an order's money reads to the cent in Ask, as its paper prints it ($8,720.89)
+        c.ok('Tino' in r['po'] and '$8,720.89' in r['po'], f"PO lookup: {r['po']}")
         c.ok(not r['users'], f"missing demo users {r['users']}")
         c.ok(not errs, f'errors {errs[:3]}')
         await b.close()

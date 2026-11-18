@@ -152,7 +152,7 @@ function afUnbilled(P) {
     headline: R.length
       ? `${money(tot)} is earned or bought and not billed${where}, on ${agN(R.length, "item")}: ${agList(R.map((r) => `${agShort(r.p) || (r.c && r.c.name) || ""} ${money(r.amount)} (${say(r)})`), 5)}.${H.length ? ` ${money(ht)} more is held on ${agN(H.length, "line")}, each with its reason.` : ""}`
       : `Nothing is waiting to be billed${where}: $0.${H.length ? ` ${money(ht)} is held on ${agN(H.length, "line")}, each with its reason.` : ""}`,
-    note: `The same rows as Ready to Bill on the Billing Queue: measured work not billed, a design milestone reached, design hours banked, and what was bought for a client and not billed back.${why ? ` The standard: ${why}.` : ""} Money not billed cannot go to raises, bonuses, more staff, charity or extra value for the client.`,
+    note: `The same rows as Ready to Bill on the Billing Queue: measured work not billed, a design milestone reached, design hours banked, and what was bought for a client and not billed back.${why ? ` The standard: ${why}.` : ""} Money not billed cannot go to ${MONEY_WHY}.`,
     work: R.map((r) => `${r.title || agShort(r.p)}${r.why ? ` · ${r.why}` : ""}`)
       .concat(lines)
       .concat(H.map((h) => `Held · ${agShort(h.p)} · ${money(h.amount)}: ${h.why}`)),

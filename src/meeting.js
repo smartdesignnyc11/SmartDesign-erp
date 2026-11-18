@@ -137,12 +137,16 @@ const tkOwnersList = () => tdyUsers().filter((u) => "function" != typeof tkSeatO
 function tkContactRef(name) {
   const n = String(name || "").trim().toLowerCase();
   if (!n) return null;
-  const first = n.split(/\s+/)[0],
+  // "the lumber yard", "our guy": a stop word, a word of the trade or a place names nobody (the vendor reader, 11-18:
+  // "the" linked the Lindqvists because their name starts with it)
+  const n0 = n.replace(/^(the|a|an|our|my|mr|mrs|ms|dr)\s+/, ""),
+    first = n0.split(/\s+/)[0],
+    plain = (w) => w.length > 2 && !VENDOR_COMMON_WORDS.test(w) && !VENDOR_PLACE_WORDS.test(w) && !VENDOR_STOP_WORDS.test(w),
     hit = (s) => {
-      const v = String(s || "").toLowerCase();
-      return !!v && (v === n || v.startsWith(n) || (first.length > 2 && !("undefined" != typeof VENDOR_COMMON_WORDS && VENDOR_COMMON_WORDS.test(first)) && v.split(/\s+/)[0] === first));
+      const v = String(s || "").toLowerCase().replace(/^(the|a|an)\s+/, "");
+      return !!v && (v === n || v === n0 || (plain(first) && v.split(/\s+/)[0] === first) || (plain(first) && n0.includes(" ") && v.startsWith(n0 + " ")));
     };
-  const v = (DB.vendors || []).find((x) => hit(x.name) || (x.contact && hit(x.contact)));
+  const v = vendorByName(name) || vendorNamedIn(name, "person") || (DB.vendors || []).find((x) => x.contact && hit(x.contact));
   if (v) return { kind: "vendor", id: v.id };
   const c = (DB.clients || []).find((x) => hit(x.name) || (x.contacts || []).some((k) => hit(k.name)));
   if (c) return { kind: "client", id: c.id };

@@ -56,7 +56,7 @@ const CI_FIELD = ["foreman", "crew", "driver"],
     const p = (DB.projects || []).find((x) => x.id === pid);
     return p ? shortName(p) : "";
   },
-  CI_MONEY_LINE = "Money wasted cannot go to raises, bonuses, more staff, charity or extra value for the client.",
+  CI_MONEY_LINE = "Money wasted cannot go to " + MONEY_WHY + ".",
   CI_ICON_ROUTE = ICON_SVG('<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h8a3 3 0 0 0 0-6H8a3 3 0 0 1 0-6h8"/>', 14),
   CI_ICON_TAG = ICON_SVG('<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>', 13);
 function ciMedian(a) {

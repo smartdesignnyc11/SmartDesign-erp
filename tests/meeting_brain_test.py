@@ -119,7 +119,10 @@ DUMP = """() => {
 
 async def paste(pg):
     await go(pg, 'meetings')
-    await pg.click('#mt-paste')
+    # the Meetings page's Paste Notes, as a person taps it (the page's own #mt-paste is drawn only behind it now:
+    # this suite clicked the id and timed out on the build before PU-Safe 2 as well)
+    await pg.locator('.view.on button').filter(has_text='Paste Notes').first.click()
+    await pg.wait_for_timeout(500)
     await pg.fill('[data-f=title]', 'Weekly Jobs Catch Up')
     await pg.fill('[data-f=date]', '2026-09-03')
     await pg.fill('[data-f=text]', NOTES)

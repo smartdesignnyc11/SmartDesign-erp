@@ -75,7 +75,14 @@ async def s_sheet(p, c):
         c.ok(all(k in flds for k in ('qty', 'unit', 'due', 'scope')), f'sheet: quantity, unit, scope and due date are on the sheet ({flds})')
         ticks = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-rsv]')].map(i => [i.closest('label').innerText.split('\\n')[0], i.checked])")
         on = [t for t, k in ticks if k]
-        c.ok(any('Carlos Millwork' in t for t in on), f'sheet: the millwork vendor is suggested and ticked ({on})')
+        # PU-Safe 2 (11-18) changed this pin: a vendor with no email on file is suggested unticked, with Add Email on its
+        # row (Carlos Millwork has none in the demo; ticked, Send refused it, the walk's extra taps). Typing it ticks him.
+        row = await pg.evaluate("() => { const i = [...document.querySelectorAll('#mbm [data-rsv]')].find(i => /Carlos Millwork/.test(i.closest('label').textContent)); return i && { on: i.checked, add: !!i.closest('label').querySelector('[data-rfqnoem]'), email: (rfqVendor(i.dataset.rsv) || {}).email || '' }; }")
+        c.ok(row and (row['on'] if row['email'] else (not row['on'] and row['add'])), f'sheet: the millwork vendor is suggested; with no email it waits unticked with Add Email ({row})')
+        if row and not row['email']:
+            await pg.locator('#mbm label', has_text='Carlos Millwork').locator('[data-rfqem]').first.fill('shop@carlosmillwork.example')
+            on2 = await pg.evaluate("() => [...document.querySelectorAll('#mbm [data-rsv]')].filter(i => i.checked).map(i => i.closest('label').textContent)")
+            c.ok(any('Carlos Millwork' in t for t in on2), 'sheet: typing the millwork vendor\'s email ticks him')
         c.ok(not any(re.search(r'lumber', t, re.I) for t in on), f'sheet: no lumber yard ticked for millwork ({on})')
         why = await pg.evaluate("() => { const i = [...document.querySelectorAll('#mbm [data-rsv]')].find(x => /carlos/i.test(x.closest('label').innerText)); return i ? i.closest('label').innerText : ''; }")
         c.ok(re.search(r'millwork', why, re.I) and re.search(r'order|history|\$', why, re.I), f'sheet: the suggestion says why: trade and history ({why[:160]})')
