@@ -667,7 +667,7 @@ function td2Facts(T) {
       tier: standardTier({ src: "portalBilledAhead" }),
       pre: "Billed ahead: ",
       link: tdJob(x.p),
-      post: ` has ${td2Money(x.A.total)} billed ahead of the work on ${n} line${s(n, "", "s")}${R.length > 1 ? `, and ${R.length - 1} more job${s(R.length - 1, "", "s")} too` : ""}; the client sees both on the portal.`,
+      post: ` has ${td2Money(x.A.total)} billed ahead ${x.A.lines.some((l) => l.job) ? `of what is ${"earned" === x.A.lines[0].by ? "earned" : "signed"}${"function" == typeof pbReasonWords ? pbReasonWords(x.A) : ""}` : `of the work on ${n} line${s(n, "", "s")}`}${R.length > 1 ? `, and ${R.length - 1} more job${s(R.length - 1, "", "s")} too` : ""}; the client sees both on the portal.`,
       go: () => (setCurrent(x.p.id), setView("billing")),
     });
   });

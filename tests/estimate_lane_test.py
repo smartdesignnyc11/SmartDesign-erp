@@ -55,7 +55,9 @@ async def desktop(c, p):
     c.ok(any(a[0] == 'Review and Send' for a in acts), f'SAFE: Review and Send is offered: {acts[:4]}')
     await pg.locator('[data-docact="marksent"]').first.click(); await pg.wait_for_timeout(300)
     on = await pg.evaluate("() => { const m = document.getElementById('mbm'); const i = m && m.querySelector('[data-f=\"on\"]'); return m ? [i ? i.value : null, !!m.querySelector('[data-f=\"how\"]')] : null; }")
-    c.ok(on and on[0] == '' and on[1], f'SAFE: Mark Sent asks how and the day, the day left empty: {on}')
+    # the day starts at the app's today (billing re-walk 4, S3, in the lane-bill4 brief): how it went is still asked
+    # and left empty, and the day is shown to change; it was left empty, which made every sending a typed date
+    c.ok(on and on[0] == '2026-09-03' and on[1], f'SAFE: Mark Sent asks how and the day, the day starting at today: {on}')
     await pg.evaluate("() => { try { mbCloseModal(); } catch (e) { document.getElementById('mbm')?.remove(); } }")
     # RO: a converted construction estimate
     ro = await pg.evaluate("""a => { const d = (""" + DOC + """)(a); d.status = 'converted'; render();

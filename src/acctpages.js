@@ -163,7 +163,13 @@ function acCollections(pid) {
         }
       }, 0),
   );
+  // a client's credit on account sits beside what is owed (billing re-walk 4, S2-3): apply it or refund it
+  const credits = (DB.clients || [])
+    .filter((c) => !pid || (DB.projects || []).some((p) => p.id === pid && p.clientId === c.id))
+    .map((c) => ({ c: c, amt: "function" == typeof clientCredit ? clientCredit(c).onAccount : 0 }))
+    .filter((x) => x.amt > 0.005);
   return {
+    credits: credits,
     aging: [
       ["Current", B.current],
       ["1 to 30 Days", B["1–30"]],
@@ -405,7 +411,7 @@ function acBooksNeeds() {
   try {
     SP = "function" == typeof rpShortPaid ? rpShortPaid() : [];
   } catch (e) {}
-  SP.forEach((x) => out.push({ id: "short:" + x.d.id, title: `${x.d.number} short-paid by ${money(x.bal)}`, why: `${x.c.name}: ${money(x.total)} billed, ${money(x.paid)} paid. Collect it or write it off with a reason.`, go: { view: "clients", client: x.c.id }, verb: "Open" }));
+  SP.forEach((x) => out.push({ id: "short:" + x.d.id, title: `${x.d.number} short-paid by ${money2(x.bal)}`, why: `${x.c.name}: ${money2(x.total)} billed, ${money2(x.paid)} paid. Collect it or write it off with a reason.`, go: { view: "clients", client: x.c.id }, verb: "Open" }));
   return out;
 }
 // Tax and 1099: the register by payee from the payments themselves (the 2026 $2,000 threshold), W-9s on file
@@ -503,7 +509,7 @@ function acBillingHtml() {
   return `${acNeedsHtml("billing", rows, go)}
   <section class="card ac-stand" aria-label="Collections"><div class="ac-cap">Collections <span class="small muted">Reminders at due, 7, 15 and 30 days</span></div>
     <div class="ac-aging">${C.aging.map(([k, v]) => `<div class="ac-age${k !== "Current" && v ? " bad" : ""}"><span>${esc(k)}</span><b>${money(v)}</b></div>`).join("")}</div>
-    <p class="small ac-ret">Retainage held by clients <b>${money(C.retainage)}</b>, in its own bucket until release.</p>
+    <p class="small ac-ret">Retainage held by clients <b>${money(C.retainage)}</b>, in its own bucket until release.</p>${C.credits.length ? `<p class="small ac-credit" data-accredit>Credit on account, not yet applied: ${C.credits.map((x) => `<b>${money(x.amt)}</b> ${esc(x.c.name)}`).join("; ")}. Apply it to an open invoice or refund it; it is already off the ledger's receivables.</p>` : ""}
     ${acTable(C.rows.map((r) => acRowHtml({ title: r.i.number, sub: esc(r.who), amt: money(r.bal), status: r.next, tone: r.age > 0 ? "bad" : "", open: `invoice:${r.c.id}:${r.i.id}` })), "Nothing owed.")}</section>
   ${acChipsHtml("billing", AC_DOC_KINDS.map(([k, l]) => [k, l, ""]))}
   <section class="ac-list" aria-label="Documents">${acTable(D.map((d) => acRowHtml({ title: d.no || "", sub: `${esc(d.pid ? acJobName(d.pid) : d.c.name)} · ${esc(d.what)}`, amt: money(d.amt), status: d.status, tone: d.tone, open: d.d ? `${"payment" === d.kind ? "invoice" : d.kind}:${d.c.id}:${d.d.id}` : "" })), "Nothing of this kind on this job.")}

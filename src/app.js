@@ -1256,6 +1256,21 @@ function docTotal(d) {
     ret = "invoice" === d.type ? r2((sub - disc) * ((+d.retainagePct || 0) / 100)) : 0;
   return { sub: sub, disc: disc, tax: tax, ret: ret, total: r2(sub - disc + tax - ret), taxable: taxable };
 }
+// What a copy keeps besides its lines, by both Duplicates (the whole document and Copy Lines). An invoice keeps what it
+// bills from, so the gate at send reads it as what it bills again; an estimate keeps how it bills (billing re-walk 4,
+// S2-1: a copy of the signed EST-2026-D45 came out a Simple estimate with no milestones, and as a separate contract it
+// converted 100% with no gate): its template, its billing, its milestones and its deposit, and says what it copies.
+function docCopyKeeps(d, n, k) {
+  if (!d || !n) return n;
+  "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone));
+  "estimate" === k &&
+    (d.template && (n.template = d.template),
+    d.billing && (n.billing = d.billing),
+    Array.isArray(d.milestones) && (n.milestones = d.milestones.map((x) => ({ ...x }))),
+    null != d.depositPct && "" !== d.depositPct && (n.depositPct = d.depositPct));
+  ("invoice" === k || "estimate" === k) && (n.copyOf = d.number);
+  return n;
+}
 function nextNumber(kind) {
   const k = { estimate: "est", co: "co", invoice: "inv" }[kind];
   DB.company.seq[k] = (DB.company.seq[k] || 0) + 1;
@@ -1273,12 +1288,16 @@ function invoiceStatus(c, x) {
         : "sent";
 }
 function sovBilled(c, sovId, exceptId) {
-  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit)
-  return c.invoices
-    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
-    .flatMap((i) => i.lines)
-    .filter((l) => l.sovId === sovId)
-    .reduce((a, l) => a + (+l.pct || 0), 0);
+  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit); a replacement contract's
+  // line starts with its share of what was billed on the contract it replaced (carriedPct, estReplaceApply)
+  const sv = (c.sov || []).find((v) => v.id === sovId);
+  return (
+    c.invoices
+      .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
+      .flatMap((i) => i.lines)
+      .filter((l) => l.sovId === sovId)
+      .reduce((a, l) => a + (+l.pct || 0), 0) + ((sv && +sv.carriedPct) || 0)
+  );
 }
 function clientFin(c) {
   const approvedCO = c.changeOrders
@@ -9792,7 +9811,7 @@ function docMarkSentSheet(c, d) {
     `Mark Sent — ${esc(d.number)}`,
     `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
       ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
-      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" value="${today()}" max="${today()}">`)}</div>`,
     {
       submit: "Record It Sent",
       onSubmit: (f) => {
@@ -9969,8 +9988,7 @@ async function docAction(c, d, a) {
         ...("sov" === d.mode ? {} : { lines: d.lines.filter((l) => !("invoice" === k && l.retainerLine)).map((l) => ({ ...l, id: uid("l") })) }),
       },
     });
-    // what it bills from goes with the copy, so the gate at send reads it (as the line-picking Duplicate does)
-    "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone), (n.copyOf = d.number));
+    docCopyKeeps(d, n, k);
     (docOpen = { kind: k, id: n.id }), toast(`${n.number} created`);
   }
   if ("void" === a) {
@@ -32752,7 +32770,11 @@ function dmsInvoices(c, est, sentOnly) {
   );
 }
 function dmsBilled(c, est, sentOnly) {
-  return [...new Set(dmsInvoices(c, est, sentOnly).map((i) => dmsOf(i, est)))].sort((a, b) => a - b);
+  // a replacement design fee counts the milestones billed on the fee it replaces (billing re-walk 4, S1-2: the new
+  // contract offered its signing milestone again after the old one's was paid)
+  const R0 = est && est.contractAs && "replace" === est.contractAs.as && c ? (c.estimates || []).find((x) => x.id === est.contractAs.ofId && x.id !== est.id) : null,
+    was = R0 && "design" === R0.template ? dmsInvoices(c, R0, sentOnly).map((i) => dmsOf(i, R0)) : [];
+  return [...new Set(dmsInvoices(c, est, sentOnly).map((i) => dmsOf(i, est)).concat(was))].sort((a, b) => a - b);
 }
 // a milestone is reached by its evidence: signing (the first), the filing or half the design hours (the second), the
 // design hours all but spent (the third), as the Billing Queue has always read it
@@ -33189,7 +33211,7 @@ function applyCredits(c, inv) {
   const R = clientCreditApply(c, inv);
   if (!R.ok) return void toast(R.why);
   save(), render();
-  "function" == typeof rcToast ? rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money(R.used)} credit applied`);
+  "function" == typeof rcToast ? rcToast(`${money2(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money2(R.used)} credit applied`);
 }
 lineFin = function (key) {
   const f = lineFinBase(key);
@@ -34572,7 +34594,9 @@ function billingSuggestions() {
   return (
     DB.clients.forEach((c) => {
       c.estimates
-        .filter((e) => "converted" === e.status)
+        // the contract in force: a contract replaced by another offers nothing more (billing re-walk 4, S1-2: after a
+        // replacement the queue still offered the old contract's deposit and milestones)
+        .filter((e) => "converted" === e.status && !e.replacedBy)
         .forEach((d) => {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (!p) return;
@@ -37488,7 +37512,7 @@ const docActionsBase5 = docActions;
 function payAppData(c, d) {
   const est = d.depositOf
       ? findDoc(c, "estimate", d.depositOf)
-      : c.estimates.find((e) => "converted" === e.status && (!d.projectId || e.projectId === d.projectId)),
+      : c.estimates.find((e) => "converted" === e.status && !e.replacedBy && (!d.projectId || e.projectId === d.projectId)) || c.estimates.find((e) => "converted" === e.status && (!d.projectId || e.projectId === d.projectId)),
     K = (DB.projects.find((x) => x.id === d.projectId), c.contracts?.[d.projectId || ""] || null),
     orig = K ? K.net : est ? docNet(est) : +c.contractNet || +c.contract || 0,
     cos = c.changeOrders.filter(
@@ -37742,9 +37766,131 @@ function estOtherContract(c, d) {
           !i.supersededBy &&
           (i.fromDoc === e.id || i.retainerOf === e.id || i.depositOf === e.id || (i.lines || []).some((l) => String(l.fromLine || "").startsWith(`estimate:${e.id}:`) || (l.sovId && sv.has(l.sovId)))),
       );
-    if (on.length) return { e: e, on: on, billed: r2(on.reduce((x, i) => x + docTotal(i).total, 0)), sv: sv };
+    // billed before retainage, as the job's Billed to date reads it (one number on the sheet)
+    if (on.length) return { e: e, on: on, billed: r2(on.reduce((x, i) => x + docNet(i), 0)), sv: sv };
   }
   return null;
+}
+// A replacement replaces (billing re-walk 4, S1-3). Approving EST-13881 as the replacement for EST-2026-014 kept every
+// old line that had billing (all 13) and put the 45 new ones beside them: 121 State's contract read $1,316,352, the same
+// as a separate contract, Ready to Bill grew by $44,211 and WIP and backlog by about $491k. Now the old contract's lines
+// leave the schedule (kept on c.sovRetired for history, each with what was billed on it and the contract that replaced
+// it); what was billed on them stays billed and is carried onto the new contract's lines as billed to date (first up to
+// what each new line has measured, the rest by what is left on each line), so Ready to Bill and the next application
+// read the new schedule and never bill the same work twice; the contract is the new estimate plus the approved change
+// orders. The sheet shows the before and the after first.
+function estReplaceOld(c, pid, e) {
+  return (c.sov || []).filter((v) => "Contract" === v.source && (v.projectId || "") === (pid || "") && (String(v.lineRef || "").startsWith(`estimate:${e.id}:`) || !v.lineRef));
+}
+// what was billed on the contract being replaced: its schedule lines' billing (before retainage), what is left of its
+// deposit on account, and its other invoices (a design fee's milestones and retainer)
+function estReplaceBilled(c, pid, e) {
+  const old = estReplaceOld(c, pid, e),
+    lines = r2(old.reduce((a, v) => a + ((+v.scheduled || 0) * sovBilled(c, v.id)) / 100, 0)),
+    on = (i) => i.fromDoc === e.id || i.retainerOf === e.id || i.depositOf === e.id || (i.lines || []).some((l) => String(l.fromLine || "").startsWith(`estimate:${e.id}:`)),
+    items = r2(
+      (c.invoices || [])
+        .filter((i) => "sov" !== i.mode && !["void", "draft"].includes(i.status) && !i.supersededBy && !invIsDeposit(i) && on(i))
+        .reduce((a, i) => a + ("function" == typeof pbInvAmt ? pbInvAmt(i) : docNet(i)), 0),
+    );
+  let dep = 0;
+  try {
+    dep = "function" == typeof depositBalance ? Math.max(0, +depositBalance(c, e.id) || 0) : 0;
+  } catch (x) {}
+  return { old: old, lines: lines, items: items, dep: r2(dep), total: r2(lines + items + dep) };
+}
+// a contract billed line by line (an application of its schedule) as against a design fee or materials contract
+const estByLine = (d) => !!d && ("construction" === d.template || !d.template);
+// each new line's share of what was billed before: measured work first, then what is left on each line
+function estCarryAlloc(c, p, svs, billedOld) {
+  const L = svs.map((sv) => {
+    let earned = 0;
+    try {
+      const pr = pgProposal(pgEvidence(c, p, sv));
+      null != pr.pct && "none" !== pr.basis && (earned = r2(((+sv.scheduled || 0) * Math.min(100, pr.pct)) / 100));
+    } catch (x) {}
+    return { sv: sv, sched: +sv.scheduled || 0, earned: earned, carried: 0 };
+  });
+  const E = r2(L.reduce((a, x) => a + x.earned, 0)),
+    total = r2(L.reduce((a, x) => a + x.sched, 0));
+  let left = Math.min(r2(billedOld), total);
+  if (left <= E + 0.005) L.forEach((x) => (x.carried = E ? r2((x.earned * left) / E) : 0));
+  else {
+    L.forEach((x) => (x.carried = x.earned));
+    left = r2(left - E);
+    const room = r2(L.reduce((a, x) => a + (x.sched - x.earned), 0));
+    L.forEach((x) => (x.carried = r2(x.carried + (room ? ((x.sched - x.earned) * left) / room : 0))));
+  }
+  L.forEach((x) => (x.pct = x.sched ? Math.min(100, Math.round((1e6 * x.carried) / x.sched) / 1e4) : 0));
+  return { lines: L, earned: E, total: total, rtb: r2(L.reduce((a, x) => a + Math.max(0, x.earned - x.carried), 0)) };
+}
+function estReplacePlan(c, d, e) {
+  const pid = d.projectId || "",
+    p = (DB.projects || []).find((x) => x.id === pid);
+  if (!p) return null;
+  const J = jobFin(p),
+    B = estReplaceBilled(c, pid, e),
+    t = docTotal(d),
+    cos = (c.sov || []).filter((v) => "Contract" !== v.source && (v.projectId || "") === pid),
+    other = (c.sov || []).filter((v) => "Contract" === v.source && (v.projectId || "") === pid && !B.old.includes(v)),
+    coAmt = r2((c.changeOrders || []).filter((o) => ["approved", "billed"].includes(o.status) && (!o.projectId || o.projectId === pid)).reduce((a, o) => a + docTotal(o).total, 0)),
+    svs = sovLinesFromEstimate(c, d, t),
+    byLine = estByLine(d),
+    A = byLine ? estCarryAlloc(c, p, svs, B.total) : null,
+    contract = r2(t.total + coAmt + other.reduce((a, v) => a + (+v.scheduled || 0), 0));
+  let rtb = 0,
+    after = 0;
+  try {
+    rtb = r2(jobReadyToBill(pid).amt);
+  } catch (x) {}
+  if (A) after = A.rtb;
+  else {
+    // a design fee: what its milestones reached have earned, less everything billed on the job
+    let earned = contract;
+    try {
+      "design" === d.template && "function" == typeof dmsReached && (earned = r2(((d.milestones || DESIGN_MILESTONES).reduce((a, x, k) => a + (dmsReached(d)[k] ? +x.pct || 0 : 0), 0) * docNet(d)) / 100 + coAmt));
+    } catch (x) {}
+    after = r2(Math.max(0, Math.min(contract, earned) - J.billed));
+  }
+  return {
+    byLine: byLine,
+    before: { contract: r2(J.contract), lines: B.old.length + other.length + cos.length, billed: r2(J.billed), rtb: rtb },
+    after: { contract: contract, lines: svs.length + other.length + cos.length, billed: r2(J.billed), rtb: after },
+    billedOld: B.total,
+    old: B.old,
+    carriedPct: A && A.total ? r2((100 * Math.min(B.total, A.total)) / A.total) : 0,
+    over: r2(Math.max(0, J.billed - contract)),
+  };
+}
+// after the conversion: the old lines to history, what was billed on them carried onto the new lines
+function estReplaceApply(c, d, e, pid, B) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    at = appNowIso();
+  c.sovRetired = c.sovRetired || [];
+  B.old.forEach((v) => {
+    const bp = sovBilled(c, v.id);
+    c.sovRetired.push(Object.assign({}, v, { retired: { by: d.number, byId: d.id, of: e.number, at: at, billedPct: r2(bp), billedAmt: r2(((+v.scheduled || 0) * bp) / 100) } }));
+  });
+  const ids = new Set(B.old.map((v) => v.id));
+  c.sov = c.sov.filter((v) => !ids.has(v.id));
+  const mine = c.sov.filter((v) => "Contract" === v.source && String(v.lineRef || "").startsWith(`estimate:${d.id}:`));
+  if (p && mine.length && B.total > 0.005 && estByLine(d)) {
+    const A = estCarryAlloc(c, p, mine, B.total);
+    A.lines.forEach((x) => x.pct > 0 && ((x.sv.carriedPct = x.pct), (x.sv.carriedFrom = e.number)));
+  }
+  c.sov.forEach((v, i) => (v.order = i));
+  try {
+    audit("estimate", d.id, "replaced-schedule", `${e.number}: ${B.old.length} lines`, `${d.number}: ${mine.length} lines`, `${B.old.length} lines of ${e.number} retired (kept in history); ${money(B.total)} billed on them carried onto ${d.number}'s lines as billed to date`);
+  } catch (x) {}
+}
+// The contract a replacement replaces is out of force from the hour the replacement is signed, converted or not
+// (billing re-walk 4, S1-2: a Simple estimate approved as the replacement is approved, not converted, so the old
+// contract stayed in force and its deposit and milestones were still offered and counted)
+function estMarkReplaced(c, d) {
+  const CA = d && d.contractAs;
+  if (!CA || "replace" !== CA.as || !["approved", "converted", "billed"].includes(d.status)) return;
+  const old = (c.estimates || []).find((x) => x.id === CA.ofId);
+  old && !old.replacedBy && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }), save());
 }
 function estSecondSheet(c, d, a, K) {
   const e = K.e,
@@ -37758,14 +37904,28 @@ function estSecondSheet(c, d, a, K) {
     nLines = (d.lines || []).filter((l) => !lineUnpriced(l)).length,
     nums = K.on.map((i) => i.number).slice(0, 4).join(", ") + (K.on.length > 4 ? ", …" : ""),
     opt = (v, title, body) => `<label class="chk" style="align-items:flex-start;padding:6px 0"><input type="radio" name="esc2" data-f2="${v}"><span><b>${title}</b><br><span class="small muted">${body}</span></span></label>`;
+  // the before and the after of a replacement, and whether the new estimate is the signed one copied (billing re-walk 4,
+  // S1-3 and S2-1)
+  let P = null;
+  try {
+    P = estReplacePlan(c, d, e);
+  } catch (x) {
+    console.warn("replacement plan", x);
+  }
+  const key = (L, doc) => (L || []).filter((l) => !lineUnpriced(l)).map((l) => `${String(l.item || l.desc || "").trim().toLowerCase()}|${r2(lineAmount(l, doc))}`).sort().join("~"),
+    same = key(d.lines, d) === key(e.lines, e) && Math.abs(docTotal(d).total - docTotal(e).total) < 0.01,
+    replaceBody = P
+      ? `${esc(d.number)} becomes the contract in place of ${esc(e.number)}. <b>Before:</b> contract ${money(P.before.contract)}, ${P.before.lines} schedule lines, ${money(P.before.billed)} billed, ${money(P.before.rtb)} ready to bill. <b>After:</b> contract ${money(P.after.contract)} (${esc(d.number)}${P.after.contract - t.total > 0.5 ? " and the approved change orders" : ""}), ${P.after.lines} schedule lines; ${esc(e.number)}'s ${P.old.length} line${1 === P.old.length ? "" : "s"} leave the schedule and are kept in its history; the ${money(P.billedOld)} billed on ${esc(e.number)} stays billed and counts against ${esc(d.number)}${P.byLine ? ` as billed to date on its lines (${P.carriedPct}%)` : ""}${P.over > 0.5 ? `; the job is ${money(P.over)} over the new contract` : ""}; ready to bill ${P.byLine ? "from the new schedule" : "on the new contract"} ${money(P.after.rtb)}.`
+      : null;
   mbModal(
     `What Is ${esc(d.number)}?`,
     `<div class="note warn small">${esc(job)}'s contract is ${esc(e.number)} (${money(docTotal(e).total)}${oldSv.length ? `, ${oldSv.length} schedule lines` : ""}), billed against on ${esc(nums)} (${money(K.billed)}). ${esc(d.number)} (${money(t.total)}, ${nLines} line${1 === nLines ? "" : "s"}) is a new estimate on the same job: say what it is before it is ${"invoice" === a ? "invoiced" : "approved"}. Nothing changes until you choose.</div>` +
+      (same ? `<div class="note bad small" data-escsame>${esc(d.number)} is the same as the signed ${esc(e.number)}: the same ${nLines} line${1 === nLines ? "" : "s"} and ${money(t.total)}${d.copyOf === e.number ? `, copied from it` : ""}. It is a copy, not a new contract: if nothing changed, Cancel and delete it. As a separate contract it bills the same work twice.</div>` : "") +
       opt("co", `A Change Order to ${esc(e.number)}`, `Its lines go on a new change order on ${esc(job)} for the client to approve. ${esc(d.number)} is not approved as a contract.`) +
       opt(
         "replace",
         `A Replacement Contract for ${esc(e.number)}`,
-        `${esc(d.number)} becomes the contract, and the ${money(K.billed)} billed on ${esc(e.number)} counts against it. What is billed on ${esc(e.number)} stays billed${billedSv.length ? `: ${billedSv.length} line${1 === billedSv.length ? "" : "s"}, ${money(sum(billedSv))} scheduled (${esc(billedSv.slice(0, 3).map((v) => v.desc).join("; "))}${billedSv.length > 3 ? "; …" : ""})` : ` (${money(K.billed)})`}. ${oldSv.length - billedSv.length ? `Its ${oldSv.length - billedSv.length} unbilled line${1 === oldSv.length - billedSv.length ? "" : "s"} leave the schedule` : "Every one of its lines has billing, so all of them stay"}, and ${esc(d.number)}'s ${nLines} come in: the schedule becomes ${billedSv.length + nLines} lines, ${money(r2(sum(billedSv) + t.total))}.`,
+        replaceBody || `${esc(d.number)} becomes the contract, and the ${money(K.billed)} billed on ${esc(e.number)} counts against it. What is billed on ${esc(e.number)} stays billed${billedSv.length ? `: ${billedSv.length} line${1 === billedSv.length ? "" : "s"}, ${money(sum(billedSv))} scheduled (${esc(billedSv.slice(0, 3).map((v) => v.desc).join("; "))}${billedSv.length > 3 ? "; …" : ""})` : ` (${money(K.billed)})`}. ${oldSv.length - billedSv.length ? `Its ${oldSv.length - billedSv.length} unbilled line${1 === oldSv.length - billedSv.length ? "" : "s"} leave the schedule` : "Every one of its lines has billing, so all of them stay"}, and ${esc(d.number)}'s ${nLines} come in: the schedule becomes ${billedSv.length + nLines} lines, ${money(r2(sum(billedSv) + t.total))}.`,
       ) +
       opt("separate", "A Separate Contract on This Job", `${esc(d.number)}'s ${nLines} line${1 === nLines ? "" : "s"} (${money(t.total)}) go on the schedule beside ${esc(e.number)}'s: ${jobSv.length} lines, ${money(sum(jobSv))} becomes ${jobSv.length + nLines} lines, ${money(r2(sum(jobSv) + t.total))}.`) +
       mbF("Why", mbIn("why", "", "e.g. the client added the garden floor as its own contract")),
@@ -37795,9 +37955,10 @@ function estSecondSheet(c, d, a, K) {
         setTimeout(
           () =>
             "invoice" === a
-              ? invoiceFromEstimate(c, d)
+              ? (invoiceFromEstimate(c, d), estMarkReplaced(c, d))
               : Promise.resolve(docAction(c, d, a)).then(() => {
                   if (!["approved", "converted"].includes(d.status)) return;
+                  estMarkReplaced(c, d);
                   try {
                     d.clientAnswer && audit("estimate", d.id, "approval-recorded", "sent", d.status, d.clientAnswer.why);
                   } catch (x) {}
@@ -37878,10 +38039,11 @@ async function estDocAction6(c, d, a) {
     // a separate contract keeps the job's contract lines beside its own; a replacement keeps the replaced contract's
     // lines that are billed (what is billed stays billed) and lets its unbilled lines go (estSecondSheet)
     const CA = d.contractAs && "co" !== d.contractAs.as ? d.contractAs : null,
-      caKeep = (v) =>
-        !!CA &&
-        ("separate" === CA.as ||
-          (String(v.lineRef || "").startsWith(`estimate:${CA.ofId}:`) && (sovBilled(c, v.id) > 0.005 || c.invoices.some((i) => "sov" === i.mode && "void" !== i.status && (i.lines || []).some((l) => l.sovId === v.id && +l.pct > 0))))),
+      R0 = CA && "replace" === CA.as ? (c.estimates || []).find((x) => x.id === CA.ofId) : null,
+      RB = R0 ? estReplaceBilled(c, pid, R0) : null,
+      // a separate contract keeps every line beside it; a replacement keeps the job's other contracts' lines and
+      // retires the replaced contract's (estReplaceApply, after the conversion)
+      caKeep = (v) => !!CA && ("separate" === CA.as || (RB && !RB.old.includes(v))),
       keepSov = c.sov.filter((v) => "Contract" === v.source && ((v.projectId || "") !== pid || (caKeep(v) && !String(v.lineRef || "").startsWith(`estimate:${d.id}:`)))),
       // a new job the person was told of (or the only answer, above) is opened without asking again
       _nk = askKey("Create a project for this contract now?"),
@@ -37907,10 +38069,12 @@ async function estDocAction6(c, d, a) {
           c.sov.includes(v) || c.sov.push(v);
         }),
         c.sov.forEach((v, i) => (v.order = i));
+      RB && R0 && estReplaceApply(c, d, R0, pid, RB);
       const t = docTotal(d),
         K0 = (c.contracts || {})[pid],
-        // a replacement's contract is what its schedule holds: its own lines and the replaced lines that stay billed
-        kept = CA && "replace" === CA.as ? keepSov.filter((v) => (v.projectId || "") === pid && String(v.lineRef || "").startsWith(`estimate:${CA.ofId}:`)) : [],
+        // a replacement's contract is the new estimate (and the job's other contracts' lines it keeps); what was billed
+        // on the replaced one is carried onto its lines as billed to date, never added to the contract
+        kept = CA && "replace" === CA.as ? keepSov.filter((v) => (v.projectId || "") === pid && "Contract" === v.source) : [],
         keptAmt = r2(kept.reduce((x, v) => x + (+v.scheduled || 0), 0));
       (c.contracts = c.contracts || {}),
         CA && "separate" === CA.as && K0
@@ -37924,7 +38088,7 @@ async function estDocAction6(c, d, a) {
             });
       if (CA && "replace" === CA.as) {
         const old = (c.estimates || []).find((x) => x.id === CA.ofId);
-        old && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
+        old && !old.replacedBy && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
       }
       const T = contractTotals(c);
       (c.contract = T.base), (c.contractNet = T.net);
@@ -38046,7 +38210,7 @@ function paymentAllocate(c, presetInvoiceId) {
             save(), render();
             // credit spent is not cash received: said as applied, never "recorded from" (round 2, S3-G)
             const inv0 = findDoc(c, "invoice", A[0].id);
-            "function" == typeof rcToast ? rcToast(`${money(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
+            "function" == typeof rcToast ? rcToast(`${money2(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
             return;
           }
           let applied = 0;
@@ -52904,9 +53068,20 @@ function ctDepositDue(c, d) {
   if (live.some((i) => i.depositOf === d.id && invIsDeposit(i))) return null;
   // billing on the job began without one (an application sent, or an old one that reads as the deposit)
   if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || invLegacyDeposit(i)))) return null;
-  const net = docNet(d),
-    amount = r2((net * pct) / 100);
-  if (!(amount > 0)) return null;
+  const net = docNet(d);
+  let amount = r2((net * pct) / 100);
+  // a replacement contract counts what was billed on the contract it replaces (that money is on account already), and
+  // no deposit is offered past what the job's contract has left to bill (billing re-walk 4, S1-2: after a replacement
+  // was billed in full the queue offered the old 25% deposit, $10,675 over the contract)
+  try {
+    const M = "function" == typeof pbJobMeasure && d.projectId ? pbJobMeasure(c, d.projectId, null, { drafts: !0 }) : null;
+    if (M) {
+      const R0 = d.contractAs && "replace" === d.contractAs.as ? (c.estimates || []).find((e) => e.id === d.contractAs.ofId) : null,
+        prior = R0 ? r2(M.invs.reduce((a, i) => a + pbInvAmt(i), 0)) : 0;
+      amount = r2(Math.min(amount - prior, M.contract - M.billed));
+    }
+  } catch (e) {}
+  if (!(amount > 0.5)) return null;
   const signed = ctDepositSigned(c, d),
     by = addWork(signed, 2);
   return { pct: pct, net: net, amount: amount, signed: signed, by: by, late: today() > by };
@@ -65816,9 +65991,8 @@ function pgDraft(projectId) {
     (i) => "sov" === i.mode && "draft" === i.status && (i.projectId || "") === (p.id || ""),
   );
   if (!inv) {
-    const d = (c.estimates || []).find(
-      (e) => ["converted", "billed"].includes(e.status) && (e.projectId || "") === (p.id || ""),
-    );
+    const on = (c.estimates || []).filter((e) => ["converted", "billed"].includes(e.status) && (e.projectId || "") === (p.id || "")),
+      d = on.find((e) => !e.replacedBy) || on[0];
     if (!d || "function" != typeof ctProgressInvoice) return null;
     (inv = ctProgressInvoice(c, d)), (inv.projectId = p.id);
   }
@@ -125339,9 +125513,21 @@ function crDocEmail(c, d) {
               .slice(0, 6)
               .join("; ") || d.title
           }${d.scheduleDays ? `, and adds ${d.scheduleDays} working day${d.scheduleDays > 1 ? "s" : ""} to the schedule` : ""}. Please review and approve it in your portal so the work can proceed`
-        : ". You can pay it from your portal"
+        : crRevPaid(c, d)
+          ? `. It replaces ${crRevPaid(c, d).o.number}: the ${money(crRevPaid(c, d).paid)} you paid on ${crRevPaid(c, d).o.number} settles it${crRevPaid(c, d).credit > 0.005 ? `, and the ${money(crRevPaid(c, d).credit)} more is your credit on account` : ""}, so nothing is due`
+          : ". You can pay it from your portal"
     }.\n\nThank you,\n${S.project.userName || DB.company.name || ""}`;
   return { to: pc, subject: subject, body: body };
+}
+// A revision of an invoice the client has paid, and what was received on it covers the revision: nothing is due, so
+// the send sheet and the email never say "for payment" (billing re-walk 4, S3)
+function crRevPaid(c, d) {
+  if (!c || !d || "invoice" !== d.type || !d.revisionOf) return null;
+  const o = (c.invoices || []).find((x) => x.number === d.revisionOf && x.id !== d.id);
+  if (!o) return null;
+  const paid = r2("function" == typeof invoicePaid ? invoicePaid(c, o) : 0),
+    t = docTotal(d).total;
+  return paid > 0.005 && paid >= t - 0.005 ? { o: o, paid: paid, credit: r2(paid - t) } : null;
 }
 async function crSendToClient(c, d) {
   const E = crDocEmail(c, d),
@@ -125349,7 +125535,7 @@ async function crSendToClient(c, d) {
     REQ = [['[data-f="to"]', "Who it goes to — add an email to the client’s contact to remember it"]];
   mbModal(
     `Send to Client — ${esc(d.number)}`,
-    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : " for payment"}, and moves it to Sent.</p>`,
+    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : crRevPaid(c, d) ? ` as paid (the ${money(crRevPaid(c, d).paid)} received on ${esc(crRevPaid(c, d).o.number)} settles it${crRevPaid(c, d).credit > 0.005 ? `; ${money(crRevPaid(c, d).credit)} more goes to the client's credit on account` : ""})` : " for payment"}, and moves it to Sent.</p>`,
     {
       submit: "Send",
       onSubmit: (f) => {
@@ -145761,7 +145947,7 @@ function jobReadyToBill(pid) {
 // A job is billed line by line (an application, each schedule line on its own evidence) when its contract is a
 // construction estimate: the same test readyToBill makes. A design fee bills by milestone or by the hour.
 function pgBillsByLine(p) {
-  return !!p && (DB.clients || []).some((c) => (c.estimates || []).some((e) => e.projectId === p.id && "converted" === e.status && ("construction" === e.template || !e.template)));
+  return !!p && (DB.clients || []).some((c) => (c.estimates || []).some((e) => e.projectId === p.id && "converted" === e.status && !e.replacedBy && ("construction" === e.template || !e.template)));
 }
 if (
   (ocWrapTiles("billing", (T) => {
@@ -201108,7 +201294,7 @@ function docPriceLines(d) {
             // sent the signing bill twice). A retainer applied is applied once: its line is not copied.
             const keepLn = (l) => ids.includes(l.id) && !("invoice" === k && l.retainerLine),
               n = newDoc(c, k, { mode: d.mode, fields: { title: d.title, projectId: d.projectId, terms: d.terms, taxRate: d.taxRate, discount: { ...d.discount }, lines: d.lines.filter(keepLn).map((l) => ({ ...l, id: uid("l") })) } });
-            "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone), (n.copyOf = d.number));
+            docCopyKeeps(d, n, k);
             const dropped = "invoice" === k && d.lines.some((l) => ids.includes(l.id) && l.retainerLine);
             (docOpen = { kind: k, id: n.id }), save(), render(), window.scrollTo(0, 0), toastDone(`${n.number} created with ${fxN(n.lines.length, "line")} from ${d.number}${dropped ? "; the retainer applied on it is not applied again" : ""}`, () => ((docOpen = { kind: k, id: n.id }), render()));
           },
