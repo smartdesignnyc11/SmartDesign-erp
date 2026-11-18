@@ -53,6 +53,11 @@ def cases():
     return C
 
 SETUP = r"""() => {
+  // Nemo Tile's and Carlos Millwork's ordering addresses are on their cards: the delegated sends below go to a vendor that has one. Since PU-Safe
+  // (11-17) a vendor with no email is never sent to (Needs Address, pu_safe_test); this suite pinned sends to Nemo with
+  // no email on file, the behaviour that walk found wrong, and failed on master since (changed in PU-Safe 2, 11-18).
+  (DB.vendors.find(v => v.id === 'v1') || {}).email = 'sales@nemotile.example';
+  (DB.vendors.find(v => v.id === 'v3') || {}).email = 'shop@carlosmillwork.example';
   const P = (id, num, st, lines, o) => DB.pos.push(Object.assign({ id, number: num, projectId: 'p121', vendor: 'Nemo Tile', vendorId: 'v1', date: '2026-09-01',
     expected: '2026-09-10', status: st, shipTo: 'site', notes: '', lines, tax: 0, shipping: 0, taxStatus: 'taxable', type: 'materials', entityId: 'ent1', receipts: [], srcDocs: [] }, o || {}));
   P('tpo1', 'PO-2026-990', 'received', [{ id: 'tl1', item: 'Carrara mosaic 2x2', desc: '', qty: 48, unit: 'sf', price: 18, received: 48, line: '' },
@@ -286,7 +291,12 @@ async def main():
         await pg.evaluate("() => { setCurrent('p121'); poOpen = null; view = 'po'; render(); }"); await pg.wait_for_timeout(300)
         shown = await pg.evaluate("() => [...document.querySelectorAll('#trk-panel [data-trkpanel] b')].map(b => +b.textContent)")
         c.ok(shown == [x[2] for x in cnt], f'the panel shows the same numbers: {shown} vs {[x[2] for x in cnt]}')
-        await pg.locator('#trk-panel [data-trkpanel="billsOnHold"]').click(); await pg.wait_for_timeout(300)
+        # the panel's counts sit folded on Orders (hidden, not gone): this click timed out on the build before PU-Safe 2
+        # too; the count is opened through its own button's handler so the checks below still run (reported, 11-18)
+        bt = pg.locator('#trk-panel [data-trkpanel="billsOnHold"]')
+        if await bt.is_visible(): await bt.click()
+        else: await pg.evaluate("() => document.querySelector('#trk-panel [data-trkpanel=\"billsOnHold\"]').click()")
+        await pg.wait_for_timeout(300)
         rows = await pg.evaluate("() => document.querySelectorAll('#mbm .trk-row').length")
         c.ok(rows == max(1, cnt[-1][2]) or (cnt[-1][2] == 0 and rows == 0), f'a count opens its rows: {rows} for {cnt[-1][2]}')
         await pg.evaluate("() => mbCloseModal()")
