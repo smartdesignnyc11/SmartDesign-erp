@@ -97,7 +97,11 @@ async def s_reader(p, c):
         const bankYes = [['GARDEN STATE LUMBER LINDEN NJ','Garden State Lumber'], ['HOME DEPOT #1209','Home Depot'], ['KENT AVE LUMBER BKLYN','Kent Avenue Lumber']].filter(([d, v]) => !truthVendorHit({ desc: d }, v));
         const tk = ['the lumber yard', 'Lumber', 'Building Supply', 'Garden', 'Kent'].map((n) => [n, tkContactRef(n)]).filter((x) => x[1]);
         const cm = (cmVendorFor('billing@gardensupply.example', 'Garden Supply Co') || {}).name || '';
-        return { same: same, yes: yes, bank: bank, bankYes: bankYes, tk: tk, cm: cm, gs: (vendorByName('Garden Supply Co') || {}).id || '' };
+        // learning: a descriptor a person tied to the vendor names it next time; a place or a bank word is never learned
+        const g = DB.vendors.find((v) => v.name === 'Garden State Lumber'), was = truthVendorHit({ desc: 'GSL LUMBER LINDEN NJ 0042' }, g.name),
+          learned = vendorLearnDescriptor(g, 'GSL LUMBER LINDEN NJ 0042'), now = truthVendorHit({ desc: 'GSL LUMBER LINDEN NJ 0077' }, g.name),
+          other = truthVendorHit({ desc: 'SHELL OIL LINDEN NJ 0042' }, g.name), noPlace = vendorLearnDescriptor(g, 'POS DEBIT STATEN ISLAND NY 1209');
+        return { same: same, yes: yes, bank: bank, bankYes: bankYes, tk: tk, cm: cm, gs: (vendorByName('Garden Supply Co') || {}).id || '', learn: [was, learned, now, other, noPlace] };
     }""")
     c.ok(not r['same'], f'READER: names sharing a word are not one vendor ({r["same"]})')
     c.ok(not r['yes'], f'READER: the same name in capitals, with a suffix or an abbreviation, is ({r["yes"]})')
@@ -105,6 +109,7 @@ async def s_reader(p, c):
     c.ok(not r['bankYes'], f'READER: a bank line names the vendor by its name or its name without the trade words ({r["bankYes"]})')
     c.ok(not r['tk'], f'READER: a meeting\'s "the lumber yard" (or a shared word) links nobody ({r["tk"]})')
     c.ok(r['cm'] == 'Garden Supply Co' and r['gs'] == 'ps2a', f'READER: mail from Garden Supply Co is Garden Supply Co\'s ({r})')
+    c.ok(r['learn'] == [False, 'gsl lumber linden nj', True, False, None], f'READER: a descriptor a person confirmed names the vendor next time; a place never does ({r["learn"]})')
     c.ok(not errs, f'READER: no page errors ({errs[:3]})')
     await b.close()
 

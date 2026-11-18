@@ -12524,8 +12524,15 @@ function poDrawings(p, po) {
         }
       });
       const text = words.filter(Boolean).join(" \n "),
-        rooms = new Set(((plDB().rooms || []).filter((r) => r.projectId === pid && plHit(r, text))).map((r) => r.id));
-      pick = reg.filter((s) => issued(s) && ("shop" === s.set ? !!V && vendorTextHit(s.title, V, "") : (s.rooms || []).some((id) => rooms.has(id))));
+        rooms = new Set(((plDB().rooms || []).filter((r) => r.projectId === pid && plHit(r, text))).map((r) => r.id)),
+        // a sheet whose title shares two words in a row with the lines ("third floor" for a 3rd floor order)
+        norm = (x) => String(x || "").toLowerCase().replace(/\b1st\b/g, "first").replace(/\b2nd\b/g, "second").replace(/\b3rd\b/g, "third").replace(/\b(\d)th\b/g, "$1").replace(/[^a-z0-9]+/g, " ").trim(),
+        lt = ` ${norm(text)} `,
+        pair = (t) => {
+          const w = norm(t).split(" ").filter((x) => x && !/^(and|of|the|a|rev|plan|plans|elevations?|sections?|details?|schedule|sketch|rfi|\d+)$/.test(x));
+          return w.some((x, i) => i + 1 < w.length && lt.includes(` ${x} ${w[i + 1]} `));
+        };
+      pick = reg.filter((s) => issued(s) && ("shop" === s.set ? !!V && vendorTextHit(s.title, V, "") : (s.rooms || []).some((id) => rooms.has(id)) || pair(s.title)));
     }
     pick.forEach((s) => {
       const f = files.find((x) => x.id === s.fileId);
@@ -151194,7 +151201,18 @@ function vendorSpan(T, phrase) {
   if (sq.length >= 6 && P.length > 1) for (let i = 0; i < T.length; i++) if (T[i] === sq) return [i, i + 1];
   return null;
 }
+// the bank page asks this for every line against every bill and order: kept per text while the vendors are unchanged
+const VENDOR_NAMED_MEMO = { sig: "", m: new Map() };
 function vendorsNamedIn(text, mode, list) {
+  if (!list) {
+    const sig = (DB.vendors || []).map((v) => `${v.id}|${v.name}|${v.archived ? 1 : 0}|${(v.aliases || []).join("/")}|${(v.bankDescriptors || []).join("/")}|${v.dba || ""}`).join(";"),
+      k = `${mode || ""}\u0001${text || ""}`;
+    sig !== VENDOR_NAMED_MEMO.sig && ((VENDOR_NAMED_MEMO.sig = sig), VENDOR_NAMED_MEMO.m.clear());
+    if (VENDOR_NAMED_MEMO.m.has(k)) return VENDOR_NAMED_MEMO.m.get(k).slice();
+    VENDOR_NAMED_MEMO.m.size > 5000 && VENDOR_NAMED_MEMO.m.clear();
+    const r = vendorsNamedIn(text, mode, DB.vendors || []);
+    return VENDOR_NAMED_MEMO.m.set(k, r), r.slice();
+  }
   const T = vendorNameNorm(text).split(" ").filter(Boolean);
   if (!T.length) return [];
   const V = (list || DB.vendors || []).filter((v) => v && v.name && !v.archived),
@@ -151235,6 +151253,32 @@ function vendorOfPO(po) {
   if (!po) return null;
   const V = DB.vendors || [];
   return (po.vendorId && V.find((v) => v.id === po.vendorId)) || vendorByName(po.vendor) || null;
+}
+// A person matched a bank or card line to this vendor's bill or order: the line's descriptor (its words before the first
+// store or reference number, without the bank's own words) is kept on the vendor card (bankDescriptors), so the next
+// line from it names the vendor. Learned from what people confirm, audited, never from a guess: nothing is kept that is
+// only places or trade words, that the vendor already answers to, or that another vendor answers to.
+function vendorLearnDescriptor(v, desc) {
+  if (!v || !v.id || !desc) return null;
+  const out = [];
+  for (const w of vendorNameNorm(desc).split(" ")) {
+    if (!w) continue;
+    if (/\d/.test(w)) break;
+    if (/^(pos|debit|credit|card|purchase|ach|check|chk|wire|zelle|payment|pmt|pmts|recurring|online|sq|tst|paypal|venmo|visa|mc|amex|ppd|web|ref|xfer|transfer|to|from|bill|pay)$/.test(w)) {
+      if (out.length) break;
+      continue;
+    }
+    out.push(w);
+  }
+  const d = out.slice(0, 4).join(" ");
+  if (d.length < 4 || !out.some((t) => t.length > 2 && !VENDOR_COMMON_WORDS.test(t) && !VENDOR_PLACE_WORDS.test(t) && !VENDOR_STOP_WORDS.test(t))) return null;
+  if (vendorKeys(v).includes(d) || vendorTextHit(desc, v, "")) return null;
+  if ((DB.vendors || []).some((x) => x !== v && vendorKeys(x).includes(d))) return null;
+  (v.bankDescriptors = v.bankDescriptors || []).push(d);
+  try {
+    audit("vendor", v.id, "descriptor-learned", "", d, "learned from a bank or card line a person matched to its bill or order");
+  } catch (e) {}
+  return d;
 }
 // ---- end of the vendor reader ----------------------------------------------------------------------------------------
 // ---- a message with no address is never sent (PU-Safe, 11-17) ------------------------------------------------------
@@ -182691,6 +182735,13 @@ function truthSetMatch(t, m0, o) {
   try {
     audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"}`);
   } catch (e) {}
+  // the reader learns the descriptor a person tied to this vendor (bankDescriptors on the vendor card)
+  try {
+    const mb = m.billId && (DB.bills || []).find((x) => x.id === m.billId),
+      mp = m.poId && (DB.pos || []).find((x) => x.id === m.poId),
+      mv = (mp && vendorOfPO(mp)) || (mb && vendorByName(mb.vendor));
+    mv && +t.amt < 0 && vendorLearnDescriptor(mv, t.desc || "");
+  } catch (e) {}
   return save(), { ok: !0, m: truthMatchOf(t) };
 }
 const truthNorm = (s) =>
@@ -196602,7 +196653,12 @@ function trkInvoicesToBill() {
 }
 // The invoice names a vendor that is not the order's (the vendor reader's strict name: Garden Supply Co is not Garden
 // State Lumber). Its bill would pay the wrong party against the order: held, for a person to check who sent it.
-const trkVendorDiffers = (d, po) => !!(d && po && (d.fields || {}).vendor && !vendorNameSame(d.fields.vendor, po.vendor));
+// A person who checked it and accepted the vendor case (with a reason) releases it.
+const trkVendorDiffers = (d, po) => {
+  if (!(d && po && (d.fields || {}).vendor && !vendorNameSame(d.fields.vendor, po.vendor))) return !1;
+  const c = ((d.check || trkCheck(d) || {}).cases || []).find((x) => "vendor" === x.code);
+  return !c || trkCaseOpen(c);
+};
 function trkBillFromDoc(id) {
   const d = trkDocs().find((x) => x.id === id),
     po = d && trkPO(d.links.poId);
