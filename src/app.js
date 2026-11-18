@@ -50940,25 +50940,18 @@ function fRenderSite() {
     });
 }
 function fLogDraft(date) {
-  const td = date;
+  const td = date,
+    // the crew's hours are the Daily Log's own (dlClockFor, timeHoursOf): two punches that overlap count once (11-18)
+    clock = "function" == typeof dlClockFor ? dlClockFor(S, td) : [];
   return {
     crew: DB.employees
       .filter((e) => !1 !== e.active && !/coordinator|office|owner|designer/i.test(e.role || ""))
-      .map((e) => ({
-        name: e.name,
-        hours: r2(
-          DB.time
-            .filter((t) => t.empId === e.id && t.date === td && t.projectId === S.id)
-            .reduce((a, t) => a + hoursOf(t), 0),
-        ),
-      }))
-      .filter(
-        (x) =>
-          x.hours > 0 ||
-          DB.time.some(
-            (t) => t.date === td && t.empId === DB.employees.find((e) => e.name === x.name)?.id && !t.out,
-          ),
-      ),
+      .map((e) => {
+        const k = clock.find((x) => x.empId === e.id);
+        return { name: e.name, hours: k ? k.hours : 0, open: !!(k && k.open) };
+      })
+      .filter((x) => x.hours > 0 || x.open)
+      .map((x) => ({ name: x.name, hours: x.hours })),
     subs: DB.field.subs
       .filter((s) => s.projectId === S.id && s.date === td && "onsite" === s.status)
       .map((s) => `${s.vendor} (${s.lead})`),
@@ -51052,7 +51045,9 @@ function fRenderCrew() {
       .map((e) => ({ e: e, es: DB.time.filter((t) => t.empId === e.id && t.date === td) }))
       .filter((x) => x.es.length && x.es.every((t) => t.out)),
     notIn = crew.filter((e) => !DB.time.some((t) => t.empId === e.id && t.date === td));
-  (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span>${"function" == typeof tkStillCrewSay && tkStillCrewSay(t) ? `<span class="small bad-t" data-fstill>${esc(tkStillCrewSay(t))}</span>` : ""}</div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
+  // a day off (a weekend, a holiday) is not a day anyone is missing: nothing on it is red (the fourth walk, 11-18)
+  const offDay = !isWork(td);
+  (root.innerHTML = `<div class="card f-card ${onNow.length || offDay ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span>${"function" == typeof tkStillCrewSay && tkStillCrewSay(t) ? `<span class="small bad-t" data-fstill>${esc(tkStillCrewSay(t))}</span>` : ""}</div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length && offDay ? `<div class="small muted" style="margin-top:4px" data-offday>Not a work day: nobody is expected.</div>` : notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
     .map((e) => {
       // a day is a date, not a punch (two punches on 9/3 read "4 days" for three worked), and a voided punch is no time
       const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td && live(t) && !t.forDate),
@@ -168420,7 +168415,7 @@ function dlClockFor(p, d) {
       String(end) < String(t.in) && (end = t.in), t.out || (x.open = !0);
       const held = timeHeld(t);
       held && ((x.held = !0), (x.lastSeen = t.out), (end = t.in));
-      x.spans.push({ a: ms(t.in), b: ms(end), brk: held ? 0 : +t.breakMin || 0, txt: held ? `${hm(t.in)}, held (last seen ${hm(t.out)})` : `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id });
+      x.spans.push({ a: ms(t.in), b: ms(end), brk: held ? 0 : +t.breakMin || 0, txt: held ? `${hm(t.in)}, held (last seen ${hm(t.out)})` : `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id, t: t });
     });
   return Object.values(by).map((x) => {
     const G = [];
@@ -168430,7 +168425,12 @@ function dlClockFor(p, d) {
         const g = G[G.length - 1];
         g && s.a < g.b ? ((g.b = Math.max(g.b, s.b)), (g.brk = Math.max(g.brk, s.brk)), g.n++) : G.push({ a: s.a, b: s.b, brk: s.brk, n: 1 });
       });
-    const h = G.reduce((a, g) => a + Math.max(0, (g.b - g.a) / 36e5 - g.brk / 60), 0);
+    // the day's hours are one function's (timeHoursOf): this Daily Log, the quick log (fLogDraft), his Clock and payroll's
+    // week read the same number, two punches that overlap counted once (the fourth walk, 11-18: 12.1 h against 9.1)
+    const h = timeHoursOf(
+      x.spans.map((s) => s.t),
+      d === today() ? nowIso : "",
+    );
     // to the hundredth, the number payroll pays and his Clock shows (it rounded 4.42 to 4.5: the third walk, 11-17)
     return { name: x.name, empId: x.empId, trade: x.trade, hours: r2(h), open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id), held: !!x.held, lastSeen: x.lastSeen || "" };
   });
