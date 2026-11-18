@@ -67589,7 +67589,7 @@ function frqTidy() {
       (readBtn.dataset.frqN = String((comp.lines || []).length)),
       readBtn.addEventListener("click", () => {
         const n0 = +readBtn.dataset.frqN || 0,
-          t0 = Date.now(),
+          t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
           tick = () => {
             if (comp.busy && Date.now() - t0 < 6e4) return void setTimeout(tick, 200);
             !comp.busy && (comp.lines || []).length > n0 && !(comp.questions || []).length && "function" == typeof compSend && compSend();
