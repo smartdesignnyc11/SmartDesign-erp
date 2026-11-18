@@ -1,4 +1,5 @@
 import asyncio, os, json, time
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'tests')); import pwlaunch  # noqa: E402,F401  (browser fallback, see tests/pwlaunch.py)
 """Phone speed, live: a mid-range phone (CPU 4x slower, 1.5 MB/s, 80 ms) opens the hosted app, then reopens it twice.
 Prints the time to the first screen and where it went (connect, profile, pull). Run: SD_QA_USERS=… python3 test/live_speed.py"""
 import os

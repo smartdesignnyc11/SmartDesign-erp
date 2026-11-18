@@ -4,6 +4,7 @@ on each device reach the other without overwriting anything. QA accounts as in l
 Run: SD_QA_USERS=… python3 test/live_app_test.py"""
 import asyncio, json, os, sys
 from playwright.async_api import async_playwright
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'tests')); import pwlaunch  # noqa: E402,F401  (browser fallback, see tests/pwlaunch.py)
 SITE = os.environ.get('SDP_SITE', 'https://smartdesigns-erp.netlify.app')
 QA = json.load(open(os.environ.get('SD_QA_USERS') or sys.exit('set SD_QA_USERS')))
 n = 0; fails = []
