@@ -9811,7 +9811,7 @@ function docMarkSentSheet(c, d) {
     `Mark Sent — ${esc(d.number)}`,
     `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
       ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
-      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" value="${today()}" max="${today()}">`)}</div>`,
     {
       submit: "Record It Sent",
       onSubmit: (f) => {
@@ -33211,7 +33211,7 @@ function applyCredits(c, inv) {
   const R = clientCreditApply(c, inv);
   if (!R.ok) return void toast(R.why);
   save(), render();
-  "function" == typeof rcToast ? rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money(R.used)} credit applied`);
+  "function" == typeof rcToast ? rcToast(`${money2(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money2(R.used)} credit applied`);
 }
 lineFin = function (key) {
   const f = lineFinBase(key);
@@ -38210,7 +38210,7 @@ function paymentAllocate(c, presetInvoiceId) {
             save(), render();
             // credit spent is not cash received: said as applied, never "recorded from" (round 2, S3-G)
             const inv0 = findDoc(c, "invoice", A[0].id);
-            "function" == typeof rcToast ? rcToast(`${money(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
+            "function" == typeof rcToast ? rcToast(`${money2(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
             return;
           }
           let applied = 0;
@@ -125513,9 +125513,21 @@ function crDocEmail(c, d) {
               .slice(0, 6)
               .join("; ") || d.title
           }${d.scheduleDays ? `, and adds ${d.scheduleDays} working day${d.scheduleDays > 1 ? "s" : ""} to the schedule` : ""}. Please review and approve it in your portal so the work can proceed`
-        : ". You can pay it from your portal"
+        : crRevPaid(c, d)
+          ? `. It replaces ${crRevPaid(c, d).o.number}: the ${money(crRevPaid(c, d).paid)} you paid on ${crRevPaid(c, d).o.number} settles it${crRevPaid(c, d).credit > 0.005 ? `, and the ${money(crRevPaid(c, d).credit)} more is your credit on account` : ""}, so nothing is due`
+          : ". You can pay it from your portal"
     }.\n\nThank you,\n${S.project.userName || DB.company.name || ""}`;
   return { to: pc, subject: subject, body: body };
+}
+// A revision of an invoice the client has paid, and what was received on it covers the revision: nothing is due, so
+// the send sheet and the email never say "for payment" (billing re-walk 4, S3)
+function crRevPaid(c, d) {
+  if (!c || !d || "invoice" !== d.type || !d.revisionOf) return null;
+  const o = (c.invoices || []).find((x) => x.number === d.revisionOf && x.id !== d.id);
+  if (!o) return null;
+  const paid = r2("function" == typeof invoicePaid ? invoicePaid(c, o) : 0),
+    t = docTotal(d).total;
+  return paid > 0.005 && paid >= t - 0.005 ? { o: o, paid: paid, credit: r2(paid - t) } : null;
 }
 async function crSendToClient(c, d) {
   const E = crDocEmail(c, d),
@@ -125523,7 +125535,7 @@ async function crSendToClient(c, d) {
     REQ = [['[data-f="to"]', "Who it goes to — add an email to the client’s contact to remember it"]];
   mbModal(
     `Send to Client — ${esc(d.number)}`,
-    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : " for payment"}, and moves it to Sent.</p>`,
+    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : crRevPaid(c, d) ? ` as paid (the ${money(crRevPaid(c, d).paid)} received on ${esc(crRevPaid(c, d).o.number)} settles it${crRevPaid(c, d).credit > 0.005 ? `; ${money(crRevPaid(c, d).credit)} more goes to the client's credit on account` : ""})` : " for payment"}, and moves it to Sent.</p>`,
     {
       submit: "Send",
       onSubmit: (f) => {

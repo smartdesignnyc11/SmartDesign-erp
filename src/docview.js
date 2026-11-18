@@ -488,10 +488,20 @@ function dvNotes(r) {
   // the office's own warning the editor shows over a progress invoice: the job billed ahead of its work (never on the
   // client's copy)
   try {
-    if ("invoice" === d.type && "sov" === d.mode && d.projectId && "function" == typeof pbAhead && !["void"].includes(d.status)) {
-      const A = pbAhead(d.projectId);
-      A && A.total > 0.5 && out.push(`The job is billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}. For the office; the client's copy does not say it.`);
+    if ("invoice" === d.type && d.projectId && "function" == typeof pbAhead && !["void"].includes(d.status)) {
+      const A = pbAhead(d.projectId),
+        job = A && A.lines.some((l) => l.job);
+      A &&
+        A.total > 0.5 &&
+        ("sov" === d.mode || job) &&
+        out.push(job ? `The job is billed ahead: ${esc(pbWords(A))}. For the office; the client's copy does not say it.` : `The job is billed ahead of the work: ${money(A.total)} on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}. For the office; the client's copy does not say it.`);
     }
+    // the reason this invoice was sent ahead, where the invoice is read (billing re-walk 4, S2-2: it was only in View
+    // History)
+    "invoice" === d.type &&
+      d.aheadWhy &&
+      d.aheadWhy.why &&
+      out.push(`Billed ahead${"earned" === d.aheadWhy.over ? " of what is earned" : " of the work"}${+d.aheadWhy.amount ? ` by ${money(+d.aheadWhy.amount)}` : ""}: ${esc(d.aheadWhy.by || "")}${d.aheadWhy.at ? ` on ${esc(fmtL(String(d.aheadWhy.at).slice(0, 10)))}` : ""} gave the reason "${esc(d.aheadWhy.why)}"${d.aheadWhy.carriedFrom ? ` (carried from ${esc(d.aheadWhy.carriedFrom)})` : ""}.`);
   } catch (e) {}
   // credit on account applied to it, with Reverse where billing sees it (billing review 11-17, S2-9: the reversal
   // lived only on the Payments grid, which billing does not open); the reversal puts the credit back on the account
@@ -764,19 +774,44 @@ function dvTransferSettled(c, o, n) {
 // 9/3 and the revision went out dated 8/24). A revision that changes no amount keeps the original's date and posting
 // (lkSupersede); one that changes an amount goes out dated as the field says.
 function dvRevisionDateWord(c, n) {
+  const R = dvRevisionDate(c, n);
+  return R ? R.words : "";
+}
+// What a draft revision goes out dated and why, and whether its original's month is locked (billing re-walk 4, S3:
+// the Date field read 9/3 while the note said it goes out dated 8/1, the note kept saying "changes no amount" after an
+// amount was typed, and a revision of a July invoice with July locked said nothing of the lock). The Date field shows
+// the date the revision carries (dvRevisionDateField), and the note says the same.
+function dvRevisionDate(c, n) {
   try {
-    if (!c || !n || "invoice" !== n.type || "draft" !== n.status || !n.revisionOf) return "";
+    if (!c || !n || "invoice" !== n.type || "draft" !== n.status || !n.revisionOf) return null;
     const o = (c.invoices || []).find((x) => x.number === n.revisionOf && x.id !== n.id);
-    if (!o || !o.date || !Array.isArray(o.glLines) || "function" != typeof glInvoiceLinesLive) return "";
+    if (!o || !o.date || !Array.isArray(o.glLines) || "function" != typeof glInvoiceLinesLive) return null;
     const sum = (L) => {
-      const a = {};
-      (L || []).forEach((l) => (a[l.acct] = r2((a[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))));
-      return JSON.stringify(Object.keys(a).sort().filter((k) => Math.abs(a[k]) > 0.005).map((k) => [k, a[k]]));
+        const a = {};
+        (L || []).forEach((l) => (a[l.acct] = r2((a[l.acct] || 0) + (+l.dr || 0) - (+l.cr || 0))));
+        return JSON.stringify(Object.keys(a).sort().filter((k) => Math.abs(a[k]) > 0.005).map((k) => [k, a[k]]));
+      },
+      same = sum(o.glLines) === sum(glInvoiceLinesLive(c, n)),
+      ent = n.entityId || o.entityId || "",
+      locked = "function" == typeof glLocked && glLocked(o.date, ent, "ar"),
+      mon = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][+String(o.date).slice(5, 7) - 1] || String(o.date).slice(0, 7);
+    if (same) {
+      if (o.date === n.date) return null;
+      return {
+        date: o.date,
+        same: !0,
+        words: `Goes out dated ${fmtL(o.date)}, the date of ${esc(o.number)}: it changes no amount, so it keeps the original's date and posting and nothing in the ledger moves. Change an amount and it goes out dated ${fmtL(n.date)}${locked ? `; ${esc(mon)} is locked, so ${esc(o.number)} is reversed on ${fmtL(n.date)} too, nothing is written into ${esc(mon)}` : ""}.`,
+      };
+    }
+    return {
+      date: n.date,
+      same: !1,
+      words: locked
+        ? `${esc(mon)} is locked; this posts on ${fmtL(n.date)}. It changes an amount, so ${esc(o.number)} is reversed on ${fmtL(n.date)} and the revision posts that day; nothing is written into ${esc(mon)}.`
+        : `Goes out dated ${fmtL(n.date)}: it changes an amount, so ${esc(o.number)} (${fmtL(o.date)}) is reversed on ${fmtL(n.date)} and the revision posts that day.`,
     };
-    if (sum(o.glLines) !== sum(glInvoiceLinesLive(c, n)) || o.date === n.date) return "";
-    return `Goes out dated ${fmtL(o.date)}, the date of ${esc(o.number)}: it changes no amount, so it keeps the original's date and posting. Change an amount and it goes out dated ${fmtL(n.date)}.`;
   } catch (e) {
-    return "";
+    return null;
   }
 }
 // A settlement that is not cash, in the words every payment list uses (billing review 11-17, S2-7: an application of
@@ -790,14 +825,17 @@ function payNotCashWord(py) {
   return "";
 }
 // apply the client's credit on account to an open invoice the person picks (clientCreditApply, the one write)
+// The invoice that owes the most comes first and is the default; each says what it owes to the cent (billing re-walk 4,
+// S2-4: it defaulted to INV-2026-035, which owes 16 cents and read "$0 owed", and the toast said "$0 credit applied").
 function dvApplyCreditSheet(c) {
   const C = clientCredit(c),
-    open = (c.invoices || []).filter((i) => !["void", "draft"].includes(i.status) && docTotal(i).total - invoicePaid(c, i) > 0.005);
+    owed = (i) => r2(docTotal(i).total - invoicePaid(c, i)),
+    open = (c.invoices || []).filter((i) => !["void", "draft"].includes(i.status) && owed(i) > 0.005).sort((a, b) => owed(b) - owed(a));
   if (!(C.available > 0.005)) return toast(`${c.name} has no credit on account available`);
   if (!open.length) return toast(`${c.name} has no open invoice to apply it to: refund it instead`);
   mbModal(
     "Apply Credit on Account",
-    `<p class="small muted" style="margin:0 0 8px">${esc(c.name)} has ${money(C.available)} of credit on account. It pays the invoice you pick, up to what it owes.</p>${mbF("Invoice", `<select data-f="inv">${open.map((i) => `<option value="${esc(i.id)}">${esc(i.number)} · ${money(r2(docTotal(i).total - invoicePaid(c, i)))} owed</option>`).join("")}</select>`)}`,
+    `<p class="small muted" style="margin:0 0 8px">${esc(c.name)} has ${money(C.available)} of credit on account. It pays the invoice you pick, up to what it owes.</p>${mbF("Invoice", `<select data-f="inv">${open.map((i) => `<option value="${esc(i.id)}">${esc(i.number)} · ${money2(owed(i))} owed</option>`).join("")}</select>`)}`,
     {
       submit: "Apply the Credit",
       onSubmit: (f) => {
@@ -806,7 +844,7 @@ function dvApplyCreditSheet(c) {
         const R = clientCreditApply(c, inv);
         if (!R.ok) return toast(R.why), !1;
         save(), render();
-        rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]);
+        rcToast(`${money2(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => dvOpen("invoice", inv.id, c.id) }]);
       },
     },
   );
@@ -2105,3 +2143,75 @@ if ("function" == typeof sovBilled) {
     return v;
   };
 }
+
+// ---- the editor says what the document is while it is typed (billing re-walk 4, S3) --------------------------------------
+// The over-what-is-earned banner, a revision's date and its note were drawn with the editor and only changed when it
+// was drawn again, so a line raised past what is earned said nothing until the next redraw. After each change in an
+// editor's lines or fields, the banner, the revision's Date field and its note are read again and swapped in place.
+// A revision's Date field shows the date it carries: the original's while it changes no amount (read only, the note
+// says why), the field's own once an amount changes.
+function dvRevisionDateField(c, d, h) {
+  const R = dvRevisionDate(c, d);
+  if (!R || !R.same) return h;
+  return String(h).replace(/(<input type="date" data-d="date" value=")[^"]*("[^>]*?)( readonly)?>/, `$1${R.date}$2 readonly title="The date it carries while it changes no amount">`);
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    const h = base.apply(this, arguments);
+    try {
+      return d && "invoice" === d.type && d.revisionOf && "draft" === d.status ? dvRevisionDateField(c, d, h) : h;
+    } catch (e) {
+      return h;
+    }
+  };
+}
+let dvLiveT = 0;
+function dvLiveRefresh() {
+  try {
+    if ("undefined" == typeof docOpen || !docOpen || "invoice" !== docOpen.kind) return;
+    let c = null,
+      d = null;
+    for (const x of DB.clients || []) {
+      const f = findDoc(x, "invoice", docOpen.id);
+      if (f) {
+        (c = x), (d = f);
+        break;
+      }
+    }
+    const root = d && document.getElementById("doc-" + d.id);
+    if (!root || "draft" !== d.status) return;
+    // what is typed and not yet committed (a line's amount is written on change): read on a copy, the record untouched
+    const sh = JSON.parse(JSON.stringify(d));
+    root.querySelectorAll("tr[data-line]").forEach((tr) => {
+      const l = (sh.lines || []).find((x) => x.id === tr.dataset.line);
+      l &&
+        ["qty", "rate", "pct"].forEach((f) => {
+          const i = tr.querySelector(`input[data-f="${f}"]`);
+          if (!i || "" === i.value || i.readOnly) return;
+          let v = +i.value || 0;
+          "pct" === f && (v = Math.min(v, 100 - (+l.prevPct || 0)));
+          l[f] = v;
+        });
+    });
+    const tmp = document.createElement("div");
+    tmp.innerHTML = renderDocEditor(c, sh);
+    const nb = tmp.querySelector("#pb-ahead-total"),
+      ob = document.getElementById("pb-ahead-total");
+    nb && ob ? ob.innerHTML !== nb.innerHTML && (ob.innerHTML = nb.innerHTML) : nb ? root.insertAdjacentElement("beforebegin", nb) : ob && ob.remove();
+    const nw = tmp.querySelector("[data-revdate]"),
+      ow = root.querySelector("[data-revdate]"),
+      ni = tmp.querySelector('input[data-d="date"]'),
+      oi = root.querySelector('input[data-d="date"]');
+    nw && ow ? ow.innerHTML !== nw.innerHTML && (ow.innerHTML = nw.innerHTML) : nw && oi ? oi.insertAdjacentElement("afterend", nw) : ow && ow.remove();
+    ni && oi && document.activeElement !== oi && ((oi.value = ni.value), (oi.readOnly = ni.readOnly));
+  } catch (e) {}
+}
+["input", "change"].forEach((t) =>
+  document.addEventListener(t, (e) => {
+    const el = e.target;
+    if (!el || !el.closest || !el.closest('[id^="doc-"]')) return;
+    clearTimeout(dvLiveT);
+    dvLiveT = setTimeout(dvLiveRefresh, "change" === t ? 0 : 150);
+  }),
+);
