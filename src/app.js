@@ -15592,7 +15592,11 @@ function timeCloseGiven(e, out, how, by, cap) {
 const TIME_BY_HAND = /^(late|manual|log)$/;
 function timeAddedTo(e) {
   if (!e || !e.in || !e.out || e.forDate || !TIME_BY_HAND.test(String(e.source || "")) || timeSeenEnd(e)) return "";
-  const L = (DB.time || []).filter((t) => t !== e && t.id !== e.id && t.empId === e.empId && t.date === e.date && !t.forDate && !/^(void|rejected)$/.test(String(t.status || ""))).map(timeSeenEnd).filter(Boolean).sort();
+  const D = (DB.time || []).filter((t) => t !== e && t.id !== e.id && t.empId === e.empId && t.date === e.date && !t.forDate && !/^(void|rejected)$/.test(String(t.status || "")));
+  // one that claims the same time as a punch is an overlap first: the foreman picks (tkOverlapPick), and what is left
+  // after the pick is read here again
+  if (D.some((t) => t.in && String(t.in) < String(e.out) && String(e.in) < String(t.out || t.in))) return "";
+  const L = D.map(timeSeenEnd).filter(Boolean).sort();
   return L.length ? L[L.length - 1] : "";
 }
 // the punch's later-than-seen end, as a word to approve: the one on the record when it is for this end, else one worked
