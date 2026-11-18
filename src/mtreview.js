@@ -243,7 +243,7 @@ function mrvSpeakerOf(m, label) {
   const w = mrvWho(label);
   if (w && /[A-Za-z]/.test(label)) return keep({ uid: mrvUserId(w), name: w, how: "name" });
   const first = k.split(" ")[0];
-  if (first.length >= 3 && /^[a-z]/.test(first) && ((DB.vendors || []).some((v) => mtNorm(v.name).split(" ")[0] === first) || (DB.clients || []).some((c) => mtNorm(c.name).split(" ").includes(first)))) return keep({ outside: !0, how: "name" });
+  if (first.length >= 3 && /^[a-z]/.test(first) && (!!vendorNamedIn(label, "person") || (DB.clients || []).some((c) => mtNorm(c.name).split(" ").includes(first)))) return keep({ outside: !0, how: "name" });
   return { unknown: !0 };
 }
 function mrvSetSpeaker(label, value) {
@@ -333,7 +333,8 @@ const mrvHash = (s) => {
 // money said aloud, tied to the record it touches: a bill or an order from the vendor named, the amount if it was said
 function mrvMoneyLink(text, amount, projectId) {
   const hay = ` ${mtNorm(text)} `;
-  const V = (DB.vendors || []).filter((v) => v.name && hay.includes(` ${mtNorm(v.name)} `)).map((v) => v.name);
+  // the vendors the words name (the vendor reader: a whole name, a name on the card, never a shared word)
+  const V = vendorsNamedIn(text, "").map((v) => v.name);
   const bills = (DB.bills || []).filter((b) => V.some((v) => mtNorm(v) === mtNorm(b.vendor)) && (!projectId || !b.projectId || b.projectId === projectId));
   const pos = (DB.pos || []).filter((p) => V.some((v) => mtNorm(v) === mtNorm(p.vendor)) && (!projectId || !p.projectId || p.projectId === projectId));
   const tot = (b) => {

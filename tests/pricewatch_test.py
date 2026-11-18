@@ -219,7 +219,7 @@ async def main():
         await sign_in(pg, 'u_chen')
         await pg.evaluate("k => pwCaseSheet(k)", stud_key())
         cs = await pg.evaluate("() => ({ t: (document.querySelector('#mbm') || {}).innerText || '', prim: [...document.querySelectorAll('#mbm .btn.primary')].map(b => b.innerText.trim()), rows: document.querySelectorAll('#mbm .pw-hist tbody tr').length })")
-        C.ok('Money at Stake' in cs['t'] and 'Hypothesis' in cs['t'] and 'Wasted money comes out of raises, bonuses, staff and the extra value we give clients.' in cs['t'] and cs['rows'] >= 8, f'the case: money at stake, hypotheses, history with sources, the money line ({cs["rows"]} rows)')
+        C.ok('Money at Stake' in cs['t'] and 'Hypothesis' in cs['t'] and 'Wasted money comes out of raises, bonuses, more staff, charity or the client\'s extras.' in cs['t'] and cs['rows'] >= 8, f'the case: money at stake, hypotheses, history with sources, the money line ({cs["rows"]} rows)')
         C.ok(cs['prim'] == ['Ask Vendor for Credit'] and all(w in cs['t'] for w in ('Update the Price Book', 'Add to Next RFQ', 'Propose Explanation')), f'one blue primary, the next steps beside it ({cs["prim"]})')
         C.ok(not any(w in cs['t'].lower() for w in ('fraud', 'theft', 'suspicious', 'stole', 'accus')), 'neutral words, never an accusation')
 

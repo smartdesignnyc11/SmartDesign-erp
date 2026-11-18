@@ -493,7 +493,7 @@ function vbPost(x, f, m, after) {
 // (and pre-selected) for INV-2026-038. A line behind payments in full is not offered; one behind part of its amount
 // is offered for what is left of it.
 function vbDepositCands(cl, amount) {
-  const named = (t) => truthVendorHit(t, cl.name) || (cl.contacts || []).some((k) => k && k.name && truthVendorHit(t, String(k.name).split(" ").slice(-1)[0]));
+  const named = (t) => truthPartyHit(t, cl.name) || (cl.contacts || []).some((k) => k && k.name && truthPartyHit(t, String(k.name).split(" ").slice(-1)[0]));
   return (DB.txns || [])
     .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat))
     .map((t) => ({ t: t, left: payLineUse(t).left }))
