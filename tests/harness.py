@@ -21,6 +21,11 @@ async def open_app(p, phone=False):
     # the choice itself, and the screen and counts lints run once with the default to see the Table).
     if (os.environ.get('SD_PU_VIEW') or 'needs') != 'default':
         await ctx.add_init_script("try { localStorage.setItem('sd.pu.view.desk', 'needs'); localStorage.setItem('sd.pu.view.phone', 'needs'); } catch (e) {}")
+    # Offline suites never reach the real AI service. The file:// demo calls api.anthropic.com directly; a container
+    # that blocks it logs a CORS console error, which failed billback_gate, livejobs and spanish on 11-18 for reasons
+    # outside the app. Refusing the call makes it a plain network error (filtered below as ERR_) on every machine.
+    # A suite that mocks the AI registers its own page.route, which takes precedence over this one.
+    await ctx.route('https://api.anthropic.com/**', lambda r: r.abort())
     pg = await ctx.new_page()
     errs = []
     pg.on('pageerror', lambda e: errs.append(str(e)))
