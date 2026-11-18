@@ -850,6 +850,27 @@ function pbAhead(pid) {
     // others still bills the lines that are behind)
     out = { pid: pid, lines: [], total: 0, depPct: 0, depAmt: 0, net: 0 };
   if (!p || !c) return (pbCache[pid] = out);
+  // a job whose contract is not billed line by line (a design fee by milestone, a materials contract) is ahead by what
+  // the job's measure says, the same figure the gate asked about (billing re-walk 4, S2-2): its schedule lines are
+  // billed by the milestone's percentage, not by their own progress, so reading them line by line called a correctly
+  // billed signing milestone $2,100 ahead at boot and an invoice the gate stopped at $25,200 $34,489 on three lines
+  if ("function" == typeof pgBillsByLine && !pgBillsByLine(p)) {
+    try {
+      const M = pbJobMeasure(c, pid, null);
+      if (M && M.contract > 0) {
+        const cap = null != M.earned ? M.earned : M.contract,
+          over = r2(M.billed - cap),
+          pc = (v) => r2((100 * v) / M.contract);
+        out.net = over;
+        over > 0.5 &&
+          out.lines.push({ svId: "job:" + pid, job: !0, item: `${M.label} ${null != M.earned ? "fee" : "contract"}`, source: "Contract", billed: pc(M.billed), pct: pc(cap), net: pc(over), depPts: 0, scheduled: M.contract, amount: over, depAmt: 0, billedAmt: M.billed, cap: cap, by: null != M.earned ? "earned" : "contract", reasons: pbJobReasons(c, M) });
+      }
+    } catch (e) {
+      console.warn("billed ahead, job", e);
+    }
+    out.total = r2(out.lines.reduce((a, l) => a + l.amount, 0));
+    return (pbCache[pid] = out);
+  }
   let rows = [];
   try {
     rows = pgRows(pid) || [];
@@ -876,7 +897,7 @@ function pbAhead(pid) {
     const sent = r2(
         (c.invoices || [])
           .filter((i) => "sov" === i.mode && !["void", "draft"].includes(i.status))
-          .reduce((a, i) => a + (i.lines || []).filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + (+l.pct || 0), 0), 0),
+          .reduce((a, i) => a + (i.lines || []).filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + (+l.pct || 0), 0), +r.sv.carriedPct || 0),
       ),
       sentPts = r2(sent - pct);
     out.net = r2(out.net + ((+r.ev.scheduled || 0) * r2(sentPts - (co ? 0 : Math.min(dep, Math.max(0, sentPts))))) / 100);
@@ -889,12 +910,29 @@ function pbAhead(pid) {
   out.depAmt = r2(out.lines.reduce((a, l) => a + l.depAmt, 0));
   return (pbCache[pid] = out);
 }
+// the reasons given to bill ahead on the job's invoices that went out, latest first: they show where the figure shows
+function pbJobReasons(c, M) {
+  return (M.invs || [])
+    .filter((i) => i.aheadWhy && i.aheadWhy.why)
+    .map((i) => ({ number: i.number, by: i.aheadWhy.by || "", why: i.aheadWhy.why, at: i.aheadWhy.at || "", amount: +i.aheadWhy.amount || 0 }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+const pbReasonWords = (A) => {
+  const R = (A.lines || []).flatMap((l) => l.reasons || []);
+  return R.length ? ` · reason given on ${R[0].number}${R[0].by ? ` by ${R[0].by}` : ""}: ${R[0].why}${R.length > 1 ? ` (and ${R.length - 1} more)` : ""}` : "";
+};
+const pbReasonLead = (A) => {
+  const R = (A.lines || []).flatMap((l) => l.reasons || []);
+  return R.length ? `Reason: ${R[0].why} (${R[0].by ? R[0].by + ", " : ""}${R[0].number}) · ` : "";
+};
 const pbWords = (A) =>
   A.lines.length
-    ? `${money(A.total)} billed ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"} (${A.lines
-        .slice(0, 3)
-        .map((l) => `${l.item} ${l.billed}% billed, ${l.pct}% complete`)
-        .join("; ")}${A.lines.length > 3 ? "; …" : ""})${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}`
+    ? A.lines.some((l) => l.job)
+      ? `${money(A.total)} billed ahead: ${A.lines.map((l) => `${l.item}, ${money(l.billedAmt)} billed against ${money(l.cap)} ${"earned" === l.by ? "earned" : "signed"}`).join("; ")}${pbReasonWords(A)}`
+      : `${money(A.total)} billed ahead of the work on ${A.lines.length} line${1 === A.lines.length ? "" : "s"} (${A.lines
+          .slice(0, 3)
+          .map((l) => `${l.item} ${l.billed}% billed, ${l.pct}% complete`)
+          .join("; ")}${A.lines.length > 3 ? "; …" : ""})${A.depPct ? `, not counting the ${A.depPct}% deposit` : ""}`
     : "";
 // the pay application: a line under each line billed ahead, and the total on top; internal, never printed
 {
@@ -912,8 +950,10 @@ const pbWords = (A) =>
       }
       if (!d || "invoice" !== d.type || "sov" !== d.mode || "void" === d.status || !d.projectId) return h;
       const A = pbAhead(d.projectId),
-        F = "draft" === d.status ? pbFurther(c, d) : [];
-      if (!A.lines.length && !F.length) return h;
+        F0 = "draft" === d.status ? pbFurther(c, d) : [],
+        F = F0.filter((x) => !x.job),
+        FJ = F0.filter((x) => x.job);
+      if (!A.lines.length && !F0.length) return h;
       A.lines.forEach((l) => {
         const dl = (d.lines || []).find((x) => x.sovId === l.svId);
         if (!dl) return;
@@ -928,7 +968,9 @@ const pbWords = (A) =>
         fw = F.length
           ? ` This invoice bills ${F.length} line${1 === F.length ? "" : "s"} further ahead: ${F.map((x) => `${esc(x.l.item)} to ${x.to}% against ${x.pct}% complete${"cost" === x.basis ? " by cost" : ""}, ${money(x.amount)} this period${U.has(x.l.id) ? "" : " (reason given)"}`).join("; ")}.${U.size ? " A reason is asked before it goes out." : ""}`
           : "";
-      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}${d.aheadWhy.carriedFrom ? ` (the reason given on ${esc(d.aheadWhy.carriedFrom)}, carried to this revision)` : ""}: ${esc(d.aheadWhy.why)}` : !U.size && F.length && d.revisionOf && pbOrigReason(c, d) ? ` Covered by the reason given on ${esc(pbOrigReason(c, d).number)}: ${esc(pbOrigReason(c, d).aheadWhy.why)}; it goes on this revision's record when it is sent.` : ""}</div>` + h;
+      const fj = FJ.length ? ` <b>More than the contract: ${money(FJ[0].amount)}</b>. ${FJ[0].say}.${pbUncovered(c, d).some((x) => x.job) ? " Lower it, or give a reason to bill ahead when it goes out." : ""}` : "";
+      if (!A.lines.length && !F.length) return `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${fj.trim()}</div>` + h;
+      h = `<div class="note bad small no-doc-print pb-ahead-total" id="pb-ahead-total">${fj ? fj.trim() + " " : ""}${A.lines.length ? `<b>Billed ahead of the work: ${money(A.total)}</b> on ${A.lines.length} line${1 === A.lines.length ? "" : "s"}${A.depPct ? `, not counting the ${A.depPct}% deposit credited across the lines` : ""}. Nothing is changed; billing any of these lines further needs a reason.` : "<b>Billed further ahead of the work</b>."}${fw}${d.aheadWhy ? ` Sent further ahead by ${esc(d.aheadWhy.by)}${d.aheadWhy.carriedFrom ? ` (the reason given on ${esc(d.aheadWhy.carriedFrom)}, carried to this revision)` : ""}: ${esc(d.aheadWhy.why)}` : !U.size && F.length && d.revisionOf && pbOrigReason(c, d) ? ` Covered by the reason given on ${esc(pbOrigReason(c, d).number)}: ${esc(pbOrigReason(c, d).aheadWhy.why)}; it goes on this revision's record when it is sent.` : ""}</div>` + h;
     } catch (e) {
       console.warn("billed ahead lines", e);
     }
@@ -1061,7 +1103,107 @@ function pbEarnedOver(c, d) {
   });
   return out;
 }
+// ---- the whole invoice against the job's contract (billing re-walk 4, 11-18, S1-1 and S1-2) ----------------------------
+// pbEarnedOver reads each line by the record it carries, so a line with no record behind it was never read: a typed
+// "Additional design services" $25,200 on the $17,080 filing draft went out with no question ($63,630 billed on a
+// $42,700 fee), and a deposit drafted after a replacement contract was fully billed went out at $10,675 over (deposits
+// and retainers were skipped). The job's measure reads every dollar an invoice bills: typed lines, deposits,
+// retainers, linked lines alike, against the contract in force (the job's signed estimates that are not replaced or
+// turned into a change order, plus its approved change orders) less everything already billed on the job, and, where
+// the contract has a measure of what is earned (a design fee by milestone), against what is earned. What was bought
+// for the client and is billed back at cost (a reimbursable) is not contract billing and is read by its own gate.
+// One function: the gate at send, Lower It, the billed-ahead row on Home (billing's and the PM's), the viewer and
+// Ask all read it, so one job says one number.
+const pbOutside = (l) => !!l && !!(l.fromTxn || "reimbursable" === l.cat || l.fromBill || l.rebillOf);
+function pbInvAmt(i) {
+  if (!i || i.rebill || i.retainageRelease) return 0;
+  const t = docTotal(i),
+    out = (i.lines || []).filter(pbOutside).reduce((a, l) => a + (+lineAmount(l, i) || 0), 0);
+  return r2(t.sub - t.disc - (t.dep || 0) - out);
+}
+function pbContractDocs(c, pid) {
+  const one = (DB.projects || []).filter((p) => p.clientId === c.id).length <= 1,
+    ests = (c.estimates || []).filter((e) => e.projectId === pid && ["approved", "converted", "billed"].includes(e.status) && !e.replacedBy && !e.becameCo && !(e.contractAs && "co" === e.contractAs.as)),
+    cos = (c.changeOrders || []).filter((o) => ["approved", "billed"].includes(o.status) && (o.projectId ? o.projectId === pid : one));
+  return { ests: ests, cos: cos };
+}
+// opts.drafts: count other drafts too (the queue's room); d: the invoice being sent (not counted, nor what it revises)
+function pbJobMeasure(c, pid, d, opts) {
+  const o = opts || {};
+  if (!c || !pid) return null;
+  const K = pbContractDocs(c, pid);
+  if (!K.ests.length) return null;
+  // design hours are billed as they are worked (pbEarnedOver reads each hour); the estimate is a budget, not a cap
+  if (K.ests.some((e) => "design" === e.template && "hours" === e.billing)) return null;
+  const ids = new Set(K.ests.map((e) => e.id).concat(K.cos.map((x) => x.id))),
+    rev = d && d.revisionOf,
+    onJob = (i) => (i.projectId ? i.projectId === pid : ids.has(i.fromDoc) || ids.has(i.retainerOf) || ids.has(i.depositOf)),
+    invs = (c.invoices || []).filter(
+      (i) => (!d || i.id !== d.id) && !(rev && i.number === rev) && "void" !== i.status && (o.drafts || "draft" !== i.status) && !i.supersededBy && onJob(i),
+    ),
+    contract = r2(K.ests.reduce((a, e) => a + docNet(e), 0) + K.cos.reduce((a, x) => a + docNet(x), 0)),
+    billed = r2(invs.reduce((a, i) => a + pbInvAmt(i), 0));
+  // what is earned, where the contract says how: every estimate a design fee billed by milestone (the milestones
+  // reached); approved change orders count as earned (each of their lines is read on its own, pbEarnedOver)
+  let earned = null,
+    how = "";
+  if (K.ests.every((e) => "design" === e.template && "function" == typeof dmsReached)) {
+    earned = 0;
+    const said = [];
+    K.ests.forEach((e) => {
+      const ms = e.milestones || DESIGN_MILESTONES,
+        rc = dmsReached(e),
+        pct = ms.reduce((a, x, k) => a + (rc[k] ? +x.pct || 0 : 0), 0);
+      earned += (docNet(e) * pct) / 100;
+      said.push(`${e.number} ${pct}% by the milestones reached`);
+    });
+    earned = r2(earned + K.cos.reduce((a, x) => a + docNet(x), 0));
+    how = said.join(", ");
+  }
+  const label = K.ests.map((e) => e.number).join(" + ") + (K.cos.length ? ` + ${K.cos.length} change order${1 === K.cos.length ? "" : "s"}` : "");
+  return { pid: pid, contract: contract, billed: billed, earned: earned, how: how, label: label, invs: invs, ests: K.ests, cos: K.cos };
+}
+// What the invoice bills past the job's contract or what is earned, beyond what its own lines' rows already say
+function pbJobOver(c, d, rows) {
+  if (!c || !d || "invoice" !== d.type || "draft" !== d.status || !d.projectId || d.creditMemo || d.rebill || d.retainageRelease) return null;
+  const M = pbJobMeasure(c, d.projectId, d);
+  if (!M) return null;
+  const mine = pbInvAmt(d);
+  if (!(mine > 0.5)) return null;
+  const dep = invIsDeposit(d) || !!d.retainerOf || !!d.isDeposit,
+    overC = r2(M.billed + mine - M.contract),
+    overE = !dep && null != M.earned ? r2(M.billed + mine - M.earned) : -Infinity,
+    lineOver = r2((rows || []).filter((x) => "earned" === x.basis).reduce((a, x) => a + x.amount, 0)),
+    over = r2(Math.max(overC, overE) - lineOver);
+  if (!(over > 0.5)) return null;
+  const p = (DB.projects || []).find((x) => x.id === d.projectId),
+    job = p ? String(p.project.name).replace(/ [—-] .*$/, "") : "This job",
+    byE = overE >= overC,
+    cap = byE ? M.earned : M.contract,
+    typed = r2((d.lines || []).filter((l) => !l.fromLine && !l.sovId && !l.retainerLine && !pbOutside(l)).reduce((a, l) => a + (+lineAmount(l, d) || 0), 0)),
+    nums = M.invs.map((i) => i.number),
+    numW = nums.length ? ` (${esc(nums.slice(0, 4).join(", "))}${nums.length > 4 ? ", ..." : ""})` : "";
+  return {
+    l: { id: "job:" + d.projectId, item: `${job} contract (${M.label})`, sovId: "job:" + d.projectId },
+    to: r2(M.billed + mine),
+    pct: r2(cap),
+    basis: "earned",
+    job: !0,
+    amount: over,
+    say: `${esc(job)}: the contract is ${money(M.contract)} (${esc(M.label)})${byE ? `, ${money(M.earned)} of it earned (${esc(M.how)})` : ""}, ${money(M.billed)} billed${numW}, ${money(Math.max(0, r2(cap - M.billed)))} left to bill; this invoice bills ${money(mine)}${typed > 0.5 ? `, ${money(typed)} of it on typed lines with no estimate or change order line behind them` : ""}${dep ? " as a deposit or retainer" : ""}, ${money(over)} over ${byE ? "what is earned" : "the contract"}`,
+  };
+}
 function pbFurther(c, d) {
+  const R = pbFurtherLines(c, d);
+  try {
+    const J = pbJobOver(c, d, R);
+    J && R.push(J);
+  } catch (e) {
+    console.warn("job measure", e);
+  }
+  return R;
+}
+function pbFurtherLines(c, d) {
   if (d && "invoice" === d.type && "sov" !== d.mode) return pbEarnedOver(c, d);
   if (!d || "invoice" !== d.type || "sov" !== d.mode || !d.projectId) return [];
   const A = pbAhead(d.projectId),
@@ -1123,6 +1265,82 @@ function pbCovered(d, x, c) {
 function pbUncovered(c, d) {
   return pbFurther(c, d).filter((x) => !pbCovered(d, x, c));
 }
+// Lower It lowers (billing re-walk 4, S2-2): it opened the editor and said the figure, and the person had to find the
+// line. Each row over is brought to what is earned and not billed: the line it names to what is left on it (a
+// milestone's lines first back to their own share of the phase, then evenly), and the job's row from the typed lines
+// first, last typed first, then the linked lines evenly. Returns what changed, line by line, for the toast.
+function pbSetAmt(d, l, amt) {
+  const q = +l.qty || 1;
+  "sov" === d.mode ? (l.pct = +l.scheduled ? r2((100 * Math.max(0, amt)) / +l.scheduled) : 0) : ((l.qty = q), (l.rate = r2(Math.max(0, amt) / q)));
+}
+function pbLowerBy(d, lines, cut, said) {
+  let left = r2(cut);
+  lines.forEach((l) => {
+    if (!(left > 0.005)) return;
+    const a = +lineAmount(l, d) || 0,
+      by = Math.min(a, left);
+    if (!(by > 0.005)) return;
+    pbSetAmt(d, l, r2(a - by)), (left = r2(left - by)), said.push(`${l.item || "a line"} ${money(a)} to ${money(r2(a - by))}`);
+  });
+  return left;
+}
+function pbLowerEven(d, lines, cut, said) {
+  const tot = r2(lines.reduce((a, l) => a + (+lineAmount(l, d) || 0), 0));
+  if (!(tot > 0.005) || !(cut > 0.005)) return cut;
+  const k = Math.max(0, (tot - cut) / tot);
+  let done = 0;
+  lines.forEach((l, j) => {
+    const a = +lineAmount(l, d) || 0,
+      to = j === lines.length - 1 ? r2(tot - cut - done) : r2(a * k);
+    done = r2(done + to);
+    Math.abs(a - to) > 0.005 && (pbSetAmt(d, l, to), said.push(`${l.item || "a line"} ${money(a)} to ${money(to)}`));
+  });
+  return 0;
+}
+function pbLower(c, d) {
+  const said = [],
+    F = pbUncovered(c, d).filter((x) => "earned" === x.basis);
+  F.filter((x) => !x.job).forEach((x) => {
+    const id = String(x.l.id || ""),
+      cut = r2(x.amount),
+      fl = (k) => (d.lines || []).filter((l) => !l.retainerLine && String(l.fromLine || "").startsWith(k)),
+      m = /^earn:([^:]+):ms(\d+)$/.exec(id);
+    let L = [];
+    if (/^earn:(estimate|co):/.test(id)) L = (d.lines || []).filter((l) => l.fromLine === id.slice(5));
+    else if (m) {
+      // a milestone: each line back to its own share of its phase first (the line that was raised), then evenly
+      const E = (c.estimates || []).find((e) => e.id === m[1]),
+        pct = E && ((E.milestones || DESIGN_MILESTONES)[+m[2]] || {}).pct;
+      L = fl(`estimate:${m[1]}:`);
+      let left = cut;
+      E &&
+        pct &&
+        L.forEach((l) => {
+          const s = (E.lines || []).find((y) => String(l.fromLine).endsWith(":" + y.id)),
+            share = s ? r2(((+lineAmount(s, E) || 0) * pct) / 100) : null,
+            a = +lineAmount(l, d) || 0;
+          if (null == share || !(a - share > 0.005) || !(left > 0.005)) return;
+          const by = Math.min(r2(a - share), left);
+          pbSetAmt(d, l, r2(a - by)), (left = r2(left - by)), said.push(`${l.item} ${money(a)} to ${money(r2(a - by))}`);
+        });
+      return void (left > 0.005 && pbLowerEven(d, L, left, said));
+    } else if (/^earn:[^:]+$/.exec(id)) {
+      const k = id.slice(5),
+        one = (d.lines || []).find((l) => l.id === k);
+      L = one ? [one] : fl(`estimate:${k}:`);
+    }
+    L.length && pbLowerEven(d, L, cut, said);
+  });
+  // the job's row, read again after the lines above were lowered
+  const J = pbUncovered(c, d).find((x) => x.job);
+  if (J) {
+    const typed = (d.lines || []).filter((l) => !l.fromLine && !l.sovId && !l.retainerLine && !pbOutside(l) && (+lineAmount(l, d) || 0) > 0).reverse(),
+      rest = pbLowerBy(d, typed, J.amount, said),
+      linked = (d.lines || []).filter((l) => (l.fromLine || l.sovId) && !l.retainerLine && !pbOutside(l) && (+lineAmount(l, d) || 0) > 0);
+    rest > 0.005 && pbLowerEven(d, linked, rest, said);
+  }
+  return said;
+}
 function pbAheadGate(c, d, cont, act) {
   try {
     if (!d) return !1;
@@ -1174,14 +1392,42 @@ function pbAheadGate(c, d, cont, act) {
     // over what is earned: the safe step (blue) is to lower it, in the editor, with the figure to bring it to; billing
     // ahead of what is earned is the other choice, and needs the reason
     const lower = () => {
-        const say = `Lower ${d.number} by ${money(tot)} (${F.map((x) => `${x.l.item} to ${money(x.pct)}`).join("; ")}), then Send to Client`;
-        "function" == typeof dvEdit ? dvEdit({ c: c, d: d, kind: "invoice" }) : ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }), render());
-        setTimeout(() => ("function" == typeof rcToast ? rcToast(say, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }), render()) }]) : toast(say)), 60);
+        const before = docTotal(d).total;
+        let said = [];
+        try {
+          said = pbLower(c, d);
+        } catch (e) {
+          console.warn("lower it", e);
+        }
+        const after = docTotal(d).total;
+        said.length && (save(), audit("invoice", d.id, "lowered", money(before), money(after), `Lower It: ${said.join("; ")}`));
+        const left = pbUncovered(c, d).filter((x) => "earned" === x.basis),
+          say = said.length
+            ? `${d.number} lowered from ${money(before)} to ${money(after)}: ${said.join("; ")}${left.length ? `; still ${money(r2(left.reduce((a, x) => a + x.amount, 0)))} over, lower a line or give a reason` : ", then Send to Client"}`
+            : `Lower ${d.number} by ${money(tot)} (${F.map((x) => `${x.l.item} to ${money(x.pct)}`).join("; ")}), then Send to Client`;
+        "function" == typeof dvEdit ? dvEdit({ c: c, d: d, kind: "invoice" }) : ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }));
+        // drawn again with the lowered lines, and said at once. The redraw keeps an input a person typed in (its value
+        // is the typed one, not the attribute), so the lowered figures are written into the fields themselves.
+        render();
+        try {
+          const root = document.getElementById("doc-" + d.id);
+          root &&
+            root.querySelectorAll("tr[data-line]").forEach((tr) => {
+              const l = (d.lines || []).find((x) => x.id === tr.dataset.line);
+              l &&
+                ["qty", "rate", "pct"].forEach((f) => {
+                  const i = tr.querySelector(`input[data-f="${f}"]`);
+                  i && null != l[f] && String(i.value) !== String(l[f]) && (i.value = l[f]);
+                });
+            });
+          "function" == typeof dvLiveRefresh && dvLiveRefresh();
+        } catch (e) {}
+        "function" == typeof rcToast ? rcToast(say, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: d.id }), render()) }]) : toast(say);
       },
       open = () =>
         mbModal(
           `More Than Is Earned: ${esc(d.number || "")}`,
-          `<div class="note warn">${F.map((x) => x.say).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}${esc(d.number || "")} bills ${money(tot)} more than is earned and not billed. Lower it, or bill ahead of what is earned with a reason: the reason goes on the invoice's record with what it covers.</div><div class="f" style="margin-top:10px"><label>Reason to Bill Ahead</label><input data-f="why" placeholder="e.g. the client asked to be billed the sign-off now" enterkeyhint="done"></div>`,
+          `<div class="note warn">${F.map((x) => x.say || `${esc(x.l.item)}: ${x.to}% billed to date against ${x.pct}% complete, ${money(x.amount)} this period`).join("<br>")}<br>${d.aheadWhy ? `An earlier reason covered less than this: ${esc(d.aheadWhy.why)}. ` : ""}${esc(d.number || "")} bills ${money(tot)} more than is earned and not billed. Lower it, or bill ahead of what is earned with a reason: the reason goes on the invoice's record with what it covers.</div><div class="f" style="margin-top:10px"><label>Reason to Bill Ahead</label><input data-f="why" placeholder="e.g. the client asked to be billed the sign-off now" enterkeyhint="done"></div>`,
           {
             submit: "Lower It",
             alt: {
@@ -1255,8 +1501,8 @@ if ("function" == typeof billingRows) {
           const i = R.findIndex((x) => x.key === "ahead:" + p.id),
             row = {
               key: "ahead:" + p.id,
-              what: `Billed ahead: ${tdJob(p)}, ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`,
-              sub: `${pbWords(A)} · billing these lines further needs a reason`,
+              what: A.lines.some((l) => l.job) ? `Billed ahead: ${tdJob(p)}, ${money(A.total)}` : `Billed ahead: ${tdJob(p)}, ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`,
+              sub: `${pbReasonLead(A)}${pbWords(A)} · billing ${A.lines.some((l) => l.job) ? "this job" : "these lines"} further needs a reason`,
               amount: A.total,
               verb: "Review",
               run: () => (setCurrent(p.id), setView("billing")),
@@ -1307,8 +1553,9 @@ if ("function" == typeof nyhRowsAll) {
             route: "billing",
             kind: "ahead",
             projectId: p.id,
-            title: `Billed ahead: ${tdJob(p)}, ${money(A.total)} on ${n} line${1 === n ? "" : "s"}`,
-            why: `${pbWords(A)} · billing these lines further needs a reason`,
+            title: A.lines.some((l) => l.job) ? `Billed ahead: ${tdJob(p)}, ${money(A.total)}` : `Billed ahead: ${tdJob(p)}, ${money(A.total)} on ${n} line${1 === n ? "" : "s"}`,
+            // the reason given leads the row's words, so the row itself says why (billing re-walk 4, S2-2)
+            why: `${pbReasonLead(A)}${pbWords(A)} · billing ${A.lines.some((l) => l.job) ? "this job" : "these lines"} further needs a reason`,
             amount: A.total,
             verb: "Review",
             no: "",
@@ -1330,3 +1577,47 @@ if ("undefined" != typeof STD_MAP)
 // the client's own money ahead of the work is "money or a client waiting now" (standardMoneyNow), as a credit owed to
 // them is: their portal shows the lines billed past what is done until billing holds or explains them
 "undefined" != typeof STD_NOW_CLIENT && !STD_NOW_CLIENT.includes("ahead") && STD_NOW_CLIENT.push("ahead");
+// Ready to Bill offers nothing the gate would stop (billing re-walk 4, S1-2): each row that bills the contract (a
+// deposit, a milestone, a progress suggestion, an application, a materials balance) is read against the job's measure
+// (pbJobMeasure: the contract in force less everything billed, drafts included, and what is earned where the contract
+// says), so the queue never offers more than is left; a row with nothing left goes to the held rows with the reason.
+// What was bought for the client (reimbursable, floated) is not contract billing and is not read here.
+{
+  const base = readyToBill;
+  readyToBill = function () {
+    const R = base.apply(this, arguments);
+    try {
+      const K = ["deposit", "dmilestone", "progress", "application", "materials"],
+        room = {},
+        held = (R.held || []).slice();
+      let cut = !1;
+      const rows = (R.rows || [])
+        .map((r) => {
+          if (!r || !r.p || !r.c || !K.includes(r.kind)) return r;
+          const pid = r.p.id;
+          if (!(pid in room)) {
+            const M = pbJobMeasure(r.c, pid, null, { drafts: !0 });
+            room[pid] = M ? { M: M, c: r2(M.contract - M.billed), e: null != M.earned ? r2(M.earned - M.billed) : null } : null;
+          }
+          const Q = room[pid];
+          if (!Q) return r;
+          const left = r2(Math.max(0, "deposit" === r.kind || null == Q.e ? Q.c : Math.min(Q.c, Q.e)));
+          if (+r.amount <= left + 0.5) return ((Q.c = r2(Q.c - r.amount)), null != Q.e && (Q.e = r2(Q.e - r.amount))), r;
+          cut = !0;
+          const words = `${Q.M.label}: ${money(Q.M.contract)} signed${null != Q.M.earned ? `, ${money(Q.M.earned)} earned` : ""}, ${money(Q.M.billed)} billed or drafted`;
+          if (!(left > 0.5)) {
+            held.push({ p: r.p, c: r.c, sv: null, hid: `full:${pid}:${r.kind}`, line: "", amount: r2(r.amount), why: `${String(r.title || r.kind).replace(r.p.project.name + ": ", "")} is not offered: nothing is left to bill on the contract in force (${words})` });
+            return null;
+          }
+          (Q.c = r2(Q.c - left)), null != Q.e && (Q.e = r2(Q.e - left));
+          return Object.assign({}, r, { amount: left, title: `${r.title} · ${money(left)} of it is left to bill (${words})` });
+        })
+        .filter(Boolean);
+      if (!cut) return R;
+      return Object.assign({}, R, { rows: rows, held: held, amount: r2(rows.reduce((a, r) => a + (+r.amount || 0), 0)), n: rows.length });
+    } catch (e) {
+      console.warn("ready to bill, the job's measure", e);
+    }
+    return R;
+  };
+}
