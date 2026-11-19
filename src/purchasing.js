@@ -273,7 +273,7 @@ function puOrderRows(pid) {
   puLineOverRows(pid).forEach(put);
   puPreAwardRows(pid).forEach(put);
   puOverOrder(pid).forEach((x) =>
-    put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, pid: x.po.projectId, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to raises, bonuses, more staff or charity.", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
+    put({ id: "over:" + x.po.id, name: `${x.po.vendor}: ${money(x.over)} over ${x.po.number}`, pid: x.po.projectId, job: puJob(DB.projects.find((p) => p.id === x.po.projectId)), line: `Paid or billed ${money(x.out)} against an order of ${money(x.tot)}`, why: "Ask for the credit, or approve the difference with a reason. Money paid over the order is money that cannot go to " + MONEY_WHY + ".", act: "Open the Order", run: () => flowGo.po(x.po)(), tone: "bad", money: x.over, tile: "over", po: x.po }),
   );
   (DB.pos || [])
     .filter((po) => puLive(po) && (!pid || po.projectId === pid))
@@ -329,7 +329,7 @@ function puOrderRows(pid) {
       const C = pwCasesAll().filter((c) => "pwStoreCheaper" === c.det && (!pid || c.projectId === pid));
       const sum = r2(C.reduce((a, c) => a + (+c.amount || 0), 0));
       C.length &&
-        put({ id: "pw:store", name: `${money(sum)} paid above the best price`, job: "", line: `${C.length} store buy${1 === C.length ? "" : "s"}: ${C.map((c) => c.what || c.vendor).slice(0, 3).join(", ")}`, why: "Another store had it for less. Every dollar paid above the best price is a dollar not spent on raises, bonuses or the client.", act: "See the Buys", run: () => ((window.rfqTab = "pricewatch"), setView("rfq")), tone: "warn" });
+        put({ id: "pw:store", name: `${money(sum)} paid above the best price`, job: "", line: `${C.length} store buy${1 === C.length ? "" : "s"}: ${C.map((c) => c.what || c.vendor).slice(0, 3).join(", ")}`, why: "Another store had it for less. Every dollar paid above the best price is a dollar not spent on " + MONEY_WHY + ".", act: "See the Buys", run: () => ((window.rfqTab = "pricewatch"), setView("rfq")), tone: "warn" });
     }
   } catch (e) {}
   return R;
@@ -401,7 +401,7 @@ function puVendorRows() {
       name: `${money(W9.reduce((a, x) => a + x.paid, 0))} paid with no W-9 on file`,
       job: "",
       line: W9.map((x) => `${x.v.name} ${money(x.paid)}`).join(" · "),
-      why: "Collect each W-9 before the next payment and before year end. Money that goes out wrong comes back out of raises, bonuses, staff and charity.",
+      why: "Collect each W-9 before the next payment and before year end. Money that goes out wrong comes back out of " + MONEY_WHY + ".",
       act: "See the Vendors",
       run: () => puFilterVendors("now9"),
       tone: "bad",
@@ -1079,7 +1079,10 @@ function puReceive(po) {
   if (!L.length) return void toast(`${po.number} has nothing left to receive`);
   const field = ["foreman", "crew", "driver"].includes(role()),
     early = po.expected && "function" == typeof workdays && po.expected > today() ? workdays(today(), po.expected) - 1 : 0;
+  // Short combines with Damaged or Wrong on one line (PU-Safe 2, 11-18: 870 of 900 came and 30 of those were crushed;
+  // the sheet took one condition, so the 30 short or the 30 damaged went unclaimed): shortToo marks the line short as well
   const cond = {},
+    shortToo = {},
     CONDS = [["good", "Good"], ["short", "Short"], ["damaged", "Damaged"], ["wrong", "Wrong"]];
   L.forEach((l) => (cond[l.id] = "good"));
   const lineHtml = (l) => {
@@ -1097,7 +1100,7 @@ function puReceive(po) {
           rows = L.map((l) => {
             const i = m.querySelector(`[data-purq="${l.id}"]`),
               bi = m.querySelector(`[data-pubad="${l.id}"]`);
-            return { l: l, i: i, bi: bi, k: cond[l.id] || "good", raw: String((i && i.value) || "").trim(), badRaw: String((bi && bi.value) || "").trim() };
+            return { l: l, i: i, bi: bi, k: cond[l.id] || "good", sh: "short" === cond[l.id] || !!shortToo[l.id], raw: String((i && i.value) || "").trim(), badRaw: String((bi && bi.value) || "").trim() };
           });
         // a line marked Short, Damaged or Wrong needs its count (0 when none of it came)
         const sl = m.querySelector("[data-puslip]");
@@ -1117,7 +1120,7 @@ function puReceive(po) {
             if ("" === x.badRaw || !(+x.badRaw > 0)) return mark(x.bi, `How many pieces of the ${x.l.unit || "lot"} are ${x.k}?`);
             continue;
           }
-          if ("short" === x.k && c >= left(x.l) - 0.001) return mark(x.i, `Nothing is short: ${c} is everything still to come`);
+          if (x.sh && c >= left(x.l) - 0.001) return mark(x.i, `Nothing is short: ${c} is everything still to come`);
           if (["damaged", "wrong"].includes(x.k)) {
             const bad = +x.badRaw;
             if ("" === x.badRaw || !(bad > 0)) return mark(x.bi, `How many are ${x.k}?`);
@@ -1137,9 +1140,11 @@ function puReceive(po) {
           const c = Math.max(0, +x.raw || 0),
             bad = ["damaged", "wrong"].includes(x.k) ? +x.badRaw || 0 : 0,
             good = r2(c - bad),
-            q = "short" === x.k ? r2(left(x.l) - c) : bad;
+            short = x.sh ? r2(left(x.l) - c) : 0;
           good > 0 && came.push({ l: x.l, q: good });
-          "good" !== x.k && q > 0 && claims.push({ l: x.l, type: x.k, qty: q });
+          // what did not come, and what came damaged or wrong: each its own claim on the line
+          short > 0 && claims.push({ l: x.l, type: "short", qty: short });
+          bad > 0 && claims.push({ l: x.l, type: x.k, qty: bad });
         });
         if (!came.length && !claims.length) return mark(R[0].i, "Nothing is counted as arrived: type what came, or mark the line Short");
         const full = came.length ? puReceiveLines(po, came, note, slipName).full : !1;
@@ -1163,7 +1168,7 @@ function puReceive(po) {
           what = full ? "received in full" : came.length ? `${came.length} line${1 === came.length ? "" : "s"} received` : "nothing received",
           held = r2(claims.reduce((a, k) => a + (+k.amount || 0), 0));
         claims.length
-          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.pieces ? "pieces" : k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of raises, bonuses and the client's extras.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
+          ? toast(`${po.number}: ${what}${amt ? `, ${money(amt)}` : ""}; ${claims.map((k) => `${k.qty} ${k.pieces ? "pieces" : k.l.unit || ""} ${k.type} on ${k.l.item}`.replace(/\s+/g, " ")).join(", ")} claimed from ${po.vendor}${held ? `, ${money(held)} held` : ""}. Every dollar not credited comes out of ${MONEY_WHY}.`, { label: "Open", run: () => flowGo.po(po)() }, 9e3)
           : // the receipt's next step is the bill for what came (Bill It), as on the desktop's line-by-line cards
             "function" == typeof rcReceiptToast
             ? rcReceiptToast(po, `${po.number} · ${po.vendor} — ${what}${amt ? `, ${money(amt)}` : ""}`)
@@ -1181,9 +1186,15 @@ function puReceive(po) {
   m.querySelectorAll("[data-pucond]").forEach(
     (b) =>
       (b.onclick = () => {
-        const id = b.dataset.pul;
-        cond[id] = b.dataset.pucond;
-        m.querySelectorAll(`[data-pucond][data-pul="${id}"]`).forEach((x) => (x.classList.toggle("on", x === b), x.setAttribute("aria-pressed", String(x === b))));
+        const id = b.dataset.pul,
+          k = b.dataset.pucond,
+          was = cond[id];
+        // Short and Damaged (or Wrong) together: tapping one while the other is on keeps both
+        if ("good" === k) (cond[id] = "good"), (shortToo[id] = !1);
+        else if ("short" === k) ["damaged", "wrong"].includes(was) ? (shortToo[id] = !shortToo[id]) : ((cond[id] = "short" === was ? "good" : "short"), (shortToo[id] = !1));
+        else (shortToo[id] = "short" === was || !!shortToo[id]), (cond[id] = was === k ? (shortToo[id] ? "short" : "good") : k), "short" === cond[id] && (shortToo[id] = !1);
+        const on = (c) => c === cond[id] || ("short" === c && !!shortToo[id]);
+        m.querySelectorAll(`[data-pucond][data-pul="${id}"]`).forEach((x) => (x.classList.toggle("on", on(x.dataset.pucond)), x.setAttribute("aria-pressed", String(on(x.dataset.pucond)))));
         const w = m.querySelector(`[data-pubadw="${id}"]`),
           l = L.find((x) => x.id === id);
         w && (w.hidden = !(["damaged", "wrong"].includes(cond[id]) || (l && puLotLine(l) && "short" === cond[id])));
@@ -1197,7 +1208,7 @@ function puApproveRoute(W, st) {
   if (!st || !st.length) return ciApproveRoute(), void render();
   const m = mbModal(
     "Approve the Route",
-    `<p class="small" style="margin:0 0 10px">These sit in stock. Take them from the shelf and buy only the rest: buying what we own is money that cannot go to raises, bonuses or the client.</p>${st.map((s, i) => `<label class="pu-rq"><span data-nocase><b>${esc(s.name)}</b><span class="small muted">${puUnits(s.qty, s.unit)} at the ${esc(String(s.where).toLowerCase())} · for ${esc(s.buy.what)}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" data-pupick="${i}" placeholder="${esc(s.unit)}" aria-label="How many ${esc(s.unit)} of ${esc(s.name)}"></label>`).join("")}`,
+    `<p class="small" style="margin:0 0 10px">These sit in stock. Take them from the shelf and buy only the rest: buying what we own is money that cannot go to ${MONEY_WHY}.</p>${st.map((s, i) => `<label class="pu-rq"><span data-nocase><b>${esc(s.name)}</b><span class="small muted">${puUnits(s.qty, s.unit)} at the ${esc(String(s.where).toLowerCase())} · for ${esc(s.buy.what)}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" data-pupick="${i}" placeholder="${esc(s.unit)}" aria-label="How many ${esc(s.unit)} of ${esc(s.name)}"></label>`).join("")}`,
     {
       submit: "Pick From Stock and Approve",
       onSubmit: () => {
@@ -1301,7 +1312,7 @@ function puStockGate(R, go) {
   };
   const m = mbModal(
     "Check the Stock First",
-    `<p class="small muted" style="margin:0 0 8px">On the shelf now. Say how many to take; the driver picks them for the job, and the order buys the rest.</p>${S0.map((s, i) => `<div class="pu-rq"><span><b data-nocase>${esc(s.name)}</b><span class="small muted" data-nocase>${esc(puUnits(s.qty, s.unit))} at the ${esc(String(s.where).toLowerCase())}, for ${esc(s.need.name)}${s.sure ? "" : " (may be it: check)"}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" step="any" data-pustk="${i}" value="${want(s)}" aria-label="How many to take of ${esc(s.name)}"></div>`).join("")}<p class="small muted" style="margin:8px 0 0">Use what we own before buying: money spent on what is on the shelf cannot go to raises, bonuses, the client or charity.</p>`,
+    `<p class="small muted" style="margin:0 0 8px">On the shelf now. Say how many to take; the driver picks them for the job, and the order buys the rest.</p>${S0.map((s, i) => `<div class="pu-rq"><span><b data-nocase>${esc(s.name)}</b><span class="small muted" data-nocase>${esc(puUnits(s.qty, s.unit))} at the ${esc(String(s.where).toLowerCase())}, for ${esc(s.need.name)}${s.sure ? "" : " (may be it: check)"}</span></span><input type="number" inputmode="decimal" min="0" max="${s.qty}" step="any" data-pustk="${i}" value="${want(s)}" aria-label="How many to take of ${esc(s.name)}"></div>`).join("")}<p class="small muted" style="margin:8px 0 0">Use what we own before buying: money spent on what is on the shelf cannot go to ${MONEY_WHY}.</p>`,
     {
       submit: "Use the Stock, Buy the Rest",
       alt: { label: "Buy It Anyway", run: () => void setTimeout(go, 0) },

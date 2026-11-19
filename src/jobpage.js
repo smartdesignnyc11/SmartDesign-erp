@@ -875,7 +875,7 @@ function jpNoLineDetail(l) {
       .forEach((t) => out.push([`Card or bank: ${String(t.desc || t.vendor || "").slice(0, 40)} \u00b7 ${fmt(t.date)}`, money(-t.amt)]));
   }
   out.push(["Total with no estimate line", money(r2(l.actual + l.committed))]);
-  out.push(["Put each on its line, or add the line with a change order: cost with no line cannot be held to a budget or billed back, and all of it is in the forecast. Money that leaks here cannot go to raises, bonuses, more staff, charity or extra value for the client.", ""]);
+  out.push(["Put each on its line, or add the line with a change order: cost with no line cannot be held to a budget or billed back, and all of it is in the forecast. Money that leaks here cannot go to " + MONEY_WHY + ".", ""]);
   return out;
 }
 function jpLineFlag(l) {
@@ -1050,7 +1050,7 @@ function jpBudget() {
             : ""
         }</tfoot></table>`,
     back = U.length
-      ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to raises, bonuses, more staff, charity or extra value for the client.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
+      ? `<div class="jp-billback" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>${money(uAmt)} of ${esc(U.map((r) => ((r.line && (r.line.item || r.line.desc)) || r.label || "").split(/ [—–-] /)[0]).join(", "))} bought or delivered, not on an invoice yet. Money not billed back cannot go to ${MONEY_WHY}.</span>${jpCanBill() ? '<button type="button" class="jp-link jp-tap" data-jpdraft="1">Add to the Next Application</button>' : ""}</div>`
       : `<div class="jp-billback ok" id="jp-billback"><b>Bought for the Client, Not Billed Back</b><span>Nothing: everything bought for the client is on an invoice.</span></div>`;
   host.innerHTML = `${kpis}${lognc}${ahead}<div class="jp-cap">By Estimate Line · ${phone ? "tap" : "click"} one for what is behind it</div>${L.length ? lines + jpPrepaidLine(p, L) : '<p class="jp-empty">No estimate lines on this job yet. Convert the signed estimate, or Load Budget from Estimate, and each line shows here.</p>'}${back}`;
   host.querySelectorAll("[data-labmove]").forEach((b) => (b.onclick = (ev) => (ev.stopPropagation(), labOffLineSheet(p.id, b.dataset.labmove))));

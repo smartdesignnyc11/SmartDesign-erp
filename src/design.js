@@ -111,7 +111,7 @@ function pdBillBack(it) {
     audit("co", co.id, "bill-back drafted", "", it.name, `${money(selLinePrice(it))} for ${it.name}`);
   } catch (e) {}
   save(), render();
-  toast(`${co.number} drafted for ${pm}: ${it.name}, ${money(selLinePrice(it))}. Money not billed back cannot go to raises, bonuses, staff, charity or the client's extras.`, { label: "Open", run: () => flowGo.doc(c, "co", co)() }, 9e3);
+  toast(`${co.number} drafted for ${pm}: ${it.name}, ${money(selLinePrice(it))}. Money not billed back cannot go to ${MONEY_WHY}.`, { label: "Open", run: () => flowGo.doc(c, "co", co)() }, 9e3);
   return co;
 }
 function pdSelRow(it) {

@@ -125,8 +125,9 @@ async def t1_new_line(p, c):
       const F = pbFurther(C, D);
       D.aheadWhy = { why: 'demolition only', by: 'test', at: appNowIso(), covers: F.map(x => ({ sovId: x.l.sovId, item: x.l.item, to: x.to, amount: x.amount })) };
       const covered = pbUncovered(C, D).length;
-      // every other line that has a measure, billed well past it
-      D.lines.forEach(l => { if (!/^Demolition/.test(l.item)) l.pct = 60; }); save();
+      // every other line that has a measure, billed well past it (30 points: within the contract; at 60 the whole
+      // application bills past the contract and the gate asks the stronger More Than Is Earned, billing re-walk 4)
+      D.lines.forEach(l => { if (!/^Demolition/.test(l.item)) l.pct = 30; }); save();
       const more = pbUncovered(C, D).map(x => x.l.item);
       await docAction(C, D, 'send'); await sleep(300);
       const m = document.getElementById('mbm');

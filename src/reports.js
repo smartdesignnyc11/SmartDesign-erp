@@ -467,7 +467,12 @@ function rpTies(range, only) {
     // An invoice short-paid by under 50 cents reads as paid on the client record (clientFin keeps balances over
     // $0.50) while the ledger still holds the cents in 1100. They are listed, not hidden: collect or write them off.
     const short = rpShortPaid(),
-      shortAmt = rpSum(short, (x) => x.bal);
+      shortAmt = rpSum(short, (x) => x.bal),
+      // a client's credit on account (an overpayment, a revision billed lower than was paid, a deposit with no invoice)
+      // is a payment the ledger posted to 1100 with no open invoice to take it, so 1100 is the open invoices less those
+      // credits (billing re-walk 4, S2-3: the tie read "Off by $560.00" while a $560 credit sat unapplied)
+      cred = (DB.clients || []).map((c) => ({ c: c, amt: "function" == typeof clientCredit ? clientCredit(c).onAccount : 0 })).filter((x) => Math.abs(x.amt) > RP_EPS),
+      credAmt = rpSum(cred, (x) => x.amt);
     push(
       rpTie(
         "ar-books",
@@ -477,9 +482,14 @@ function rpTies(range, only) {
         [
           { label: "Open invoices (Reports, the Brief, Billing)", amt: open, drill: "ar:open" },
           { label: `Short-paid by cents, shown as paid (${short.length})`, amt: shortAmt, drill: "ar:short" },
-        ],
+        ].concat(cred.length ? [{ label: `Less credits on account, not yet applied (${cred.length})`, amt: r2(-credAmt), drill: "ar:credits" }] : []),
         "sum",
-        short.length ? `${short.map((x) => `${x.d.number} · ${x.c.name} paid ${rpCents(x.paid)} of ${rpCents(x.total)}`).join("; ")}: collect it or write it off with a reason, so the ledger and the client record agree. Every dollar matters.` : "",
+        [
+          short.length ? `${short.map((x) => `${x.d.number} · ${x.c.name} paid ${rpCents(x.paid)} of ${rpCents(x.total)}`).join("; ")}: collect it or write it off with a reason, so the ledger and the client record agree. Every dollar matters.` : "",
+          cred.length ? `${cred.map((x) => `${x.c.name} ${rpCents(x.amt)} on account`).join("; ")}: apply it to an open invoice or refund it.` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
       ),
     );
     push(
@@ -702,6 +712,12 @@ function rpDrillRows(key) {
     J &&
       (J.invs || []).forEach((i) => out.push({ date: i.date, desc: `${i.number} billed (gross)`, amt: r2(docTotal(i).sub - docTotal(i).disc), kind: "invoice", c: J.c, d: i, open: { type: "invoice", c: J.c, d: i } }));
     J && out.push({ date: today(), desc: `Earned to date: ${rpCents(J.contract)} × ${(100 * (+J.pct || 0)).toFixed(2)}% (cost ${rpCents(J.actual)} ÷ estimate at completion ${rpCents(J.eac)})`, amt: -r2(J.earned), kind: "earned", open: { go: { view: "reports", tab: "profit", proj: p.id } } });
+  } else if ("ar" === kind && "credits" === a) {
+    (DB.clients || []).forEach((c) =>
+      (c.payments || [])
+        .filter((py) => py.unapplied && Math.abs(+py.amount || 0) > RP_EPS)
+        .forEach((py) => out.push({ date: py.date, desc: `${c.name} · ${py.method || "Payment"} on account${py.ref ? " · " + py.ref : ""}`, amt: -r2(+py.amount || 0), kind: "payment", c: c, pay: py, open: null })),
+    );
   } else if ("ar" === kind && "short" === a) {
     rpShortPaid().forEach((x) => out.push({ date: x.d.date, desc: `${x.d.number} · ${x.c.name} · paid ${rpCents(x.paid)} of ${rpCents(x.total)}`, amt: x.bal, kind: "invoice", c: x.c, d: x.d, open: { type: "invoice", c: x.c, d: x.d } }));
   } else if ("ar" === kind || "ret" === kind) {
@@ -953,7 +969,7 @@ function rpOverheadHtml(range) {
   const pct = (v) => (null == v ? "—" : `${Math.round(v)}%`);
   return `<div class="rp-oh" data-rpoh="1"><h3 class="rep-h">Overhead Analysis</h3><div class="cash-grid rp-oh-kpi"><div><span>Average Monthly Overhead</span><b>${money(O.avgOH)}</b><i>${O.full.length ? `${O.full[0].ym} to ${O.full[O.full.length - 1].ym}, the last ${O.full.length} full month${1 === O.full.length ? "" : "s"}` : "no full month yet"}</i></div><div><span>Gross Margin</span><b>${O.gm ? Math.round(100 * O.gm) + "%" : "—"}</b><i>the same months</i></div><div><span>Break-Even Monthly Revenue</span><b data-rpbreakeven="${O.breakEven || 0}">${null == O.breakEven ? "—" : money(O.breakEven)}</b><i>${null == O.breakEven ? "no gross margin in those months to cover it" : `overhead ${money(O.avgOH)} ÷ gross margin ${Math.round(100 * O.gm)}%`}</i></div><div><span>Burden Rate</span><b>${O.trailing ? (100 * O.trailing.rate).toFixed(1) + "%" : "—"}</b><i>${O.absorption ? `${O.absorption.under >= 0 ? "under" : "over"}-absorbed ${money(Math.abs(O.absorption.under))} in the period` : ""}</i></div></div><div class="tw"><table class="t rep-t rp-t"><thead><tr><th>Category</th>${O.months.map((m) => `<th class="money">${m.ym}</th>`).join("")}<th class="money">Total</th></tr></thead><tbody>${O.cats
     .map((c) => `<tr><td>${esc(c)}</td>${O.months.map((m) => `<td class="money">${m.lines[c] ? money(m.lines[c]) : "—"}</td>`).join("")}<td class="money">${money(rpSum(O.months, (m) => m.lines[c] || 0))}</td></tr>`)
-    .join("")}<tr class="grand"><td>Overhead</td>${O.months.map((m) => `<td class="money">${money(m.ohT)}</td>`).join("")}<td class="money">${money(rpSum(O.months, (m) => m.ohT))}</td></tr><tr class="dim"><td>Revenue</td>${O.months.map((m) => `<td class="money">${m.income ? money(m.income) : "—"}</td>`).join("")}<td class="money">${money(rpSum(O.months, (m) => m.income))}</td></tr><tr class="dim"><td>Overhead % of Revenue</td>${O.months.map((m) => `<td class="money">${pct(m.pct)}</td>`).join("")}<td class="money">${pct(rpSum(O.months, (m) => m.income) ? (100 * rpSum(O.months, (m) => m.ohT)) / rpSum(O.months, (m) => m.income) : null)}</td></tr></tbody></table></div><p class="small muted">Each month's operating expenses on the P&amp;L by category, Needs Category included until it is coded. Break-even monthly revenue is the revenue whose gross profit pays one month's overhead: below it the firm loses money before any project margin is counted. Money wasted is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.</p></div>`;
+    .join("")}<tr class="grand"><td>Overhead</td>${O.months.map((m) => `<td class="money">${money(m.ohT)}</td>`).join("")}<td class="money">${money(rpSum(O.months, (m) => m.ohT))}</td></tr><tr class="dim"><td>Revenue</td>${O.months.map((m) => `<td class="money">${m.income ? money(m.income) : "—"}</td>`).join("")}<td class="money">${money(rpSum(O.months, (m) => m.income))}</td></tr><tr class="dim"><td>Overhead % of Revenue</td>${O.months.map((m) => `<td class="money">${pct(m.pct)}</td>`).join("")}<td class="money">${pct(rpSum(O.months, (m) => m.income) ? (100 * rpSum(O.months, (m) => m.ohT)) / rpSum(O.months, (m) => m.income) : null)}</td></tr></tbody></table></div><p class="small muted">Each month's operating expenses on the P&amp;L by category, Needs Category included until it is coded. Break-even monthly revenue is the revenue whose gross profit pays one month's overhead: below it the firm loses money before any project margin is counted. Money wasted is money that cannot go to ${MONEY_WHY}.</p></div>`;
 }
 // What the forecast starts from: the bank's own lines, never a payment only recorded (Financial truth). A payment
 // recorded and not seen at the bank is named beside it, outside the figure.

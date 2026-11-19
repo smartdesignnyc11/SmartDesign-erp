@@ -276,7 +276,7 @@ function ydInsRender() {
   const kept = O.filter((o) => !ydObFirm(o)).map((o) => {
     const v = (o.covers || []).includes("vendor") || /certificate of insurance/i.test(ydObName(o)),
       p = (DB.projects || []).find((x) => (o.covers || []).includes(x.id));
-    const vend = v && (DB.vendors || []).find((x) => (o.covers || []).includes("vendor") && (o.party === x.name || String(o.name || "").includes(x.name)));
+    const vend = v && (o.covers || []).includes("vendor") ? vendorByName(o.party) || vendorNamedIn(o.name, "") : null;
     return { id: "k:" + o.id, sec: "kept", title: ydObName(o), meta: v ? "kept with the vendor" : p ? `kept with ${shortName(p)}` : "kept with its record", when: o.expires ? fmt(o.expires) : "", act: vend ? "Open Vendor" : "Open", run: () => (vend && "function" == typeof openVendor ? (setView("vendors"), setTimeout(() => openVendor(vend.id), 60)) : v ? setView("vendors") : p ? ("function" == typeof jpOpenJob ? jpOpenJob(p.id, "files") : setView("files")) : bnObModal(o.id)) };
   });
   // each vendor's certificate is kept on the vendor (the old page listed them with Open Vendor): one tap to its record

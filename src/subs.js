@@ -248,16 +248,15 @@ function pcReleasedBy(b, h) {
 }
 // the bank and card lines to this vendor that no bill, payment or order holds: a charge that may already have paid it
 function pcLooseTxns(b, amounts) {
-  const n = scLow(b.vendor).split(/\s+/)[0],
-    from = iso(addDays(b.date || today(), -15)),
+  const from = iso(addDays(b.date || today(), -15)),
     to = iso(addDays(b.date || today(), 75)),
     held = new Set((DB.payments || []).map((p) => p.txnId).filter(Boolean));
   (DB.pos || []).forEach((po) => (po.matchedTxns || []).forEach((id) => held.add(id)));
   return (DB.txns || []).filter((t) => {
     if (!(+t.amt < 0) || t.billId || held.has(t.id) || t.retId) return !1;
     if (!t.date || t.date < from || t.date > to) return !1;
-    const who = scLow(`${t.vendor || ""} ${t.desc || ""}`);
-    if (!(n.length > 2 && who.includes(n))) return !1;
+    // the line names this vendor (the vendor reader), never by its first word alone
+    if (!truthVendorHit(t, b.vendor)) return !1;
     return amounts.some((a) => a > 0 && Math.abs(Math.abs(+t.amt) - a) <= 1);
   });
 }
@@ -1506,7 +1505,7 @@ function pcOverpaid() {
       const R = x.b.recover || {},
         back = r2(
           (DB.bills || []).filter((c) => scLow(c.vendor) === scLow(x.b.vendor) && scLive(c) && billTotal(c) < 0 && (c.recovers === x.b.id || (R.at && c.date >= String(R.at).slice(0, 10)))).reduce((a, c) => a - billTotal(c), 0) +
-            (DB.txns || []).filter((t) => +t.amt > 0 && R.at && t.date >= String(R.at).slice(0, 10) && scLow(`${t.vendor || ""} ${t.desc || ""}`).includes(scLow(x.b.vendor).split(/\s+/)[0])).reduce((a, t) => a + +t.amt, 0),
+            (DB.txns || []).filter((t) => +t.amt > 0 && R.at && t.date >= String(R.at).slice(0, 10) && truthVendorHit(t, x.b.vendor)).reduce((a, t) => a + +t.amt, 0),
         );
       return Object.assign(x, { requested: !!R.draftId, back: back, open: r2(Math.max(0, x.over - back)) });
     })

@@ -1426,4 +1426,14 @@ esAdd({
   "Late time for {d}": "Tiempo tardío del {d}",
   "added on {d}": "agregado el {d}",
   "Late time for {d}: an adjustment in the open period, for the controller": "Tiempo tardío del {d}: un ajuste en el período abierto, para el contralor",
+  // the fourth walk (11-18): hours the app did not see, by every route; a day off on Crew
+  "{d} to {d} added by hand to a day the app clocked {x} to {d}: the app saw none of these hours.": "{d} a {d} agregado a mano a un día que la app ponchó a {x} hasta las {d}: la app no vio ninguna de estas horas.",
+  "Clocked out by the foreman at {d} ({n} h {n} min earlier).": "El capataz le ponchó la salida a las {d} ({n} h {n} min antes).",
+  "Clocked out by the foreman at {d}.": "El capataz le ponchó la salida a las {d}.",
+  "Out changed to {d} after {x} said when he left.": "La salida se cambió a las {d} después de que {x} dijo a qué hora salió.",
+  "He said {d} ({n} h {n} min earlier), answering Still Working.": "Él dijo las {d} ({n} h {n} min antes), al contestar Sigo Trabajando.",
+  "He said {d}, answering Still Working.": "Él dijo las {d}, al contestar Sigo Trabajando.",
+  "Not a work day: nobody is expected.": "No es día de trabajo: no se espera a nadie.",
+  "Say why the hours are late, in words (two words or more): it goes on the record.": "Di por qué las horas llegan tarde, con palabras (dos o más): queda en el registro.",
+  "{n} h for {x} sent for approval. The app clocked you to {d} that day, so your foreman says why before these hours are paid": "{n} h del {x} enviadas para aprobar. La app te ponchó hasta las {d} ese día, así que tu capataz dice por qué antes de que se paguen estas horas",
 });

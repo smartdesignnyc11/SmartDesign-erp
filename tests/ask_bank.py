@@ -136,9 +136,11 @@ def norm(s):
 
 def num_forms(v, pct=False):
     v = abs(float(v))
-    forms = {f"{round(v):,}"}
+    # A whole-dollar truth also matches its exact cents form ("$76,000.00"): money on orders shows to the cent
+    # (lane-pusafe2, 11-18), and the lookahead below rightly refuses "76,000" inside "76,000.50".
+    forms = {f"{round(v):,}", f"{v:,.2f}"}
     if abs(v - round(v)) > 0.004:
-        forms |= {f"{v:,.2f}", f"{v:,.1f}"}
+        forms |= {f"{v:,.1f}"}
     if pct:
         return [f + '%' for f in forms] + [f + ' %' for f in forms] + [f + ' percent' for f in forms]
     return sorted(forms)

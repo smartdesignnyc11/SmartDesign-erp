@@ -90,6 +90,8 @@ function puPoNext(po, doc) {
   return { btn: pick || null };
 }
 function puPoHeadHtml(po) {
+  // the order's money to the cent, as its paper prints it (PU-Safe 2, 11-18: $196.50 read $197 on the screen)
+  const money = unitMoney;
   const p = (DB.projects || []).find((x) => x.id === po.projectId),
     t = poTotal(po).total,
     paid = poPaid(po),
@@ -260,11 +262,8 @@ function puVendorFacts(v) {
 // (the last price against the item's median). One history: itemPriceHistory (src/app.js), which reads the order lines,
 // the bills, the card and bank receipts and the quotes. The items are the ones on this vendor's orders, and the receipt
 // price book's items bought at its stores.
-const puVendorIs = (v, name) => {
-  const a = String(v.name || "").toLowerCase(),
-    b = String(name || "").toLowerCase();
-  return !!a && (b === a || b.startsWith(a + " ") || b.startsWith(a + " \u2014"));
-};
+// the vendor's own orders, prices and store visits: its name, or a store label that names it (the vendor reader)
+const puVendorIs = (v, name) => !!v && !!v.name && (vendorNameSame(v.name, name) || vendorTextHit(name, v, ""));
 function puVendorPrices(v) {
   if ("function" != typeof itemPriceHistory) return [];
   const keys = new Map();

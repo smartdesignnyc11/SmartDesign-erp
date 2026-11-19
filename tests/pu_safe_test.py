@@ -176,7 +176,9 @@ async def desk(p, c):
     t2 = await toast(pg)
     P = await pg.evaluate("n => { const p = DB.pos.find(x => x.number === n); return { exp: p.expected, conf: p.confirmed, lines: p.lines.map(l => [l.qty, l.price]) }; }", po['n'])
     c.ok(P['exp'] == '2026-09-21' and P['conf'] and P['conf']['number'] == 'ACK-7781' and P['conf']['was'] == '2026-09-07', f'6b: accepted, the confirmed date is the order\'s, the old date kept ({P})')
-    c.ok(P['lines'][0] == [25, 4.5], '6: accepting does not rewrite the order\'s lines')
+    # PU-Safe 2 (11-18) changed this pin: the accepted quantity and price become the order's lines (the walk found the
+    # order left at 25 at $4.50, so Receive asked for 5 that never come and the bill at $4.86 was flagged again)
+    c.ok(P['lines'][0] == [20, 4.86], f'6: accepting takes the confirmed quantity and price onto the order\'s line ({P["lines"][0]})')
     c.ok('ACK-7781' in t2 and 'Open' in t2, f'6: the acceptance toasts with Open ({t2})')
     t = await view_text(pg)
     c.ok('confirmation ACK-7781 differs' not in t, '6: the row leaves Needs You once accepted')

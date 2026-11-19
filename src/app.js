@@ -1225,6 +1225,9 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
     return (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
   },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
+// Why money matters, in Alan's words (2026-10-11; charity added 10-17): the one wording every money-leak toast, flag,
+// case and answer uses after "cannot go to" (PU-Safe 2, 11-18: fourteen copies, half without charity). Change it here.
+const MONEY_WHY = "raises, bonuses, more staff, charity or the client's extras";
 // A line the firm does not price (lane P, 11-12): Excluded (out of the scope, printed so the client sees it is not
 // in the price) or TBD (to be priced). It prints its item with the word where the amount was and counts $0 in the
 // line's amount, its budget, the document's totals and the schedule of values built from it. One test, used by all.
@@ -1256,6 +1259,21 @@ function docTotal(d) {
     ret = "invoice" === d.type ? r2((sub - disc) * ((+d.retainagePct || 0) / 100)) : 0;
   return { sub: sub, disc: disc, tax: tax, ret: ret, total: r2(sub - disc + tax - ret), taxable: taxable };
 }
+// What a copy keeps besides its lines, by both Duplicates (the whole document and Copy Lines). An invoice keeps what it
+// bills from, so the gate at send reads it as what it bills again; an estimate keeps how it bills (billing re-walk 4,
+// S2-1: a copy of the signed EST-2026-D45 came out a Simple estimate with no milestones, and as a separate contract it
+// converted 100% with no gate): its template, its billing, its milestones and its deposit, and says what it copies.
+function docCopyKeeps(d, n, k) {
+  if (!d || !n) return n;
+  "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone));
+  "estimate" === k &&
+    (d.template && (n.template = d.template),
+    d.billing && (n.billing = d.billing),
+    Array.isArray(d.milestones) && (n.milestones = d.milestones.map((x) => ({ ...x }))),
+    null != d.depositPct && "" !== d.depositPct && (n.depositPct = d.depositPct));
+  ("invoice" === k || "estimate" === k) && (n.copyOf = d.number);
+  return n;
+}
 function nextNumber(kind) {
   const k = { estimate: "est", co: "co", invoice: "inv" }[kind];
   DB.company.seq[k] = (DB.company.seq[k] || 0) + 1;
@@ -1273,12 +1291,16 @@ function invoiceStatus(c, x) {
         : "sent";
 }
 function sovBilled(c, sovId, exceptId) {
-  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit)
-  return c.invoices
-    .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
-    .flatMap((i) => i.lines)
-    .filter((l) => l.sovId === sovId)
-    .reduce((a, l) => a + (+l.pct || 0), 0);
+  // work billed on a line: a deposit is never work done, whatever its shape (invIsDeposit); a replacement contract's
+  // line starts with its share of what was billed on the contract it replaced (carriedPct, estReplaceApply)
+  const sv = (c.sov || []).find((v) => v.id === sovId);
+  return (
+    c.invoices
+      .filter((i) => "sov" === i.mode && "void" !== i.status && i.id !== exceptId && !invIsDeposit(i))
+      .flatMap((i) => i.lines)
+      .filter((l) => l.sovId === sovId)
+      .reduce((a, l) => a + (+l.pct || 0), 0) + ((sv && +sv.carriedPct) || 0)
+  );
 }
 function clientFin(c) {
   const approvedCO = c.changeOrders
@@ -2404,13 +2426,14 @@ async function load(opts = {}) {
         // says when they left: it is never approved or paid as it stands (the crew expert, 11-15)
         if ("geo" === t.source || t.auto) timeHold(t, t.lastOnSite || t.in, "the last reading on site");
         else {
-          const d = new Date(new Date(t.in).getTime() + 36e6);
-          (t.out = appIso(d)),
-            (t.autoClosed = !0),
-            (t.status = "open"),
-            (t.notes =
-              (t.notes ? t.notes + " " : "") +
-              "Auto-closed at 10 h — forgot to clock out; confirm the real time.");
+          // closed where the app stopped seeing him work, as the sweep does (tkHandSeenCap: his 8 h 15 mark, the end of
+          // the work day, or his last Still Working), and held: that end is the app's sight of it (timeHold)
+          let cap = "";
+          try {
+            cap = "function" == typeof tkHandSeenCap ? tkHandSeenCap(t) : "";
+          } catch (x) {}
+          timeHold(t, cap || appIso(new Date(new Date(t.in).getTime() + 36e6)), "nobody clocked out");
+          t.notes = (t.notes ? t.notes + " " : "") + "Closed by the app: nobody clocked out. Confirm when you left.";
         }
       }
       t.work = t.work || [];
@@ -9792,7 +9815,7 @@ function docMarkSentSheet(c, d) {
     `Mark Sent — ${esc(d.number)}`,
     `<p class="small muted" style="margin:0 0 10px">Record a sending done outside the app. To send it from here, close this and use Review and Send.</p>
       ${mbF("How It Went", `<select data-f="how"><option value="">Choose…</option>${HOW.map((x) => `<option>${esc(x)}</option>`).join("")}</select>`)}
-      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" max="${today()}">`)}</div>`,
+      <div class="grid2">${mbF("Sent To", `<input data-f="to" value="${esc(pc.email || "")}" placeholder="name@example.com">`)}${mbF("Sent On", `<input type="date" data-f="on" value="${today()}" max="${today()}">`)}</div>`,
     {
       submit: "Record It Sent",
       onSubmit: (f) => {
@@ -9969,8 +9992,7 @@ async function docAction(c, d, a) {
         ...("sov" === d.mode ? {} : { lines: d.lines.filter((l) => !("invoice" === k && l.retainerLine)).map((l) => ({ ...l, id: uid("l") })) }),
       },
     });
-    // what it bills from goes with the copy, so the gate at send reads it (as the line-picking Duplicate does)
-    "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone), (n.copyOf = d.number));
+    docCopyKeeps(d, n, k);
     (docOpen = { kind: k, id: n.id }), toast(`${n.number} created`);
   }
   if ("void" === a) {
@@ -12004,6 +12026,8 @@ function renderPOs() {
     });
 }
 function renderPODoc(po) {
+  // the order's money to the cent, as its paper prints it (PU-Safe 2, 11-18)
+  const money = unitMoney;
   const t = poTotal(po),
     st = poState(po),
     paid = poPaid(po),
@@ -12017,8 +12041,7 @@ function renderPODoc(po) {
           !(po.matchedTxns || []).includes(x.id) &&
           x.amt < 0 &&
           void 0 !== x.projectId &&
-          ((x.vendor || "").toLowerCase() === po.vendor.toLowerCase() ||
-            (x.desc || "").toLowerCase().includes(po.vendor.toLowerCase().split(" ")[0])) &&
+          (vendorNameSame(x.vendor, po.vendor) || truthVendorHit(x, po.vendor)) &&
           parse(x.date) >= parse(addDays(po.date, -3)),
       )
       .slice(0, 6);
@@ -12267,8 +12290,7 @@ function matchPO(po) {
       !(po.matchedTxns || []).includes(t.id) &&
       (!t.projectId || t.projectId === po.projectId) &&
       parse(t.date) >= parse(addDays(po.date, -3)) &&
-      ((t.vendor || "").toLowerCase() === po.vendor.toLowerCase() ||
-        (t.desc || "").toLowerCase().includes(po.vendor.toLowerCase().split(" ")[0])),
+      (vendorNameSame(t.vendor, po.vendor) || truthVendorHit(t, po.vendor)),
   );
   for (const t of cands) {
     const amt = -t.amt,
@@ -12313,11 +12335,8 @@ function matchAllPOs() {
   DB.txns
     .filter((t) => t.projectId === S.id && t.amt < 0 && !t.poId && isJobCat(t.cat))
     .forEach((t) => {
-      t.noPO =
-        vendors.has((t.vendor || "").toLowerCase()) ||
-        [...vendors].some(
-          (v) => (t.desc || "").toLowerCase().includes(v.split(" ")[0]) && v.split(" ")[0].length > 3,
-        );
+      // the line names one of the job's order vendors (the vendor reader), never by a first word alone
+      t.noPO = vendors.has((t.vendor || "").toLowerCase()) || [...vendors].some((v) => truthVendorHit(t, v));
     }),
     save(),
     render(),
@@ -12479,20 +12498,73 @@ function newPODialog() {
     }),
     setTimeout(() => $("#e-vendor").focus(), 50);
 }
+// A line's quantity as a vendor reads it on the order's paper and mail: a lump-sum line (1 ls, a lot) is "lump sum",
+// never "1 ls" (PU-Safe 2, 11-18)
+const poLump = (l) => !!l && /^(ls|l\.s\.|lot|lump|lump sum)$/i.test(String(l.unit || "").trim()) && (+l.qty || 1) <= 1;
+function poQtyWords(l) {
+  return poLump(l) ? "lump sum" : `${(l && l.qty) || 0} ${(l && l.unit) || ""}`.trim();
+}
 function printPO(po) {
   const t = poTotal(po),
-    html = `<!doctype html><html><head><title>${esc(po.number)}</title><style>body{font:13px/1.45 -apple-system,"Segoe UI",Helvetica,Arial;color:#1D2430;margin:40px;max-width:820px}h1{font-size:24px;margin:0}.top{display:flex;justify-content:space-between;border-bottom:2px solid #1D2430;padding-bottom:14px;margin-bottom:18px}.s{color:#6b7480;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px}table{width:100%;border-collapse:collapse}th{font-size:11.5px;text-align:left;border-bottom:2px solid #D9DDE3;padding:6px 8px;color:#4A5462}td{padding:7px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top}.r{text-align:right;white-space:nowrap}.tot{margin-left:auto;width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:10px}.big{font-size:17px;font-weight:700;border-top:2px solid #1D2430;padding-top:6px}.tc{margin-top:26px;font-size:11.5px;color:#4A5462;border-top:1px solid #D9DDE3;padding-top:10px}@media print{body{margin:.4in}}</style></head><body><div class="top"><div><b style="font-size:16px">${esc(DB.company.name || "")}</b><div class="s">${esc(DB.company.addr || "")}${DB.company.phone ? "<br>" + esc(DB.company.phone) : ""}${DB.company.email ? " · " + esc(DB.company.email) : ""}</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1><div class="s">${esc(po.number)}<br>Date ${fmtL(po.date)}${po.expected ? "<br>Deliver by " + fmtL(po.expected) : ""}</div></div></div><div class="meta"><div><div class="s">Vendor</div><b>${esc(po.vendor)}</b></div><div><div class="s">Ship to</div><b>${esc(po.shipTo || "Site")}</b><br>${esc(S.project.addr || "")}</div><div><div class="s">Project</div><b>${esc(S.project.name)}</b><br>Reference this PO number on all invoices and packing slips.</div></div><table><thead><tr><th>Item</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>${po.lines.map((l) => `<tr><td>${esc(l.item)}</td><td>${esc(vendorSpecOf(l))}</td><td class="r">${l.qty} ${esc(l.unit)}</td><td class="r">${vendorPriceMoney(l.price)}</td><td class="r">${unitMoney(r2((+l.qty || 0) * (+l.price || 0)))}</td></tr>`).join("")}</tbody></table><div class="tot"><span>Subtotal</span><span class="r">${unitMoney(t.sub)}</span>${t.tax ? `<span>Tax</span><span class="r">${unitMoney(t.tax)}</span>` : ""}${t.shipping ? `<span>Shipping</span><span class="r">${unitMoney(t.shipping)}</span>` : ""}<span class="big">Total</span><span class="r big">${unitMoney(t.total)}</span></div>${po.notes ? `<div style="margin-top:14px"><b>Notes</b><div style="white-space:pre-wrap">${esc(po.notes)}</div></div>` : ""}<div class="tc">Invoices must reference the PO number and match quantities and unit prices above. Variances require written approval before shipment.</div><script>window.onload=()=>window.print()<\/script></body></html>`,
+    html = `<!doctype html><html><head><title>${esc(po.number)}</title><style>body{font:13px/1.45 -apple-system,"Segoe UI",Helvetica,Arial;color:#1D2430;margin:40px;max-width:820px}h1{font-size:24px;margin:0}.top{display:flex;justify-content:space-between;border-bottom:2px solid #1D2430;padding-bottom:14px;margin-bottom:18px}.s{color:#6b7480;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px}table{width:100%;border-collapse:collapse}th{font-size:11.5px;text-align:left;border-bottom:2px solid #D9DDE3;padding:6px 8px;color:#4A5462}td{padding:7px 8px;border-bottom:1px solid #EEF0F3;vertical-align:top}.r{text-align:right;white-space:nowrap}.tot{margin-left:auto;width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;margin-top:10px}.big{font-size:17px;font-weight:700;border-top:2px solid #1D2430;padding-top:6px}.tc{margin-top:26px;font-size:11.5px;color:#4A5462;border-top:1px solid #D9DDE3;padding-top:10px}@media print{body{margin:.4in}}</style></head><body><div class="top"><div><b style="font-size:16px">${esc(DB.company.name || "")}</b><div class="s">${esc(DB.company.addr || "")}${DB.company.phone ? "<br>" + esc(DB.company.phone) : ""}${DB.company.email ? " · " + esc(DB.company.email) : ""}</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1><div class="s">${esc(po.number)}<br>Date ${fmtL(po.date)}${po.expected ? "<br>Deliver by " + fmtL(po.expected) : ""}</div></div></div><div class="meta"><div><div class="s">Vendor</div><b>${esc(po.vendor)}</b></div><div><div class="s">Ship to</div><b>${esc(po.shipTo || "Site")}</b><br>${esc(S.project.addr || "")}</div><div><div class="s">Project</div><b>${esc(S.project.name)}</b><br>Reference this PO number on all invoices and packing slips.</div></div><table><thead><tr><th>Item</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>${po.lines.map((l) => `<tr><td>${esc(l.item)}</td><td>${esc(vendorSpecOf(l))}</td><td class="r">${esc(poQtyWords(l))}</td><td class="r">${vendorPriceMoney(l.price)}</td><td class="r">${unitMoney(r2((+l.qty || 0) * (+l.price || 0)))}</td></tr>`).join("")}</tbody></table><div class="tot"><span>Subtotal</span><span class="r">${unitMoney(t.sub)}</span>${t.tax ? `<span>Tax</span><span class="r">${unitMoney(t.tax)}</span>` : ""}${t.shipping ? `<span>Shipping</span><span class="r">${unitMoney(t.shipping)}</span>` : ""}<span class="big">Total</span><span class="r big">${unitMoney(t.total)}</span></div>${po.notes ? `<div style="margin-top:14px"><b>Notes</b><div style="white-space:pre-wrap">${esc(po.notes)}</div></div>` : ""}<div class="tc">Invoices must reference the PO number and match quantities and unit prices above. Variances require written approval before shipment.</div><script>window.onload=()=>window.print()<\/script></body></html>`,
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
-function poDrawings(p) {
-  // the job's drawings: files on the job and Drive files routed to it that read like a sheet
-  const out = [];
-  (p && p.files ? p.files : []).forEach((f) => {
-    ("drawing" === f.cat || /\b[A-Z]-?\d{3}\b|drawing|plan|\.dwg|\.rvt/i.test(f.name || "")) && out.push({ name: f.name, link: f.link && f.link.url ? f.link.url : "" });
+// The drawings an order's mail lists (PU-Safe 2, 11-18: PO-2026-049's mail listed eight of the job's files, three of
+// them VOID sheets and one the design deck). Only current, issued sheets (for construction or the permit set; never
+// void, superseded, a pricing set or the design deck), and only the ones that belong to this order: the sheets attached
+// to it (po.drawings), else the sheets of the rooms its lines name (the line, its estimate line, its material's task)
+// and this vendor's own shop drawings. A job with no sheet register falls back to its drawing files, never one marked
+// VOID or superseded and never a deck.
+function poDrawings(p, po) {
+  const out = [],
+    add = (name, link) => name && !out.some((x) => x.name === name) && out.push({ name: name, link: link || "" }),
+    pid = p && p.id,
+    files = (p && p.files) || [],
+    reg = pid && "function" == typeof plSheets ? plSheets(pid) : [];
+  if (reg.length) {
+    const issued = (s) => plIsCurrent(s) && ["ifc", "permit"].includes(plStatus(s)) && "deck" !== s.set,
+      att = new Set(((po && po.drawings) || []).map((x) => (x && "object" == typeof x ? x.id || x.sheetId || x.fileId || x.name : x))),
+      V = po && vendorOfPO(po);
+    let pick = reg.filter((s) => issued(s) && (att.has(s.id) || att.has(s.fileId)));
+    if (!pick.length && po) {
+      const words = [];
+      (po.lines || []).forEach((l) => {
+        words.push(l.item, l.desc, l.spec, l.area, l.room);
+        try {
+          const E = l.line && findLine(l.line);
+          E && E.line && words.push(E.line.item, E.line.desc, E.line.area, E.line.room);
+        } catch (e) {}
+        const m = (p.materials || []).find((x) => (l.materialId && x.id === l.materialId) || (x.po && x.po === po.number && x.name === l.item));
+        if (m) {
+          words.push(m.name, m.deliverTo);
+          const t = m.taskId && (p.tasks || []).find((x) => x.id === m.taskId);
+          t && words.push(t.name);
+        }
+      });
+      const text = words.filter(Boolean).join(" \n "),
+        rooms = new Set(((plDB().rooms || []).filter((r) => r.projectId === pid && plHit(r, text))).map((r) => r.id)),
+        // a sheet whose title shares two words in a row with the lines ("third floor" for a 3rd floor order)
+        norm = (x) => String(x || "").toLowerCase().replace(/\b1st\b/g, "first").replace(/\b2nd\b/g, "second").replace(/\b3rd\b/g, "third").replace(/\b(\d)th\b/g, "$1").replace(/[^a-z0-9]+/g, " ").trim(),
+        lt = ` ${norm(text)} `,
+        pair = (t) => {
+          const w = norm(t).split(" ").filter((x) => x && !/^(and|of|the|a|rev|plan|plans|elevations?|sections?|details?|schedule|sketch|rfi|\d+)$/.test(x));
+          return w.some((x, i) => i + 1 < w.length && lt.includes(` ${x} ${w[i + 1]} `));
+        };
+      pick = reg.filter((s) => issued(s) && ("shop" === s.set ? !!V && vendorTextHit(s.title, V, "") : (s.rooms || []).some((id) => rooms.has(id)) || pair(s.title)));
+    }
+    pick.forEach((s) => {
+      const f = files.find((x) => x.id === s.fileId);
+      add(f ? f.name : `${s.number} ${s.title} - Rev ${s.rev}`, (f && f.link && f.link.url) || s.link || "");
+    });
+    return out.slice(0, 8);
+  }
+  const live = (n) => !/^\s*VOID\b|\bsuperseded\b|\bDECK-?\d|design presentation/i.test(n || "");
+  files.forEach((f) => {
+    ("drawing" === f.cat || /\b[A-Z]-?\d{3}\b|drawing|plan|\.dwg|\.rvt/i.test(f.name || "")) && live(f.name) && add(f.name, f.link && f.link.url ? f.link.url : "");
   }),
     (DB.gdrive || []).forEach((f) => {
-      f.route && f.route.projectId === (p && p.id) && "drawing" === f.route.kind && !out.some((x) => x.name === f.name) && out.push({ name: f.name, link: f.link || "" });
+      f.route && f.route.projectId === pid && "drawing" === f.route.kind && live(f.name) && add(f.name, f.link || "");
     });
   return out.slice(0, 8);
 }
@@ -12559,6 +12631,7 @@ function vendorEmailConfirm(name, address) {
     from = (v.emailSrc && v.emailSrc.from) || (was === to ? "the vendor card" : "typed in the order's mail");
   v.email = to;
   v.emailSrc = Object.assign({}, v.emailSrc || {}, { from: from, verified: !0, confirmedBy: who, confirmedAt: appNowIso() });
+  "function" == typeof oxRefreshAddresses && oxRefreshAddresses(v);
   try {
     audit("vendor", v.id, "email-confirmed", was, to, `confirmed with the vendor by ${who}; source: ${from}`);
   } catch (e) {}
@@ -12572,8 +12645,8 @@ function poEmailTemplate(po) {
     v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
     first = ((v && v.contact) || po.vendor || "").split(/[\s,]+/)[0],
     me = (currentUser() || {}).name || (S.project && S.project.userName) || DB.company.name || "",
-    dr = poDrawings(p),
-    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${vendorSpecOf(l) ? ` (${vendorSpecOf(l)})` : ""} @ ${vendorPriceMoney(l.price)}`).join("\n");
+    dr = poDrawings(p, po),
+    lines = (po.lines || []).map((l) => (poLump(l) ? `- ${l.item}${vendorSpecOf(l) ? ` (${vendorSpecOf(l)})` : ""}: lump sum, ${vendorPriceMoney(l.price)}` : `- ${l.qty} ${l.unit} ${l.item}${vendorSpecOf(l) ? ` (${vendorSpecOf(l)})` : ""} @ ${vendorPriceMoney(l.price)}`)).join("\n");
   return {
     subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
     body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${unitMoney(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
@@ -12594,7 +12667,7 @@ async function draftPOEmail(po) {
     ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address">${T.vendorEmail && T.vendorEmailFrom.src ? `<span class="hint em-to-src${T.vendorEmailFrom.verified ? "" : " warn-t"}" data-nocase>From ${esc(T.vendorEmailFrom.src)}${T.vendorEmailFrom.verified ? "" : ", not verified: check it with the vendor before the order goes"}.</span>${T.vendorEmailFrom.verified ? "" : '<button type="button" class="btn sm" id="em-confirm" style="margin-top:6px">Confirmed with the Vendor</button>'}` : ""}</div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address">${T.vendorEmail && T.vendorEmailFrom.src ? `<span class="hint em-to-src${T.vendorEmailFrom.verified ? "" : " warn-t"}" data-nocase>From ${esc(T.vendorEmailFrom.src)}${T.vendorEmailFrom.verified ? "" : ", not verified: check it with the vendor before the order goes"}.</span>${T.vendorEmailFrom.verified ? "" : '<button type="button" class="btn sm" id="em-confirm" style="margin-top:6px">Confirmed with the Vendor</button>'}` : ""}</div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No current drawings belong to this order's lines."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
       navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
@@ -14652,7 +14725,7 @@ function openPayroll(id) {
     flow = ["draft", "submitted", "pm-approved", "approved", "paid", "verified"],
     fi = flow.indexOf(r.status);
   ($("#d-body").innerHTML =
-    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => apTrailLine(r, a)).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
+    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">${r.fromTime ? "Split from the approved hours on this run, by the job each hour was worked on." : "Typed by hand: allocate by percentage. A run built from approved time splits itself by job."}</span></div>\n    ${prWarnHtml(r)}${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll Report From Approved Time</h4>${prDetailHtml(r)}<div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => apTrailLine(r, a)).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
     $("#e-addalloc")?.addEventListener("click", () => {
       r.alloc.push({ projectId: "", pct: 0 });
       const i = r.alloc.length - 1;
@@ -14809,8 +14882,7 @@ function verifyAll() {
         (b) =>
           ["approved", "paid", "verified"].includes(b.status) &&
           !b.txnId &&
-          ((vend && b.vendor.toLowerCase() === vend) ||
-            descL.includes(b.vendor.toLowerCase().split(" ")[0])) &&
+          ((vend && vendorNameSame(b.vendor, vend)) || truthVendorHit(t, b.vendor)) &&
           Math.abs(billTotal(b) - amt) <= billTotal(b) * tol + 1 &&
           parse(t.date) >= parse(addDays(b.date, -3)),
       ),
@@ -15560,17 +15632,60 @@ function timeSeenEnd(e) {
   const L = [e.seenOut, e.hold && e.hold.out, e.word && e.word.last, e.lastOnSite].filter(Boolean).sort();
   return L.length ? L[L.length - 1] : "";
 }
+// One rule for hours the app did not see (the crew expert's fourth walk, 11-18). Every route that closes a punch records
+// the app's own sight of its end here, so a later end given by anyone afterwards is caught by timeWordOf. The Still
+// Working sheet's Clock Out recorded none, and the foreman's Fix to 11:00 PM with "ok" paid 15.5 h. how: "tap" (his own
+// Clock Out), "foreman" (the foreman's Clock Out on Crew), "location" (the automatic clock-out), "asked" (Still Working's
+// Clock Out), "long" (a shift past 16 hours, ended at the time he gives); a held punch's end is its hold (timeHold).
+// tests/pay_seen_test.py lists every route in the source that writes a punch's end, so a new one without this fails.
+function timeSeen(e, at, how) {
+  if (!e || !at) return e;
+  e.seenOut = at;
+  e.seenHow = how || "tap";
+  return e;
+}
+// A punch closed at a time the person gives (Still Working's Clock Out; a shift past 16 hours): the app's sight of the end
+// is that time, or `cap` when cap is earlier (an automatic punch's last reading on site; a hand punch's 8 h 15 mark).
+// A time given later than that is kept and said, and needs the approver's reason, as a held punch's answer does.
+function timeCloseGiven(e, out, how, by, cap) {
+  if (!e || !out) return e;
+  e.out = out;
+  const seen = cap && String(cap) < String(out) ? cap : out;
+  timeSeen(e, seen, how);
+  const w = seen !== out ? timeWordCheck(Object.assign({}, e, { out: seen }), out) : null;
+  w ? (e.word = Object.assign(w, { by: by || "" })) : delete e.word;
+  timeCloseOut(e);
+  return e;
+}
+// Hours added by hand to a day the app clocked (Enter Missing Hours, the office's Add Time Entry, hours approved from a
+// daily log): the app saw none of them (the fourth walk, 11-18: 3:35 to 11:00 PM added with "abc" to a day the app
+// clocked to 3:35 PM, approved with one tap, no reason, the PM not shown). Returns the day's end as the app saw it, or "".
+const TIME_BY_HAND = /^(late|manual|log)$/;
+function timeAddedTo(e) {
+  if (!e || !e.in || !e.out || e.forDate || !TIME_BY_HAND.test(String(e.source || "")) || timeSeenEnd(e)) return "";
+  const D = (DB.time || []).filter((t) => t !== e && t.id !== e.id && t.empId === e.empId && t.date === e.date && !t.forDate && !/^(void|rejected)$/.test(String(t.status || "")));
+  // one that claims the same time as a punch is an overlap first: the foreman picks (tkOverlapPick), and what is left
+  // after the pick is read here again
+  if (D.some((t) => t.in && String(t.in) < String(e.out) && String(e.in) < String(t.out || t.in))) return "";
+  const L = D.map(timeSeenEnd).filter(Boolean).sort();
+  return L.length ? L[L.length - 1] : "";
+}
 // the punch's later-than-seen end, as a word to approve: the one on the record when it is for this end, else one worked
-// out from the times (null when the end is not later than the app saw, within the allowance)
+// out from the times (null when the end is not later than the app saw, within the allowance). Hours added by hand to a
+// day the app clocked are all unseen (timeAddedTo): the same word, the same reason, the same PM's look after.
 function timeWordOf(e) {
   if (!e || !e.out) return null;
   if (e.word && e.word.at === e.out) return e.word;
-  const seen = timeSeenEnd(e);
-  if (!seen) return null;
-  const W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
+  const seen = timeSeenEnd(e),
+    W = "function" == typeof tkgWindow ? tkgWindow() : { allowMin: 15 },
     allow = +W.allowMin >= 0 ? +W.allowMin : 15;
+  if (!seen) {
+    const day = timeAddedTo(e);
+    if (!day || (new Date(e.out) - new Date(e.in)) / 6e4 <= allow) return null;
+    return { at: e.out, from: e.in, last: day, added: !0, seen: !1, tap: !1, also: [], derived: !0 };
+  }
   if ((new Date(e.out) - new Date(seen)) / 6e4 <= allow) return null;
-  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), also: [], derived: !0 };
+  return { at: e.out, last: seen, seen: "geo" === e.source || !!e.auto, tap: !!e.seenOut && e.seenOut === seen && !("geo" === e.source || e.auto), how: e.seenOut === seen ? e.seenHow || "" : "", also: [], derived: !0 };
 }
 // A reason is words: at least two words and eight letters. "ok", "fine", "yes", "x" are not reasons (11-17).
 function timeWhyOk(s) {
@@ -15589,7 +15704,10 @@ function timeWordSay(e) {
   if (!w) return "";
   const who = String(empName(e.empId) || "").split(" ")[0],
     mins = Math.round((new Date(w.at) - new Date(w.last)) / 6e4);
-  return `${w.derived ? `Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ").replace(/^./, (x) => x.toUpperCase())}.` : ""}`;
+  if (w.added) return `${stampTime(w.from || e.in)} to ${stampTime(w.at)} added by hand to a day the app clocked ${who} to ${stampTime(w.last)}: the app saw none of these hours.`;
+  if (w.how === "foreman") return `Out changed to ${stampTime(w.at)} after the app saw the end. Clocked out by the foreman at ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.`;
+  if (w.how === "asked") return `Out changed to ${stampTime(w.at)} after ${who} said when he left. He said ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}, answering Still Working.`;
+  return `${w.derived ?`Out changed to ${stampTime(w.at)} after the app saw the end.` : `Left at ${stampTime(w.at)} by ${who}'s word.`} ${w.tap ? "Clocked out on the app at" : w.seen ? "Last reading on site" : "The app closed it at"} ${stampTime(w.last)}${mins > 0 ? ` (${timeHm(mins)} earlier)` : ""}.${(w.also || []).length ? ` ${w.also.join("; ").replace(/^./, (x) => x.toUpperCase())}.` : ""}`;
 }
 // the reasons a confirmed time needs the approver's word, worked out when he confirms (timeHoldConfirm)
 function timeWordCheck(e, outIso) {
@@ -16272,9 +16390,9 @@ async function clockEvent(kind) {
   } else {
     const e = DB.time.find((t) => t.empId === emp.id && !t.out);
     if (!e) return void toast("Not clocked in");
-    // the app's own sight of the end (timeSeenEnd): a later end given afterwards needs the approver's reason
+    // the app's own sight of the end (timeSeen): a later end given afterwards needs the approver's reason
     (e.out = ts),
-      (e.seenOut = ts),
+      timeSeen(e, ts, "tap"),
       (e.geoOut = geo),
       timeCloseOut(e),
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
@@ -16445,6 +16563,15 @@ function prParts(r) {
 const OT_WEEK_H = 40,
   OT_RATE = 1.5,
   timeWorkDay = (t) => (t && (t.forDate || t.date)) || "";
+// a run's place in pay order: its pay date, then its period's start, then the order runs were made (a run being built
+// that is not saved yet comes after every run with the same dates)
+const prOrderOf = (r) => ({ payDate: String((r && (r.payDate || r.to)) || ""), from: String((r && r.from) || ""), i: r && r.id ? (DB.payroll || []).findIndex((x) => x.id === r.id) : -1 });
+function prBefore(r, o) {
+  const a = prOrderOf(r),
+    b = o && o.payDate != null ? o : prOrderOf(o),
+    bi = null == b.i || b.i < 0 ? 1 / 0 : b.i;
+  return a.payDate !== b.payDate ? a.payDate < b.payDate : a.from !== b.from ? a.from < b.from : a.i >= 0 && a.i < bi;
+}
 // one person's hours in `list`, week by week: { hours, reg, ot, weeks: [{ from, to, prior, hours, ot }] }. o.runId: the run
 // being built (its own hours are not "already paid"); o.prior false: count only the list.
 function timeOtWeeks(empId, list, o) {
@@ -16464,7 +16591,11 @@ function timeOtWeeks(empId, list, o) {
     w && (w.hours += h);
   });
   if (!1 !== o.prior) {
-    const live = new Set((DB.payroll || []).filter((r) => r.id !== o.runId && !/^(void|rejected)$/.test(String(r.status || ""))).map((r) => r.id));
+    // each week's overtime is counted once across runs (the fourth walk, 11-18: rebuilding the open 8/17 run after the
+    // 8/31 run took a Saturday of the same week counted the later run's 4 h as prior and paid the week's overtime twice,
+    // 13 h for 9). An hour belongs to the runs in pay-date order, earlier first: a run counts only the runs before it
+    // (prBefore) as prior. With no order given (o.order), the run being read is the last one.
+    const live = new Set((DB.payroll || []).filter((r) => r.id !== o.runId && !/^(void|rejected)$/.test(String(r.status || "")) && (!o.order || prBefore(r, o.order))).map((r) => r.id));
     (DB.time || []).forEach((t) => {
       if (t.empId !== empId || ids.has(t.id) || !t.payrollId || !live.has(t.payrollId)) return;
       const w = W[weekRange(timeWorkDay(t) || today())[0]];
@@ -16515,10 +16646,16 @@ function payrollFromTime(opts) {
   const open = DB.payroll.find((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)),
     // late hours: dated in an earlier period whose run was built from time, approved after that run went out
     built = DB.payroll.filter((r) => r.fromTime && r.from < P.from && !["rejected", "void"].includes(r.status)),
-    lateOk = (t) => built.some((r) => t.date >= r.from && t.date <= payPeriodOf(r.from).to),
-    entries = all.filter((t) => (t.date >= P.from && t.date <= P.to) || (t.date < P.from && lateOk(t))).concat(open ? DB.time.filter((t) => t.payrollId === open.id && (!timePayBlock(t) || (delete t.payrollId, !1))) : []);
+    lateOk = (t) => built.some((r) => t.date >= r.from && t.date <= payPeriodOf(r.from).to);
+  let entries = all.filter((t) => (t.date >= P.from && t.date <= P.to) || (t.date < P.from && lateOk(t))).concat(open ? DB.time.filter((t) => t.payrollId === open.id && (!timePayBlock(t) || (delete t.payrollId, !1))) : []);
+  // A run typed by hand covers its dates for its entity (prInRun): a man it covers is paid by it, so his hours of those
+  // dates never go on this run too (the fourth walk, 11-18: the seeded 8/17 to 8/28 run typed by hand and a run built
+  // from time for the same period both held Alex, with no warning). The run says who and why (prCoveredSay).
+  const cov = prCoveredBy(entries, open);
+  cov.skipped.forEach((t) => open && t.payrollId === open.id && delete t.payrollId);
+  entries = entries.filter((t) => !cov.skipped.includes(t));
   if (!entries.length) {
-    o.quiet || toast(`No approved hours waiting for a payroll run in the ${fmt(P.from)} – ${fmt(P.to)} pay period`);
+    o.quiet || toast(`No approved hours waiting for a payroll run in the ${fmt(P.from)} – ${fmt(P.to)} pay period${cov.say ? `. ${cov.say}` : ""}`);
     return null;
   }
   const late = entries.filter((t) => t.date < P.from),
@@ -16541,7 +16678,8 @@ function payrollFromTime(opts) {
     detail = [];
   Object.values(perEmp).forEach((p) => {
     // overtime by the workweek, the day each hour was worked (timeOtWeeks)
-    const X = (p.ot = timeOtWeeks(p.id, entries, { runId: open && open.id })),
+    // only the runs before this one in pay order count as already paid toward a week's 40 (prBefore)
+    const X = (p.ot = timeOtWeeks(p.id, entries, { runId: open && open.id, order: open ? prOrderOf(open) : { payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate, from: P.from, i: -1 } })),
       g = timeOtGross(X, p.rate),
       tx = r2((g * p.burden) / 100),
       E = (byEnt[p.entityId] = byEnt[p.entityId] || { entityId: p.entityId, employees: 0, hours: 0, gross: 0, taxes: 0, total: 0 });
@@ -16555,10 +16693,12 @@ function payrollFromTime(opts) {
     ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
     alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: total ? r2((amt / total) * 100) : 0 })),
     by = S.project.userName || role(),
+    // the period is the pay period, Monday to the second Sunday (P.to); the pay date is its own field (it read 8/31 to
+    // 9/11 for a period to 9/13: the fourth walk, 11-18)
     fields = {
-      period: `${fmt(P.from)} – ${fmt(P.payDate)}`,
+      period: `${fmt(P.from)} – ${fmt(P.to)}`,
       from: P.from,
-      to: P.payDate,
+      to: P.to,
       entityId: ents[0].entityId,
       entities: ents.length > 1 ? ents : null,
       employees: Object.keys(perEmp).length,
@@ -16571,12 +16711,13 @@ function payrollFromTime(opts) {
         .join(", ")}. Overtime: hours over 40 in each Monday-to-Sunday workweek, on the day worked, at 1.5×${(() => {
         const O = Object.values(perEmp).filter((p) => p.ot && p.ot.ot > 0);
         return O.length ? ` (${O.map((p) => `${p.name} ${p.ot.ot.toFixed(2)} h`).join(", ")})` : "; nobody worked over 40 in a week";
-      })()}.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
+      })()}.${cov.say ? ` ${cov.say}` : ""}${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
       fromTime: !0,
       detail: detail,
       late: late.length,
       // the run lists its time entries, and each entry carries the run's id (below): labor ties both ways
       timeIds: entries.map((t) => t.id),
+      covered: cov.rows,
     };
   let run = open;
   if (run) {
@@ -16599,13 +16740,134 @@ function payrollFromTime(opts) {
       DB.payroll.push(run),
       audit("payroll", run.id, "built-from-time", null, { entries: entries.length, total: total });
   entries.forEach((t) => (t.payrollId = run.id));
+  // the same men on another live run of this period (a second run from time after the first was approved): said, by name
+  const also = prAlsoOn(run);
+  run.alsoOn = also.rows;
+  also.say && !String(run.notes || "").includes(also.say) && (run.notes = `${run.notes} ${also.say}`);
+  // a rebuild (or a run built for an earlier period after a later one) never moves a week's overtime out of or into a
+  // later run silently (prLaterRuns)
+  const later = prLaterRuns(run);
   save();
   if (!o.quiet) {
     render();
-    toast(`Payroll ${run.period}: ${money(run.total)} from ${entries.length} approved entr${1 === entries.length ? "y" : "ies"}${ents.length > 1 ? ` across ${ents.length} entities` : ""}${open ? " (the open run, rebuilt)" : ""} — the Owner approves it`);
+    toast(
+      `Payroll ${run.period}: ${money(run.total)} from ${entries.length} approved entr${1 === entries.length ? "y" : "ies"}${ents.length > 1 ? ` across ${ents.length} entities` : ""}${open ? " (the open run, rebuilt)" : ""}. ${prApprover(run)} approves it.${cov.say ? ` ${cov.say}` : ""}${also.say ? ` ${also.say}` : ""}${later ? ` ${later}` : ""}`,
+      [{ label: "Open", run: () => openPayroll(run.id) }],
+    );
     setView("ap");
   }
   return run;
+}
+// The run's report, per man and per Monday-to-Sunday week, to the hundredth: regular and overtime hours, so the controller
+// ties it to the log (the fourth walk, 11-18: the screen read "45.0" with an OT pill and no split). Each week says the
+// hours of it already on an earlier run (prior), which count toward its 40 first.
+function prDetailHtml(r) {
+  const h2 = (x) => (+x || 0).toFixed(2),
+    reg = (d) => (null != d.reg ? +d.reg : (+d.hours || 0) - (+d.ot || 0)),
+    rows = (r.detail || [])
+      .map((d) => {
+        const W = (d.weeks || []).map((w) => `<tr class="pr-wk" data-prwk="${esc(d.name)}|${esc(w.from)}"><td class="small muted">Week of ${esc(fmt(w.from))}, Mon to Sun${w.prior ? `, after ${h2(w.prior)} h on an earlier run` : ""}</td><td class="money small">${h2((+w.hours || 0) - (+w.ot || 0))}</td><td class="money small">${h2(w.ot)}</td><td class="money small">${h2(w.hours)}</td><td></td></tr>`).join("");
+        return `<tr data-prman="${esc(d.name)}"><td><b>${esc(d.name)}</b> <span class="small muted">${money(d.rate)}/h</span></td><td class="money">${h2(reg(d))}</td><td class="money">${h2(d.ot)}</td><td class="money">${h2(d.hours)}</td><td class="money">${money(d.gross)}</td></tr>${W}`;
+      })
+      .join(""),
+    sum = (k) => (r.detail || []).reduce((a, d) => a + (+d[k] || 0), 0);
+  return `<div style="overflow-x:auto"><table class="t pr-detail"><thead><tr><th>Employee</th><th class="money">Regular</th><th class="money">Overtime</th><th class="money">Hours</th><th class="money">Gross</th></tr></thead><tbody>${rows}<tr style="font-weight:600"><td>Total</td><td class="money">${h2((r.detail || []).reduce((a, d) => a + reg(d), 0))}</td><td class="money">${h2(sum("ot"))}</td><td class="money">${h2(sum("hours"))}</td><td class="money">${money(r.gross)}</td></tr></tbody></table></div><div class="small muted" style="margin-top:4px">Overtime is the hours over 40 in each Monday-to-Sunday week, on the day worked, at 1.5 times the rate.</div>`;
+}
+// What the run must say before anyone approves it: men left out because a run typed by hand covers them, men also on
+// another run of the period, and overtime a later rebuild of an earlier run moved after this one was approved.
+function prWarnHtml(r) {
+  const L = [];
+  (r.covered || []).forEach((x) => L.push(`${esc(x.men.join(", "))} ${1 === x.men.length ? "is" : "are"} already on run ${esc(x.period)} (typed by hand, ${money(x.total)}), which covers ${esc(fmt(x.from))} to ${esc(fmt(x.to))}: ${(+x.hours || 0).toFixed(2)} h of those dates are left out of this run so nobody is paid twice.`));
+  (r.alsoOn || []).forEach((x) => L.push(`${esc(x.men.join(", "))} ${1 === x.men.length ? "is" : "are"} also on run ${esc(x.period)} (${esc(x.status)}): this run holds only hours that run does not.`));
+  (r.otAdjust || []).forEach((x) => L.push(`${esc(String(x.name).split(" ")[0])}'s overtime for the week of ${esc((x.weeks || []).map(fmt).join(", "))} should be ${(+x.now).toFixed(2)} h; this run paid ${(+x.was).toFixed(2)} h. Adjust it on the next run.`));
+  return L.length ? `<div class="note warn pr-warn" style="margin-bottom:10px">${L.map((x) => `<div>${x}</div>`).join("")}</div>` : "";
+}
+// Who approves a run, by name, said the same everywhere (the run's toast, Bills and Payroll's Needs You, the run's
+// state): the Owner, or the Controller when the Owner prepared it; nobody approves a run they prepared.
+function prApprover(r) {
+  const own = "function" == typeof tdyRoleUser ? tdyRoleUser("owner") : null,
+    ctl = "function" == typeof tdyRoleUser ? tdyRoleUser("controller") : null,
+    nm = (u, w) => (u && u.name) || w,
+    by = String((r && r.createdBy) || "").trim().toLowerCase(),
+    byOwner = "owner" === by || (!!own && by === String(own.name).toLowerCase()),
+    byCtl = "controller" === by || (!!ctl && by === String(ctl.name).toLowerCase());
+  return byOwner ? nm(ctl, "the Controller") : byCtl ? nm(own, "the Owner") : `${nm(own, "the Owner")} or ${nm(ctl, "the Controller")}`;
+}
+// The entries a live run typed by hand already covers (prInRun: its dates, its entity), and the words for it.
+function prCoveredBy(entries, open) {
+  const hand = (DB.payroll || []).filter((r) => r !== open && !r.fromTime && r.from && r.to && !/^(void|rejected)$/.test(String(r.status || ""))),
+    of = (t) => hand.find((r) => prInRun(r, t)) || null,
+    skipped = (entries || []).filter(of),
+    by = {};
+  skipped.forEach((t) => {
+    const r = of(t),
+      x = (by[r.id] = by[r.id] || { runId: r.id, period: r.period || `${fmt(r.from)} – ${fmt(r.to)}`, from: r.from, to: r.to, total: r.total, status: r.status, men: [], hours: 0 });
+    const nm = String(empName(t.empId)).split(" ")[0];
+    x.men.includes(nm) || x.men.push(nm);
+    x.hours = r2(x.hours + hoursOf(t));
+  });
+  const rows = Object.values(by);
+  return {
+    skipped: skipped,
+    rows: rows,
+    say: rows
+      .map((x) => `${x.men.join(", ")} ${1 === x.men.length ? "is" : "are"} already on run ${x.period} (typed by hand, ${money(x.total)}, ${x.status}), which covers ${fmt(x.from)} to ${fmt(x.to)}: ${x.hours.toFixed(2)} h of those dates are left out of this run so nobody is paid twice. Reject that run to pay them here.`)
+      .join(" "),
+  };
+}
+// The men of a run built from time who are on another live run of the same pay period, by name.
+function prAlsoOn(run) {
+  const mine = new Set((DB.time || []).filter((t) => t.payrollId === run.id).map((t) => t.empId)),
+    P = payPeriodOf(run.from),
+    rows = [];
+  (DB.payroll || [])
+    .filter((r) => r !== run && r.fromTime && !/^(void|rejected)$/.test(String(r.status || "")) && payPeriodOf(r.from).from === P.from)
+    .forEach((r) => {
+      const men = [...new Set((DB.time || []).filter((t) => t.payrollId === r.id && mine.has(t.empId)).map((t) => String(empName(t.empId)).split(" ")[0]))];
+      men.length && rows.push({ runId: r.id, period: r.period, status: r.status, men: men });
+    });
+  return { rows: rows, say: rows.map((x) => `${x.men.join(", ")} ${1 === x.men.length ? "is" : "are"} also on run ${x.period} (${x.status}): this run holds only hours that run does not, none twice.`).join(" ") };
+}
+// After an earlier run is rebuilt, each later live run holding hours of the same weeks is read again: its overtime
+// for a man may have moved (his week's first 40 now sit differently). A later run still open is rebuilt, said on its
+// trail; one already approved or paid is not changed: both runs say what it should have paid, to adjust on the next run.
+function prLaterRuns(run) {
+  const weeksOf = (r) => new Set((r.detail || []).flatMap((d) => (d.weeks || []).map((w) => d.name + "|" + w.from))),
+    mine = weeksOf(run),
+    says = [];
+  (DB.payroll || [])
+    .filter((r) => r !== run && r.fromTime && !/^(void|rejected)$/.test(String(r.status || "")) && prBefore(run, r))
+    .forEach((r) => {
+      const shared = [...weeksOf(r)].filter((k) => mine.has(k));
+      if (!shared.length) return;
+      const L = (DB.time || []).filter((t) => t.payrollId === r.id),
+        moved = [];
+      (r.detail || []).forEach((d) => {
+        const emp = (DB.employees || []).find((e) => e.name === d.name);
+        if (!emp) return;
+        const X = timeOtWeeks(emp.id, L, { runId: r.id, order: prOrderOf(r) });
+        Math.abs((+d.ot || 0) - X.ot) > 0.005 && moved.push({ name: d.name, was: +d.ot || 0, now: X.ot, weeks: shared.filter((k) => k.startsWith(d.name + "|")).map((k) => k.split("|")[1]) });
+      });
+      if (!moved.length) return;
+      const what = moved.map((m) => `${String(m.name).split(" ")[0]}'s overtime for the week of ${m.weeks.map(fmt).join(", ")} is ${m.now.toFixed(2)} h, not ${m.was.toFixed(2)} h`).join("; "),
+        stamp = { t: nowStamp(), ts: appNowIso(), by: S.project.userName || role(), role: role() };
+      if (["draft", "submitted"].includes(r.status)) {
+        const was = r.total;
+        "function" == typeof payrollFromTimeFor && payrollFromTimeFor(r, payPeriodOf(r.from));
+        (r.approvals = r.approvals || []).push(Object.assign({}, stamp, { action: `rebuilt because run ${run.period} changed: ${what} (${money(was)} → ${money(r.total)})` }));
+        says.push(`Run ${r.period}, still open, was rebuilt: ${what}.`);
+      } else {
+        r.otAdjust = (r.otAdjust || []).concat(moved.map((m) => ({ name: m.name, was: m.was, now: m.now, weeks: m.weeks, because: run.id, at: appNowIso() })));
+        (r.approvals = r.approvals || []).push(Object.assign({}, stamp, { action: `run ${run.period} changed after this run was ${r.status}: ${what}. Adjust it on the next run.` }));
+        says.push(`Run ${r.period} is ${r.status} and is not changed: ${what}. Adjust it on the next run.`);
+      }
+      try {
+        audit("payroll", r.id, "overtime-moved-by-earlier-run", null, { by: run.id, moved: moved });
+      } catch (x) {}
+    });
+  const say = says.join(" ");
+  say && (run.approvals = run.approvals || []).push({ t: nowStamp(), ts: appNowIso(), by: S.project.userName || role(), role: role(), action: say });
+  return say;
 }
 // each morning an open run takes in the hours approved since it was built (dated through its period)
 function payrollRebuildOpen() {
@@ -16714,8 +16976,7 @@ function vendorSpend(v) {
     .filter(
       (t) =>
         t.amt < 0 &&
-        ((t.vendor || "").toLowerCase() === n ||
-          ((t.desc || "").toLowerCase().includes(n.split(" ")[0]) && n.split(" ")[0].length > 3)),
+        (vendorNameSame(t.vendor, v.name) || truthVendorHit(t, v)),
     )
     .reduce((a, t) => a - t.amt, 0);
 }
@@ -16880,7 +17141,15 @@ function saveVendor() {
       );
       DB.vendors.push(v), audit("vendor", v.id, "created", null, v);
     }
+    // the drafts that waited on this vendor's address can go now; Save says so, with Open (the house rule: every
+    // mutation toasts; PU-Safe 2, 11-18: the vendor card saved in silence)
+    const v = editing.id ? DB.vendors.find((x) => x.id === editing.id) : DB.vendors[DB.vendors.length - 1],
+      ready = v && oxHasAddress(v.email) ? oxRefreshAddresses(v) : 0;
     closeEditor(), save(), render();
+    v &&
+      toast(`${v.name} saved${ready ? `; ${ready} draft${1 === ready ? "" : "s"} that waited on the address ${1 === ready ? "is" : "are"} ready to send on Today` : ""}`, [
+        { label: "Open", run: () => ("function" == typeof vendorPage ? vendorPage(v.id) : openVendor(v.id)) },
+      ]);
   } else toast("Name is required");
 }
 function vendorBlocked(name) {
@@ -17863,7 +18132,7 @@ function stockBecause() {
     const w = "function" == typeof standardWhy && standard().values && standardWhy("stock");
     if (w) return `${w}. ${STD_WASTE}`;
   } catch (e) {}
-  return "Because: Waste nothing: material, labor hours or trips (Every dollar matters). Wasted money comes out of raises, bonuses, staff and the extra value we give clients.";
+  return "Because: Waste nothing: material, labor hours or trips (Every dollar matters). Wasted money comes out of " + MONEY_WHY + ".";
 }
 function stockDB() {
   const s = (DB.stock = DB.stock || {});
@@ -32752,7 +33021,11 @@ function dmsInvoices(c, est, sentOnly) {
   );
 }
 function dmsBilled(c, est, sentOnly) {
-  return [...new Set(dmsInvoices(c, est, sentOnly).map((i) => dmsOf(i, est)))].sort((a, b) => a - b);
+  // a replacement design fee counts the milestones billed on the fee it replaces (billing re-walk 4, S1-2: the new
+  // contract offered its signing milestone again after the old one's was paid)
+  const R0 = est && est.contractAs && "replace" === est.contractAs.as && c ? (c.estimates || []).find((x) => x.id === est.contractAs.ofId && x.id !== est.id) : null,
+    was = R0 && "design" === R0.template ? dmsInvoices(c, R0, sentOnly).map((i) => dmsOf(i, R0)) : [];
+  return [...new Set(dmsInvoices(c, est, sentOnly).map((i) => dmsOf(i, est)).concat(was))].sort((a, b) => a - b);
 }
 // a milestone is reached by its evidence: signing (the first), the filing or half the design hours (the second), the
 // design hours all but spent (the third), as the Billing Queue has always read it
@@ -33189,7 +33462,7 @@ function applyCredits(c, inv) {
   const R = clientCreditApply(c, inv);
   if (!R.ok) return void toast(R.why);
   save(), render();
-  "function" == typeof rcToast ? rcToast(`${money(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money(R.used)} credit applied`);
+  "function" == typeof rcToast ? rcToast(`${money2(R.used)} credit on account applied to ${inv.number}`, [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]) : toast(`${money2(R.used)} credit applied`);
 }
 lineFin = function (key) {
   const f = lineFinBase(key);
@@ -34572,7 +34845,9 @@ function billingSuggestions() {
   return (
     DB.clients.forEach((c) => {
       c.estimates
-        .filter((e) => "converted" === e.status)
+        // the contract in force: a contract replaced by another offers nothing more (billing re-walk 4, S1-2: after a
+        // replacement the queue still offered the old contract's deposit and milestones)
+        .filter((e) => "converted" === e.status && !e.replacedBy)
         .forEach((d) => {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (!p) return;
@@ -35949,8 +36224,7 @@ function billMatchTxn(b, o) {
         ((t.amt < 0 &&
           !t.billId &&
           t.billId !== b.id &&
-          ((t.vendor || "").toLowerCase() === n ||
-            ((t.desc || "").toLowerCase().includes(n.split(" ")[0]) && n.split(" ")[0].length > 3)) &&
+          (vendorNameSame(t.vendor, b.vendor) || truthVendorHit(t, b.vendor)) &&
           (Math.abs(-t.amt - net) <= Math.max(1, 0.02 * net) ||
             Math.abs(-t.amt - gross) <= Math.max(1, 0.02 * gross)) &&
           Math.abs(dayDiff(b.date, t.date)) <= 45) ||
@@ -36409,6 +36683,8 @@ function poNextDue(po) {
   return { amount: 0, when: "", label: "paid" };
 }
 function poMoneyHtml(po) {
+  // the order's money to the cent, as its paper prints it (PU-Safe 2, 11-18)
+  const money = unitMoney;
   const tot = poTotal(po).total,
     billed = poBilled(po),
     paid = poPaid(po),
@@ -36728,7 +37004,7 @@ renderVendors = function () {
     }),
     tb.querySelectorAll("tbody tr").forEach((tr) => {
       const id = tr.dataset.id || (tr.dataset.edit || "").split(":")[1],
-        v = DB.vendors.find((x) => x.id === id) || DB.vendors.find((x) => tr.textContent.includes(x.name));
+        v = DB.vendors.find((x) => x.id === id) || vendorNamedIn(tr.textContent, "");
       if (!v) return;
       const P = vendorPerf(v);
       [
@@ -37488,7 +37764,7 @@ const docActionsBase5 = docActions;
 function payAppData(c, d) {
   const est = d.depositOf
       ? findDoc(c, "estimate", d.depositOf)
-      : c.estimates.find((e) => "converted" === e.status && (!d.projectId || e.projectId === d.projectId)),
+      : c.estimates.find((e) => "converted" === e.status && !e.replacedBy && (!d.projectId || e.projectId === d.projectId)) || c.estimates.find((e) => "converted" === e.status && (!d.projectId || e.projectId === d.projectId)),
     K = (DB.projects.find((x) => x.id === d.projectId), c.contracts?.[d.projectId || ""] || null),
     orig = K ? K.net : est ? docNet(est) : +c.contractNet || +c.contract || 0,
     cos = c.changeOrders.filter(
@@ -37742,9 +38018,131 @@ function estOtherContract(c, d) {
           !i.supersededBy &&
           (i.fromDoc === e.id || i.retainerOf === e.id || i.depositOf === e.id || (i.lines || []).some((l) => String(l.fromLine || "").startsWith(`estimate:${e.id}:`) || (l.sovId && sv.has(l.sovId)))),
       );
-    if (on.length) return { e: e, on: on, billed: r2(on.reduce((x, i) => x + docTotal(i).total, 0)), sv: sv };
+    // billed before retainage, as the job's Billed to date reads it (one number on the sheet)
+    if (on.length) return { e: e, on: on, billed: r2(on.reduce((x, i) => x + docNet(i), 0)), sv: sv };
   }
   return null;
+}
+// A replacement replaces (billing re-walk 4, S1-3). Approving EST-13881 as the replacement for EST-2026-014 kept every
+// old line that had billing (all 13) and put the 45 new ones beside them: 121 State's contract read $1,316,352, the same
+// as a separate contract, Ready to Bill grew by $44,211 and WIP and backlog by about $491k. Now the old contract's lines
+// leave the schedule (kept on c.sovRetired for history, each with what was billed on it and the contract that replaced
+// it); what was billed on them stays billed and is carried onto the new contract's lines as billed to date (first up to
+// what each new line has measured, the rest by what is left on each line), so Ready to Bill and the next application
+// read the new schedule and never bill the same work twice; the contract is the new estimate plus the approved change
+// orders. The sheet shows the before and the after first.
+function estReplaceOld(c, pid, e) {
+  return (c.sov || []).filter((v) => "Contract" === v.source && (v.projectId || "") === (pid || "") && (String(v.lineRef || "").startsWith(`estimate:${e.id}:`) || !v.lineRef));
+}
+// what was billed on the contract being replaced: its schedule lines' billing (before retainage), what is left of its
+// deposit on account, and its other invoices (a design fee's milestones and retainer)
+function estReplaceBilled(c, pid, e) {
+  const old = estReplaceOld(c, pid, e),
+    lines = r2(old.reduce((a, v) => a + ((+v.scheduled || 0) * sovBilled(c, v.id)) / 100, 0)),
+    on = (i) => i.fromDoc === e.id || i.retainerOf === e.id || i.depositOf === e.id || (i.lines || []).some((l) => String(l.fromLine || "").startsWith(`estimate:${e.id}:`)),
+    items = r2(
+      (c.invoices || [])
+        .filter((i) => "sov" !== i.mode && !["void", "draft"].includes(i.status) && !i.supersededBy && !invIsDeposit(i) && on(i))
+        .reduce((a, i) => a + ("function" == typeof pbInvAmt ? pbInvAmt(i) : docNet(i)), 0),
+    );
+  let dep = 0;
+  try {
+    dep = "function" == typeof depositBalance ? Math.max(0, +depositBalance(c, e.id) || 0) : 0;
+  } catch (x) {}
+  return { old: old, lines: lines, items: items, dep: r2(dep), total: r2(lines + items + dep) };
+}
+// a contract billed line by line (an application of its schedule) as against a design fee or materials contract
+const estByLine = (d) => !!d && ("construction" === d.template || !d.template);
+// each new line's share of what was billed before: measured work first, then what is left on each line
+function estCarryAlloc(c, p, svs, billedOld) {
+  const L = svs.map((sv) => {
+    let earned = 0;
+    try {
+      const pr = pgProposal(pgEvidence(c, p, sv));
+      null != pr.pct && "none" !== pr.basis && (earned = r2(((+sv.scheduled || 0) * Math.min(100, pr.pct)) / 100));
+    } catch (x) {}
+    return { sv: sv, sched: +sv.scheduled || 0, earned: earned, carried: 0 };
+  });
+  const E = r2(L.reduce((a, x) => a + x.earned, 0)),
+    total = r2(L.reduce((a, x) => a + x.sched, 0));
+  let left = Math.min(r2(billedOld), total);
+  if (left <= E + 0.005) L.forEach((x) => (x.carried = E ? r2((x.earned * left) / E) : 0));
+  else {
+    L.forEach((x) => (x.carried = x.earned));
+    left = r2(left - E);
+    const room = r2(L.reduce((a, x) => a + (x.sched - x.earned), 0));
+    L.forEach((x) => (x.carried = r2(x.carried + (room ? ((x.sched - x.earned) * left) / room : 0))));
+  }
+  L.forEach((x) => (x.pct = x.sched ? Math.min(100, Math.round((1e6 * x.carried) / x.sched) / 1e4) : 0));
+  return { lines: L, earned: E, total: total, rtb: r2(L.reduce((a, x) => a + Math.max(0, x.earned - x.carried), 0)) };
+}
+function estReplacePlan(c, d, e) {
+  const pid = d.projectId || "",
+    p = (DB.projects || []).find((x) => x.id === pid);
+  if (!p) return null;
+  const J = jobFin(p),
+    B = estReplaceBilled(c, pid, e),
+    t = docTotal(d),
+    cos = (c.sov || []).filter((v) => "Contract" !== v.source && (v.projectId || "") === pid),
+    other = (c.sov || []).filter((v) => "Contract" === v.source && (v.projectId || "") === pid && !B.old.includes(v)),
+    coAmt = r2((c.changeOrders || []).filter((o) => ["approved", "billed"].includes(o.status) && (!o.projectId || o.projectId === pid)).reduce((a, o) => a + docTotal(o).total, 0)),
+    svs = sovLinesFromEstimate(c, d, t),
+    byLine = estByLine(d),
+    A = byLine ? estCarryAlloc(c, p, svs, B.total) : null,
+    contract = r2(t.total + coAmt + other.reduce((a, v) => a + (+v.scheduled || 0), 0));
+  let rtb = 0,
+    after = 0;
+  try {
+    rtb = r2(jobReadyToBill(pid).amt);
+  } catch (x) {}
+  if (A) after = A.rtb;
+  else {
+    // a design fee: what its milestones reached have earned, less everything billed on the job
+    let earned = contract;
+    try {
+      "design" === d.template && "function" == typeof dmsReached && (earned = r2(((d.milestones || DESIGN_MILESTONES).reduce((a, x, k) => a + (dmsReached(d)[k] ? +x.pct || 0 : 0), 0) * docNet(d)) / 100 + coAmt));
+    } catch (x) {}
+    after = r2(Math.max(0, Math.min(contract, earned) - J.billed));
+  }
+  return {
+    byLine: byLine,
+    before: { contract: r2(J.contract), lines: B.old.length + other.length + cos.length, billed: r2(J.billed), rtb: rtb },
+    after: { contract: contract, lines: svs.length + other.length + cos.length, billed: r2(J.billed), rtb: after },
+    billedOld: B.total,
+    old: B.old,
+    carriedPct: A && A.total ? r2((100 * Math.min(B.total, A.total)) / A.total) : 0,
+    over: r2(Math.max(0, J.billed - contract)),
+  };
+}
+// after the conversion: the old lines to history, what was billed on them carried onto the new lines
+function estReplaceApply(c, d, e, pid, B) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    at = appNowIso();
+  c.sovRetired = c.sovRetired || [];
+  B.old.forEach((v) => {
+    const bp = sovBilled(c, v.id);
+    c.sovRetired.push(Object.assign({}, v, { retired: { by: d.number, byId: d.id, of: e.number, at: at, billedPct: r2(bp), billedAmt: r2(((+v.scheduled || 0) * bp) / 100) } }));
+  });
+  const ids = new Set(B.old.map((v) => v.id));
+  c.sov = c.sov.filter((v) => !ids.has(v.id));
+  const mine = c.sov.filter((v) => "Contract" === v.source && String(v.lineRef || "").startsWith(`estimate:${d.id}:`));
+  if (p && mine.length && B.total > 0.005 && estByLine(d)) {
+    const A = estCarryAlloc(c, p, mine, B.total);
+    A.lines.forEach((x) => x.pct > 0 && ((x.sv.carriedPct = x.pct), (x.sv.carriedFrom = e.number)));
+  }
+  c.sov.forEach((v, i) => (v.order = i));
+  try {
+    audit("estimate", d.id, "replaced-schedule", `${e.number}: ${B.old.length} lines`, `${d.number}: ${mine.length} lines`, `${B.old.length} lines of ${e.number} retired (kept in history); ${money(B.total)} billed on them carried onto ${d.number}'s lines as billed to date`);
+  } catch (x) {}
+}
+// The contract a replacement replaces is out of force from the hour the replacement is signed, converted or not
+// (billing re-walk 4, S1-2: a Simple estimate approved as the replacement is approved, not converted, so the old
+// contract stayed in force and its deposit and milestones were still offered and counted)
+function estMarkReplaced(c, d) {
+  const CA = d && d.contractAs;
+  if (!CA || "replace" !== CA.as || !["approved", "converted", "billed"].includes(d.status)) return;
+  const old = (c.estimates || []).find((x) => x.id === CA.ofId);
+  old && !old.replacedBy && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }), save());
 }
 function estSecondSheet(c, d, a, K) {
   const e = K.e,
@@ -37758,14 +38156,28 @@ function estSecondSheet(c, d, a, K) {
     nLines = (d.lines || []).filter((l) => !lineUnpriced(l)).length,
     nums = K.on.map((i) => i.number).slice(0, 4).join(", ") + (K.on.length > 4 ? ", …" : ""),
     opt = (v, title, body) => `<label class="chk" style="align-items:flex-start;padding:6px 0"><input type="radio" name="esc2" data-f2="${v}"><span><b>${title}</b><br><span class="small muted">${body}</span></span></label>`;
+  // the before and the after of a replacement, and whether the new estimate is the signed one copied (billing re-walk 4,
+  // S1-3 and S2-1)
+  let P = null;
+  try {
+    P = estReplacePlan(c, d, e);
+  } catch (x) {
+    console.warn("replacement plan", x);
+  }
+  const key = (L, doc) => (L || []).filter((l) => !lineUnpriced(l)).map((l) => `${String(l.item || l.desc || "").trim().toLowerCase()}|${r2(lineAmount(l, doc))}`).sort().join("~"),
+    same = key(d.lines, d) === key(e.lines, e) && Math.abs(docTotal(d).total - docTotal(e).total) < 0.01,
+    replaceBody = P
+      ? `${esc(d.number)} becomes the contract in place of ${esc(e.number)}. <b>Before:</b> contract ${money(P.before.contract)}, ${P.before.lines} schedule lines, ${money(P.before.billed)} billed, ${money(P.before.rtb)} ready to bill. <b>After:</b> contract ${money(P.after.contract)} (${esc(d.number)}${P.after.contract - t.total > 0.5 ? " and the approved change orders" : ""}), ${P.after.lines} schedule lines; ${esc(e.number)}'s ${P.old.length} line${1 === P.old.length ? "" : "s"} leave the schedule and are kept in its history; the ${money(P.billedOld)} billed on ${esc(e.number)} stays billed and counts against ${esc(d.number)}${P.byLine ? ` as billed to date on its lines (${P.carriedPct}%)` : ""}${P.over > 0.5 ? `; the job is ${money(P.over)} over the new contract` : ""}; ready to bill ${P.byLine ? "from the new schedule" : "on the new contract"} ${money(P.after.rtb)}.`
+      : null;
   mbModal(
     `What Is ${esc(d.number)}?`,
     `<div class="note warn small">${esc(job)}'s contract is ${esc(e.number)} (${money(docTotal(e).total)}${oldSv.length ? `, ${oldSv.length} schedule lines` : ""}), billed against on ${esc(nums)} (${money(K.billed)}). ${esc(d.number)} (${money(t.total)}, ${nLines} line${1 === nLines ? "" : "s"}) is a new estimate on the same job: say what it is before it is ${"invoice" === a ? "invoiced" : "approved"}. Nothing changes until you choose.</div>` +
+      (same ? `<div class="note bad small" data-escsame>${esc(d.number)} is the same as the signed ${esc(e.number)}: the same ${nLines} line${1 === nLines ? "" : "s"} and ${money(t.total)}${d.copyOf === e.number ? `, copied from it` : ""}. It is a copy, not a new contract: if nothing changed, Cancel and delete it. As a separate contract it bills the same work twice.</div>` : "") +
       opt("co", `A Change Order to ${esc(e.number)}`, `Its lines go on a new change order on ${esc(job)} for the client to approve. ${esc(d.number)} is not approved as a contract.`) +
       opt(
         "replace",
         `A Replacement Contract for ${esc(e.number)}`,
-        `${esc(d.number)} becomes the contract, and the ${money(K.billed)} billed on ${esc(e.number)} counts against it. What is billed on ${esc(e.number)} stays billed${billedSv.length ? `: ${billedSv.length} line${1 === billedSv.length ? "" : "s"}, ${money(sum(billedSv))} scheduled (${esc(billedSv.slice(0, 3).map((v) => v.desc).join("; "))}${billedSv.length > 3 ? "; …" : ""})` : ` (${money(K.billed)})`}. ${oldSv.length - billedSv.length ? `Its ${oldSv.length - billedSv.length} unbilled line${1 === oldSv.length - billedSv.length ? "" : "s"} leave the schedule` : "Every one of its lines has billing, so all of them stay"}, and ${esc(d.number)}'s ${nLines} come in: the schedule becomes ${billedSv.length + nLines} lines, ${money(r2(sum(billedSv) + t.total))}.`,
+        replaceBody || `${esc(d.number)} becomes the contract, and the ${money(K.billed)} billed on ${esc(e.number)} counts against it. What is billed on ${esc(e.number)} stays billed${billedSv.length ? `: ${billedSv.length} line${1 === billedSv.length ? "" : "s"}, ${money(sum(billedSv))} scheduled (${esc(billedSv.slice(0, 3).map((v) => v.desc).join("; "))}${billedSv.length > 3 ? "; …" : ""})` : ` (${money(K.billed)})`}. ${oldSv.length - billedSv.length ? `Its ${oldSv.length - billedSv.length} unbilled line${1 === oldSv.length - billedSv.length ? "" : "s"} leave the schedule` : "Every one of its lines has billing, so all of them stay"}, and ${esc(d.number)}'s ${nLines} come in: the schedule becomes ${billedSv.length + nLines} lines, ${money(r2(sum(billedSv) + t.total))}.`,
       ) +
       opt("separate", "A Separate Contract on This Job", `${esc(d.number)}'s ${nLines} line${1 === nLines ? "" : "s"} (${money(t.total)}) go on the schedule beside ${esc(e.number)}'s: ${jobSv.length} lines, ${money(sum(jobSv))} becomes ${jobSv.length + nLines} lines, ${money(r2(sum(jobSv) + t.total))}.`) +
       mbF("Why", mbIn("why", "", "e.g. the client added the garden floor as its own contract")),
@@ -37795,9 +38207,10 @@ function estSecondSheet(c, d, a, K) {
         setTimeout(
           () =>
             "invoice" === a
-              ? invoiceFromEstimate(c, d)
+              ? (invoiceFromEstimate(c, d), estMarkReplaced(c, d))
               : Promise.resolve(docAction(c, d, a)).then(() => {
                   if (!["approved", "converted"].includes(d.status)) return;
+                  estMarkReplaced(c, d);
                   try {
                     d.clientAnswer && audit("estimate", d.id, "approval-recorded", "sent", d.status, d.clientAnswer.why);
                   } catch (x) {}
@@ -37878,10 +38291,11 @@ async function estDocAction6(c, d, a) {
     // a separate contract keeps the job's contract lines beside its own; a replacement keeps the replaced contract's
     // lines that are billed (what is billed stays billed) and lets its unbilled lines go (estSecondSheet)
     const CA = d.contractAs && "co" !== d.contractAs.as ? d.contractAs : null,
-      caKeep = (v) =>
-        !!CA &&
-        ("separate" === CA.as ||
-          (String(v.lineRef || "").startsWith(`estimate:${CA.ofId}:`) && (sovBilled(c, v.id) > 0.005 || c.invoices.some((i) => "sov" === i.mode && "void" !== i.status && (i.lines || []).some((l) => l.sovId === v.id && +l.pct > 0))))),
+      R0 = CA && "replace" === CA.as ? (c.estimates || []).find((x) => x.id === CA.ofId) : null,
+      RB = R0 ? estReplaceBilled(c, pid, R0) : null,
+      // a separate contract keeps every line beside it; a replacement keeps the job's other contracts' lines and
+      // retires the replaced contract's (estReplaceApply, after the conversion)
+      caKeep = (v) => !!CA && ("separate" === CA.as || (RB && !RB.old.includes(v))),
       keepSov = c.sov.filter((v) => "Contract" === v.source && ((v.projectId || "") !== pid || (caKeep(v) && !String(v.lineRef || "").startsWith(`estimate:${d.id}:`)))),
       // a new job the person was told of (or the only answer, above) is opened without asking again
       _nk = askKey("Create a project for this contract now?"),
@@ -37907,10 +38321,12 @@ async function estDocAction6(c, d, a) {
           c.sov.includes(v) || c.sov.push(v);
         }),
         c.sov.forEach((v, i) => (v.order = i));
+      RB && R0 && estReplaceApply(c, d, R0, pid, RB);
       const t = docTotal(d),
         K0 = (c.contracts || {})[pid],
-        // a replacement's contract is what its schedule holds: its own lines and the replaced lines that stay billed
-        kept = CA && "replace" === CA.as ? keepSov.filter((v) => (v.projectId || "") === pid && String(v.lineRef || "").startsWith(`estimate:${CA.ofId}:`)) : [],
+        // a replacement's contract is the new estimate (and the job's other contracts' lines it keeps); what was billed
+        // on the replaced one is carried onto its lines as billed to date, never added to the contract
+        kept = CA && "replace" === CA.as ? keepSov.filter((v) => (v.projectId || "") === pid && "Contract" === v.source) : [],
         keptAmt = r2(kept.reduce((x, v) => x + (+v.scheduled || 0), 0));
       (c.contracts = c.contracts || {}),
         CA && "separate" === CA.as && K0
@@ -37924,7 +38340,7 @@ async function estDocAction6(c, d, a) {
             });
       if (CA && "replace" === CA.as) {
         const old = (c.estimates || []).find((x) => x.id === CA.ofId);
-        old && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
+        old && !old.replacedBy && ((old.replacedBy = d.number), (old.history = old.history || []).push({ t: nowStamp(), by: CA.by, from: old.status, action: "replaced", note: `${d.number}: ${CA.why}`, total: docTotal(old).total }));
       }
       const T = contractTotals(c);
       (c.contract = T.base), (c.contractNet = T.net);
@@ -38046,7 +38462,7 @@ function paymentAllocate(c, presetInvoiceId) {
             save(), render();
             // credit spent is not cash received: said as applied, never "recorded from" (round 2, S3-G)
             const inv0 = findDoc(c, "invoice", A[0].id);
-            "function" == typeof rcToast ? rcToast(`${money(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
+            "function" == typeof rcToast ? rcToast(`${money2(used)} applied from ${c.name}'s credit on account${inv0 ? ` to ${inv0.number}` : ""}; no new money came in`, inv0 ? [{ label: "Open", run: () => ((clientOpen = c.id), (docOpen = { kind: "invoice", id: inv0.id }), render()) }] : null) : toast(`${money(used)} applied from credit on account`);
             return;
           }
           let applied = 0;
@@ -38456,7 +38872,7 @@ analystFindings = function () {
       (f.title + " " + f.detail).match(
         /(?:PO-\d{4}-\d+ )?([A-Z][A-Za-z&' ]+(?:Works|Tile|Millwork|Plumbing|Electric|Supply|Lumber|Glass|Stone|Inc|LLC))/,
       );
-      const vendor = DB.vendors.find((v) => (f.title + " " + f.detail).includes(v.name));
+      const vendor = vendorNamedIn(f.title + " " + (f.detail || ""), "");
       vendor ? (byV[vendor.name] = byV[vendor.name] || []).push(f) : keep.push(f);
     }),
     Object.entries(byV).forEach(([name, fs]) => {
@@ -39253,7 +39669,7 @@ const remindersBase10 = reminders;
         keep = [];
       return (
         F.forEach((f) => {
-          const v = DB.vendors.find((x) => (f.title + " " + (f.detail || "")).includes(x.name));
+          const v = vendorNamedIn(f.title + " " + (f.detail || ""), "");
           v ? (byV[v.name] = byV[v.name] || []).push(f) : keep.push(f);
         }),
         Object.entries(byV).forEach(([name, fs]) => {
@@ -50753,25 +51169,18 @@ function fRenderSite() {
     });
 }
 function fLogDraft(date) {
-  const td = date;
+  const td = date,
+    // the crew's hours are the Daily Log's own (dlClockFor, timeHoursOf): two punches that overlap count once (11-18)
+    clock = "function" == typeof dlClockFor ? dlClockFor(S, td) : [];
   return {
     crew: DB.employees
       .filter((e) => !1 !== e.active && !/coordinator|office|owner|designer/i.test(e.role || ""))
-      .map((e) => ({
-        name: e.name,
-        hours: r2(
-          DB.time
-            .filter((t) => t.empId === e.id && t.date === td && t.projectId === S.id)
-            .reduce((a, t) => a + hoursOf(t), 0),
-        ),
-      }))
-      .filter(
-        (x) =>
-          x.hours > 0 ||
-          DB.time.some(
-            (t) => t.date === td && t.empId === DB.employees.find((e) => e.name === x.name)?.id && !t.out,
-          ),
-      ),
+      .map((e) => {
+        const k = clock.find((x) => x.empId === e.id);
+        return { name: e.name, hours: k ? k.hours : 0, open: !!(k && k.open) };
+      })
+      .filter((x) => x.hours > 0 || x.open)
+      .map((x) => ({ name: x.name, hours: x.hours })),
     subs: DB.field.subs
       .filter((s) => s.projectId === S.id && s.date === td && "onsite" === s.status)
       .map((s) => `${s.vendor} (${s.lead})`),
@@ -50865,7 +51274,9 @@ function fRenderCrew() {
       .map((e) => ({ e: e, es: DB.time.filter((t) => t.empId === e.id && t.date === td) }))
       .filter((x) => x.es.length && x.es.every((t) => t.out)),
     notIn = crew.filter((e) => !DB.time.some((t) => t.empId === e.id && t.date === td));
-  (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span>${"function" == typeof tkStillCrewSay && tkStillCrewSay(t) ? `<span class="small bad-t" data-fstill>${esc(tkStillCrewSay(t))}</span>` : ""}</div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
+  // a day off (a weekend, a holiday) is not a day anyone is missing: nothing on it is red (the fourth walk, 11-18)
+  const offDay = !isWork(td);
+  (root.innerHTML = `<div class="card f-card ${onNow.length || offDay ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span>${"function" == typeof tkStillCrewSay && tkStillCrewSay(t) ? `<span class="small bad-t" data-fstill>${esc(tkStillCrewSay(t))}</span>` : ""}</div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length && offDay ? `<div class="small muted" style="margin-top:4px" data-offday>Not a work day: nobody is expected.</div>` : notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
     .map((e) => {
       // a day is a date, not a punch (two punches on 9/3 read "4 days" for three worked), and a voided punch is no time
       const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td && live(t) && !t.forDate),
@@ -52904,9 +53315,20 @@ function ctDepositDue(c, d) {
   if (live.some((i) => i.depositOf === d.id && invIsDeposit(i))) return null;
   // billing on the job began without one (an application sent, or an old one that reads as the deposit)
   if (live.some((i) => (!d.projectId || !i.projectId || i.projectId === d.projectId) && ("draft" !== i.status && "sov" === i.mode || invLegacyDeposit(i)))) return null;
-  const net = docNet(d),
-    amount = r2((net * pct) / 100);
-  if (!(amount > 0)) return null;
+  const net = docNet(d);
+  let amount = r2((net * pct) / 100);
+  // a replacement contract counts what was billed on the contract it replaces (that money is on account already), and
+  // no deposit is offered past what the job's contract has left to bill (billing re-walk 4, S1-2: after a replacement
+  // was billed in full the queue offered the old 25% deposit, $10,675 over the contract)
+  try {
+    const M = "function" == typeof pbJobMeasure && d.projectId ? pbJobMeasure(c, d.projectId, null, { drafts: !0 }) : null;
+    if (M) {
+      const R0 = d.contractAs && "replace" === d.contractAs.as ? (c.estimates || []).find((e) => e.id === d.contractAs.ofId) : null,
+        prior = R0 ? r2(M.invs.reduce((a, i) => a + pbInvAmt(i), 0)) : 0;
+      amount = r2(Math.min(amount - prior, M.contract - M.billed));
+    }
+  } catch (e) {}
+  if (!(amount > 0.5)) return null;
   const signed = ctDepositSigned(c, d),
     by = addWork(signed, 2);
   return { pct: pct, net: net, amount: amount, signed: signed, by: by, late: today() > by };
@@ -64002,7 +64424,8 @@ function biFindPO(inv) {
       po = pos.find((p) => String(p.number).toUpperCase().replace(/\s/g, "") === n);
     if (po) return { po: po, how: "quoted", why: `the invoice quotes ${po.number}` };
   }
-  const byVendor = pos.filter((p) => vend && (p.vendor || "").toLowerCase().includes(vend.split(/\s+/)[0])),
+  // the vendor's own orders (the vendor reader: the same name, never a shared first word)
+  const byVendor = pos.filter((p) => vend && vendorNameSame(p.vendor, inv.vendor)),
     exact = byVendor.find((p) => Math.abs(poTotal(p).total - inv.total) < 1);
   if (exact)
     return { po: exact, how: "amount", why: `${exact.number} is for the same vendor and the same money` };
@@ -64078,6 +64501,11 @@ function biCheck(inv, po) {
         "no-po",
         "Nothing was ordered from this vendor on paper. A bill with no purchase order behind it is somebody buying without asking.",
       ),
+    // the order the invoice cites is another vendor's (PU-Safe 2: Garden Supply Co citing Garden State Lumber's PO-2026-049)
+    po &&
+      inv.vendor &&
+      !vendorNameSame(inv.vendor, po.vendor) &&
+      add("stop", "vendor", `${inv.vendor} sent this, but ${po.number} is ${po.vendor}'s order: hold it and check who sent it before anything is billed`),
     po)
   ) {
     const pt = poTotal(po),
@@ -64218,11 +64646,11 @@ const biStops = (f) => f.filter((x) => "stop" === x.sev),
   biClean = (f) => !biStops(f).length;
 function biDuplicate(inv) {
   const bills = (DB.bills || []).filter((b) => "void" !== b.status),
-    v = (inv.vendor || "").toLowerCase().split(/\s+/)[0];
+    v = inv.vendor || "";
   if (inv.number) {
     const exact = bills.find(
       (b) =>
-        (b.vendor || "").toLowerCase().includes(v) &&
+        vendorNameSame(b.vendor, v) &&
         String(b.number || "")
           .toUpperCase()
           .replace(/[^A-Z0-9]/g, "") ===
@@ -64236,8 +64664,7 @@ function biDuplicate(inv) {
     (inv.total &&
       bills.find(
         (b) =>
-          (b.vendor || "").toLowerCase().includes(v) &&
-          v &&
+          vendorNameSame(b.vendor, v) &&
           Math.abs(billTotal(b) - inv.total) < 0.02 &&
           Math.abs((new Date(b.date) - new Date(inv.date || today())) / 864e5) <= 14,
       )) ||
@@ -65374,16 +65801,16 @@ function tmSeed() {
   if (DB.__tmSeed) return;
   DB.__tmSeed = 1;
   const set = (name, terms) => {
-    const v = (DB.vendors || []).find((x) => (x.name || "").toLowerCase().includes(name));
+    const v = vendorByName(name);
     v && (v.terms = terms),
       (DB.bills || []).forEach((b) => {
-        (b.vendor || "").toLowerCase().includes(name) && !b.terms && (b.terms = terms);
+        vendorNameSame(b.vendor, name) && !b.terms && (b.terms = terms);
       });
   };
-  set("nemo", "2/10 NET 30"),
-    set("window", "NET 14"),
-    set("carlos", "1.5/15 NET 45"),
-    set("alberto", "NET 30"),
+  set("Nemo Tile", "2/10 NET 30"),
+    set("Window Works", "NET 14"),
+    set("Carlos Millwork", "1.5/15 NET 45"),
+    set("Alberto M Plumbing", "NET 30"),
     save();
 }
 if ("function" == typeof spSeed) {
@@ -65816,9 +66243,8 @@ function pgDraft(projectId) {
     (i) => "sov" === i.mode && "draft" === i.status && (i.projectId || "") === (p.id || ""),
   );
   if (!inv) {
-    const d = (c.estimates || []).find(
-      (e) => ["converted", "billed"].includes(e.status) && (e.projectId || "") === (p.id || ""),
-    );
+    const on = (c.estimates || []).filter((e) => ["converted", "billed"].includes(e.status) && (e.projectId || "") === (p.id || "")),
+      d = on.find((e) => !e.replacedBy) || on[0];
     if (!d || "function" != typeof ctProgressInvoice) return null;
     (inv = ctProgressInvoice(c, d)), (inv.projectId = p.id);
   }
@@ -67403,7 +67829,7 @@ function frqTidy() {
       (readBtn.dataset.frqN = String((comp.lines || []).length)),
       readBtn.addEventListener("click", () => {
         const n0 = +readBtn.dataset.frqN || 0,
-          t0 = Date.now(),
+          t0 = Date.now(), // wall clock: a timer on this device, never stored as a date
           tick = () => {
             if (comp.busy && Date.now() - t0 < 6e4) return void setTimeout(tick, 200);
             !comp.busy && (comp.lines || []).length > n0 && !(comp.questions || []).length && "function" == typeof compSend && compSend();
@@ -67945,10 +68371,11 @@ if ("function" == typeof clockEvent) {
     if (hrs >= 0 && hrs <= 16) return clockLongBase_f3(kind);
     const when = await f3AskWhenLeft(e, hrs);
     if (!when) return;
-    (e.out = when),
+    // the time he gives, with the app's sight of the end capped where the app stopped seeing him work (the 8 h 15 mark
+    // or his last Still Working, tkHandSeenCap): a later time is said and needs the approver's reason (timeCloseGiven)
+    timeCloseGiven(e, when, "long", (currentUser() || {}).name || "", "function" == typeof tkHandSeenCap ? tkHandSeenCap(e) : ""),
       (e.autoOut = !1),
       (e.longShift = !0),
-      "function" == typeof hoursOf && hoursOf(e) >= 6 && !e.breakMin && (e.breakMin = 30),
       audit("time", e.id, "clock-out-corrected", null, { claimed: r2(hrs), kept: r2(hoursOf(e)) }),
       save();
     const fresh = (DB.time || []).find((t) => t.id === e.id);
@@ -68017,7 +68444,8 @@ function tmLateSheet(emp, date) {
         if (!f.d || f.d >= td) return toast("Pick a day before today; today's hours come from the clock"), !1;
         if (!f.a || !f.b || f.b <= f.a) return toast("The finish time comes after the start"), !1;
         const why = String(f.why || "").trim();
-        if (why.length < 3) return toast("Say why the hours are late; it goes on the record"), !1;
+        // his reason is words, the bar every reason for unseen hours meets (timeWhyOk): "abc" is not one (11-18)
+        if (!timeWhyOk(why)) return toast(`Say why the hours are late, in words (two words or more): it goes on the record.`), !1;
         const ins = `${f.d}T${f.a}:00`,
           outs = `${f.d}T${f.b}:00`,
           clash = (DB.time || []).find((t) => t.empId === emp.id && t.date === f.d && t.in && String(t.in) < outs && ins < String(t.out || t.in));
@@ -68046,10 +68474,11 @@ function tmLateSheet(emp, date) {
           audit("time", e.id, "logged-late", null, { date: f.d, hours: hoursOf(e), reason: why, by: by });
         } catch (x) {}
         save(), render();
-        const go = () => ("function" == typeof openTime ? openTime(e.id) : null);
-        "function" == typeof rcToast
-          ? rcToast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, [{ label: "Open", run: go }])
-          : toast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, go);
+        const go = () => ("function" == typeof openTime ? openTime(e.id) : null),
+          // hours added to a day the app clocked: the approver says why before they are paid, and the PM sees it (timeWordOf)
+          added = timeAddedTo(e),
+          say = `${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval${added ? `. The app clocked you to ${stampTime(added)} that day, so your foreman says why before these hours are paid` : ""}`;
+        "function" == typeof rcToast ? rcToast(say, [{ label: "Open", run: go }]) : toast(say, go);
       },
     },
   );
@@ -75664,18 +76093,24 @@ function cmMoneyParty(c, R) {
 // ("office@albertomplumbing" is Alberto M Plumbing), or the name itself. A public mail provider never matches.
 function cmVendorFor(email, name) {
   const e = cmEmail(email),
-    dom = (e.split("@")[1] || "").split(".")[0].replace(/[^a-z]/g, ""),
-    pub = "object" == typeof PA_PUBLIC_MAIL && PA_PUBLIC_MAIL.test(e.split("@")[1] || ""),
-    nm = String(name || "")
-      .toLowerCase()
-      .replace(/[^a-z]/g, "");
-  return (
-    (DB.vendors || []).find((v) => {
-      const vk = (v.name || "").toLowerCase().replace(/[^a-z]/g, "");
-      // a domain that is only a word of the trade (lumber.example) names nobody (PU-Safe)
-      return (v.email || "").toLowerCase() === e || (!pub && dom.length > 3 && !VENDOR_COMMON_WORDS.test(dom) && vk.includes(dom)) || (nm.length > 5 && vk.length > 5 && (nm === vk || nm.includes(vk)));
-    }) || null
-  );
+    host = e.split("@")[1] || "",
+    dom = host.split(".")[0].replace(/[^a-z0-9]/g, ""),
+    pub = "object" == typeof PA_PUBLIC_MAIL && PA_PUBLIC_MAIL.test(host),
+    V = (DB.vendors || []).filter((v) => v && v.name);
+  // the address on file, or the one vendor that already writes from this domain
+  const byMail = e && V.find((v) => String(v.email || "").toLowerCase() === e);
+  if (byMail) return byMail;
+  if (!pub && host) {
+    const same = V.filter((v) => String(v.email || "").toLowerCase().split("@")[1] === host);
+    if (1 === same.length) return same[0];
+    // the domain is the vendor's name, whole or without its trade words, squashed ("albertomplumbing" is Alberto M
+    // Plumbing); a domain that is only a word of the trade (lumber.example) names nobody (the vendor reader)
+    if (dom.length > 3 && !VENDOR_COMMON_WORDS.test(dom)) {
+      const M = V.filter((v) => vendorPhrases(v, "").map(vendorSquash).includes(dom));
+      if (1 === M.length) return M[0];
+    }
+  }
+  return vendorByName(name) || (name ? vendorNamedIn(name, "person") : null) || null;
 }
 // Money kinds the other messages of this thread already carry: one thread never says both directions.
 function cmThreadKinds(c, kinds) {
@@ -76339,7 +76774,7 @@ function cmRead(c) {
       // A broker sends on the insured's behalf: the vendor is the one named on the certificate.
       named = R.vendorId
         ? null
-        : (DB.vendors || []).find((v) => v.name.length > 3 && low.includes(v.name.toLowerCase())),
+        : vendorNamedIn(low, ""),
       vid = R.vendorId || (named ? named.id : ""),
       vn = vid ? (DB.vendors.find((v) => v.id === vid) || {}).name : who,
       vendor = vid ? DB.vendors.find((v) => v.id === vid) : null;
@@ -91403,7 +91838,8 @@ function fmCrewClock() {
               const t = DB.time.find((x) => x.empId === e.id && !x.out);
               if (!t) return;
               (t.out = ts),
-                (t.seenOut = ts),
+                // the app's own sight of the end (timeSeen): the foreman's tap
+                timeSeen(t, ts, "foreman"),
                 (t.geoOut = geo),
                 (t.status = "submitted"),
                 (t.notes = (t.notes ? t.notes + " · " : "") + `clocked out by ${fmMe()}`),
@@ -99901,19 +100337,14 @@ function bnContactFor(p, name) {
   if (!n) return null;
   const c = parseContacts(p.project.contacts).find((x) => x.name.toLowerCase().split(" ")[0] === n);
   if (c) return { name: c.name, email: c.email };
-  // a vendor by its name, or by a first word only it carries; a common word (Lumber, Supply) names nobody (PU-Safe)
-  const v =
-    vendorByName(name) ||
-    (() => {
-      if (VENDOR_COMMON_WORDS.test(n)) return null;
-      const M = (DB.vendors || []).filter((x) => vendorNameWords(x.name).includes(n));
-      return 1 === M.length ? M[0] : null;
-    })();
+  // a vendor by its name, or by a word only it carries (the vendor reader); a common word (Lumber, Supply) names nobody
+  const v = vendorByName(name) || vendorNamedIn(name, "person");
   if (v) return { name: v.name, email: v.email || "" };
   const cl = DB.clients.find((x) => x.id === p.clientId),
     ct = cl && (cl.contacts || []).find((x) => x.name.toLowerCase().split(" ")[0] === n);
   if (ct) return { name: ct.name, email: ct.email || "" };
-  const ob = (DB.obligations || []).find((o) => (o.party || "").toLowerCase().includes(n));
+  // an obligation's party by a word of its name that is not a word of the trade, a place or a stop word
+  const ob = !VENDOR_COMMON_WORDS.test(n) && !VENDOR_PLACE_WORDS.test(n) && !VENDOR_STOP_WORDS.test(n) ? (DB.obligations || []).find((o) => vendorDistinctWords(o.party).includes(n)) : null;
   return ob ? { name: ob.party, email: ob.partyEmail || "" } : { name: name, email: "" };
 }
 function bnSignature() {
@@ -101120,7 +101551,8 @@ if ("function" == typeof mApprovals) {
             out.push({
               kind: "draft",
               id: o.id,
-              title: o.needsAddress ? `Needs Address: ${o.subject}` : `Send: ${o.subject}`,
+              // an address added on the vendor card since the draft was written is taken now (oxAddressFill)
+              title: o.needsAddress && oxAddressFill(o).needsAddress ? `Needs Address: ${o.subject}` : `Send: ${o.subject}`,
               sub: o.needsAddress ? o.addressStep || `to ${o.to.name || "—"}: no email on file` : `to ${o.to.name || o.to.email || "—"}`,
               open: { view: "brain", bnTab: "hands" },
             }),
@@ -121489,7 +121921,7 @@ const paEmailFor = (who) => {
           n.includes(String(k.name || "").toLowerCase()))
       )
         return k.email;
-  const v = vendorByName(who);
+  const v = vendorByName(who) || vendorNamedIn(who, "person");
   if (v && v.email) return v.email;
   const m = (DB.comms || []).find((c) =>
     String((c.from || {}).name || "")
@@ -125339,9 +125771,21 @@ function crDocEmail(c, d) {
               .slice(0, 6)
               .join("; ") || d.title
           }${d.scheduleDays ? `, and adds ${d.scheduleDays} working day${d.scheduleDays > 1 ? "s" : ""} to the schedule` : ""}. Please review and approve it in your portal so the work can proceed`
-        : ". You can pay it from your portal"
+        : crRevPaid(c, d)
+          ? `. It replaces ${crRevPaid(c, d).o.number}: the ${money(crRevPaid(c, d).paid)} you paid on ${crRevPaid(c, d).o.number} settles it${crRevPaid(c, d).credit > 0.005 ? `, and the ${money(crRevPaid(c, d).credit)} more is your credit on account` : ""}, so nothing is due`
+          : ". You can pay it from your portal"
     }.\n\nThank you,\n${S.project.userName || DB.company.name || ""}`;
   return { to: pc, subject: subject, body: body };
+}
+// A revision of an invoice the client has paid, and what was received on it covers the revision: nothing is due, so
+// the send sheet and the email never say "for payment" (billing re-walk 4, S3)
+function crRevPaid(c, d) {
+  if (!c || !d || "invoice" !== d.type || !d.revisionOf) return null;
+  const o = (c.invoices || []).find((x) => x.number === d.revisionOf && x.id !== d.id);
+  if (!o) return null;
+  const paid = r2("function" == typeof invoicePaid ? invoicePaid(c, o) : 0),
+    t = docTotal(d).total;
+  return paid > 0.005 && paid >= t - 0.005 ? { o: o, paid: paid, credit: r2(paid - t) } : null;
 }
 async function crSendToClient(c, d) {
   const E = crDocEmail(c, d),
@@ -125349,7 +125793,7 @@ async function crSendToClient(c, d) {
     REQ = [['[data-f="to"]', "Who it goes to — add an email to the client’s contact to remember it"]];
   mbModal(
     `Send to Client — ${esc(d.number)}`,
-    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : " for payment"}, and moves it to Sent.</p>`,
+    `\n    <div class="grid2">${mbF("To", `<input data-f="to" value="${esc(E.to.email || "")}" placeholder="name@example.com">`)}${mbF("Subject", `<input data-f="subject" value="${esc(E.subject)}">`)}</div>\n    ${mbF("Message", `<textarea data-f="body" rows="7">${esc(E.body)}</textarea>`)}\n    <p class="small muted" style="margin:0">Sending emails the ${"co" === d.type ? "change order" : "invoice"} for ${money(t.total)}, posts it to ${esc(c.name)}’s portal${"co" === d.type ? " for approval" : crRevPaid(c, d) ? ` as paid (the ${money(crRevPaid(c, d).paid)} received on ${esc(crRevPaid(c, d).o.number)} settles it${crRevPaid(c, d).credit > 0.005 ? `; ${money(crRevPaid(c, d).credit)} more goes to the client's credit on account` : ""})` : " for payment"}, and moves it to Sent.</p>`,
     {
       submit: "Send",
       onSubmit: (f) => {
@@ -139144,7 +139588,7 @@ const MW_RECOVER = /\b(compensat\w*|charge ?back|money back|credit for a new|sho
   MW_HOLD = /\b(without (?:immediate |explicit )?(?:billing|approval)|not (?:to )?bill|don['’]?t bill|do not bill|hold (?:off )?(?:on )?billing)\b/i,
   MW_LEAD = /\b(bid|proposal|referral|referred)\b/i,
   MW_AMT = /\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|million)\b)?(?:\s*(?:to|and|-|–)\s*\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|million)\b)?)?/i,
-  MW_MONEY_LINE = "Money lost to a vendor's mistake cannot go to raises, bonuses, staff, charity or extra value for the client.";
+  MW_MONEY_LINE = "Money lost to a vendor's mistake cannot go to " + MONEY_WHY + ".";
 MT_KIND.lead = "Lead";
 function mwSentences(m) {
   return [
@@ -145761,7 +146205,7 @@ function jobReadyToBill(pid) {
 // A job is billed line by line (an application, each schedule line on its own evidence) when its contract is a
 // construction estimate: the same test readyToBill makes. A design fee bills by milestone or by the hour.
 function pgBillsByLine(p) {
-  return !!p && (DB.clients || []).some((c) => (c.estimates || []).some((e) => e.projectId === p.id && "converted" === e.status && ("construction" === e.template || !e.template)));
+  return !!p && (DB.clients || []).some((c) => (c.estimates || []).some((e) => e.projectId === p.id && "converted" === e.status && !e.replacedBy && ("construction" === e.template || !e.template)));
 }
 if (
   (ocWrapTiles("billing", (T) => {
@@ -146470,6 +146914,8 @@ function a4DocAnswer(x) {
     go = r._go,
     label = `Open ${r.number}`;
   if ("purchase order" === x.kind) {
+    // an order's money to the cent, as its paper prints it; a lump-sum line reads "lump sum" (PU-Safe 2, 11-18)
+    const money = unitMoney;
     const po = (DB.pos || []).find((p) => p.id === r._id) || {};
     let st = null;
     try {
@@ -146483,7 +146929,7 @@ function a4DocAnswer(x) {
       rem = r2(tot - billed);
     (po.lines || []).forEach((l) =>
       W.push(
-        `${l.qty || ""} ${l.unit || ""} ${l.item || "line"} — ${money((+l.qty || 0) * (+l.price || 0))}${l.qty ? ` · ${+l.received || 0} of ${l.qty} received` : ""}`
+        `${poQtyWords(l)} ${l.item || "line"} — ${money((+l.qty || 0) * (+l.price || 0))}${l.qty ? ` · ${+l.received || 0} of ${l.qty} received` : ""}`
           .replace(/\s+/g, " ")
           .trim(),
       ),
@@ -146497,7 +146943,7 @@ function a4DocAnswer(x) {
         : `billed in full (${money(billed)})`
       : "nothing billed against it yet";
     return {
-      headline: `${r.number} — ${r.vendor}, ${money(r.amount)} for ${r.project || "no job"}; ${r.status}${r.expected ? `, expected ${fmtL(r.expected)}` : ""}; ${bil}.`,
+      headline: `${r.number} — ${r.vendor}, ${money(st ? st.tot : r.amount)} for ${r.project || "no job"}; ${r.status}${r.expected ? `, expected ${fmtL(r.expected)}` : ""}; ${bil}.`,
       note: `The purchase order itself${r.date ? `, issued ${fmtL(r.date)}` : ""}. ${r.received ? "Every line has been received." : "Not every line has been received."}`,
       work: W,
       go: go,
@@ -147160,6 +147606,8 @@ ASK_INTENTS.push({
   views: ["po", "ovbuy", "ap"],
   score: (l) => (a4POBillQ(l) ? 4 : 0),
   answer: (l) => {
+    // the orders' money to the cent, as their paper prints it (PU-Safe 2, 11-18)
+    const money = unitMoney;
     const job = a4JobOf(l),
       full = /\b(billed in full|fully billed)\b/.test(l) && !/\bnot\b/.test(l);
     let P = (DB.pos || [])
@@ -151036,52 +151484,179 @@ const TRK_KINDS = {
   TRK_ICON_CAM = ICON_SVG('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', 13),
   TRK_ICON_OK = ICON_SVG('<path d="M5 12l5 5L20 7"/>', 13),
   TRK_ICON_FLAG = ICON_SVG('<path d="M5 21V4h11l-2 4 2 4H5"/>', 13);
-// ---- vendor names, matched strictly (lane PU-Safe, 11-17) ----------------------------------------------------------
-// What was wrong: two names were "the same vendor" when they shared any word of three letters, so "Garden State Lumber"
-// was "Kent Avenue Lumber" and PO-2026-049's confirmation request went to Kent Avenue's Dana; an empty name matched
-// every vendor. Now names agree only when they are the same once a legal suffix is set aside, or when every
-// distinctive word of one is in the other. A common word of the trade (Lumber, Supply, Plumbing, Tile, Inc...) is never
-// distinctive, so it never matches by itself; an empty name matches nothing. A message about an order goes to the
-// order's own vendor record (vendorOfPO: its vendorId first); a name only finds a vendor when exactly one answers to it,
-// and what it links is shown to a person, who can change it.
+// ---- the vendor reader: the one way a name or a text finds a vendor (lane PU-Safe 2, 11-18) -------------------------
+// What was wrong (PU-Safe, 11-17, then the re-walk of 11-18): names were "the same vendor" when they shared a word, and
+// the 11-17 fix still let one distinctive word stand for the whole name, so "Garden Supply Co" was Garden State Lumber
+// (its invoice citing PO-2026-049 passed the three-way vendor check and would have been billed to Garden State), "Kent
+// Plumbing" was Kent Avenue Lumber and "Tino" was "Tino Flooring". Bank lines matched by a three-letter prefix, so "HOME
+// DEPOT #1209 STATEN ISLAND NY" was offered PO-2026-049 (Staten ~ State), and seven other places matched a vendor by
+// a first word or a substring of their own.
+// Now every name-to-vendor match in the app comes through here (tests/pu_safe2_test.py fails on any other):
+//   vendorNameSame(a, b)   two names are one vendor only when they are the same name once case, punctuation, a legal
+//                          suffix (Inc, Co, LLC, The) and the usual abbreviations (Bldg, Bros, Ave) are set aside, or
+//                          one is a name the vendor's card lists for it (aliases, its bank or card descriptors).
+//   vendorByName(name)     the one vendor that name is; two is no answer, a person picks.
+//   vendorsNamedIn(text)   the vendors a text names: a vendor's whole name, a name on its card, or its name without the
+//                          trailing words of the trade ("Garden State" for Garden State Lumber) when what is left has a
+//                          word that is not a place ("Kent Avenue" yes; "Harlem River" no), as whole words in order.
+//                          A longer name that covers the same words wins ("Garden State Lumber" over "Garden").
+//                          mode "person" (a short name a person typed or said: Ask, a meeting's attendee, a chase) also
+//                          takes one distinctive word only that vendor carries ("Carlos" for Carlos Millwork); a word of
+//                          the trade (Lumber, Supply, Tile...), a place word (State, Avenue, River, Staten, NY...) or a
+//                          stop word (the, a) never matches alone, and nothing matches by a prefix.
+//   vendorNamedIn(text)    the one vendor a text names, or null.
+//   vendorTextHit(text, v) does the text name this vendor (a record, or a name not on file)?
+// A message about an order still goes to the order's own vendor record (vendorOfPO), never to a name.
 const VENDOR_LEGAL = /\b(inc|incorporated|llc|llp|lp|co|corp|corporation|company|ltd|limited|the)\b/g,
-  VENDOR_COMMON_WORDS = /^(and|of|lumber|lumberyard|supply|supplies|supplier|plumbing|electric|electrical|building|buildings|builders|builder|materials|material|hardware|stone|tile|tiles|group|services|service|sales|nyc|ny|usa|direct|wholesale|distributors|distribution|trading|enterprises|industries|contracting|contractors|construction|depot|center|centre|yard|mill|millwork|works|windows|window|doors|door|flooring|floors|lighting|appliances|appliance|glass|timber|wood|home|pro|brothers|bros|sons|international|associates|mfg|manufacturing)$/;
+  VENDOR_ABBR = { bldg: "building", bldgs: "buildings", bros: "brothers", lbr: "lumber", lmbr: "lumber", sply: "supply", splys: "supplies", svc: "service", svcs: "services", whse: "wholesale", ave: "avenue", av: "avenue", hdwe: "hardware", hdw: "hardware", elec: "electric", plbg: "plumbing", intl: "international", assoc: "associates" },
+  VENDOR_COMMON_WORDS = /^(and|of|a|an|lumber|lumberyard|supply|supplies|supplier|plumbing|electric|electrical|building|buildings|builders|builder|materials|material|hardware|stone|tile|tiles|group|services|service|sales|nyc|ny|usa|direct|wholesale|distributors|distribution|trading|enterprises|industries|contracting|contractors|construction|depot|center|centre|yard|mill|millwork|works|windows|window|doors|door|flooring|floors|lighting|appliances|appliance|glass|timber|wood|home|pro|brothers|bros|sons|international|associates|mfg|manufacturing|quality|general|national|american|united|premier|best|store|shop|outlet|warehouse|com|net|online)$/,
+  // a place is in many vendors' names and in nearly every bank line's city: never a vendor by itself
+  VENDOR_PLACE_WORDS = /^(state|states|staten|island|avenue|street|road|river|bay|park|city|new|york|ny|nyc|nj|jersey|ct|brooklyn|bronx|queens|manhattan|harlem|long|east|west|north|south|empire|county|valley|hill|hills|heights|village|square|main|broadway|hudson|atlantic|metro|tri|downtown|uptown|midtown)$/,
+  VENDOR_STOP_WORDS = /^(the|a|an|our|my|your|their|his|her|this|that|mr|mrs|ms|dr|guy|guys|people|yard|shop)$/;
 function vendorNameNorm(s) {
-  return String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").replace(VENDOR_LEGAL, " ").replace(/\s+/g, " ").trim();
+  return String(s || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(VENDOR_LEGAL, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((w) => VENDOR_ABBR[w] || w)
+    .join(" ");
 }
-// the words that tell one vendor from another
-function vendorNameWords(s) {
-  return vendorNameNorm(s).split(" ").filter((t) => t.length > 1 && !VENDOR_COMMON_WORDS.test(t));
+// the words that tell one vendor from another: not a word of the trade, not a place
+const vendorDistinctWords = (s) => vendorNameNorm(s).split(" ").filter((t) => t.length > 1 && !VENDOR_COMMON_WORDS.test(t) && !VENDOR_PLACE_WORDS.test(t) && !VENDOR_STOP_WORDS.test(t));
+// a vendor's names: its name, and the names its card lists (aliases, a dba, its bank or card descriptors)
+function vendorKeys(v) {
+  if (!v) return [];
+  return [v.name, v.dba].concat(v.aliases || [], v.bankDescriptors || [], v.descriptors || []).map(vendorNameNorm).filter(Boolean);
 }
+const vendorSquash = (k) => String(k || "").replace(/\s/g, "");
 function vendorNameSame(a, b) {
   const x = vendorNameNorm(a),
     y = vendorNameNorm(b);
   if (!x || !y) return !1;
-  if (x === y || x.replace(/\s/g, "") === y.replace(/\s/g, "")) return !0;
-  const A = vendorNameWords(a),
-    B = vendorNameWords(b);
-  if (!A.length || !B.length) return !1;
-  const [S, L] = A.length <= B.length ? [A, B] : [B, A],
-    has = (t) => L.some((u) => u === t || (t.length >= 4 && u.length >= 4 && (u.startsWith(t) || t.startsWith(u))));
-  return S.every(has);
+  if (x === y || vendorSquash(x) === vendorSquash(y)) return !0;
+  // a name the vendor's own card lists for it
+  return (DB.vendors || []).some((v) => {
+    const K = vendorKeys(v).map(vendorSquash);
+    return K.includes(vendorSquash(x)) && K.includes(vendorSquash(y));
+  });
 }
-// The one vendor a name names: the same name first, else the only vendor whose distinctive words agree. Two that
-// agree is no answer: a person chooses.
+// The one vendor a name is: its name or a name its card lists. Two that answer is no answer: a person chooses.
 function vendorByName(name) {
-  if (!vendorNameNorm(name)) return null;
+  const n = vendorSquash(vendorNameNorm(name));
+  if (!n) return null;
   const V = (DB.vendors || []).filter((v) => v && v.name),
-    n = vendorNameNorm(name),
-    same = V.filter((v) => vendorNameNorm(v.name) === n);
-  if (same.length) return same.length === 1 ? same[0] : same.find((v) => !v.archived) || same[0];
-  const M = V.filter((v) => vendorNameSame(v.name, name));
+    same = V.filter((v) => vendorSquash(vendorNameNorm(v.name)) === n);
+  if (same.length) return 1 === same.length ? same[0] : same.find((v) => !v.archived) || same[0];
+  const M = V.filter((v) => vendorKeys(v).map(vendorSquash).includes(n));
   return 1 === M.length ? M[0] : null;
+}
+// the phrases that name a vendor in a text, longest first
+function vendorPhrases(v, mode) {
+  const name = typeof v === "string" ? v : (v && v.name) || "",
+    full = vendorNameNorm(name),
+    out = new Set(typeof v === "string" ? [full] : vendorKeys(v));
+  // the name without the trailing words of the trade, when what is left has a word that is not a place
+  const W = full.split(" ").filter(Boolean);
+  let k = W.length;
+  while (k > 0 && VENDOR_COMMON_WORDS.test(W[k - 1])) k--;
+  const core = W.slice(0, k);
+  core.length && core.length < W.length && core.some((t) => t.length > 1 && !VENDOR_PLACE_WORDS.test(t) && !VENDOR_COMMON_WORDS.test(t) && !VENDOR_STOP_WORDS.test(t)) && (core.length > 1 || core[0].length >= 4) && out.add(core.join(" "));
+  // a person's short name for it: one word only this vendor carries (the caller checks no other vendor does)
+  if ("person" === mode) vendorDistinctWords(name).filter((t) => t.length >= 4).forEach((t) => out.add(t));
+  return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
+}
+// where a phrase sits in a text's words, as whole words in order (or squashed into one token: HOMEDEPOT)
+function vendorSpan(T, phrase) {
+  const P = phrase.split(" ");
+  for (let i = 0; i + P.length <= T.length; i++) if (P.every((w, j) => T[i + j] === w)) return [i, i + P.length];
+  const sq = vendorSquash(phrase);
+  if (sq.length >= 6 && P.length > 1) for (let i = 0; i < T.length; i++) if (T[i] === sq) return [i, i + 1];
+  return null;
+}
+// the bank page asks this for every line against every bill and order: kept per text while the vendors are unchanged
+const VENDOR_NAMED_MEMO = { sig: "", m: new Map() };
+function vendorsNamedIn(text, mode, list) {
+  if (!list) {
+    const sig = (DB.vendors || []).map((v) => `${v.id}|${v.name}|${v.archived ? 1 : 0}|${(v.aliases || []).join("/")}|${(v.bankDescriptors || []).join("/")}|${v.dba || ""}`).join(";"),
+      k = `${mode || ""}\u0001${text || ""}`;
+    sig !== VENDOR_NAMED_MEMO.sig && ((VENDOR_NAMED_MEMO.sig = sig), VENDOR_NAMED_MEMO.m.clear());
+    if (VENDOR_NAMED_MEMO.m.has(k)) return VENDOR_NAMED_MEMO.m.get(k).slice();
+    VENDOR_NAMED_MEMO.m.size > 5000 && VENDOR_NAMED_MEMO.m.clear();
+    const r = vendorsNamedIn(text, mode, DB.vendors || []);
+    return VENDOR_NAMED_MEMO.m.set(k, r), r.slice();
+  }
+  const T = vendorNameNorm(text).split(" ").filter(Boolean);
+  if (!T.length) return [];
+  const V = (list || DB.vendors || []).filter((v) => v && v.name && !v.archived),
+    // one word names a vendor only when no other vendor carries it
+    owners = {};
+  "person" === mode && V.forEach((v) => new Set(vendorDistinctWords(v.name)).forEach((t) => (owners[t] = (owners[t] || 0) + 1)));
+  const hits = [];
+  V.forEach((v) => {
+    for (const ph of vendorPhrases(v, mode)) {
+      const one = !ph.includes(" ") && "person" === mode && !vendorKeys(v).includes(ph);
+      if (one && owners[ph] !== 1) continue;
+      const s = vendorSpan(T, ph);
+      // one word followed by a word of the trade is another business's name ("Garden Supply", "Kent Plumbing")
+      if (s && one && T[s[1]] && VENDOR_COMMON_WORDS.test(T[s[1]])) continue;
+      if (s) return void hits.push({ v: v, s: s, n: s[1] - s[0], len: ph.length });
+    }
+  });
+  // a longer name over the same words wins: "Garden State Lumber" leaves "Garden" out
+  return hits
+    .filter((h) => !hits.some((o) => o !== h && o.s[0] <= h.s[0] && o.s[1] >= h.s[1] && (o.n > h.n || (o.n === h.n && o.len > h.len))))
+    .sort((a, b) => b.len - a.len)
+    .map((h) => h.v);
+}
+function vendorNamedIn(text, mode) {
+  const M = vendorsNamedIn(text, mode);
+  return 1 === M.length ? M[0] : null;
+}
+// Does the text name this vendor? A record (or a name on file) must be among the vendors the text names; a name not on
+// file must appear whole, or without its trailing words of the trade.
+function vendorTextHit(text, who, mode) {
+  const v = who && "object" == typeof who ? who : vendorByName(who);
+  if (v) return vendorsNamedIn(text, mode).includes(v);
+  const T = vendorNameNorm(text).split(" ").filter(Boolean);
+  return !!T.length && !!vendorNameNorm(who) && vendorPhrases(String(who), "").some((ph) => !!vendorSpan(T, ph));
 }
 // The order's own vendor record: its vendorId, else the vendor of exactly its name. Never a word-alike.
 function vendorOfPO(po) {
   if (!po) return null;
   const V = DB.vendors || [];
-  return (po.vendorId && V.find((v) => v.id === po.vendorId)) || V.find((v) => v.name && vendorNameNorm(v.name) && vendorNameNorm(v.name) === vendorNameNorm(po.vendor)) || null;
+  return (po.vendorId && V.find((v) => v.id === po.vendorId)) || vendorByName(po.vendor) || null;
 }
+// A person matched a bank or card line to this vendor's bill or order: the line's descriptor (its words before the first
+// store or reference number, without the bank's own words) is kept on the vendor card (bankDescriptors), so the next
+// line from it names the vendor. Learned from what people confirm, audited, never from a guess: nothing is kept that is
+// only places or trade words, that the vendor already answers to, or that another vendor answers to.
+function vendorLearnDescriptor(v, desc) {
+  if (!v || !v.id || !desc) return null;
+  const out = [];
+  for (const w of vendorNameNorm(desc).split(" ")) {
+    if (!w) continue;
+    if (/\d/.test(w)) break;
+    if (/^(pos|debit|credit|card|purchase|ach|check|chk|wire|zelle|payment|pmt|pmts|recurring|online|sq|tst|paypal|venmo|visa|mc|amex|ppd|web|ref|xfer|transfer|to|from|bill|pay)$/.test(w)) {
+      if (out.length) break;
+      continue;
+    }
+    out.push(w);
+  }
+  const d = out.slice(0, 4).join(" ");
+  if (d.length < 4 || !out.some((t) => t.length > 2 && !VENDOR_COMMON_WORDS.test(t) && !VENDOR_PLACE_WORDS.test(t) && !VENDOR_STOP_WORDS.test(t))) return null;
+  if (vendorKeys(v).includes(d) || vendorTextHit(desc, v, "")) return null;
+  if ((DB.vendors || []).some((x) => x !== v && vendorKeys(x).includes(d))) return null;
+  (v.bankDescriptors = v.bankDescriptors || []).push(d);
+  try {
+    audit("vendor", v.id, "descriptor-learned", "", d, "learned from a bank or card line a person matched to its bill or order");
+  } catch (e) {}
+  return d;
+}
+// ---- end of the vendor reader ----------------------------------------------------------------------------------------
 // ---- a message with no address is never sent (PU-Safe, 11-17) ------------------------------------------------------
 // Every path that marks a vendor message sent on its own (order follow-ups, RFQ chases, an RFQ or a negotiation round)
 // asks oxHasAddress first. With none, the message stays a draft marked Needs Address, says the step (add the email on
@@ -151105,10 +151680,29 @@ function oxVendorOf(o) {
   return v;
 }
 function oxAddressFill(o) {
-  if (!o || oxHasAddress((o.to || {}).email)) return o;
+  if (!o || oxHasAddress((o.to || {}).email)) return o && o.needsAddress && oxHasAddress((o.to || {}).email) ? oxAddressDone(o) : o;
   const v = oxVendorOf(o);
-  v && oxHasAddress(v.email) && ((o.to = Object.assign({}, o.to || {}, { email: v.email })), delete o.needsAddress, delete o.addressStep);
+  v && oxHasAddress(v.email) && ((o.to = Object.assign({}, o.to || {}, { email: v.email })), oxAddressDone(o));
   return o;
+}
+// the address is in: the draft is ready to send, and the order's follow-up waits as a draft (no longer Needs Address)
+function oxAddressDone(o) {
+  delete o.needsAddress, delete o.addressStep;
+  const po = o.about && o.about.poId && (DB.pos || []).find((p) => p.id === o.about.poId);
+  po && (po.followups || []).forEach((f) => f.outboxId === o.id && "needs-address" === f.status && (f.status = "drafted"));
+  return o;
+}
+// A vendor's email added (the vendor card, an RFQ row, a confirmed address): every draft waiting on it takes it at once
+// (PU-Safe 2, 11-18: Carlos's email was saved and PO-2026-048's follow-up still read Needs Address). Returns how many.
+function oxRefreshAddresses(v) {
+  let n = 0;
+  (DB.outbox || []).forEach((o) => {
+    if (!o || !o.needsAddress || "draft" !== o.status) return;
+    const ov = oxVendorOf(o);
+    if (v && ov && ov.id !== v.id) return;
+    oxAddressFill(o).needsAddress || n++;
+  });
+  return n;
 }
 function trkCfg() {
   const c = (DB.company = DB.company || {});
@@ -151144,7 +151738,7 @@ const TRK_WHY = {
   send: "AI agents, Requires human approval: sending anything to a vendor, unless a person has delegated that type of message.",
   written: "Documentation: not written, didn't happen; verbal becomes written within 24 hours.",
   guess: "AI agents, Never: present a guess as a fact.",
-  money: "Every dollar matters: money wasted cannot go to raises, bonuses, more staff or extra value for the client.",
+  money: "Every dollar matters: money wasted cannot go to " + MONEY_WHY + ".",
   delivery: "Procurement: check every delivery against the PO the same day: quantity, spec and damage.",
   card: "Money: no purchase without a PO tied to a job and cost code.",
 };
@@ -151491,7 +152085,8 @@ function trkCheck(d) {
     q > pq + 1e-9 && add("qty", `lines.${i}.qty`, `Quantity, ${pl.item}`, `${pq} ${pl.unit || ""}`.trim(), `${q} ${l.unit || pl.unit || ""}`.trim(), (q - pq) * (pr || pp), "ack" === d.kind ? "confirm" : "draft", trkWhy("threeWay"));
     "ack" === d.kind && q < pq - 1e-9 && add("qtyShort", `lines.${i}.qty`, `Quantity confirmed short, ${pl.item}`, `${pq} ${pl.unit || ""}`.trim(), `${q} ${l.unit || pl.unit || ""}`.trim(), (pq - q) * pp, "confirm", trkWhy("lead"));
     pr > pp + 0.005 && Math.abs((pr - pp) * q) > tol && add("price", `lines.${i}.price`, `Price above ${P.number}, ${pl.item}`, trkUsd(pp), trkUsd(pr), (pr - pp) * q, "ack" === d.kind ? "confirm" : "draft", trkWhy("money"));
-    const qp = +pl.quotePrice || +pl.quoted || 0;
+    // a price a person accepted on the confirmation is the order's price: not flagged against the quote again
+    const qp = pl.acceptedPrice && pr <= +pl.acceptedPrice.price + 0.005 ? 0 : +pl.quotePrice || +pl.quoted || 0;
     qp && pr > qp + 0.005 && add("priceQuote", `lines.${i}.price`, `Price above the quote, ${pl.item}`, trkUsd(qp), trkUsd(pr), (pr - qp) * q, "draft", trkWhy("money"));
     try {
       const E = pl.line && findLine(pl.line),
@@ -152005,7 +152600,13 @@ function trkAckSheet(d) {
       submit: "Reply to the Vendor",
       onSubmit: () => {
         const o = trkAckReply(d);
-        o && toast(`Reply to ${P.vendor} about ${d.fields.number || "the confirmation"} is in your outbox to send`, [{ label: "Open", run: () => mGo({ view: "brain", bnTab: "hands" }) }]);
+        o &&
+          toast(
+            o.needsAddress
+              ? `Needs Address: the reply to ${P.vendor} about ${d.fields.number || "the confirmation"} is in your outbox, not sent. ${P.vendor} has no email on file: add it on the vendor card, then send`
+              : `Reply to ${P.vendor} about ${d.fields.number || "the confirmation"} is in your outbox to send`,
+            [{ label: "Open", run: () => mGo({ view: "brain", bnTab: "hands" }) }],
+          );
         render();
       },
       alt: {
@@ -152061,12 +152662,42 @@ function trkAckAccept(d, why) {
   const was = P.expected || "";
   P.confirmed = { date: cd || was, docId: d.id, number: d.fields.number || "", by: by, at: at, was: was };
   cd && cd !== was && (P.expected = cd);
+  // the accepted quantity and price become the order's lines (PU-Safe 2, 11-18: accepting 20 boards at $4.86 left the
+  // order at 25 at $4.50, so Receive asked for 5 more that will never come and the bill at $4.86 was flagged again).
+  // The was-values, who, when, why and the confirmation stay on the line; an audit row for each change.
+  const changed = [];
+  D.filter((c) => ["qty", "qtyShort", "price"].includes(c.code)).forEach((c) => {
+    const i = +(String(c.field).match(/^lines\.(\d+)\./) || [])[1],
+      l = ((d.fields || {}).lines || [])[i],
+      pl = l && (P.lines || []).find((x) => trkItemHit(l.item, x.item || x.desc));
+    if (!pl) return;
+    const W = (pl.was = pl.was || { qty: +pl.qty || 0, price: +pl.price || 0, docId: d.id, number: d.fields.number || "", by: by, at: at, why: why });
+    if (["qty", "qtyShort"].includes(c.code) && +l.qty >= 0 && +l.qty !== +pl.qty) {
+      const q0 = +pl.qty;
+      pl.qty = +l.qty;
+      changed.push(`${pl.item}: ${q0} to ${pl.qty} ${pl.unit || ""}`.trim());
+      try {
+        audit("po", P.id, "line-qty-accepted", q0, pl.qty, `${pl.item}: ${d.fields.number || "the confirmation"} accepted by ${by}: ${why}`);
+      } catch (e) {}
+    }
+    if ("price" === c.code && +l.price > 0 && Math.abs(+l.price - +pl.price) > 0.0001) {
+      const p0 = +pl.price;
+      pl.price = +l.price;
+      pl.acceptedPrice = { price: pl.price, docId: d.id, by: by, at: at };
+      changed.push(`${pl.item}: ${unitMoney(p0)} to ${unitMoney(pl.price)} a unit`);
+      try {
+        audit("po", P.id, "line-price-accepted", p0, pl.price, `${pl.item}: ${d.fields.number || "the confirmation"} accepted by ${by}: ${why}`);
+      } catch (e) {}
+    }
+    W.why = why;
+  });
+  changed.length && (P.confirmed.lines = changed);
   d.ackDecision = { status: "accepted", by: by, at: at, reason: why };
   try {
     audit("po", P.id, "confirmed", was, cd || was, `${d.fields.number || "acknowledgment"} accepted by ${by}: ${why}`);
   } catch (e) {}
   trkCheck(d), save();
-  rcToast(`${P.number} confirmed by ${d.fields.number || "the vendor"}${cd ? `: ${d.fields.eta ? "delivers" : "ships"} ${fmtL(cd)}` : ""}, accepted by ${by}`, [{ label: "Open", run: () => flowGo.po(P)() }]);
+  rcToast(`${P.number} confirmed by ${d.fields.number || "the vendor"}${cd ? `: ${d.fields.eta ? "delivers" : "ships"} ${fmtL(cd)}` : ""}${changed.length ? `; the order now reads ${changed.join("; ")}` : ""}, accepted by ${by}`, [{ label: "Open", run: () => flowGo.po(P)() }]);
   return P.confirmed;
 }
 function trkTaskFor(po) {
@@ -168229,7 +168860,7 @@ function dlClockFor(p, d) {
       String(end) < String(t.in) && (end = t.in), t.out || (x.open = !0);
       const held = timeHeld(t);
       held && ((x.held = !0), (x.lastSeen = t.out), (end = t.in));
-      x.spans.push({ a: ms(t.in), b: ms(end), brk: held ? 0 : +t.breakMin || 0, txt: held ? `${hm(t.in)}, held (last seen ${hm(t.out)})` : `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id });
+      x.spans.push({ a: ms(t.in), b: ms(end), brk: held ? 0 : +t.breakMin || 0, txt: held ? `${hm(t.in)}, held (last seen ${hm(t.out)})` : `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id, t: t });
     });
   return Object.values(by).map((x) => {
     const G = [];
@@ -168239,7 +168870,12 @@ function dlClockFor(p, d) {
         const g = G[G.length - 1];
         g && s.a < g.b ? ((g.b = Math.max(g.b, s.b)), (g.brk = Math.max(g.brk, s.brk)), g.n++) : G.push({ a: s.a, b: s.b, brk: s.brk, n: 1 });
       });
-    const h = G.reduce((a, g) => a + Math.max(0, (g.b - g.a) / 36e5 - g.brk / 60), 0);
+    // the day's hours are one function's (timeHoursOf): this Daily Log, the quick log (fLogDraft), his Clock and payroll's
+    // week read the same number, two punches that overlap counted once (the fourth walk, 11-18: 12.1 h against 9.1)
+    const h = timeHoursOf(
+      x.spans.map((s) => s.t),
+      d === today() ? nowIso : "",
+    );
     // to the hundredth, the number payroll pays and his Clock shows (it rounded 4.42 to 4.5: the third walk, 11-17)
     return { name: x.name, empId: x.empId, trade: x.trade, hours: r2(h), open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id), held: !!x.held, lastSeen: x.lastSeen || "" };
   });
@@ -170923,7 +171559,7 @@ const igPayRun = (r) => !!r && (DB.payroll || []).includes(r),
     const s = base.apply(this, arguments);
     try {
       if (igPayRun(b) && "submitted" === b.status)
-        return Object.assign({}, s, { text: "Awaiting Owner or Controller approval" });
+        return Object.assign({}, s, { text: `Awaiting approval by ${"function" == typeof prApprover ? prApprover(b) : "the Owner or the Controller"}` });
     } catch (e) {}
     return s;
   };
@@ -170933,7 +171569,7 @@ const igPayRun = (r) => !!r && (DB.payroll || []).includes(r),
   payrollAction = function (r, a) {
     if (r && ["approve", "reject"].includes(a) && "controller" === role() && "submitted" === r.status) {
       if (igPayMine(r))
-        return void toast("Separation of duties: you prepared this run — the Owner approves it");
+        return void toast(`Separation of duties: you prepared this run, so ${prApprover(r)} approves it`);
       const keep = r.createdBy;
       let r2v;
       r.createdBy = "Owner";
@@ -173928,14 +174564,11 @@ function agClients(l, pool) {
   });
 }
 function agVendors(l) {
-  const firsts = new Set((DB.employees || []).map((e) => String(e.name).toLowerCase().split(/\s+/)[0]));
-  return (DB.vendors || []).filter((v) => {
-    const nm = String(v.name || "").toLowerCase(),
-      toks = nm.split(/[^a-z0-9.]+/).filter(Boolean);
-    if (nm.length >= 3 && agWordRe(nm).test(l)) return !0;
-    const t0 = toks[0] || "";
-    return toks.length > 1 && t0.length >= 4 && !AG_GENERIC.test(t0) && !firsts.has(t0) && agWordRe(t0).test(l);
-  });
+  // the vendor reader (vendorsNamedIn): a whole name, a name on the card, or a word only that vendor carries; a word
+  // that is also a person's first name on the crew ("Carlos") names the vendor only with the rest of its name
+  const firsts = new Set((DB.employees || []).map((e) => String(e.name).toLowerCase().split(/\s+/)[0])),
+    whole = vendorsNamedIn(l, "");
+  return vendorsNamedIn(l, "person").filter((v) => whole.includes(v) || vendorDistinctWords(v.name).some((t) => t.length >= 4 && !firsts.has(t) && !AG_GENERIC.test(t) && agWordRe(t).test(l)));
 }
 function agMeEmp() {
   try {
@@ -174008,7 +174641,7 @@ function agNameHit(name, hay) {
   const words = n.split(/[^a-z0-9]+/).filter((w) => w && !["the", "of", "inc", "llc"].includes(w));
   return (
     words.length > 0 &&
-    words.every((w) => new RegExp(`\\b${w}`).test(h) || (AG_ABBR[w] || []).some((a) => new RegExp(`\\b${a.replace(/[&]/g, "\\&")}\\b`).test(h)) || (w.length <= 2 && h.includes(w)))
+    words.every((w) => new RegExp(`\\b${w}\\b`).test(h) || (AG_ABBR[w] || []).some((a) => new RegExp(`\\b${a.replace(/[&]/g, "\\&")}\\b`).test(h)) || (w.length <= 2 && h.includes(w)))
   );
 }
 // A payee named in the question: a known payee first, then a capitalised name nobody holds.
@@ -174030,7 +174663,8 @@ function agPayeeIn(raw, l) {
   if (m) {
     const nm = m[1].replace(/\s+(In|On|Last|This|Since|During|For)$/i, "").trim(),
       skip = new RegExp(`^(${AG_MONTHS.join("|")}|${AG_DOW.join("|")}|I|We|Our|The|Today|Yesterday|Home|Tasks?)$`, "i");
-    if (!skip.test(nm) && !agJobs(nm.toLowerCase()).length && !agPeople(nm.toLowerCase()).length) return [nm];
+    // a document's number (PO-2026-049, INV-1042) is not a payee
+    if (!skip.test(nm) && !/^(PO|INV|RFQ|CO|EST|BILL|ACK)[-\s]?\d/i.test(nm) && !agJobs(nm.toLowerCase()).length && !agPeople(nm.toLowerCase()).length) return [nm];
   }
   return [];
 }
@@ -175946,6 +176580,13 @@ function agParty(P, opts) {
     },
     mail = agMine(),
     staffDom = /@smartdesign\b|smartdesign\.nyc/i;
+  // an order named by its number is the order's own vendor record, first (PU-Safe 2, 11-18: "chase the lumber yard on
+  // PO-2026-049" drafted to "PO-2026-049", a payee nobody holds)
+  (String(P.raw || "").match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).forEach((n) => {
+    const po = (DB.pos || []).find((x) => String(x.number).toUpperCase() === n.replace(/\s+/g, "-").toUpperCase()),
+      v = po && vendorOfPO(po);
+    v && push({ name: v.name, email: v.email || "", vendor: v, kind: "vendor", po: po });
+  });
   (P.contacts || []).forEach((k) => push(Object.assign({}, k)));
   (P.clients || []).forEach((c) => {
     const money = /\b(pay|paid|invoice|retainer|deposit|owe|balance|inv-)/.test(l),
@@ -178034,7 +178675,7 @@ const STD_VALUE_IDS = ["own", "client", "craft", "ahead", "dollar", "truth", "te
   STD_ROLE_PLAYBOOKS = { owner: [], pm: ["pm", "client"], coord: ["procurement"], foreman: ["foreman", "client"], crew: ["crew"], driver: ["crew"], designer: ["designer", "client"], design_mgr: ["designer", "client"], billing: ["office"], controller: ["office"], client: ["client"] },
   // Alan's line on why money matters, in plain words, for every money leak the ERP catches (Value 5 holds it in full)
   // charity added by Alan, 2026-10-17
-  STD_WASTE = "Wasted money comes out of raises, bonuses, staff, charity and the extra value we give clients.";
+  STD_WASTE = "Wasted money comes out of " + MONEY_WHY + ".";
 const STANDARD_MD = () => {
   const el = document.getElementById("sd-standard-md");
   return el ? el.textContent.replace(/^\n/, "") : "";
@@ -182475,6 +183116,13 @@ function truthSetMatch(t, m0, o) {
   try {
     audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"}`);
   } catch (e) {}
+  // the reader learns the descriptor a person tied to this vendor (bankDescriptors on the vendor card)
+  try {
+    const mb = m.billId && (DB.bills || []).find((x) => x.id === m.billId),
+      mp = m.poId && (DB.pos || []).find((x) => x.id === m.poId),
+      mv = (mp && vendorOfPO(mp)) || (mb && vendorByName(mb.vendor));
+    mv && +t.amt < 0 && vendorLearnDescriptor(mv, t.desc || "");
+  } catch (e) {}
   return save(), { ok: !0, m: truthMatchOf(t) };
 }
 const truthNorm = (s) =>
@@ -182483,18 +183131,16 @@ const truthNorm = (s) =>
     .replace(/[^a-z0-9 ]+/g, " ")
     .split(/\s+/)
     .filter((w) => w.length >= 3 && !/^(inc|llc|the|and|corp|ltd|ach|debit|credit|card|payment|check|wire|sq|pos)$/.test(w));
-// A bank line names a vendor by a word only that vendor carries: a common word of the trade (Lumber, Supply, Tile) is
-// in many vendors' names and never matches by itself (PU-Safe, 11-17); a name made only of such words ("Home Depot")
-// matches as the whole name.
-const truthVendorHit = (t, vendor) => {
-  const V = truthNorm(vendor).filter((w) => !VENDOR_COMMON_WORDS.test(w)),
-    hay = `${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`,
-    T = new Set(truthNorm(hay));
-  if (!V.length) {
-    const whole = truthNorm(vendor).join(" ");
-    return !!whole && ` ${truthNorm(hay).join(" ")} `.includes(` ${whole} `);
-  }
-  return V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
+// A bank or card line names a vendor through the vendor reader (vendorTextHit): the vendor's whole name, a descriptor
+// its card lists, or its name without the trailing words of the trade, as whole words. A shared word, a place or a
+// prefix never does (PU-Safe 2, 11-18: "HOME DEPOT #1209 STATEN ISLAND NY" was offered PO-2026-049 from Garden State
+// Lumber because "staten" starts with "state").
+const truthVendorHit = (t, vendor) => vendorTextHit(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`, vendor, "");
+// A client's or a contact's name on a deposit line (not a vendor): a word of the name only, never a word of the trade
+const truthPartyHit = (t, name) => {
+  const V = truthNorm(name).filter((w) => !VENDOR_COMMON_WORDS.test(w) && !VENDOR_PLACE_WORDS.test(w)),
+    T = new Set(truthNorm(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`));
+  return V.some((w) => T.has(w) || T.has(w.replace(/s$/, "")) || T.has(w + "s"));
 };
 // Candidates for one line, scored: amount agrees (3), vendor agrees (2), within 7 days (1). 6 is automatic
 // (amount, vendor and date all agree) and becomes a proposal; a person confirms.
@@ -182530,7 +183176,7 @@ function truthCandidates(t) {
         (whole || lineHit || pay) && ((s += 3), why.push(pay && !whole && !lineHit ? `amount equals the payment recorded ${fmtL(pay.date)}` : whole ? "amount equals the bill" : "amount equals the line")),
           vh ? ((s += 2), why.push("vendor agrees")) : refHit && ((s += 2), why.push(`check ${pay.ref} is the payment recorded on the bill`)),
           (near(b.date) || near(b.due) || near(b.paidAt) || (pay && near(pay.date))) && ((s += 1), why.push("within 7 days"));
-        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "", paymentId: pay ? pay.id : "" }, s + (pay ? 0.5 : 0), why);
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${unitMoney(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "", paymentId: pay ? pay.id : "" }, s + (pay ? 0.5 : 0), why);
       });
     }),
       (DB.pos || []).forEach((po) => {
@@ -182544,7 +183190,7 @@ function truthCandidates(t) {
             why = [];
           let s = 0;
           (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected) || life) && ((s += 1), why.push(near(po.date) || near(po.expected) ? "within 7 days" : "inside the order's dates"));
-          push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
+          push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${unitMoney(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
         });
       });
     // payroll: the service debits net pay and taxes separately, on or near the pay date. A debit from the payroll
@@ -182613,7 +183259,7 @@ function truthCandidates(t) {
         // payment this line is read as): the payer's name alone never puts a deposit on a paid invoice
         if (bal <= 0.005 && !mine && !(Math.abs(docTotal(inv).total - amt) < 0.01 && (c.payments || []).some((x) => x.invoiceId === inv.id && !x.txnId && !x.reversalId && !x.reverses && Math.abs((+x.amount || 0) - amt) < 0.005))) return;
         let s = 0;
-        (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
+        (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthPartyHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
         push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}${use.used > 0.005 && !soft.length ? ` · ${money(use.left)} left of this ${money(use.amt)} deposit` : ""}`, Object.assign({ invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, mine ? { paymentId: mine.p.id } : {}), s, why);
       }),
     );
@@ -182624,7 +183270,7 @@ function truthCandidates(t) {
     // mail said the money was for, is proposed; a person confirms.
     if (!out.some((x) => x.score >= 6))
       (DB.clients || []).forEach((c) => {
-        const named = truthVendorHit(t, c.name) || (c.contacts || []).some((x) => x && x.name && truthVendorHit(t, String(x.name).split(" ").slice(-1)[0]));
+        const named = truthPartyHit(t, c.name) || (c.contacts || []).some((x) => x && x.name && truthPartyHit(t, String(x.name).split(" ").slice(-1)[0]));
         if (!named) return;
         const open = (c.invoices || [])
             .filter((inv) => ["sent", "partial", "overdue"].includes(inv.status))
@@ -182714,7 +183360,7 @@ function truthMatchSheet(t) {
     m = truthMatchOf(t),
     cur = truthMatchWords(m),
     canEx = ["owner", "controller"].includes(role()),
-    body = `<div class="small muted">${fmt(t.date)} · ${esc(t.desc || "")} · <b>${money(t.amt)}</b> · ${esc(truthAcctWords(t))}</div>
+    body = `<div class="small muted">${fmt(t.date)} · ${esc(t.desc || "")} · <b>${unitMoney(t.amt)}</b> · ${esc(truthAcctWords(t))}</div>
     <p class="small">${cur ? `Matched to ${esc(cur)}.` : "Not matched to a line yet. Pick the bill or order line it paid (its estimate line follows), or the invoice line it collected."}</p>
     ${C.length ? `<table class="t"><thead><tr><th>Line</th><th>Why</th><th></th></tr></thead><tbody>${C.slice(0, 12).map((c, i) => `<tr><td>${esc(c.label)}</td><td class="small muted">${esc(c.why)}${c.auto ? " · proposed" : ""}</td><td><button type="button" class="btn sm" data-trpick="${i}">Match</button></td></tr>`).join("")}</tbody></table>` : '<div class="note">No bill, order, invoice or payroll run agrees with this line on amount. Enter the bill first, or match it by hand from the drawer\'s Line field.</div>'}
     ${t.exception ? `<p class="small muted">Exception signed by ${esc(t.exception.by)} on ${truthWhen(t.exception.at)}: ${esc(t.exception.why)}</p>` : canEx ? '<div class="f" style="margin-top:10px"><label>Or Close Without a Match</label><input data-f="why" placeholder="Why this line closes with no line behind it (signed with your name)"></div>' : ""}`,
@@ -185801,11 +186447,13 @@ function rfqProposeVendors(r) {
       const score = (hit(v) ? 4 : 0) + (r.sub && "function" == typeof scIsSub && scIsSub(v) ? 3 : 0) + (rec.pos ? 2 : 0) + (rfqOutNyc(v) && r.shippable && hit(v) ? 2 : 0) + (v.rfqSuggest ? 1 : 0);
       return { v: v, rec: rec, because: because, score: score, trade: tm };
     }).sort((a, b) => b.score - a.score || String(a.v.name).localeCompare(b.v.name));
-  // pick: the trade's vendors, best first, up to five; one outside NYC for a shippable material, from the same trade
-  // (a ticked vendor with no email shows a box for it on its row; Send asks for it rather than drop the vendor)
-  const pick = V0.length ? out.slice(0, 5).map((x) => x.v.id) : [];
-  if (r.shippable && V0.length && !out.some((x) => pick.includes(x.v.id) && rfqOutNyc(x.v))) {
-    const o = out.find((x) => rfqOutNyc(x.v) && hit(x.v));
+  // pick: the trade's vendors that can be asked (an email on file), best first, up to five; one outside NYC for a
+  // shippable material, from the same trade. A vendor with no email is offered unticked with Add Email on its row
+  // (PU-Safe 2, 11-18: Nemo Tile came ticked, Send refused it, and the phone took two more taps to untick it).
+  const ask = out.filter((x) => oxHasAddress(x.v.email)),
+    pick = V0.length ? ask.slice(0, 5).map((x) => x.v.id) : [];
+  if (r.shippable && V0.length && !ask.some((x) => pick.includes(x.v.id) && rfqOutNyc(x.v))) {
+    const o = ask.find((x) => rfqOutNyc(x.v) && hit(x.v));
     o && pick.push(o.v.id);
   }
   // the rest of the vendors on file, unticked, for a person to add by hand (folded under More Vendors)
@@ -186033,7 +186681,7 @@ function rfqTakeEmails(host) {
   (host || document).querySelectorAll("[data-rfqem]").forEach((i) => {
     const v = rfqVendor(i.dataset.rfqem),
       e = String(i.value || "").trim();
-    v && !v.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && (v.email = e);
+    v && !v.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && ((v.email = e), oxRefreshAddresses(v));
   });
 }
 // Did the vendor get it? The outbox path sends on the press; a Gmail draft counts once it left Drafts (the
@@ -186683,7 +187331,7 @@ function rfqStartFromLines(items, opts) {
         sub = isSub();
       return L.length ? `${L.map((l) => `${l.item}${l.qty ? ` (${l.qty} ${l.unit})` : ""}`).slice(0, 8).join("; ")}${L.length > 8 ? `; and ${L.length - 8} more` : ""} for ${p ? shortName(p) : "the job"}, on site by ${fmtL(need().needBy)}. ${sub ? "Labour and material to complete the scope; say what your price includes and leaves out." : "Same spec only: list any alternate on its own line, with its own price."}` : "";
     },
-    vrow = (x, pick) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rsv="${esc(x.v.id)}" ${(null != st.ticks[x.v.id] ? st.ticks[x.v.id] : pick.includes(x.v.id)) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`,
+    vrow = (x, pick) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rsv="${esc(x.v.id)}" ${(null != st.ticks[x.v.id] ? st.ticks[x.v.id] : pick.includes(x.v.id)) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<span class="small warn-t rfq-noem" data-rfqnoem="${esc(x.v.id)}">Add Email</span><input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="name@company.com" aria-label="Add Email for ${esc(x.v.name)}">`}</span></label>`,
     vendHtml = () => {
       const L = lines();
       if (!L.length) return '<p class="small muted">Vendors are suggested once a line is picked: by its trade and our record with them.</p>';
@@ -186693,11 +187341,13 @@ function rfqStartFromLines(items, opts) {
         n = VP.list.concat(VP.others).filter((x) => (null != st.ticks[x.v.id] ? st.ticks[x.v.id] : VP.pick.includes(x.v.id))).length;
       return `<p class="small muted">Suggested by trade (${esc(VP.trades.length ? VP.trades.join(", ") : String(M.category).toLowerCase())}) and by our record with them. ${big ? esc(rfqWhy("quotes3")) + "." : ""}</p>${big && n < 3 ? `<p class="small warn">${n} of 3 ticked: tick more, or write why fewer will do.</p>` : ""}${VP.list.slice(0, 12).map((x) => vrow(x, VP.pick)).join("") || '<p class="small muted">No vendor on file sells this. Add one under Vendors.</p>'}${VP.others.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>More Vendors (${VP.others.length})</b></summary>${VP.others.map((x) => vrow(x, VP.pick)).join("")}</details>` : ""}${big ? mbF("Why Fewer Than Three, If You Ask Fewer", `<textarea data-f="reason" rows="2" placeholder="Logged on the request with your name">${esc(st.reason)}</textarea>`) : ""}`;
     },
+    // quotes due in three working days (PU-Safe 2, 11-18: it defaulted to today when the order-by date was today); an
+    // order-by date sooner than that, but after today, is the date instead
     due0 = () => {
       const N = need(),
         ob = addWork(N.needBy, -RFQ_LEAD_ASSUMED),
-        d = addWork(today(), isSub() ? 3 : 1);
-      return d <= ob || ob < today() ? d : ob;
+        d = addWork(today(), 3);
+      return ob > today() && ob < d ? ob : d;
     },
     body = `<div class="rfq-sheet rsq">${mbF("Job", `<select id="rsq-job" aria-label="Job">${(P.some((p) => p.id === st.pid) ? P : P.concat([proj()].filter(Boolean))).map((x) => `<option value="${x.id}" ${x.id === st.pid ? "selected" : ""}>${esc(shortName(x))}</option>`).join("")}</select>`)}
     <h4 class="rsq-h">Lines</h4><p class="small muted" style="margin:0 0 6px">The estimate, change order, invoice and selection lines this request buys for. Each keeps its link and its budget.</p><div id="rsq-pick">${pickHtml()}</div><div id="rsq-cards">${cardsHtml()}</div>
@@ -186786,6 +187436,13 @@ function rfqStartFromLines(items, opts) {
   });
   if (!m) return null;
   m.classList.add("rfq-mbm");
+  // an email typed on a vendor's row ticks that vendor: they can be asked now
+  m.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t || !t.dataset || !t.dataset.rfqem || !oxHasAddress(t.value)) return;
+    const c = m.querySelector(`[data-rsv="${t.dataset.rfqem}"]`);
+    c && !c.checked && ((c.checked = !0), (st.ticks[t.dataset.rfqem] = !0));
+  });
   // the wiring: delegated, so the parts can redraw
   m.addEventListener("change", (e) => {
     const t = e.target;
@@ -188158,9 +188815,9 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3>${rfqStockHtml(r)}<p class="small muted">The assistant's picks are ticked: vendors who sell ${esc(vprop.trades.length ? vprop.trades.join(" and ") : String(r.category || "this").toLowerCase())}, best record first. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.short ? `<p class="small warn rfq-short">Only ${vprop.pick.length} vendor${1 === vprop.pick.length ? "" : "s"} on file sell${1 === vprop.pick.length ? "s" : ""} this: tick more below, add one under Vendors, or write why fewer will do.</p>` : ""}${vprop.list
       .map(
         (x) =>
-          `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || vprop.pick).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`,
+          `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || vprop.pick).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}${x.v.email ? "" : `<span class="small warn-t rfq-noem" data-rfqnoem="${esc(x.v.id)}">Add Email</span><input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="name@company.com" aria-label="Add Email for ${esc(x.v.name)}">`}</span></label>`,
       )
-      .join("") || '<p class="small muted">No vendor on file sells this category. Add one under Vendors.</p>'}${vprop.others.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>More Vendors (${vprop.others.length})</b></summary>${vprop.others.map((x) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || []).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="Their email, to ask them" aria-label="${esc(x.v.name)} email">`}</span></label>`).join("")}</details>` : ""}${vprop.need3 ? `<div class="f" style="margin-top:10px"><label for="rfq-reason">Why Fewer Than Three, If You Ask Fewer</label><textarea id="rfq-reason" rows="2" placeholder="e.g. the only shop that builds to our drawings; logged on the request">${esc(r.reasonDraft || "")}</textarea></div>` : ""}<div class="f" style="margin-top:10px;max-width:260px"><label for="rfq-due">Quotes Due</label><input type="date" id="rfq-due" value="${esc(r.dueDate || r.dueWanted || (addWork(today(), 1) <= (r.orderBy || "9999") ? addWork(today(), 1) : today()))}"></div><button class="btn primary" id="rfq-send" style="margin-top:8px">Send RFQ</button><p class="small muted">Send RFQ is the approval: one email per vendor, ${esc(r.number)} in the subject, the line sheet in the body and as a CSV.</p></div>`;
+      .join("") || '<p class="small muted">No vendor on file sells this category. Add one under Vendors.</p>'}${vprop.others.length ? `<details class="rfq-more"><summary class="rfq-vrow"><b>More Vendors (${vprop.others.length})</b></summary>${vprop.others.map((x) => `<label class="rfq-pick rfq-vrow"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${(r.vendorPick || []).includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.v.email ? "" : `<span class="small warn-t rfq-noem" data-rfqnoem="${esc(x.v.id)}">Add Email</span><input type="email" class="small rfq-em" data-rfqem="${esc(x.v.id)}" placeholder="name@company.com" aria-label="Add Email for ${esc(x.v.name)}">`}</span></label>`).join("")}</details>` : ""}${vprop.need3 ? `<div class="f" style="margin-top:10px"><label for="rfq-reason">Why Fewer Than Three, If You Ask Fewer</label><textarea id="rfq-reason" rows="2" placeholder="e.g. the only shop that builds to our drawings; logged on the request">${esc(r.reasonDraft || "")}</textarea></div>` : ""}<div class="f" style="margin-top:10px;max-width:260px"><label for="rfq-due">Quotes Due</label><input type="date" id="rfq-due" value="${esc(r.dueDate || r.dueWanted || (addWork(today(), 1) <= (r.orderBy || "9999") ? addWork(today(), 1) : today()))}"></div><button class="btn primary" id="rfq-send" style="margin-top:8px">Send RFQ</button><p class="small muted">Send RFQ is the approval: one email per vendor, ${esc(r.number)} in the subject, the line sheet in the body and as a CSV.</p></div>`;
   else if (["sent", "quoting"].includes(stage))
     act = `<div class="card rfq-sec"><h3>Out to Vendors</h3>${(r.vendors || []).map((iv) => {
       const q = rfqQuoteOf(r, iv.id, 1),
@@ -188384,7 +189041,7 @@ const PW_DEFAULTS = {
     precisionMin: 4,
     precisionFloor: 50,
   },
-  PW_MONEY_LINE = "Wasted money comes out of raises, bonuses, staff and the extra value we give clients.",
+  PW_MONEY_LINE = "Wasted money comes out of " + MONEY_WHY + ".",
   PW_PO_LIVE = ["issued", "partial", "received", "closed", "billed", "paid"],
   PW_FEE_RE = /\b(freight|delivery|shipping|fuel surcharge|surcharge|restocking|handling fee|service fee|small order fee|lift gate|liftgate|crane fee|hazmat)\b/i,
   PW_PACKU = ["box", "pack", "case", "bundle"],
@@ -193412,8 +194069,9 @@ AG_FIN.unshift({
 // Who a payment went to: a vendor on file the line names, else the name after CHECK nnnn / ZELLE TO / ACH TO.
 function truthPayeeVendor(t) {
   if (!t || !(+t.amt < 0)) return null;
-  const V = (DB.vendors || []).filter((v) => v.name && truthVendorHit(t, v.name)).sort((a, b) => b.name.length - a.name.length);
-  if (V.length) return V[0];
+  // the one vendor the line names (the vendor reader: a longer name over the same words wins)
+  const V = vendorNamedIn(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`, "");
+  if (V) return V;
   const m = String(t.desc || "").match(/\b(?:CHECK\s*#?\s*\d{3,}|ZELLE TO|ACH (?:TO|PMT TO)|BILL ?PAY(?:MENT)? TO)\s+(.{3,40}?)\s*$/i);
   if (!m) return null;
   const name = m[1].toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase()).replace(/\b(Llc|Inc)\b/g, (x) => x.toUpperCase());
@@ -196370,13 +197028,23 @@ function trkInvoicesToBill() {
   return trkDocs().filter((d) => {
     if (!trkLive(d) || "invoice" !== d.kind || !d.links.poId || (d.links.billId && trkBill(d.links.billId))) return !1;
     const po = trkPO(d.links.poId);
-    return !!po && !(DB.bills || []).some((b) => b.poId === po.id && !["void", "rejected"].includes(b.status));
+    // an invoice from another vendor than the order's is held by the three-way check, never offered as its bill
+    return !!po && !trkVendorDiffers(d, po) && !(DB.bills || []).some((b) => b.poId === po.id && !["void", "rejected"].includes(b.status));
   });
 }
+// The invoice names a vendor that is not the order's (the vendor reader's strict name: Garden Supply Co is not Garden
+// State Lumber). Its bill would pay the wrong party against the order: held, for a person to check who sent it.
+// A person who checked it and accepted the vendor case (with a reason) releases it.
+const trkVendorDiffers = (d, po) => {
+  if (!(d && po && (d.fields || {}).vendor && !vendorNameSame(d.fields.vendor, po.vendor))) return !1;
+  const c = ((d.check || trkCheck(d) || {}).cases || []).find((x) => "vendor" === x.code);
+  return !c || trkCaseOpen(c);
+};
 function trkBillFromDoc(id) {
   const d = trkDocs().find((x) => x.id === id),
     po = d && trkPO(d.links.poId);
   if (!d || !po) return toast("That invoice is not filed on an order"), null;
+  if (trkVendorDiffers(d, po)) return toast(`Held: ${d.fields.vendor} sent ${d.fields.number || "this invoice"}, but ${po.number} is ${po.vendor}'s order. Check who sent it before anything is billed (${trkWhy("threeWay")})`, [{ label: "Open", run: () => trkOpenDoc(d.id) }]), null;
   const had = d.links.billId && trkBill(d.links.billId);
   if (had) return flowGo.bill(had)(), had;
   const vbHit = vbFind({ vendor: po.vendor, number: (d.fields || {}).number, amount: (d.fields || {}).total, date: (d.fields || {}).date || today() });
@@ -196855,7 +197523,7 @@ if (!document.getElementById("bf-imps-css")) {
    Design gate: no new list or queue. The flag rides billFlags and txnState, the queue is the existing CATCH entry,
    Approvals shows it on the bill's card and under Also on Your List, Ask reads ovsAll.
 --------------------------------------------------------------------------------------------------------- */
-const OVS_MONEY_LINE = "Money over budget is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.";
+const OVS_MONEY_LINE = "Money over budget is money that cannot go to " + MONEY_WHY + ".";
 let ovsMemo = null,
   ovsBusy = !1;
 const ovsAcct = (t) => {
@@ -197130,7 +197798,7 @@ if ("function" == typeof render) {
     kind: "money",
     run(P) {
       const R = (DB.pos || [])
-        .filter((po) => !/cancel|void|draft/i.test(po.status || "") && agOnJob(P, po.projectId) && (!P.vendors.length || P.vendors.some((v) => agNameHit(v.name, po.vendor))))
+        .filter((po) => !/cancel|void|draft/i.test(po.status || "") && agOnJob(P, po.projectId) && (!P.vendors.length || P.vendors.some((v) => vendorNameSame(v.name, po.vendor) || v === vendorOfPO(po))))
         .map((po) => {
           const B = (DB.bills || []).filter((b) => b.poId === po.id && !["void", "rejected"].includes(b.status)),
             billed = r2(B.reduce((a, b) => a + billCost(b), 0)),
@@ -200078,7 +200746,7 @@ function xsReportHtml() {
     m0 = (v) => money(v).replace(/\.00$/, ""),
     row = (name, X) => `${td(X.found)}${td(X.before)}${td(X.field)}${td(X.open)}${td(m0(X.avoided))}${td(m0(X.ours))}${td(m0(X.backcharge))}${td(m0(X.co))}${td(null == X.avgDays ? "—" : X.avgDays)}`;
   return `<div class="card xs-rep" id="xs-rep"><div class="hd"><h3>Drawing Coordination</h3><span class="small muted">the set check, firm-wide</span></div>
-    <p class="small" style="margin:4px 0 8px">${M.before} of ${M.found} conflicts between drawing sets were found before work started there (${M.pctBefore}%), avoiding about ${m0(M.avoided)} of rework. Our own design and coordination errors cost ${m0(M.ours)}; that is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.</p>
+    <p class="small" style="margin:4px 0 8px">${M.before} of ${M.found} conflicts between drawing sets were found before work started there (${M.pctBefore}%), avoiding about ${m0(M.avoided)} of rework. Our own design and coordination errors cost ${m0(M.ours)}; that is money that cannot go to ${MONEY_WHY}.</p>
     <div class="tw"><table class="t xs-rep-t"><thead><tr><th>Job</th><th>Found</th><th>Before Work</th><th>In the Field</th><th>Open</th><th>Rework Avoided</th><th>Our Cost</th><th>Backcharges</th><th>Change Orders</th><th>Days to Resolve</th></tr></thead><tbody>${jobs.map((p) => `<tr data-xsrepjob="${p.id}"><td>${esc(plJobName(p.id))}</td>${row(p, xsMeasures(p.id))}</tr>`).join("")}<tr class="xs-total"><td><b>All Jobs</b></td>${row(null, M)}</tr></tbody></table></div>
     ${xsLearnHtml("")}</div>`;
 }
@@ -200649,7 +201317,7 @@ const poPriceFlags = (po) => (["subcontract", "service"].includes(po.type) ? [] 
             total = r2(F.reduce((s, x) => s + x.gapTotal, 0));
           return void mbModal(
             "Priced Above What We Pay",
-            `<p class="small" style="margin:0 0 8px">${esc(po.number)} pays ${money(total)} more than the best or last price on ${F.length} line${1 === F.length ? "" : "s"}. Money paid above the price we know cannot go to raises, bonuses or the client.</p>${F.map((x) => `<div class="small" data-nocase style="margin:4px 0">${esc(x.say)}</div>`).join("")}<label class="f" style="margin-top:10px"><span>Reason to Issue Anyway</span><input data-f="why" placeholder="e.g. the best price was a yard sale; this is the vendor on site Tuesday"></label>`,
+            `<p class="small" style="margin:0 0 8px">${esc(po.number)} pays ${money(total)} more than the best or last price on ${F.length} line${1 === F.length ? "" : "s"}. Money paid above the price we know cannot go to ${MONEY_WHY}.</p>${F.map((x) => `<div class="small" data-nocase style="margin:4px 0">${esc(x.say)}</div>`).join("")}<label class="f" style="margin-top:10px"><span>Reason to Issue Anyway</span><input data-f="why" placeholder="e.g. the best price was a yard sale; this is the vendor on site Tuesday"></label>`,
             {
               submit: "Use the Best Price",
               onSubmit: () => {
@@ -201108,7 +201776,7 @@ function docPriceLines(d) {
             // sent the signing bill twice). A retainer applied is applied once: its line is not copied.
             const keepLn = (l) => ids.includes(l.id) && !("invoice" === k && l.retainerLine),
               n = newDoc(c, k, { mode: d.mode, fields: { title: d.title, projectId: d.projectId, terms: d.terms, taxRate: d.taxRate, discount: { ...d.discount }, lines: d.lines.filter(keepLn).map((l) => ({ ...l, id: uid("l") })) } });
-            "invoice" === k && (d.fromDoc && (n.fromDoc = d.fromDoc), null != d.milestone && (n.milestone = d.milestone), (n.copyOf = d.number));
+            docCopyKeeps(d, n, k);
             const dropped = "invoice" === k && d.lines.some((l) => ids.includes(l.id) && l.retainerLine);
             (docOpen = { kind: k, id: n.id }), save(), render(), window.scrollTo(0, 0), toastDone(`${n.number} created with ${fxN(n.lines.length, "line")} from ${d.number}${dropped ? "; the retainer applied on it is not applied again" : ""}`, () => ((docOpen = { kind: k, id: n.id }), render()));
           },
@@ -203047,7 +203715,7 @@ function tdyDraftShape(o) {
     id: o.id,
     projectId: "",
     project: (o.about && o.about.label) || "",
-    title: o.needsAddress ? `Needs Address: ${o.subject || kindWord}` : `Send: ${o.subject || kindWord}`,
+    title: o.needsAddress && oxAddressFill(o).needsAddress ? `Needs Address: ${o.subject || kindWord}` : `Send: ${o.subject || kindWord}`,
     owner: U ? U.name : "",
     ownerUid: U ? U.id : "",
     ownerHow: "named",
